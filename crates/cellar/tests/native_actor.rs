@@ -22,6 +22,64 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[tokio::test]
+async fn actor_closure_during_a_poll_does_not_panic_or_stop_the_caller_executor() -> Result<()> {
+    use futures_util::FutureExt;
+    let core = Executor::new("closing-actor-core")?;
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let closing = Arc::downgrade(&domain);
+    let sampled = Arc::new(tokio::sync::Notify::new());
+    let signal = sampled.clone();
+    let refused = Arc::new(AtomicBool::new(false));
+    let rejection = refused.clone();
+    domain.services().configure_metrics(Arc::new(move || {
+        // Actor::start samples metrics in its current poll. Abort cannot
+        // preempt that poll: a prequeued mailbox input is still ready when
+        // the actor reaches its next selector/step boundary.
+        closing.upgrade().unwrap().close();
+        rejection.store(
+            cellar::asyncrt::try_spawn(async { panic!("a refused task was polled") }).is_err(),
+            std::sync::atomic::Ordering::Release,
+        );
+        signal.notify_one();
+        cellar::sdk::HostMetricsSample::default()
+    }))?;
+    let (fence, _) = mpsc::unbounded_channel();
+    let actor = domain
+        .run(Actor::new(
+            options("closing", 1_000, 2),
+            fence,
+            services(None)?,
+            identity(),
+        ))
+        .await??;
+    let (mailbox, receive) = mpsc::unbounded_channel();
+    mailbox.send(Message::SampleLoad(
+        cellar::sdk::HostMetricsSample::default(),
+    ))?;
+    let panicked = Arc::new(AtomicBool::new(false));
+    let observed = panicked.clone();
+    let task = domain.spawn_on(core.handle(), async move {
+        let result = std::panic::AssertUnwindSafe(actor.run(receive))
+            .catch_unwind()
+            .await;
+        observed.store(result.is_err(), std::sync::atomic::Ordering::Release);
+    })?;
+    tokio::time::timeout(Duration::from_secs(5), sampled.notified()).await?;
+    tokio::time::timeout(Duration::from_secs(5), domain.shutdown()).await?;
+    let _ = task.await;
+    assert!(refused.load(std::sync::atomic::Ordering::Acquire));
+    assert!(
+        !panicked.load(std::sync::atomic::Ordering::Acquire),
+        "actor panicked after its own domain closed within its current poll"
+    );
+    assert!(
+        core.handle().spawn(async { true }).await?,
+        "caller core executor stopped"
+    );
+    Ok(())
+}
+
 // The application's executor owner also cleans up on a failed assertion.
 struct Executor(Option<tokio::runtime::Runtime>);
 impl Executor {

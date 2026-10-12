@@ -117,6 +117,9 @@ remain outside the CLI directory.
    Forced cancellation supplies no graceful durability proof; report incomplete
    drain phases through `ShutdownReport` and return `NodeOutcome` to library
    callers. Process exits belong to the CLI boundary.
+   Domain closure can race a task's current poll. Production actor selectors
+   use `try_start`/`try_step` and fallible effect admission; cancellation must
+   not become an invariant panic or a fabricated completion event.
 
 ## Build and validation
 
@@ -166,6 +169,12 @@ cargo run -p cellar --bin cellar --locked -- dev examples/native-counter-project
 curl -X POST http://127.0.0.1:9876/counters/alpha
 curl http://127.0.0.1:9876/counters/alpha
 ```
+
+`tools/perf/README.md` describes isolated Docker/Colima validation of the
+embedded `sdk::Node` path, actual RustFS recovery, rolling handoffs and returned
+shutdown proofs. Keep image tags and compiled target caches private to the
+checkout. Run the harness proof guards with
+`python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
 
 The native dev supervisor retains project state under `.cellar/native-dev`.
 `--clean` intentionally resets that project's local state. Container examples

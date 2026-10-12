@@ -2251,7 +2251,7 @@ impl Actor {
         let ownership = self.ownership.clone();
         let node = self.state.node().to_string();
         let deadline = std::time::Duration::from_millis(self.operation_deadline_ms);
-        crate::asyncrt::spawn(async move {
+        let Ok(task) = crate::asyncrt::try_spawn(async move {
             match crate::asyncrt::timeout(
                 deadline,
                 crate::wake_entry::maintain_wake_entry(&cell, alarm, &host, &ownership, &node),
@@ -2262,8 +2262,12 @@ impl Actor {
                 Ok(Err(error)) => tracing::warn!(%cell, %error, "wake maintenance deferred"),
                 Err(_) => tracing::warn!(%cell, "wake maintenance timed out; a later scan retries"),
             }
-        })
-        .detach();
+        }) else {
+            // Closing the actor's owner refuses maintenance, just as it
+            // cancels already admitted maintenance. No completion is forged.
+            return;
+        };
+        task.detach();
     }
 
     pub async fn from_environment(
@@ -2559,8 +2563,14 @@ impl Actor {
 
     /// Emits the exactly-once pre-loop node-lease transition.
     pub fn start(&mut self, out: &mut StepOutput) {
-        self.ensure_owner()
+        self.try_start(out)
             .expect("actor entered a foreign or closed execution domain");
+    }
+
+    /// Start through a fallible boundary when domain closure may race the
+    /// caller's current poll. The caller must discard output on failure.
+    pub fn try_start(&mut self, out: &mut StepOutput) -> anyhow::Result<()> {
+        self.ensure_owner()?;
         assert!(!self.started, "Actor::start was called more than once");
         self.started = true;
         // A later sample does not rewrite the lease. Fold a sample before the
@@ -2581,6 +2591,7 @@ impl Actor {
             },
             out,
         );
+        Ok(())
     }
 
     /// Folds one load sample into the core and publishes it to the lease
@@ -2668,9 +2679,20 @@ impl Actor {
 
     /// Handles exactly one ready mailbox item, completion, or timer.
     pub fn step(&mut self, input: ActorInput, out: &mut StepOutput) {
-        self.ensure_owner()
+        self.try_step(input, out)
             .expect("actor entered a foreign or closed execution domain");
+    }
+
+    /// Handle one input through a fallible domain boundary. A closing domain
+    /// can cancel a task while that task is still finishing its current poll.
+    pub fn try_step(&mut self, input: ActorInput, out: &mut StepOutput) -> anyhow::Result<()> {
+        self.ensure_owner()?;
         assert!(self.started, "Actor::step was called before Actor::start");
+        self.step_owned(input, out);
+        Ok(())
+    }
+
+    fn step_owned(&mut self, input: ActorInput, out: &mut StepOutput) {
         match input {
             ActorInput::Message(message) => self.handle_message(message, out),
             ActorInput::Completed(completed) => {
@@ -3226,14 +3248,20 @@ impl Actor {
                     let result = match runtime {
                         // The host runtime's blocking pool, not a second
                         // pool on the core's current-thread runtime.
-                        Some(runtime) => crate::asyncrt::blocking(move || {
+                        Some(runtime) => match crate::asyncrt::try_blocking(move || {
                             runtime.local_reload_cells().map_err(|error| {
                                 eprintln!("cellar local reload scan failed: {error:#}");
                                 Failure::Definite
                             })
-                        })
-                        .await
-                        .unwrap_or(Err(Failure::Definite)),
+                        }) {
+                            Ok(task) => match task.await {
+                                Err(_) if !crate::asyncrt::services().accepts_work() => {
+                                    std::future::pending().await
+                                }
+                                result => result.unwrap_or(Err(Failure::Definite)),
+                            },
+                            Err(_) => std::future::pending().await,
+                        },
                         None => Err(Failure::Definite),
                     };
                     CompletedEffect::plain(Event::LocalCellsRead { result })

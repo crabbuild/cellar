@@ -15,6 +15,13 @@ import re
 def summarize(root):
     metadata = json.loads((root / "metadata.json").read_text())
     results = json.loads((root / "results.json").read_text())
+    # A failed load never returned to the caller's successful-measurement list
+    # in older runs. Read its saved sample too, so analysis cannot hide errors.
+    failures = {(v["scenario"], v["label"]): v for v in results.get("failures", [])}
+    for file in root.glob("*.json"):
+        value = json.loads(file.read_text())
+        if isinstance(value, dict) and value.get("operation") in ("write", "verify") and (value.get("errors") or value.get("mismatches")):
+            failures[(value["scenario"], value["label"])] = value
     groups = collections.defaultdict(list)
     for measurement in results["measurements"]:
         groups[(measurement["scenario"], measurement["concurrency"])].append(measurement)
@@ -73,14 +80,19 @@ def summarize(root):
                     "counters": {key: int(value) for key, value in re.findall(r'\b(drain_ms|shutdown_total_ms|occupied|activating|quiescing|evicting|releasing|adopting|handed_off)=(\d+)', line.split('drain_state=', 1)[0])}})
     return {
         "started_utc": metadata["started_utc"], "revision": metadata["revision"], "source_sha256": metadata["source_sha256"],
+        "source_dirty": metadata["dirty"], "image_labels": metadata.get("image_labels"),
+        "completed": False if failures else results.get("completed"), "failures": list(failures.values()),
         "cellar_image": metadata["image"], "rustfs_image": metadata["rustfs_image"],
         "environment": {"architecture": metadata["docker"]["Architecture"], "vm_cpus": metadata["docker"]["NCPU"],
             "vm_memory_bytes": metadata["docker"]["MemTotal"], "node_limits": metadata["node_limits"],
             "load_generator_limits": metadata["load_generator_limits"], "rustfs_limits": metadata["rustfs_limits"]},
         "workload": {"cells": metadata["arguments"]["cells"], "payload_bytes": metadata["arguments"]["bytes"],
             "phase_seconds": metadata["arguments"]["seconds"], "repetitions": metadata["arguments"]["repeats"],
-            "concurrency": metadata["arguments"]["concurrency"], "warmup_seconds": 10,
-            "operation": "transaction: increment persistent counter and overwrite JSON value with changing 1 KiB seeded random ASCII payload (64-symbol alphabet)",
+            "concurrency": metadata["arguments"]["concurrency"], "warmup_seconds": metadata["arguments"].get("warmup_seconds", 10),
+            "max_resident_cells_per_node": metadata["arguments"].get("max_resident", 256),
+            "max_requests_per_script_pool": metadata["arguments"].get("max_requests", 64 if "sdk::Node" in metadata.get("execution", "") else None),
+            "execution": metadata.get("execution", "process-owning CLI host"),
+            "operation": "transaction: increment persistent counter and overwrite JSON value with changing seeded random ASCII payload (64-symbol alphabet)",
             "load_model": "closed loop; one in-flight request per worker; disjoint cell partitions; rotating ingress; no write retries",
             "latency": "request start through complete HTTP response JSON; warmup excluded; percentile ranges across repetitions, not pooled percentiles",
             "build": "Linux ARM64; Rust 1.98.1; repository release profile (opt-level=s, fat LTO)",
@@ -92,9 +104,9 @@ def summarize(root):
         "limitations": ["All containers share one Apple M2 Max / Colima VM and backing disk; CPU affinity and quotas do not isolate disk or VM overhead.",
             "RustFS is a local single-node S3-compatible store, not production S3 latency or durability.",
             "The 5 GiB loop image has approximately 4.84 GiB usable ext4 capacity; it bounds node data, not the read-only container image.",
-            "Repeated overwrite workload with 200 total cells; no growing dataset, hot-cell skew or long soak.",
-            "The multi-mode sweep reuses one RustFS instance with a fresh bucket per scenario; the fresh-store fleet confirmation is reported separately.",
-            "The original sampler omitted the one-node sweep; that case has endpoint CPU/memory counters. The harness now filters out absent containers before sampling.",
+            f"Repeated overwrite workload with {metadata['arguments']['cells']} total cells; no growing dataset, hot-cell skew or long soak.",
+            "Each scenario uses a fresh bucket on a RustFS instance shared by the scenarios in that run.",
+            "Failures and rolling restarts occur between write phases; concurrent ambiguous write acknowledgements are not exercised.",
             "Closed-loop measurements characterize saturation and do not correct coordinated omission for an independently arriving workload.",
             "Fleet durability can fall back to bucket proof; peerlog files demonstrate replication, but acknowledgement source is not separately instrumented."]
     }
