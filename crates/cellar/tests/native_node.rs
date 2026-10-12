@@ -112,6 +112,609 @@ fn applications(
         ))
     })
 }
+
+struct BackgroundSignals {
+    events: mpsc::UnboundedSender<&'static str>,
+    first: Semaphore,
+    nested: Semaphore,
+}
+
+fn background_applications(signals: Arc<BackgroundSignals>) -> Result<CompiledApplications> {
+    CompiledApplications::default().register("embedded-node", "test", move || {
+        let signals = signals.clone();
+        Ok(Arc::new(
+            Registry::new(move |context, event| {
+                let signals = signals.clone();
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    let background = context.clone();
+                    context.wait_until(async move {
+                        signals.events.send("entered")?;
+                        signals.first.acquire().await?.forget();
+                        let nested = background.clone();
+                        background.wait_until(async move {
+                            signals.events.send("nested")?;
+                            signals.nested.acquire().await?.forget();
+                            let cell = nested
+                                .namespace("ACCOUNTS")?
+                                .get_by_name("same-business-id");
+                            let answer = cell.fetch(&nested, request).await?;
+                            ensure!(answer.status == 200, "background cell write failed");
+                            signals.events.send("written")?;
+                            Ok(())
+                        })?;
+                        Ok(())
+                    })?;
+                    Ok(response("accepted"))
+                })
+            })
+            .cell("Account", |_, _| {
+                Ok(Arc::new(Account {
+                    label: "background",
+                    signals: None,
+                }))
+            })?,
+        ))
+    })
+}
+
+async fn background_event(
+    events: &mut mpsc::UnboundedReceiver<&'static str>,
+    expected: &'static str,
+) -> Result<()> {
+    let observed = tokio::time::timeout(Duration::from_secs(5), events.recv()).await?;
+    ensure!(
+        observed == Some(expected),
+        "background event {observed:?}, expected {expected}"
+    );
+    Ok(())
+}
+
+struct AlarmBackground(Arc<BackgroundSignals>);
+impl Cell for AlarmBackground {
+    fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            let storage = context.storage()?;
+            match event {
+                Invocation::Fetch(request) => {
+                    if request.url.ends_with("/arm") {
+                        storage.set_alarm(0)?;
+                        Ok(response("armed"))
+                    } else {
+                        Ok(response(storage.get_json("count")?.unwrap_or_default()))
+                    }
+                }
+                Invocation::Alarm { .. } => {
+                    let signals = self.0.clone();
+                    context.wait_until(async move {
+                        signals.events.send("entered")?;
+                        signals.first.acquire().await?.forget();
+                        storage.put_json("count", &serde_json::json!(1))?;
+                        signals.events.send("written")?;
+                        Ok(())
+                    })?;
+                    Ok(Output::Done)
+                }
+                _ => Ok(Output::Done),
+            }
+        })
+    }
+}
+fn alarm_background_applications(signals: Arc<BackgroundSignals>) -> Result<CompiledApplications> {
+    CompiledApplications::default().register("embedded-node", "test", move || {
+        let signals = signals.clone();
+        Ok(Arc::new(
+            Registry::new(|context, event| {
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    let cell = context
+                        .namespace("ACCOUNTS")?
+                        .get_by_name("same-business-id");
+                    Ok(Output::Http(cell.fetch(&context, request).await?))
+                })
+            })
+            .cell("Account", move |_, _| {
+                Ok(Arc::new(AlarmBackground(signals.clone())))
+            })?,
+        ))
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_node_shutdown_drains_alarm_background_before_the_durability_cut() -> Result<()> {
+    for mode in [ShutdownMode::Handoff, ShutdownMode::Preserve] {
+        let directory = tempfile::tempdir()?;
+        let core = Executor::new("application-core")?;
+        let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let path = directory.path().join("alarm");
+        let (events, mut received) = mpsc::unbounded_channel();
+        let signals = Arc::new(BackgroundSignals {
+            events,
+            first: Semaphore::new(0),
+            nested: Semaphore::new(0),
+        });
+        let (config, services) = inputs("alarm", &path, &core, Some(bucket.clone()), 0).await?;
+        let node = Node::start(
+            config,
+            services,
+            graph(),
+            alarm_background_applications(signals.clone())?,
+        )
+        .await?;
+        ready(&node).await?;
+        let client = client()?;
+        ensure!(
+            call(&client, &node, reqwest::Method::POST, "/arm").await? == "armed",
+            "alarm was not armed"
+        );
+        background_event(&mut received, "entered").await?;
+        let owner = node.services();
+        ensure!(
+            owner.application_work().pending_events > 0,
+            "alarm background lost its event lifetime"
+        );
+        let address = node.info().public_address;
+        let mut stopping = tokio::spawn(node.shutdown(mode));
+        let admission_closed = async {
+            loop {
+                let response = client.get(format!("http://{address}/read")).send().await?;
+                if response.status() == 503 {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        cellar::asyncrt::select! {
+            outcome = &mut stopping => anyhow::bail!("shutdown retired alarm background work: {outcome:?}"),
+            closed = tokio::time::timeout(Duration::from_secs(5), admission_closed) => closed??,
+        }
+        signals.first.add_permits(1);
+        background_event(&mut received, "written").await?;
+        let outcome = tokio::time::timeout(Duration::from_secs(12), stopping).await???;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop {outcome:?}");
+        };
+        ensure!(
+            report.application_work_drained
+                && report.pending_application_events == 0
+                && report.cells_drained
+                && !report.drain_timed_out,
+            "alarm background drain incomplete: {report:?}"
+        );
+        ensure!(
+            owner.application_work().pending_events == 0,
+            "alarm event outlived its node"
+        );
+        let reopened = start("alarm", "alarm", &path, &core, Some(bucket), None, 0).await?;
+        ready(&reopened).await?;
+        ensure!(
+            call(&client, &reopened, reqwest::Method::GET, "/read").await? == "alarm:1",
+            "alarm background write was not retained across restart"
+        );
+        stopped(reopened).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_node_shutdown_drains_nested_background_across_generations_and_isolates_hosts(
+) -> Result<()> {
+    for mode in [ShutdownMode::Handoff, ShutdownMode::Preserve] {
+        let directory = tempfile::tempdir()?;
+        let core = Executor::new("application-core")?;
+        let (events, mut received) = mpsc::unbounded_channel();
+        let signals = Arc::new(BackgroundSignals {
+            events,
+            first: Semaphore::new(0),
+            nested: Semaphore::new(0),
+        });
+        let path = directory.path().join("background");
+        let mut bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        bucket.prefix = "fleets/background/".into();
+        let mut sibling_bucket = bucket.clone();
+        sibling_bucket.prefix = "fleets/sibling/".into();
+        let (config, services) =
+            inputs("background", &path, &core, Some(bucket.clone()), 0).await?;
+        let mut node = Node::start(
+            config,
+            services,
+            graph(),
+            background_applications(signals.clone())?,
+        )
+        .await?;
+        let sibling = start(
+            "sibling",
+            "sibling",
+            &directory.path().join("sibling"),
+            &core,
+            Some(sibling_bucket),
+            None,
+            0,
+        )
+        .await?;
+        ready(&node).await?;
+        ready(&sibling).await?;
+        let client = client()?;
+        ensure!(
+            call(&client, &node, reqwest::Method::POST, "/background").await? == "accepted",
+            "response did not precede background work"
+        );
+        background_event(&mut received, "entered").await?;
+        let owner = node.services();
+        ensure!(
+            owner.application_work().pending_events > 0,
+            "completed response lost its event lifetime"
+        );
+        node.adopt(graph(), applications("new", None)?).await?;
+        let address = node.info().public_address;
+        let mut stopping = tokio::spawn(node.shutdown(mode));
+        let admission_closed = async {
+            loop {
+                let response = client.get(format!("http://{address}/read")).send().await?;
+                if response.status() == 503 {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        };
+        cellar::asyncrt::select! {
+            outcome = &mut stopping => anyhow::bail!("shutdown retired accepted background work before its first stage: {outcome:?}"),
+            closed = tokio::time::timeout(Duration::from_secs(5), admission_closed) => closed??,
+        }
+        signals.first.add_permits(1);
+        cellar::asyncrt::select! {
+            outcome = &mut stopping => anyhow::bail!("shutdown retired nested background work: {outcome:?}"),
+            event = background_event(&mut received, "nested") => event?,
+        }
+        ensure!(
+            owner.application_work().pending_events > 0,
+            "nested work lost its event lifetime"
+        );
+        ensure!(
+            call(&client, &sibling, reqwest::Method::POST, "/write").await? == "sibling:1",
+            "another host stopped during background drain"
+        );
+        signals.nested.add_permits(1);
+        background_event(&mut received, "written").await?;
+        let outcome = tokio::time::timeout(Duration::from_secs(12), stopping).await???;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop {outcome:?}");
+        };
+        ensure!(
+            report.ingress_drained
+                && report.application_work_drained
+                && report.pending_application_events == 0
+                && report.cells_drained
+                && report.pending_dispatches == 0
+                && !report.drain_timed_out,
+            "background drain was incomplete: {report:?}"
+        );
+        ensure!(
+            owner.application_work().pending_events == 0,
+            "node completion preceded event retirement"
+        );
+        let reopened = start("background", "new", &path, &core, Some(bucket), None, 0).await?;
+        ready(&reopened).await?;
+        ensure!(
+            call(&client, &reopened, reqwest::Method::GET, "/read").await? == "new:1",
+            "background write was not retained across restart"
+        );
+        stopped(reopened).await?;
+        stopped(sibling).await?;
+    }
+    Ok(())
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_node_deadline_reports_background_work_before_forced_retirement() -> Result<()> {
+    for mode in [ShutdownMode::Handoff, ShutdownMode::Preserve] {
+        let directory = tempfile::tempdir()?;
+        let core = Executor::new("application-core")?;
+        let (mut config, services) = inputs("cut", directory.path(), &core, None, 0).await?;
+        config.shutdown = ShutdownPolicy {
+            total_ms: 1_000,
+            token_wait_ms: 0,
+            no_progress_ms: 200,
+        };
+        let mut node =
+            Node::start(config, services, graph(), applications("checkpoint", None)?).await?;
+        let client = client()?;
+        ensure!(
+            call(&client, &node, reqwest::Method::POST, "/write").await? == "checkpoint:1",
+            "checkpoint failed"
+        );
+        let (events, mut received) = mpsc::unbounded_channel();
+        let signals = Arc::new(BackgroundSignals {
+            events,
+            first: Semaphore::new(0),
+            nested: Semaphore::new(0),
+        });
+        node.adopt(graph(), background_applications(signals)?)
+            .await?;
+        let owner = node.services();
+        ensure!(
+            call(&client, &node, reqwest::Method::POST, "/background").await? == "accepted",
+            "background response failed"
+        );
+        background_event(&mut received, "entered").await?;
+        let outcome = tokio::time::timeout(Duration::from_secs(3), node.shutdown(mode)).await??;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop {outcome:?}");
+        };
+        ensure!(
+            report.ingress_drained
+                && !report.application_work_drained
+                && report.pending_application_events > 0
+                && !report.cells_drained
+                && report.drain_timed_out
+                && !report.clean_reload_prepared,
+            "forced stop claimed a background drain: {report:?}"
+        );
+        ensure!(
+            owner.application_work().pending_events == 0,
+            "supervisor failed to join retired events"
+        );
+        let reopened = start("cut", "checkpoint", directory.path(), &core, None, None, 0).await?;
+        ensure!(
+            call(&client, &reopened, reqwest::Method::GET, "/read").await? == "checkpoint:1",
+            "deadline lost the committed checkpoint"
+        );
+        stopped(reopened).await?;
+        ensure!(
+            core.handle().spawn(async { 7 }).await? == 7,
+            "deadline stopped the caller's executor"
+        );
+    }
+    Ok(())
+}
+
+fn progressing_applications(
+    confirmed: Arc<std::sync::atomic::AtomicU64>,
+) -> Result<CompiledApplications> {
+    CompiledApplications::default().register("embedded-node", "test", move || {
+        let confirmed = confirmed.clone();
+        Ok(Arc::new(
+            Registry::new(move |context, event| {
+                let confirmed = confirmed.clone();
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    let background = context.clone();
+                    context.wait_until(async move {
+                        loop {
+                            let cell = background
+                                .namespace("ACCOUNTS")?
+                                .get_by_name("same-business-id");
+                            let answer = cell
+                                .fetch(
+                                    &background,
+                                    Request {
+                                        url: request.url.clone(),
+                                        method: "POST".into(),
+                                        headers: Vec::new(),
+                                        body: Vec::new().into(),
+                                        entrypoint: None,
+                                    },
+                                )
+                                .await?;
+                            let value: u64 = std::str::from_utf8(&answer.body)?
+                                .split_once(':')
+                                .unwrap()
+                                .1
+                                .parse()?;
+                            confirmed.store(value, std::sync::atomic::Ordering::SeqCst);
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                    })?;
+                    Ok(response("accepted"))
+                })
+            })
+            .cell("Account", |_, _| {
+                Ok(Arc::new(Account {
+                    label: "progress",
+                    signals: None,
+                }))
+            })?,
+        ))
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn progressing_background_extends_the_stall_window_but_not_the_absolute_node_deadline(
+) -> Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("application-core")?;
+    let confirmed = Arc::new(AtomicU64::new(0));
+    let (mut config, services) = inputs("progress", directory.path(), &core, None, 0).await?;
+    config.shutdown = ShutdownPolicy {
+        total_ms: 2_500,
+        token_wait_ms: 0,
+        no_progress_ms: 800,
+    };
+    let node = Node::start(
+        config,
+        services,
+        graph(),
+        progressing_applications(confirmed.clone())?,
+    )
+    .await?;
+    let client = client()?;
+    ensure!(
+        call(&client, &node, reqwest::Method::POST, "/background").await? == "accepted",
+        "background response failed"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while confirmed.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    let owner = node.services();
+    let before = owner.application_work();
+    let started = tokio::time::Instant::now();
+    let outcome =
+        tokio::time::timeout(Duration::from_secs(5), node.shutdown(ShutdownMode::Handoff))
+            .await??;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected stop {outcome:?}");
+    };
+    ensure!(
+        started.elapsed() >= Duration::from_millis(2_300),
+        "progress did not extend the stall window"
+    );
+    ensure!(
+        report.deadline_elapsed
+            && report.drain_timed_out
+            && !report.application_work_drained
+            && report.pending_application_events > 0,
+        "progress bypassed or concealed the absolute deadline: {report:?}"
+    );
+    ensure!(
+        owner.application_work().retired_events > before.retired_events + 3
+            && owner.application_work().pending_events == 0,
+        "completed SDK child events were not tracked"
+    );
+    let value = confirmed.load(Ordering::SeqCst);
+    let reopened = start(
+        "progress",
+        "progress",
+        directory.path(),
+        &core,
+        None,
+        None,
+        0,
+    )
+    .await?;
+    let body = call(&client, &reopened, reqwest::Method::GET, "/read").await?;
+    let restored: u64 = body.split_once(':').unwrap().1.parse()?;
+    ensure!(
+        restored >= value,
+        "deadline lost an output-proven background write"
+    );
+    stopped(reopened).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn progressing_background_keeps_the_fleet_drain_token_renewed() -> Result<()> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("application-core")?;
+    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let confirmed = Arc::new(AtomicU64::new(0));
+    let (mut config, services) = inputs(
+        "progress",
+        &directory.path().join("node"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    config.shutdown = ShutdownPolicy {
+        total_ms: 75_000,
+        token_wait_ms: 1_000,
+        no_progress_ms: 5_000,
+    };
+    let node = Node::start(
+        config,
+        services,
+        graph(),
+        progressing_applications(confirmed.clone())?,
+    )
+    .await?;
+    ready(&node).await?;
+    let client = client()?;
+    ensure!(
+        call(&client, &node, reqwest::Method::POST, "/background").await? == "accepted",
+        "background response failed"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while confirmed.load(Ordering::SeqCst) == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    let owner = node.services();
+    let reader = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let started = tokio::time::Instant::now();
+    let mut stopping = tokio::spawn(node.shutdown(ShutdownMode::Handoff));
+    let first_claim = async {
+        loop {
+            let current = reader
+                .run(async { cellar::drain_token::read(&bucket).await })
+                .await??;
+            if let Some(token) = current.and_then(|current| current.token) {
+                ensure!(token.node == "progress", "foreign drain token was acquired");
+                return Ok::<_, anyhow::Error>(token.expires_ms);
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    };
+    let expires_ms = cellar::asyncrt::select! {
+        outcome = &mut stopping => anyhow::bail!("shutdown ended before acquiring its token: {outcome:?}"),
+        claim = tokio::time::timeout(Duration::from_secs(5), first_claim) => claim??,
+    };
+    let renewal = async {
+        loop {
+            let current = reader
+                .run(async { cellar::drain_token::read(&bucket).await })
+                .await??;
+            if current
+                .and_then(|current| current.token)
+                .is_some_and(|token| {
+                    token.node == "progress"
+                        && token.expires_ms > expires_ms + cellar::drain_token::TOKEN_TTL_MS / 4
+                })
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    };
+    cellar::asyncrt::select! {
+        outcome = &mut stopping => anyhow::bail!("shutdown ended before renewing its token: {outcome:?}"),
+        renewed = tokio::time::timeout(Duration::from_secs(65), renewal) => renewed??,
+    }
+    ensure!(
+        owner.application_work().pending_events > 0 && confirmed.load(Ordering::SeqCst) > 3,
+        "accepted work did not progress while holding the token"
+    );
+    let outcome = tokio::time::timeout(Duration::from_secs(25), stopping).await???;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected stop {outcome:?}");
+    };
+    ensure!(
+        report.drain_timed_out
+            && started.elapsed() >= Duration::from_secs(73)
+            && !report.application_work_drained
+            && report.pending_application_events > 0,
+        "token renewal bypassed the absolute stop budget: {report:?}"
+    );
+    ensure!(
+        owner.application_work().pending_events == 0,
+        "unfinished events were not joined"
+    );
+    ensure!(
+        reader
+            .run(async { cellar::drain_token::read(&bucket).await })
+            .await??
+            .and_then(|current| current.token)
+            .is_some_and(|token| token.node == "progress" && token.expires_ms == 0),
+        "stop left its drain token held"
+    );
+    ensure!(
+        core.handle().spawn(async { 7 }).await? == 7,
+        "caller executor was closed"
+    );
+    reader.shutdown().await;
+    Ok(())
+}
+
 fn graph() -> DeploymentGraph {
     let mut graph = fixture::graph("embedded-node", "", vec!["Account".into()]);
     graph.primary.options.bindings = vec![("ACCOUNTS".into(), "Account".into())];
@@ -285,6 +888,8 @@ async fn stopped(node: Node) -> Result<()> {
     };
     ensure!(
         report.ingress_drained
+            && report.application_work_drained
+            && report.pending_application_events == 0
             && report.cells_drained
             && report.log_quiesced
             && report.local_durability_closed

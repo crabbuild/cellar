@@ -175,6 +175,7 @@ pub struct Slot {
     /// retiring slot is filtered out of every placement decision, so nothing
     /// can arrive afterwards. Entering one would be a bug in this module.
     worker: tokio::sync::Mutex<Option<Worker>>,
+    application_work: Arc<crate::host_services::ApplicationWork>,
     handler_budget: std::time::Duration,
     turn_scheduler: TurnScheduler,
     queue_producers: Mutex<std::collections::HashMap<String, usize>>,
@@ -325,8 +326,12 @@ impl Slot {
     /// life, including while it is suspended, because its promise stays in
     /// this heap and every later turn must come back here.
     pub fn affiliate(self: &Arc<Self>) -> Affiliation {
+        let work = self.application_work.enter();
         self.requests.fetch_add(1, Ordering::Relaxed);
-        Affiliation(self.clone())
+        Affiliation {
+            slot: self.clone(),
+            _work: work,
+        }
     }
 
     /// A slot holding a Worker Loader's Worker.
@@ -344,6 +349,7 @@ impl Slot {
             id: 0,
             heap_id: next_heap_id(),
             worker: tokio::sync::Mutex::new(Some(worker)),
+            application_work: crate::asyncrt::services().application_work_registry(),
             handler_budget: crate::engine_api::handler_budget(),
             turn_scheduler: TurnScheduler::default(),
             queue_producers: Mutex::new(std::collections::HashMap::new()),
@@ -504,26 +510,29 @@ impl Drop for WorkerPin {
 }
 
 /// A request's claim on the isolate that ran its first turn.
-pub struct Affiliation(Arc<Slot>);
+pub struct Affiliation {
+    slot: Arc<Slot>,
+    _work: crate::host_services::ApplicationWorkGuard,
+}
 
 impl Affiliation {
     pub fn slot(&self) -> &Arc<Slot> {
-        &self.0
+        &self.slot
     }
 }
 
 impl Drop for Affiliation {
     fn drop(&mut self) {
-        self.0.requests.fetch_sub(1, Ordering::Relaxed);
+        self.slot.requests.fetch_sub(1, Ordering::Relaxed);
         // Exactly one admission waiter per freed slot: `notify_one` hands
         // the capacity to a single parked request, where waking them all
         // would stampede `admit` on every release.
-        self.0.freed.notify_one();
+        self.slot.freed.notify_one();
         // The last request out of a retiring isolate is what lets it free.
         // Freeing here would drop an application slot inside whatever turn dropped
         // this affiliation, so the pool's maintenance task does it.
-        if self.0.is_retiring() {
-            if let Some(reclaim) = &self.0.reclaim {
+        if self.slot.is_retiring() {
+            if let Some(reclaim) = &self.slot.reclaim {
                 reclaim.notify_one();
             }
         }
@@ -588,6 +597,7 @@ type Build = Box<dyn Fn() -> Result<Worker> + Send + Sync>;
 
 pub struct Pool {
     slots: RwLock<Vec<Arc<Slot>>>,
+    application_work: Arc<crate::host_services::ApplicationWork>,
     limits: PoolLimits,
     build: Build,
     handler_budget: std::time::Duration,
@@ -611,6 +621,7 @@ impl Pool {
     pub fn new(limits: PoolLimits, admission_wait: std::time::Duration, build: Build) -> Self {
         Pool {
             slots: RwLock::new(Vec::new()),
+            application_work: crate::asyncrt::services().application_work_registry(),
             limits,
             build,
             handler_budget: crate::engine_api::handler_budget(),
@@ -676,6 +687,7 @@ impl Pool {
             id,
             heap_id,
             worker: tokio::sync::Mutex::new(Some(worker)),
+            application_work: self.application_work.clone(),
             handler_budget: self.handler_budget,
             turn_scheduler: TurnScheduler::default(),
             queue_producers: Mutex::new(std::collections::HashMap::new()),

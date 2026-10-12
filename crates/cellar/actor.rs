@@ -4044,6 +4044,7 @@ impl Actor {
                 scheduled_ms,
             } => {
                 if let Some(runtime) = self.host.clone() {
+                    let firing = runtime.fire_alarm(op, cell.clone(), scheduled_ms);
                     out.spawn_scoped(async move {
                         // The shell reports the firing raw: the deadline that
                         // stands after the handler, whether a wake entry
@@ -4056,13 +4057,10 @@ impl Actor {
                         // the far side of the proof. On failure the core
                         // re-arms or resets; either way the entry stays
                         // discoverable and at-least-once holds.
-                        let result = runtime
-                            .fire_alarm(op, cell.clone(), scheduled_ms)
-                            .await
-                            .map_err(|error| {
-                                eprintln!("cellar alarm dispatch failed: {error:#}");
-                                Failure::Definite
-                            });
+                        let result = firing.await.map_err(|error| {
+                            eprintln!("cellar alarm dispatch failed: {error:#}");
+                            Failure::Definite
+                        });
                         CompletedEffect::plain(Event::AlarmFinished {
                             op,
                             cell,

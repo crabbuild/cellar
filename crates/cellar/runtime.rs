@@ -1867,88 +1867,97 @@ impl RuntimeManager {
         f(alarm)
     }
 
-    pub async fn fire_alarm(
+    pub fn fire_alarm(
         &self,
         op: cellar_logic::OpId,
         cell: String,
         scheduled_ms: i64,
-    ) -> anyhow::Result<(cellar_logic::wake::AlarmSnapshot, bool, Option<u64>)> {
-        let request_id = crate::engine_api::next_request_id();
-        let cancel = self
-            .alarm_requests
-            .lock()
-            .expect("alarm registry poisoned")
-            .begin(cell.clone(), op, request_id);
-        let (reply, receive) = tokio::sync::oneshot::channel();
-        let job = CellJob::Alarm {
-            request_id: Some(request_id),
-            scope: cell.clone(),
-            scheduled_ms,
-            claim: crate::host_turn::AlarmDispatch::Due,
-            reply,
-        };
-        let guard = AlarmRequestGuard {
-            registry: self.alarm_requests.clone(),
-            cell: cell.clone(),
-            op,
-            request: request_id,
-        };
-        let isolate = self.cell_isolate(&cell)?;
-        let alarm_reporter = self.alarm_reporter.clone();
-        let drive = crate::asyncrt::spawn(async move {
-            let _guard = guard;
-            drive_alarm(isolate, job, Some(alarm_reporter)).await
-        });
-        if cancel {
-            crate::host_gates::abort_request_for_shutdown(request_id);
-        }
-        let result = receive.await.context("cell isolate dropped alarm result")?;
-        match result {
-            // A handler that returned settled its claim inside its completion
-            // turn (`Answer::Alarm`), so the snapshot and the delta it replied
-            // with are already final and nothing below reads the drive's
-            // position. The drive itself runs on, because a completed cell
-            // event keeps its pending I/O (`completed_cell_event`), exactly as
-            // it does after a fetch answers. Waiting for it here held the
-            // core in `AlarmState::Firing` until the leftover I/O ended or the
-            // operation deadline expired the firing, so an `alarm()` that left
-            // one pending timer — what `AbortSignal.timeout` leaves behind
-            // after its fetch finished — delayed every re-arm by up to
-            // `CELLAR_OPERATION_DEADLINE_MS`, and the core booked a handler
-            // that succeeded as a stuck one (denoland/celld#228).
-            Ok((alarm, wrote)) => {
-                watch_detached_alarm_drive(drive, &cell, op);
-                Ok((alarm, self.alarm_covered(&cell, alarm), wrote))
+    ) -> impl std::future::Future<
+        Output = anyhow::Result<(cellar_logic::wake::AlarmSnapshot, bool, Option<u64>)>,
+    > + Send
+           + 'static {
+        // Reserve the event before its effect task can be queued. Shutdown
+        // must see an alarm whose driver has not reached its first poll.
+        let isolate = self.cell_isolate(&cell);
+        let runtime = self.clone();
+        async move {
+            let isolate = isolate?;
+            let request_id = crate::engine_api::next_request_id();
+            let cancel = runtime
+                .alarm_requests
+                .lock()
+                .expect("alarm registry poisoned")
+                .begin(cell.clone(), op, request_id);
+            let (reply, receive) = tokio::sync::oneshot::channel();
+            let job = CellJob::Alarm {
+                request_id: Some(request_id),
+                scope: cell.clone(),
+                scheduled_ms,
+                claim: crate::host_turn::AlarmDispatch::Due,
+                reply,
+            };
+            let guard = AlarmRequestGuard {
+                registry: runtime.alarm_requests.clone(),
+                cell: cell.clone(),
+                op,
+                request: request_id,
+            };
+            let alarm_reporter = runtime.alarm_reporter.clone();
+            let drive = crate::asyncrt::spawn(async move {
+                let _guard = guard;
+                drive_alarm(isolate, job, Some(alarm_reporter)).await
+            });
+            if cancel {
+                crate::host_gates::abort_request_for_shutdown(request_id);
             }
-            Err(error) => {
-                // A cancelled or failed alarm settles its claim in the drive's
-                // final isolate turn. The event reply is itself held behind
-                // every wake-entry arm, so waiting for the drive makes that
-                // final cache authoritative before the core sees completion.
-                let final_write = drive.await.expect("cell alarm drive task panicked")?;
-                // The drive completed its final isolate turn before this
-                // branch. Its alarm cache is therefore authoritative even
-                // when the handler failed: `Some` is the automatic retry or
-                // an explicit re-arm, and `None` is an explicit change which
-                // wins over retry. Returning the old firing as an error would
-                // resurrect an alarm which storage no longer contains and
-                // leave a draining cell permanently uncovered.
-                //
-                // The position travels as it does for a success. What the
-                // handler committed before it failed, and the retry record
-                // the final turn wrote, are unproven writes the core must
-                // prove before a reader can reveal them; without a position
-                // the alarm settled at once and opened no barrier (#715).
-                // A handler that rejected settled its claim before its error
-                // left, so the error carries the whole delta; one that
-                // failed before or between turns had its record written by
-                // the final turn, whose sample is the later one.
-                let alarm = self.with_alarm_snapshot(&cell, |alarm| alarm);
-                Ok((
-                    alarm,
-                    self.alarm_covered(&cell, alarm),
-                    final_write.max(crate::engine_api::failed_write_position(&error)),
-                ))
+            let result = receive.await.context("cell isolate dropped alarm result")?;
+            match result {
+                // A handler that returned settled its claim inside its completion
+                // turn (`Answer::Alarm`), so the snapshot and the delta it replied
+                // with are already final and nothing below reads the drive's
+                // position. The drive itself runs on, because a completed cell
+                // event keeps its pending I/O (`completed_cell_event`), exactly as
+                // it does after a fetch answers. Waiting for it here held the
+                // core in `AlarmState::Firing` until the leftover I/O ended or the
+                // operation deadline expired the firing, so an `alarm()` that left
+                // one pending timer — what `AbortSignal.timeout` leaves behind
+                // after its fetch finished — delayed every re-arm by up to
+                // `CELLAR_OPERATION_DEADLINE_MS`, and the core booked a handler
+                // that succeeded as a stuck one (denoland/celld#228).
+                Ok((alarm, wrote)) => {
+                    watch_detached_alarm_drive(drive, &cell, op);
+                    Ok((alarm, runtime.alarm_covered(&cell, alarm), wrote))
+                }
+                Err(error) => {
+                    // A cancelled or failed alarm settles its claim in the drive's
+                    // final isolate turn. The event reply is itself held behind
+                    // every wake-entry arm, so waiting for the drive makes that
+                    // final cache authoritative before the core sees completion.
+                    let final_write = drive.await.expect("cell alarm drive task panicked")?;
+                    // The drive completed its final isolate turn before this
+                    // branch. Its alarm cache is therefore authoritative even
+                    // when the handler failed: `Some` is the automatic retry or
+                    // an explicit re-arm, and `None` is an explicit change which
+                    // wins over retry. Returning the old firing as an error would
+                    // resurrect an alarm which storage no longer contains and
+                    // leave a draining cell permanently uncovered.
+                    //
+                    // The position travels as it does for a success. What the
+                    // handler committed before it failed, and the retry record
+                    // the final turn wrote, are unproven writes the core must
+                    // prove before a reader can reveal them; without a position
+                    // the alarm settled at once and opened no barrier (#715).
+                    // A handler that rejected settled its claim before its error
+                    // left, so the error carries the whole delta; one that
+                    // failed before or between turns had its record written by
+                    // the final turn, whose sample is the later one.
+                    let alarm = runtime.with_alarm_snapshot(&cell, |alarm| alarm);
+                    Ok((
+                        alarm,
+                        runtime.alarm_covered(&cell, alarm),
+                        final_write.max(crate::engine_api::failed_write_position(&error)),
+                    ))
+                }
             }
         }
     }

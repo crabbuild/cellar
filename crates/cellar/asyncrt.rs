@@ -322,9 +322,8 @@ impl<F> Drop for ScopedFuture<F> {
 /// Retained SDK capabilities reject calls once their owner closes.
 /// Closing or dropping the owner refuses new work and cancels its tracked
 /// async tasks. Rust blocking work that already started must return itself.
-/// This boundary does not supply production-node startup or a durability drain;
-/// the command-line host lifecycle still needs an application-owned startup
-/// and drain API before a full node can be embedded.
+/// This boundary supplies task ownership and forced closure. Use
+/// [`crate::sdk::Node`] for production startup, supervision and semantic drain.
 pub struct ExecutionDomain {
     inner: Arc<ProductionDomain>,
 }
@@ -767,9 +766,13 @@ pub(crate) fn runtime_services() -> Arc<HostServices> {
 pub type Sleep = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 pub fn sleep_until(deadline_ms: u64) -> Sleep {
-    DomainToken::new(&current_domain().owner)
-        .sleep_until(deadline_ms)
-        .expect("execution domain is closed")
+    match DomainToken::new(&current_domain().owner).sleep_until(deadline_ms) {
+        Ok(sleep) => sleep,
+        // Closure can race an owned task's current poll. Park until its
+        // pending abort or the entered root's close notice delivers
+        // cancellation, preserving cleanup in the originating domain.
+        Err(DomainClosed) => Box::pin(std::future::pending()),
+    }
 }
 
 pub fn sleep(duration: Duration) -> Sleep {

@@ -193,6 +193,43 @@ async fn closure_wakes_pending_roots_and_nested_polls_restore_authority() -> Res
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_timer_created_during_closure_preserves_cancellation_and_owned_cleanup() -> Result<()> {
+    let first = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let cleanup = Cleanup {
+        services: first.services(),
+        done: cleaned.clone(),
+    };
+    let closing = first.clone();
+    let panicked = Arc::new(AtomicBool::new(false));
+    let timer_panicked = panicked.clone();
+    let task = first.spawn(async move {
+        let _cleanup = cleanup;
+        // Close during a poll, before Tokio can deliver its pending abort.
+        closing.close();
+        let result = std::panic::AssertUnwindSafe(async {
+            asyncrt::sleep(Duration::from_secs(30)).await;
+            panic!("a closed owner resumed its timer");
+        })
+        .catch_unwind()
+        .await;
+        timer_panicked.store(result.is_err(), Ordering::Release);
+    })?;
+    let result = tokio::time::timeout(Duration::from_secs(2), task).await?;
+    assert!(
+        !panicked.load(Ordering::Acquire),
+        "closure became a task panic"
+    );
+    assert!(result.is_err(), "a closed owner completed its timer");
+    tokio::time::timeout(Duration::from_secs(2), first.shutdown()).await?;
+    assert!(cleaned.load(Ordering::Acquire));
+    assert_eq!(second.spawn(async { 42 })?.await?, 42);
+    second.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn shutdown_waits_for_started_blocking_work_and_owner_drop_cancels_async_work() -> Result<()>
 {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());

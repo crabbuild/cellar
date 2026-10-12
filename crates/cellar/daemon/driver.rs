@@ -193,6 +193,27 @@ where
     let mut queue_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
     let mut facet_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
     let mut asset_calls: FuturesUnordered<AssetCallFuture> = FuturesUnordered::new();
+    let application_work = crate::asyncrt::services().application_work_registry();
+    // Queued requests are work too: a channel receive and the future it
+    // creates must not expose an empty interval to the shutdown barrier.
+    macro_rules! pending_dispatches {
+        () => {
+            do_calls.len()
+                + gate_calls.len()
+                + service_calls.len()
+                + queue_calls.len()
+                + facet_calls.len()
+                + asset_calls.len()
+                + do_call_rx.len()
+                + gate_rx.len()
+                + rpc_call_rx.len()
+                + service_call_rx.len()
+                + service_rpc_rx.len()
+                + queue_dispatch_rx.len()
+                + facet_rx.len()
+                + asset_call_rx.len()
+        };
+    }
     let mut websockets: FuturesUnordered<WebSocketFuture> = FuturesUnordered::new();
     let mut cache_prunes: FuturesUnordered<CachePruneFuture> = FuturesUnordered::new();
     let mut replication_health = tokio::time::interval(std::time::Duration::from_millis(250));
@@ -389,9 +410,10 @@ where
     };
     let handoff_deadline =
         process_deadline - std::time::Duration::from_millis(token_release_reserve_ms);
-    // Stop public admission immediately. Before a handoff changes any cell
-    // lifecycle, finish the public requests which crossed the old admission
-    // gate. A DO call reaches its output gate only after it writes, so
+    // Stop public admission immediately. Before either stop mode changes cell
+    // lifecycle, finish admitted responses, complete application event drivers
+    // (including waitUntil), and their queued SDK dispatches. A cell call
+    // reaches its output gate only after it writes, so
     // beginning the final durability cut first would let that call cross the
     // cut without a core activity pin. Peer connections stay open:
     // cells outside the current batch must remain reachable during handoff.
@@ -442,7 +464,7 @@ where
         );
     }
     let mut drain_token_hold: Option<crate::drain_token::Hold> = None;
-    let handoff_started = if shutdown_mode == ShutdownMode::Handoff {
+    let (admitted_work_drained, ingress_drained_before_cut) = {
         // Serialize donors: claim the fleet drain token beside the
         // admitted-request drain, so simultaneous stop signals hand off one
         // node at a time. A waiting donor keeps serving peers and refuses
@@ -451,7 +473,7 @@ where
         let drain_token: Arc<std::sync::Mutex<Option<crate::drain_token::Outcome>>> =
             Arc::new(std::sync::Mutex::new(None));
         match &fleet_bucket {
-            Some(bucket) if drain_token_wait_ms > 0 => {
+            Some(bucket) if shutdown_mode == ShutdownMode::Handoff && drain_token_wait_ms > 0 => {
                 let bucket = bucket.clone();
                 let slot = drain_token.clone();
                 let token_node = clean_reload_node.clone();
@@ -511,15 +533,66 @@ where
                     Some(crate::drain_token::Outcome::Disabled);
             }
         }
-        let pre_drain_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
+        let mut pre_drain_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
         let mut pre_drain_tick = tokio::time::interval(std::time::Duration::from_millis(5));
         let mut admitted = None;
+        let mut token_finished = false;
+        let mut previous_work = application_work.snapshot();
+        let mut previous_public = app.public_in_flight();
+        let mut previous_dispatches = pending_dispatches!();
         let admitted_drained = loop {
-            if admitted.is_none() && app.public_in_flight() == 0 {
+            if !token_finished {
+                let outcome = drain_token.lock().expect("drain token slot").take();
+                if let Some(outcome) = outcome {
+                    token_finished = true;
+                    if let crate::drain_token::Outcome::Acquired(hold) = outcome {
+                        drain_token_hold = Some(hold);
+                    }
+                }
+            }
+            // Event progress can keep this phase alive past the claim TTL.
+            // Renew while draining accepted work as well as during handoff.
+            if drain_token_hold.as_ref().is_some_and(|hold| {
+                crate::drain_token::renew_due(hold, crate::ownership_store::now_ms())
+            }) {
+                if let (Some(bucket), Some(hold)) = (&fleet_bucket, drain_token_hold.as_mut()) {
+                    let Some(renewed) = before_process_deadline(
+                        handoff_deadline,
+                        crate::drain_token::renew(bucket, &clean_reload_node, hold),
+                    )
+                    .await
+                    else {
+                        break false;
+                    };
+                    if !renewed {
+                        drain_token_hold = None;
+                    }
+                }
+            }
+            let work = application_work.snapshot();
+            let public = app.public_in_flight();
+            let dispatches = pending_dispatches!();
+            if work.retired_events != previous_work.retired_events
+                || public < previous_public
+                || dispatches < previous_dispatches
+            {
+                pre_drain_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
+            }
+            previous_work = work;
+            previous_public = public;
+            previous_dispatches = dispatches;
+            let quiescent = public == 0 && work.pending_events == 0 && dispatches == 0;
+            // Peers remain served while waiting for the drain token. Recheck
+            // quiescence if they introduce work after the prior idle sample.
+            if admitted == Some(true) && !quiescent {
+                admitted = None;
+                pre_drain_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
+            }
+            if admitted.is_none() && quiescent {
                 admitted = Some(true);
             }
             if let Some(admitted_drained) = admitted {
-                let token_ready = drain_token.lock().expect("drain token slot").is_some();
+                let token_ready = token_finished;
                 #[cfg(all(test, cellar_internal_tests))]
                 let token_ready = token_ready && shutdown_accept_failure_recovered_for_test;
                 if token_ready {
@@ -606,6 +679,24 @@ where
                     asset_calls.push(Box::pin(dispatch_asset_call(app.clone(), call)));
                 }
                 Some(_) = asset_calls.next(), if !asset_calls.is_empty() => {}
+                socket = websocket_rx.recv() => {
+                    let Some(socket) = socket else {
+                        anyhow::bail!("WebSocket channel closed during shutdown pre-drain");
+                    };
+                    websockets.push(socket);
+                }
+                outbound = outbound_ws_rx.recv() => {
+                    let Some(outbound) = outbound else {
+                        anyhow::bail!("outbound WebSocket channel closed during shutdown pre-drain");
+                    };
+                    let app = app.clone();
+                    websockets.push(Box::pin(async move {
+                        if let Err(error) = outbound_websocket_task(app, outbound).await {
+                            tracing::warn!("cellar outbound WebSocket failed: {error:#}");
+                        }
+                    }));
+                }
+                Some(_) = websockets.next(), if !websockets.is_empty() => {}
                 code = fence_rx.recv() => return Ok(NodeOutcome::Fenced { code: code.unwrap_or(3) }),
                 actor_exit = actor_exit_rx.recv() => {
                     let error = match actor_exit {
@@ -618,31 +709,34 @@ where
                 }
             }
         };
-        drain_token_hold = match drain_token.lock().expect("drain token slot").take() {
-            Some(crate::drain_token::Outcome::Acquired(hold)) => Some(hold),
-            _ => None,
-        };
         if !admitted_drained {
             tracing::warn!(
                 event = "shutdown_pre_drain_forced",
                 public_in_flight = app.public_in_flight(),
+                application_events = application_work.snapshot().pending_events,
                 do_calls = do_calls.len(),
                 gate_calls = gate_calls.len(),
                 service_calls = service_calls.len(),
                 queue_calls = queue_calls.len(),
                 asset_calls = asset_calls.len(),
                 grace_ms = stall_window.as_millis(),
-                "shutdown reached its admitted-request deadline before cell handoff"
+                "shutdown reached its accepted-work deadline before changing cell lifecycle"
             );
         }
+        // Capture response completion before connection shutdown can cancel
+        // an unfinished request and retire its ingress count.
+        let ingress_drained = app.public_in_flight() == 0;
         if admitted_drained {
-            let _ = app.tx.send(Message::ReleaseAll);
+            let message = match shutdown_mode {
+                ShutdownMode::Handoff => Message::ReleaseAll,
+                ShutdownMode::Preserve => Message::BeginPreserve,
+            };
+            let _ = app.tx.send(message);
         }
-        admitted_drained
-    } else {
-        let _ = connection_drain_tx.send(true);
-        let _ = app.tx.send(Message::BeginPreserve);
-        true
+        if shutdown_mode == ShutdownMode::Preserve {
+            let _ = connection_drain_tx.send(true);
+        }
+        (admitted_drained, ingress_drained)
     };
     // Progress extends the stall deadline, but never the complete process
     // deadline. A deadline-cut cell keeps its durable owner record and follows
@@ -652,17 +746,13 @@ where
     let mut process_deadline_fired = false;
     let mut handoff = tokio::time::interval(std::time::Duration::from_millis(50));
     let mut containers_reaped = false;
-    let drained = if shutdown_mode == ShutdownMode::Handoff && !handoff_started {
+    let drained = if !admitted_work_drained {
         false
     } else {
         loop {
             let requests_drained = connections.is_empty()
-                && do_calls.is_empty()
-                && gate_calls.is_empty()
-                && service_calls.is_empty()
-                && queue_calls.is_empty()
-                && facet_calls.is_empty()
-                && asset_calls.is_empty();
+                && pending_dispatches!() == 0
+                && application_work.snapshot().pending_events == 0;
             let shell_drained = requests_drained && websockets.is_empty();
             // The actor can be busy driving an immediate-effect failure loop, so
             // a status request is not itself allowed to bypass the drain deadline.
@@ -713,7 +803,11 @@ where
                 ShutdownMode::Preserve => status.activating == 0 && status.evicting == 0,
             });
             let completely_drained = match shutdown_mode {
-                ShutdownMode::Handoff => core_drained,
+                ShutdownMode::Handoff => {
+                    core_drained
+                        && pending_dispatches!() == 0
+                        && application_work.snapshot().pending_events == 0
+                }
                 ShutdownMode::Preserve => shell_drained && core_drained,
             };
             if completely_drained {
@@ -866,7 +960,7 @@ where
         shutdown_accept_failure_test_active,
         "drain token release finished",
     );
-    if !handoff_started {
+    if !admitted_work_drained {
         tracing::error!(
             event = "shutdown_handoff_not_started",
             drain_ms,
@@ -1067,28 +1161,20 @@ where
         shutdown_accept_failure_test_active,
         "final log flush reached",
     );
+    let remaining_work = application_work.snapshot();
     Ok(NodeOutcome::Stopped(ShutdownReport {
         mode: shutdown_mode,
-        ingress_drained: handoff_started && app.public_in_flight() == 0,
+        ingress_drained: ingress_drained_before_cut && app.public_in_flight() == 0,
+        application_work_drained: admitted_work_drained
+            && drained
+            && remaining_work.pending_events == 0,
+        pending_application_events: remaining_work.pending_events,
         cells_drained: drained,
-        pending_dispatches: do_calls.len()
-            + gate_calls.len()
-            + service_calls.len()
-            + queue_calls.len()
-            + facet_calls.len()
-            + asset_calls.len()
-            + do_call_rx.len()
-            + gate_rx.len()
-            + rpc_call_rx.len()
-            + service_call_rx.len()
-            + service_rpc_rx.len()
-            + queue_dispatch_rx.len()
-            + facet_rx.len()
-            + asset_call_rx.len(),
+        pending_dispatches: pending_dispatches!(),
         log_quiesced: durability_quiesced,
         local_durability_closed,
         clean_reload_prepared,
-        drain_timed_out: !handoff_started || !drained,
+        drain_timed_out: !admitted_work_drained || !drained,
         deadline_elapsed: process_deadline_fired || tokio::time::Instant::now() >= process_deadline,
     }))
 }
