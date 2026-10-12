@@ -123,6 +123,13 @@ impl Cell for Root {
                     *self.0.exec.lock().unwrap() = Some(process);
                     json!(true)
                 }
+                "/retained-exec-output" => {
+                    let process = self.0.exec.lock().unwrap().take().unwrap();
+                    process.write(&context, b"surviving host").await?;
+                    process.close_stdin(&context).await?;
+                    let output = process.output(&context, 1024).await?;
+                    json!({"code":output.exit_code,"stdout":String::from_utf8(output.stdout)?})
+                }
                 "/old-exec" => {
                     let process = self.0.exec.lock().unwrap().take().unwrap();
                     json!(process.kill(&context, 9).await.is_err())
@@ -200,6 +207,8 @@ struct Engine {
     refuse_remove: AtomicBool,
     app_image_loaded: AtomicBool,
     containers: Mutex<HashMap<String, watch::Sender<Option<i64>>>>,
+    labels: Mutex<HashMap<String, Value>>,
+    networks: Mutex<HashMap<String, Value>>,
     execs: Mutex<HashMap<String, Arc<AtomicBool>>>,
     calls: Mutex<Vec<(String, String, Value)>>,
     http_port: u16,
@@ -232,7 +241,27 @@ impl Engine {
             .push((method.clone(), format!("{path}?{query}"), body.clone()));
         let mut status = 200;
         let value = if path == "/containers/json" {
-            json!([])
+            let filters = url::form_urlencoded::parse(query.as_bytes())
+                .find(|(key, _)| key == "filters")
+                .unwrap()
+                .1;
+            let filters: Value = serde_json::from_str(&filters)?;
+            let labels = self.labels.lock().unwrap();
+            let containers = self.containers.lock().unwrap();
+            json!(containers
+                .keys()
+                .filter(
+                    |name| filters["label"].as_array().unwrap().iter().all(|filter| {
+                        let (key, value) = filter.as_str().unwrap().split_once('=').unwrap();
+                        labels
+                            .get(*name)
+                            .and_then(|labels| labels.get(key))
+                            .and_then(Value::as_str)
+                            == Some(value)
+                    })
+                )
+                .map(|name| json!({"Id":name}))
+                .collect::<Vec<_>>())
         } else if path == "/images/load" {
             self.app_image_loaded.store(true, Ordering::SeqCst);
             json!({"stream":"Loaded image"})
@@ -247,14 +276,35 @@ impl Engine {
                 status = 404;
             }
             json!({"Config":{}})
+        } else if path == "/networks/create" {
+            self.networks
+                .lock()
+                .unwrap()
+                .insert(body["Name"].as_str().unwrap().into(), body.clone());
+            json!({"Id":body["Name"]})
         } else if path.starts_with("/networks/") && method == "GET" {
-            status = 404;
-            json!({})
+            match self
+                .networks
+                .lock()
+                .unwrap()
+                .get(path.trim_start_matches("/networks/"))
+                .cloned()
+            {
+                Some(network) => network,
+                None => {
+                    status = 404;
+                    json!({})
+                }
+            }
         } else if path == "/containers/create" {
             if query.is_empty() {
                 json!({"Id":"fence"})
             } else {
                 let name = query.strip_prefix("name=").unwrap().to_string();
+                self.labels
+                    .lock()
+                    .unwrap()
+                    .insert(name.clone(), body["Labels"].clone());
                 self.containers
                     .lock()
                     .unwrap()
@@ -313,6 +363,7 @@ impl Engine {
                 if self.refuse_remove.load(Ordering::SeqCst) {
                     status = 500;
                 } else {
+                    self.labels.lock().unwrap().remove(name);
                     self.containers.lock().unwrap().remove(name);
                 }
             }
@@ -695,5 +746,345 @@ async fn run() -> Result<()> {
     http_task.abort();
     tcp_task.abort();
     engine_task.abort();
+    Ok(())
+}
+
+async fn embedded_container_host(
+    domain: &cellar::asyncrt::ExecutionDomain,
+    path: &std::path::Path,
+    socket: &std::path::Path,
+    image: &str,
+    runtime: &str,
+    probe: Arc<Probe>,
+) -> Result<RuntimeManager> {
+    domain
+        .services()
+        .configure_containers(cellar::container::EngineOptions {
+            socket: socket.into(),
+            namespace: None,
+            runtime: Some(runtime.into()),
+            dns: vec!["192.0.2.53".into()],
+        })?;
+    domain
+        .run(async move {
+            let (send, mut gates) = mpsc::unbounded_channel::<cellar::host_channels::GateReq>();
+            cellar::host_channels::set_gate_tx(send);
+            cellar::asyncrt::spawn(async move {
+                while let Some(gate) = gates.recv().await {
+                    let _ = gate.reply.send(Ok(()));
+                }
+            })
+            .detach();
+            let registry =
+                Registry::new(|_, _| Box::pin(async { Err(anyhow!("stateless unused")) }))
+                    .cell("Sandbox", move |_, _| Ok(Arc::new(Root(probe.clone()))))?;
+            let mut graph = fixture::graph("same-container-app", "", vec!["Sandbox".into()]);
+            graph.primary.containers = vec![ContainerSpec {
+                class_name: "Sandbox".into(),
+                image: image.into(),
+                instance_type: Some("basic".into()),
+                max_instances: None,
+                runtime: None,
+            }];
+            graph.primary.fence_image = Some(cellar::container::image_reference(&"b".repeat(64)));
+            let host = RuntimeManager::start(
+                Generation::build_native(
+                    1,
+                    graph,
+                    fixture::generation_options(),
+                    HashMap::from([(
+                        "same-container-app".into(),
+                        Arc::new(registry) as Arc<dyn cellar::application::Application>,
+                    )]),
+                )?,
+                fixture::runtime_options(path.into()),
+            )?;
+            open(&host, "Sandbox:same-business-id").await?;
+            Ok::<_, anyhow::Error>(host)
+        })
+        .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn embedded_hosts_own_containers_execs_networks_and_restart_cleanup() -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(60), owned_container_domains()).await?
+}
+
+async fn owned_container_domains() -> Result<()> {
+    use cellar::asyncrt::ExecutionDomain;
+    let directory = tempfile::Builder::new()
+        .prefix("cellar-owned-containers-")
+        .tempdir_in("/tmp")?;
+    let socket = directory.path().join("engine.sock");
+    let listener = tokio::net::UnixListener::bind(&socket)?;
+    let peer = Arc::new(Engine::default());
+    let engine = peer.clone();
+    let server = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let engine = engine.clone();
+            tokio::spawn(async move {
+                let service =
+                    hyper::service::service_fn(move |request| engine.clone().answer(request));
+                let _ = hyper::server::conn::http1::Builder::new()
+                    .serve_connection(TokioIo::new(stream), service)
+                    .with_upgrades()
+                    .await;
+            });
+        }
+    });
+    let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let first_probe = Arc::new(Probe::default());
+    let second_probe = Arc::new(Probe::default());
+    let first_path = directory.path().join("first");
+    let second_path = directory.path().join("second");
+    let first_image = cellar::container::image_reference(&"c".repeat(64));
+    let second_image = cellar::container::image_reference(&"d".repeat(64));
+    let first_host = embedded_container_host(
+        &first,
+        &first_path,
+        &socket,
+        &first_image,
+        "first-runtime",
+        first_probe.clone(),
+    )
+    .await?;
+    assert_eq!(
+        first
+            .run(call(&first_host, "Sandbox:same-business-id", "/start"))
+            .await??["run"],
+        1
+    );
+    let second_host = embedded_container_host(
+        &second,
+        &second_path,
+        &socket,
+        &second_image,
+        "second-runtime",
+        second_probe.clone(),
+    )
+    .await?;
+    assert_eq!(
+        second
+            .run(call(&second_host, "Sandbox:same-business-id", "/start"))
+            .await??["run"],
+        1
+    );
+    let first_engine = first
+        .run(async { cellar::container::engine_if_ready().unwrap() })
+        .await?;
+    let second_engine = second
+        .run(async { cellar::container::engine_if_ready().unwrap() })
+        .await?;
+    assert!(!Arc::ptr_eq(&first_engine, &second_engine));
+    assert!(second
+        .run(first_engine.ensure_image(&first_image))
+        .await?
+        .is_err());
+    let second_cell = second_engine.cell("Sandbox:same-business-id").unwrap();
+    assert!(first
+        .run(first_engine.signal(&second_cell, 9))
+        .await?
+        .is_err());
+    let original_second = second_probe.container.lock().unwrap().clone();
+    *second_probe.container.lock().unwrap() = first_probe.container.lock().unwrap().clone();
+    assert_eq!(
+        second
+            .run(call(&second_host, "Sandbox:same-business-id", "/foreign"))
+            .await??,
+        true
+    );
+    *second_probe.container.lock().unwrap() = original_second;
+    first
+        .run(call(
+            &first_host,
+            "Sandbox:same-business-id",
+            "/retain-exec",
+        ))
+        .await??;
+    second
+        .run(call(
+            &second_host,
+            "Sandbox:same-business-id",
+            "/retain-exec",
+        ))
+        .await??;
+    let first_process = first
+        .run(async { cellar::container::process(1).unwrap() })
+        .await?;
+    let second_process = second
+        .run(async { cellar::container::process(1).unwrap() })
+        .await?;
+    assert!(
+        !Arc::ptr_eq(&first_process, &second_process),
+        "exec IDs are local to their owner"
+    );
+    assert!(second.run(first_process.kill(9)).await?.is_err());
+    second
+        .run(async {
+            drop(first_probe.exec.lock().unwrap().take());
+            assert!(
+                Arc::ptr_eq(&second_process, &cellar::container::process(1).unwrap()),
+                "dropping a foreign handle must not remove this host's colliding exec ID"
+            );
+        })
+        .await?;
+    assert!(
+        first
+            .run(async { cellar::container::process(1).is_none() })
+            .await?
+    );
+    first
+        .run(call(
+            &first_host,
+            "Sandbox:same-business-id",
+            "/retain-exec",
+        ))
+        .await??;
+    let retained = first
+        .run(async { cellar::container::process(2).unwrap() })
+        .await?;
+    let (first_name, first_labels) = {
+        let calls = peer.calls.lock().unwrap();
+        let creates = calls
+            .iter()
+            .filter(|(_, path, _)| path.starts_with("/containers/create?name="))
+            .collect::<Vec<_>>();
+        assert_eq!(creates.len(), 2);
+        assert_eq!(creates[0].2["Image"], first_image);
+        assert_eq!(creates[1].2["Image"], second_image);
+        assert_eq!(creates[0].2["HostConfig"]["Runtime"], "first-runtime");
+        assert_eq!(creates[1].2["HostConfig"]["Runtime"], "second-runtime");
+        assert_ne!(creates[0].1, creates[1].1);
+        assert_ne!(
+            creates[0].2["Labels"]["cellar.host"],
+            creates[1].2["Labels"]["cellar.host"]
+        );
+        let fences = calls
+            .iter()
+            .filter(|(_, path, _)| path == "/containers/create?")
+            .collect::<Vec<_>>();
+        assert_eq!(fences.len(), 2);
+        assert_ne!(fences[0].2["Env"], fences[1].2["Env"]);
+        for fence in fences {
+            assert!(fence.2["Env"][0]
+                .as_str()
+                .unwrap()
+                .contains("table inet cellar_"));
+        }
+        (
+            creates[0]
+                .1
+                .strip_prefix("/containers/create?name=")
+                .unwrap()
+                .to_string(),
+            creates[0].2["Labels"].clone(),
+        )
+    };
+    {
+        let networks = peer.networks.lock().unwrap();
+        assert_eq!(networks.len(), 4);
+        let bridges = networks
+            .values()
+            .map(|network| {
+                network["Options"]["com.docker.network.bridge.name"]
+                    .as_str()
+                    .unwrap()
+            })
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(bridges.len(), 4);
+        assert!(bridges.iter().all(|name| name.len() <= 15));
+    }
+    first.close();
+    // Repeating closure must not abort the cleanup it just scheduled.
+    first.close();
+    first.shutdown().await;
+    assert_eq!(peer.containers.lock().unwrap().len(), 1);
+    assert!(second.run(retained.wait()).await?.is_err());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if peer
+                .execs
+                .lock()
+                .unwrap()
+                .get("exec3")
+                .unwrap()
+                .load(Ordering::SeqCst)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert!(
+        !peer
+            .execs
+            .lock()
+            .unwrap()
+            .get("exec2")
+            .unwrap()
+            .load(Ordering::SeqCst),
+        "the sibling host's stdin remains open"
+    );
+    assert!(first_engine.cell("Sandbox:same-business-id").is_none());
+    assert!(second_cell.running());
+    // Simulate infrastructure left behind by a crashed owner. Stable state
+    // identity reaps that owner's resources without touching its sibling.
+    peer.labels
+        .lock()
+        .unwrap()
+        .insert(first_name.clone(), first_labels);
+    peer.containers
+        .lock()
+        .unwrap()
+        .insert(first_name.clone(), watch::channel(None).0);
+    let restarted = ExecutionDomain::new(tokio::runtime::Handle::current());
+    restarted
+        .services()
+        .configure_containers(cellar::container::EngineOptions {
+            socket: socket.clone(),
+            namespace: None,
+            runtime: None,
+            dns: Vec::new(),
+        })?;
+    restarted
+        .run(async {
+            cellar::container::configure("test".into(), None, first_path)?;
+            cellar::container::install_specs(
+                Vec::new(),
+                Some(cellar::container::image_reference(&"b".repeat(64))),
+                Vec::new(),
+            );
+            cellar::container::engine().await?.ensure_fence().await
+        })
+        .await??;
+    assert!(!peer.containers.lock().unwrap().contains_key(&first_name));
+    assert_eq!(peer.containers.lock().unwrap().len(), 1);
+    assert_eq!(
+        peer.networks.lock().unwrap().len(),
+        4,
+        "restart reuses its own bridges"
+    );
+    restarted.shutdown().await;
+    assert_eq!(
+        second
+            .run(call(
+                &second_host,
+                "Sandbox:same-business-id",
+                "/retained-exec-output"
+            ))
+            .await??,
+        json!({"code":7,"stdout":"surviving host"})
+    );
+    assert_eq!(
+        second
+            .run(call(&second_host, "Sandbox:same-business-id", "/retained"))
+            .await??,
+        true
+    );
+    second.shutdown().await;
+    assert!(peer.containers.lock().unwrap().is_empty());
+    server.abort();
     Ok(())
 }

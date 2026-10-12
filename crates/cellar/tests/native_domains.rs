@@ -424,6 +424,41 @@ async fn shutdown_completion_waits_for_cancelled_future_destructors() -> Result<
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_joins_entered_roots_without_aborting_the_application_task() -> Result<()> {
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let started = Arc::new(Notify::new());
+    let dropping = Arc::new(Notify::new());
+    let done = Arc::new(AtomicBool::new(false));
+    let (release, receive) = std::sync::mpsc::channel();
+    let cleanup = PendingCleanup {
+        started: started.clone(),
+        dropping: dropping.clone(),
+        release: receive,
+        done: done.clone(),
+    };
+    let entered = domain.clone();
+    let application_task = tokio::spawn(async move {
+        let result = entered.run(cleanup).await;
+        // The host closes its root; the surrounding task continues normally.
+        assert!(result.is_err());
+        42
+    });
+    started.notified().await;
+    domain.close();
+    dropping.notified().await;
+    let early = tokio::time::timeout(Duration::from_millis(20), domain.shutdown()).await;
+    release.send(())?;
+    assert!(
+        early.is_err(),
+        "shutdown returned before an entered root finished dropping"
+    );
+    assert_eq!(application_task.await?, 42);
+    tokio::time::timeout(Duration::from_secs(2), domain.shutdown()).await?;
+    assert!(done.load(Ordering::Acquire));
+    Ok(())
+}
+
 #[derive(Default)]
 struct CellSignals {
     started: Notify,

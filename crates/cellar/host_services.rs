@@ -36,6 +36,7 @@ pub struct HostServices {
     tcp: Arc<crate::host_tcp::TcpService>,
     loader: Arc<dyn crate::host_loader::LoaderService>,
     facets: Arc<dyn crate::host_facets::FacetService>,
+    containers: Arc<crate::container::ContainerService>,
     node_load: OnceLock<Arc<LiveLoad>>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
@@ -54,6 +55,7 @@ impl HostServices {
             tcp: Arc::new(crate::host_tcp::TcpService::default()),
             loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
+            containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -73,6 +75,7 @@ impl HostServices {
             tcp: Arc::new(crate::host_tcp::TcpService::default()),
             loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
+            containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -103,10 +106,25 @@ impl HostServices {
         self.facets.clone()
     }
 
+    pub(crate) fn containers(&self) -> Arc<crate::container::ContainerService> {
+        self.containers.clone()
+    }
+
+    /// Select this host's container infrastructure before starting its runtime.
+    /// Hosts sharing a daemon must use distinct namespaces; the same namespace
+    /// identifies resources to recover after a restart.
+    pub fn configure_containers(
+        &self,
+        options: crate::container::EngineOptions,
+    ) -> anyhow::Result<()> {
+        self.containers.configure_options(options)
+    }
+
     pub(crate) fn close_resources(&self) {
         self.tcp.close();
         self.facets.close();
         self.loader.close();
+        self.containers.close();
     }
 
     pub(crate) fn accepts_work(&self) -> bool {
@@ -146,6 +164,8 @@ impl HostServices {
         }
         self.loader.bind_domain(self.domain.get().unwrap().clone());
         self.facets.bind_domain(self.domain.get().unwrap().clone());
+        self.containers
+            .bind_domain(self.domain.get().unwrap().clone());
         self.http_streams.bind_domain(
             self.domain
                 .get()

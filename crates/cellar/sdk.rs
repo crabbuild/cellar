@@ -22,6 +22,7 @@
 pub use crate::application::*;
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
+pub use crate::container::EngineOptions as ContainerEngineOptions;
 pub use crate::daemon::NativeDaemon as Host;
 pub use crate::native_deploy::{ApplicationConfig, AssetProject, ContainerProject, Project};
 pub use cellar_native as primitives;
