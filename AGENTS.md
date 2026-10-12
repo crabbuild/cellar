@@ -120,6 +120,11 @@ remain outside the CLI directory.
    Domain closure can race a task's current poll. Production actor selectors
    use `try_start`/`try_step` and fallible effect admission; cancellation must
    not become an invariant panic or a fabricated completion event.
+9. Idle, unowned cell routing history uses the actor's captured
+   `max_cached_routes` limit. Reclamation cannot discard ownership, alarms or
+   unfinished work. Every cell-table replacement maintains the recency index;
+   direct retirement paths must refresh it. Stale completions and queued timers
+   cannot affect a new request after its old routing record was reclaimed.
 
 ## Build and validation
 

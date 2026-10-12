@@ -27,7 +27,7 @@
 /// Never a thread id — an isolate has no thread.
 pub type IsolateId = usize;
 
-/// One constructed V8 heap in this node process.
+/// One constructed native worker in this node process.
 ///
 /// Unlike [`IsolateId`], this value is not a pool index. The shell allocates a
 /// fresh value for every worker that it installs, so two script pools and two
@@ -102,9 +102,9 @@ pub struct PoolLimits {
     /// difference is not an inconsistency. A suspended request costs the
     /// same wherever it landed, so spreading requests buys nothing and the
     /// node-wide total is the real bound. Cells are not like that: they
-    /// share one V8 heap, and a heap that holds too many of them is a
-    /// single OOM taking every cell in it down together. Spreading is the
-    /// whole point, so the bound has to be per-isolate.
+    /// share one worker's turns and retained state. Spreading those cells
+    /// controls placement and lets pressure shedding release whole workers,
+    /// so the bound applies per worker.
     pub max_cells: usize,
 }
 

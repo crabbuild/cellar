@@ -168,6 +168,7 @@ pub(super) fn run(
         let actor = ActorOptions {
             core: ActorPolicy {
                 max_resident: resident,
+                max_cached_routes: 2_048,
                 max_activations: 64,
                 max_evictions: 4,
                 max_releases: 32,

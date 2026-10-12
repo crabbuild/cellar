@@ -35,6 +35,12 @@ container infrastructure and metrics are captured per node. Library defaults do
 not read environment variables. The CLI resolves its environment settings at
 startup. Lower-level hosts can construct an `ExecutionDomain` directly.
 
+`ActorPolicy::max_cached_routes` bounds idle, unowned routing history separately
+from resident cells. Least recently used records are reclaimed; zero disables
+the cache. Ownership, alarms, queued requests and unfinished work retain their
+records through their normal lifecycle. Applications select this limit
+explicitly. The CLI defaults to 2,048 and accepts `CELLAR_MAX_CACHED_ROUTES`.
+
 Production dispatch and draining now share a driver that accepts a captured
 `ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
 fencing, core failure, or replication failure; the CLI alone maps these to process
@@ -55,7 +61,8 @@ budget, but already-started blocking work must finish before the join completes.
 Work left at a deadline remains visible in the report even after forced domain
 closure retires it. Application tasks spawned outside Cellar's event lifecycle
 remain the application's responsibility. Fleet-scale rollout and recovery
-validation remain follow-up work.
+validation remain follow-up work beyond the
+[bounded local embedding checks](tools/perf/results/2026-10-12-embedded-1000.md).
 
 `LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
 quotas, copied environment size, and entrypoint or class property size. Environment

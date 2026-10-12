@@ -136,6 +136,7 @@ async fn host_with_policy(
     let options = crate::actor::ActorOptions {
         core: cellar_logic::Config {
             max_resident: 32,
+            max_cached_routes: 2_048,
             max_activations: 8,
             max_releases: 4,
             max_evictions: 4,
