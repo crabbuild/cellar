@@ -1,0 +1,1717 @@
+{
+  "started_utc": "2026-10-12T07:09:49.779521+00:00",
+  "revision": "5b791a9ab712ab9c69d4018ac214a7e7acd9e7be",
+  "source_sha256": {
+    "tools/perf/cells.rs": "654541f7db539e301efd924dfaf88cd46240c511b7a3b74daa0aeabd96b89a39",
+    "tools/perf/load.rs": "f731ca0b4ec9688772705ee7feab9580d0f5c240a655dc32e9948576a64b8a8e",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc"
+  },
+  "cellar_image": "sha256:fb54db4e625a8aced43f644f694f09203586d7af01a995084f4a0320abf5720d",
+  "rustfs_image": "sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+  "environment": {
+    "architecture": "aarch64",
+    "vm_cpus": 8,
+    "vm_memory_bytes": 16732549120,
+    "node_limits": {
+      "cpus": 1,
+      "memory_bytes": 2147483648,
+      "disk_image_bytes": 5368709120
+    },
+    "load_generator_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        0,
+        6
+      ],
+      "memory_bytes": 2147483648
+    },
+    "rustfs_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        4,
+        5
+      ],
+      "memory_bytes": 4294967296
+    }
+  },
+  "workload": {
+    "cells": 200,
+    "payload_bytes": 1024,
+    "phase_seconds": 20,
+    "repetitions": 2,
+    "concurrency": [
+      1,
+      8,
+      32,
+      128,
+      200
+    ],
+    "warmup_seconds": 10,
+    "operation": "transaction: increment persistent counter and overwrite JSON value with changing 1 KiB seeded random ASCII payload (64-symbol alphabet)",
+    "load_model": "closed loop; one in-flight request per worker; disjoint cell partitions; rotating ingress; no write retries",
+    "latency": "request start through complete HTTP response JSON; warmup excluded; percentile ranges across repetitions, not pooled percentiles",
+    "build": "Linux ARM64; Rust 1.98.1; repository release profile (opt-level=s, fat LTO)",
+    "rebalance_interval_ms": 0
+  },
+  "summary": [
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 1,
+      "repetitions": 2,
+      "successful_writes": 10333,
+      "elapsed_s": 40.004368088,
+      "writes_per_s": 258.29679342190536,
+      "writes_per_s_range": [
+        236.11856839202466,
+        280.47607917687327
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          3.365,
+          3.627
+        ],
+        "p95": [
+          5.022,
+          7.066
+        ],
+        "p99": [
+          6.382,
+          14.182
+        ],
+        "max": [
+          52.626,
+          108.603
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 8,
+      "repetitions": 2,
+      "successful_writes": 26450,
+      "elapsed_s": 40.029251036000005,
+      "writes_per_s": 660.7667971657124,
+      "writes_per_s_range": [
+        656.0462351841245,
+        665.4877044917173
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          10.156,
+          11.061
+        ],
+        "p95": [
+          19.311,
+          21.849
+        ],
+        "p99": [
+          27.374,
+          34.132
+        ],
+        "max": [
+          116.032,
+          117.903
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 42597,
+      "elapsed_s": 40.034208202,
+      "writes_per_s": 1064.015048956856,
+      "writes_per_s_range": [
+        1048.4378253320433,
+        1079.5897653483162
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          26.351,
+          27.092
+        ],
+        "p95": [
+          49.627,
+          49.755
+        ],
+        "p99": [
+          89.996,
+          98.937
+        ],
+        "max": [
+          219.474,
+          530.806
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 24885,
+      "elapsed_s": 40.175820314,
+      "writes_per_s": 619.4024118364639,
+      "writes_per_s_range": [
+        434.4586037311499,
+        804.2883599759666
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          111.105,
+          131.662
+        ],
+        "p95": [
+          427.963,
+          1025.874
+        ],
+        "p99": [
+          620.752,
+          1497.962
+        ],
+        "max": [
+          741.968,
+          1862.38
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 200,
+      "repetitions": 2,
+      "successful_writes": 43645,
+      "elapsed_s": 40.426514975,
+      "writes_per_s": 1079.6132198630114,
+      "writes_per_s_range": [
+        979.3413438534641,
+        1180.5694334191562
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          164.383,
+          182.042
+        ],
+        "p95": [
+          239.865,
+          326.812
+        ],
+        "p99": [
+          349.187,
+          569.319
+        ],
+        "max": [
+          421.581,
+          836.181
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 1,
+      "repetitions": 2,
+      "successful_writes": 8184,
+      "elapsed_s": 40.007406841999995,
+      "writes_per_s": 204.56212101726103,
+      "writes_per_s_range": [
+        190.91645355447153,
+        218.20753039928292
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          3.97,
+          4.233
+        ],
+        "p95": [
+          7.35,
+          9.952
+        ],
+        "p99": [
+          17.268,
+          19.195
+        ],
+        "max": [
+          75.474,
+          114.486
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 8,
+      "repetitions": 2,
+      "successful_writes": 22826,
+      "elapsed_s": 40.014152056,
+      "writes_per_s": 570.448174637186,
+      "writes_per_s_range": [
+        532.2765658248575,
+        608.6176491964399
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          11.497,
+          12.645
+        ],
+        "p95": [
+          22.449,
+          27.332
+        ],
+        "p99": [
+          40.575,
+          69.679
+        ],
+        "max": [
+          216.238,
+          242.962
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 29965,
+      "elapsed_s": 40.07181404,
+      "writes_per_s": 747.7824679982969,
+      "writes_per_s_range": [
+        577.4086549813878,
+        918.3358630944583
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          31.582,
+          46.701
+        ],
+        "p95": [
+          55.216,
+          108.641
+        ],
+        "p99": [
+          110.294,
+          179.533
+        ],
+        "max": [
+          204.796,
+          589.472
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 27758,
+      "elapsed_s": 41.246085589,
+      "writes_per_s": 672.9850749134564,
+      "writes_per_s_range": [
+        662.5481021136525,
+        683.9518919688771
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          172.253,
+          184.757
+        ],
+        "p95": [
+          252.767,
+          379.778
+        ],
+        "p99": [
+          296.076,
+          516.5
+        ],
+        "max": [
+          408.189,
+          1317.268
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 200,
+      "repetitions": 2,
+      "successful_writes": 29050,
+      "elapsed_s": 40.329176277,
+      "writes_per_s": 720.322175699071,
+      "writes_per_s_range": [
+        699.6818993364692,
+        740.8492472953176
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          240.583,
+          262.111
+        ],
+        "p95": [
+          446.345,
+          493.304
+        ],
+        "p99": [
+          550.307,
+          742.113
+        ],
+        "max": [
+          687.702,
+          1116.922
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 1,
+      "repetitions": 2,
+      "successful_writes": 7791,
+      "elapsed_s": 40.012685261,
+      "writes_per_s": 194.71325028999783,
+      "writes_per_s_range": [
+        149.07950162303604,
+        240.36121245445992
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          3.656,
+          5.032
+        ],
+        "p95": [
+          7.019,
+          14.592
+        ],
+        "p99": [
+          11.31,
+          38.332
+        ],
+        "max": [
+          125.473,
+          135.423
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 8,
+      "repetitions": 2,
+      "successful_writes": 16704,
+      "elapsed_s": 40.045354214,
+      "writes_per_s": 417.1270382760211,
+      "writes_per_s_range": [
+        240.25569087431484,
+        594.2513694462084
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          11.73,
+          26.142
+        ],
+        "p95": [
+          25.304,
+          79.978
+        ],
+        "p99": [
+          42.773,
+          133.658
+        ],
+        "max": [
+          144.464,
+          319.655
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 18861,
+      "elapsed_s": 40.065199737,
+      "writes_per_s": 470.7576680962348,
+      "writes_per_s_range": [
+        283.42363183219896,
+        658.3087889377911
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          42.604,
+          98.024
+        ],
+        "p95": [
+          90.838,
+          227.033
+        ],
+        "p99": [
+          137.034,
+          343.074
+        ],
+        "max": [
+          377.922,
+          681.375
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 50173,
+      "elapsed_s": 40.254952156,
+      "writes_per_s": 1246.3808131124983,
+      "writes_per_s_range": [
+        552.7799829564045,
+        1946.4871729442614
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          62.074,
+          184.991
+        ],
+        "p95": [
+          105.022,
+          545.877
+        ],
+        "p99": [
+          132.677,
+          1216.829
+        ],
+        "max": [
+          174.43,
+          1978.151
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 200,
+      "repetitions": 2,
+      "successful_writes": 37615,
+      "elapsed_s": 40.350697943,
+      "writes_per_s": 932.2019671911379,
+      "writes_per_s_range": [
+        307.90487928852536,
+        1562.3372948133863
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          92.917,
+          580.666
+        ],
+        "p95": [
+          301.889,
+          1159.872
+        ],
+        "p99": [
+          430.974,
+          1468.322
+        ],
+        "max": [
+          1139.709,
+          2034.839
+        ]
+      },
+      "errors": 0
+    }
+  ],
+  "measurements": [
+    {
+      "cells": 200,
+      "concurrency": 1,
+      "elapsed_s": 20.00170573,
+      "errors": {},
+      "latency_ms": {
+        "max": 52.626,
+        "p50": 3.365,
+        "p95": 5.022,
+        "p99": 6.382
+      },
+      "logical_mib_per_s": 0.2739024210711653,
+      "operation": "write",
+      "owners": {
+        "node1": 5610
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 5610,
+      "writes_per_s": 280.47607917687327,
+      "scenario": "one_node_bucket",
+      "label": "c1-r1",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 8,
+      "elapsed_s": 20.013893435,
+      "errors": {},
+      "latency_ms": {
+        "max": 117.903,
+        "p50": 10.156,
+        "p95": 21.849,
+        "p99": 27.374
+      },
+      "logical_mib_per_s": 0.6498903364176927,
+      "operation": "write",
+      "owners": {
+        "node1": 13319
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 13319,
+      "writes_per_s": 665.4877044917173,
+      "scenario": "one_node_bucket",
+      "label": "c8-r1",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 32,
+      "elapsed_s": 20.018715158,
+      "errors": {},
+      "latency_ms": {
+        "max": 219.474,
+        "p50": 26.351,
+        "p95": 49.755,
+        "p99": 98.937
+      },
+      "logical_mib_per_s": 1.054286880222965,
+      "operation": "write",
+      "owners": {
+        "node1": 21612
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 21612,
+      "writes_per_s": 1079.5897653483162,
+      "scenario": "one_node_bucket",
+      "label": "c32-r1",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 128,
+      "elapsed_s": 20.084767398,
+      "errors": {},
+      "latency_ms": {
+        "max": 1862.38,
+        "p50": 131.662,
+        "p95": 1025.874,
+        "p99": 1497.962
+      },
+      "logical_mib_per_s": 0.42427598020620105,
+      "operation": "write",
+      "owners": {
+        "node1": 8726
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 8726,
+      "writes_per_s": 434.4586037311499,
+      "scenario": "one_node_bucket",
+      "label": "c128-r1",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 200,
+      "elapsed_s": 20.144516135,
+      "errors": {},
+      "latency_ms": {
+        "max": 421.581,
+        "p50": 164.383,
+        "p95": 239.865,
+        "p99": 349.187
+      },
+      "logical_mib_per_s": 1.1528998373233947,
+      "operation": "write",
+      "owners": {
+        "node1": 23782
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 23782,
+      "writes_per_s": 1180.5694334191562,
+      "scenario": "one_node_bucket",
+      "label": "c200-r1",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 1,
+      "elapsed_s": 20.002662358,
+      "errors": {},
+      "latency_ms": {
+        "max": 108.603,
+        "p50": 3.627,
+        "p95": 7.066,
+        "p99": 14.182
+      },
+      "logical_mib_per_s": 0.23058453944533658,
+      "operation": "write",
+      "owners": {
+        "node1": 4723
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 4723,
+      "writes_per_s": 236.11856839202466,
+      "scenario": "one_node_bucket",
+      "label": "c1-r2",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 8,
+      "elapsed_s": 20.015357601,
+      "errors": {},
+      "latency_ms": {
+        "max": 116.032,
+        "p50": 11.061,
+        "p95": 19.311,
+        "p99": 34.132
+      },
+      "logical_mib_per_s": 0.6406701515469966,
+      "operation": "write",
+      "owners": {
+        "node1": 13131
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 13131,
+      "writes_per_s": 656.0462351841245,
+      "scenario": "one_node_bucket",
+      "label": "c8-r2",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 32,
+      "elapsed_s": 20.015493044,
+      "errors": {},
+      "latency_ms": {
+        "max": 530.806,
+        "p50": 27.092,
+        "p95": 49.627,
+        "p99": 89.996
+      },
+      "logical_mib_per_s": 1.0238650638008235,
+      "operation": "write",
+      "owners": {
+        "node1": 20985
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 20985,
+      "writes_per_s": 1048.4378253320433,
+      "scenario": "one_node_bucket",
+      "label": "c32-r2",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 128,
+      "elapsed_s": 20.091052916,
+      "errors": {},
+      "latency_ms": {
+        "max": 741.968,
+        "p50": 111.105,
+        "p95": 427.963,
+        "p99": 620.752
+      },
+      "logical_mib_per_s": 0.7854378515390299,
+      "operation": "write",
+      "owners": {
+        "node1": 16159
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 16159,
+      "writes_per_s": 804.2883599759666,
+      "scenario": "one_node_bucket",
+      "label": "c128-r2",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 200,
+      "elapsed_s": 20.28199884,
+      "errors": {},
+      "latency_ms": {
+        "max": 836.181,
+        "p50": 182.042,
+        "p95": 326.812,
+        "p99": 569.319
+      },
+      "logical_mib_per_s": 0.9563880311068985,
+      "operation": "write",
+      "owners": {
+        "node1": 19863
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 19863,
+      "writes_per_s": 979.3413438534641,
+      "scenario": "one_node_bucket",
+      "label": "c200-r2",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "concurrency": 1,
+      "elapsed_s": 20.003892588,
+      "errors": {},
+      "latency_ms": {
+        "max": 114.486,
+        "p50": 3.97,
+        "p95": 7.35,
+        "p99": 17.268
+      },
+      "logical_mib_per_s": 0.21309329140554972,
+      "operation": "write",
+      "owners": {
+        "node1": 1462,
+        "node2": 1462,
+        "node3": 1441
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 4365,
+      "writes_per_s": 218.20753039928292,
+      "scenario": "three_node_bucket",
+      "label": "c1-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 8,
+      "elapsed_s": 20.007635362,
+      "errors": {},
+      "latency_ms": {
+        "max": 216.238,
+        "p50": 11.497,
+        "p95": 22.449,
+        "p99": 40.575
+      },
+      "logical_mib_per_s": 0.5943531730433983,
+      "operation": "write",
+      "owners": {
+        "node1": 4080,
+        "node2": 4079,
+        "node3": 4018
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 12177,
+      "writes_per_s": 608.6176491964399,
+      "scenario": "three_node_bucket",
+      "label": "c8-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 32,
+      "elapsed_s": 20.025353184,
+      "errors": {},
+      "latency_ms": {
+        "max": 204.796,
+        "p50": 31.582,
+        "p95": 55.216,
+        "p99": 110.294
+      },
+      "logical_mib_per_s": 0.896812366303182,
+      "operation": "write",
+      "owners": {
+        "node1": 6158,
+        "node2": 6155,
+        "node3": 6077
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 18390,
+      "writes_per_s": 918.3358630944583,
+      "scenario": "three_node_bucket",
+      "label": "c32-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 128,
+      "elapsed_s": 21.133559896,
+      "errors": {},
+      "latency_ms": {
+        "max": 1317.268,
+        "p50": 172.253,
+        "p95": 379.778,
+        "p99": 516.5
+      },
+      "logical_mib_per_s": 0.6470196309703637,
+      "operation": "write",
+      "owners": {
+        "node1": 4723,
+        "node2": 4694,
+        "node3": 4585
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 14002,
+      "writes_per_s": 662.5481021136525,
+      "scenario": "three_node_bucket",
+      "label": "c128-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 200,
+      "elapsed_s": 20.109138186,
+      "errors": {},
+      "latency_ms": {
+        "max": 687.702,
+        "p50": 262.111,
+        "p95": 493.304,
+        "p99": 550.307
+      },
+      "logical_mib_per_s": 0.6832831048207707,
+      "operation": "write",
+      "owners": {
+        "node1": 4750,
+        "node2": 4709,
+        "node3": 4611
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 14070,
+      "writes_per_s": 699.6818993364692,
+      "scenario": "three_node_bucket",
+      "label": "c200-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 1,
+      "elapsed_s": 20.003514254,
+      "errors": {},
+      "latency_ms": {
+        "max": 75.474,
+        "p50": 4.233,
+        "p95": 9.952,
+        "p99": 19.195
+      },
+      "logical_mib_per_s": 0.1864418491742886,
+      "operation": "write",
+      "owners": {
+        "node1": 1280,
+        "node2": 1279,
+        "node3": 1260
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 3819,
+      "writes_per_s": 190.91645355447153,
+      "scenario": "three_node_bucket",
+      "label": "c1-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 8,
+      "elapsed_s": 20.006516694,
+      "errors": {},
+      "latency_ms": {
+        "max": 242.962,
+        "p50": 12.645,
+        "p95": 27.332,
+        "p99": 69.679
+      },
+      "logical_mib_per_s": 0.5198013338133374,
+      "operation": "write",
+      "owners": {
+        "node1": 3568,
+        "node2": 3567,
+        "node3": 3514
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 10649,
+      "writes_per_s": 532.2765658248575,
+      "scenario": "three_node_bucket",
+      "label": "c8-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 32,
+      "elapsed_s": 20.046460856,
+      "errors": {},
+      "latency_ms": {
+        "max": 589.472,
+        "p50": 46.701,
+        "p95": 108.641,
+        "p99": 179.533
+      },
+      "logical_mib_per_s": 0.5638756396302615,
+      "operation": "write",
+      "owners": {
+        "node1": 3877,
+        "node2": 3875,
+        "node3": 3823
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 11575,
+      "writes_per_s": 577.4086549813878,
+      "scenario": "three_node_bucket",
+      "label": "c32-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 128,
+      "elapsed_s": 20.112525693,
+      "errors": {},
+      "latency_ms": {
+        "max": 408.189,
+        "p50": 184.757,
+        "p95": 252.767,
+        "p99": 296.076
+      },
+      "logical_mib_per_s": 0.6679217695008566,
+      "operation": "write",
+      "owners": {
+        "node1": 4628,
+        "node2": 4619,
+        "node3": 4509
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 13756,
+      "writes_per_s": 683.9518919688771,
+      "scenario": "three_node_bucket",
+      "label": "c128-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 200,
+      "elapsed_s": 20.220038091,
+      "errors": {},
+      "latency_ms": {
+        "max": 1116.922,
+        "p50": 240.583,
+        "p95": 446.345,
+        "p99": 742.113
+      },
+      "logical_mib_per_s": 0.7234855930618336,
+      "operation": "write",
+      "owners": {
+        "node1": 5011,
+        "node2": 4931,
+        "node3": 5038
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 14980,
+      "writes_per_s": 740.8492472953176,
+      "scenario": "three_node_bucket",
+      "label": "c200-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 1,
+      "elapsed_s": 20.003227438,
+      "errors": {},
+      "latency_ms": {
+        "max": 125.473,
+        "p50": 3.656,
+        "p95": 7.019,
+        "p99": 11.31
+      },
+      "logical_mib_per_s": 0.2347277465375585,
+      "operation": "write",
+      "owners": {
+        "node1": 1611,
+        "node2": 1611,
+        "node3": 1586
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 4808,
+      "writes_per_s": 240.36121245445992,
+      "scenario": "three_node_fleet",
+      "label": "c1-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 8,
+      "elapsed_s": 20.008367858,
+      "errors": {},
+      "latency_ms": {
+        "max": 144.464,
+        "p50": 11.73,
+        "p95": 25.304,
+        "p99": 42.773
+      },
+      "logical_mib_per_s": 0.5803236029748129,
+      "operation": "write",
+      "owners": {
+        "node1": 3985,
+        "node2": 3983,
+        "node3": 3922
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 11890,
+      "writes_per_s": 594.2513694462084,
+      "scenario": "three_node_fleet",
+      "label": "c8-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 32,
+      "elapsed_s": 20.0209996,
+      "errors": {},
+      "latency_ms": {
+        "max": 377.922,
+        "p50": 42.604,
+        "p95": 90.838,
+        "p99": 137.034
+      },
+      "logical_mib_per_s": 0.6428796766970616,
+      "operation": "write",
+      "owners": {
+        "node1": 4415,
+        "node2": 4411,
+        "node3": 4354
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 13180,
+      "writes_per_s": 658.3087889377911,
+      "scenario": "three_node_fleet",
+      "label": "c32-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 128,
+      "elapsed_s": 20.033525287,
+      "errors": {},
+      "latency_ms": {
+        "max": 174.43,
+        "p50": 62.074,
+        "p95": 105.022,
+        "p99": 132.677
+      },
+      "logical_mib_per_s": 1.9008663798283802,
+      "operation": "write",
+      "owners": {
+        "node1": 13431,
+        "node2": 12856,
+        "node3": 12708
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 38995,
+      "writes_per_s": 1946.4871729442614,
+      "scenario": "three_node_fleet",
+      "label": "c128-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 200,
+      "elapsed_s": 20.081451108,
+      "errors": {},
+      "latency_ms": {
+        "max": 1139.709,
+        "p50": 92.917,
+        "p95": 301.889,
+        "p99": 430.974
+      },
+      "logical_mib_per_s": 1.5257200144661975,
+      "operation": "write",
+      "owners": {
+        "node1": 11354,
+        "node2": 9939,
+        "node3": 10081
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 31374,
+      "writes_per_s": 1562.3372948133863,
+      "scenario": "three_node_fleet",
+      "label": "c200-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 1,
+      "elapsed_s": 20.009457823,
+      "errors": {},
+      "latency_ms": {
+        "max": 135.423,
+        "p50": 5.032,
+        "p95": 14.592,
+        "p99": 38.332
+      },
+      "logical_mib_per_s": 0.14558545080374613,
+      "operation": "write",
+      "owners": {
+        "node1": 999,
+        "node2": 999,
+        "node3": 985
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2983,
+      "writes_per_s": 149.07950162303604,
+      "scenario": "three_node_fleet",
+      "label": "c1-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 8,
+      "elapsed_s": 20.036986356,
+      "errors": {},
+      "latency_ms": {
+        "max": 319.655,
+        "p50": 26.142,
+        "p95": 79.978,
+        "p99": 133.658
+      },
+      "logical_mib_per_s": 0.23462469811944808,
+      "operation": "write",
+      "owners": {
+        "node1": 1614,
+        "node2": 1613,
+        "node3": 1587
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 4814,
+      "writes_per_s": 240.25569087431484,
+      "scenario": "three_node_fleet",
+      "label": "c8-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 32,
+      "elapsed_s": 20.044200137,
+      "errors": {},
+      "latency_ms": {
+        "max": 681.375,
+        "p50": 98.024,
+        "p95": 227.033,
+        "p99": 343.074
+      },
+      "logical_mib_per_s": 0.2767808904611318,
+      "operation": "write",
+      "owners": {
+        "node1": 1904,
+        "node2": 1897,
+        "node3": 1880
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 5681,
+      "writes_per_s": 283.42363183219896,
+      "scenario": "three_node_fleet",
+      "label": "c32-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 128,
+      "elapsed_s": 20.221426869,
+      "errors": {},
+      "latency_ms": {
+        "max": 1978.151,
+        "p50": 184.991,
+        "p95": 545.877,
+        "p99": 1216.829
+      },
+      "logical_mib_per_s": 0.5398242021058638,
+      "operation": "write",
+      "owners": {
+        "node1": 3834,
+        "node2": 3726,
+        "node3": 3618
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 11178,
+      "writes_per_s": 552.7799829564045,
+      "scenario": "three_node_fleet",
+      "label": "c128-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "concurrency": 200,
+      "elapsed_s": 20.269246835,
+      "errors": {},
+      "latency_ms": {
+        "max": 2034.839,
+        "p50": 580.666,
+        "p95": 1159.872,
+        "p99": 1468.322
+      },
+      "logical_mib_per_s": 0.30068835868020055,
+      "operation": "write",
+      "owners": {
+        "node1": 2222,
+        "node2": 1990,
+        "node3": 2029
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 6241,
+      "writes_per_s": 307.90487928852536,
+      "scenario": "three_node_fleet",
+      "label": "c200-r2",
+      "nodes": 3
+    }
+  ],
+  "recovery": [
+    {
+      "cells": 200,
+      "elapsed_s": 14.284882211,
+      "expected_writes": 160816,
+      "max_cell_read_ms": 9605.25675,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 200
+      },
+      "read_retries": {},
+      "scenario": "one_node_bucket",
+      "label": "before-recovery",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "elapsed_s": 20.084455968,
+      "expected_writes": 160816,
+      "max_cell_read_ms": 287.398554,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 200
+      },
+      "read_retries": {},
+      "scenario": "one_node_bucket",
+      "label": "bucket-restore",
+      "nodes": 1
+    },
+    {
+      "cells": 200,
+      "elapsed_s": 0.06995494,
+      "expected_writes": 128641,
+      "max_cell_read_ms": 3.6159410000000003,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 67,
+        "node2": 67,
+        "node3": 66
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "before-recovery",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "elapsed_s": 51.440933031,
+      "expected_writes": 128641,
+      "max_cell_read_ms": 1273.3599259999999,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 67,
+        "node2": 67,
+        "node3": 66
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "bucket-restore",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "elapsed_s": 0.360223264,
+      "expected_writes": 135653,
+      "max_cell_read_ms": 23.527666,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 67,
+        "node2": 67,
+        "node3": 66
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "before-recovery",
+      "nodes": 3
+    },
+    {
+      "cells": 200,
+      "elapsed_s": 11.267838263,
+      "expected_writes": 135653,
+      "max_cell_read_ms": 6745.82905,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node2": 101,
+        "node3": 99
+      },
+      "read_retries": {
+        "500 Internal Server Error": 55
+      },
+      "scenario": "three_node_fleet",
+      "label": "single-node-loss",
+      "nodes": 3
+    }
+  ],
+  "node_snapshots": [
+    {
+      "snapshot": "one_node_bucket-measured-node1-state.json",
+      "owned_cells": 127,
+      "resident_cells": 127,
+      "rss_bytes": 102289408,
+      "working_set_bytes": 251338752,
+      "cgroup_current_bytes": 1591717888,
+      "peak_cgroup_memory_bytes": 2063319040,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 99,
+      "stops": 99,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 379834368,
+      "state_directory_bytes": 147053335,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node1-state.json",
+      "owned_cells": 67,
+      "resident_cells": 67,
+      "rss_bytes": 68984832,
+      "working_set_bytes": 127090688,
+      "cgroup_current_bytes": 333586432,
+      "peak_cgroup_memory_bytes": 344797184,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 0,
+      "stops": 0,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 208355328,
+      "state_directory_bytes": 88139311,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node2-state.json",
+      "owned_cells": 67,
+      "resident_cells": 67,
+      "rss_bytes": 69087232,
+      "working_set_bytes": 134770688,
+      "cgroup_current_bytes": 610082816,
+      "peak_cgroup_memory_bytes": 615776256,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 0,
+      "stops": 0,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 210677760,
+      "state_directory_bytes": 90928189,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node3-state.json",
+      "owned_cells": 66,
+      "resident_cells": 66,
+      "rss_bytes": 73940992,
+      "working_set_bytes": 139366400,
+      "cgroup_current_bytes": 603058176,
+      "peak_cgroup_memory_bytes": 609325056,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 0,
+      "stops": 0,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 205643776,
+      "state_directory_bytes": 87361527,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node1-state.json",
+      "owned_cells": 67,
+      "resident_cells": 67,
+      "rss_bytes": 67739648,
+      "working_set_bytes": 135598080,
+      "cgroup_current_bytes": 354414592,
+      "peak_cgroup_memory_bytes": 355426304,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 0,
+      "stops": 0,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 222035968,
+      "state_directory_bytes": 91172201,
+      "peerlog_bytes": 403681
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node2-state.json",
+      "owned_cells": 67,
+      "resident_cells": 67,
+      "rss_bytes": 73089024,
+      "working_set_bytes": 144683008,
+      "cgroup_current_bytes": 570155008,
+      "peak_cgroup_memory_bytes": 574001152,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 0,
+      "stops": 0,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 220282880,
+      "state_directory_bytes": 95975959,
+      "peerlog_bytes": 636678
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node3-state.json",
+      "owned_cells": 66,
+      "resident_cells": 66,
+      "rss_bytes": 64413696,
+      "working_set_bytes": 134287360,
+      "cgroup_current_bytes": 553353216,
+      "peak_cgroup_memory_bytes": 560447488,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 0,
+      "stops": 0,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 214376448,
+      "state_directory_bytes": 90852431,
+      "peerlog_bytes": 278901
+    }
+  ],
+  "cpu_samples": [
+    {
+      "scenario": "three_node_bucket",
+      "component": "load",
+      "samples": 93,
+      "median_cpu_percent": 5.75,
+      "max_cpu_percent": 18.96
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node1",
+      "samples": 93,
+      "median_cpu_percent": 18.7,
+      "max_cpu_percent": 38.11
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node2",
+      "samples": 93,
+      "median_cpu_percent": 17.75,
+      "max_cpu_percent": 31.18
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node3",
+      "samples": 93,
+      "median_cpu_percent": 18.42,
+      "max_cpu_percent": 31.73
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "rustfs",
+      "samples": 93,
+      "median_cpu_percent": 125.44,
+      "max_cpu_percent": 199.14
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "load",
+      "samples": 91,
+      "median_cpu_percent": 4.29,
+      "max_cpu_percent": 13.69
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node1",
+      "samples": 91,
+      "median_cpu_percent": 17.37,
+      "max_cpu_percent": 49.17
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node2",
+      "samples": 91,
+      "median_cpu_percent": 17.79,
+      "max_cpu_percent": 47.6
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node3",
+      "samples": 91,
+      "median_cpu_percent": 17.98,
+      "max_cpu_percent": 45.73
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "rustfs",
+      "samples": 91,
+      "median_cpu_percent": 12.37,
+      "max_cpu_percent": 92.21
+    }
+  ],
+  "shutdown_handoff_stalls": [
+    {
+      "log": "one_node_bucket-drained-node1.log",
+      "line": 3,
+      "event": "shutdown_handoff_stalled",
+      "counters": {
+        "drain_ms": 18750,
+        "shutdown_total_ms": 30000,
+        "occupied": 0,
+        "activating": 0,
+        "quiescing": 0,
+        "evicting": 0,
+        "releasing": 0,
+        "adopting": 72,
+        "handed_off": 0
+      }
+    },
+    {
+      "log": "three_node_bucket-drained-node3.log",
+      "line": 3,
+      "event": "shutdown_handoff_stalled",
+      "counters": {
+        "drain_ms": 18750,
+        "shutdown_total_ms": 30000,
+        "occupied": 0,
+        "activating": 0,
+        "quiescing": 0,
+        "evicting": 0,
+        "releasing": 0,
+        "adopting": 72,
+        "handed_off": 0
+      }
+    },
+    {
+      "log": "three_node_fleet-drained-node3.log",
+      "line": 4,
+      "event": "shutdown_handoff_stalled",
+      "counters": {
+        "drain_ms": 18750,
+        "shutdown_total_ms": 30000,
+        "occupied": 0,
+        "activating": 0,
+        "quiescing": 0,
+        "evicting": 0,
+        "releasing": 0,
+        "adopting": 72,
+        "handed_off": 0
+      }
+    }
+  ],
+  "shutdown_outcomes": [],
+  "cpu_sampling_coverage": [
+    "three_node_bucket",
+    "three_node_fleet"
+  ],
+  "limitations": [
+    "All containers share one Apple M2 Max / Colima VM and backing disk; CPU affinity and quotas do not isolate disk or VM overhead.",
+    "RustFS is a local single-node S3-compatible store, not production S3 latency or durability.",
+    "The 5 GiB loop image has approximately 4.84 GiB usable ext4 capacity; it bounds node data, not the read-only container image.",
+    "Repeated overwrite workload with 200 total cells; no growing dataset, hot-cell skew or long soak.",
+    "The multi-mode sweep reuses one RustFS instance with a fresh bucket per scenario; the fresh-store fleet confirmation is reported separately.",
+    "The original sampler omitted the one-node sweep; that case has endpoint CPU/memory counters. The harness now filters out absent containers before sampling.",
+    "Closed-loop measurements characterize saturation and do not correct coordinated omission for an independently arriving workload.",
+    "Fleet durability can fall back to bucket proof; peerlog files demonstrate replication, but acknowledgement source is not separately instrumented."
+  ]
+}

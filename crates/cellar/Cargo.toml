@@ -33,6 +33,14 @@ path = "../../examples/native_websocket.rs"
 name = "cellar-native-container"
 path = "../../examples/native_container.rs"
 
+[[bin]]
+name = "cellar-perf-cells"
+path = "../../tools/perf/cells.rs"
+
+[[bin]]
+name = "cellar-perf-load"
+path = "../../tools/perf/load.rs"
+
 [lints.rust.unexpected_cfgs]
 level = "warn"
 check-cfg = ["cfg(cellar_internal_tests)", "cfg(cellar_proxy_internals)"]
