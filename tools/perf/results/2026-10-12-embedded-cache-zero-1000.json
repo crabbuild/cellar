@@ -1,0 +1,417 @@
+{
+  "started_utc": "2026-10-12T21:48:03.792236+00:00",
+  "revision": "52519f12256b639a9db7bc906a49f9c0cb4633dc",
+  "source_sha256": {
+    "tools/perf/cells.rs": "70f65e2721729bccd329fabd667002082b2a53a7be13d53a3da4943a52eab8c6",
+    "tools/perf/embedded.rs": "2c56a61b6beb09fdf6af2619380963994740d3f1d3d51de2811b65d3ada6eee8",
+    "tools/perf/load.rs": "f731ca0b4ec9688772705ee7feab9580d0f5c240a655dc32e9948576a64b8a8e",
+    "tools/perf/run.py": "f8054fcb932a9581b7c647e57250c3d07c3b249b1ea5927057e01e83066ad2e8",
+    "tools/perf/analyze.py": "047dc182ca2d6f33035ba94bb74e1b13d38b8a0786b87d976c00c7b04be19756",
+    "tools/perf/Dockerfile": "1eda9c034ac94815acb06b93edadfbb9f189a1093608e9e8302349b59215322f",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc"
+  },
+  "analysis_sha256": "047dc182ca2d6f33035ba94bb74e1b13d38b8a0786b87d976c00c7b04be19756",
+  "source_dirty": false,
+  "image_labels": {
+    "org.opencontainers.image.revision": "4db0ba656cf30228d5d1ca93008df802c599b889"
+  },
+  "completed": true,
+  "failures": [],
+  "cellar_image": "sha256:827a08dc00ffaf91e988c69578cb11b454cef3b645c5df81773a58b430d4ca34",
+  "rustfs_image": "sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+  "environment": {
+    "architecture": "aarch64",
+    "vm_cpus": 8,
+    "vm_memory_bytes": 16732549120,
+    "node_limits": {
+      "cpus": 1,
+      "memory_bytes": 2147483648,
+      "disk_image_bytes": 5368709120
+    },
+    "load_generator_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        0,
+        6
+      ],
+      "memory_bytes": 2147483648
+    },
+    "rustfs_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        4,
+        5
+      ],
+      "memory_bytes": 4294967296
+    }
+  },
+  "workload": {
+    "cells": 1000,
+    "payload_bytes": 1024,
+    "phase_seconds": 10,
+    "repetitions": 1,
+    "concurrency": [
+      32,
+      128
+    ],
+    "warmup_seconds": 60,
+    "max_resident_cells_per_node": 64,
+    "max_cached_routes_per_node": 0,
+    "max_requests_per_script_pool": 512,
+    "execution": "sdk::Node with caller-owned host/core runtimes, listeners, authenticated peer clients and object-store clients",
+    "operation": "transaction: increment persistent counter and overwrite JSON value with changing seeded random ASCII payload (64-symbol alphabet)",
+    "load_model": "closed loop; one in-flight request per worker; disjoint cell partitions; rotating ingress; no write retries",
+    "latency": "request start through complete HTTP response JSON; warmup excluded; percentile ranges across repetitions, not pooled percentiles",
+    "build": "Linux ARM64; Rust 1.98.1; repository release profile (opt-level=s, fat LTO)",
+    "rebalance_interval_ms": 0
+  },
+  "summary": [
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 32,
+      "repetitions": 1,
+      "successful_writes": 837,
+      "elapsed_s": 10.274083334,
+      "writes_per_s": 81.46712196017701,
+      "writes_per_s_range": [
+        81.46712196017701,
+        81.46712196017701
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          351.867,
+          351.867
+        ],
+        "p95": [
+          619.189,
+          619.189
+        ],
+        "p99": [
+          664.037,
+          664.037
+        ],
+        "max": [
+          748.819,
+          748.819
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "one_node_bucket",
+      "concurrency": 128,
+      "repetitions": 1,
+      "successful_writes": 970,
+      "elapsed_s": 11.724911218,
+      "writes_per_s": 82.72983751986649,
+      "writes_per_s_range": [
+        82.72983751986649,
+        82.72983751986649
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          1523.745,
+          1523.745
+        ],
+        "p95": [
+          2093.198,
+          2093.198
+        ],
+        "p99": [
+          2193.463,
+          2193.463
+        ],
+        "max": [
+          2238.016,
+          2238.016
+        ]
+      },
+      "errors": 0
+    }
+  ],
+  "measurements": [
+    {
+      "cells": 1000,
+      "concurrency": 32,
+      "elapsed_s": 10.274083334,
+      "errors": {},
+      "latency_ms": {
+        "max": 748.819,
+        "p50": 351.867,
+        "p95": 619.189,
+        "p99": 664.037
+      },
+      "logical_mib_per_s": 0.07955773628923536,
+      "operation": "write",
+      "owners": {
+        "node1": 837
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 10,
+      "successful_writes": 837,
+      "writes_per_s": 81.46712196017701,
+      "scenario": "one_node_bucket",
+      "label": "c32-r1",
+      "nodes": 1
+    },
+    {
+      "cells": 1000,
+      "concurrency": 128,
+      "elapsed_s": 11.724911218,
+      "errors": {},
+      "latency_ms": {
+        "max": 2238.016,
+        "p50": 1523.745,
+        "p95": 2093.198,
+        "p99": 2193.463
+      },
+      "logical_mib_per_s": 0.08079085695299462,
+      "operation": "write",
+      "owners": {
+        "node1": 970
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 10,
+      "successful_writes": 970,
+      "writes_per_s": 82.72983751986649,
+      "scenario": "one_node_bucket",
+      "label": "c128-r1",
+      "nodes": 1
+    }
+  ],
+  "recovery": [
+    {
+      "cells": 1000,
+      "elapsed_s": 24.435689702,
+      "expected_writes": 9284,
+      "max_cell_read_ms": 960.268442,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 1000
+      },
+      "read_retries": {},
+      "scenario": "one_node_bucket",
+      "label": "before-recovery",
+      "nodes": 1
+    },
+    {
+      "cells": 1000,
+      "elapsed_s": 18.441216144,
+      "expected_writes": 9284,
+      "max_cell_read_ms": 48.430471000000004,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 1000
+      },
+      "read_retries": {},
+      "scenario": "one_node_bucket",
+      "label": "bucket-restore",
+      "nodes": 1
+    },
+    {
+      "cells": 1000,
+      "elapsed_s": 18.41703479,
+      "expected_writes": 9284,
+      "max_cell_read_ms": 43.695764999999994,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 1000
+      },
+      "read_retries": {},
+      "scenario": "one_node_bucket",
+      "label": "preserve-reload",
+      "nodes": 1
+    }
+  ],
+  "node_snapshots": [
+    {
+      "snapshot": "one_node_bucket-measured-node1-state.json",
+      "owned_cells": 64,
+      "resident_cells": 64,
+      "tracked_cells": 64,
+      "cached_routes": 0,
+      "rss_bytes": 72343552,
+      "working_set_bytes": 100298752,
+      "cgroup_current_bytes": 328482816,
+      "peak_cgroup_memory_bytes": 329592832,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 10926,
+      "stops": 10926,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 59383808,
+      "state_directory_bytes": 59098112,
+      "peerlog_bytes": null
+    }
+  ],
+  "cpu_samples": [
+    {
+      "scenario": "one_node_bucket",
+      "component": "load",
+      "samples": 6,
+      "median_cpu_percent": 0.5700000000000001,
+      "max_cpu_percent": 0.71
+    },
+    {
+      "scenario": "one_node_bucket",
+      "component": "node1",
+      "samples": 6,
+      "median_cpu_percent": 26.485,
+      "max_cpu_percent": 32.24
+    },
+    {
+      "scenario": "one_node_bucket",
+      "component": "rustfs",
+      "samples": 6,
+      "median_cpu_percent": 79.92500000000001,
+      "max_cpu_percent": 102.12
+    }
+  ],
+  "shutdown_handoff_stalls": [],
+  "shutdown_outcomes": [
+    {
+      "label": "one_node_bucket-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "one_node_bucket-preserve-reloaded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "node_policies": [
+    {
+      "scenario": "one_node_bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 0,
+        "max_requests": 512,
+        "max_resident": 64
+      }
+    },
+    {
+      "scenario": "one_node_bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 0,
+        "max_requests": 512,
+        "max_resident": 64
+      }
+    },
+    {
+      "scenario": "one_node_bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 0,
+        "max_requests": 512,
+        "max_resident": 64
+      }
+    }
+  ],
+  "routing_cache_snapshots": [
+    {
+      "scenario": "one_node_bucket",
+      "label": "warm",
+      "node": 1,
+      "file": "one_node_bucket-warm-node1-state.json",
+      "cached_routes": 0,
+      "tracked_cells": 64,
+      "occupied": 64,
+      "owned_cells": 64
+    },
+    {
+      "scenario": "one_node_bucket",
+      "label": "measured",
+      "node": 1,
+      "file": "one_node_bucket-measured-node1-state.json",
+      "cached_routes": 0,
+      "tracked_cells": 64,
+      "occupied": 64,
+      "owned_cells": 64
+    },
+    {
+      "scenario": "one_node_bucket",
+      "label": "recovered",
+      "node": 1,
+      "file": "one_node_bucket-recovered-node1-state.json",
+      "cached_routes": 0,
+      "tracked_cells": 64,
+      "occupied": 64,
+      "owned_cells": 64
+    },
+    {
+      "scenario": "one_node_bucket",
+      "label": "preserve-reload",
+      "node": 1,
+      "file": "one_node_bucket-preserve-reload-node1-state.json",
+      "cached_routes": 0,
+      "tracked_cells": 64,
+      "occupied": 64,
+      "owned_cells": 64
+    }
+  ],
+  "cpu_sampling_coverage": [
+    "one_node_bucket"
+  ],
+  "limitations": [
+    "All containers share one Apple M2 Max / Colima VM and backing disk; CPU affinity and quotas do not isolate disk or VM overhead.",
+    "RustFS is a local single-node S3-compatible store, not production S3 latency or durability.",
+    "The 5 GiB loop image has approximately 4.84 GiB usable ext4 capacity; it bounds node data, not the read-only container image.",
+    "Repeated overwrite workload with 1000 total cells; no growing dataset, hot-cell skew or long soak.",
+    "Each scenario uses a fresh bucket on a RustFS instance shared by the scenarios in that run.",
+    "Failures and rolling restarts occur between write phases; concurrent ambiguous write acknowledgements are not exercised.",
+    "Closed-loop measurements characterize saturation and do not correct coordinated omission for an independently arriving workload.",
+    "Fleet durability can fall back to bucket proof; peerlog files demonstrate replication, but acknowledgement source is not separately instrumented."
+  ]
+}

@@ -8,6 +8,24 @@ Run the commands below from the repository root.
 | [Counter](native_counter.rs) | Named business cells, durable storage, HTTP routing and static assets |
 | [WebSockets](native_websocket.rs) | Outbound WebSockets, service upgrades and hibernating cell sockets |
 | [Container cells](native-container/README.md) | One container per named cell, port readiness and HTTP forwarding |
+| [Embedded node](../tools/perf/embedded.rs) | Caller-owned executors, listeners, storage and peer clients, and returned shutdown proofs |
+
+## Embedding in your application
+
+Start an engine with `cellar::sdk::Node::start`. The
+[complete measuring host](../tools/perf/embedded.rs) constructs `NodeConfig`,
+`NodeServices`, a deployment graph and compiled application factories. It owns
+the host and core runtimes, binds the listeners, supplies authenticated peer
+and storage clients, captures its configuration and selects its stop future.
+`Node::run_until` returns the outcome after joining the node's work. Keep both
+executors alive until it returns. The host checks that both still accept work
+and reports each shutdown phase; the harness requires a complete proof before
+marking its run successful. A stopped outcome can contain unfinished phases
+when a shutdown budget expires, so inspect the returned `ShutdownReport`.
+
+The [SDK guide](../crates/cellar/sdk.rs) documents the public contracts and
+minimal startup pattern. The [embedded fleet guide](../tools/perf/README.md)
+provides the image build and local RustFS recovery commands for this host.
 
 ## Counter and static assets
 

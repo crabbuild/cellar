@@ -6,10 +6,12 @@ Usage: python3 tools/perf/analyze.py RUN_DIRECTORY OUTPUT_PREFIX [--plot]
 
 import argparse
 import collections
+import hashlib
 import json
 import pathlib
 import statistics
 import re
+from run import routing_cache_checkpoints, validate_routing_cache
 
 
 def summarize(root):
@@ -22,6 +24,20 @@ def summarize(root):
         value = json.loads(file.read_text())
         if isinstance(value, dict) and value.get("operation") in ("write", "verify") and (value.get("errors") or value.get("mismatches")):
             failures[(value["scenario"], value["label"])] = value
+    cache_snapshots = []
+    cache_limit = metadata["arguments"].get("max_cached_routes")
+    if cache_limit is not None:
+        for checkpoint in routing_cache_checkpoints(metadata["arguments"].get("scenario")):
+            try:
+                state = json.loads((root / checkpoint["file"]).read_text())
+                validate_routing_cache(state, cache_limit)
+                cache_snapshots.append(dict(checkpoint, cached_routes=state["cached_routes"],
+                                            tracked_cells=sum(state["phases"].values()),
+                                            occupied=state["occupied"], owned_cells=state["owned_cells"]))
+            except Exception as error:
+                label = f"{checkpoint['label']}-node{checkpoint['node']}"
+                failures[(checkpoint["scenario"], label)] = {"operation": "state_snapshot",
+                    "scenario": checkpoint["scenario"], "label": label, "error": str(error)}
     groups = collections.defaultdict(list)
     for measurement in results["measurements"]:
         groups[(measurement["scenario"], measurement["concurrency"])].append(measurement)
@@ -52,6 +68,8 @@ def summarize(root):
         events = {parts[0]: int(parts[1]) for line in lines if len(parts := line.split()) == 2 and parts[0] in ("low", "high", "max", "oom", "oom_kill", "oom_group_kill")}
         nodes.append({
             "snapshot": file.name, "owned_cells": state["owned_cells"], "resident_cells": len(state["residents"]),
+            "tracked_cells": sum(state["phases"].values()) if "phases" in state else None,
+            "cached_routes": state.get("cached_routes"),
             "rss_bytes": state["rss_bytes"], "working_set_bytes": state["cgroup_working_set_bytes"],
             "cgroup_current_bytes": state["cgroup_current_bytes"],
             "peak_cgroup_memory_bytes": peak_memory, "memory_events": events,
@@ -80,6 +98,7 @@ def summarize(root):
                     "counters": {key: int(value) for key, value in re.findall(r'\b(drain_ms|shutdown_total_ms|occupied|activating|quiescing|evicting|releasing|adopting|handed_off)=(\d+)', line.split('drain_state=', 1)[0])}})
     return {
         "started_utc": metadata["started_utc"], "revision": metadata["revision"], "source_sha256": metadata["source_sha256"],
+        "analysis_sha256": hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),
         "source_dirty": metadata["dirty"], "image_labels": metadata.get("image_labels"),
         "completed": False if failures else results.get("completed"), "failures": list(failures.values()),
         "cellar_image": metadata["image"], "rustfs_image": metadata["rustfs_image"],
@@ -90,6 +109,7 @@ def summarize(root):
             "phase_seconds": metadata["arguments"]["seconds"], "repetitions": metadata["arguments"]["repeats"],
             "concurrency": metadata["arguments"]["concurrency"], "warmup_seconds": metadata["arguments"].get("warmup_seconds", 10),
             "max_resident_cells_per_node": metadata["arguments"].get("max_resident", 256),
+            "max_cached_routes_per_node": cache_limit,
             "max_requests_per_script_pool": metadata["arguments"].get("max_requests", 64 if "sdk::Node" in metadata.get("execution", "") else None),
             "execution": metadata.get("execution", "process-owning CLI host"),
             "operation": "transaction: increment persistent counter and overwrite JSON value with changing seeded random ASCII payload (64-symbol alphabet)",
@@ -100,6 +120,8 @@ def summarize(root):
         "summary": summary, "measurements": results["measurements"], "recovery": results["recovery"], "node_snapshots": nodes, "cpu_samples": cpu_summary,
         "shutdown_handoff_stalls": stalls,
         "shutdown_outcomes": results.get("shutdown_outcomes", []),
+        "node_policies": results.get("node_policies", []),
+        "routing_cache_snapshots": cache_snapshots,
         "cpu_sampling_coverage": sorted({item["scenario"] for item in cpu_summary}),
         "limitations": ["All containers share one Apple M2 Max / Colima VM and backing disk; CPU affinity and quotas do not isolate disk or VM overhead.",
             "RustFS is a local single-node S3-compatible store, not production S3 latency or durability.",

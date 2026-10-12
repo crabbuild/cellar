@@ -80,6 +80,7 @@ pub(super) fn run(
     let directory = PathBuf::from(std::env::var("CELLAR_PERF_DATA_DIR")?);
     let threads = setting("CELLAR_PERF_THREADS", 1usize)?;
     let resident = setting("CELLAR_PERF_MAX_RESIDENT", 256usize)?;
+    let cached_routes = setting("CELLAR_PERF_MAX_CACHED_ROUTES", 2_048usize)?;
     let requests = setting("CELLAR_PERF_MAX_REQUESTS", 512usize)?;
     let shutdown_ms = setting("CELLAR_PERF_SHUTDOWN_MS", 30_000u64)?;
     ensure!(
@@ -168,7 +169,7 @@ pub(super) fn run(
         let actor = ActorOptions {
             core: ActorPolicy {
                 max_resident: resident,
-                max_cached_routes: 2_048,
+                max_cached_routes: cached_routes,
                 max_activations: 64,
                 max_evictions: 4,
                 max_releases: 32,
@@ -221,7 +222,11 @@ pub(super) fn run(
         #[cfg(unix)]
         let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
         let node = Node::start(config, services, graph, applications).await?;
-        report(serde_json::json!({"event": "embedded_node_started", "executors": "caller_owned"}))?;
+        report(serde_json::json!({
+            "event": "embedded_node_started", "executors": "caller_owned",
+            "max_resident": resident, "max_cached_routes": cached_routes,
+            "max_requests": requests,
+        }))?;
         let outcome = node.run_until(async {
             #[cfg(unix)]
             cellar::asyncrt::select! {

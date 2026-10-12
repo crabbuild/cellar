@@ -21,6 +21,8 @@ import time
 import urllib.request
 import urllib.error
 
+SCENARIOS = (("one_node_bucket", 1, "bucket"), ("three_node_bucket", 3, "bucket"), ("three_node_fleet", 3, "fleet"))
+
 
 def command(*args, check=True, **kwargs):
     result = subprocess.run(args, text=True, capture_output=True, **kwargs)
@@ -34,14 +36,49 @@ def logs(name):
     return result.stdout + result.stderr
 
 
-def shutdown_proof(text):
+def event_report(text, event):
     reports = []
     for line in text.splitlines():
         if line.startswith("{"):
             value = json.loads(line)
-            if value.get("event") == "embedded_node_stopped":
+            if value.get("event") == event:
                 reports.append(value)
     return reports[0] if len(reports) == 1 else None
+
+
+def shutdown_proof(text):
+    return event_report(text, "embedded_node_stopped")
+
+
+def validate_node_limits(text, resident, cached_routes, requests):
+    proof = event_report(text, "embedded_node_started")
+    expected = {"max_resident": resident, "max_cached_routes": cached_routes, "max_requests": requests}
+    if not proof or any(type(proof.get(field)) is not int or proof[field] != value for field, value in expected.items()):
+        raise RuntimeError("embedding application's captured limits do not match the requested workload")
+    return proof
+
+
+def validate_routing_cache(state, limit):
+    count = state.get("cached_routes")
+    if type(count) is not int or not 0 <= count <= limit:
+        raise RuntimeError(f"missing, invalid or unbounded cached_routes: {count!r}, limit {limit}")
+
+
+def routing_cache_checkpoints(scenarios):
+    checkpoints = []
+    for name, count, durability in SCENARIOS:
+        if scenarios and name not in scenarios:
+            continue
+        phases = [("warm", range(count)), ("measured", range(count)),
+                  ("recovered", range(count) if durability == "bucket" else range(1, count))]
+        if count > 1:
+            phases.extend((f"rolling-node{i + 1}-after-writes", range(count)) for i in range(count))
+        phases.append(("preserve-reload", [count - 1]))
+        for label, nodes in phases:
+            for i in nodes:
+                checkpoints.append({"scenario": name, "label": label, "node": i + 1,
+                                    "file": f"{name}-{label}-node{i + 1}-state.json"})
+    return checkpoints
 
 
 def validate_shutdown(proof, exit_code, mode):
@@ -102,6 +139,8 @@ class Harness:
         self.results = []
         self.recovery = []
         self.shutdown_outcomes = []
+        self.node_policies = []
+        self.routing_cache_snapshots = []
         self.failures = []
         self.stop_sampling = threading.Event()
         self.phase = "setup"
@@ -177,13 +216,19 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         for i in range(count):
             self.start_node(i, bucket, durability)
         for i in range(count):
-            self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + i}/.well-known/cellar/health")
+            self.wait_node(scenario, i)
         limits = []
         for i in range(count):
             inspected = json.loads(command("docker", "inspect", self.nodes[i]))[0]
             limits.append({"node": i + 1, "host_config": {key: inspected["HostConfig"][key] for key in ("NanoCpus", "CpusetCpus", "Memory", "MemorySwap")}})
         (self.output / f"{scenario}-limits.json").write_text(json.dumps(limits, indent=2) + "\n")
         time.sleep(6)  # Membership publication before cell placement.
+
+    def wait_node(self, scenario, i):
+        self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + i}/.well-known/cellar/health")
+        proof = validate_node_limits(logs(self.nodes[i]), self.args.max_resident,
+                                     self.args.max_cached_routes, self.args.max_requests)
+        self.node_policies.append({"scenario": scenario, "node": i + 1, "proof": proof})
 
     def start_node(self, i, bucket, durability):
         command("docker", "run", "-d", "--name", self.nodes[i], "--network", self.network,
@@ -196,20 +241,29 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
                 "-e", f"CELLAR_PERF_NODE=node{i + 1}", "-e", "CELLAR_PERF_DATA_DIR=/data/state",
                 "-e", "CELLAR_PERF_THREADS=1", "-e", f"CELLAR_PERF_PEER_KEY={self.peer_key}",
                 "-e", f"CELLAR_PERF_MAX_RESIDENT={self.args.max_resident}",
+                "-e", f"CELLAR_PERF_MAX_CACHED_ROUTES={self.args.max_cached_routes}",
                 "-e", f"CELLAR_PERF_MAX_REQUESTS={self.args.max_requests}",
                 "-e", f"CELLAR_PERF_SHUTDOWN_MS={self.args.shutdown_ms}", "-e", f"CELLAR_PERF_DURABILITY={durability}",
                 self.args.image, "--bucket", bucket, "--endpoint", "http://rustfs:9000", "--region", "us-east-1",
                 "--listen", "0.0.0.0:8080", "--internal-listen", "0.0.0.0:8081", "--advertise", f"node{i + 1}:8081")
 
-    def snapshot(self, scenario, count, label):
+    def snapshot(self, scenario, count, label, exclude=None, only=None):
         for i in range(count):
+            if i == exclude or (only is not None and i != only):
+                continue
             try:
                 value = request(f"http://127.0.0.1:{self.args.port + 11 + i}/state", timeout=20)
                 (self.output / f"{scenario}-{label}-node{i + 1}-state.json").write_text(value)
+                state = json.loads(value)
+                validate_routing_cache(state, self.args.max_cached_routes)
+                self.routing_cache_snapshots.append({"scenario": scenario, "label": label, "node": i + 1,
+                                                    "cached_routes": state["cached_routes"]})
                 usage = command("docker", "exec", self.nodes[i], "sh", "-c", "df -B1 /data; du -sb /data/state; du -sb /data/state/*; cat /sys/fs/cgroup/cpu.stat; cat /sys/fs/cgroup/memory.peak; cat /sys/fs/cgroup/memory.events")
                 (self.output / f"{scenario}-{label}-node{i + 1}-disk-cpu.txt").write_text(usage + "\n")
             except Exception as error:
-                print(f"snapshot warning: {error}", flush=True)
+                self.failures.append({"operation": "state_snapshot", "scenario": scenario,
+                                      "label": f"{label}-node{i + 1}", "error": str(error)})
+                raise RuntimeError(f"required state snapshot failed: {scenario}-{label}-node{i + 1}") from error
 
     def load(self, scenario, count, operation, concurrency, seconds, label, exclude=None, only=None):
         self.phase = f"{scenario}-{label}"
@@ -281,24 +335,27 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
             for i in range(count):
                 self.start_node(i, name.replace("_", "-"), durability)
             for i in range(count):
-                self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + i}/.well-known/cellar/health")
+                self.wait_node(name, i)
             self.recovery.append(self.load(name, count, "verify", 1, 1, "bucket-restore"))
+            self.snapshot(name, count, "recovered")
         else:
             self.remove_node(0, name + "-killed")
             self.recovery.append(self.load(name, count, "verify", 1, 1, "single-node-loss", exclude=0))
+            self.snapshot(name, count, "recovered", exclude=0)
             self.start_node(0, name.replace("_", "-"), durability)
-            self.wait_url(f"http://127.0.0.1:{self.args.port + 1}/.well-known/cellar/health")
+            self.wait_node(name, 0)
         # Restart each node while successors remain available. Verify the exact
         # acknowledged counters after each handoff and again after new writes.
         if count > 1:
             for i in range(count):
                 self.remove_node(i, name + "-rolling", graceful=True)
                 self.start_node(i, name.replace("_", "-"), durability)
-                self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + i}/.well-known/cellar/health")
+                self.wait_node(name, i)
                 time.sleep(6)
                 self.recovery.append(self.load(name, count, "verify", 1, 1, f"rolling-node{i + 1}"))
                 self.load(name, count, "write", min(32, self.args.cells), 5, f"rolling-node{i + 1}-writes")
                 self.recovery.append(self.load(name, count, "verify", 1, 1, f"rolling-node{i + 1}-after-writes"))
+                self.snapshot(name, count, f"rolling-node{i + 1}-after-writes")
         for i in range(count):
             # The last node has no successor. Exercise the SDK's retaining
             # stop instead of treating a timed-out handoff as successful.
@@ -308,8 +365,9 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         # still be present when that node is the fleet's only live process.
         last = count - 1
         self.start_node(last, name.replace("_", "-"), durability)
-        self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + last}/.well-known/cellar/health")
+        self.wait_node(name, last)
         self.recovery.append(self.load(name, count, "verify", 1, 1, "preserve-reload", only=last))
+        self.snapshot(name, count, "preserve-reload", only=last)
         self.remove_node(last, name + "-preserve-reloaded", graceful=True, mode="preserve")
         self.clear_disks()
 
@@ -335,6 +393,8 @@ def main():
     parser.add_argument("--rustfs-image", default="rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c")
     parser.add_argument("--cells", type=int, default=200)
     parser.add_argument("--max-resident", type=int, default=256)
+    parser.add_argument("--max-cached-routes", type=int, default=2048,
+                        help="idle, unowned routing history per node; zero disables caching")
     parser.add_argument("--max-requests", type=int, default=512)
     parser.add_argument("--warmup-seconds", type=int, default=10)
     parser.add_argument("--shutdown-ms", type=int, default=30000)
@@ -348,6 +408,8 @@ def main():
     args = parser.parse_args()
     if any(value <= 0 for value in (args.cells, args.max_resident, args.max_requests, args.warmup_seconds, args.shutdown_ms, args.bytes, args.seconds, args.repeats)):
         parser.error("workload and node limits must be positive")
+    if args.max_cached_routes < 0:
+        parser.error("max-cached-routes must be nonnegative")
     if any(value <= 0 or value > args.cells for value in args.concurrency):
         parser.error("concurrency must be between 1 and the cell count")
     harness = Harness(args)
@@ -370,12 +432,14 @@ def main():
     completed = False
     try:
         harness.setup()
-        for name, count, durability in (("one_node_bucket", 1, "bucket"), ("three_node_bucket", 3, "bucket"), ("three_node_fleet", 3, "fleet")):
+        for name, count, durability in SCENARIOS:
             if not args.scenario or name in args.scenario:
                 harness.scenario(name, count, durability)
+        for checkpoint in routing_cache_checkpoints(args.scenario):
+            validate_routing_cache(json.loads((harness.output / checkpoint["file"]).read_text()), args.max_cached_routes)
         completed = True
     finally:
-        (harness.output / "results.json").write_text(json.dumps({"completed": completed, "measurements": harness.results, "recovery": harness.recovery, "shutdown_outcomes": harness.shutdown_outcomes, "failures": harness.failures}, indent=2) + "\n")
+        (harness.output / "results.json").write_text(json.dumps({"completed": completed, "measurements": harness.results, "recovery": harness.recovery, "shutdown_outcomes": harness.shutdown_outcomes, "node_policies": harness.node_policies, "routing_cache_snapshots": harness.routing_cache_snapshots, "failures": harness.failures}, indent=2) + "\n")
         harness.cleanup()
 
 

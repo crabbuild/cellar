@@ -2,6 +2,12 @@
 
 The [2026-10-12 report](results/2026-10-12-embedded-1000.md) records the completed
 1,000-cell run and the earlier admission and shutdown failures it exposed.
+The [10,000-cell reference run](results/2026-10-12-embedded-10000-reference.md)
+completed both three-node recovery scenarios and all 14 returned shutdown
+proofs. Its earlier image predates the routing-cache and typed-outcome changes.
+The [current-image zero-cache run](results/2026-10-12-embedded-cache-zero-1000.md)
+retained exactly 64 tracked records while visiting 1,000 cells, and recovered
+all 9,284 acknowledged writes with both preserving-stop proofs passing.
 
 `cellar-perf-cells` embeds `cellar::sdk::Node`. The application supplies two
 Tokio runtimes, listeners, authenticated peer clients, signing identities and
@@ -26,7 +32,7 @@ docker build -f tools/perf/Dockerfile \
   -t cellar-embedded-perf:my-checkout .
 python3 -m unittest discover -s tools/perf -p 'test_*.py'
 python3 tools/perf/run.py --image cellar-embedded-perf:my-checkout \
-  --cells 1000 --max-resident 512 --warmup-seconds 30 \
+  --cells 1000 --max-resident 512 --max-cached-routes 32 --warmup-seconds 30 \
   --max-requests 512 \
   --seconds 20 --repeats 2 --concurrency 32 128 \
   --shutdown-ms 60000 --scenario three_node_bucket three_node_fleet
@@ -41,8 +47,17 @@ allow root requests to retain their slots while nested cell calls settle under
 the offered load. This limit is recorded with each run. It does not disable
 admission control. Failed measurements remain in the report, and `completed`
 is true only after all selected recovery and shutdown checks pass.
-The application also captures an explicit 2,048-record limit for idle, unowned
-routing history through `ActorPolicy::max_cached_routes`.
+The application captures `--max-cached-routes` through
+`ActorPolicy::max_cached_routes`; the default is 2,048, and zero disables idle,
+unowned routing history. Each startup reports the limits it actually captured;
+an image using different limits is rejected before load starts. Required state
+snapshots check the cache bound after warmup, measurements, recovery, each
+rolling handoff's subsequent writes, and the final preserving reload. Missing
+or invalid observations leave the run incomplete. Analysis independently checks
+every required saved snapshot. Owned cells, alarms and unfinished work retain
+their records independently of this cache limit; it is not a whole-process
+memory limit. Use more cells than the resident and cache limits to exercise
+reclamation, and rebuild the measuring image when changing its source.
 Summarize them with:
 
 ```sh

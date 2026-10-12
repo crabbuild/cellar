@@ -1,9 +1,63 @@
 """The harness must reject a successful process exit without a drain proof."""
 
 import json
+import pathlib
+import tempfile
+import types
 import unittest
+from unittest import mock
 
-from run import shutdown_proof, validate_shutdown
+from run import Harness, shutdown_proof, validate_shutdown
+
+
+class RoutingCacheProofTests(unittest.TestCase):
+    def harness(self, output, limit):
+        return Harness(types.SimpleNamespace(output=str(output), port=39000,
+                                             max_resident=16, max_requests=512,
+                                             max_cached_routes=limit))
+
+    def test_ready_node_with_wrong_or_missing_captured_policy_is_rejected(self):
+        for fields in ({}, {"max_resident": 16, "max_requests": 512, "max_cached_routes": 2048}):
+            with self.subTest(fields=fields), tempfile.TemporaryDirectory() as directory:
+                harness = self.harness(pathlib.Path(directory) / "run", 0)
+                text = json.dumps(dict(fields, event="embedded_node_started"))
+                with mock.patch.object(harness, "wait_url"), mock.patch("run.logs", return_value=text):
+                    with self.assertRaises(RuntimeError):
+                        harness.wait_node("one_node_bucket", 0)
+                self.assertEqual(harness.node_policies, [])
+
+    def test_zero_cache_allows_retained_ownership_and_checks_only_running_nodes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            harness = self.harness(pathlib.Path(directory) / "run", 0)
+            state = {"cached_routes": 0, "owned_cells": 16, "occupied": 16, "phases": {"resident": 16}}
+            with mock.patch("run.request", return_value=json.dumps(state)) as request, mock.patch("run.command", return_value="disk capture"):
+                harness.snapshot("three_node_fleet", 3, "recovered", exclude=0)
+            self.assertEqual(request.call_count, 2)
+            self.assertEqual([v["node"] for v in harness.routing_cache_snapshots], [2, 3])
+            self.assertTrue(all(v["cached_routes"] == 0 for v in harness.routing_cache_snapshots))
+            self.assertEqual(harness.failures, [])
+
+    def test_missing_or_invalid_cache_observation_aborts_and_preserves_evidence(self):
+        for state in ({}, {"cached_routes": 33}, {"cached_routes": -1}, {"cached_routes": True}):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
+                harness = self.harness(pathlib.Path(directory) / "run", 32)
+                text = json.dumps(state)
+                with mock.patch("run.request", return_value=text), mock.patch("run.command") as command:
+                    with self.assertRaises(RuntimeError):
+                        harness.snapshot("one_node_bucket", 1, "warm")
+                    command.assert_not_called()
+                self.assertEqual((harness.output / "one_node_bucket-warm-node1-state.json").read_text(), text)
+                self.assertEqual(harness.routing_cache_snapshots, [])
+                self.assertEqual(harness.failures[0]["operation"], "state_snapshot")
+
+    def test_unavailable_state_cannot_be_downgraded_to_a_telemetry_warning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            harness = self.harness(pathlib.Path(directory) / "run", 32)
+            with mock.patch("run.request", side_effect=TimeoutError("state unavailable")):
+                with self.assertRaises(RuntimeError):
+                    harness.snapshot("one_node_bucket", 1, "warm")
+            self.assertEqual(harness.routing_cache_snapshots, [])
+            self.assertEqual(harness.failures[0]["error"], "state unavailable")
 
 
 class ShutdownProofTests(unittest.TestCase):
