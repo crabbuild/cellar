@@ -1,5 +1,8 @@
 # Embedded fleet validation
 
+The [2026-10-12 report](results/2026-10-12-embedded-1000.md) records the completed
+1,000-cell run and the earlier admission and shutdown failures it exposed.
+
 `cellar-perf-cells` embeds `cellar::sdk::Node`. The application supplies two
 Tokio runtimes, listeners, authenticated peer clients, signing identities and
 ordinary/conditional/paginated S3 clients. It captures its own configuration
