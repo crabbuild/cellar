@@ -1,0 +1,198 @@
+# AGENTS.md
+
+Repository guidance for Cellar. Check for a more specific `AGENTS.md` before
+working in a subtree. Maintain this file when architecture or verification
+commands change; `CLAUDE.md` links here so both tools use the same guidance.
+
+## Framework
+
+Cellar is a Rust framework for applications composed of durable business cells.
+Each cell has its own SQLite state. A conditional object-store write assigns
+ownership to one node; nodes sharing a bucket form a fleet. The framework routes
+calls, captures SQLite writes as LTX, proves durability, and manages alarms,
+durable wakes, replication, recovery, and fleet shutdown.
+
+Applications implement contracts from `cellar::sdk` and compile into native
+executables with their application factories embedded. The `cellar` CLI builds,
+develops, publishes, installs, and operates those applications. `cellar-native`
+is a CLI alias. A generic CLI binary cannot serve an application whose factories
+were not compiled into it.
+
+Library applications start `sdk::Node` with explicit `NodeConfig`,
+`NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
+supplies listeners, executors, clients, authentication, and any fleet services.
+Each node owns an isolated execution domain; library defaults do not inspect
+process environment. The CLI captures environment settings at startup.
+
+The workspace must remain free of JavaScript engines, including with all
+features enabled. Source JavaScript, Node.js modules, and the former Python/Wasm
+wrappers are not executable application formats. Cellar starts with fresh
+configuration and state; Celld configuration aliases and state migration are
+unsupported. Framework SQLite tables reserve the `__sys_` prefix.
+
+## Repository map
+
+```text
+crates/
+  cellar/                 Production effect adapters, host, and application SDK
+    cli/                  CLI entry points, commands, packaging, and development
+    application/          SDK bindings, storage, transactions, and application APIs
+    actor/                Serialized core driver and effect execution
+    daemon/               Node startup, supervision, and shared production driver
+    main/                 Host peer-tunnel and WebSocket transport modules
+    tests/                Native SDK and host integration tests
+  cellar-logic/           Dependency-free decision core
+  cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
+  cellar-native/          Owned values, structured clone, crypto, and web primitives
+examples/                 Compiled Rust applications and project configurations
+tools/                    Dependency checks and fleet performance tooling
+.github/workflows/        SDK checks and release builds
+```
+
+Most crate modules live next to their `Cargo.toml`; do not assume a `src/`
+directory. `cellar-ltx` uses `src/`. Cargo declares the CLI entry points as
+`crates/cellar/cli/main.rs` and `crates/cellar/cli/native_main.rs`.
+
+CLI files retain their existing Rust module paths through `#[path]` declarations
+in `crates/cellar/lib.rs`. For example, `cellar::native_deploy` is implemented in
+`crates/cellar/cli/native_deploy/mod.rs`. Shared package configuration and
+publication helpers also serve the SDK and host. Keep those callers in view
+when editing CLI tooling. Shared bucket, fleet, protocol, and runtime adapters
+remain outside the CLI directory.
+
+## Ownership boundaries
+
+- `cellar-logic::on_event` advances behavioral state and returns effects. The
+  core has no async work, I/O, ambient clocks, randomness, locks, or dependencies.
+  Put lifecycle, routing, ownership, scheduling, and durability decisions here.
+- The serial actor owns the core. Adapter futures execute effects and return
+  versioned completion events through its mailbox; they do not mutate core
+  state or implement competing policy.
+- The execution boundary uses `cellar::asyncrt` and injected host services for
+  tasks, timers, clocks, randomness, and node filesystem operations. Read
+  `clippy.toml` before touching these paths. Direct host operations in CLI/build
+  tooling need an explicit, justified boundary exception.
+- Node policy and services belong to their execution domain. Keep actor,
+  runtime, loader, replication, log, and shutdown configuration explicit in
+  library APIs; environment resolution belongs in CLI adapters. Capabilities
+  and spawned work must retain the domain that created them.
+- `cellar::application` implements application contracts and binding adapters;
+  `cellar::sdk` is the application-facing namespace. Storage and context handles
+  carry event/activation authority. Retiring an activation must invalidate its
+  handles and wake or cancel outstanding work.
+- `cellar-native` owns engine-independent values and codecs. `cellar-ltx` owns
+  SQLite replication mechanics; fleet ownership and output-gate policy belong
+  to the framework, not to the LTX codec.
+- Operator SQL, KV, and Queue commands use the authenticated fleet route to
+  reach the owning cell. Never mutate their persisted SQLite state behind the
+  owner. Blob commands reuse the binding's `blob_store` implementation.
+
+## Contracts to preserve
+
+1. A cell has one authoritative owner and epoch. Stale completions, leases, and
+   storage handles cannot authorize work for a later activation.
+2. Externally visible writes and egress pass through the output gate. Prove the
+   required write position and ownership before acknowledging success; a
+   durability or fencing failure must fail the operation.
+3. Recovery must account for the prior owner's replicated log before takeover.
+   Eviction, handoff, and shutdown cannot discard unproven writes or required
+   wake/alarm coverage.
+4. Transactions, cursors, sockets, reservations, and background tasks retain
+   their owning lifetime and release resources on cancellation and failure.
+5. Persisted protocol fields, cell identities, bucket keys, LTX formats, and
+   feature gates are shared contracts. Search readers, writers, and consumers
+   before changing them. Read `crates/cellar-ltx/README.md` and
+   `crates/cellar-ltx/reference/ltx-format.md` for format changes.
+6. Native packages validate their execution format, host protocol, target,
+   executable digest, and size. Installation verifies downloaded bytes and
+   refuses to overwrite an existing executable.
+7. CLI stdout carries command data; progress and diagnostics belong on stderr.
+   Use `cellar::cli_output::Output` and `note!`. Preserve JSON output, bounded
+   listings, continuation information, and successful closed-pipe handling.
+8. Recover predecessor logs before replacing a node lease. Keep the node's
+   directory lock and caller-owned executors alive until owned work joins.
+   Forced cancellation supplies no graceful durability proof; report incomplete
+   drain phases through `ShutdownReport` and return `NodeOutcome` to library
+   callers. Process exits belong to the CLI boundary.
+
+## Build and validation
+
+The manifests use Rust 2021 and declare Rust 1.94.1 as the minimum. CI selects
+its toolchain in `.github/workflows/native-sdk.yml`; inspect that file rather
+than assuming the local toolchain matches CI. Dependencies are centralized in
+the root `Cargo.toml`; member crates use workspace dependencies. Keep builds
+locked and review any intentional `Cargo.lock` change.
+
+On the development machine, place compilation artifacts on the mounted
+workspace volume. Assign a separate, stable target directory to each checkout
+or worktree, set it for each shell invocation, and confirm the volume is
+writable. Do not reuse or clean another checkout's artifacts. CI may use its
+runner's default target directory.
+
+Run these commands from the repository root, with `<checkout-name>` replaced
+by the current checkout's identifier:
+
+```sh
+export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-<checkout-name>"
+cargo fmt --all -- --check
+python3 tools/check_native_dependencies.py
+cargo check --workspace --all-targets --all-features --locked
+cargo test -p cellar --test native_cli --test native_artifacts --locked
+```
+
+Choose additional existing integration tests for the changed bindings, host
+behavior, or storage paths. The full SDK CI gates are:
+
+```sh
+cargo test --workspace --all-features --lib --tests --locked
+cargo test --workspace --all-features --doc --locked
+cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+```
+
+`cellar_internal_tests` enables externally supplied simulation/conformance
+sources through `CELLAR_INTERNAL_*` and `CELLAR_CONFORMANCE_*` paths. Those
+sources are not all checked into this repository. Do not enable the flag
+without the corresponding harness, or claim those tests ran in a normal build.
+
+Exercise user-facing changes through the CLI or a compiled application when
+practical. The local counter smoke test is:
+
+```sh
+cargo run -p cellar --bin cellar --locked -- dev examples/native-counter-project.json
+# In another terminal:
+curl -X POST http://127.0.0.1:9876/counters/alpha
+curl http://127.0.0.1:9876/counters/alpha
+```
+
+The native dev supervisor retains project state under `.cellar/native-dev`.
+`--clean` intentionally resets that project's local state. Container examples
+require Docker or Podman. See `examples/README.md` for application packaging and
+other runnable examples.
+
+## Change discipline
+
+- Read the changed module, its callers, adjacent implementations, and relevant
+  tests before choosing a fix. Verify dependency contracts from their source or
+  official documentation when the behavior depends on them.
+- Make one clear implementation of the requested behavior. Keep unrelated
+  cleanup out of the change, and avoid speculative options or extra adapters.
+- Preserve public Rust APIs during file-only reorganizations. Update Cargo
+  entry points, module paths, embedded-file paths, and documentation together.
+- Follow surrounding Rust style. Propagate recoverable failures with `Result`
+  and useful context; do not introduce input-triggered panics. Avoid blocking
+  the actor or holding synchronous locks across `.await`.
+- Use `asyncrt::select!` for fair polling. A biased select needs a reason tied
+  to lifecycle ordering. Never bypass the forbidden macros in `clippy.toml`.
+- Tests should exercise behavior and regressions. Do not weaken checks, alter
+  expected results, or suppress lints merely to hide a failure.
+- Keep credentials, deploy tokens, `.dev.vars`, and live fleet data out of
+  commits and tool output. Use local test stores for destructive checks unless
+  the task explicitly authorizes an external fleet operation.
+- Preserve license and attribution notices when moving or adapting source.
+- Before handoff, inspect the diff, run checks suited to the changed surface,
+  and report the outcome plus any unverified behavior. Commit or push when
+  requested, keeping the user's unrelated work intact.
+
+This guide follows the organizational approach of
+[Crab's AGENTS.md](https://raw.githubusercontent.com/crabbuild/crab/refs/heads/main/AGENTS.md),
+with Cellar's architecture and commands derived from this repository.

@@ -15,7 +15,7 @@ path = "lib.rs"
 
 [[bin]]
 name = "cellar"
-path = "main.rs"
+path = "cli/main.rs"
 
 [[bin]]
 name = "cellar-native-counter"
@@ -23,7 +23,7 @@ path = "../../examples/native_counter.rs"
 
 [[bin]]
 name = "cellar-native"
-path = "native_main.rs"
+path = "cli/native_main.rs"
 
 [[bin]]
 name = "cellar-native-websocket"
