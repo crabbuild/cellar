@@ -10,7 +10,7 @@ use cellar::peer_auth::PeerAuth;
 use cellar::runtime::{Replication, RuntimeManager};
 use cellar::sdk::{
     Actor, ActorIdentity, ActorOptions, ActorPolicy, ActorServices, ExecutionDomain,
-    OwnershipOnEvict, RuntimePolicy,
+    OwnershipOnEvict, ReplicaStorage, ReplicaStorageOptions, ReplicationOptions, RuntimePolicy,
 };
 use cellar::sdk::{Application, Cell, Context, HandlerFuture, Invocation, Output, Registry};
 use cellar_logic::Route;
@@ -145,11 +145,13 @@ async fn build(
             std::fs::create_dir_all(&path)?;
             let bucket = cellar::bucket::Bucket::open_dev(&path.join("replica.sqlite"))?;
             let replication = Replication::start(
-                bucket.clone(),
                 &path.join("cells"),
-                None,
-                "test".into(),
-                None,
+                ReplicaStorage::new(bucket.store.clone(), ReplicaStorageOptions::default())?,
+                ReplicationOptions {
+                    sync_concurrency: actor_options.core.max_resident,
+                    restore_concurrency: actor_options.core.max_resident,
+                    ..Default::default()
+                },
             )?;
             let mut runtime_options = fixture::runtime_options(path.join("cells"));
             runtime_options.replication = Some(replication.clone());
@@ -404,6 +406,17 @@ fn explicit_actor_policy_survives_unusable_process_environment() -> Result<()> {
         "CELLAR_MAX_CELL_REQUESTS",
         "CELLAR_ADMISSION_WAIT_MS",
         "CELLAR_HANDLER_BUDGET_S",
+        "CELLAR_LOG_FLUSH_MS",
+        "CELLAR_LTX_DURABILITY_TIMEOUT_SECS",
+        "CELLAR_LTX_COMPACTION",
+        "CELLAR_LTX_COMPACTIONS",
+        "CELLAR_LTX_COMPACTION_MIN_MB",
+        "CELLAR_LTX_COMPACTION_MIN_TXIDS",
+        "CELLAR_LTX_HYDRATE_MBPS",
+        "CELLAR_LTX_PAGED",
+        "CELLAR_LTX_PAGED_MIN_MB",
+        "CELLAR_LTX_RETENTION_SECS",
+        "CELLAR_LTX_TRUNCATE_PAGES",
     ] {
         command.env(setting, "unusable-process-setting");
     }

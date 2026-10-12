@@ -10,10 +10,9 @@
 //! gate can prove a fresh cell durable with no cold-start window.
 //!
 //! The object layout is `cells/<cell>/ltx/e<epoch>/` in the bucket, mirroring
-//! the local `<watch>/<cell>/ltx/e<epoch>/db.sqlite` tree. This backend builds
-//! its own object-store clients rather than going through `bucket::Bucket`, so
-//! it carries the fleet's key prefix itself: without that, two fleets sharing
-//! one bucket would replicate over each other.
+//! the local `<watch>/<cell>/ltx/e<epoch>/db.sqlite` tree. The host supplies one
+//! shared storage client and fleet prefix; per-cell clients retain that
+//! client's connection pool and credential provider.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -49,6 +48,7 @@ use tracing::info;
 use tracing::warn;
 
 use crate::asyncrt;
+use crate::replica_storage::{ReplicaStorage, ReplicaStorageOptions};
 use crate::replication::sqlite_snapshot;
 use crate::replication::ActivationOptions;
 use crate::replication::ActivationResult;
@@ -56,15 +56,18 @@ use crate::replication::RestoredSnapshot;
 use crate::replication::StorageCredentials;
 use crate::replication::SyncWait;
 use crate::replication::{EvictionAbandon, EvictionRestoreArtifact};
+use crate::replication_options::{duration_ms, ReplicationOptions};
 use cellar_logic::durability::{proof_deadline, ProofProgress, ProofWait};
 
 /// Max cells uploading concurrently across the node. Caps blocking-pool threads
 /// and in-flight object-store requests under high write fan-out.
+#[cfg(cellar_internal_tests)]
 const SYNC_CONCURRENCY: usize = 64;
 
 /// The upload slots this node starts with. The simulation narrows them to
 /// put a second cell's upload in the queue on purpose, which is the state
 /// the durability wait's queued regime exists for.
+#[cfg(cellar_internal_tests)]
 fn sync_concurrency() -> usize {
     #[cfg(cellar_internal_tests)]
     if let Some(slots) = sync_concurrency_for_world() {
@@ -72,12 +75,6 @@ fn sync_concurrency() -> usize {
     }
     SYNC_CONCURRENCY
 }
-
-/// Max LTX object downloads across every restore on this node. A hot cell can
-/// contain thousands of L0 files, so serial reads turn a takeover into minutes
-/// of terminal failures. This shared ceiling hides round-trip latency without
-/// multiplying the bound by the activation count.
-const RESTORE_DOWNLOAD_CONCURRENCY: usize = 64;
 
 /// A cheap clone of one cell-epoch client. Without the wrapper, the replica,
 /// uploader, and compactor each retain a full copy of the immutable string
@@ -174,7 +171,7 @@ const COMPACTION_MAX_FILES: usize = 256;
 
 /// Bound buffered source data. An indivisible object above this budget uses
 /// scratch files and bounded range reads instead of stalling the level.
-const COMPACTION_MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
+pub(crate) const COMPACTION_MAX_INPUT_BYTES: u64 = 64 * 1024 * 1024;
 
 /// One captured-but-not-yet-uploaded L0 segment, the log tier's
 /// replication unit (`crate::node_log`).
@@ -621,7 +618,7 @@ impl Drop for DurabilityRegistration {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CompactionConfig {
     pub min_txids: u64,
     /// L0 bytes since the last fold that queue one independently of the txid
@@ -630,17 +627,11 @@ pub struct CompactionConfig {
     pub concurrency: usize,
 }
 
-/// The node settings that [`LtxRepl`] fixes at construction from the
-/// environment, after parsing. [`LtxConfig::from_env`] is their only reader.
-///
-/// The settings travel as one value because a test process has one
-/// environment. Every node of a simulated fleet runs in that process, so a
-/// constructor that read the environment itself gave every node the same
-/// values. A test that needed one node with its own value for a setting
-/// such as the grace then needed a builder that overwrote a field after
-/// construction, one per setting, and that test entered through a path
-/// production never takes. Here production and a test both pass a config
-/// to the same constructor body; only the source of the values differs.
+/// Internal simulation input retained for filesystem and scheduling scenarios.
+/// Constructors translate it into [`ReplicationOptions`] before using the same
+/// assembly body as production. Production reads environment only through the
+/// explicit [`ReplicationOptions::from_env`] CLI adapter.
+#[cfg(cellar_internal_tests)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct LtxConfig {
     /// How old the newest object of a superseded epoch must be before epoch
@@ -661,6 +652,7 @@ pub(crate) struct LtxConfig {
     pub(crate) truncate_pages: u32,
 }
 
+#[cfg(cellar_internal_tests)]
 impl LtxConfig {
     /// Read the settings from the process environment.
     pub(crate) fn from_env() -> Self {
@@ -671,12 +663,8 @@ impl LtxConfig {
     /// [`crate::env_vars::value`]. A test supplies values here without
     /// mutating the process environment, which every parallel test shares.
     ///
-    /// An unreadable or unparsable value falls back to the default instead
-    /// of failing construction. `env_vars::validate` rejects some of these
-    /// values at startup, but not all of them: it does not check
-    /// `CELLAR_LTX_HYDRATE_MBPS` or `CELLAR_LTX_PAGED_MIN_MB`, and it checks
-    /// `CELLAR_LTX_TRUNCATE_PAGES` as a `u64`. A production node can
-    /// therefore reach a fallback.
+    /// Internal scenarios retain their fallback semantics. The production
+    /// CLI adapter rejects invalid values before starting background work.
     fn from_lookup(lookup: impl Fn(&str) -> anyhow::Result<Option<String>>) -> Self {
         let optional_u64 = |name: &str| {
             lookup(name).and_then(|value| crate::env_vars::parse_optional::<u64>(name, value))
@@ -1048,6 +1036,7 @@ const SNAPSHOT_BYTES_PER_MS: u64 = 8 * 1024;
 /// more than one capture+upload cycle to prove; on a slow or busy store a
 /// fixed 10s fences the cell out from under an active request, so operators
 /// can raise it via `CELLAR_LTX_DURABILITY_TIMEOUT_SECS`.
+#[cfg(cellar_internal_tests)]
 const DEFAULT_DURABILITY_TIMEOUT_SECS: u64 = 10;
 
 /// The TRUNCATE checkpoint threshold, in pages. Chosen from a measured
@@ -1060,17 +1049,20 @@ const DEFAULT_DURABILITY_TIMEOUT_SECS: u64 = 10;
 /// database before it truncates, so a whale pays that image once per
 /// database's worth of writes, not once per 512 KB (its chain grew as the
 /// square of its size on the 2026-09-02 fleet before that bound).
+#[cfg(cellar_internal_tests)]
 const DEFAULT_TRUNCATE_PAGES: u32 = 128;
 
 /// The chain size from which a restore pages, in MiB. A clone of this much
 /// takes a few seconds at fleet bandwidth and fits a node's memory with
 /// room to spare; the 5 GB whale's clone did not (OOM at 7.75 GB RSS on an
 /// 8 GB node), and its paged takeover moved 90 MiB.
+#[cfg(cellar_internal_tests)]
 const DEFAULT_PAGED_MIN_MB: u64 = 256;
 
 /// The default background hydration rate of a paged cell, in MiB/s. A 2 GB
 /// whale fills in about two minutes; a fault of the foreground never waits
 /// on a hydration step, which fetches outside the hydration lock.
+#[cfg(cellar_internal_tests)]
 const DEFAULT_HYDRATE_MBPS: u64 = 16;
 
 /// Pages one hydration step faults before it yields to the pacer: one run.
@@ -1230,15 +1222,11 @@ pub async fn scan_epochs(
 pub struct LtxRepl {
     /// Local root: cell dbs live at `watch/<cell>/ltx/e<epoch>/db.sqlite`.
     watch: PathBuf,
-    /// The object-metadata name for an LTX header timestamp. Azure refuses
-    /// a hyphen in a metadata name, so the fleet bucket's dialect picks it.
-    timestamp_metadata_key: TimestampMetadataKey,
-    bucket: String,
-    /// The bucket spec's key prefix: empty, or slash-terminated.
+    /// The exact shared client and page-reader infrastructure chosen at startup.
+    storage: ReplicaStorage,
+    /// The fleet key prefix: empty, or slash-terminated.
     prefix: String,
-    endpoint: Option<String>,
-    region: String,
-    credentials: Option<StorageCredentials>,
+    options: ReplicationOptions,
     /// One connection pool for the whole node, shared by every cell client.
     store: Arc<dyn ObjectStore>,
     ltx_host: LtxHost,
@@ -1411,21 +1399,25 @@ impl LtxRepl {
         vfs_name: Option<String>,
         config: LtxConfig,
     ) -> Self {
+        let options = ReplicationOptions {
+            compaction,
+            flush_interval: Duration::from_millis(flush_ms),
+            durability_timeout: Duration::from_secs(DEFAULT_DURABILITY_TIMEOUT_SECS),
+            sync_concurrency: sync_concurrency(),
+            log_batch_interval: Duration::from_millis(crate::queue_batching::timing().log_ms),
+            epoch_gc_grace: config.epoch_gc_grace_ms.map(Duration::from_millis),
+            hydrate_bytes_per_second: config.hydrate_bytes_per_s,
+            paged_restore: config.paged_restore,
+            paged_min_bytes: config.paged_min_bytes,
+            truncate_pages: config.truncate_pages,
+            ..Default::default()
+        };
         Self::assemble(
             watch,
-            store,
-            TimestampMetadataKey::default(),
-            "test".into(),
-            String::new(),
-            None,
-            "auto".into(),
-            None,
-            compaction,
-            flush_ms,
+            ReplicaStorage::new(store, ReplicaStorageOptions::default()).unwrap(),
+            options,
             deterministic_ltx_host(),
             vfs_name,
-            DEFAULT_DURABILITY_TIMEOUT_SECS * 1_000,
-            config,
         )
     }
 
@@ -1437,29 +1429,21 @@ impl LtxRepl {
         min_txids: u64,
         concurrency: usize,
     ) -> Self {
-        Self::assemble(
+        Self::start_with_store_and_optional_vfs(
             watch,
             store,
-            TimestampMetadataKey::default(),
-            "test".into(),
-            String::new(),
-            None,
-            "auto".into(),
-            None,
             Some(CompactionConfig {
                 min_txids,
                 min_bytes: COMPACTION_MAX_INPUT_BYTES / 2,
                 concurrency,
             }),
             0,
-            deterministic_ltx_host(),
             None,
-            DEFAULT_DURABILITY_TIMEOUT_SECS * 1_000,
             LtxConfig::from_env(),
         )
     }
 
-    pub(crate) fn start(
+    pub(crate) fn start_from_environment(
         watch: &Path,
         backend: crate::bucket::StorageBackend,
         bucket: String,
@@ -1468,79 +1452,84 @@ impl LtxRepl {
         region: String,
         credentials: Option<StorageCredentials>,
     ) -> anyhow::Result<Self> {
-        let compaction = compaction_config_from_env()?;
-        // Everything downstream of the store is backend-agnostic already,
-        // so the dialect decides construction and the metadata name, and
-        // nothing else.
-        let store = match backend {
-            crate::bucket::StorageBackend::Gcs => crate::bucket::gcs_replica_store(&bucket)?,
-            crate::bucket::StorageBackend::Azure => crate::bucket::azure_replica_store(&bucket)?,
-            crate::bucket::StorageBackend::S3 => {
-                node_config(&bucket, endpoint.as_deref(), &region, credentials.as_ref())
-                    .build_store()
-                    .map_err(|error| anyhow!("build shared object store: {error}"))?
-            }
-            crate::bucket::StorageBackend::Local => {
-                Arc::new(crate::local_store::LocalStore::open(&bucket)?)
-            }
-        };
-        // Azure blob metadata names must be C# identifiers, so the standard
-        // Litestream key cannot carry its hyphen there. External Litestream
-        // tooling reads that key, therefore an az:// replica gives up
-        // Litestream-tool timestamp restore. cellar never reads it back.
-        let timestamp_metadata_key = match backend {
+        let options = ReplicationOptions::from_env()?;
+        let metadata = match backend {
             crate::bucket::StorageBackend::Azure => TimestampMetadataKey::Underscore,
-            crate::bucket::StorageBackend::S3
-            | crate::bucket::StorageBackend::Gcs
-            | crate::bucket::StorageBackend::Local => TimestampMetadataKey::Litestream,
+            _ => TimestampMetadataKey::Litestream,
         };
-        // The tiering flush interval: with a healthy shipper, at most one
-        // upload per cell per interval; it is simultaneously the bucket lag
-        // budget. 0 disables pacing.
-        let flush_ms = crate::env_vars::with_default("CELLAR_LOG_FLUSH_MS", 2000)? as u64;
-        // Saturating: an absurd seconds value must clamp, not wrap through
-        // `as_millis() as u64` into a short deadline.
-        let durability_timeout_ms = crate::env_vars::positive_or(
-            "CELLAR_LTX_DURABILITY_TIMEOUT_SECS",
-            DEFAULT_DURABILITY_TIMEOUT_SECS,
-        )?
-        .saturating_mul(1_000);
+        let storage = match backend {
+            crate::bucket::StorageBackend::S3 => {
+                let mut config =
+                    node_config(&bucket, endpoint.as_deref(), &region, credentials.as_ref());
+                config.path = prefix;
+                config.timestamp_metadata_key = metadata;
+                let store = config
+                    .build_s3()
+                    .map_err(|error| anyhow!("build shared object store: {error}"))?;
+                ReplicaStorage::s3(store, config)?
+            }
+            _ => {
+                let store: Arc<dyn ObjectStore> = match backend {
+                    crate::bucket::StorageBackend::Gcs => {
+                        crate::bucket::gcs_replica_store(&bucket)?
+                    }
+                    crate::bucket::StorageBackend::Azure => {
+                        crate::bucket::azure_replica_store(&bucket)?
+                    }
+                    crate::bucket::StorageBackend::Local => {
+                        Arc::new(crate::local_store::LocalStore::open(&bucket)?)
+                    }
+                    crate::bucket::StorageBackend::S3 => unreachable!(),
+                };
+                ReplicaStorage::new(
+                    store,
+                    ReplicaStorageOptions {
+                        prefix,
+                        timestamp_metadata_key: metadata,
+                        ..Default::default()
+                    },
+                )?
+            }
+        };
+        Self::start(watch, storage, options)
+    }
+
+    pub(crate) fn start(
+        watch: &Path,
+        storage: ReplicaStorage,
+        options: ReplicationOptions,
+    ) -> anyhow::Result<Self> {
+        options.validate()?;
+        anyhow::ensure!(
+            crate::asyncrt::services().accepts_work(),
+            "replication execution domain is closed"
+        );
         Ok(Self::assemble(
             watch,
-            store,
-            timestamp_metadata_key,
-            bucket,
-            prefix,
-            endpoint,
-            region,
-            credentials,
-            compaction,
-            flush_ms,
+            storage,
+            options,
             production_ltx_host(),
             None,
-            durability_timeout_ms,
-            LtxConfig::from_env(),
         ))
     }
 
+    pub fn options(&self) -> &ReplicationOptions {
+        &self.options
+    }
+
     /// The one constructor body for every field and every background loop.
-    #[allow(clippy::too_many_arguments)]
     fn assemble(
         watch: &Path,
-        store: Arc<dyn ObjectStore>,
-        timestamp_metadata_key: TimestampMetadataKey,
-        bucket: String,
-        prefix: String,
-        endpoint: Option<String>,
-        region: String,
-        credentials: Option<StorageCredentials>,
-        compaction: Option<CompactionConfig>,
-        flush_ms: u64,
+        storage: ReplicaStorage,
+        options: ReplicationOptions,
         ltx_host: LtxHost,
         vfs_name: Option<String>,
-        durability_timeout_ms: u64,
-        config: LtxConfig,
     ) -> Self {
+        let store = storage.object_store();
+        let prefix = storage.prefix().to_string();
+        let compaction = options.compaction;
+        let flush_ms = duration_ms(options.flush_interval);
+        let durability_timeout_ms = duration_ms(options.durability_timeout);
         let cells: Arc<Mutex<BTreeMap<(String, u64), CellHandle>>> = Arc::default();
         let dirty = Arc::new(Notify::new());
         let dirty_ship = Arc::new(Notify::new());
@@ -1560,7 +1549,7 @@ impl LtxRepl {
             sync_loop(
                 cells.clone(),
                 dirty.clone(),
-                Arc::new(Semaphore::new(sync_concurrency())),
+                Arc::new(Semaphore::new(options.sync_concurrency)),
                 registration.clone(),
                 stop.clone(),
                 tasks.clone(),
@@ -1574,7 +1563,7 @@ impl LtxRepl {
                 dirty_ship.clone(),
                 registration.clone(),
                 stop.clone(),
-                crate::queue_batching::timing().log_ms,
+                duration_ms(options.log_batch_interval),
             ),
         );
         tasks.spawn_owned(
@@ -1585,12 +1574,8 @@ impl LtxRepl {
             compaction.map(|config| start_compaction_loop(config, tasks.clone()));
         Self {
             watch: watch.to_path_buf(),
-            timestamp_metadata_key,
-            bucket,
+            storage,
             prefix,
-            endpoint,
-            region,
-            credentials,
             store,
             ltx_host,
             vfs_name,
@@ -1602,15 +1587,15 @@ impl LtxRepl {
             replica_close_tasks: replica_close_tasks.clone(),
             tasks: tasks.clone(),
             dirty,
-            restore_slots: Arc::new(Semaphore::new(RESTORE_DOWNLOAD_CONCURRENCY)),
+            restore_slots: Arc::new(Semaphore::new(options.restore_concurrency)),
             compaction_queue,
             compaction_min_txids: compaction.map_or(0, |config| config.min_txids),
             compaction_min_bytes: compaction.map_or(u64::MAX, |config| config.min_bytes),
-            paged_restore: AtomicBool::new(config.paged_restore),
+            paged_restore: AtomicBool::new(options.paged_restore),
             paged_fleet: AtomicBool::new(false),
-            paged_min_bytes: AtomicU64::new(config.paged_min_bytes),
-            hydrate_bytes_per_s: config.hydrate_bytes_per_s,
-            hydrations: Arc::new(Semaphore::new(1)),
+            paged_min_bytes: AtomicU64::new(options.paged_min_bytes),
+            hydrate_bytes_per_s: options.hydrate_bytes_per_second,
+            hydrations: Arc::new(Semaphore::new(options.hydration_concurrency)),
             preserved,
             dirty_ship,
             dirty_tails: Mutex::new(BTreeMap::new()),
@@ -1633,8 +1618,9 @@ impl LtxRepl {
             ),
             covered_by_cell: Mutex::new(BTreeMap::new()),
             retired_marks: Mutex::new(BTreeMap::new()),
-            epoch_gc_grace_ms: config.epoch_gc_grace_ms,
-            truncate_pages: Some(config.truncate_pages),
+            epoch_gc_grace_ms: options.epoch_gc_grace.map(duration_ms),
+            truncate_pages: Some(options.truncate_pages),
+            options,
         }
     }
 
@@ -2221,15 +2207,7 @@ impl LtxRepl {
     /// prefix. `cells/<cell>/ltx/e<epoch>` matches [`Self::db_path`]'s remote
     /// twin so the same coordinates address local and replica state.
     fn client_for(&self, cell: &str, epoch: u64) -> ObjectStoreClient {
-        let mut config = node_config(
-            &self.bucket,
-            self.endpoint.as_deref(),
-            &self.region,
-            self.credentials.as_ref(),
-        );
-        config.path = format!("{}cells/{cell}/ltx/e{epoch}", self.prefix);
-        config.timestamp_metadata_key = self.timestamp_metadata_key;
-        ObjectStoreClient::with_store(config, self.store.clone())
+        self.storage.client_for(cell, epoch)
     }
 
     /// Highest epoch under `cells/<cell>/ltx/` that holds any LTX — the newest
@@ -2466,13 +2444,9 @@ impl LtxRepl {
                     let mut readers: Vec<(TXID, Box<dyn cellar_ltx::paged::RangeReader>)> =
                         Vec::with_capacity(spans.len());
                     for (span_epoch, lo) in &spans {
-                        let reader = self
-                            .client_for(cell, *span_epoch)
-                            .blocking_range_reader()
-                            .await
-                            .map_err(|error| {
-                                anyhow!("paged reader {cell} e{span_epoch}: {error}")
-                            })?;
+                        let reader = self.storage.range_reader(cell, *span_epoch).await.map_err(
+                            |error| anyhow!("paged reader {cell} e{span_epoch}: {error}"),
+                        )?;
                         readers.push((*lo, reader));
                     }
                     // The epoch continues at the txid after the cut. Its
@@ -4517,20 +4491,18 @@ async fn compact_cell(
     outcome
 }
 
-fn compaction_config_from_env() -> anyhow::Result<Option<CompactionConfig>> {
-    // On by default. A mixed fleet must set `0` until every node can read
-    // v0.5.2 block objects. An old reader cannot take over a cell after its
-    // first L1 publication.
+pub(crate) fn compaction_config_from_env() -> anyhow::Result<Option<CompactionConfig>> {
+    // Resolve the CLI compaction policy before any background loop starts.
     let enabled = crate::env_vars::flag("CELLAR_LTX_COMPACTION", true)?;
     if !enabled {
         return Ok(None);
     }
 
-    let min_txids = crate::env_vars::with_default("CELLAR_LTX_COMPACTION_MIN_TXIDS", 256)?;
+    let min_txids = crate::env_vars::with_default("CELLAR_LTX_COMPACTION_MIN_TXIDS", 256u64)?;
     let min_mb: u64 = crate::env_vars::with_default("CELLAR_LTX_COMPACTION_MIN_MB", 32)?;
     let concurrency = crate::env_vars::with_default("CELLAR_LTX_COMPACTIONS", 2)?;
     anyhow::ensure!(
-        min_mb > 0 && min_mb << 20 <= COMPACTION_MAX_INPUT_BYTES,
+        min_mb > 0 && min_mb <= COMPACTION_MAX_INPUT_BYTES >> 20,
         "CELLAR_LTX_COMPACTION_MIN_MB must be between 1 and {}",
         COMPACTION_MAX_INPUT_BYTES >> 20
     );
@@ -4540,7 +4512,7 @@ fn compaction_config_from_env() -> anyhow::Result<Option<CompactionConfig>> {
     );
     anyhow::ensure!(concurrency > 0, "CELLAR_LTX_COMPACTIONS must be positive");
     Ok(Some(CompactionConfig {
-        min_txids: min_txids as u64,
+        min_txids,
         min_bytes: min_mb << 20,
         concurrency,
     }))

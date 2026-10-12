@@ -33,6 +33,39 @@
 //! }
 //! ```
 //!
+//! Replication uses the application's storage client and explicit policy.
+//! Start it inside the domain that will own its tasks and cell databases.
+//!
+//! ```no_run
+//! use cellar::sdk::{ExecutionDomain, ReplicaStorage, ReplicaStorageOptions,
+//!     Replication, ReplicationOptions};
+//! use object_store::ObjectStore;
+//! use std::{path::Path, sync::Arc, time::Duration};
+//!
+//! async fn replication(domain: &ExecutionDomain, watch: &Path,
+//!     client: Arc<dyn ObjectStore>) -> anyhow::Result<Replication>
+//! {
+//!     let storage = ReplicaStorage::new(client, ReplicaStorageOptions {
+//!         prefix: "fleets/accounts".into(), ..Default::default()
+//!     })?;
+//!     domain.run(async {
+//!         Replication::start(watch, storage, ReplicationOptions {
+//!             durability_timeout: Duration::from_secs(15),
+//!             sync_concurrency: 32, restore_concurrency: 16,
+//!             ..Default::default()
+//!         })
+//!     }).await?
+//! }
+//! ```
+//!
+//! [`ReplicaStorage::with_range_readers`] lets the application supply blocking
+//! page-fault readers and their transport. The generic storage path uses the
+//! supplied client on a helper executor; [`ReplicaStorage::s3`] explicitly
+//! selects the signed S3 fault reader and the supplied client's provider.
+//! [`crate::bucket::Bucket::from_clients`] accepts ordinary, CAS and paginated
+//! clients. Configure the CAS client without retries so ambiguous writes remain
+//! visible to the ownership protocol.
+//!
 //! ```no_run
 //! use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output, http::Response};
 //! use std::sync::Arc;
@@ -55,8 +88,14 @@ pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
 pub use crate::container::EngineOptions as ContainerEngineOptions;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;
+pub use crate::ltx_replication::Replication;
 pub use crate::native_deploy::{ApplicationConfig, AssetProject, ContainerProject, Project};
+pub use crate::replica_storage::{
+    ReplicaRangeReaderFactory, ReplicaStorage, ReplicaStorageOptions,
+};
+pub use crate::replication_options::{CompactionConfig, ReplicationOptions};
 pub use crate::runtime_policy::RuntimePolicy;
+pub use cellar_ltx::TimestampMetadataKey as ReplicaTimestampMetadataKey;
 pub use cellar_native as primitives;
 pub use cellar_native::{clone, compression, crypto, encoding, json, rpc, web};
 

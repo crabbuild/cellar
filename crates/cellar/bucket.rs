@@ -564,6 +564,29 @@ impl PaginatedListStore for UnpaginatedStore {
 }
 
 impl Bucket {
+    /// Use application-owned ordinary, conditional-write, and paginated
+    /// clients. Conditional writes must preserve ambiguous outcomes: configure
+    /// their client with retries disabled and provider-enforced PutMode support.
+    /// `backend` selects its CAS and metadata dialect; `name` is descriptive.
+    /// Clients address the bucket root, with every operation scoped by `prefix`.
+    pub fn from_clients(
+        store: Arc<dyn ObjectStore>,
+        cas_store: Arc<dyn ObjectStore>,
+        paginated: Arc<dyn PaginatedListStore>,
+        backend: StorageBackend,
+        name: String,
+        prefix: String,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            store,
+            cas_store,
+            paginated,
+            backend,
+            name,
+            prefix: crate::replica_storage::normalize_prefix(&prefix)?,
+        })
+    }
+
     /// Builds a bucket from separate ordinary and paginated stores.
     #[cfg(cellar_internal_tests)]
     #[doc(hidden)]
@@ -2148,4 +2171,95 @@ pub fn is_unauthorized(error: &anyhow::Error) -> bool {
             || text.contains("status code: 403 Forbidden")
             || text.contains("status code: 401 Unauthorized")
     })
+}
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod library_storage_tests {
+    use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn supplied_clients_keep_cas_fencing_and_scoped_pagination() -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let database = directory.path().join("objects.sqlite");
+        let ordinary: Arc<dyn ObjectStore> =
+            Arc::new(crate::local_store::LocalStore::open(&database)?);
+        let conditional: Arc<dyn ObjectStore> =
+            Arc::new(crate::local_store::LocalStore::open(&database)?);
+        let paginated: Arc<dyn PaginatedListStore> =
+            Arc::new(crate::local_store::LocalStore::open(&database)?);
+        let bucket = Bucket::from_clients(
+            ordinary.clone(),
+            conditional.clone(),
+            paginated.clone(),
+            StorageBackend::Local,
+            "caller-store".into(),
+            "fleet/alpha".into(),
+        )?;
+        assert!(Arc::ptr_eq(&ordinary, &bucket.store));
+        assert!(Arc::ptr_eq(&conditional, &bucket.cas_store));
+        assert!(Arc::ptr_eq(&paginated, &bucket.paginated));
+        assert_eq!(bucket.prefix, "fleet/alpha/");
+        let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+        domain
+            .run(async {
+                let (first, second) = futures_util::future::join(
+                    bucket.put_cas("lease", Bytes::from_static(b"first"), None),
+                    bucket.put_cas("lease", Bytes::from_static(b"second"), None),
+                )
+                .await;
+                let first = first?;
+                let second = second?;
+                assert_eq!(
+                    usize::from(first.is_some()) + usize::from(second.is_some()),
+                    1
+                );
+                let token = first.or(second).unwrap();
+                assert!(bucket
+                    .put_cas("lease", Bytes::from_static(b"renewed"), Some(&token))
+                    .await?
+                    .is_some());
+                assert!(bucket
+                    .put_cas("lease", Bytes::from_static(b"stale"), Some(&token))
+                    .await?
+                    .is_none());
+                assert_eq!(
+                    bucket.get("lease").await?.unwrap().0,
+                    Bytes::from_static(b"renewed")
+                );
+                for key in [
+                    "cells/Account:a/epoch",
+                    "cells/Account:b/epoch",
+                    "cells/Account:c/epoch",
+                ] {
+                    bucket.put(key, Bytes::from_static(b"state")).await?;
+                }
+                ordinary
+                    .put(
+                        &Path::from("fleet/beta/cells/Account:foreign/epoch"),
+                        Bytes::from_static(b"other").into(),
+                    )
+                    .await?;
+                let mut token = None;
+                let mut cells = Vec::new();
+                loop {
+                    let page = bucket
+                        .common_prefixes_page("cells/", None, token, 1)
+                        .await?;
+                    assert!(page.prefixes.len() <= 1);
+                    cells.extend(page.prefixes);
+                    token = page.page_token;
+                    if token.is_none() {
+                        break;
+                    }
+                }
+                assert_eq!(
+                    cells,
+                    ["cells/Account:a", "cells/Account:b", "cells/Account:c"]
+                );
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+        domain.shutdown().await;
+        Ok(())
+    }
 }

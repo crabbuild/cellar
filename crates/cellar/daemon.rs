@@ -3899,7 +3899,7 @@ async fn async_main(
             // of today's manifest. Start it even for a stateless deployment
             // so a later deployment can introduce cells without changing the
             // durability contract underneath the node.
-            let replication = Some(Replication::start(
+            let replication = Some(Replication::from_environment(
                 client.clone(),
                 &data_dir,
                 settings.endpoint.clone(),

@@ -29,6 +29,14 @@ resolves its environment settings at startup. The production actor can run on a
 separate caller-owned core executor. A complete library bootstrap and graceful
 durability drain API are still being extracted from the process runner.
 
+`Replication::start` takes `ReplicaStorage` and `ReplicationOptions`. Applications
+supply the storage client, fleet prefix, upload and compaction policy, restore
+and hydration limits, and durability timeout. Ordinary replication operations
+share the supplied client's pool and credentials. Applications can supply a
+`ReplicaRangeReaderFactory` to control paged reads; signed S3 fault reads are an
+explicit option that retains the supplied credential provider.
+`Bucket::from_clients` accepts caller-owned ordinary, CAS, and paginated clients.
+
 ## Build and run
 
 ```sh
