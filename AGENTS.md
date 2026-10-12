@@ -35,7 +35,7 @@ unsupported. Framework SQLite tables reserve the `__sys_` prefix.
 ```text
 crates/
   cellar/                 Production effect adapters, host, and application SDK
-    cli/                  CLI entry points, commands, packaging, and development
+    cli/                  Entry points, commands, packaging, dev, environment parsing
     application/          SDK bindings, storage, transactions, and application APIs
     actor/                Serialized core driver and effect execution
     execution/            Execution domains, injected services, and task ownership
@@ -54,6 +54,10 @@ crates/
       replication/        LTX backend, handles, storage clients, and policy
       log/                Authenticated node logs, follower proof, and recovery
     fleet/                Leases, peer authentication, handoff, and durable wakes
+    deployment/           Shared manifests, artifact protocol, deployment loading
+    containers/           Cell-owned container service and Docker adapter
+    observability/        Telemetry export and OTLP encoding
+    platform/             Machine and process-memory adapters
     tests/                Native SDK and host integration tests
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
@@ -84,10 +88,24 @@ visibility, conditional-build selection, and exported macro paths stable when
 moving files. Node ingress modules under `node/network/` remain logical
 children of `daemon`.
 
+Only `lib.rs`, `sdk.rs`, and Cargo's `build.rs` remain as Rust files at the
+Cellar crate root. Place new implementation helpers beside their owning
+component and use private child modules where appropriate. Name shared helpers
+for their contract and owner rather than collecting unrelated code in `utils/`.
+
 SQLite alarm records stay with `storage/sqlite/`; fleet wake discovery and
 response gates live under `fleet/wake/`. KV large-value and Queue policy/batching
 helpers sit beside their built-in cells under `application/kv/` and
 `application/queue/`, retaining their original crate-root module names.
+
+The layout preserves three mixed modules for later focused refactors:
+`node/mod.rs` combines shared node composition with process startup;
+`node/managed.rs` combines managed services with connection/credential commands;
+`deployment/fleet.rs` combines deployment loading with operator orchestration.
+Shared package configuration and publication helpers still live under `cli/`
+and serve the SDK and managed host. Separate those responsibilities before
+changing their public interfaces. `platform/machine.rs` also retains its
+existing identity, default-policy, and explicit environment adapters.
 
 ## Ownership boundaries
 

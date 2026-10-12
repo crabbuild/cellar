@@ -31,6 +31,7 @@ mod conformance_core_loop_tests {
 mod conformance_facet_failure_tests {
     include!(env!("CELLAR_CONFORMANCE_FACET_FAILURE_TESTS"));
 }
+#[path = "runtime/assets.rs"]
 pub mod assets;
 #[cfg(not(cellar_internal_tests))]
 #[path = "execution/domain.rs"]
@@ -65,6 +66,7 @@ pub mod clean_reload;
 pub mod cli_options;
 #[path = "cli/cli_output.rs"]
 pub mod cli_output;
+#[path = "containers/mod.rs"]
 pub mod container;
 #[path = "node/managed.rs"]
 pub mod control_plane;
@@ -76,11 +78,13 @@ pub mod dead_node_gc;
 pub mod deploy;
 #[path = "cli/dev.rs"]
 pub mod dev;
+#[path = "containers/docker.rs"]
 pub mod docker;
 #[path = "fleet/drain.rs"]
 pub mod drain_token;
 #[path = "runtime/contracts.rs"]
 pub mod engine_api;
+#[path = "cli/environment.rs"]
 pub mod env_vars;
 #[path = "cli/sql_cli.rs"]
 pub mod sql_cli;
@@ -92,6 +96,7 @@ pub mod fault {
 }
 #[path = "runtime/cells/facet_streams.rs"]
 pub(crate) mod facet_streams;
+#[path = "deployment/fleet.rs"]
 pub mod fleet;
 #[path = "runtime/generation.rs"]
 pub mod generation;
@@ -123,6 +128,7 @@ pub(crate) mod host_tcp;
 pub mod host_turn;
 #[path = "transport/websocket/bindings.rs"]
 pub(crate) mod host_websocket;
+#[path = "application/html_rewriter/backend.rs"]
 pub(crate) mod html_rewriter;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
@@ -142,7 +148,9 @@ pub mod log_options;
 pub mod ltx_repl;
 #[path = "durability/replication/handle.rs"]
 pub mod ltx_replication;
+#[path = "platform/machine.rs"]
 pub mod machine;
+#[path = "platform/memory.rs"]
 pub mod memory;
 #[path = "cli/native_deploy/mod.rs"]
 pub mod native_deploy;
@@ -167,6 +175,7 @@ pub mod node_log;
 #[path = "cli/operator_cell.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]
+#[path = "observability/otlp.rs"]
 pub mod otlp;
 #[path = "fleet/ownership.rs"]
 pub mod ownership_store;
@@ -176,6 +185,7 @@ pub mod peer_auth;
 pub mod peer_probe;
 #[path = "runtime/workers/pool.rs"]
 pub mod pool;
+#[path = "deployment/protocol.rs"]
 pub mod protocol;
 #[path = "application/queue/batching.rs"]
 pub(crate) mod queue_batching;
@@ -197,6 +207,7 @@ pub mod runtime_policy;
 pub mod startup;
 #[path = "storage/sqlite/mod.rs"]
 pub mod storage;
+#[path = "observability/telemetry.rs"]
 pub mod telemetry;
 #[path = "fleet/wake/mod.rs"]
 pub mod wake;
