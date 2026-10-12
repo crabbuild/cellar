@@ -112,6 +112,7 @@ pub mod worker_config;
 pub use cellar_native as native;
 pub mod blob_cli;
 pub(crate) mod blob_store;
+pub mod node_lifecycle;
 pub mod node_log;
 pub(crate) mod operator_cell;
 #[doc(hidden)]

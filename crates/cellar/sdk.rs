@@ -12,6 +12,12 @@
 //! startup, recovery, and graceful durability drain still require library
 //! lifecycle APIs.
 //!
+//! The shared production driver uses [`ShutdownPolicy`] and reports
+//! [`NodeOutcome`]. [`ShutdownReport`] records completed proof phases and
+//! distinguishes a stall timeout from the absolute stop deadline; a requested
+//! stop can leave unfinished work for ordinary recovery. The full public node
+//! bootstrap and supervisor are still being extracted from the CLI.
+//!
 //! Configure an execution domain before loading application generations.
 //!
 //! ```no_run
@@ -120,6 +126,7 @@ pub use crate::log_options::{
 };
 pub use crate::ltx_replication::Replication;
 pub use crate::native_deploy::{ApplicationConfig, AssetProject, ContainerProject, Project};
+pub use crate::node_lifecycle::{NodeOutcome, ShutdownMode, ShutdownPolicy, ShutdownReport};
 pub use crate::node_log::{
     DurabilityOwner, FollowerStore, LogStreamIo, LogTransport, NodeLogManager, OwnLog,
     SignedPeerTransport,

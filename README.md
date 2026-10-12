@@ -29,6 +29,15 @@ resolves its environment settings at startup. The production actor can run on a
 separate caller-owned core executor. A complete library bootstrap and graceful
 durability drain API are still being extracted from the process runner.
 
+Production dispatch and draining now share a driver that accepts a captured
+`ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
+fencing, core failure, or replication failure; the CLI alone maps these to process
+exits. `ShutdownReport` records ingress and cell drain completion, pending
+dispatches, log sealing, local durability closure, and clean-reload preparation.
+Stall timeouts and the absolute deadline remain distinct, so a bounded stop can
+report incomplete work. HTTP tasks and facet dispatch retain their owning domain.
+These lifecycle contracts still need the full public node bootstrap and supervisor.
+
 `LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
 quotas, copied environment size, and entrypoint or class property size. Environment
 budgets include supplied service-route metadata. Derived handles retain their
