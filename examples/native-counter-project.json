@@ -1,0 +1,17 @@
+{
+  "cargo_manifest": "../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-counter",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-counter",
+    "application_version": "v1",
+    "cells": ["Counter"],
+    "bindings": [{"type": "durable_object_namespace", "name": "COUNTERS", "class_name": "Counter"}],
+    "assets": {
+      "directory": "native-counter-assets",
+      "binding": "ASSETS",
+      "run_worker_first": ["/counters/*", "/assets-binding/*"]
+    }
+  }
+}

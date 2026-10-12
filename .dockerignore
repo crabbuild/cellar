@@ -1,0 +1,5 @@
+.git
+target
+**/.cellar
+**/node_modules
+.DS_Store
