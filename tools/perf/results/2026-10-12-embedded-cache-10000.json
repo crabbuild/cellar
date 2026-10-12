@@ -1,0 +1,1891 @@
+{
+  "started_utc": "2026-10-12T21:53:48.779973+00:00",
+  "revision": "52519f12256b639a9db7bc906a49f9c0cb4633dc",
+  "source_sha256": {
+    "tools/perf/cells.rs": "70f65e2721729bccd329fabd667002082b2a53a7be13d53a3da4943a52eab8c6",
+    "tools/perf/embedded.rs": "2c56a61b6beb09fdf6af2619380963994740d3f1d3d51de2811b65d3ada6eee8",
+    "tools/perf/load.rs": "f731ca0b4ec9688772705ee7feab9580d0f5c240a655dc32e9948576a64b8a8e",
+    "tools/perf/run.py": "f8054fcb932a9581b7c647e57250c3d07c3b249b1ea5927057e01e83066ad2e8",
+    "tools/perf/analyze.py": "047dc182ca2d6f33035ba94bb74e1b13d38b8a0786b87d976c00c7b04be19756",
+    "tools/perf/Dockerfile": "1eda9c034ac94815acb06b93edadfbb9f189a1093608e9e8302349b59215322f",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc"
+  },
+  "analysis_sha256": "047dc182ca2d6f33035ba94bb74e1b13d38b8a0786b87d976c00c7b04be19756",
+  "source_dirty": false,
+  "image_labels": {
+    "org.opencontainers.image.revision": "4db0ba656cf30228d5d1ca93008df802c599b889"
+  },
+  "completed": true,
+  "failures": [],
+  "cellar_image": "sha256:827a08dc00ffaf91e988c69578cb11b454cef3b645c5df81773a58b430d4ca34",
+  "rustfs_image": "sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+  "environment": {
+    "architecture": "aarch64",
+    "vm_cpus": 8,
+    "vm_memory_bytes": 16732549120,
+    "node_limits": {
+      "cpus": 1,
+      "memory_bytes": 2147483648,
+      "disk_image_bytes": 5368709120
+    },
+    "load_generator_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        0,
+        6
+      ],
+      "memory_bytes": 2147483648
+    },
+    "rustfs_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        4,
+        5
+      ],
+      "memory_bytes": 4294967296
+    }
+  },
+  "workload": {
+    "cells": 10000,
+    "payload_bytes": 1024,
+    "phase_seconds": 20,
+    "repetitions": 2,
+    "concurrency": [
+      32,
+      128
+    ],
+    "warmup_seconds": 180,
+    "max_resident_cells_per_node": 512,
+    "max_cached_routes_per_node": 32,
+    "max_requests_per_script_pool": 512,
+    "execution": "sdk::Node with caller-owned host/core runtimes, listeners, authenticated peer clients and object-store clients",
+    "operation": "transaction: increment persistent counter and overwrite JSON value with changing seeded random ASCII payload (64-symbol alphabet)",
+    "load_model": "closed loop; one in-flight request per worker; disjoint cell partitions; rotating ingress; no write retries",
+    "latency": "request start through complete HTTP response JSON; warmup excluded; percentile ranges across repetitions, not pooled percentiles",
+    "build": "Linux ARM64; Rust 1.98.1; repository release profile (opt-level=s, fat LTO)",
+    "rebalance_interval_ms": 0
+  },
+  "summary": [
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 4619,
+      "elapsed_s": 40.525429087999996,
+      "writes_per_s": 113.97781846973051,
+      "writes_per_s_range": [
+        78.29986289053775,
+        150.08252578114337
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          205.432,
+          347.563
+        ],
+        "p95": [
+          295.166,
+          976.422
+        ],
+        "p99": [
+          420.136,
+          1321.194
+        ],
+        "max": [
+          633.652,
+          1681.293
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 6149,
+      "elapsed_s": 41.499604891000004,
+      "writes_per_s": 148.17008538154855,
+      "writes_per_s_range": [
+        140.23582633005813,
+        156.11599210560368
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          768.938,
+          790.11
+        ],
+        "p95": [
+          1619.308,
+          2738.065
+        ],
+        "p99": [
+          1793.634,
+          3013.036
+        ],
+        "max": [
+          2724.028,
+          3345.832
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 4281,
+      "elapsed_s": 40.322086682999995,
+      "writes_per_s": 106.1701006115066,
+      "writes_per_s_range": [
+        80.63139606128581,
+        131.78391371401506
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          204.736,
+          289.693
+        ],
+        "p95": [
+          583.572,
+          1070.214
+        ],
+        "p99": [
+          994.05,
+          1403.971
+        ],
+        "max": [
+          1606.876,
+          1657.939
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 6492,
+      "elapsed_s": 43.802774688,
+      "writes_per_s": 148.2097891341691,
+      "writes_per_s_range": [
+        123.77097746040356,
+        172.9797850143354
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          498.597,
+          796.517
+        ],
+        "p95": [
+          1902.029,
+          2845.775
+        ],
+        "p99": [
+          2053.905,
+          3466.216
+        ],
+        "max": [
+          2556.67,
+          3958.491
+        ]
+      },
+      "errors": 0
+    }
+  ],
+  "measurements": [
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.142251633,
+      "errors": {},
+      "latency_ms": {
+        "max": 633.652,
+        "p50": 205.432,
+        "p95": 295.166,
+        "p99": 420.136
+      },
+      "logical_mib_per_s": 0.14656496658314783,
+      "operation": "write",
+      "owners": {
+        "node1": 1008,
+        "node2": 1008,
+        "node3": 1007
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 3023,
+      "writes_per_s": 150.08252578114337,
+      "scenario": "three_node_bucket",
+      "label": "c32-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 20.734583026,
+      "errors": {},
+      "latency_ms": {
+        "max": 2724.028,
+        "p50": 790.11,
+        "p95": 1619.308,
+        "p99": 1793.634
+      },
+      "logical_mib_per_s": 0.1524570235406286,
+      "operation": "write",
+      "owners": {
+        "node1": 1071,
+        "node2": 1094,
+        "node3": 1072
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 3237,
+      "writes_per_s": 156.11599210560368,
+      "scenario": "three_node_bucket",
+      "label": "c128-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.383177455,
+      "errors": {},
+      "latency_ms": {
+        "max": 1681.293,
+        "p50": 347.563,
+        "p95": 976.422,
+        "p99": 1321.194
+      },
+      "logical_mib_per_s": 0.07646470985404077,
+      "operation": "write",
+      "owners": {
+        "node1": 530,
+        "node2": 536,
+        "node3": 530
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 1596,
+      "writes_per_s": 78.29986289053775,
+      "scenario": "three_node_bucket",
+      "label": "c32-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 20.765021865,
+      "errors": {},
+      "latency_ms": {
+        "max": 3345.832,
+        "p50": 768.938,
+        "p95": 2738.065,
+        "p99": 3013.036
+      },
+      "logical_mib_per_s": 0.1369490491504474,
+      "operation": "write",
+      "owners": {
+        "node1": 961,
+        "node2": 990,
+        "node3": 961
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2912,
+      "writes_per_s": 140.23582633005813,
+      "scenario": "three_node_bucket",
+      "label": "c128-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.131440365,
+      "errors": {},
+      "latency_ms": {
+        "max": 1657.939,
+        "p50": 204.736,
+        "p95": 583.572,
+        "p99": 994.05
+      },
+      "logical_mib_per_s": 0.12869522823634283,
+      "operation": "write",
+      "owners": {
+        "node1": 888,
+        "node2": 889,
+        "node3": 876
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2653,
+      "writes_per_s": 131.78391371401506,
+      "scenario": "three_node_fleet",
+      "label": "c32-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 22.048787656,
+      "errors": {},
+      "latency_ms": {
+        "max": 3958.491,
+        "p50": 796.517,
+        "p95": 2845.775,
+        "p99": 3466.216
+      },
+      "logical_mib_per_s": 0.12087009517617535,
+      "operation": "write",
+      "owners": {
+        "node1": 907,
+        "node2": 933,
+        "node3": 889
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2729,
+      "writes_per_s": 123.77097746040356,
+      "scenario": "three_node_fleet",
+      "label": "c128-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.190646318,
+      "errors": {},
+      "latency_ms": {
+        "max": 1606.876,
+        "p50": 289.693,
+        "p95": 1070.214,
+        "p99": 1403.971
+      },
+      "logical_mib_per_s": 0.07874159771609943,
+      "operation": "write",
+      "owners": {
+        "node1": 546,
+        "node2": 549,
+        "node3": 533
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 1628,
+      "writes_per_s": 80.63139606128581,
+      "scenario": "three_node_fleet",
+      "label": "c32-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 21.753987032,
+      "errors": {},
+      "latency_ms": {
+        "max": 2556.67,
+        "p50": 498.597,
+        "p95": 1902.029,
+        "p99": 2053.905
+      },
+      "logical_mib_per_s": 0.1689255713030619,
+      "operation": "write",
+      "owners": {
+        "node1": 1254,
+        "node2": 1240,
+        "node3": 1269
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 3763,
+      "writes_per_s": 172.9797850143354,
+      "scenario": "three_node_fleet",
+      "label": "c128-r2",
+      "nodes": 3
+    }
+  ],
+  "recovery": [
+    {
+      "cells": 10000,
+      "elapsed_s": 211.761385136,
+      "expected_writes": 27493,
+      "max_cell_read_ms": 185.787882,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "before-recovery",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 232.842863552,
+      "expected_writes": 27493,
+      "max_cell_read_ms": 489.518353,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "bucket-restore",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 247.24268781,
+      "expected_writes": 27493,
+      "max_cell_read_ms": 284.673482,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3163,
+        "node2": 3454,
+        "node3": 3383
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 227.432418766,
+      "expected_writes": 28193,
+      "max_cell_read_ms": 242.065785,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 473.272727074,
+      "expected_writes": 28193,
+      "max_cell_read_ms": 3929.08353,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3163,
+        "node2": 3162,
+        "node3": 3675
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 368.293351156,
+      "expected_writes": 28818,
+      "max_cell_read_ms": 1763.44779,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 280.07116929,
+      "expected_writes": 28818,
+      "max_cell_read_ms": 387.679872,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3163,
+        "node2": 3674,
+        "node3": 3163
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 284.425428182,
+      "expected_writes": 29489,
+      "max_cell_read_ms": 572.542742,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 295.075868259,
+      "expected_writes": 29489,
+      "max_cell_read_ms": 472.838013,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node3": 10000
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "preserve-reload",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 292.56067635,
+      "expected_writes": 28894,
+      "max_cell_read_ms": 1164.260769,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3344,
+        "node2": 3334,
+        "node3": 3322
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "before-recovery",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 322.110995903,
+      "expected_writes": 28894,
+      "max_cell_read_ms": 2358.441411,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node2": 4998,
+        "node3": 5002
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "single-node-loss",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 269.531129683,
+      "expected_writes": 28894,
+      "max_cell_read_ms": 570.287326,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3662,
+        "node2": 3164,
+        "node3": 3174
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 323.515833765,
+      "expected_writes": 29397,
+      "max_cell_read_ms": 1361.191757,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3320,
+        "node2": 3334,
+        "node3": 3346
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 291.969569107,
+      "expected_writes": 29397,
+      "max_cell_read_ms": 485.04339200000004,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3662,
+        "node2": 3165,
+        "node3": 3173
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 433.650205026,
+      "expected_writes": 29663,
+      "max_cell_read_ms": 1436.625821,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3335,
+        "node2": 3319,
+        "node3": 3346
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 295.069366106,
+      "expected_writes": 29663,
+      "max_cell_read_ms": 1552.2128610000002,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3164,
+        "node2": 3661,
+        "node3": 3175
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 284.887412809,
+      "expected_writes": 30240,
+      "max_cell_read_ms": 555.2136370000001,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3335,
+        "node2": 3332,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 255.168290694,
+      "expected_writes": 30240,
+      "max_cell_read_ms": 614.148838,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node3": 10000
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "preserve-reload",
+      "nodes": 3
+    }
+  ],
+  "node_snapshots": [
+    {
+      "snapshot": "three_node_bucket-measured-node1-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 544,
+      "cached_routes": 32,
+      "rss_bytes": 151736320,
+      "working_set_bytes": 210804736,
+      "cgroup_current_bytes": 702099456,
+      "peak_cgroup_memory_bytes": 704602112,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 14838,
+      "stops": 14838,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 157495296,
+      "state_directory_bytes": 155410432,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node2-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 544,
+      "cached_routes": 32,
+      "rss_bytes": 151928832,
+      "working_set_bytes": 203411456,
+      "cgroup_current_bytes": 713469952,
+      "peak_cgroup_memory_bytes": 716283904,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 14703,
+      "stops": 14703,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 156602368,
+      "state_directory_bytes": 154517504,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node3-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 544,
+      "cached_routes": 32,
+      "rss_bytes": 151969792,
+      "working_set_bytes": 210632704,
+      "cgroup_current_bytes": 708501504,
+      "peak_cgroup_memory_bytes": 711340032,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 14709,
+      "stops": 14709,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 156901376,
+      "state_directory_bytes": 154816512,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node1-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 544,
+      "cached_routes": 32,
+      "rss_bytes": 151609344,
+      "working_set_bytes": 206336000,
+      "cgroup_current_bytes": 554299392,
+      "peak_cgroup_memory_bytes": 557301760,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 15154,
+      "stops": 15154,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 164360192,
+      "state_directory_bytes": 161891556,
+      "peerlog_bytes": 27464
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node2-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 544,
+      "cached_routes": 32,
+      "rss_bytes": 152588288,
+      "working_set_bytes": 208617472,
+      "cgroup_current_bytes": 588525568,
+      "peak_cgroup_memory_bytes": 591634432,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 15273,
+      "stops": 15273,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 165191680,
+      "state_directory_bytes": 162757886,
+      "peerlog_bytes": 27464
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node3-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 544,
+      "cached_routes": 32,
+      "rss_bytes": 155385856,
+      "working_set_bytes": 208994304,
+      "cgroup_current_bytes": 549986304,
+      "peak_cgroup_memory_bytes": 553086976,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 14826,
+      "stops": 14826,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 163110912,
+      "state_directory_bytes": 160784554,
+      "peerlog_bytes": 27464
+    }
+  ],
+  "cpu_samples": [
+    {
+      "scenario": "three_node_bucket",
+      "component": "load",
+      "samples": 18,
+      "median_cpu_percent": 1.5,
+      "max_cpu_percent": 2.16
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node1",
+      "samples": 19,
+      "median_cpu_percent": 22.46,
+      "max_cpu_percent": 46.39
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node2",
+      "samples": 19,
+      "median_cpu_percent": 23.2,
+      "max_cpu_percent": 26.18
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node3",
+      "samples": 19,
+      "median_cpu_percent": 21.66,
+      "max_cpu_percent": 50.43
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "rustfs",
+      "samples": 19,
+      "median_cpu_percent": 166.38,
+      "max_cpu_percent": 190.47
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "load",
+      "samples": 20,
+      "median_cpu_percent": 1.6749999999999998,
+      "max_cpu_percent": 2.87
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node1",
+      "samples": 20,
+      "median_cpu_percent": 24.3,
+      "max_cpu_percent": 33.37
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node2",
+      "samples": 20,
+      "median_cpu_percent": 25.07,
+      "max_cpu_percent": 30.88
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node3",
+      "samples": 20,
+      "median_cpu_percent": 23.755000000000003,
+      "max_cpu_percent": 28.52
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "rustfs",
+      "samples": 20,
+      "median_cpu_percent": 148.91,
+      "max_cpu_percent": 171.31
+    }
+  ],
+  "shutdown_handoff_stalls": [],
+  "shutdown_outcomes": [
+    {
+      "label": "three_node_bucket-rolling",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-rolling",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-rolling",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-rolling",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-rolling",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-rolling",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "node_policies": [
+    {
+      "scenario": "three_node_bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    },
+    {
+      "scenario": "three_node_fleet",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 32,
+        "max_requests": 512,
+        "max_resident": 512
+      }
+    }
+  ],
+  "routing_cache_snapshots": [
+    {
+      "scenario": "three_node_bucket",
+      "label": "warm",
+      "node": 1,
+      "file": "three_node_bucket-warm-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "warm",
+      "node": 2,
+      "file": "three_node_bucket-warm-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "warm",
+      "node": 3,
+      "file": "three_node_bucket-warm-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "measured",
+      "node": 1,
+      "file": "three_node_bucket-measured-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "measured",
+      "node": 2,
+      "file": "three_node_bucket-measured-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "measured",
+      "node": 3,
+      "file": "three_node_bucket-measured-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "recovered",
+      "node": 1,
+      "file": "three_node_bucket-recovered-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "recovered",
+      "node": 2,
+      "file": "three_node_bucket-recovered-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "recovered",
+      "node": 3,
+      "file": "three_node_bucket-recovered-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1-after-writes",
+      "node": 1,
+      "file": "three_node_bucket-rolling-node1-after-writes-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1-after-writes",
+      "node": 2,
+      "file": "three_node_bucket-rolling-node1-after-writes-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1-after-writes",
+      "node": 3,
+      "file": "three_node_bucket-rolling-node1-after-writes-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2-after-writes",
+      "node": 1,
+      "file": "three_node_bucket-rolling-node2-after-writes-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2-after-writes",
+      "node": 2,
+      "file": "three_node_bucket-rolling-node2-after-writes-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2-after-writes",
+      "node": 3,
+      "file": "three_node_bucket-rolling-node2-after-writes-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3-after-writes",
+      "node": 1,
+      "file": "three_node_bucket-rolling-node3-after-writes-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3-after-writes",
+      "node": 2,
+      "file": "three_node_bucket-rolling-node3-after-writes-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3-after-writes",
+      "node": 3,
+      "file": "three_node_bucket-rolling-node3-after-writes-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_bucket",
+      "label": "preserve-reload",
+      "node": 3,
+      "file": "three_node_bucket-preserve-reload-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "warm",
+      "node": 1,
+      "file": "three_node_fleet-warm-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "warm",
+      "node": 2,
+      "file": "three_node_fleet-warm-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "warm",
+      "node": 3,
+      "file": "three_node_fleet-warm-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "measured",
+      "node": 1,
+      "file": "three_node_fleet-measured-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "measured",
+      "node": 2,
+      "file": "three_node_fleet-measured-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "measured",
+      "node": 3,
+      "file": "three_node_fleet-measured-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "recovered",
+      "node": 2,
+      "file": "three_node_fleet-recovered-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "recovered",
+      "node": 3,
+      "file": "three_node_fleet-recovered-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1-after-writes",
+      "node": 1,
+      "file": "three_node_fleet-rolling-node1-after-writes-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1-after-writes",
+      "node": 2,
+      "file": "three_node_fleet-rolling-node1-after-writes-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1-after-writes",
+      "node": 3,
+      "file": "three_node_fleet-rolling-node1-after-writes-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2-after-writes",
+      "node": 1,
+      "file": "three_node_fleet-rolling-node2-after-writes-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2-after-writes",
+      "node": 2,
+      "file": "three_node_fleet-rolling-node2-after-writes-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2-after-writes",
+      "node": 3,
+      "file": "three_node_fleet-rolling-node2-after-writes-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3-after-writes",
+      "node": 1,
+      "file": "three_node_fleet-rolling-node3-after-writes-node1-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3-after-writes",
+      "node": 2,
+      "file": "three_node_fleet-rolling-node3-after-writes-node2-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3-after-writes",
+      "node": 3,
+      "file": "three_node_fleet-rolling-node3-after-writes-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    },
+    {
+      "scenario": "three_node_fleet",
+      "label": "preserve-reload",
+      "node": 3,
+      "file": "three_node_fleet-preserve-reload-node3-state.json",
+      "cached_routes": 32,
+      "tracked_cells": 544,
+      "occupied": 512,
+      "owned_cells": 512
+    }
+  ],
+  "cpu_sampling_coverage": [
+    "three_node_bucket",
+    "three_node_fleet"
+  ],
+  "limitations": [
+    "All containers share one Apple M2 Max / Colima VM and backing disk; CPU affinity and quotas do not isolate disk or VM overhead.",
+    "RustFS is a local single-node S3-compatible store, not production S3 latency or durability.",
+    "The 5 GiB loop image has approximately 4.84 GiB usable ext4 capacity; it bounds node data, not the read-only container image.",
+    "Repeated overwrite workload with 10000 total cells; no growing dataset, hot-cell skew or long soak.",
+    "Each scenario uses a fresh bucket on a RustFS instance shared by the scenarios in that run.",
+    "Failures and rolling restarts occur between write phases; concurrent ambiguous write acknowledgements are not exercised.",
+    "Closed-loop measurements characterize saturation and do not correct coordinated omission for an independently arriving workload.",
+    "Fleet durability can fall back to bucket proof; peerlog files demonstrate replication, but acknowledgement source is not separately instrumented.",
+    "Raw verification 'nodes' records configured scenario width (3), not live process count; survivor and preserving-reload topology is established by selected endpoints and observed owners."
+  ],
+  "accounting_audit": {
+    "three_node_bucket": {
+      "before_recovery": 27493,
+      "final_acknowledged_writes": 29489,
+      "verified_cells": 10000,
+      "initial_verification": {
+        "cells": 10000,
+        "elapsed_s": 217.501185706,
+        "expected_writes": 16725,
+        "max_cell_read_ms": 476.676432,
+        "mismatches": [],
+        "operation": "verify",
+        "owners": {
+          "node1": 3334,
+          "node2": 3333,
+          "node3": 3333
+        },
+        "read_retries": {},
+        "scenario": "three_node_bucket",
+        "label": "initial-verify",
+        "nodes": 3
+      },
+      "rolling_writes": {
+        "rolling-node3-writes": 671,
+        "rolling-node1-writes": 700,
+        "rolling-node2-writes": 625
+      }
+    },
+    "three_node_fleet": {
+      "before_recovery": 28894,
+      "final_acknowledged_writes": 30240,
+      "verified_cells": 10000,
+      "initial_verification": {
+        "cells": 10000,
+        "elapsed_s": 283.8036971,
+        "expected_writes": 18121,
+        "max_cell_read_ms": 876.944156,
+        "mismatches": [],
+        "operation": "verify",
+        "owners": {
+          "node1": 3344,
+          "node2": 3334,
+          "node3": 3322
+        },
+        "read_retries": {},
+        "scenario": "three_node_fleet",
+        "label": "initial-verify",
+        "nodes": 3
+      },
+      "rolling_writes": {
+        "rolling-node3-writes": 577,
+        "rolling-node1-writes": 503,
+        "rolling-node2-writes": 266
+      }
+    }
+  },
+  "provenance_audit": {
+    "reporting_checkout": "0bbb2b11ffbcc2ccb3bd08f62a83c84c73c8c5f6",
+    "runtime_and_measuring_sources_match_image_revision": true,
+    "harness_exit_code": 0,
+    "private_resources_removed": true,
+    "raw_archive": {
+      "name": "cellar-embedded-cache-10000-raw.tar.gz",
+      "bytes": 11413935,
+      "sha256": "bd3c72deff942a93fd2a0846ea6bd11e0ffee400b7a967b0571b76dae3842fd8"
+    }
+  }
+}

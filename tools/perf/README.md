@@ -1,5 +1,9 @@
 # Embedded fleet validation
 
+The [current release image 10,000-cell run](results/2026-10-12-embedded-cache-10000.md)
+completed both three-node recovery scenarios, all 37 routing-cache checkpoints,
+18 captured startup policies and 14 returned SDK shutdown proofs. Every sampled
+node retained 32 cached routes and 512 owned cells, for 544 tracked records.
 The [2026-10-12 report](results/2026-10-12-embedded-1000.md) records the completed
 1,000-cell run and the earlier admission and shutdown failures it exposed.
 The [10,000-cell reference run](results/2026-10-12-embedded-10000-reference.md)

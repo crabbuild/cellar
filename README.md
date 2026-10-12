@@ -66,7 +66,7 @@ closure retires it. Application tasks spawned outside Cellar's event lifecycle
 remain the application's responsibility. Fleet-scale rollout and recovery
 validation remain follow-up work beyond the
 [bounded local embedding checks](tools/perf/results/2026-10-12-embedded-1000.md)
-and [10,000-cell reference recovery run](tools/perf/results/2026-10-12-embedded-10000-reference.md).
+and [current release image 10,000-cell cache and recovery validation](tools/perf/results/2026-10-12-embedded-cache-10000.md).
 
 `LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
 quotas, copied environment size, and entrypoint or class property size. Environment
