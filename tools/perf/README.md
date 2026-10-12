@@ -24,6 +24,7 @@ docker build -f tools/perf/Dockerfile \
 python3 -m unittest discover -s tools/perf -p 'test_*.py'
 python3 tools/perf/run.py --image cellar-embedded-perf:my-checkout \
   --cells 1000 --max-resident 512 --warmup-seconds 30 \
+  --max-requests 512 \
   --seconds 20 --repeats 2 --concurrency 32 128 \
   --shutdown-ms 60000 --scenario three_node_bucket three_node_fleet
 ```
@@ -31,6 +32,12 @@ python3 tools/perf/run.py --image cellar-embedded-perf:my-checkout \
 Use an unused `--port` base if another local fleet is running. `--output` must
 name a new directory. Raw results, image IDs, source hashes, resource samples,
 state snapshots and logs stay there; credentials are not saved in the report.
+The application selects a finite script-pool request limit with
+`--max-requests`. The SDK's default is 64; this benchmark defaults to 512 to
+allow root requests to retain their slots while nested cell calls settle under
+the offered load. This limit is recorded with each run. It does not disable
+admission control. Failed measurements remain in the report, and `completed`
+is true only after all selected recovery and shutdown checks pass.
 Summarize them with:
 
 ```sh

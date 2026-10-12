@@ -80,9 +80,10 @@ pub(super) fn run(
     let directory = PathBuf::from(std::env::var("CELLAR_PERF_DATA_DIR")?);
     let threads = setting("CELLAR_PERF_THREADS", 1usize)?;
     let resident = setting("CELLAR_PERF_MAX_RESIDENT", 256usize)?;
+    let requests = setting("CELLAR_PERF_MAX_REQUESTS", 512usize)?;
     let shutdown_ms = setting("CELLAR_PERF_SHUTDOWN_MS", 30_000u64)?;
     ensure!(
-        threads > 0 && resident > 0 && shutdown_ms > 0,
+        threads > 0 && resident > 0 && requests > 0 && shutdown_ms > 0,
         "invalid node limits"
     );
     let fleet_durability = match std::env::var("CELLAR_PERF_DURABILITY")?.as_str() {
@@ -192,6 +193,9 @@ pub(super) fn run(
             directory,
         );
         config.maintenance.rebalance = false;
+        // Root requests retain admission while nested cell calls settle. Size
+        // this finite application limit for the offered benchmark concurrency.
+        config.runtime.max_stateless_requests = Some(requests);
         config.shutdown = ShutdownPolicy {
             total_ms: shutdown_ms,
             token_wait_ms: 0,

@@ -102,6 +102,7 @@ class Harness:
         self.results = []
         self.recovery = []
         self.shutdown_outcomes = []
+        self.failures = []
         self.stop_sampling = threading.Event()
         self.phase = "setup"
         self.sampler = None
@@ -195,6 +196,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
                 "-e", f"CELLAR_PERF_NODE=node{i + 1}", "-e", "CELLAR_PERF_DATA_DIR=/data/state",
                 "-e", "CELLAR_PERF_THREADS=1", "-e", f"CELLAR_PERF_PEER_KEY={self.peer_key}",
                 "-e", f"CELLAR_PERF_MAX_RESIDENT={self.args.max_resident}",
+                "-e", f"CELLAR_PERF_MAX_REQUESTS={self.args.max_requests}",
                 "-e", f"CELLAR_PERF_SHUTDOWN_MS={self.args.shutdown_ms}", "-e", f"CELLAR_PERF_DURABILITY={durability}",
                 self.args.image, "--bucket", bucket, "--endpoint", "http://rustfs:9000", "--region", "us-east-1",
                 "--listen", "0.0.0.0:8080", "--internal-listen", "0.0.0.0:8081", "--advertise", f"node{i + 1}:8081")
@@ -228,6 +230,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         (self.output / f"{scenario}-{label}.json").write_text(json.dumps(value, indent=2) + "\n")
         print(json.dumps(value), flush=True)
         if completed.returncode or value.get("errors") or value.get("mismatches"):
+            self.failures.append(value)
             raise RuntimeError("load or recovery errors; see the saved measurement")
         return value
 
@@ -332,6 +335,7 @@ def main():
     parser.add_argument("--rustfs-image", default="rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c")
     parser.add_argument("--cells", type=int, default=200)
     parser.add_argument("--max-resident", type=int, default=256)
+    parser.add_argument("--max-requests", type=int, default=512)
     parser.add_argument("--warmup-seconds", type=int, default=10)
     parser.add_argument("--shutdown-ms", type=int, default=30000)
     parser.add_argument("--bytes", type=int, default=1024)
@@ -342,7 +346,7 @@ def main():
     parser.add_argument("--output")
     parser.add_argument("--scenario", choices=["one_node_bucket", "three_node_bucket", "three_node_fleet"], nargs="+")
     args = parser.parse_args()
-    if any(value <= 0 for value in (args.cells, args.max_resident, args.warmup_seconds, args.shutdown_ms, args.bytes, args.seconds, args.repeats)):
+    if any(value <= 0 for value in (args.cells, args.max_resident, args.max_requests, args.warmup_seconds, args.shutdown_ms, args.bytes, args.seconds, args.repeats)):
         parser.error("workload and node limits must be positive")
     if any(value <= 0 or value > args.cells for value in args.concurrency):
         parser.error("concurrency must be between 1 and the cell count")
@@ -363,13 +367,15 @@ def main():
     }
     (harness.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     print(f"Artifacts: {harness.output}", flush=True)
+    completed = False
     try:
         harness.setup()
         for name, count, durability in (("one_node_bucket", 1, "bucket"), ("three_node_bucket", 3, "bucket"), ("three_node_fleet", 3, "fleet")):
             if not args.scenario or name in args.scenario:
                 harness.scenario(name, count, durability)
+        completed = True
     finally:
-        (harness.output / "results.json").write_text(json.dumps({"measurements": harness.results, "recovery": harness.recovery, "shutdown_outcomes": harness.shutdown_outcomes}, indent=2) + "\n")
+        (harness.output / "results.json").write_text(json.dumps({"completed": completed, "measurements": harness.results, "recovery": harness.recovery, "shutdown_outcomes": harness.shutdown_outcomes, "failures": harness.failures}, indent=2) + "\n")
         harness.cleanup()
 
 
