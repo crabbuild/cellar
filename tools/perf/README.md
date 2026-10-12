@@ -5,6 +5,9 @@ The [2026-10-12 report](results/2026-10-12-embedded-1000.md) records the complet
 The [10,000-cell reference run](results/2026-10-12-embedded-10000-reference.md)
 completed both three-node recovery scenarios and all 14 returned shutdown
 proofs. Its earlier image predates the routing-cache and typed-outcome changes.
+The [current-image zero-cache run](results/2026-10-12-embedded-cache-zero-1000.md)
+retained exactly 64 tracked records while visiting 1,000 cells, and recovered
+all 9,284 acknowledged writes with both preserving-stop proofs passing.
 
 `cellar-perf-cells` embeds `cellar::sdk::Node`. The application supplies two
 Tokio runtimes, listeners, authenticated peer clients, signing identities and
