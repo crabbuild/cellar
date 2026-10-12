@@ -26,7 +26,7 @@ docker build -f tools/perf/Dockerfile \
   -t cellar-embedded-perf:my-checkout .
 python3 -m unittest discover -s tools/perf -p 'test_*.py'
 python3 tools/perf/run.py --image cellar-embedded-perf:my-checkout \
-  --cells 1000 --max-resident 512 --warmup-seconds 30 \
+  --cells 1000 --max-resident 512 --max-cached-routes 32 --warmup-seconds 30 \
   --max-requests 512 \
   --seconds 20 --repeats 2 --concurrency 32 128 \
   --shutdown-ms 60000 --scenario three_node_bucket three_node_fleet
@@ -41,8 +41,17 @@ allow root requests to retain their slots while nested cell calls settle under
 the offered load. This limit is recorded with each run. It does not disable
 admission control. Failed measurements remain in the report, and `completed`
 is true only after all selected recovery and shutdown checks pass.
-The application also captures an explicit 2,048-record limit for idle, unowned
-routing history through `ActorPolicy::max_cached_routes`.
+The application captures `--max-cached-routes` through
+`ActorPolicy::max_cached_routes`; the default is 2,048, and zero disables idle,
+unowned routing history. Each startup reports the limits it actually captured;
+an image using different limits is rejected before load starts. Required state
+snapshots check the cache bound after warmup, measurements, recovery, each
+rolling handoff's subsequent writes, and the final preserving reload. Missing
+or invalid observations leave the run incomplete. Analysis independently checks
+every required saved snapshot. Owned cells, alarms and unfinished work retain
+their records independently of this cache limit; it is not a whole-process
+memory limit. Use more cells than the resident and cache limits to exercise
+reclamation, and rebuild the measuring image when changing its source.
 Summarize them with:
 
 ```sh
