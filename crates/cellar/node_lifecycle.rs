@@ -60,12 +60,19 @@ impl ShutdownPolicy {
 pub struct ShutdownReport {
     pub mode: ShutdownMode,
     pub ingress_drained: bool,
+    /// Complete application event drivers, including post-response waitUntil
+    /// and their nested SDK calls, drained before the ownership/durability cut.
+    pub application_work_drained: bool,
+    /// Event lifetimes still pending when the semantic drain returned. Forced
+    /// domain closure can subsequently retire them without a graceful proof.
+    pub pending_application_events: usize,
     pub cells_drained: bool,
     pub pending_dispatches: usize,
     pub log_quiesced: bool,
     pub local_durability_closed: bool,
     pub clean_reload_prepared: bool,
-    /// Admission or cell draining exhausted its stall or absolute budget.
+    /// Ingress, application-event or cell draining exhausted its stall or
+    /// absolute budget.
     pub drain_timed_out: bool,
     /// The complete budget elapsed, independently of a shorter stall timeout.
     pub deadline_elapsed: bool,

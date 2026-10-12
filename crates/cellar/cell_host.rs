@@ -204,16 +204,33 @@ impl CellHost {
         self.alarm_observation(cell)
     }
 
-    pub(crate) async fn fire_alarm(
+    pub(crate) fn fire_alarm(
         &self,
         op: cellar_logic::OpId,
         cell: String,
         scheduled_ms: i64,
-    ) -> anyhow::Result<(cellar_logic::wake::AlarmSnapshot, bool, Option<u64>)> {
-        match self {
-            Self::Engine(runtime) => runtime.fire_alarm(op, cell, scheduled_ms).await,
-            #[cfg(all(test, cellar_internal_tests))]
-            Self::Scripted(runtime) => runtime.fire_alarm(op, cell, scheduled_ms).await,
+    ) -> impl std::future::Future<
+        Output = anyhow::Result<(cellar_logic::wake::AlarmSnapshot, bool, Option<u64>)>,
+    > + Send
+           + 'static {
+        #[cfg(not(all(test, cellar_internal_tests)))]
+        {
+            let Self::Engine(runtime) = self;
+            runtime.fire_alarm(op, cell, scheduled_ms)
+        }
+        #[cfg(all(test, cellar_internal_tests))]
+        {
+            match self {
+                Self::Engine(runtime) => {
+                    futures_util::future::Either::Left(runtime.fire_alarm(op, cell, scheduled_ms))
+                }
+                Self::Scripted(runtime) => {
+                    let runtime = runtime.clone();
+                    futures_util::future::Either::Right(async move {
+                        runtime.fire_alarm(op, cell, scheduled_ms).await
+                    })
+                }
+            }
         }
     }
 

@@ -8,7 +8,48 @@
 //! and resource registries follow their owner.
 
 use crate::ownership_store::LiveLoad;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+
+/// Complete application event lifetimes, including post-response background
+/// work. Maintenance tasks and idle resident cells do not hold these counts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ApplicationWorkSnapshot {
+    /// Event drivers whose full lifetime has not ended, even if their handler
+    /// already replied. Counts belong to this host across its generations.
+    pub pending_events: usize,
+    /// Events which have ended, including failure or cancellation. This is a
+    /// progress counter; it does not by itself assert a durability proof.
+    pub retired_events: u64,
+}
+
+#[derive(Default)]
+pub(crate) struct ApplicationWork {
+    pending: AtomicUsize,
+    retired: AtomicU64,
+}
+
+impl ApplicationWork {
+    pub(crate) fn enter(self: &Arc<Self>) -> ApplicationWorkGuard {
+        self.pending.fetch_add(1, Ordering::SeqCst);
+        ApplicationWorkGuard(self.clone())
+    }
+
+    pub(crate) fn snapshot(&self) -> ApplicationWorkSnapshot {
+        ApplicationWorkSnapshot {
+            pending_events: self.pending.load(Ordering::SeqCst),
+            retired_events: self.retired.load(Ordering::SeqCst),
+        }
+    }
+}
+
+pub(crate) struct ApplicationWorkGuard(Arc<ApplicationWork>);
+impl Drop for ApplicationWorkGuard {
+    fn drop(&mut self) {
+        self.0.retired.fetch_add(1, Ordering::SeqCst);
+        self.0.pending.fetch_sub(1, Ordering::SeqCst);
+    }
+}
 
 /// One resource observation shared by pressure decisions and node leases.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -34,6 +75,7 @@ enum MetricsBackend {
 /// Services and resource registries owned by one execution domain.
 pub struct HostServices {
     domain: OnceLock<crate::asyncrt::DomainToken>,
+    application_work: Arc<ApplicationWork>,
     channels: crate::host_channels::HostChannels,
     gates: Arc<crate::host_gates::GateService>,
     tcp: Arc<crate::host_tcp::TcpService>,
@@ -58,6 +100,7 @@ impl HostServices {
     pub(crate) fn production() -> Self {
         Self {
             domain: OnceLock::new(),
+            application_work: Arc::new(ApplicationWork::default()),
             channels: crate::host_channels::HostChannels::default(),
             gates: Arc::new(crate::host_gates::GateService::default()),
             tcp: Arc::new(crate::host_tcp::TcpService::default()),
@@ -83,6 +126,7 @@ impl HostServices {
     pub fn scripted() -> Self {
         Self {
             domain: OnceLock::new(),
+            application_work: Arc::new(ApplicationWork::default()),
             channels: crate::host_channels::HostChannels::default(),
             gates: Arc::new(crate::host_gates::GateService::default()),
             tcp: Arc::new(crate::host_tcp::TcpService::default()),
@@ -102,6 +146,16 @@ impl HostServices {
             #[cfg(all(test, cellar_internal_tests))]
             handoff_transport: Mutex::new(None),
         }
+    }
+
+    /// Observe this host's complete event drivers across all generations,
+    /// services, cell pools, loaded workers and facets.
+    pub fn application_work(&self) -> ApplicationWorkSnapshot {
+        self.application_work.snapshot()
+    }
+
+    pub(crate) fn application_work_registry(&self) -> Arc<ApplicationWork> {
+        self.application_work.clone()
     }
 
     pub(crate) fn channels(&self) -> &crate::host_channels::HostChannels {

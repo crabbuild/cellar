@@ -584,6 +584,31 @@ async fn compiled_cells_use_the_production_runtime_without_initializing_v8() -> 
         }
     })
     .await?;
+    let services = cellar::asyncrt::services();
+    cellar::asyncrt::timeout(Duration::from_secs(2), async {
+        while services.application_work().pending_events != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    let before = services.application_work();
+    let queued_alarm = runtime.fire_alarm(1, "Counter:test".into(), 0);
+    assert_eq!(services.application_work().pending_events, 1);
+    let foreign = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    foreign.run(async move { drop(queued_alarm) }).await?;
+    assert_eq!(services.application_work().pending_events, 0);
+    assert_eq!(
+        services.application_work().retired_events,
+        before.retired_events + 1
+    );
+    assert_eq!(foreign.services().application_work().pending_events, 0);
+    assert_eq!(foreign.services().application_work().retired_events, 0);
+    assert_eq!(
+        runtime.alarm("Counter:test"),
+        Some(0),
+        "an unpolled alarm consumed its claim"
+    );
+    foreign.shutdown().await;
     let (_, _, alarm_write) = runtime.fire_alarm(1, "Counter:test".into(), 0).await?;
     assert!(alarm_write.is_some());
     cellar::asyncrt::timeout(Duration::from_secs(2), async {

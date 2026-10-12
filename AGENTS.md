@@ -111,6 +111,9 @@ remain outside the CLI directory.
    listings, continuation information, and successful closed-pipe handling.
 8. Recover predecessor logs before replacing a node lease. Keep the node's
    directory lock and caller-owned executors alive until owned work joins.
+   Both stop modes drain complete event drivers, including post-response
+   background work and queued SDK calls, before changing cell lifecycle.
+   Progress may extend the stall window, never the absolute stop deadline.
    Forced cancellation supplies no graceful durability proof; report incomplete
    drain phases through `ShutdownReport` and return `NodeOutcome` to library
    callers. Process exits belong to the CLI boundary.

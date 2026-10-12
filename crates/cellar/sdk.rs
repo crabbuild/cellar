@@ -16,6 +16,12 @@
 //! supplied executors alive through completion. [`ShutdownReport`] records
 //! completed proof phases and distinguishes a stall timeout from the absolute
 //! stop deadline; a requested stop can leave unfinished work for recovery.
+//! Both stop modes wait for complete event drivers, including post-response
+//! [`Context::wait_until`], nested SDK calls, alarms and previous generations,
+//! before changing cell lifecycle. [`HostServices::application_work`] exposes
+//! pending and retired event lifetimes. Retirement includes failure and
+//! cancellation; it supplies progress, not a durability proof. A timed-out
+//! report retains unfinished counts observed before forced domain closure.
 //! Dropping or cancelling a node forces closure and claims no graceful proof.
 //! Started blocking work must finish before its directory can be reused.
 //!
@@ -146,7 +152,7 @@ pub use crate::daemon::{
     Node, NodeConfig, NodeFleet, NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
 };
 pub use crate::generation::DeploymentGraph;
-pub use crate::host_services::{HostMetricsSample, MetricsSampler};
+pub use crate::host_services::{ApplicationWorkSnapshot, HostMetricsSample, MetricsSampler};
 pub use crate::loader_policy::LoaderPolicy;
 pub use crate::log_options::{
     EvictionPolicy as LogEvictionPolicy, HedgeMode, LogOptions, LogWindowOptions,

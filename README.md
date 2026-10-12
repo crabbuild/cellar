@@ -38,8 +38,13 @@ startup. Lower-level hosts can construct an `ExecutionDomain` directly.
 Production dispatch and draining now share a driver that accepts a captured
 `ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
 fencing, core failure, or replication failure; the CLI alone maps these to process
-exits. `ShutdownReport` records ingress and cell drain completion, pending
-dispatches, log sealing, local durability closure, and clean-reload preparation.
+exits. Both stop modes drain complete application event drivers and queued SDK
+calls before changing cell lifecycle. This includes post-response `wait_until`
+work, nested calls, alarms, and events from previous application generations.
+`ShutdownReport` records ingress, application-event and cell drain completion,
+pending events and dispatches, log sealing, local durability closure, and
+clean-reload preparation. `HostServices::application_work` exposes per-host
+pending and retired event counts; retirement includes cancellation and failure.
 Stall timeouts and the absolute deadline remain distinct, so a bounded stop can
 report incomplete work. HTTP tasks and facet dispatch retain their owning domain.
 `Node::run_until` supervises the engine using the application's stop future;
@@ -47,8 +52,10 @@ report incomplete work. HTTP tasks and facet dispatch retain their owning domain
 closes and joins owned work before returning while leaving both executors running.
 Keep the executors alive through completion. The semantic drain has a bounded
 budget, but already-started blocking work must finish before the join completes.
-Complete accepted-background-work draining and fleet-scale validation remain
-follow-up work.
+Work left at a deadline remains visible in the report even after forced domain
+closure retires it. Application tasks spawned outside Cellar's event lifecycle
+remain the application's responsibility. Fleet-scale rollout and recovery
+validation remain follow-up work.
 
 `LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
 quotas, copied environment size, and entrypoint or class property size. Environment
