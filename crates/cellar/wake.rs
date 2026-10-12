@@ -245,7 +245,7 @@ async fn run_due_scans(
     let mut tick = crate::asyncrt::interval(Duration::from_millis(tick_ms));
     tick.set_missed_tick_behavior(crate::asyncrt::MissedTickBehavior::Delay);
     tick.tick().await;
-    let mut dead_node_gc = crate::dead_node_gc::DeadNodeGc::default();
+    let mut dead_node_gc = crate::dead_node_gc::DeadNodeGc;
     loop {
         tick.tick().await;
         let elected = dead_node_gc.run_elected_pass(&bucket, &node, tick_ms).await;

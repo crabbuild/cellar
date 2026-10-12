@@ -37,6 +37,20 @@ share the supplied client's pool and credentials. Applications can supply a
 explicit option that retains the supplied credential provider.
 `Bucket::from_clients` accepts caller-owned ordinary, CAS, and paginated clients.
 
+`NodeLogManager::new` takes `LogOptions` and a caller-supplied `LogTransport`.
+Each host controls its pipeline, follower window, ordered streams, hedging,
+eviction, and lease publication timeout. `SignedPeerTransport::from_clients`
+retains the application's request and stream HTTP pools; custom transports own
+peer authentication. Recover the predecessor log before installing a node lease,
+then retain one `DurabilityOwner` for the replication and log tasks. Cancelling
+an execution domain is a forced stop and does not prove a graceful data drain.
+
+Cellar leases require an explicit `generation` and logs require
+`may_have_fleet_acks`. Recovery accepts complete ranged tails; original lease
+aliases and entries-only tails are rejected. Expired node leases become CAS
+tombstones after their logs are sealed, preserving recovery pointers and guarding
+against deletion of a successor generation.
+
 ## Build and run
 
 ```sh
@@ -67,7 +81,8 @@ A conditional bucket write grants cell ownership to one node. LTX captures
 committed SQLite writes. One node waits for bucket upload to prove durability;
 a fleet can prove it through peer log replication before bucket upload.
 Ownership fencing, restore, durable wakes, and shutdown use the retained host.
-Broader fleet rollout and recovery validation remain follow-up work.
+Local integration tests exercise follower disk proofs and recovery after leader
+loss. Broader fleet rollout and recovery validation remain follow-up work.
 
 The default Docker image contains the Rust CLI:
 

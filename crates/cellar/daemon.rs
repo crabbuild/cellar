@@ -4371,14 +4371,13 @@ async fn async_main(
                 }),
                 write_lock: tokio::sync::Mutex::new(()),
             });
-            let manager = Arc::new(crate::node_log::NodeLogManager::new(
+            let manager = Arc::new(crate::node_log::NodeLogManager::from_environment(
                 &format!("{node}/{process_generation}"),
                 log_bucket,
                 own_log,
                 ltx.clone(),
                 app.peer_auth.clone(),
-                crate::node_log::eviction_policy_from_env()?,
-            ));
+            )?);
             *actor.node_log.lock().unwrap() = Some(manager.clone());
             // Recovery-before-install is fatal for every posture: the
             // predecessor's folded state lives in the lease record this

@@ -180,9 +180,8 @@ pub struct NodeLeaseRecord {
     pub addr: String,
     pub expires_ms: u64,
     pub peer_protocol: u16,
-    /// Per-process generation; production stores this in
-    /// `ownership_index_generation` and, as the same value, in
-    /// `probe_public_key`.
+    /// Explicit process generation stored in the Cellar lease's `generation`
+    /// field. The CLI uses its signing public key as this identity.
     pub generation: String,
     /// The folded node-log state: `None` means this session never opened
     /// a fleet log — it never acked past the bucket. Anything not sealed

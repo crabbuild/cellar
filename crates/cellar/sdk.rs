@@ -66,6 +66,19 @@
 //! clients. Configure the CAS client without retries so ambiguous writes remain
 //! visible to the ownership protocol.
 //!
+//! Fleet logs take an immutable [`LogOptions`] and an authenticated
+//! [`LogTransport`]. [`SignedPeerTransport::from_clients`] retains the host's
+//! ordinary and ordered-stream HTTP pools. Custom implementations must verify
+//! peer identity and protocol at both ends. Every replacement ensemble retains
+//! the same host policy; [`NodeLogManager::from_environment`] is the CLI adapter.
+//! Construct the manager in the replication's domain and call
+//! [`NodeLogManager::recover_self`] before installing the node's lease. Retain
+//! one [`DurabilityOwner`] to own the coupled log and replication tasks.
+//! Its local shutdown joins those tasks after runtime admission has stopped;
+//! a complete application shutdown must first drain accepted writes and preserve
+//! ownership and recovery invariants. Closing an execution domain forcibly
+//! cancels its work and provides no durability drain proof.
+//!
 //! ```no_run
 //! use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output, http::Response};
 //! use std::sync::Arc;
@@ -88,8 +101,15 @@ pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
 pub use crate::container::EngineOptions as ContainerEngineOptions;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;
+pub use crate::log_options::{
+    EvictionPolicy as LogEvictionPolicy, HedgeMode, LogOptions, LogWindowOptions,
+};
 pub use crate::ltx_replication::Replication;
 pub use crate::native_deploy::{ApplicationConfig, AssetProject, ContainerProject, Project};
+pub use crate::node_log::{
+    DurabilityOwner, FollowerStore, LogStreamIo, LogTransport, NodeLogManager, OwnLog,
+    SignedPeerTransport,
+};
 pub use crate::replica_storage::{
     ReplicaRangeReaderFactory, ReplicaStorage, ReplicaStorageOptions,
 };

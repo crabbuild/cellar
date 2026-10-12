@@ -1220,6 +1220,8 @@ pub async fn scan_epochs(
 }
 
 pub struct LtxRepl {
+    #[cfg(not(cellar_internal_tests))]
+    host_services: Arc<crate::host_services::HostServices>,
     /// Local root: cell dbs live at `watch/<cell>/ltx/e<epoch>/db.sqlite`.
     watch: PathBuf,
     /// The exact shared client and page-reader infrastructure chosen at startup.
@@ -1573,6 +1575,8 @@ impl LtxRepl {
         let compaction_queue =
             compaction.map(|config| start_compaction_loop(config, tasks.clone()));
         Self {
+            #[cfg(not(cellar_internal_tests))]
+            host_services: crate::asyncrt::services(),
             watch: watch.to_path_buf(),
             storage,
             prefix,
@@ -1622,6 +1626,15 @@ impl LtxRepl {
             truncate_pages: Some(options.truncate_pages),
             options,
         }
+    }
+
+    #[cfg(not(cellar_internal_tests))]
+    pub(crate) fn host_services(&self) -> &Arc<crate::host_services::HostServices> {
+        &self.host_services
+    }
+
+    pub(crate) fn storage_prefix(&self) -> &str {
+        &self.prefix
     }
 
     pub(crate) fn take_task_owner(&self) -> LtxTaskOwner {
