@@ -2,6 +2,9 @@
 
 The [2026-10-12 report](results/2026-10-12-embedded-1000.md) records the completed
 1,000-cell run and the earlier admission and shutdown failures it exposed.
+The [10,000-cell reference run](results/2026-10-12-embedded-10000-reference.md)
+completed both three-node recovery scenarios and all 14 returned shutdown
+proofs. Its earlier image predates the routing-cache and typed-outcome changes.
 
 `cellar-perf-cells` embeds `cellar::sdk::Node`. The application supplies two
 Tokio runtimes, listeners, authenticated peer clients, signing identities and

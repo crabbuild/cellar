@@ -1,0 +1,1253 @@
+{
+  "started_utc": "2026-10-12T19:06:30.270813+00:00",
+  "revision": "b7f7ce39dcfb5f34b62cc7930289a3c72f68b49b",
+  "source_sha256": {
+    "tools/perf/cells.rs": "70f65e2721729bccd329fabd667002082b2a53a7be13d53a3da4943a52eab8c6",
+    "tools/perf/embedded.rs": "60873fdbd0e43f300b5ea06ca0bfbbc05477bce1406a72b8698960c16a2cf6f1",
+    "tools/perf/load.rs": "f731ca0b4ec9688772705ee7feab9580d0f5c240a655dc32e9948576a64b8a8e",
+    "tools/perf/run.py": "a7f94267134e67c4786984c8059927532beb9cce70c0a1309c2d86be7e4e5dc5",
+    "tools/perf/analyze.py": "f5e45e5813fe890bce87e035b780f292270e3e03de5593b601a59f4dd88f1ffb",
+    "tools/perf/Dockerfile": "1eda9c034ac94815acb06b93edadfbb9f189a1093608e9e8302349b59215322f",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc"
+  },
+  "analysis_sha256": "047dc182ca2d6f33035ba94bb74e1b13d38b8a0786b87d976c00c7b04be19756",
+  "source_dirty": false,
+  "image_labels": {
+    "org.opencontainers.image.revision": "20fb251d7fb239de57bc712775d6349b5dc0a0b5"
+  },
+  "completed": true,
+  "failures": [],
+  "cellar_image": "sha256:f0a6687f441c4ea3212548d3f3680440905840273650a9e342604b38c8c68430",
+  "rustfs_image": "sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+  "environment": {
+    "architecture": "aarch64",
+    "vm_cpus": 8,
+    "vm_memory_bytes": 16732549120,
+    "node_limits": {
+      "cpus": 1,
+      "memory_bytes": 2147483648,
+      "disk_image_bytes": 5368709120
+    },
+    "load_generator_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        0,
+        6
+      ],
+      "memory_bytes": 2147483648
+    },
+    "rustfs_limits": {
+      "cpus": 2,
+      "cpu_set": [
+        4,
+        5
+      ],
+      "memory_bytes": 4294967296
+    }
+  },
+  "workload": {
+    "cells": 10000,
+    "payload_bytes": 1024,
+    "phase_seconds": 20,
+    "repetitions": 2,
+    "concurrency": [
+      32,
+      128
+    ],
+    "warmup_seconds": 180,
+    "max_resident_cells_per_node": 512,
+    "max_cached_routes_per_node": null,
+    "max_requests_per_script_pool": 512,
+    "execution": "sdk::Node with caller-owned host/core runtimes, listeners, authenticated peer clients and object-store clients",
+    "operation": "transaction: increment persistent counter and overwrite JSON value with changing seeded random ASCII payload (64-symbol alphabet)",
+    "load_model": "closed loop; one in-flight request per worker; disjoint cell partitions; rotating ingress; no write retries",
+    "latency": "request start through complete HTTP response JSON; warmup excluded; percentile ranges across repetitions, not pooled percentiles",
+    "build": "Linux ARM64; Rust 1.98.1; repository release profile (opt-level=s, fat LTO)",
+    "rebalance_interval_ms": 0
+  },
+  "summary": [
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 5117,
+      "elapsed_s": 41.807576165,
+      "writes_per_s": 122.39408426369843,
+      "writes_per_s_range": [
+        91.73276235341474,
+        155.46287300437305
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          194.618,
+          233.63
+        ],
+        "p95": [
+          262.055,
+          839.056
+        ],
+        "p99": [
+          845.032,
+          1345.05
+        ],
+        "max": [
+          1041.405,
+          1751.721
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_bucket",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 5627,
+      "elapsed_s": 41.741840478,
+      "writes_per_s": 134.80478904531546,
+      "writes_per_s_range": [
+        109.6668897449437,
+        160.21101812269657
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          806.954,
+          1117.374
+        ],
+        "p95": [
+          1137.336,
+          2251.878
+        ],
+        "p99": [
+          1574.061,
+          2451.281
+        ],
+        "max": [
+          1770.412,
+          2792.064
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 32,
+      "repetitions": 2,
+      "successful_writes": 3346,
+      "elapsed_s": 40.510018822,
+      "writes_per_s": 82.59685128022872,
+      "writes_per_s_range": [
+        76.51786240215363,
+        88.7004429931793
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          245.586,
+          368.505
+        ],
+        "p95": [
+          907.091,
+          1039.659
+        ],
+        "p99": [
+          1114.303,
+          1280.519
+        ],
+        "max": [
+          1659.624,
+          1704.067
+        ]
+      },
+      "errors": 0
+    },
+    {
+      "scenario": "three_node_fleet",
+      "concurrency": 128,
+      "repetitions": 2,
+      "successful_writes": 4268,
+      "elapsed_s": 44.534618381,
+      "writes_per_s": 95.835557935776,
+      "writes_per_s_range": [
+        94.32166554970905,
+        97.34184384380636
+      ],
+      "latency_ms_ranges": {
+        "p50": [
+          354.831,
+          713.369
+        ],
+        "p95": [
+          3687.238,
+          4427.401
+        ],
+        "p99": [
+          4094.485,
+          5623.715
+        ],
+        "max": [
+          4377.113,
+          8017.064
+        ]
+      },
+      "errors": 0
+    }
+  ],
+  "measurements": [
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.114127184,
+      "errors": {},
+      "latency_ms": {
+        "max": 1041.405,
+        "p50": 194.618,
+        "p95": 262.055,
+        "p99": 845.032
+      },
+      "logical_mib_per_s": 0.15181921191833306,
+      "operation": "write",
+      "owners": {
+        "node1": 1042,
+        "node2": 1045,
+        "node3": 1040
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 3127,
+      "writes_per_s": 155.46287300437305,
+      "scenario": "three_node_bucket",
+      "label": "c32-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 20.76012024,
+      "errors": {},
+      "latency_ms": {
+        "max": 1770.412,
+        "p50": 806.954,
+        "p95": 1137.336,
+        "p99": 1574.061
+      },
+      "logical_mib_per_s": 0.15645607238544587,
+      "operation": "write",
+      "owners": {
+        "node1": 1105,
+        "node2": 1119,
+        "node3": 1102
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 3326,
+      "writes_per_s": 160.21101812269657,
+      "scenario": "three_node_bucket",
+      "label": "c128-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 21.693448981,
+      "errors": {},
+      "latency_ms": {
+        "max": 1751.721,
+        "p50": 233.63,
+        "p95": 839.056,
+        "p99": 1345.05
+      },
+      "logical_mib_per_s": 0.08958277573575658,
+      "operation": "write",
+      "owners": {
+        "node1": 667,
+        "node2": 661,
+        "node3": 662
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 1990,
+      "writes_per_s": 91.73276235341474,
+      "scenario": "three_node_bucket",
+      "label": "c32-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 20.981720238,
+      "errors": {},
+      "latency_ms": {
+        "max": 2792.064,
+        "p50": 1117.374,
+        "p95": 2251.878,
+        "p99": 2451.281
+      },
+      "logical_mib_per_s": 0.10709657201654658,
+      "operation": "write",
+      "owners": {
+        "node1": 740,
+        "node2": 791,
+        "node3": 770
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2301,
+      "writes_per_s": 109.6668897449437,
+      "scenario": "three_node_bucket",
+      "label": "c128-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.295914591,
+      "errors": {},
+      "latency_ms": {
+        "max": 1659.624,
+        "p50": 368.505,
+        "p95": 907.091,
+        "p99": 1114.303
+      },
+      "logical_mib_per_s": 0.07472447500210315,
+      "operation": "write",
+      "owners": {
+        "node1": 514,
+        "node2": 515,
+        "node3": 524
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 1553,
+      "writes_per_s": 76.51786240215363,
+      "scenario": "three_node_fleet",
+      "label": "c32-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 22.2112278,
+      "errors": {},
+      "latency_ms": {
+        "max": 4377.113,
+        "p50": 713.369,
+        "p95": 3687.238,
+        "p99": 4094.485
+      },
+      "logical_mib_per_s": 0.09211100151338775,
+      "operation": "write",
+      "owners": {
+        "node1": 698,
+        "node2": 665,
+        "node3": 732
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2095,
+      "writes_per_s": 94.32166554970905,
+      "scenario": "three_node_fleet",
+      "label": "c128-r1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 32,
+      "elapsed_s": 20.214104231,
+      "errors": {},
+      "latency_ms": {
+        "max": 1704.067,
+        "p50": 245.586,
+        "p95": 1039.659,
+        "p99": 1280.519
+      },
+      "logical_mib_per_s": 0.08662152636052665,
+      "operation": "write",
+      "owners": {
+        "node1": 594,
+        "node2": 596,
+        "node3": 603
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 1793,
+      "writes_per_s": 88.7004429931793,
+      "scenario": "three_node_fleet",
+      "label": "c32-r2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "concurrency": 128,
+      "elapsed_s": 22.323390581,
+      "errors": {},
+      "latency_ms": {
+        "max": 8017.064,
+        "p50": 354.831,
+        "p95": 4427.401,
+        "p99": 5623.715
+      },
+      "logical_mib_per_s": 0.09506039437871715,
+      "operation": "write",
+      "owners": {
+        "node1": 719,
+        "node2": 703,
+        "node3": 751
+      },
+      "payload_bytes": 1024,
+      "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
+      "requested_seconds": 20,
+      "successful_writes": 2173,
+      "writes_per_s": 97.34184384380636,
+      "scenario": "three_node_fleet",
+      "label": "c128-r2",
+      "nodes": 3
+    }
+  ],
+  "recovery": [
+    {
+      "cells": 10000,
+      "elapsed_s": 283.170849186,
+      "expected_writes": 32258,
+      "max_cell_read_ms": 378.05929100000003,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "before-recovery",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 523.530255898,
+      "expected_writes": 32258,
+      "max_cell_read_ms": 845.949969,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "bucket-restore",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 417.944448457,
+      "expected_writes": 32258,
+      "max_cell_read_ms": 1069.7777660000002,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3163,
+        "node2": 3545,
+        "node3": 3292
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 212.786403844,
+      "expected_writes": 33023,
+      "max_cell_read_ms": 143.70164899999997,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node1-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 217.946068428,
+      "expected_writes": 33023,
+      "max_cell_read_ms": 250.244602,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3675,
+        "node2": 3162,
+        "node3": 3163
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 265.706615514,
+      "expected_writes": 33647,
+      "max_cell_read_ms": 482.700626,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node2-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 329.39373481,
+      "expected_writes": 33647,
+      "max_cell_read_ms": 812.638902,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3675,
+        "node2": 3162,
+        "node3": 3163
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 561.892420171,
+      "expected_writes": 34230,
+      "max_cell_read_ms": 3499.517019,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3333,
+        "node3": 3333
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "rolling-node3-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 747.503255626,
+      "expected_writes": 34230,
+      "max_cell_read_ms": 5700.474025,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node3": 10000
+      },
+      "read_retries": {},
+      "scenario": "three_node_bucket",
+      "label": "preserve-reload",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 242.898338757,
+      "expected_writes": 22537,
+      "max_cell_read_ms": 436.440624,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3331,
+        "node2": 3329,
+        "node3": 3340
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "before-recovery",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 304.068397972,
+      "expected_writes": 22537,
+      "max_cell_read_ms": 1245.592196,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node2": 5011,
+        "node3": 4989
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "single-node-loss",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 318.301540093,
+      "expected_writes": 22537,
+      "max_cell_read_ms": 706.8726859999999,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3664,
+        "node2": 3158,
+        "node3": 3178
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 282.647619521,
+      "expected_writes": 22827,
+      "max_cell_read_ms": 946.572533,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3325,
+        "node2": 3329,
+        "node3": 3346
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node1-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 490.129671024,
+      "expected_writes": 22827,
+      "max_cell_read_ms": 1214.143436,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3152,
+        "node2": 3158,
+        "node3": 3690
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 455.797180239,
+      "expected_writes": 22951,
+      "max_cell_read_ms": 1031.884877,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3320,
+        "node3": 3346
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node2-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 418.683672175,
+      "expected_writes": 22951,
+      "max_cell_read_ms": 767.8292650000001,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3160,
+        "node2": 3658,
+        "node3": 3182
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 933.275794765,
+      "expected_writes": 23314,
+      "max_cell_read_ms": 4728.557271,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node1": 3334,
+        "node2": 3334,
+        "node3": 3332
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "rolling-node3-after-writes",
+      "nodes": 3
+    },
+    {
+      "cells": 10000,
+      "elapsed_s": 300.462799004,
+      "expected_writes": 23314,
+      "max_cell_read_ms": 236.493271,
+      "mismatches": [],
+      "operation": "verify",
+      "owners": {
+        "node3": 10000
+      },
+      "read_retries": {},
+      "scenario": "three_node_fleet",
+      "label": "preserve-reload",
+      "nodes": 3
+    }
+  ],
+  "node_snapshots": [
+    {
+      "snapshot": "three_node_bucket-measured-node1-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 7341,
+      "cached_routes": null,
+      "rss_bytes": 166141952,
+      "working_set_bytes": 228597760,
+      "cgroup_current_bytes": 792391680,
+      "peak_cgroup_memory_bytes": 795668480,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 16478,
+      "stops": 16478,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 176910336,
+      "state_directory_bytes": 174825472,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node2-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 7331,
+      "cached_routes": null,
+      "rss_bytes": 163086336,
+      "working_set_bytes": 225468416,
+      "cgroup_current_bytes": 781631488,
+      "peak_cgroup_memory_bytes": 784658432,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 16584,
+      "stops": 16584,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 177885184,
+      "state_directory_bytes": 175800320,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_bucket-measured-node3-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 7329,
+      "cached_routes": null,
+      "rss_bytes": 165703680,
+      "working_set_bytes": 228184064,
+      "cgroup_current_bytes": 798343168,
+      "peak_cgroup_memory_bytes": 801738752,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 16490,
+      "stops": 16490,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 177446912,
+      "state_directory_bytes": 175362048,
+      "peerlog_bytes": null
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node1-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 5394,
+      "cached_routes": null,
+      "rss_bytes": 149905408,
+      "working_set_bytes": 196259840,
+      "cgroup_current_bytes": 604520448,
+      "peak_cgroup_memory_bytes": 607264768,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 12415,
+      "stops": 12415,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 146583552,
+      "state_directory_bytes": 143928473,
+      "peerlog_bytes": 27464
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node2-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 5421,
+      "cached_routes": null,
+      "rss_bytes": 149217280,
+      "working_set_bytes": 190676992,
+      "cgroup_current_bytes": 401592320,
+      "peak_cgroup_memory_bytes": 404361216,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 12586,
+      "stops": 12586,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 147017728,
+      "state_directory_bytes": 144268865,
+      "peerlog_bytes": 27464
+    },
+    {
+      "snapshot": "three_node_fleet-measured-node3-state.json",
+      "owned_cells": 512,
+      "resident_cells": 512,
+      "tracked_cells": 5442,
+      "cached_routes": null,
+      "rss_bytes": 148881408,
+      "working_set_bytes": 195772416,
+      "cgroup_current_bytes": 575422464,
+      "peak_cgroup_memory_bytes": 578134016,
+      "memory_events": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "shed_cells": 13171,
+      "stops": 13171,
+      "filesystem_bytes": 5196382208,
+      "filesystem_used_bytes": 148787200,
+      "state_directory_bytes": 146163132,
+      "peerlog_bytes": 27464
+    }
+  ],
+  "cpu_samples": [
+    {
+      "scenario": "three_node_bucket",
+      "component": "load",
+      "samples": 18,
+      "median_cpu_percent": 1.4649999999999999,
+      "max_cpu_percent": 2.16
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node1",
+      "samples": 19,
+      "median_cpu_percent": 27.7,
+      "max_cpu_percent": 30.36
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node2",
+      "samples": 19,
+      "median_cpu_percent": 27.87,
+      "max_cpu_percent": 32.89
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "node3",
+      "samples": 19,
+      "median_cpu_percent": 27.33,
+      "max_cpu_percent": 55.95
+    },
+    {
+      "scenario": "three_node_bucket",
+      "component": "rustfs",
+      "samples": 19,
+      "median_cpu_percent": 166.3,
+      "max_cpu_percent": 192.13
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "load",
+      "samples": 20,
+      "median_cpu_percent": 0.86,
+      "max_cpu_percent": 2.22
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node1",
+      "samples": 20,
+      "median_cpu_percent": 11.96,
+      "max_cpu_percent": 25.37
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node2",
+      "samples": 20,
+      "median_cpu_percent": 11.605,
+      "max_cpu_percent": 26.1
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "node3",
+      "samples": 20,
+      "median_cpu_percent": 13.469999999999999,
+      "max_cpu_percent": 27.17
+    },
+    {
+      "scenario": "three_node_fleet",
+      "component": "rustfs",
+      "samples": 20,
+      "median_cpu_percent": 59.35,
+      "max_cpu_percent": 133.67
+    }
+  ],
+  "shutdown_handoff_stalls": [],
+  "shutdown_outcomes": [
+    {
+      "label": "three_node_bucket-rolling",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-rolling",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-rolling",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_bucket-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-rolling",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-rolling",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-rolling",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "three_node_fleet-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "node_policies": [],
+  "routing_cache_snapshots": [],
+  "cpu_sampling_coverage": [
+    "three_node_bucket",
+    "three_node_fleet"
+  ],
+  "limitations": [
+    "All containers share one Apple M2 Max / Colima VM and backing disk; CPU affinity and quotas do not isolate disk or VM overhead.",
+    "RustFS is a local single-node S3-compatible store, not production S3 latency or durability.",
+    "The 5 GiB loop image has approximately 4.84 GiB usable ext4 capacity; it bounds node data, not the read-only container image.",
+    "Repeated overwrite workload with 10000 total cells; no growing dataset, hot-cell skew or long soak.",
+    "Each scenario uses a fresh bucket on a RustFS instance shared by the scenarios in that run.",
+    "Failures and rolling restarts occur between write phases; concurrent ambiguous write acknowledgements are not exercised.",
+    "Closed-loop measurements characterize saturation and do not correct coordinated omission for an independently arriving workload.",
+    "Fleet durability can fall back to bucket proof; peerlog files demonstrate replication, but acknowledgement source is not separately instrumented."
+  ]
+}
