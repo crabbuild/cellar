@@ -24,6 +24,10 @@
 //! report retains unfinished counts observed before forced domain closure.
 //! Dropping or cancelling a node forces closure and claims no graceful proof.
 //! Started blocking work must finish before its directory can be reused.
+//! [`NodeOutcome::Fenced`] retains the core's [`FenceReason`]: an expired,
+//! missing or unrecognized lease. Losing the reporting channel returns
+//! [`NodeOutcome::CoreFailed`] without inventing an authority loss. Lower-level
+//! [`Actor`] constructors report actual fences through [`FenceReport`].
 //!
 //! ```no_run
 //! use cellar::sdk::{CompiledApplications, DeploymentGraph, Node, NodeConfig,
@@ -162,7 +166,9 @@ pub use crate::log_options::{
 };
 pub use crate::ltx_replication::Replication;
 pub use crate::native_deploy::{ApplicationConfig, AssetProject, ContainerProject, Project};
-pub use crate::node_lifecycle::{NodeOutcome, ShutdownMode, ShutdownPolicy, ShutdownReport};
+pub use crate::node_lifecycle::{
+    FenceReason, FenceReport, NodeOutcome, ShutdownMode, ShutdownPolicy, ShutdownReport,
+};
 pub use crate::node_log::{
     DurabilityOwner, FollowerStore, LogStreamIo, LogTransport, NodeLogManager, OwnLog,
     SignedPeerTransport,

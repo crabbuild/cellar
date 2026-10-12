@@ -5,6 +5,7 @@
 
 use crate::cell_host::CellHost;
 use crate::engine_api::HttpResponse;
+use crate::node_lifecycle::FenceReport;
 use crate::ownership_store::{now_ms, BucketOwnership, LeaseCasError};
 use crate::peer_auth::{self, PeerAuth};
 use crate::runtime::RuntimeManager;
@@ -1978,7 +1979,7 @@ pub struct Actor {
     /// The shed reason last reported to the log, so a latch that holds for
     /// minutes is reported once rather than on every sample.
     logged_shed_reason: Option<&'static str>,
-    fence: mpsc::UnboundedSender<i32>,
+    fence: mpsc::UnboundedSender<FenceReport>,
     timer_slots: TimerSlots<()>,
     started: bool,
     preserving: bool,
@@ -2273,7 +2274,7 @@ impl Actor {
     pub async fn from_environment(
         limits: AdmissionLimits,
         fail_publish_once: bool,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         runtime: Option<RuntimeManager>,
         ownership: Option<Ownership>,
         identity: ActorIdentity,
@@ -2300,7 +2301,7 @@ impl Actor {
     pub async fn from_environment_with_services(
         limits: AdmissionLimits,
         fail_publish_once: bool,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         services: ActorServices,
         identity: ActorIdentity,
         resume_generation: Option<String>,
@@ -2333,7 +2334,7 @@ impl Actor {
     pub(crate) async fn from_environment_with_scripted_host(
         limits: AdmissionLimits,
         fail_publish_once: bool,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         host: crate::conformance_sim_cell_host::SimCellHost,
         ownership: Option<Ownership>,
         identity: ActorIdentity,
@@ -2362,7 +2363,7 @@ impl Actor {
     #[cfg(all(test, cellar_internal_tests))]
     pub(crate) async fn from_environment_with_scripted_host_and_config(
         fail_publish_once: bool,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         host: crate::conformance_sim_cell_host::SimCellHost,
         ownership: Option<Ownership>,
         identity: ActorIdentity,
@@ -2400,7 +2401,7 @@ impl Actor {
     async fn from_environment_with_cell_host(
         limits: AdmissionLimits,
         fail_publish_once: bool,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         services: ActorHostServices,
         identity: ActorIdentity,
         resume_generation: Option<String>,
@@ -2416,7 +2417,7 @@ impl Actor {
     /// signal handler or exit policy is installed.
     pub async fn new(
         options: ActorOptions,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         services: ActorServices,
         identity: ActorIdentity,
     ) -> anyhow::Result<Self> {
@@ -2447,7 +2448,7 @@ impl Actor {
     async fn with_cell_host(
         options: ActorOptions,
         fail_publish_once: bool,
-        fence: mpsc::UnboundedSender<i32>,
+        fence: mpsc::UnboundedSender<FenceReport>,
         services: ActorHostServices,
         identity: ActorIdentity,
     ) -> anyhow::Result<Self> {
@@ -4189,7 +4190,7 @@ impl Actor {
                         "SELF-FENCE: node lease record no longer matches this process — halting"
                     ),
                 }
-                let _ = self.fence.send(code);
+                let _ = self.fence.send(FenceReport { code, reason });
             }
         }
     }
