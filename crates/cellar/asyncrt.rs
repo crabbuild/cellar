@@ -625,10 +625,16 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    current_domain()
-        .owner
-        .blocking(operation)
-        .expect("execution domain is closed")
+    try_blocking(operation).expect("execution domain is closed")
+}
+
+/// Admit blocking work without panicking when cancellation closes its owner.
+pub fn try_blocking<T, F>(operation: F) -> Result<TaskHandle<T>, DomainClosed>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    current_domain().owner.blocking(operation)
 }
 
 pub fn block_on<F>(future: F) -> F::Output

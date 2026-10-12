@@ -1,8 +1,8 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/main.rs.
 
-// Connection, startup and shutdown paths shared by compiled applications and
-// the transitional source executable. The Actor owns the execution domain.
+// Production node bootstrap, connections and shutdown shared by the Rust
+// library and compiled application's command-line runner.
 #![allow(clippy::disallowed_methods)]
 
 //! Runnable cellar vertical slice.
@@ -50,9 +50,13 @@ use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 
 mod driver;
+#[cfg(not(cellar_internal_tests))]
+mod embedded;
+#[cfg(not(cellar_internal_tests))]
+pub use embedded::*;
 mod native;
 use native::Backend;
-pub use native::NativeDaemon;
+pub use native::{CompiledApplications, NativeDaemon};
 
 /// Let an admitted HTTP request finish, then close the transport even when a
 /// response stream or a client keep-alive does not settle. The semantic drain
@@ -637,6 +641,7 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
 /// protocol. Dropping a Reqwest future does not guarantee that its pooled
 /// HTTP/1 transport closes, so the owner cannot use transport EOF alone.
 struct RemoteFetchAbortGuard {
+    domain: Option<crate::asyncrt::DomainToken>,
     http: reqwest::Client,
     auth: Arc<PeerAuth>,
     node: String,
@@ -655,6 +660,7 @@ impl RemoteFetchAbortGuard {
         request: Option<crate::engine_api::RequestId>,
     ) -> Self {
         Self {
+            domain: crate::asyncrt::services().domain_token(),
             http: app.peer_http.clone(),
             auth: app.peer_auth.clone(),
             node,
@@ -685,7 +691,10 @@ impl Drop for RemoteFetchAbortGuard {
         let addr = self.addr.clone();
         let scope = self.scope.clone();
         let phase = self.phase;
-        crate::asyncrt::op_handle().spawn(async move {
+        let Some(domain) = &self.domain else {
+            return;
+        };
+        let _ = domain.spawn_cleanup(async move {
             let abort = send_peer_abort(http, auth, node.clone(), addr, scope.clone(), request);
             match tokio::time::timeout(std::time::Duration::from_secs(2), abort).await {
                 Ok(Ok(())) => tracing::debug!(
@@ -789,7 +798,7 @@ fn spawn_cron_arm(app: AppHandle) {
     let Some(cell) = app.runtime.as_ref().and_then(|runtime| runtime.cron_cell()) else {
         return;
     };
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         // Routing needs node authority, exactly as the wake scan does.
         let deadline = Instant::now() + std::time::Duration::from_secs(30);
         while !app.healthy().await {
@@ -815,7 +824,8 @@ fn spawn_cron_arm(app: AppHandle) {
                 }
             }
         }
-    });
+    })
+    .detach();
 }
 
 /// Adopt the deployment `pointer` names.

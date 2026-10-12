@@ -20,14 +20,20 @@ include URLs, headers, forms, blobs/files, events, cancellation, byte streams,
 encoding, compression, and cryptography. See the
 [native Rust examples](examples/README.md).
 
-Library hosts create an `ExecutionDomain` with their own Tokio handle and set
-`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, and container infrastructure through its services
-before building application generations. `RuntimePolicy` controls worker and
-request limits, admission waits, and handler budgets independently for each host;
-library defaults are bounded and do not read environment variables. The CLI
-resolves its environment settings at startup. The production actor can run on a
-separate caller-owned core executor. A complete library bootstrap and graceful
-durability drain API are still being extracted from the process runner.
+Library hosts call `sdk::Node::start` with `NodeConfig`, `NodeServices`, a
+`DeploymentGraph` and `CompiledApplications`. The application supplies bound
+listeners, host and core executors, HTTP clients, peer authentication and a
+per-node probe signer. Fleet nodes also take caller-owned storage and log
+transports. Startup recovers the predecessor log before installing a replacement
+lease; a failed recovery preserves the predecessor generation. Each node retains
+an exclusive data-directory lock through completion, including cancelled startup.
+`Node::adopt` installs compiled generations explicitly and leaves the current
+generation serving when a factory fails.
+
+`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, startup and maintenance policy,
+container infrastructure and metrics are captured per node. Library defaults do
+not read environment variables. The CLI resolves its environment settings at
+startup. Lower-level hosts can construct an `ExecutionDomain` directly.
 
 Production dispatch and draining now share a driver that accepts a captured
 `ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
@@ -36,7 +42,13 @@ exits. `ShutdownReport` records ingress and cell drain completion, pending
 dispatches, log sealing, local durability closure, and clean-reload preparation.
 Stall timeouts and the absolute deadline remain distinct, so a bounded stop can
 report incomplete work. HTTP tasks and facet dispatch retain their owning domain.
-These lifecycle contracts still need the full public node bootstrap and supervisor.
+`Node::run_until` supervises the engine using the application's stop future;
+`Node::shutdown` requests a drain and `Node::cancel` forces closure. The supervisor
+closes and joins owned work before returning while leaving both executors running.
+Keep the executors alive through completion. The semantic drain has a bounded
+budget, but already-started blocking work must finish before the join completes.
+Complete accepted-background-work draining and fleet-scale validation remain
+follow-up work.
 
 `LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
 quotas, copied environment size, and entrypoint or class property size. Environment

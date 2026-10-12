@@ -22,6 +22,9 @@ pub struct HostMetricsSample {
     pub fd_limit: u64,
 }
 
+/// Caller-owned observation source for one embedded node.
+pub type MetricsSampler = dyn Fn() -> HostMetricsSample + Send + Sync;
+
 enum MetricsBackend {
     Production(Mutex<ProcessLoadSampler>),
     #[cfg(cellar_internal_tests)]
@@ -38,6 +41,8 @@ pub struct HostServices {
     facets: Arc<dyn crate::host_facets::FacetService>,
     containers: Arc<crate::container::ContainerService>,
     node_load: OnceLock<Arc<LiveLoad>>,
+    peer_probe: OnceLock<Arc<crate::peer_probe::PeerProbeSigner>>,
+    metrics_override: OnceLock<Option<Arc<MetricsSampler>>>,
     actor_options: OnceLock<crate::actor::ActorOptions>,
     operation_deadline_ms: OnceLock<u64>,
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
@@ -60,6 +65,8 @@ impl HostServices {
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            peer_probe: OnceLock::new(),
+            metrics_override: OnceLock::new(),
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
@@ -83,6 +90,8 @@ impl HostServices {
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            peer_probe: OnceLock::new(),
+            metrics_override: OnceLock::new(),
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
@@ -148,6 +157,65 @@ impl HostServices {
             anyhow::ensure!(
                 self.actor_options.get() == Some(options),
                 "actor policy is already configured for this host"
+            );
+        }
+        Ok(())
+    }
+
+    /// Install this host's signing key; another host may use a different key.
+    pub fn configure_peer_probe(
+        &self,
+        signer: Arc<crate::peer_probe::PeerProbeSigner>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "peer probe execution domain is closed");
+        if let Some(existing) = self.peer_probe.get() {
+            anyhow::ensure!(
+                Arc::ptr_eq(existing, &signer),
+                "peer probe signer is already configured for this host"
+            );
+            return Ok(());
+        }
+        if let Err(candidate) = self.peer_probe.set(signer) {
+            anyhow::ensure!(
+                self.peer_probe
+                    .get()
+                    .is_some_and(|existing| Arc::ptr_eq(existing, &candidate)),
+                "peer probe signer is already configured for this host"
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn peer_probe_signer(
+        &self,
+    ) -> anyhow::Result<Arc<crate::peer_probe::PeerProbeSigner>> {
+        anyhow::ensure!(self.accepts_work(), "peer probe execution domain is closed");
+        self.peer_probe
+            .get()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("peer probe signer is not configured for this host"))
+    }
+
+    /// Pin the application's metrics source before this node starts sampling.
+    pub fn configure_metrics(&self, sampler: Arc<MetricsSampler>) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "metrics execution domain is closed");
+        if let Some(existing) = self.metrics_override.get() {
+            anyhow::ensure!(
+                existing
+                    .as_ref()
+                    .is_some_and(|existing| Arc::ptr_eq(existing, &sampler)),
+                "metrics source is already configured for this host"
+            );
+            return Ok(());
+        }
+        if let Err(candidate) = self.metrics_override.set(Some(sampler)) {
+            anyhow::ensure!(
+                self.metrics_override
+                    .get()
+                    .and_then(Option::as_ref)
+                    .zip(candidate.as_ref())
+                    .is_some_and(|(existing, candidate)| Arc::ptr_eq(existing, candidate)),
+                "metrics source is already configured for this host"
             );
         }
         Ok(())
@@ -298,6 +366,9 @@ impl HostServices {
     /// Collect off the core so filesystem reads cannot delay a lease.
     #[allow(clippy::disallowed_methods)] // `/proc` is host telemetry, not node storage.
     pub fn sample_metrics(&self) -> HostMetricsSample {
+        if let Some(sample) = self.metrics_override.get_or_init(|| None) {
+            return sample();
+        }
         match &self.metrics {
             MetricsBackend::Production(sampler) => {
                 let mut sampler = sampler.lock().unwrap();

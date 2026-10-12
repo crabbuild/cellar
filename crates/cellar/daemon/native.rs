@@ -45,13 +45,14 @@ pub(super) fn print_help() -> anyhow::Result<()> {
 /// fleet deployment pointer. Publishing native artifacts remains a separate
 /// delivery concern; this runner does not compile or download Rust code.
 ///
-/// Call once from `main`, outside a Tokio runtime. Like the source daemon,
-/// the runner owns process signals and can exit the process after shutdown.
+/// Call once from `main`, outside a Tokio runtime. The runner owns process
+/// signals and can exit the process after shutdown. Use [`super::Node`] to embed
+/// an engine while retaining control of the process and infrastructure.
 /// Production applications should install jemalloc as their global allocator
 /// so the existing allocator pressure metrics measure application allocations.
 pub struct NativeDaemon {
     local_graph: Option<DeploymentGraph>,
-    applications: NativeApplications,
+    applications: CompiledApplications,
 }
 
 impl NativeDaemon {
@@ -63,7 +64,7 @@ impl NativeDaemon {
     pub fn local(graph: DeploymentGraph) -> Self {
         Self {
             local_graph: Some(graph),
-            applications: NativeApplications::default(),
+            applications: CompiledApplications::default(),
         }
     }
 
@@ -73,7 +74,7 @@ impl NativeDaemon {
     pub fn fleet() -> Self {
         Self {
             local_graph: None,
-            applications: NativeApplications::default(),
+            applications: CompiledApplications::default(),
         }
     }
 
@@ -86,24 +87,7 @@ impl NativeDaemon {
         version: impl Into<String>,
         factory: impl Fn() -> anyhow::Result<Arc<dyn Application>> + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let script = script.into();
-        let version = version.into();
-        anyhow::ensure!(
-            !script.is_empty(),
-            "native application script must not be empty"
-        );
-        anyhow::ensure!(
-            !version.is_empty(),
-            "native application version must not be empty"
-        );
-        let key = (script, version);
-        anyhow::ensure!(
-            !self.applications.factories.contains_key(&key),
-            "duplicate compiled application {} at version {}",
-            key.0,
-            key.1
-        );
-        self.applications.factories.insert(key, Arc::new(factory));
+        self.applications = self.applications.register(script, version, factory)?;
         Ok(self)
     }
 
@@ -146,12 +130,41 @@ impl NativeDaemon {
     }
 }
 
-#[derive(Default)]
-pub(super) struct NativeApplications {
+/// Immutable compiled code registrations shared by library nodes and the CLI.
+#[derive(Clone, Default)]
+pub struct CompiledApplications {
     factories: HashMap<(String, String), Arc<ApplicationFactory>>,
 }
 
-impl NativeApplications {
+impl CompiledApplications {
+    /// Register one script and code version before constructing a generation.
+    pub fn register(
+        mut self,
+        script: impl Into<String>,
+        version: impl Into<String>,
+        factory: impl Fn() -> anyhow::Result<Arc<dyn Application>> + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
+        let script = script.into();
+        let version = version.into();
+        anyhow::ensure!(
+            !script.is_empty(),
+            "native application script must not be empty"
+        );
+        anyhow::ensure!(
+            !version.is_empty(),
+            "native application version must not be empty"
+        );
+        let key = (script, version);
+        anyhow::ensure!(
+            !self.factories.contains_key(&key),
+            "duplicate compiled application {} at version {}",
+            key.0,
+            key.1
+        );
+        self.factories.insert(key, Arc::new(factory));
+        Ok(self)
+    }
+
     fn check_package(&self, package: &crate::native_deploy::Package) -> anyhow::Result<()> {
         let executable = crate::native_deploy::current_executable_identity()?;
         // Validate every registration before invoking any application factory.
@@ -259,7 +272,7 @@ fn registration_version(deployment: &crate::fleet::LoadedDeployment) -> &str {
 
 #[derive(Clone)]
 pub(super) enum Backend {
-    Native(Arc<NativeApplications>),
+    Native(Arc<CompiledApplications>),
 }
 
 impl Backend {

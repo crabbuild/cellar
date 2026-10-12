@@ -228,6 +228,21 @@ impl fmt::Display for LocalStore {
     }
 }
 
+// The externally supplied deterministic backend retains its existing adapter.
+// Production admission is fallible when its execution domain is closing.
+macro_rules! store_blocking {
+    ($operation:expr) => {{
+        #[cfg(not(cellar_internal_tests))]
+        {
+            crate::asyncrt::try_blocking($operation).map_err(db_error)?
+        }
+        #[cfg(cellar_internal_tests)]
+        {
+            crate::asyncrt::blocking($operation)
+        }
+    }};
+}
+
 #[async_trait]
 impl ObjectStore for LocalStore {
     async fn put_opts(
@@ -239,7 +254,7 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let key = location.to_string();
         let body: Bytes = payload.into();
-        crate::asyncrt::blocking(move || store.put_sync(key, body, options))
+        store_blocking!(move || store.put_sync(key, body, options))
             .await
             .map_err(db_error)?
     }
@@ -264,7 +279,7 @@ impl ObjectStore for LocalStore {
     ) -> object_store::Result<GetResult> {
         let store = self.clone();
         let key = location.to_string();
-        let object = crate::asyncrt::blocking(move || store.read(&key))
+        let object = store_blocking!(move || store.read(&key))
             .await
             .map_err(db_error)??;
         let meta = object_meta(&object)?;
@@ -286,7 +301,7 @@ impl ObjectStore for LocalStore {
     async fn delete(&self, location: &Path) -> object_store::Result<()> {
         let store = self.clone();
         let key = location.to_string();
-        crate::asyncrt::blocking(move || {
+        store_blocking!(move || {
             store
                 .connect()?
                 .execute("DELETE FROM __sys_local_objects WHERE key = ?1", [key])
@@ -348,7 +363,7 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let from = from.to_string();
         let to = to.to_string();
-        crate::asyncrt::blocking(move || store.copy_sync(&from, &to, false))
+        store_blocking!(move || store.copy_sync(&from, &to, false))
             .await
             .map_err(db_error)?
     }
@@ -357,7 +372,7 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let from = from.to_string();
         let to = to.to_string();
-        crate::asyncrt::blocking(move || store.copy_sync(&from, &to, true))
+        store_blocking!(move || store.copy_sync(&from, &to, true))
             .await
             .map_err(db_error)?
     }

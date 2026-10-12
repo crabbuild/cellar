@@ -278,6 +278,9 @@ async fn supplied_s3(native: bool) -> Result<()> {
                     Err(e) => return Err(e.into()),
                 }
             };
+            // Accepted sockets may inherit the listener's nonblocking mode.
+            // Header reads use bounded blocking I/O on this dedicated thread.
+            socket.set_nonblocking(false)?;
             socket.set_read_timeout(Some(Duration::from_secs(3)))?;
             let mut socket = BufReader::new(socket);
             let mut request = String::new();

@@ -4,19 +4,39 @@
 //! from one namespace. [`Context`] supplies the executing event's authority;
 //! retain binding handles across events and pass the current context per call.
 //!
-//! Embedded engines enter an [`ExecutionDomain`] on the application's host
-//! runtime. Configure [`ActorOptions`], [`RuntimePolicy`], and [`LoaderPolicy`] through
-//! `domain.services()` before building application generations, then construct
-//! [`Actor`] inside the domain and spawn it on the application's core executor.
-//! The application owns fencing, task results and executor lifetimes. Full node
-//! startup, recovery, and graceful durability drain still require library
-//! lifecycle APIs.
+//! Start an embedded production engine with [`Node::start`], [`NodeConfig`],
+//! [`NodeServices`], a [`DeploymentGraph`] and [`CompiledApplications`]. Supply
+//! bound listeners, host and core executors, peer clients and authentication,
+//! a per-node probe signer, and optional fleet, container and metrics services.
+//! Startup recovers the predecessor log before installing a replacement lease.
+//! Configuration and library defaults do not inspect process environment.
 //!
-//! The shared production driver uses [`ShutdownPolicy`] and reports
-//! [`NodeOutcome`]. [`ShutdownReport`] records completed proof phases and
-//! distinguishes a stall timeout from the absolute stop deadline; a requested
-//! stop can leave unfinished work for ordinary recovery. The full public node
-//! bootstrap and supervisor are still being extracted from the CLI.
+//! [`Node::run_until`] accepts the application's stop future and returns
+//! [`NodeOutcome`] after closing and joining its execution domain. Keep both
+//! supplied executors alive through completion. [`ShutdownReport`] records
+//! completed proof phases and distinguishes a stall timeout from the absolute
+//! stop deadline; a requested stop can leave unfinished work for recovery.
+//! Dropping or cancelling a node forces closure and claims no graceful proof.
+//! Started blocking work must finish before its directory can be reused.
+//!
+//! ```no_run
+//! use cellar::sdk::{CompiledApplications, DeploymentGraph, Node, NodeConfig,
+//!     NodeOutcome, NodeServices, ShutdownMode};
+//!
+//! async fn serve(config: NodeConfig, services: NodeServices,
+//!     graph: DeploymentGraph, applications: CompiledApplications,
+//!     stop: impl std::future::Future<Output = ShutdownMode>)
+//!     -> anyhow::Result<NodeOutcome>
+//! {
+//!     let node = Node::start(config, services, graph, applications).await?;
+//!     node.run_until(stop).await
+//! }
+//! ```
+//!
+//! [`Node::adopt`] installs compiled generations explicitly; a failed factory
+//! leaves the current generation serving. [`Host`] is the process-owning CLI
+//! runner. Lower-level hosts can configure an [`ExecutionDomain`] before building
+//! generations and constructing [`Actor`] on their own core executor.
 //!
 //! Configure an execution domain before loading application generations.
 //!
@@ -118,8 +138,15 @@ pub use crate::application::*;
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
 pub use crate::container::EngineOptions as ContainerEngineOptions;
+pub use crate::daemon::CompiledApplications;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;
+#[cfg(not(cellar_internal_tests))]
+pub use crate::daemon::{
+    Node, NodeConfig, NodeFleet, NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
+};
+pub use crate::generation::DeploymentGraph;
+pub use crate::host_services::{HostMetricsSample, MetricsSampler};
 pub use crate::loader_policy::LoaderPolicy;
 pub use crate::log_options::{
     EvictionPolicy as LogEvictionPolicy, HedgeMode, LogOptions, LogWindowOptions,
@@ -131,6 +158,8 @@ pub use crate::node_log::{
     DurabilityOwner, FollowerStore, LogStreamIo, LogTransport, NodeLogManager, OwnLog,
     SignedPeerTransport,
 };
+pub use crate::peer_auth::PeerAuth;
+pub use crate::peer_probe::PeerProbeSigner;
 pub use crate::replica_storage::{
     ReplicaRangeReaderFactory, ReplicaStorage, ReplicaStorageOptions,
 };

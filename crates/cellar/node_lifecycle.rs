@@ -1,8 +1,8 @@
 //! Outcomes and shutdown policy for the production node lifecycle.
 //!
 //! These contracts separate engine supervision from the CLI's signals and
-//! process exit. A full public bootstrap is still being extracted; closing an
-//! execution domain is a forced stop, not a graceful durability drain.
+//! process exit. The public node supervisor closes and joins its execution
+//! domain before returning. Forced closure does not prove a graceful drain.
 
 pub use crate::actor::ShutdownMode;
 
@@ -76,9 +76,17 @@ pub struct ShutdownReport {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeOutcome {
     Stopped(ShutdownReport),
-    Fenced { code: i32 },
-    CoreFailed { error: String },
-    ReplicationFailed { error: String },
+    /// Forced domain closure; no graceful durability proof is claimed.
+    Cancelled,
+    Fenced {
+        code: i32,
+    },
+    CoreFailed {
+        error: String,
+    },
+    ReplicationFailed {
+        error: String,
+    },
 }
 
 impl NodeOutcome {
@@ -87,7 +95,7 @@ impl NodeOutcome {
         match self {
             Self::Stopped(_) => 0,
             Self::Fenced { code } => *code,
-            Self::CoreFailed { .. } | Self::ReplicationFailed { .. } => 3,
+            Self::Cancelled | Self::CoreFailed { .. } | Self::ReplicationFailed { .. } => 3,
         }
     }
 }
