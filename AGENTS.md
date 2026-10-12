@@ -46,6 +46,14 @@ crates/
       workers/            Compiled workers, pools, loading, and configuration
       invocation/         Event context, gates, turns, channels, and service calls
     transport/            HTTP, TCP/TLS, and WebSocket adapters and registries
+    storage/              SQLite, object-store clients, and Blob storage
+      sqlite/             Activation-bound state, cursors, transactions, alarms
+      object/             Bucket clients and local object-store implementation
+      blob/               Shared Blob backend, multipart, and streaming
+    durability/           Replication, fleet logs, recovery, and proof task ownership
+      replication/        LTX backend, handles, storage clients, and policy
+      log/                Authenticated node logs, follower proof, and recovery
+    fleet/                Leases, peer authentication, handoff, and durable wakes
     tests/                Native SDK and host integration tests
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
@@ -76,6 +84,11 @@ visibility, conditional-build selection, and exported macro paths stable when
 moving files. Node ingress modules under `node/network/` remain logical
 children of `daemon`.
 
+SQLite alarm records stay with `storage/sqlite/`; fleet wake discovery and
+response gates live under `fleet/wake/`. KV large-value and Queue policy/batching
+helpers sit beside their built-in cells under `application/kv/` and
+`application/queue/`, retaining their original crate-root module names.
+
 ## Ownership boundaries
 
 - `cellar-logic::on_event` advances behavioral state and returns effects. The
@@ -102,6 +115,9 @@ children of `daemon`.
 - `cellar-native` owns engine-independent values and codecs. `cellar-ltx` owns
   SQLite replication mechanics; fleet ownership and output-gate policy belong
   to the framework, not to the LTX codec.
+- `durability/` groups framework replication and node-log adapters. Keep one
+  `DurabilityOwner` for the coupled replication, log, and follower tasks;
+  shared storage clients do not acquire lifecycle or ownership authority.
 - Operator SQL, KV, and Queue commands use the authenticated fleet route to
   reach the owning cell. Never mutate their persisted SQLite state behind the
   owner. Blob commands reuse the binding's `blob_store` implementation.

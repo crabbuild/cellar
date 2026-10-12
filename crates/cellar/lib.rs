@@ -49,6 +49,7 @@ pub mod asyncrt {
 mod asyncrt_contract_tests {
     include!(env!("CELLAR_INTERNAL_ASYNCRT_TESTS"));
 }
+#[path = "storage/object/bucket.rs"]
 pub mod bucket;
 #[path = "cli/cell_cli.rs"]
 pub mod cell_cli;
@@ -69,12 +70,14 @@ pub mod container;
 pub mod control_plane;
 #[path = "node/mod.rs"]
 pub mod daemon;
+#[path = "fleet/retirement.rs"]
 pub mod dead_node_gc;
 #[path = "cli/deploy/mod.rs"]
 pub mod deploy;
 #[path = "cli/dev.rs"]
 pub mod dev;
 pub mod docker;
+#[path = "fleet/drain.rs"]
 pub mod drain_token;
 #[path = "runtime/contracts.rs"]
 pub mod engine_api;
@@ -125,14 +128,19 @@ pub(crate) mod html_rewriter;
 #[allow(dead_code)]
 #[path = "transport/http/streams.rs"]
 pub mod http_streams;
+#[path = "application/kv/blob_backend.rs"]
 pub mod kv_blob;
 #[path = "cli/kv_cli.rs"]
 pub mod kv_cli;
 #[path = "runtime/workers/loader_policy.rs"]
 pub mod loader_policy;
+#[path = "storage/object/local_store.rs"]
 pub(crate) mod local_store;
+#[path = "durability/log/options.rs"]
 pub mod log_options;
+#[path = "durability/replication/backend.rs"]
 pub mod ltx_repl;
+#[path = "durability/replication/handle.rs"]
 pub mod ltx_replication;
 pub mod machine;
 pub mod memory;
@@ -150,26 +158,36 @@ pub mod worker_config;
 pub use cellar_native as native;
 #[path = "cli/blob_cli.rs"]
 pub mod blob_cli;
+#[path = "storage/blob/mod.rs"]
 pub(crate) mod blob_store;
 #[path = "node/lifecycle.rs"]
 pub mod node_lifecycle;
+#[path = "durability/log/mod.rs"]
 pub mod node_log;
 #[path = "cli/operator_cell.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]
 pub mod otlp;
+#[path = "fleet/ownership.rs"]
 pub mod ownership_store;
+#[path = "fleet/peer/auth.rs"]
 pub mod peer_auth;
+#[path = "fleet/peer/probe.rs"]
 pub mod peer_probe;
 #[path = "runtime/workers/pool.rs"]
 pub mod pool;
 pub mod protocol;
+#[path = "application/queue/batching.rs"]
 pub(crate) mod queue_batching;
 #[path = "cli/queue_cli.rs"]
 pub mod queue_cli;
+#[path = "application/queue/policy.rs"]
 pub mod queue_policy;
+#[path = "durability/replication/storage.rs"]
 pub mod replica_storage;
+#[path = "durability/replication/contracts.rs"]
 pub mod replication;
+#[path = "durability/replication/options.rs"]
 pub mod replication_options;
 #[path = "runtime/mod.rs"]
 pub mod runtime;
@@ -177,10 +195,14 @@ pub mod runtime;
 pub mod runtime_policy;
 #[path = "node/listeners.rs"]
 pub mod startup;
+#[path = "storage/sqlite/mod.rs"]
 pub mod storage;
 pub mod telemetry;
+#[path = "fleet/wake/mod.rs"]
 pub mod wake;
+#[path = "fleet/wake/entry.rs"]
 pub mod wake_entry;
+#[path = "fleet/wake/format.rs"]
 pub mod wake_format;
 #[path = "transport/websocket/client.rs"]
 pub mod ws_client;
