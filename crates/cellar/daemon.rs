@@ -3524,6 +3524,8 @@ async fn async_main(
     }
     let host_runtime = tokio::runtime::Handle::current();
     crate::asyncrt::set_host_handle(host_runtime.clone());
+    crate::asyncrt::services()
+        .configure_runtime(crate::runtime_policy::RuntimePolicy::from_env()?)?;
     // Docker and journald can stop consuming the process pipe during a log
     // burst. Logging must lose diagnostics under that backpressure rather
     // than block the Tokio workers that route requests and renew authority.

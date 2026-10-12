@@ -888,7 +888,7 @@ impl InFlight {
         if let Some(native) = &self.native {
             native.lock().unwrap().stop_handler();
         }
-        self.fail(anyhow!("handler exceeded {}s budget", budget.as_secs()));
+        self.fail(anyhow!("handler exceeded {budget:?} budget"));
     }
 
     /// Nothing this request awaits can move it, so it will never settle on

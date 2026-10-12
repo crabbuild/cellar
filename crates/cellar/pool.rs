@@ -175,6 +175,7 @@ pub struct Slot {
     /// retiring slot is filtered out of every placement decision, so nothing
     /// can arrive afterwards. Entering one would be a bug in this module.
     worker: tokio::sync::Mutex<Option<Worker>>,
+    handler_budget: std::time::Duration,
     turn_scheduler: TurnScheduler,
     queue_producers: Mutex<std::collections::HashMap<String, usize>>,
     turns: AtomicUsize,
@@ -234,6 +235,10 @@ impl Drop for CurrentSlotGuard {
 }
 
 impl Slot {
+    pub(crate) fn handler_budget(&self) -> std::time::Duration {
+        self.handler_budget
+    }
+
     fn observe(&self) -> IsolateLoad {
         IsolateLoad {
             turns: self.turns.load(Ordering::Relaxed),
@@ -339,6 +344,7 @@ impl Slot {
             id: 0,
             heap_id: next_heap_id(),
             worker: tokio::sync::Mutex::new(Some(worker)),
+            handler_budget: crate::engine_api::handler_budget(),
             turn_scheduler: TurnScheduler::default(),
             queue_producers: Mutex::new(std::collections::HashMap::new()),
             turns: AtomicUsize::new(0),
@@ -372,6 +378,7 @@ impl Slot {
             id: 0,
             heap_id: HeapId::new(0),
             worker: tokio::sync::Mutex::new(None),
+            handler_budget: crate::engine_api::handler_budget(),
             turn_scheduler: TurnScheduler::default(),
             queue_producers: Mutex::new(std::collections::HashMap::new()),
             turns: AtomicUsize::new(0),
@@ -583,6 +590,7 @@ pub struct Pool {
     slots: RwLock<Vec<Arc<Slot>>>,
     limits: PoolLimits,
     build: Build,
+    handler_budget: std::time::Duration,
     freed: Arc<tokio::sync::Notify>,
     /// Rung by a condemnation and by the last request out of a retiring
     /// isolate. See [`Pool::reclaim_bell`].
@@ -605,6 +613,7 @@ impl Pool {
             slots: RwLock::new(Vec::new()),
             limits,
             build,
+            handler_budget: crate::engine_api::handler_budget(),
             freed: Arc::new(tokio::sync::Notify::new()),
             reclaim: Arc::new(tokio::sync::Notify::new()),
             admission_wait,
@@ -667,6 +676,7 @@ impl Pool {
             id,
             heap_id,
             worker: tokio::sync::Mutex::new(Some(worker)),
+            handler_budget: self.handler_budget,
             turn_scheduler: TurnScheduler::default(),
             queue_producers: Mutex::new(std::collections::HashMap::new()),
             turns: AtomicUsize::new(0),

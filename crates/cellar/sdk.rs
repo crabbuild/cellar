@@ -5,11 +5,33 @@
 //! retain binding handles across events and pass the current context per call.
 //!
 //! Embedded engines enter an [`ExecutionDomain`] on the application's host
-//! runtime. Configure [`ActorOptions`] through `domain.services()` before
-//! building application generations, then construct [`Actor`] inside the
-//! domain and spawn it on the application's core executor. The application
-//! owns fencing, task results and executor lifetimes. Full node startup,
-//! recovery and graceful durability drain still require library lifecycle APIs.
+//! runtime. Configure [`ActorOptions`] and [`RuntimePolicy`] through
+//! `domain.services()` before building application generations, then construct
+//! [`Actor`] inside the domain and spawn it on the application's core executor.
+//! The application owns fencing, task results and executor lifetimes. Full node
+//! startup, recovery, and graceful durability drain still require library
+//! lifecycle APIs.
+//!
+//! Configure an execution domain before loading application generations.
+//!
+//! ```no_run
+//! use cellar::sdk::{ActorOptions, ExecutionDomain, RuntimePolicy};
+//! use std::time::Duration;
+//!
+//! fn domain(handle: tokio::runtime::Handle, actor: ActorOptions)
+//!     -> anyhow::Result<ExecutionDomain>
+//! {
+//!     let domain = ExecutionDomain::new(handle);
+//!     domain.services().configure_runtime(RuntimePolicy {
+//!         max_stateless_requests: Some(128),
+//!         max_cell_requests: 32,
+//!         handler_budget: Duration::from_secs(30),
+//!         ..Default::default()
+//!     })?;
+//!     domain.services().configure_actor(&actor)?;
+//!     Ok(domain)
+//! }
+//! ```
 //!
 //! ```no_run
 //! use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output, http::Response};
@@ -34,6 +56,7 @@ pub use crate::container::EngineOptions as ContainerEngineOptions;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;
 pub use crate::native_deploy::{ApplicationConfig, AssetProject, ContainerProject, Project};
+pub use crate::runtime_policy::RuntimePolicy;
 pub use cellar_native as primitives;
 pub use cellar_native::{clone, compression, crypto, encoding, json, rpc, web};
 

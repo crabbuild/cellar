@@ -766,25 +766,12 @@ pub(crate) fn facet_cell(root: &str, names: &[String]) -> String {
     cell
 }
 
-/// How long a stateless request may wait for a free `max_requests` slot
-/// before it is refused. Zero restores the old refuse-at-once behaviour.
-/// The default is one second: long enough that a saturated node converts
-/// its refusal storm into kernel-buffer queueing, short enough that a
-/// caller learns the truth before it matters.
+/// This host's wait for a stateless admission slot.
 pub fn admission_wait() -> std::time::Duration {
-    // Not `env_usize`, which filters zero out — zero is meaningful here.
-    let ms = crate::env_vars::with_default("CELLAR_ADMISSION_WAIT_MS", 1000u64)
-        .expect("validated CELLAR_ADMISSION_WAIT_MS");
-    std::time::Duration::from_millis(ms)
+    crate::asyncrt::services().runtime_policy().admission_wait
 }
 
-/// The JavaScript handler budget, `CELLAR_HANDLER_BUDGET_S`.
+/// This host's handler response budget.
 pub fn handler_budget() -> std::time::Duration {
-    static BUDGET: OnceLock<std::time::Duration> = OnceLock::new();
-    *BUDGET.get_or_init(|| {
-        std::time::Duration::from_secs(
-            crate::env_vars::positive_or("CELLAR_HANDLER_BUDGET_S", 300)
-                .expect("validated CELLAR_HANDLER_BUDGET_S"),
-        )
-    })
+    crate::asyncrt::services().runtime_policy().handler_budget
 }

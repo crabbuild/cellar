@@ -520,36 +520,9 @@ impl Drop for AlarmRequestGuard {
     }
 }
 
-/// The isolate pool's limits, built from the environment here because the
-/// decision core never reads it.
-///
-/// `max_requests` is the node's only bound on stateless memory, and it is
-/// live: `Slot::affiliate` counts an affiliation for a request's whole life,
-/// `observe` reports it, and `isolate::admit` refuses against it. Unset
-/// means unbounded, not unwired — `engine/load-under-pressure.md` measures
-/// `CELLAR_MAX_REQUESTS=32` admitting 641 rps against a theoretical 640.
+/// The current host's immutable worker pool limits.
 pub fn pool_limits() -> cellar_logic::isolate::PoolLimits {
-    const GROW_AT: usize = 2;
-    const SHRINK_UNDER: usize = 1;
-    const MAX_CELLS_PER_ISOLATE: usize = 32;
-    let cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    cellar_logic::isolate::PoolLimits {
-        // These thresholds form one hysteresis policy, so they are constants
-        // rather than two independently configurable values.
-        grow_at: GROW_AT,
-        shrink_under: SHRINK_UNDER,
-        max_stateless: env_usize("CELLAR_MAX_STATELESS_ISOLATES").unwrap_or(cores),
-        max_requests: env_usize("CELLAR_MAX_REQUESTS"),
-        // This is an engine blast-radius policy. The resident-cell and RSS
-        // limits are the operator controls for node memory.
-        max_cells: MAX_CELLS_PER_ISOLATE,
-    }
-}
-
-fn env_usize(name: &str) -> Option<usize> {
-    crate::env_vars::positive(name).expect("validated positive runtime limit")
+    crate::asyncrt::services().runtime_policy().pool_limits()
 }
 
 #[derive(Clone)]
@@ -921,8 +894,8 @@ impl RuntimeManager {
             region,
             bucket,
         } = options;
-        let max_cell_requests =
-            crate::env_vars::positive_or("CELLAR_MAX_CELL_REQUESTS", DEFAULT_MAX_CELL_REQUESTS)?;
+        let host_services = crate::asyncrt::services();
+        let max_cell_requests = host_services.runtime_policy().max_cell_requests;
         let generation = Arc::new(generation);
         let core = crate::cell_runtime::CellRuntime::new(
             generation.clone(),
@@ -936,7 +909,7 @@ impl RuntimeManager {
         let cells = Arc::new(Mutex::new(CellRegistry::default()));
         let alarm_reporter = alarm_reporter(&cells, &core.alarm_observer);
         let manager = Self {
-            host_services: crate::asyncrt::services(),
+            host_services,
             core,
             cells,
             alarm_reporter,
@@ -2454,12 +2427,8 @@ fn drive_affiliated(
     job: StatelessWorkerJob,
     telemetry: Option<(Arc<str>, Arc<str>)>,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
-    drive_affiliated_with_budget(
-        affiliation,
-        job,
-        telemetry,
-        crate::engine_api::handler_budget(),
-    )
+    let budget = affiliation.slot().handler_budget();
+    drive_affiliated_with_budget(affiliation, job, telemetry, budget)
 }
 
 fn drive_affiliated_with_budget(
@@ -3301,7 +3270,7 @@ async fn drive_worker_on_cell(affiliation: crate::pool::Affiliation, job: crate:
         &slot,
         job,
         trace,
-        crate::engine_api::handler_budget(),
+        slot.handler_budget(),
         |_| {},
         |entry| {
             if let (Some(ids), Some((started, start_unix))) = (recording, span_started) {
@@ -3369,27 +3338,20 @@ pub(crate) async fn drive_cell_owned(
     parent: Option<crate::telemetry::TraceContext>,
     cancellation: Option<Arc<RequestCancellationLifetime>>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     #[cfg(cellar_internal_tests)]
     let _ = drive_cell_inner(
         affiliation,
         job,
         report,
         parent,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers::default(),
     )
     .await;
     #[cfg(not(cellar_internal_tests))]
-    let _ = drive_cell_inner(
-        affiliation,
-        job,
-        report,
-        parent,
-        crate::engine_api::handler_budget(),
-        cancellation,
-    )
-    .await;
+    let _ = drive_cell_inner(affiliation, job, report, parent, budget, cancellation).await;
 }
 
 /// Let an answered alarm's leftover I/O finish on its own, and report how it
@@ -3434,6 +3396,7 @@ pub(crate) async fn drive_alarm(
     job: CellJob,
     report: Option<AlarmReporter>,
 ) -> anyhow::Result<Option<u64>> {
+    let budget = affiliation.slot().handler_budget();
     let cancellation = job
         .request_id()
         .map(RequestCancellationLifetime::from_request_id);
@@ -3442,7 +3405,7 @@ pub(crate) async fn drive_alarm(
         job,
         report,
         None,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         #[cfg(cellar_internal_tests)]
         DriveCellTestObservers::default(),
@@ -3481,6 +3444,7 @@ async fn drive_cell_with_request_cancellation(
     parent: Option<crate::telemetry::TraceContext>,
     cancellation: Option<Arc<RequestCancellationLifetime>>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     assert_eq!(
         job.request_id(),
         cancellation.as_ref().map(|lifetime| lifetime.request_id),
@@ -3492,21 +3456,13 @@ async fn drive_cell_with_request_cancellation(
         job,
         report,
         parent,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers::default(),
     )
     .await;
     #[cfg(not(cellar_internal_tests))]
-    let _ = drive_cell_inner(
-        affiliation,
-        job,
-        report,
-        parent,
-        crate::engine_api::handler_budget(),
-        cancellation,
-    )
-    .await;
+    let _ = drive_cell_inner(affiliation, job, report, parent, budget, cancellation).await;
 }
 
 #[cfg(cellar_internal_tests)]
@@ -3516,6 +3472,7 @@ pub async fn drive_cell_observing_gated_failure_for_test(
     job: CellJob,
     gated_failure: tokio::sync::oneshot::Sender<bool>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     let cancellation = job
         .request_id()
         .map(RequestCancellationLifetime::from_request_id);
@@ -3524,7 +3481,7 @@ pub async fn drive_cell_observing_gated_failure_for_test(
         job,
         None,
         None,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers {
             gated_failure: Some(gated_failure),
@@ -3542,6 +3499,7 @@ pub async fn drive_cell_observing_gated_op_drop_for_test(
     gated_failure: tokio::sync::oneshot::Sender<bool>,
     native_op_dropped: tokio::sync::oneshot::Sender<()>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     let cancellation = job
         .request_id()
         .map(RequestCancellationLifetime::from_request_id);
@@ -3550,7 +3508,7 @@ pub async fn drive_cell_observing_gated_op_drop_for_test(
         job,
         None,
         None,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers {
             gated_failure: Some(gated_failure),

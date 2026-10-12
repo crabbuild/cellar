@@ -40,6 +40,7 @@ pub struct HostServices {
     node_load: OnceLock<Arc<LiveLoad>>,
     actor_options: OnceLock<crate::actor::ActorOptions>,
     operation_deadline_ms: OnceLock<u64>,
+    runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
     http_streams: Arc<crate::http_streams::HttpStreamService>,
@@ -61,6 +62,7 @@ impl HostServices {
             node_load: OnceLock::new(),
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
+            runtime_policy: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -83,6 +85,7 @@ impl HostServices {
             node_load: OnceLock::new(),
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
+            runtime_policy: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -148,6 +151,28 @@ impl HostServices {
             );
         }
         Ok(())
+    }
+
+    /// Fix this host's runtime limits before building application generations.
+    /// Reading the policy or building a pool pins the library defaults if no
+    /// policy was supplied. A different policy cannot replace a live one.
+    pub fn configure_runtime(
+        &self,
+        policy: crate::runtime_policy::RuntimePolicy,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "runtime execution domain is closed");
+        policy.validate()?;
+        if self.runtime_policy.set(policy).is_err() {
+            anyhow::ensure!(self.runtime_policy.get() == Some(&policy),
+                "runtime policy is already in use; configure runtime policy before building the generation");
+        }
+        Ok(())
+    }
+
+    /// This host's immutable runtime policy, including library defaults when
+    /// the application did not configure it. No environment is read here.
+    pub fn runtime_policy(&self) -> crate::runtime_policy::RuntimePolicy {
+        *self.runtime_policy.get_or_init(Default::default)
     }
 
     fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {
@@ -371,4 +396,59 @@ fn clock_ticks_per_second() -> u64 {
 #[cfg(not(unix))]
 fn clock_ticks_per_second() -> u64 {
     100
+}
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod runtime_policy_tests {
+    use crate::asyncrt::ExecutionDomain;
+    use crate::engine_api::WorkerConfigOptions;
+    use crate::runtime_policy::RuntimePolicy;
+    use crate::worker_config::WorkerConfig;
+    use std::time::Duration;
+
+    // A queue claim must outlive this host's admission, handler, and output
+    // settlement windows; borrowing another host's budget can redeliver work
+    // while its original consumer still runs.
+    #[tokio::test]
+    async fn queue_lease_uses_its_own_host_runtime_and_settlement_policy() -> anyhow::Result<()> {
+        let config = WorkerConfig::new(WorkerConfigOptions {
+            src: String::new(),
+            script_name: "queue-policy".into(),
+            do_classes: Vec::new(),
+            bindings: Vec::new(),
+            blob_bindings: Vec::new(),
+            sql_bindings: Vec::new(),
+            kv_bindings: Vec::new(),
+            queue_bindings: Vec::new(),
+            queue_consumers: Vec::new(),
+            workflow_bindings: Vec::new(),
+            vars: Vec::new(),
+            node: "test".into(),
+            modules: Vec::new(),
+            compat: Default::default(),
+        });
+        let a = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let b = ExecutionDomain::new(tokio::runtime::Handle::current());
+        a.services().configure_runtime(RuntimePolicy {
+            admission_wait: Duration::from_millis(100),
+            handler_budget: Duration::from_millis(2_000),
+            ..Default::default()
+        })?;
+        a.services().pin_operation_deadline(3_000)?;
+        b.services().configure_runtime(RuntimePolicy {
+            admission_wait: Duration::ZERO,
+            handler_budget: Duration::from_millis(7_000),
+            ..Default::default()
+        })?;
+        b.services().pin_operation_deadline(4_000)?;
+        for (domain, expected) in [(&a, 5_100), (&b, 11_000), (&a, 5_100)] {
+            let policy = domain
+                .run(async { crate::queue_policy::consumer_config(&config) })
+                .await??;
+            assert_eq!(policy["leaseDurationMs"], expected);
+        }
+        a.shutdown().await;
+        b.shutdown().await;
+        Ok(())
+    }
 }

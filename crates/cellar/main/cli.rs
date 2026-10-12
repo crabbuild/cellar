@@ -373,7 +373,7 @@ TUNING:
   CELLAR_ALARM_RESIDENT_MS         Near-alarm residency window
   CELLAR_WAKER_TICK_MS             Orphan-alarm scan interval
   CELLAR_FETCH_TIMEOUT_S           Outbound fetch timeout
-  CELLAR_HANDLER_BUDGET_S          JavaScript handler budget
+  CELLAR_HANDLER_BUDGET_S          Handler response budget
   CELLAR_TOKIO_THREADS             Tokio runtime worker threads
   CELLAR_DURABILITY                `fleet` acks when every follower holds the
                                   write on disk, or when the bucket upload

@@ -20,6 +20,15 @@ include URLs, headers, forms, blobs/files, events, cancellation, byte streams,
 encoding, compression, and cryptography. See the
 [native Rust examples](examples/README.md).
 
+Library hosts create an `ExecutionDomain` with their own Tokio handle and set
+`ActorOptions`, `RuntimePolicy`, and container infrastructure through its services
+before building application generations. `RuntimePolicy` controls worker and
+request limits, admission waits, and handler budgets independently for each host;
+library defaults are bounded and do not read environment variables. The CLI
+resolves its environment settings at startup. The production actor can run on a
+separate caller-owned core executor. A complete library bootstrap and graceful
+durability drain API are still being extracted from the process runner.
+
 ## Build and run
 
 ```sh

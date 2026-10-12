@@ -124,6 +124,7 @@ pub mod queue_cli;
 pub mod queue_policy;
 pub mod replication;
 pub mod runtime;
+pub mod runtime_policy;
 pub mod startup;
 pub mod storage;
 pub mod telemetry;

@@ -10,7 +10,7 @@ use cellar::peer_auth::PeerAuth;
 use cellar::runtime::{Replication, RuntimeManager};
 use cellar::sdk::{
     Actor, ActorIdentity, ActorOptions, ActorPolicy, ActorServices, ExecutionDomain,
-    OwnershipOnEvict,
+    OwnershipOnEvict, RuntimePolicy,
 };
 use cellar::sdk::{Application, Cell, Context, HandlerFuture, Invocation, Output, Registry};
 use cellar_logic::Route;
@@ -124,6 +124,13 @@ async fn build(
     domain
         .run(async move {
             domain.services().configure_actor(&actor_options)?;
+            domain.services().configure_runtime(RuntimePolicy {
+                max_stateless_workers: actor_options.core.max_resident,
+                max_stateless_requests: Some(actor_options.core.max_resident),
+                max_cell_requests: actor_options.core.max_resident,
+                handler_budget: Duration::from_secs(actor_options.core.max_resident as u64),
+                ..Default::default()
+            })?;
             let registry = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
                 .cell("Account", move |_, _| Ok(Arc::new(Account(label))))?;
             let generation = Generation::build_native(
@@ -392,6 +399,11 @@ fn explicit_actor_policy_survives_unusable_process_environment() -> Result<()> {
         "CELLAR_ALARM_RESIDENT_MS",
         "CELLAR_MAX_OUTBOUND_WEBSOCKETS",
         "CELLAR_RSS_HIGH_MB",
+        "CELLAR_MAX_STATELESS_ISOLATES",
+        "CELLAR_MAX_REQUESTS",
+        "CELLAR_MAX_CELL_REQUESTS",
+        "CELLAR_ADMISSION_WAIT_MS",
+        "CELLAR_HANDLER_BUDGET_S",
     ] {
         command.env(setting, "unusable-process-setting");
     }
