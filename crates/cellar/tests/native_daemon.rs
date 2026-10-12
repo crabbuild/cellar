@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 struct Node {
     process: Child,
     log: PathBuf,
+    diagnostics: PathBuf,
     ingress: String,
     internal: String,
 }
@@ -50,6 +51,10 @@ impl Node {
     ) -> Result<Self> {
         let log = root.join(format!("{name}.log"));
         let stdout = File::create(&log)?;
+        // Listener announcements are stdout data. Merging stderr into the
+        // same file can splice a concurrent diagnostic into their lines.
+        let diagnostics = root.join(format!("{name}-stderr.log"));
+        let stderr = File::create(&diagnostics)?;
         let mut command = Command::new(program);
         command
             .env_clear()
@@ -68,8 +73,8 @@ impl Node {
             .env("CELLAR_DURABILITY", "bucket")
             .env("CELLAR_SHUTDOWN_TOTAL_MS", "8000")
             .env("RUST_LOG", "warn")
-            .stdout(Stdio::from(stdout.try_clone()?))
-            .stderr(Stdio::from(stdout));
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr));
         if let Some(bucket) = bucket {
             command
                 .env("CELLAR_NATIVE_FLEET", "1")
@@ -82,6 +87,7 @@ impl Node {
         let mut node = Self {
             process: command.spawn()?,
             log,
+            diagnostics,
             ingress: String::new(),
             internal: String::new(),
         };
@@ -104,13 +110,24 @@ impl Node {
                 return Ok(node);
             }
             if let Some(status) = node.process.try_wait()? {
-                bail!("native node {name} exited during boot: {status}\n{text}");
+                bail!(
+                    "native node {name} exited during boot: {status}\n{}",
+                    node.logs()?
+                );
             }
             if Instant::now() >= deadline {
-                bail!("native node {name} did not boot\n{text}");
+                bail!("native node {name} did not boot\n{}", node.logs()?);
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
+    }
+
+    fn logs(&self) -> Result<String> {
+        Ok(format!(
+            "stdout:\n{}\nstderr:\n{}",
+            std::fs::read_to_string(&self.log)?,
+            std::fs::read_to_string(&self.diagnostics)?
+        ))
     }
 
     async fn ready(&mut self, client: &Client) -> Result<()> {
@@ -125,16 +142,10 @@ impl Node {
                 return Ok(());
             }
             if let Some(status) = self.process.try_wait()? {
-                bail!(
-                    "node exited before readiness: {status}\n{}",
-                    std::fs::read_to_string(&self.log)?
-                );
+                bail!("node exited before readiness: {status}\n{}", self.logs()?);
             }
             if Instant::now() >= deadline {
-                bail!(
-                    "native readiness timed out\n{}",
-                    std::fs::read_to_string(&self.log)?
-                );
+                bail!("native readiness timed out\n{}", self.logs()?);
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
@@ -152,7 +163,7 @@ impl Node {
                 anyhow::ensure!(
                     status.success(),
                     "native shutdown failed: {status}\n{}",
-                    std::fs::read_to_string(&self.log)?
+                    self.logs()?
                 );
                 return Ok(());
             }
