@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicUsize;
 static SERIAL: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[test]
-fn concurrent_admission_shares_principal_limits_and_reserves_process_capacity() {
+fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
     let _serial = SERIAL.blocking_lock();
     let first = LoaderOwner::fresh("host-quota", 1);
     let second = LoaderOwner::fresh("host-quota", 1);
@@ -259,4 +259,65 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
     assert_eq!(drops.load(Ordering::SeqCst), 2);
     assert!(!root_facets().contains_key(&(root.into(), 8)));
     Ok(())
+}
+
+#[tokio::test]
+async fn loader_quotas_and_owner_retirement_are_independent_on_one_application_runtime() {
+    use crate::asyncrt::ExecutionDomain;
+    let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let first_owner = first
+        .run(async { LoaderOwner::fresh("same-script", 1) })
+        .await
+        .unwrap();
+    let second_owner = second
+        .run(async { LoaderOwner::fresh("same-script", 1) })
+        .await
+        .unwrap();
+    assert_eq!(first_owner.id, second_owner.id);
+    assert!(first_owner != second_owner);
+    for owner in [&first_owner, &second_owner] {
+        for _ in 0..MAX_LOADED_WORKERS_PER_PRINCIPAL {
+            let (_, state) = tokio::sync::watch::channel(LoaderState::Loading);
+            admit_loaded_worker(owner.clone(), state).unwrap();
+        }
+        let (_, state) = tokio::sync::watch::channel(LoaderState::Loading);
+        assert!(admit_loaded_worker(owner.clone(), state)
+            .unwrap_err()
+            .contains("too many loaded workers for script"));
+    }
+    second
+        .run(async {
+            drop(take_loader_owner(&first_owner));
+            assert_eq!(
+                loader_registry().lock().unwrap().len(),
+                MAX_LOADED_WORKERS_PER_PRINCIPAL
+            );
+        })
+        .await
+        .unwrap();
+    assert!(first
+        .services()
+        .loader()
+        .registry()
+        .lock()
+        .unwrap()
+        .is_empty());
+    first.shutdown().await;
+    let (_, state) = tokio::sync::watch::channel(LoaderState::Loading);
+    assert!(admit_loaded_worker(first_owner, state)
+        .unwrap_err()
+        .contains("execution domain is closed"));
+    assert_eq!(
+        second.services().loader().registry().lock().unwrap().len(),
+        MAX_LOADED_WORKERS_PER_PRINCIPAL
+    );
+    second.shutdown().await;
+    assert!(second
+        .services()
+        .loader()
+        .registry()
+        .lock()
+        .unwrap()
+        .is_empty());
 }

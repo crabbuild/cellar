@@ -87,7 +87,9 @@ impl Owner {
         // Child destruction runs after the parent has left its turn, and
         // in-flight calls retain their already captured loading receivers.
         if !states.is_empty() {
-            crate::asyncrt::spawn(async move { drop(states) }).detach();
+            if let Some(service) = self.host.service.upgrade() {
+                service.defer_drop(Box::new(states));
+            }
         }
     }
 }
@@ -132,6 +134,7 @@ struct Ready {
 }
 type LoadResult = std::result::Result<Ready, Arc<anyhow::Error>>;
 pub(crate) struct Load {
+    service: Arc<dyn host_loader::LoaderService>,
     serial: u64,
     manager: Weak<Manager>,
     name: Option<String>,
@@ -155,8 +158,8 @@ impl Load {
         self.disposed.store(true, Ordering::Release);
         self.remove_name();
         if let Some(Ok(ready)) = self.result.borrow().clone() {
-            if let Some(state) = host_loader::take_loaded_worker(ready.id) {
-                crate::asyncrt::spawn(async move { drop(state) }).detach();
+            if let Some(state) = self.service.take(ready.id) {
+                self.service.defer_drop(Box::new(state));
             }
         }
     }
@@ -180,6 +183,14 @@ impl Loader {
             .owner
             .upgrade()
             .ok_or_else(|| anyhow!("worker loader owner has retired"))?;
+        anyhow::ensure!(
+            owner
+                .host
+                .service
+                .upgrade()
+                .is_some_and(|service| Arc::ptr_eq(&service, &context.io.host_services().loader())),
+            "worker loader belongs to another execution domain"
+        );
         anyhow::ensure!(
             Arc::ptr_eq(&owner, &context.loader_owner),
             "worker loader belongs to another worker"
@@ -224,6 +235,7 @@ impl Loader {
         let owner = self.check(context)?;
         let (sender, result) = watch::channel(None);
         let load = Arc::new(Load {
+            service: context.io.host_services().loader(),
             serial: NEXT_LOAD.fetch_add(1, Ordering::Relaxed),
             manager: Arc::downgrade(&self.0),
             name: name.clone(),
@@ -363,6 +375,17 @@ impl Loader {
 }
 
 impl Worker {
+    fn check_host(&self) -> Result<()> {
+        anyhow::ensure!(
+            Arc::ptr_eq(&self.0.service, &crate::asyncrt::services().loader()),
+            "loaded worker belongs to another execution domain"
+        );
+        anyhow::ensure!(
+            self.0.service.accepts_work(),
+            "worker loader: execution domain is closed"
+        );
+        Ok(())
+    }
     pub(crate) fn from_origin(load: &Weak<Load>) -> Result<Self> {
         load.upgrade()
             .map(Self)
@@ -385,18 +408,20 @@ impl Worker {
         }
     }
     pub(crate) async fn slot(&self) -> Result<Arc<crate::pool::Slot>> {
+        self.check_host()?;
         let ready = self.ready().await?;
-        let state = host_loader::loader_registry()
-            .lock()
-            .unwrap()
-            .get(&ready.id)
-            .map(|entry| entry.state.clone())
+        self.check_host()?;
+        let state = self
+            .0
+            .service
+            .state(ready.id)
             .ok_or_else(|| anyhow!("worker loader: unknown worker"))?;
         host_loader::loaded_worker_slot(state)
             .await
             .map_err(anyhow::Error::msg)
     }
     pub(crate) fn capture(&self) -> Result<Option<watch::Receiver<LoaderState>>> {
+        self.check_host()?;
         anyhow::ensure!(
             !self.0.disposed.load(Ordering::Acquire),
             "worker loader: worker is disposed"
@@ -405,15 +430,15 @@ impl Worker {
             return Ok(None);
         };
         let ready = ready.map_err(|cause| super::facets::CompletionError { cause })?;
-        host_loader::loader_registry()
-            .lock()
-            .unwrap()
-            .get(&ready.id)
-            .map(|entry| Some(entry.state.clone()))
+        self.0
+            .service
+            .state(ready.id)
+            .map(Some)
             .ok_or_else(|| anyhow!("worker loader: unknown worker"))
     }
     pub fn dispose(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
+        self.check_host()?;
         self.0.release();
         Ok(())
     }
@@ -439,10 +464,12 @@ impl Worker {
 pub(crate) enum CallOrigin {
     Loader(Worker),
     Activation {
+        service: Weak<dyn host_loader::LoaderService>,
         slot: Weak<crate::pool::Slot>,
         activation: Weak<Activation>,
     },
     Event {
+        service: Weak<dyn host_loader::LoaderService>,
         slot: Weak<crate::pool::Slot>,
         event: Weak<EventState>,
     },
@@ -459,6 +486,7 @@ impl CallOrigin {
             let slot = crate::pool::current_slot()
                 .ok_or_else(|| anyhow!("loaded self capability has no executing worker"))?;
             return Ok(Self::Activation {
+                service: Arc::downgrade(&context.io.host_services().loader()),
                 slot: Arc::downgrade(&slot),
                 activation: Arc::downgrade(activation),
             });
@@ -475,6 +503,7 @@ impl CallOrigin {
         let slot = crate::pool::current_slot()
             .ok_or_else(|| anyhow!("loaded self capability has no executing worker"))?;
         Ok(Self::Event {
+            service: Arc::downgrade(&context.io.host_services().loader()),
             slot: Arc::downgrade(&slot),
             event: Arc::downgrade(&context.state),
         })
@@ -495,6 +524,18 @@ impl CallOrigin {
     }
 
     fn check(&self) -> Result<()> {
+        match self {
+            Self::Loader(worker) => worker.check_host()?,
+            Self::Activation { service, .. } | Self::Event { service, .. } => {
+                anyhow::ensure!(
+                    service.upgrade().is_some_and(|service| Arc::ptr_eq(
+                        &service,
+                        &crate::asyncrt::services().loader()
+                    ) && service.accepts_work()),
+                    "loaded capability belongs to another or retired execution domain"
+                );
+            }
+        }
         if let Self::Activation { activation, .. } = self {
             let activation = activation
                 .upgrade()

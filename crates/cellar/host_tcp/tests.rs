@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncReadExt, ReadBuf};
 
-// The shared registry is global; keep competing test removals out of the
-// reentrant destructor assertion. Async cases share a Tokio lock; the sync
+// Process-runner tests share their fallback domain; keep competing removals
+// out of the reentrant destructor assertion. Async cases share a Tokio lock; the sync
 // destructor probe takes its blocking form outside a runtime.
 static TRANSPORT_TESTS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -519,4 +519,144 @@ async fn transport_reservations_tls_starttls_and_cancellation() {
     })
     .await
     .unwrap();
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test]
+async fn transport_cleanup_and_domain_shutdown_keep_colliding_socket_ids_separate() {
+    use crate::asyncrt::ExecutionDomain;
+    let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let first_service = first.services().tcp();
+    let second_service = second.services().tcp();
+    let first_id = first_service.next_id();
+    let second_id = second_service.next_id();
+    assert_eq!(first_id, second_id);
+    let first_lifetime = reserve_in(&first_service, first_id);
+    let second_lifetime = reserve_in(&second_service, second_id);
+    let (first_transport, mut first_peer) = tokio::io::duplex(8);
+    let (second_transport, mut second_peer) = tokio::io::duplex(8);
+    publish_in(
+        &first_service,
+        first_id,
+        &first_lifetime,
+        Box::new(first_transport),
+    )
+    .unwrap();
+    publish_in(
+        &second_service,
+        second_id,
+        &second_lifetime,
+        Box::new(second_transport),
+    )
+    .unwrap();
+    let first_context = first
+        .run(async {
+            let context = crate::host_io::IoContext::new();
+            context.tcp_sockets.lock().unwrap().push(first_id);
+            context
+        })
+        .await
+        .unwrap();
+    second.run(async { drop(first_context) }).await.unwrap();
+    assert_eq!(first_lifetime.closed().await, Ok(()));
+    assert_eq!(first_peer.read(&mut [0]).await.unwrap(), 0);
+    assert!(second_service
+        .registry
+        .lock()
+        .unwrap()
+        .contains_key(&second_id));
+    second
+        .run(async {
+            write_in(
+                &second_service,
+                second_id,
+                b"B".to_vec(),
+                EgressGate::NoCell,
+            )
+            .await
+            .unwrap();
+        })
+        .await
+        .unwrap();
+    assert_eq!(second_peer.read(&mut [0]).await.unwrap(), 1);
+    // A retained transport with no live request is closed by domain shutdown.
+    let retained_id = first_service.next_id();
+    let retained = reserve_in(&first_service, retained_id);
+    let (transport, mut peer) = tokio::io::duplex(8);
+    publish_in(&first_service, retained_id, &retained, Box::new(transport)).unwrap();
+    first.shutdown().await;
+    assert_eq!(
+        retained.closed().await,
+        Err("execution domain is closed".into())
+    );
+    assert_eq!(peer.read(&mut [0]).await.unwrap(), 0);
+    let refused = reserve_in(&first_service, first_service.next_id());
+    assert!(refused.closed().await.is_err());
+    assert!(first_service.registry.lock().unwrap().is_empty());
+    assert!(second_service
+        .registry
+        .lock()
+        .unwrap()
+        .contains_key(&second_id));
+    second.shutdown().await;
+    assert!(second_lifetime.closed().await.is_err());
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test]
+async fn pending_tls_opening_dropped_in_another_domain_closes_only_its_reserved_socket() {
+    use crate::asyncrt::ExecutionDomain;
+    let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let first_service = first.services().tcp();
+    let second_service = second.services().tcp();
+    let first_id = first_service.next_id();
+    let second_id = second_service.next_id();
+    assert_eq!(first_id, second_id);
+    let first_lifetime = reserve_in(&first_service, first_id);
+    let second_lifetime = reserve_in(&second_service, second_id);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut opening = Box::pin(connect_in(
+        first_service.clone(),
+        first_id,
+        args(
+            listener.local_addr().unwrap().port(),
+            true,
+            Some("localhost"),
+        ),
+        EgressGate::NoCell,
+    ));
+    first
+        .run(async {
+            assert!(futures_util::poll!(opening.as_mut()).is_pending());
+        })
+        .await
+        .unwrap();
+    let (mut peer, _) = listener.accept().await.unwrap();
+    first.run(async {
+        crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+            let mut hello = [0];
+            crate::asyncrt::select_biased! { "drive the TLS client until its real peer observes the handshake";
+                result = opening.as_mut() => panic!("TLS opening unexpectedly settled: {result:?}"),
+                result = peer.read_exact(&mut hello) => { result.unwrap(); },
+            }
+        }).await.unwrap();
+    }).await.unwrap();
+
+    second.run(async { drop(opening) }).await.unwrap();
+    assert_eq!(
+        first_lifetime.closed().await,
+        Err("socket opening was cancelled".into())
+    );
+    let mut bytes = Vec::new();
+    peer.read_to_end(&mut bytes).await.unwrap();
+    assert!(second_service
+        .registry
+        .lock()
+        .unwrap()
+        .contains_key(&second_id));
+    first.shutdown().await;
+    second.shutdown().await;
+    assert!(second_lifetime.closed().await.is_err());
 }

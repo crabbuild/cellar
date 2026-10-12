@@ -121,6 +121,7 @@ struct Flags {
     write_error: Option<String>,
 }
 struct State {
+    service: Arc<host::TcpService>,
     id: u64,
     owner: Weak<crate::host_io::IoContext>,
     opening: Opening,
@@ -157,7 +158,7 @@ impl State {
 }
 impl Drop for State {
     fn drop(&mut self) {
-        host::free(self.id);
+        host::free_in(&self.service, self.id);
     }
 }
 #[derive(Clone)]
@@ -269,6 +270,7 @@ fn socket(
     .boxed()
     .shared();
     let state = Arc::new(State {
+        service: context.io.host_services().tcp(),
         id,
         owner: Arc::downgrade(&context.io),
         opening,
@@ -334,8 +336,9 @@ impl Context {
     ) -> Result<Socket> {
         self.check_turn()?;
         address.validate()?;
-        let id = host::next_id();
-        let lifetime = host::reserve(id);
+        let service = self.io.host_services().tcp();
+        let id = service.next_id();
+        let lifetime = host::reserve_in(&service, id);
         self.io.tcp_sockets.lock().unwrap().push(id);
         let gate = host_gates::egress_gate_request(&self.io, cellar_logic::Channel::Tcp);
         let request = host::ConnectArgs {
@@ -344,7 +347,7 @@ impl Context {
             secure: options.secure_transport == SecureTransport::On,
             expected_host: None,
         };
-        let opening = host::connect(id, request, gate).boxed();
+        let opening = host::connect_in(service, id, request, gate).boxed();
         Ok(socket(self, id, address, options, lifetime, opening))
     }
 }
@@ -378,7 +381,7 @@ impl Socket {
         let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Tcp);
         schedule(context, state.clone(), async move {
             let result = host_gates::await_egress_gate(gate).await;
-            host::free(state.id);
+            host::free_in(&state.service, state.id);
             result.map_err(anyhow::Error::msg)
         })
     }
@@ -404,8 +407,9 @@ impl Socket {
             anyhow::ensure!(!flags.detached, "startTls can only be called once.");
             flags.detached = true;
         }
-        let id = host::next_id();
-        let lifetime = host::reserve(id);
+        let service = self.state.service.clone();
+        let id = service.next_id();
+        let lifetime = host::reserve_in(&service, id);
         context.io.tcp_sockets.lock().unwrap().push(id);
         let gate = host_gates::egress_gate_request(&context.io, cellar_logic::Channel::Tcp);
         let old = self.state.clone();
@@ -413,11 +417,11 @@ impl Socket {
         let opening = async move {
             let result = async {
                 old.opening.clone().await?;
-                host::start_tls(old.id, id, host_name, gate).await
+                host::start_tls_in(service.clone(), old.id, id, host_name, gate).await
             }
             .await;
             if let Err(error) = &result {
-                host::fail(id, error.clone());
+                host::fail_in(&service, id, error.clone());
             }
             result
         }
@@ -504,7 +508,7 @@ impl Reader {
                     state.end_read(None);
                     return Ok(Vec::new());
                 }
-                let bytes = match host::read(state.id, limit).await {
+                let bytes = match host::read_in(&state.service, state.id, limit).await {
                     Ok(bytes) => bytes,
                     Err(error) => {
                         let ending = {
@@ -516,7 +520,7 @@ impl Reader {
                             return Ok(Vec::new());
                         }
                         state.end_read(Some(error.clone()));
-                        host::fail(state.id, error.clone());
+                        host::fail_in(&state.service, state.id, error.clone());
                         return Err(anyhow!(error));
                     }
                 };
@@ -528,10 +532,10 @@ impl Reader {
                                 &caller.io,
                                 cellar_logic::Channel::Tcp,
                             );
-                            let _ = host::shutdown(state.id, gate).await;
+                            let _ = host::shutdown_in(&state.service, state.id, gate).await;
                         }
                         state.flags.lock().unwrap().closing = true;
-                        host::free(state.id);
+                        host::free_in(&state.service, state.id);
                     }
                 }
                 Ok(bytes)
@@ -630,11 +634,11 @@ impl Writer {
                 anyhow::bail!(error.clone());
             }
             let result = match bytes {
-                Some(bytes) => host::write(state.id, bytes, gate)
+                Some(bytes) => host::write_in(&state.service, state.id, bytes, gate)
                     .await
                     .map_err(anyhow::Error::msg),
                 None => {
-                    let result = host::shutdown(state.id, gate)
+                    let result = host::shutdown_in(&state.service, state.id, gate)
                         .await
                         .map_err(anyhow::Error::msg);
                     if result.is_ok() {
@@ -646,7 +650,7 @@ impl Writer {
             if let Err(error) = &result {
                 state.flags.lock().unwrap().write_error = Some(error.to_string());
                 state.write_end.cancel();
-                host::fail(state.id, error.to_string());
+                host::fail_in(&state.service, state.id, error.to_string());
             }
             result
         })

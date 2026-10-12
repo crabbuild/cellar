@@ -35,6 +35,23 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+// Preserve Tokio join-error reporting while scheduling through the owning
+// library domain. The simulated host retains its existing task adapter.
+fn spawn_host<T, F>(handle: tokio::runtime::Handle, future: F) -> tokio::task::JoinHandle<T>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = T> + Send + 'static,
+{
+    #[cfg(not(cellar_internal_tests))]
+    {
+        crate::asyncrt::spawn_on(&handle, future)
+    }
+    #[cfg(cellar_internal_tests)]
+    {
+        handle.spawn(future)
+    }
+}
+
 const REMOTE_ABORT_TTL: Duration = Duration::from_secs(600);
 const REMOTE_COMPLETION_TTL: Duration = Duration::from_secs(60);
 const MAX_REMOTE_PENDING_ABORTS: usize = 65_536;
@@ -70,6 +87,7 @@ pub const DEFAULT_MAX_CELL_REQUESTS: usize = 64;
 /// lifetime to the driver through [`Self::drive_stateless_fetch`].
 #[doc(hidden)]
 pub struct RequestCancellationLifetime {
+    gates: Arc<crate::host_gates::GateService>,
     request_id: crate::engine_api::RequestId,
     finished: Mutex<bool>,
 }
@@ -82,6 +100,7 @@ impl RequestCancellationLifetime {
 
     fn from_request_id(request_id: crate::engine_api::RequestId) -> Arc<Self> {
         Arc::new(Self {
+            gates: crate::asyncrt::services().gates(),
             request_id,
             finished: Mutex::new(false),
         })
@@ -104,7 +123,7 @@ impl RequestCancellationLifetime {
             .lock()
             .expect("request cancellation lifetime poisoned");
         if !*finished {
-            crate::host_gates::abort_request(self.request_id);
+            self.gates.abort_request(self.request_id);
         }
     }
 
@@ -113,7 +132,7 @@ impl RequestCancellationLifetime {
             .finished
             .lock()
             .expect("request cancellation lifetime poisoned");
-        crate::host_gates::clear_request_cancellation(self.request_id);
+        self.gates.clear_request_cancellation(self.request_id);
         *finished = true;
     }
 
@@ -980,7 +999,7 @@ impl RuntimeManager {
         };
         let reaping = Arc::downgrade(generation);
         let generations = self.generations.clone();
-        handle.spawn(async move {
+        spawn_host(handle, async move {
             let mut tick = tokio::time::interval_at(
                 tokio::time::Instant::now() + REAP_INTERVAL,
                 REAP_INTERVAL,
@@ -1104,7 +1123,7 @@ impl RuntimeManager {
             tail_report: None,
             reply,
         };
-        tokio::spawn(async move {
+        spawn_host(tokio::runtime::Handle::current(), async move {
             let _inline_activity = inline_activity;
             drive_worker_on_cell(isolate, job).await;
         });
@@ -1744,7 +1763,7 @@ impl RuntimeManager {
         };
         let alarm_reporter = self.alarm_reporter.clone();
         let drive_cancellation = cancellation.clone();
-        tokio::spawn(async move {
+        spawn_host(tokio::runtime::Handle::current(), async move {
             let _permit = permit;
             drive_cell_with_request_cancellation(
                 affiliation,
@@ -2077,13 +2096,10 @@ impl RuntimeManager {
         };
         let reporter = self.alarm_reporter.clone();
         let driving = cancellation.clone();
-        tokio::spawn(drive_cell_with_request_cancellation(
-            isolate,
-            job,
-            Some(reporter),
-            None,
-            driving,
-        ));
+        spawn_host(
+            tokio::runtime::Handle::current(),
+            drive_cell_with_request_cancellation(isolate, job, Some(reporter), None, driving),
+        );
         let result = receive_cell_reply(
             receive,
             cancellation,
@@ -2325,7 +2341,10 @@ async fn run_cell_event<T>(
     receive: tokio::sync::oneshot::Receiver<anyhow::Result<T>>,
     dropped: &'static str,
 ) -> anyhow::Result<T> {
-    tokio::spawn(drive_cell(isolate, job, report, None));
+    spawn_host(
+        tokio::runtime::Handle::current(),
+        drive_cell(isolate, job, report, None),
+    );
     receive.await.context(dropped)?
 }
 
@@ -2995,7 +3014,7 @@ impl StatelessRuntime {
             // alive: it ends when the pool is dropped.
             let reaping = Arc::downgrade(&isolates);
             let reclaim = isolates.reclaim_bell();
-            handle.spawn(async move {
+            spawn_host(handle, async move {
                 // `interval` fires its first tick immediately, which
                 // reaped the isolate `warm` had just built and handed the
                 // first request the compile cost warming exists to avoid.
@@ -3078,11 +3097,14 @@ impl StatelessRuntime {
         // Spawned rather than awaited inline, because the response and the
         // event are not the same lifetime: `waitUntil` work outlives the
         // answer, and the driver keeps turning until it settles.
-        let driving = tokio::spawn(drive_affiliated(
-            affiliation,
-            job,
-            Some((self.node.clone(), self.region.clone())),
-        ));
+        let driving = spawn_host(
+            tokio::runtime::Handle::current(),
+            drive_affiliated(
+                affiliation,
+                job,
+                Some((self.node.clone(), self.region.clone())),
+            ),
+        );
         match receive.await {
             Ok(result) => result,
             // The driver dropped the reply without sending. Joining it here —
@@ -3873,6 +3895,6 @@ fn install_container_specs(generation: &Generation) {
         return;
     }
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(crate::container::prewarm());
+        spawn_host(handle, crate::container::prewarm());
     }
 }

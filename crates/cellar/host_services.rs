@@ -1,11 +1,11 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-//! Process services that an engine incarnation can observe.
+//! Host services owned by one execution domain.
 //!
-//! Production installs one service set. A deterministic domain installs one
-//! set per simulated node, so co-hosted incarnations do not share counters or
-//! host measurements.
+//! The process runner installs its service set once. Library execution domains
+//! and deterministic domains each install their own set, so routing authority
+//! and resource registries follow their owner.
 
 use crate::ownership_store::LiveLoad;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -31,6 +31,10 @@ enum MetricsBackend {
 /// All process-like services owned by one execution domain.
 pub struct HostServices {
     domain: OnceLock<crate::asyncrt::DomainToken>,
+    channels: crate::host_channels::HostChannels,
+    gates: Arc<crate::host_gates::GateService>,
+    tcp: Arc<crate::host_tcp::TcpService>,
+    loader: Arc<dyn crate::host_loader::LoaderService>,
     node_load: OnceLock<Arc<LiveLoad>>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
@@ -44,6 +48,10 @@ impl HostServices {
     pub(crate) fn production() -> Self {
         Self {
             domain: OnceLock::new(),
+            channels: crate::host_channels::HostChannels::default(),
+            gates: Arc::new(crate::host_gates::GateService::default()),
+            tcp: Arc::new(crate::host_tcp::TcpService::default()),
+            loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
             node_load: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -58,6 +66,10 @@ impl HostServices {
     pub fn scripted() -> Self {
         Self {
             domain: OnceLock::new(),
+            channels: crate::host_channels::HostChannels::default(),
+            gates: Arc::new(crate::host_gates::GateService::default()),
+            tcp: Arc::new(crate::host_tcp::TcpService::default()),
+            loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
             node_load: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -66,6 +78,32 @@ impl HostServices {
             #[cfg(all(test, cellar_internal_tests))]
             handoff_transport: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn channels(&self) -> &crate::host_channels::HostChannels {
+        &self.channels
+    }
+
+    pub(crate) fn gates(&self) -> Arc<crate::host_gates::GateService> {
+        self.gates.clone()
+    }
+
+    pub(crate) fn tcp(&self) -> Arc<crate::host_tcp::TcpService> {
+        self.tcp.clone()
+    }
+
+    pub(crate) fn loader(&self) -> Arc<dyn crate::host_loader::LoaderService> {
+        self.loader.clone()
+    }
+
+    pub(crate) fn close_resources(&self) {
+        self.tcp.close();
+        self.loader.close();
+    }
+
+    pub(crate) fn accepts_work(&self) -> bool {
+        self.domain_token()
+            .is_none_or(|domain| domain.mono_ms().is_ok())
     }
 
     pub fn set_node_load(&self, load: Arc<LiveLoad>) {
@@ -98,6 +136,7 @@ impl HostServices {
                 "HostServices cannot belong to more than one execution domain"
             );
         }
+        self.loader.bind_domain(self.domain.get().unwrap().clone());
         self.http_streams.bind_domain(
             self.domain
                 .get()
