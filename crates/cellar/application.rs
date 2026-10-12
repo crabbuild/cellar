@@ -423,6 +423,14 @@ impl Context {
             "native context is outside its executing turn"
         );
         anyhow::ensure!(
+            Arc::ptr_eq(self.io.host_services(), &crate::asyncrt::services()),
+            "native context belongs to another execution domain"
+        );
+        anyhow::ensure!(
+            self.io.host_services().accepts_work(),
+            "native context execution domain is closed"
+        );
+        anyhow::ensure!(
             !self
                 .state
                 .retired

@@ -9,7 +9,8 @@ use crate::host_gates::{await_egress_gate, egress_gate_request};
 use crate::host_loader::{self, LoaderOwner, LoaderState};
 use crate::http_streams::RequestBodyGuard;
 use crate::worker_config::{LoaderEnv, WorkerConfig};
-use cellar_native::clone::{encode, Object, StructuredValue, Value};
+use anyhow::Context as _;
+use cellar_native::clone::{encode_with_limits, Limits, Object, StructuredValue, Value};
 use futures_util::FutureExt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Weak;
@@ -87,7 +88,9 @@ impl Owner {
         // Child destruction runs after the parent has left its turn, and
         // in-flight calls retain their already captured loading receivers.
         if !states.is_empty() {
-            crate::asyncrt::spawn(async move { drop(states) }).detach();
+            if let Some(service) = self.host.service.upgrade() {
+                service.defer_drop(Box::new(states));
+            }
         }
     }
 }
@@ -132,6 +135,7 @@ struct Ready {
 }
 type LoadResult = std::result::Result<Ready, Arc<anyhow::Error>>;
 pub(crate) struct Load {
+    service: Arc<dyn host_loader::LoaderService>,
     serial: u64,
     manager: Weak<Manager>,
     name: Option<String>,
@@ -155,8 +159,8 @@ impl Load {
         self.disposed.store(true, Ordering::Release);
         self.remove_name();
         if let Some(Ok(ready)) = self.result.borrow().clone() {
-            if let Some(state) = host_loader::take_loaded_worker(ready.id) {
-                crate::asyncrt::spawn(async move { drop(state) }).detach();
+            if let Some(state) = self.service.take(ready.id) {
+                self.service.defer_drop(Box::new(state));
             }
         }
     }
@@ -180,6 +184,14 @@ impl Loader {
             .owner
             .upgrade()
             .ok_or_else(|| anyhow!("worker loader owner has retired"))?;
+        anyhow::ensure!(
+            owner
+                .host
+                .service
+                .upgrade()
+                .is_some_and(|service| Arc::ptr_eq(&service, &context.io.host_services().loader())),
+            "worker loader belongs to another execution domain"
+        );
         anyhow::ensure!(
             Arc::ptr_eq(&owner, &context.loader_owner),
             "worker loader belongs to another worker"
@@ -222,8 +234,10 @@ impl Loader {
         callback: impl FnOnce(Context) -> HandlerFuture<WorkerCode> + Send + 'static,
     ) -> Result<Worker> {
         let owner = self.check(context)?;
+        let policy = context.io.host_services().loader_policy();
         let (sender, result) = watch::channel(None);
         let load = Arc::new(Load {
+            service: context.io.host_services().loader(),
             serial: NEXT_LOAD.fetch_add(1, Ordering::Relaxed),
             manager: Arc::downgrade(&self.0),
             name: name.clone(),
@@ -257,30 +271,29 @@ impl Loader {
                     .environment
                     .filter(|value| !matches!(value.root, Value::Undefined | Value::Null))
                     .map(|value| -> Result<_> {
-                        let bytes = encode(&value)?;
+                        let bytes = encode_with_limits(
+                            &value,
+                            Limits {
+                                bytes: policy.max_environment_bytes,
+                                ..Default::default()
+                            },
+                        )
+                        .context("worker loader: environment exceeds size limit or is invalid")?;
                         let mut routes = Vec::new();
-                        let mut total = bytes.len();
+                        let mut remaining = policy
+                            .max_environment_bytes
+                            .checked_sub(bytes.len())
+                            .ok_or_else(|| {
+                            anyhow!("worker loader: environment exceeds size limit")
+                        })?;
                         for fetcher in &environment_fetchers {
+                            fetcher.check_context(&context_copy)?;
                             anyhow::ensure!(
                                 fetcher.generation == context_copy.generation,
                                 "worker loader: environment fetcher belongs to another generation"
                             );
-                            let route = fetcher.route();
-                            total = total
-                                .checked_add(route.script.len())
-                                .and_then(|n| {
-                                    n.checked_add(route.entrypoint.as_ref().map_or(0, String::len))
-                                })
-                                .and_then(|n| n.checked_add(route.props.len()))
-                                .ok_or_else(|| {
-                                    anyhow!("worker loader: environment exceeds size limit")
-                                })?;
-                            routes.push(route);
+                            routes.push(fetcher.route(&mut remaining)?);
                         }
-                        anyhow::ensure!(
-                            total <= host_loader::MAX_DYNAMIC_WORKER_ENV_SIZE,
-                            "worker loader: environment exceeds size limit"
-                        );
                         Ok(LoaderEnv { bytes, routes })
                     })
                     .transpose()?;
@@ -294,6 +307,7 @@ impl Loader {
                     ),
                     Outbound::Deny => (crate::worker_config::EgressPolicy::Deny, None),
                     Outbound::Broker(fetcher) => {
+                        fetcher.check_context(&context_copy)?;
                         anyhow::ensure!(
                             fetcher.generation == context_copy.generation,
                             "worker loader: outbound fetcher belongs to another generation"
@@ -363,6 +377,17 @@ impl Loader {
 }
 
 impl Worker {
+    fn check_host(&self) -> Result<()> {
+        anyhow::ensure!(
+            Arc::ptr_eq(&self.0.service, &crate::asyncrt::services().loader()),
+            "loaded worker belongs to another execution domain"
+        );
+        anyhow::ensure!(
+            self.0.service.accepts_work(),
+            "worker loader: execution domain is closed"
+        );
+        Ok(())
+    }
     pub(crate) fn from_origin(load: &Weak<Load>) -> Result<Self> {
         load.upgrade()
             .map(Self)
@@ -385,18 +410,20 @@ impl Worker {
         }
     }
     pub(crate) async fn slot(&self) -> Result<Arc<crate::pool::Slot>> {
+        self.check_host()?;
         let ready = self.ready().await?;
-        let state = host_loader::loader_registry()
-            .lock()
-            .unwrap()
-            .get(&ready.id)
-            .map(|entry| entry.state.clone())
+        self.check_host()?;
+        let state = self
+            .0
+            .service
+            .state(ready.id)
             .ok_or_else(|| anyhow!("worker loader: unknown worker"))?;
         host_loader::loaded_worker_slot(state)
             .await
             .map_err(anyhow::Error::msg)
     }
     pub(crate) fn capture(&self) -> Result<Option<watch::Receiver<LoaderState>>> {
+        self.check_host()?;
         anyhow::ensure!(
             !self.0.disposed.load(Ordering::Acquire),
             "worker loader: worker is disposed"
@@ -405,15 +432,15 @@ impl Worker {
             return Ok(None);
         };
         let ready = ready.map_err(|cause| super::facets::CompletionError { cause })?;
-        host_loader::loader_registry()
-            .lock()
-            .unwrap()
-            .get(&ready.id)
-            .map(|entry| Some(entry.state.clone()))
+        self.0
+            .service
+            .state(ready.id)
+            .map(Some)
             .ok_or_else(|| anyhow!("worker loader: unknown worker"))
     }
     pub fn dispose(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
+        self.check_host()?;
         self.0.release();
         Ok(())
     }
@@ -424,6 +451,9 @@ impl Worker {
             props: Vec::new(),
             limits: None,
         }
+    }
+    pub(crate) fn props_limit(&self) -> usize {
+        self.0.service.policy().max_props_bytes
     }
     pub fn cell_class(&self, name: impl Into<String>) -> super::facets::Class {
         super::facets::Class::loaded(self.clone(), name.into())
@@ -439,12 +469,16 @@ impl Worker {
 pub(crate) enum CallOrigin {
     Loader(Worker),
     Activation {
+        service: Weak<dyn host_loader::LoaderService>,
         slot: Weak<crate::pool::Slot>,
         activation: Weak<Activation>,
+        props_limit: usize,
     },
     Event {
+        service: Weak<dyn host_loader::LoaderService>,
         slot: Weak<crate::pool::Slot>,
         event: Weak<EventState>,
+        props_limit: usize,
     },
 }
 
@@ -459,8 +493,10 @@ impl CallOrigin {
             let slot = crate::pool::current_slot()
                 .ok_or_else(|| anyhow!("loaded self capability has no executing worker"))?;
             return Ok(Self::Activation {
+                service: Arc::downgrade(&context.io.host_services().loader()),
                 slot: Arc::downgrade(&slot),
                 activation: Arc::downgrade(activation),
+                props_limit: context.io.host_services().loader_policy().max_props_bytes,
             });
         }
         if let Some(load) = &context.worker_config.native_load {
@@ -475,8 +511,10 @@ impl CallOrigin {
         let slot = crate::pool::current_slot()
             .ok_or_else(|| anyhow!("loaded self capability has no executing worker"))?;
         Ok(Self::Event {
+            service: Arc::downgrade(&context.io.host_services().loader()),
             slot: Arc::downgrade(&slot),
             event: Arc::downgrade(&context.state),
+            props_limit: context.io.host_services().loader_policy().max_props_bytes,
         })
     }
 
@@ -494,7 +532,26 @@ impl CallOrigin {
         }
     }
 
+    fn props_limit(&self) -> usize {
+        match self {
+            Self::Loader(worker) => worker.props_limit(),
+            Self::Activation { props_limit, .. } | Self::Event { props_limit, .. } => *props_limit,
+        }
+    }
+
     fn check(&self) -> Result<()> {
+        match self {
+            Self::Loader(worker) => worker.check_host()?,
+            Self::Activation { service, .. } | Self::Event { service, .. } => {
+                anyhow::ensure!(
+                    service.upgrade().is_some_and(|service| Arc::ptr_eq(
+                        &service,
+                        &crate::asyncrt::services().loader()
+                    ) && service.accepts_work()),
+                    "loaded capability belongs to another or retired execution domain"
+                );
+            }
+        }
         if let Self::Activation { activation, .. } = self {
             let activation = activation
                 .upgrade()
@@ -565,22 +622,25 @@ pub struct FetchWithTail {
     pub report: HandlerFuture<String>,
 }
 type PreparedFetch = Result<(RequestBodyGuard, EgressGate, Option<CallCapture>)>;
-pub(crate) fn props_bytes(props: &StructuredValue) -> Result<Vec<u8>> {
-    let bytes = if props.root == Value::Undefined {
-        Vec::new()
-    } else {
-        encode(props)?
-    };
-    anyhow::ensure!(
-        bytes.len() <= host_loader::MAX_DYNAMIC_WORKER_PROPS_SIZE,
-        "worker loader: props exceed size limit"
-    );
-    Ok(bytes)
+pub(crate) fn props_bytes(props: &StructuredValue, limit: usize) -> Result<Vec<u8>> {
+    if props.root == Value::Undefined {
+        return Ok(Vec::new());
+    }
+    encode_with_limits(
+        props,
+        Limits {
+            bytes: limit,
+            ..Default::default()
+        },
+    )
+    .with_context(|| {
+        format!("worker loader: cannot encode props within size limit of {limit} bytes")
+    })
 }
 impl Entrypoint {
     pub fn with_props(&self, props: &StructuredValue) -> Result<Self> {
         Ok(Self {
-            props: props_bytes(props)?,
+            props: props_bytes(props, self.origin.props_limit())?,
             ..self.clone()
         })
     }

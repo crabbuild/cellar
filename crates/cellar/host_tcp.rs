@@ -1,10 +1,10 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/js/tcp.rs.
-//! Event-owned outbound TCP/TLS operations shared by both application backends.
+//! Event-owned outbound TCP/TLS on an instance-owned transport registry.
 
 use crate::host_gates::{await_egress_gate, EgressGate};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
@@ -73,57 +73,102 @@ pub(crate) struct Entry {
     lifetime: Arc<Lifetime>,
     transport: Option<Transport>,
 }
-pub(crate) fn registry() -> &'static Mutex<HashMap<u64, Entry>> {
-    static SOCKETS: OnceLock<Mutex<HashMap<u64, Entry>>> = OnceLock::new();
-    SOCKETS.get_or_init(Default::default)
+pub(crate) struct TcpService {
+    registry: Arc<Mutex<HashMap<u64, Entry>>>,
+    next: AtomicU64,
+    closed: AtomicBool,
+    #[cfg(any(test, cellar_internal_tests))]
+    root: Arc<Mutex<Option<Vec<u8>>>>,
+    connector: OnceLock<tokio_rustls::TlsConnector>,
 }
-pub(crate) fn next_id() -> u64 {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+impl Default for TcpService {
+    fn default() -> Self {
+        Self {
+            registry: Arc::new(Mutex::new(HashMap::new())),
+            next: AtomicU64::new(1),
+            closed: AtomicBool::new(false),
+            #[cfg(any(test, cellar_internal_tests))]
+            root: Arc::new(Mutex::new(None)),
+            connector: OnceLock::new(),
+        }
+    }
+}
+impl TcpService {
+    pub(crate) fn next_id(&self) -> u64 {
+        self.next.fetch_add(1, Ordering::Relaxed)
+    }
+    pub(crate) fn close(&self) {
+        let entries = {
+            let mut registry = self.registry.lock().unwrap();
+            self.closed.store(true, Ordering::Release);
+            std::mem::take(&mut *registry)
+        };
+        for entry in entries.into_values() {
+            entry
+                .lifetime
+                .finish(Err("execution domain is closed".into()));
+        }
+    }
 }
 
 /// Reserve before suspension. Cleanup can then prevent a late connection or
 /// TLS handshake from publishing a transport into an already retired event.
-pub(crate) fn reserve(id: u64) -> Arc<Lifetime> {
+pub(crate) fn reserve_in(service: &TcpService, id: u64) -> Arc<Lifetime> {
     let lifetime = Lifetime::new();
-    let replaced = registry().lock().unwrap().insert(
+    let mut registry = service.registry.lock().unwrap();
+    if service.closed.load(Ordering::Acquire) {
+        drop(registry);
+        lifetime.finish(Err("execution domain is closed".into()));
+        return lifetime;
+    }
+    let replaced = registry.insert(
         id,
         Entry {
             lifetime: lifetime.clone(),
             transport: None,
         },
     );
+    drop(registry);
     if let Some(replaced) = replaced {
         replaced.lifetime.finish(Ok(()));
     }
     lifetime
 }
-fn remove(id: u64, outcome: Result<(), String>) {
-    let removed = registry().lock().unwrap().remove(&id);
+fn remove(service: &TcpService, id: u64, outcome: Result<(), String>) {
+    let removed = service.registry.lock().unwrap().remove(&id);
     if let Some(removed) = removed {
         removed.lifetime.finish(outcome);
     }
 }
-pub(crate) fn free(id: u64) {
-    remove(id, Ok(()));
+pub(crate) fn free_in(service: &TcpService, id: u64) {
+    remove(service, id, Ok(()));
 }
-pub(crate) fn fail(id: u64, error: String) {
-    remove(id, Err(error));
+pub(crate) fn fail_in(service: &TcpService, id: u64, error: String) {
+    remove(service, id, Err(error));
 }
-fn lifetime(id: u64) -> Result<Arc<Lifetime>, String> {
-    registry()
+fn lifetime_in(service: &TcpService, id: u64) -> Result<Arc<Lifetime>, String> {
+    service
+        .registry
         .lock()
         .unwrap()
         .get(&id)
         .map(|entry| entry.lifetime.clone())
         .ok_or_else(|| "socket is closed".into())
 }
-fn publish(id: u64, owner: &Arc<Lifetime>, stream: Duplex) -> Result<(), String> {
+fn publish_in(
+    service: &TcpService,
+    id: u64,
+    owner: &Arc<Lifetime>,
+    stream: Duplex,
+) -> Result<(), String> {
     let mut transport = Some(Transport::new(stream));
     let published = {
-        let mut registry = registry().lock().unwrap();
+        let mut registry = service.registry.lock().unwrap();
         if let Some(entry) = registry.get_mut(&id) {
-            if Arc::ptr_eq(owner, &entry.lifetime) && entry.transport.is_none() {
+            if !service.closed.load(Ordering::Acquire)
+                && Arc::ptr_eq(owner, &entry.lifetime)
+                && entry.transport.is_none()
+            {
                 entry.transport = transport.take();
                 true
             } else {
@@ -140,16 +185,20 @@ fn publish(id: u64, owner: &Arc<Lifetime>, stream: Duplex) -> Result<(), String>
         Err("socket is closed".into())
     }
 }
-#[cfg(test)]
-pub(crate) fn insert(id: u64, stream: Duplex) {
-    let owner = reserve(id);
-    publish(id, &owner, stream).unwrap();
+struct Opening {
+    service: Arc<TcpService>,
+    id: u64,
+    completed: bool,
 }
-
-struct Opening(u64);
 impl Drop for Opening {
     fn drop(&mut self) {
-        fail(self.0, "socket opening was cancelled".into());
+        if !self.completed {
+            fail_in(
+                &self.service,
+                self.id,
+                "socket opening was cancelled".into(),
+            );
+        }
     }
 }
 
@@ -161,13 +210,21 @@ impl Drop for Upgrading {
 }
 
 struct UpgradeReservation {
+    service: Arc<TcpService>,
+    completed: bool,
     old: u64,
     new: u64,
 }
 impl Drop for UpgradeReservation {
     fn drop(&mut self) {
-        fail(self.old, "TLS upgrade was cancelled".into());
-        fail(self.new, "socket opening was cancelled".into());
+        if !self.completed {
+            fail_in(&self.service, self.old, "TLS upgrade was cancelled".into());
+            fail_in(
+                &self.service,
+                self.new,
+                "socket opening was cancelled".into(),
+            );
+        }
     }
 }
 
@@ -191,22 +248,25 @@ pub(crate) struct ConnectArgs {
 // Internal source conformance can inject a DER root without changing the
 // production trust configuration or giving applications a verification bypass.
 #[cfg(any(test, cellar_internal_tests))]
-fn test_root() -> &'static Mutex<Option<Vec<u8>>> {
-    static ROOT: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
-    ROOT.get_or_init(Default::default)
+fn test_root() -> Arc<Mutex<Option<Vec<u8>>>> {
+    crate::asyncrt::services().tcp().root.clone()
 }
 #[cfg(cellar_internal_tests)]
 pub fn test_extra_tls_root(der: Vec<u8>) {
     *test_root().lock().unwrap() = Some(der);
 }
-#[cfg(any(test, cellar_internal_tests))]
-fn tls_connector() -> tokio_rustls::TlsConnector {
-    build_tls_connector(test_root().lock().unwrap().clone())
-}
-#[cfg(not(any(test, cellar_internal_tests)))]
-fn tls_connector() -> tokio_rustls::TlsConnector {
-    static CONNECTOR: OnceLock<tokio_rustls::TlsConnector> = OnceLock::new();
-    CONNECTOR.get_or_init(|| build_tls_connector(None)).clone()
+fn tls_connector(service: &TcpService) -> tokio_rustls::TlsConnector {
+    #[cfg(any(test, cellar_internal_tests))]
+    {
+        build_tls_connector(service.root.lock().unwrap().clone())
+    }
+    #[cfg(not(any(test, cellar_internal_tests)))]
+    {
+        service
+            .connector
+            .get_or_init(|| build_tls_connector(None))
+            .clone()
+    }
 }
 fn build_tls_connector(extra: Option<Vec<u8>>) -> tokio_rustls::TlsConnector {
     let mut roots = rustls::RootCertStore {
@@ -226,23 +286,28 @@ fn unbracket(host: &str) -> &str {
         .and_then(|host| host.strip_suffix(']'))
         .unwrap_or(host)
 }
-async fn handshake(stream: Duplex, host: String) -> Result<Duplex, String> {
+async fn handshake(service: &TcpService, stream: Duplex, host: String) -> Result<Duplex, String> {
     let name = rustls::pki_types::ServerName::try_from(unbracket(&host).to_owned())
         .map_err(|error| format!("invalid TLS server name: {error}"))?;
-    let tls = tls_connector()
+    let tls = tls_connector(service)
         .connect(name, stream)
         .await
         .map_err(|error| format!("TLS handshake failed: {error}"))?;
     Ok(Box::new(tls))
 }
 
-pub(crate) async fn connect(
+pub(crate) async fn connect_in(
+    service: Arc<TcpService>,
     id: u64,
     request: ConnectArgs,
     gate: EgressGate,
 ) -> Result<SocketInfo, String> {
-    let guard = Opening(id);
-    let owner = lifetime(id)?;
+    let mut guard = Opening {
+        service: service.clone(),
+        id,
+        completed: false,
+    };
+    let owner = lifetime_in(&service, id)?;
     let result = owner
         .run(async {
             await_egress_gate(gate).await?;
@@ -262,26 +327,35 @@ pub(crate) async fn connect(
             };
             let stream: Duplex = Box::new(stream);
             let stream = if request.secure {
-                handshake(stream, request.expected_host.unwrap_or(request.hostname)).await?
+                handshake(
+                    &service,
+                    stream,
+                    request.expected_host.unwrap_or(request.hostname),
+                )
+                .await?
             } else {
                 stream
             };
-            publish(id, &owner, stream)?;
+            publish_in(&service, id, &owner, stream)?;
             Ok(info)
         })
         .await;
     if let Err(error) = &result {
-        fail(id, error.clone());
+        fail_in(&service, id, error.clone());
     }
     if result.is_ok() {
-        std::mem::forget(guard);
+        guard.completed = true;
     }
     result
 }
 
-pub(crate) async fn read(id: u64, limit: usize) -> Result<Vec<u8>, String> {
+pub(crate) async fn read_in(
+    service: &TcpService,
+    id: u64,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
     let (owner, half) = {
-        let registry = registry().lock().unwrap();
+        let registry = service.registry.lock().unwrap();
         let entry = registry.get(&id).ok_or("socket is closed")?;
         let transport = entry.transport.as_ref().ok_or("socket is not open")?;
         (entry.lifetime.clone(), transport.read.clone())
@@ -303,9 +377,14 @@ pub(crate) async fn read(id: u64, limit: usize) -> Result<Vec<u8>, String> {
         })
         .await
 }
-pub(crate) async fn write(id: u64, bytes: Vec<u8>, gate: EgressGate) -> Result<(), String> {
+pub(crate) async fn write_in(
+    service: &TcpService,
+    id: u64,
+    bytes: Vec<u8>,
+    gate: EgressGate,
+) -> Result<(), String> {
     let (owner, half) = {
-        let registry = registry().lock().unwrap();
+        let registry = service.registry.lock().unwrap();
         let entry = registry.get(&id).ok_or("socket is closed")?;
         let transport = entry.transport.as_ref().ok_or("socket is not open")?;
         (entry.lifetime.clone(), transport.write.clone())
@@ -326,9 +405,13 @@ pub(crate) async fn write(id: u64, bytes: Vec<u8>, gate: EgressGate) -> Result<(
         })
         .await
 }
-pub(crate) async fn shutdown(id: u64, gate: EgressGate) -> Result<(), String> {
+pub(crate) async fn shutdown_in(
+    service: &TcpService,
+    id: u64,
+    gate: EgressGate,
+) -> Result<(), String> {
     let (owner, half) = {
-        let registry = registry().lock().unwrap();
+        let registry = service.registry.lock().unwrap();
         let entry = registry.get(&id).ok_or("socket is closed")?;
         let transport = entry.transport.as_ref().ok_or("socket is not open")?;
         (entry.lifetime.clone(), transport.write.clone())
@@ -347,21 +430,25 @@ pub(crate) async fn shutdown(id: u64, gate: EgressGate) -> Result<(), String> {
         .await
 }
 
-pub(crate) async fn start_tls(
+pub(crate) async fn start_tls_in(
+    service: Arc<TcpService>,
     old_id: u64,
     new_id: u64,
     host: String,
     gate: EgressGate,
 ) -> Result<SocketInfo, String> {
-    let guard = UpgradeReservation {
+    let mut guard = UpgradeReservation {
+        service: service.clone(),
+        completed: false,
         old: old_id,
         new: new_id,
     };
-    let owner = lifetime(new_id)?;
+    let owner = lifetime_in(&service, new_id)?;
     let result = owner
         .run(async {
             await_egress_gate(gate).await?;
-            let old = registry()
+            let old = service
+                .registry
                 .lock()
                 .unwrap()
                 .remove(&old_id)
@@ -384,8 +471,8 @@ pub(crate) async fn start_tls(
                     .await
                     .take()
                     .ok_or("socket is closed")?;
-                let stream = handshake(read.unsplit(write), host).await?;
-                publish(new_id, &owner, stream)?;
+                let stream = handshake(&service, read.unsplit(write), host).await?;
+                publish_in(&service, new_id, &owner, stream)?;
                 Ok(SocketInfo {
                     id: new_id,
                     remote_address: None,
@@ -402,14 +489,76 @@ pub(crate) async fn start_tls(
     if let Err(error) = &result {
         // STARTTLS consumes plaintext authority at call time. A refused proof
         // before the handshake must still settle and close the old socket.
-        fail(old_id, error.clone());
-        fail(new_id, error.clone());
+        fail_in(&service, old_id, error.clone());
+        fail_in(&service, new_id, error.clone());
     }
     if result.is_ok() {
-        std::mem::forget(guard);
+        guard.completed = true;
     }
     result
 }
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(any(test, cellar_internal_tests))]
+fn registry() -> Arc<Mutex<HashMap<u64, Entry>>> {
+    crate::asyncrt::services().tcp().registry.clone()
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn next_id() -> u64 {
+    crate::asyncrt::services().tcp().next_id()
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn reserve(id: u64) -> Arc<Lifetime> {
+    reserve_in(&crate::asyncrt::services().tcp(), id)
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn free(id: u64) {
+    free_in(&crate::asyncrt::services().tcp(), id);
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn publish(id: u64, owner: &Arc<Lifetime>, stream: Duplex) -> Result<(), String> {
+    publish_in(&crate::asyncrt::services().tcp(), id, owner, stream)
+}
+#[cfg(test)]
+fn insert(id: u64, stream: Duplex) {
+    let owner = reserve(id);
+    publish(id, &owner, stream).unwrap();
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn connect(
+    id: u64,
+    args: ConnectArgs,
+    gate: EgressGate,
+) -> impl std::future::Future<Output = Result<SocketInfo, String>> {
+    connect_in(crate::asyncrt::services().tcp(), id, args, gate)
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn start_tls(
+    old: u64,
+    new: u64,
+    host: String,
+    gate: EgressGate,
+) -> impl std::future::Future<Output = Result<SocketInfo, String>> {
+    start_tls_in(crate::asyncrt::services().tcp(), old, new, host, gate)
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn read(id: u64, limit: usize) -> impl std::future::Future<Output = Result<Vec<u8>, String>> {
+    let service = crate::asyncrt::services().tcp();
+    async move { read_in(&service, id, limit).await }
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn write(
+    id: u64,
+    bytes: Vec<u8>,
+    gate: EgressGate,
+) -> impl std::future::Future<Output = Result<(), String>> {
+    let service = crate::asyncrt::services().tcp();
+    async move { write_in(&service, id, bytes, gate).await }
+}
+#[cfg(any(test, cellar_internal_tests))]
+fn shutdown(id: u64, gate: EgressGate) -> impl std::future::Future<Output = Result<(), String>> {
+    let service = crate::asyncrt::services().tcp();
+    async move { shutdown_in(&service, id, gate).await }
+}

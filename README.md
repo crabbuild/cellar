@@ -20,6 +20,68 @@ include URLs, headers, forms, blobs/files, events, cancellation, byte streams,
 encoding, compression, and cryptography. See the
 [native Rust examples](examples/README.md).
 
+Library hosts call `sdk::Node::start` with `NodeConfig`, `NodeServices`, a
+`DeploymentGraph` and `CompiledApplications`. The application supplies bound
+listeners, host and core executors, HTTP clients, peer authentication and a
+per-node probe signer. Fleet nodes also take caller-owned storage and log
+transports. Startup recovers the predecessor log before installing a replacement
+lease; a failed recovery preserves the predecessor generation. Each node retains
+an exclusive data-directory lock through completion, including cancelled startup.
+`Node::adopt` installs compiled generations explicitly and leaves the current
+generation serving when a factory fails.
+
+`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, startup and maintenance policy,
+container infrastructure and metrics are captured per node. Library defaults do
+not read environment variables. The CLI resolves its environment settings at
+startup. Lower-level hosts can construct an `ExecutionDomain` directly.
+
+Production dispatch and draining now share a driver that accepts a captured
+`ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
+fencing, core failure, or replication failure; the CLI alone maps these to process
+exits. `ShutdownReport` records ingress and cell drain completion, pending
+dispatches, log sealing, local durability closure, and clean-reload preparation.
+Stall timeouts and the absolute deadline remain distinct, so a bounded stop can
+report incomplete work. HTTP tasks and facet dispatch retain their owning domain.
+`Node::run_until` supervises the engine using the application's stop future;
+`Node::shutdown` requests a drain and `Node::cancel` forces closure. The supervisor
+closes and joins owned work before returning while leaving both executors running.
+Keep the executors alive through completion. The semantic drain has a bounded
+budget, but already-started blocking work must finish before the join completes.
+Complete accepted-background-work draining and fleet-scale validation remain
+follow-up work.
+
+`LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
+quotas, copied environment size, and entrypoint or class property size. Environment
+budgets include supplied service-route metadata. Derived handles retain their
+originating host's property budget; service capabilities reject calls from another
+execution domain. Configure the policy before building a generation; reading it
+pins the defaults. Encoded values remain subject to the structured-value decoder's
+64 MiB ceiling. The CLI accepts `CELLAR_LOADER_MAX_WORKERS`,
+`CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL`, `CELLAR_LOADER_MAX_ENV_BYTES`, and
+`CELLAR_LOADER_MAX_PROPS_BYTES`. The obsolete module-byte setting is rejected.
+
+`Replication::start` takes `ReplicaStorage` and `ReplicationOptions`. Applications
+supply the storage client, fleet prefix, upload and compaction policy, restore
+and hydration limits, and durability timeout. Ordinary replication operations
+share the supplied client's pool and credentials. Applications can supply a
+`ReplicaRangeReaderFactory` to control paged reads; signed S3 fault reads are an
+explicit option that retains the supplied credential provider.
+`Bucket::from_clients` accepts caller-owned ordinary, CAS, and paginated clients.
+
+`NodeLogManager::new` takes `LogOptions` and a caller-supplied `LogTransport`.
+Each host controls its pipeline, follower window, ordered streams, hedging,
+eviction, and lease publication timeout. `SignedPeerTransport::from_clients`
+retains the application's request and stream HTTP pools; custom transports own
+peer authentication. Recover the predecessor log before installing a node lease,
+then retain one `DurabilityOwner` for the replication and log tasks. Cancelling
+an execution domain is a forced stop and does not prove a graceful data drain.
+
+Cellar leases require an explicit `generation` and logs require
+`may_have_fleet_acks`. Recovery accepts complete ranged tails; original lease
+aliases and entries-only tails are rejected. Expired node leases become CAS
+tombstones after their logs are sealed, preserving recovery pointers and guarding
+against deletion of a successor generation.
+
 ## Build and run
 
 ```sh
@@ -50,7 +112,8 @@ A conditional bucket write grants cell ownership to one node. LTX captures
 committed SQLite writes. One node waits for bucket upload to prove durability;
 a fleet can prove it through peer log replication before bucket upload.
 Ownership fencing, restore, durable wakes, and shutdown use the retained host.
-Broader fleet rollout and recovery validation remain follow-up work.
+Local integration tests exercise follower disk proofs and recovery after leader
+loss. Broader fleet rollout and recovery validation remain follow-up work.
 
 The default Docker image contains the Rust CLI:
 

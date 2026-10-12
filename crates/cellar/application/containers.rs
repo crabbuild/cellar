@@ -75,6 +75,7 @@ impl Context {
 impl Container {
     fn check(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
+        self.engine.check_owner()?;
         anyhow::ensure!(
             self.activation.upgrade().is_some_and(|original| context
                 .io

@@ -1,11 +1,11 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-//! Process services that an engine incarnation can observe.
+//! Host services owned by one execution domain.
 //!
-//! Production installs one service set. A deterministic domain installs one
-//! set per simulated node, so co-hosted incarnations do not share counters or
-//! host measurements.
+//! The process runner installs its service set once. Library execution domains
+//! and deterministic domains each install their own set, so routing authority
+//! and resource registries follow their owner.
 
 use crate::ownership_store::LiveLoad;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -22,16 +22,30 @@ pub struct HostMetricsSample {
     pub fd_limit: u64,
 }
 
+/// Caller-owned observation source for one embedded node.
+pub type MetricsSampler = dyn Fn() -> HostMetricsSample + Send + Sync;
+
 enum MetricsBackend {
     Production(Mutex<ProcessLoadSampler>),
     #[cfg(cellar_internal_tests)]
     Scripted(Mutex<HostMetricsSample>),
 }
 
-/// All process-like services owned by one execution domain.
+/// Services and resource registries owned by one execution domain.
 pub struct HostServices {
     domain: OnceLock<crate::asyncrt::DomainToken>,
+    channels: crate::host_channels::HostChannels,
+    gates: Arc<crate::host_gates::GateService>,
+    tcp: Arc<crate::host_tcp::TcpService>,
+    loader: Arc<dyn crate::host_loader::LoaderService>,
+    facets: Arc<dyn crate::host_facets::FacetService>,
+    containers: Arc<crate::container::ContainerService>,
     node_load: OnceLock<Arc<LiveLoad>>,
+    peer_probe: OnceLock<Arc<crate::peer_probe::PeerProbeSigner>>,
+    metrics_override: OnceLock<Option<Arc<MetricsSampler>>>,
+    actor_options: OnceLock<crate::actor::ActorOptions>,
+    operation_deadline_ms: OnceLock<u64>,
+    runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
     http_streams: Arc<crate::http_streams::HttpStreamService>,
@@ -44,7 +58,18 @@ impl HostServices {
     pub(crate) fn production() -> Self {
         Self {
             domain: OnceLock::new(),
+            channels: crate::host_channels::HostChannels::default(),
+            gates: Arc::new(crate::host_gates::GateService::default()),
+            tcp: Arc::new(crate::host_tcp::TcpService::default()),
+            loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
+            facets: Arc::new(crate::host_facets::FacetRegistry::default()),
+            containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            peer_probe: OnceLock::new(),
+            metrics_override: OnceLock::new(),
+            actor_options: OnceLock::new(),
+            operation_deadline_ms: OnceLock::new(),
+            runtime_policy: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -58,7 +83,18 @@ impl HostServices {
     pub fn scripted() -> Self {
         Self {
             domain: OnceLock::new(),
+            channels: crate::host_channels::HostChannels::default(),
+            gates: Arc::new(crate::host_gates::GateService::default()),
+            tcp: Arc::new(crate::host_tcp::TcpService::default()),
+            loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
+            facets: Arc::new(crate::host_facets::FacetRegistry::default()),
+            containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            peer_probe: OnceLock::new(),
+            metrics_override: OnceLock::new(),
+            actor_options: OnceLock::new(),
+            operation_deadline_ms: OnceLock::new(),
+            runtime_policy: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -66,6 +102,190 @@ impl HostServices {
             #[cfg(all(test, cellar_internal_tests))]
             handoff_transport: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn channels(&self) -> &crate::host_channels::HostChannels {
+        &self.channels
+    }
+
+    pub(crate) fn gates(&self) -> Arc<crate::host_gates::GateService> {
+        self.gates.clone()
+    }
+
+    pub(crate) fn tcp(&self) -> Arc<crate::host_tcp::TcpService> {
+        self.tcp.clone()
+    }
+
+    pub(crate) fn loader(&self) -> Arc<dyn crate::host_loader::LoaderService> {
+        self.loader.clone()
+    }
+
+    pub(crate) fn facets(&self) -> Arc<dyn crate::host_facets::FacetService> {
+        self.facets.clone()
+    }
+
+    pub(crate) fn containers(&self) -> Arc<crate::container::ContainerService> {
+        self.containers.clone()
+    }
+
+    /// Select this host's container infrastructure before starting its runtime.
+    /// Hosts sharing a daemon must use distinct namespaces; the same namespace
+    /// identifies resources to recover after a restart.
+    pub fn configure_containers(
+        &self,
+        options: crate::container::EngineOptions,
+    ) -> anyhow::Result<()> {
+        self.containers.configure_options(options)
+    }
+
+    /// Install this node's policy before building application generations.
+    /// SDK queue settlement and actor effects share its operation deadline.
+    /// Once a generation has used a deadline it cannot be changed underneath
+    /// queued work. Repeating an identical configuration is harmless.
+    pub fn configure_actor(&self, options: &crate::actor::ActorOptions) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "actor execution domain is closed");
+        options.validate_policy()?;
+        if let Some(existing) = self.actor_options.get() {
+            anyhow::ensure!(
+                existing == options,
+                "actor policy is already configured for this host"
+            );
+            return Ok(());
+        }
+        self.pin_operation_deadline(options.core.operation_deadline_ms.unwrap())?;
+        if self.actor_options.set(options.clone()).is_err() {
+            anyhow::ensure!(
+                self.actor_options.get() == Some(options),
+                "actor policy is already configured for this host"
+            );
+        }
+        Ok(())
+    }
+
+    /// Install this host's signing key; another host may use a different key.
+    pub fn configure_peer_probe(
+        &self,
+        signer: Arc<crate::peer_probe::PeerProbeSigner>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "peer probe execution domain is closed");
+        if let Some(existing) = self.peer_probe.get() {
+            anyhow::ensure!(
+                Arc::ptr_eq(existing, &signer),
+                "peer probe signer is already configured for this host"
+            );
+            return Ok(());
+        }
+        if let Err(candidate) = self.peer_probe.set(signer) {
+            anyhow::ensure!(
+                self.peer_probe
+                    .get()
+                    .is_some_and(|existing| Arc::ptr_eq(existing, &candidate)),
+                "peer probe signer is already configured for this host"
+            );
+        }
+        Ok(())
+    }
+
+    pub(crate) fn peer_probe_signer(
+        &self,
+    ) -> anyhow::Result<Arc<crate::peer_probe::PeerProbeSigner>> {
+        anyhow::ensure!(self.accepts_work(), "peer probe execution domain is closed");
+        self.peer_probe
+            .get()
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("peer probe signer is not configured for this host"))
+    }
+
+    /// Pin the application's metrics source before this node starts sampling.
+    pub fn configure_metrics(&self, sampler: Arc<MetricsSampler>) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "metrics execution domain is closed");
+        if let Some(existing) = self.metrics_override.get() {
+            anyhow::ensure!(
+                existing
+                    .as_ref()
+                    .is_some_and(|existing| Arc::ptr_eq(existing, &sampler)),
+                "metrics source is already configured for this host"
+            );
+            return Ok(());
+        }
+        if let Err(candidate) = self.metrics_override.set(Some(sampler)) {
+            anyhow::ensure!(
+                self.metrics_override
+                    .get()
+                    .and_then(Option::as_ref)
+                    .zip(candidate.as_ref())
+                    .is_some_and(|(existing, candidate)| Arc::ptr_eq(existing, candidate)),
+                "metrics source is already configured for this host"
+            );
+        }
+        Ok(())
+    }
+
+    /// Fix loader admission and copied-value budgets before building a generation.
+    /// Repeating the same policy is harmless; a live policy cannot be replaced.
+    pub fn configure_loader(
+        &self,
+        policy: crate::loader_policy::LoaderPolicy,
+    ) -> anyhow::Result<()> {
+        self.loader.configure_policy(policy)
+    }
+
+    /// This host's immutable loader policy, including environment-free defaults.
+    pub fn loader_policy(&self) -> crate::loader_policy::LoaderPolicy {
+        self.loader.policy()
+    }
+
+    /// Fix this host's runtime limits before building application generations.
+    /// Reading the policy or building a pool pins the library defaults if no
+    /// policy was supplied. A different policy cannot replace a live one.
+    pub fn configure_runtime(
+        &self,
+        policy: crate::runtime_policy::RuntimePolicy,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "runtime execution domain is closed");
+        policy.validate()?;
+        if self.runtime_policy.set(policy).is_err() {
+            anyhow::ensure!(self.runtime_policy.get() == Some(&policy),
+                "runtime policy is already in use; configure runtime policy before building the generation");
+        }
+        Ok(())
+    }
+
+    /// This host's immutable runtime policy, including library defaults when
+    /// the application did not configure it. No environment is read here.
+    pub fn runtime_policy(&self) -> crate::runtime_policy::RuntimePolicy {
+        *self.runtime_policy.get_or_init(Default::default)
+    }
+
+    fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {
+        if self.operation_deadline_ms.set(deadline).is_err() {
+            anyhow::ensure!(self.operation_deadline_ms.get() == Some(&deadline),
+                "application generation and actor must use the same operation deadline; configure actor policy before building the generation");
+        }
+        Ok(deadline)
+    }
+
+    pub(crate) fn operation_deadline_ms(&self) -> anyhow::Result<u64> {
+        if let Some(deadline) = self.operation_deadline_ms.get() {
+            return Ok(*deadline);
+        }
+        let deadline = crate::env_vars::positive_or(
+            "CELLAR_OPERATION_DEADLINE_MS",
+            crate::actor::DEFAULT_OPERATION_DEADLINE_MS,
+        )?;
+        self.pin_operation_deadline(deadline)
+    }
+
+    pub(crate) fn close_resources(&self) {
+        self.tcp.close();
+        self.facets.close();
+        self.loader.close();
+        self.containers.close();
+    }
+
+    pub(crate) fn accepts_work(&self) -> bool {
+        self.domain_token()
+            .is_none_or(|domain| domain.mono_ms().is_ok())
     }
 
     pub fn set_node_load(&self, load: Arc<LiveLoad>) {
@@ -98,6 +318,10 @@ impl HostServices {
                 "HostServices cannot belong to more than one execution domain"
             );
         }
+        self.loader.bind_domain(self.domain.get().unwrap().clone());
+        self.facets.bind_domain(self.domain.get().unwrap().clone());
+        self.containers
+            .bind_domain(self.domain.get().unwrap().clone());
         self.http_streams.bind_domain(
             self.domain
                 .get()
@@ -142,6 +366,9 @@ impl HostServices {
     /// Collect off the core so filesystem reads cannot delay a lease.
     #[allow(clippy::disallowed_methods)] // `/proc` is host telemetry, not node storage.
     pub fn sample_metrics(&self) -> HostMetricsSample {
+        if let Some(sample) = self.metrics_override.get_or_init(|| None) {
+            return sample();
+        }
         match &self.metrics {
             MetricsBackend::Production(sampler) => {
                 let mut sampler = sampler.lock().unwrap();
@@ -254,4 +481,59 @@ fn clock_ticks_per_second() -> u64 {
 #[cfg(not(unix))]
 fn clock_ticks_per_second() -> u64 {
     100
+}
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod runtime_policy_tests {
+    use crate::asyncrt::ExecutionDomain;
+    use crate::engine_api::WorkerConfigOptions;
+    use crate::runtime_policy::RuntimePolicy;
+    use crate::worker_config::WorkerConfig;
+    use std::time::Duration;
+
+    // A queue claim must outlive this host's admission, handler, and output
+    // settlement windows; borrowing another host's budget can redeliver work
+    // while its original consumer still runs.
+    #[tokio::test]
+    async fn queue_lease_uses_its_own_host_runtime_and_settlement_policy() -> anyhow::Result<()> {
+        let config = WorkerConfig::new(WorkerConfigOptions {
+            src: String::new(),
+            script_name: "queue-policy".into(),
+            do_classes: Vec::new(),
+            bindings: Vec::new(),
+            blob_bindings: Vec::new(),
+            sql_bindings: Vec::new(),
+            kv_bindings: Vec::new(),
+            queue_bindings: Vec::new(),
+            queue_consumers: Vec::new(),
+            workflow_bindings: Vec::new(),
+            vars: Vec::new(),
+            node: "test".into(),
+            modules: Vec::new(),
+            compat: Default::default(),
+        });
+        let a = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let b = ExecutionDomain::new(tokio::runtime::Handle::current());
+        a.services().configure_runtime(RuntimePolicy {
+            admission_wait: Duration::from_millis(100),
+            handler_budget: Duration::from_millis(2_000),
+            ..Default::default()
+        })?;
+        a.services().pin_operation_deadline(3_000)?;
+        b.services().configure_runtime(RuntimePolicy {
+            admission_wait: Duration::ZERO,
+            handler_budget: Duration::from_millis(7_000),
+            ..Default::default()
+        })?;
+        b.services().pin_operation_deadline(4_000)?;
+        for (domain, expected) in [(&a, 5_100), (&b, 11_000), (&a, 5_100)] {
+            let policy = domain
+                .run(async { crate::queue_policy::consumer_config(&config) })
+                .await??;
+            assert_eq!(policy["leaseDurationMs"], expected);
+        }
+        a.shutdown().await;
+        b.shutdown().await;
+        Ok(())
+    }
 }

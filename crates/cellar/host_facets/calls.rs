@@ -16,6 +16,7 @@ impl LoadedFacet {
         trace: Option<crate::telemetry::TraceContext>,
         order: Option<CallOrder>,
     ) -> Result<HttpResponse, String> {
+        self.check_host()?;
         let (reply, receive) = tokio::sync::oneshot::channel();
         let request_id = cancellation.as_ref().map(|lifetime| lifetime.request_id());
         let job = CellJob::Fetch {
@@ -48,7 +49,7 @@ impl LoadedFacet {
                     _ => None,
                 };
                 self.gate_response(socket).await?;
-                self.attach_websocket(&response);
+                self.attach_websocket(&response)?;
                 Ok(response)
             }
             Ok(Err(error)) => Err(error.to_string()),
@@ -66,6 +67,7 @@ impl LoadedFacet {
         cancellation: Option<Arc<crate::runtime::RequestCancellationLifetime>>,
         trace: Option<crate::telemetry::TraceContext>,
     ) -> Result<RpcData, String> {
+        self.check_host()?;
         let (reply, receive) = tokio::sync::oneshot::channel();
         let request_id = cancellation.as_ref().map(|lifetime| lifetime.request_id());
         let job = CellJob::Rpc {

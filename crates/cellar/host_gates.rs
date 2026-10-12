@@ -14,7 +14,7 @@ use crate::ws_registry::*;
 use crate::{asyncrt, storage};
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 /// Sample the source under its SQLite lock. A missing source cannot grant
 /// publication or cleanup authority; the output gate fails closed for an arm.
@@ -231,6 +231,9 @@ pub(crate) fn egress_gate_request(
     context: &IoContext,
     channel: cellar_logic::Channel,
 ) -> EgressGate {
+    if !context.host_services().accepts_work() {
+        return EgressGate::Unpersisted("execution domain is closed".into());
+    }
     let Some(frame) = current_cell_event(context) else {
         return EgressGate::NoCell;
     };
@@ -338,9 +341,20 @@ pub(crate) async fn prove_facet(
 /// once when the cell has no barrier open, so an ordinary read pays one actor
 /// hop and no replica write.
 pub(crate) async fn egress_gate_verdict(gate: EgressGate) -> std::result::Result<(), GateRefusal> {
+    let services = asyncrt::services();
+    if !services.accepts_work() {
+        return Err(GateRefusal::Unpersisted(
+            "execution domain is closed".into(),
+        ));
+    }
     let gate = match gate {
         EgressGate::Facet(root, stream, epoch) => {
             prove_facet(stream, epoch).await?;
+            if !services.accepts_work() {
+                return Err(GateRefusal::Unpersisted(
+                    "execution domain is closed".into(),
+                ));
+            }
             *root
         }
         gate => gate,
@@ -357,7 +371,7 @@ pub(crate) async fn egress_gate_verdict(gate: EgressGate) -> std::result::Result
         }
     };
     crate::host_channels::request_gate(
-        GATE_TX.get(),
+        GATE_TX.get().as_ref(),
         cell,
         crate::actor::GateTicket {
             channel,
@@ -391,7 +405,7 @@ pub(crate) async fn await_egress_gate(gate: EgressGate) -> std::result::Result<(
 /// waited for a durability answer that no longer decides anything.
 pub(crate) async fn gated_channel_send<T>(
     gate: EgressGate,
-    channel: &'static OnceLock<tokio::sync::mpsc::UnboundedSender<T>>,
+    channel: &'static crate::host_channels::HostSlot<tokio::sync::mpsc::UnboundedSender<T>>,
     request: T,
     missing: &'static str,
 ) -> std::result::Result<(), String> {
@@ -404,17 +418,34 @@ pub(crate) async fn gated_channel_send<T>(
     .await
 }
 
-/// One `cellar_logic::gate::InputGate` per cell.
-///
-/// The logic decides; this is only the map and the ids. It replaces the
-/// promise chain that used to live in `harness.js`, which serialised blocks
-/// against each other but did nothing about *delivery* — so a second event
-/// could arrive mid-block, and under real concurrency that wedged the cell.
-///
-/// Keyed by cell scope rather than held on the isolate, because a gate
-/// belongs to a cell and cells share isolates.
-pub(crate) static CELL_GATES: OnceLock<Mutex<HashMap<String, CellGate>>> = OnceLock::new();
-pub(crate) static NEXT_GATE_EVENT: AtomicU64 = AtomicU64::new(1);
+/// Input gates and request cancellation belong to one execution domain.
+/// Identical cell scopes in separate hosts must never share a holder or waiter.
+pub(crate) struct GateService {
+    pub(crate) cells: Mutex<HashMap<String, CellGate>>,
+    waiters: Mutex<HashMap<String, Vec<GateWake>>>,
+    pub(crate) engagements: Arc<AtomicUsize>,
+    pub(crate) next_event: AtomicU64,
+    cancelled: Mutex<HashSet<RequestId>>,
+    pending: Mutex<HashSet<RequestId>>,
+    shutdown: Mutex<HashSet<RequestId>>,
+    pending_count: AtomicUsize,
+}
+
+impl Default for GateService {
+    fn default() -> Self {
+        Self {
+            cells: Mutex::new(HashMap::new()),
+            waiters: Mutex::new(HashMap::new()),
+            engagements: Arc::new(AtomicUsize::new(0)),
+            next_event: AtomicU64::new(1),
+            cancelled: Mutex::new(HashSet::new()),
+            pending: Mutex::new(HashSet::new()),
+            shutdown: Mutex::new(HashSet::new()),
+            pending_count: AtomicUsize::new(0),
+        }
+    }
+}
+
 /// One cell's input gate, with the event that holds it and the events queued
 /// to take it, named by the continuation id of their `IoContext`.
 ///
@@ -424,8 +455,8 @@ pub(crate) static NEXT_GATE_EVENT: AtomicU64 = AtomicU64::new(1);
 /// checkpoint resumes its callback. The origin claim preserves the separate
 /// resource context. Recording only the ambient turn here lets that event
 /// retire while another driver polls the acquisition, rejecting a live block.
-#[derive(Default)]
 pub(crate) struct CellGate {
+    engagements: Arc<AtomicUsize>,
     pub(crate) gate: cellar_logic::gate::InputGate,
     pub(crate) holder: Option<u64>,
     /// A reaction can belong to an event other than the turn owner. The claim
@@ -437,16 +468,17 @@ pub(crate) struct CellGate {
     pub(crate) queued: HashMap<u64, u32>,
 }
 
-/// How many holds and queued takes exist across every gate, so the checks
-/// every turn makes can skip the map while no event blocks at all, which is
-/// nearly always.
-pub(crate) static GATE_ENGAGEMENTS: AtomicUsize = AtomicUsize::new(0);
-
-pub(crate) fn cell_gates() -> &'static Mutex<HashMap<String, CellGate>> {
-    CELL_GATES.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 impl CellGate {
+    pub(crate) fn new(service: &GateService) -> Self {
+        Self {
+            engagements: service.engagements.clone(),
+            gate: cellar_logic::gate::InputGate::default(),
+            holder: None,
+            origin: None,
+            queued: HashMap::new(),
+        }
+    }
+
     pub(crate) fn take(
         &mut self,
         event: cellar_logic::gate::EventId,
@@ -463,7 +495,7 @@ impl CellGate {
 
     pub(crate) fn set_holder(&mut self, owner: Option<u64>, origin: Option<CrossEntryGateClaim>) {
         if self.holder.is_none() && owner.is_some() {
-            GATE_ENGAGEMENTS.fetch_add(1, Ordering::Relaxed);
+            self.engagements.fetch_add(1, Ordering::Relaxed);
         }
         self.holder = owner;
         self.origin = origin;
@@ -471,7 +503,7 @@ impl CellGate {
 
     pub(crate) fn clear_holder(&mut self) -> Option<CrossEntryGateClaim> {
         if self.holder.take().is_some() {
-            GATE_ENGAGEMENTS.fetch_sub(1, Ordering::Relaxed);
+            self.engagements.fetch_sub(1, Ordering::Relaxed);
         }
         self.origin.take()
     }
@@ -517,7 +549,8 @@ pub(crate) enum GateEngagement {
 }
 
 pub(crate) fn gate_engagement(cell: Option<&str>, context: &Arc<IoContext>) -> GateEngagement {
-    if GATE_ENGAGEMENTS.load(Ordering::Relaxed) == 0 {
+    let service = context.host_services().gates();
+    if service.engagements.load(Ordering::Relaxed) == 0 {
         return GateEngagement::None;
     }
     let Some(id) = context.continuation_id() else {
@@ -532,7 +565,7 @@ pub(crate) fn gate_engagement(cell: Option<&str>, context: &Arc<IoContext>) -> G
             GateEngagement::None
         }
     }
-    let gates = cell_gates().lock().unwrap();
+    let gates = service.cells.lock().unwrap();
     // The event's own cell first: nearly every block is on it, and the walk
     // below is the price of the cross-cell case alone.
     if let Some(gate) = cell.and_then(|cell| gates.get(cell)) {
@@ -556,24 +589,6 @@ pub(crate) fn gate_engagement(cell: Option<&str>, context: &Arc<IoContext>) -> G
 /// the reason the holder failed.
 pub(crate) type GateWake = tokio::sync::oneshot::Sender<Result<(), String>>;
 
-static GATE_WAITERS: OnceLock<Mutex<HashMap<String, Vec<GateWake>>>> = OnceLock::new();
-
-/// Events waiting for a cell's input gate to open, in arrival order.
-///
-/// An earlier implementation deleted this queue because an event the gate
-/// refused stayed on the cell's job channel until a later delivery point
-/// took it, so the channel *was* the queue and a second one could disagree
-/// with it. Drives have no channel, so a refused event needs somewhere to
-/// wait, and workerd keeps the same structure for the same reason
-/// (`io-gate.h`, `kj::List<Waiter, &Waiter::link> waiters`).
-///
-/// In the shell rather than in `cellar_logic::gate`, because what waits is a
-/// tokio task and the core is sans-IO. The core still owns the decision —
-/// `is_open` — and this owns only the waking.
-pub(crate) fn gate_waiters() -> &'static Mutex<HashMap<String, Vec<GateWake>>> {
-    GATE_WAITERS.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
 /// Take a ticket to be woken when `cell`'s gate opens, or `None` if it is
 /// open now.
 ///
@@ -581,12 +596,20 @@ pub(crate) fn gate_waiters() -> &'static Mutex<HashMap<String, Vec<GateWake>>> {
 /// that lands between the two cannot leave an event waiting on a gate that
 /// is already open.
 pub fn cell_gate_wait(cell: &str) -> Option<tokio::sync::oneshot::Receiver<Result<(), String>>> {
-    let gates = cell_gates().lock().unwrap();
+    cell_gate_wait_in(&asyncrt::services().gates(), cell)
+}
+
+pub(crate) fn cell_gate_wait_in(
+    service: &GateService,
+    cell: &str,
+) -> Option<tokio::sync::oneshot::Receiver<Result<(), String>>> {
+    let gates = service.cells.lock().unwrap();
     if gates.get(cell).is_none_or(|gate| gate.gate.is_open()) {
         return None;
     }
     let (wake, waiter) = tokio::sync::oneshot::channel();
-    gate_waiters()
+    service
+        .waiters
         .lock()
         .unwrap()
         .entry(cell.to_string())
@@ -621,13 +644,14 @@ pub(crate) fn acquire_cell_gate(
     origin: &mut Option<CrossEntryGateClaim>,
 ) -> CellGateAcquisition {
     let mut claims = context.input_gates.lock().unwrap();
-    if claims.retired {
+    if claims.retired || !context.host_services().accepts_work() {
         return CellGateAcquisition::Retired;
     }
-    let mut gates = cell_gates().lock().unwrap();
+    let service = context.host_services().gates();
+    let mut gates = service.cells.lock().unwrap();
     if gates
         .entry(cell.to_string())
-        .or_default()
+        .or_insert_with(|| CellGate::new(&service))
         .take(event, owner, origin)
     {
         let previous = claims.held.insert(event, cell.to_string());
@@ -635,7 +659,8 @@ pub(crate) fn acquire_cell_gate(
         return CellGateAcquisition::Acquired;
     }
     let (wake, waiter) = tokio::sync::oneshot::channel();
-    gate_waiters()
+    service
+        .waiters
         .lock()
         .unwrap()
         .entry(cell.to_string())
@@ -652,8 +677,8 @@ pub(crate) fn acquire_cell_gate(
 /// Wake everything waiting on `cell`'s gate. Each re-checks and re-queues if
 /// another block took the gate first, so waking all of them is correct and
 /// the order they resume in is theirs to lose, not this function's to keep.
-pub(crate) fn wake_gate_waiters(cell: &str, outcome: Result<(), String>) {
-    let waiters = gate_waiters().lock().unwrap().remove(cell);
+fn wake_gate_waiters(service: &GateService, cell: &str, outcome: Result<(), String>) {
+    let waiters = service.waiters.lock().unwrap().remove(cell);
     for wake in waiters.into_iter().flatten() {
         let _ = wake.send(outcome.clone());
     }
@@ -663,14 +688,16 @@ pub(crate) const ABANDONED_INPUT_GATE: &str = "the cell's critical section ended
 pub(crate) const RETIRED_INPUT_GATE: &str =
     "the cell event ended before it could acquire an input gate";
 
-/// Release one completed block and remove the open gate from the process map.
+/// Release one completed block in the host that acquired it.
 pub(crate) fn release_cell_gate(
+    context: &IoContext,
     cell: &str,
     event: cellar_logic::gate::EventId,
     outcome: Result<(), String>,
 ) {
+    let service = context.host_services().gates();
     let origin = {
-        let mut gates = cell_gates().lock().unwrap();
+        let mut gates = service.cells.lock().unwrap();
         let Some(gate) = gates.get_mut(cell) else {
             return;
         };
@@ -690,22 +717,23 @@ pub(crate) fn release_cell_gate(
     // `IoContext::drop`, which also locks the gate map. Keep that work outside
     // the map's lock.
     drop(origin);
-    wake_gate_waiters(cell, outcome);
+    wake_gate_waiters(&service, cell, outcome);
 }
 
 /// Retire `context`'s waiters and abandon every input gate that it still owns.
 ///
 /// The event id is part of each claim. A concurrent event can already be
 /// running when this one dies, so a cell name alone cannot safely decide
-/// which holder to release. Removing the open map entry also prevents an old
-/// cell incarnation from leaving process-wide state for a later one.
+/// which holder to release. Cleanup uses the context's captured host even when
+/// its last owner is dropped in another execution domain.
 pub(crate) fn abandon_context_input_gates(
     context: &IoContext,
 ) -> Vec<(String, cellar_logic::gate::EventId)> {
+    let service = context.host_services().gates();
     let claims = context.retire_input_gates();
     for (cell, event) in &claims {
         let (abandoned, origin) = {
-            let mut gates = cell_gates().lock().unwrap();
+            let mut gates = service.cells.lock().unwrap();
             let (abandoned, origin) = gates
                 .get_mut(cell)
                 .map_or((false, None), |gate| gate.abandon(*event));
@@ -718,38 +746,10 @@ pub(crate) fn abandon_context_input_gates(
         // from its eventual context destructor.
         drop(origin);
         if abandoned {
-            wake_gate_waiters(cell, Err(ABANDONED_INPUT_GATE.to_string()));
+            wake_gate_waiters(&service, cell, Err(ABANDONED_INPUT_GATE.to_string()));
         }
     }
     claims
-}
-
-static CANCELLED_REQUESTS: OnceLock<Mutex<HashSet<RequestId>>> = OnceLock::new();
-
-pub(crate) fn cancelled_requests() -> &'static Mutex<HashSet<RequestId>> {
-    CANCELLED_REQUESTS.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-/// Aborts raised by an HTTP or service-binding caller disconnecting while the
-/// target runs in the stateless isolate pool. Durable Object aborts can also
-/// arrive as a reentrant `CellJob::AbortFetch`, so the abort has to be visible
-/// from whichever turn observes it.
-///
-/// The counter keeps the common path to one relaxed atomic load per loop turn:
-/// with nothing pending, the mutex is never taken.
-static PENDING_ABORTS: OnceLock<std::sync::Mutex<std::collections::HashSet<RequestId>>> =
-    OnceLock::new();
-static SHUTDOWN_ABORTS: OnceLock<std::sync::Mutex<std::collections::HashSet<RequestId>>> =
-    OnceLock::new();
-pub(crate) static PENDING_ABORT_COUNT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(0);
-
-pub(crate) fn pending_aborts() -> &'static std::sync::Mutex<std::collections::HashSet<RequestId>> {
-    PENDING_ABORTS.get_or_init(Default::default)
-}
-
-pub(crate) fn shutdown_aborts() -> &'static std::sync::Mutex<std::collections::HashSet<RequestId>> {
-    SHUTDOWN_ABORTS.get_or_init(Default::default)
 }
 
 #[cfg(all(test, cellar_internal_tests))]
@@ -830,37 +830,80 @@ pub(crate) fn pause_abort_request_if_armed_for_test(request_id: RequestId) {
 
 #[cfg(all(test, cellar_internal_tests))]
 pub(crate) fn request_cancellation_state_for_test(request_id: RequestId) -> (bool, bool) {
+    let service = asyncrt::services().gates();
     (
-        pending_aborts().lock().unwrap().contains(&request_id),
-        cancelled_requests().lock().unwrap().contains(&request_id),
+        service.pending.lock().unwrap().contains(&request_id),
+        service.cancelled.lock().unwrap().contains(&request_id),
     )
 }
 
-/// Mark an in-flight request cancelled from any thread.
+impl GateService {
+    pub(crate) fn abort_request(&self, request_id: RequestId) {
+        let mut pending = self.pending.lock().unwrap();
+        if pending.insert(request_id) {
+            self.pending_count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn clear_request_cancellation(&self, request_id: RequestId) {
+        let _ = self.take_pending_abort(request_id);
+        self.cancelled.lock().unwrap().remove(&request_id);
+        self.shutdown.lock().unwrap().remove(&request_id);
+    }
+
+    fn take_pending_abort(&self, request_id: RequestId) -> bool {
+        if self.pending_count.load(Ordering::Relaxed) == 0 {
+            return false;
+        }
+        let mut pending = self.pending.lock().unwrap();
+        if pending.remove(&request_id) {
+            self.pending_count.fetch_sub(1, Ordering::Relaxed);
+            return true;
+        }
+        false
+    }
+
+    pub(crate) fn take_request_cancellation(&self, request_id: Option<RequestId>) -> bool {
+        request_id.is_some_and(|request_id| {
+            self.cancelled.lock().unwrap().remove(&request_id)
+                || self.take_pending_abort(request_id)
+        })
+    }
+
+    pub(crate) fn take_shutdown_cancellation(&self, request_id: Option<RequestId>) -> bool {
+        request_id.is_some_and(|request_id| self.shutdown.lock().unwrap().remove(&request_id))
+    }
+}
+
+/// Mark an in-flight request cancelled in the currently entered host domain.
+/// Publishers on arbitrary application threads should retain the request's
+/// `RequestCancellationLifetime`, which captures the owning host.
 pub fn abort_request(request_id: RequestId) {
     #[cfg(all(test, cellar_internal_tests))]
     pause_abort_request_if_armed_for_test(request_id);
-    if pending_aborts().lock().unwrap().insert(request_id) {
-        PENDING_ABORT_COUNT.fetch_add(1, Ordering::Relaxed);
-    }
+    asyncrt::services().gates().abort_request(request_id);
 }
 
 /// Force a cell event to retire for a lifecycle transition. Unlike a client
 /// disconnect, shutdown cannot preserve `waitUntil` work because the runtime
-/// and its ownership are about to leave this process.
+/// and its ownership are about to leave this host.
 pub fn abort_request_for_shutdown(request_id: RequestId) {
-    shutdown_aborts().lock().unwrap().insert(request_id);
-    abort_request(request_id);
+    let service = asyncrt::services().gates();
+    service.shutdown.lock().unwrap().insert(request_id);
+    service.abort_request(request_id);
 }
 
+#[cfg(cellar_internal_tests)]
 pub(crate) fn clear_request_cancellation(request_id: RequestId) {
-    let _ = take_pending_abort(request_id);
-    cancelled_requests().lock().unwrap().remove(&request_id);
-    shutdown_aborts().lock().unwrap().remove(&request_id);
+    asyncrt::services()
+        .gates()
+        .clear_request_cancellation(request_id);
 }
 
 pub fn take_shutdown_cancellation(request_id: Option<RequestId>) -> bool {
-    request_id.is_some_and(|request_id| shutdown_aborts().lock().unwrap().remove(&request_id))
+    asyncrt::services()
+        .gates()
+        .take_shutdown_cancellation(request_id)
 }
 
 #[cfg(cellar_internal_tests)]
@@ -869,21 +912,10 @@ pub fn clear_request_cancellation_for_test(request_id: RequestId) {
     clear_request_cancellation(request_id);
 }
 
-pub(crate) fn take_pending_abort(request_id: RequestId) -> bool {
-    if PENDING_ABORT_COUNT.load(Ordering::Relaxed) == 0 {
-        return false;
-    }
-    if pending_aborts().lock().unwrap().remove(&request_id) {
-        PENDING_ABORT_COUNT.fetch_sub(1, Ordering::Relaxed);
-        return true;
-    }
-    false
-}
-
 pub fn take_request_cancellation(request_id: Option<RequestId>) -> bool {
-    request_id.is_some_and(|request_id| {
-        cancelled_requests().lock().unwrap().remove(&request_id) || take_pending_abort(request_id)
-    })
+    asyncrt::services()
+        .gates()
+        .take_request_cancellation(request_id)
 }
 
 /// Close every isolate-polled socket a finished request opened.
@@ -948,4 +980,112 @@ pub(crate) fn ws_emit_uncaptured(context: &IoContext, id: u64, out: WsOut) {
         flushing.release(&registry, held);
     })
     .detach();
+}
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod library_ownership_tests {
+    use super::*;
+    use crate::asyncrt::ExecutionDomain;
+
+    #[tokio::test]
+    async fn context_cleanup_in_another_domain_only_abandons_its_own_gate() {
+        let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let first_context = first.run(async { IoContext::new() }).await.unwrap();
+        let second_context = second.run(async { IoContext::new() }).await.unwrap();
+        // The event and cell identities deliberately collide in the two hosts.
+        for context in [&first_context, &second_context] {
+            assert!(matches!(
+                acquire_cell_gate(context, "Account:same", 1, Some(1), &mut None),
+                CellGateAcquisition::Acquired
+            ));
+        }
+        let first_service = first.services().gates();
+        let second_service = second.services().gates();
+        let first_waiter = cell_gate_wait_in(&first_service, "Account:same").unwrap();
+        let mut second_waiter = cell_gate_wait_in(&second_service, "Account:same").unwrap();
+        second.run(async { drop(first_context) }).await.unwrap();
+        assert_eq!(
+            first_waiter.await.unwrap(),
+            Err(ABANDONED_INPUT_GATE.into())
+        );
+        assert_eq!(first_service.engagements.load(Ordering::Relaxed), 0);
+        assert_eq!(second_service.engagements.load(Ordering::Relaxed), 1);
+        assert!(matches!(
+            second_waiter.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+        // A completed hold also releases its captured owner, regardless of
+        // which host is currently entered.
+        first
+            .run(async {
+                assert!(second_context.release_input_gate("Account:same", 1));
+                release_cell_gate(&second_context, "Account:same", 1, Ok(()));
+            })
+            .await
+            .unwrap();
+        assert_eq!(second_waiter.await.unwrap(), Ok(()));
+        assert_eq!(second_service.engagements.load(Ordering::Relaxed), 0);
+        first.shutdown().await;
+        second.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn abort_publication_and_retirement_keep_the_captured_host() {
+        let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let lifetime = first
+            .run(async { crate::runtime::RequestCancellationLifetime::stateless() })
+            .await
+            .unwrap();
+        let id = lifetime.request_id();
+        second
+            .run(async {
+                lifetime.publish_abort();
+                assert!(!take_request_cancellation(Some(id)));
+            })
+            .await
+            .unwrap();
+        assert!(first
+            .run(async { take_request_cancellation(Some(id)) })
+            .await
+            .unwrap());
+        // Same request id in two registries: finishing A from B clears only A.
+        second
+            .run(async {
+                abort_request_for_shutdown(id);
+                lifetime.publish_abort();
+                lifetime.finish();
+                assert!(take_request_cancellation(Some(id)));
+                assert!(take_shutdown_cancellation(Some(id)));
+            })
+            .await
+            .unwrap();
+        assert!(!first
+            .run(async { take_request_cancellation(Some(id)) })
+            .await
+            .unwrap());
+        first.shutdown().await;
+        lifetime.publish_abort();
+        assert!(!first.services().gates().take_request_cancellation(Some(id)));
+        second.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn closed_domains_cannot_turn_missing_output_channels_into_ungated_effects() {
+        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let context = domain.run(async { IoContext::new() }).await.unwrap();
+        domain
+            .run(async {
+                domain.close();
+                assert!(matches!(
+                    egress_gate_request(&context, cellar_logic::Channel::Service),
+                    EgressGate::Unpersisted(_)
+                ));
+                assert!(egress_gate_verdict(EgressGate::NoCell).await.is_err());
+            })
+            .await
+            .unwrap();
+        domain.shutdown().await;
+    }
 }

@@ -428,7 +428,8 @@ async fn check_shared_worker_pool() -> Result<()> {
         1,
         crate::host_facets::RootRelease::Stop,
     )
-    .await;
+    .await
+    .map_err(anyhow::Error::msg)?;
     pool.reap();
     assert!(pool.is_drained());
     assert!(crate::pool::current_slot().is_none());
@@ -450,5 +451,40 @@ async fn check_shared_worker_pool() -> Result<()> {
         }
     })
     .await?;
+    Ok(())
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test]
+async fn sdk_context_refuses_another_domain_and_effects_after_its_owner_closes() -> Result<()> {
+    let first = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    first
+        .run(async {
+            let worker = NativeWorker::new(config(Arc::new(Signals::default())))?;
+            let context = worker.context(None, None, None, false)?;
+            let _turn = crate::host_io::CurrentGuard::enter(context.io.clone());
+            context.check_turn()?;
+            second
+                .run(async {
+                    assert!(context
+                        .wait_until(async { Ok(()) })
+                        .unwrap_err()
+                        .to_string()
+                        .contains("another execution domain"));
+                })
+                .await?;
+            context.check_turn()?;
+            first.close();
+            assert!(context
+                .wait_until(async { Ok(()) })
+                .unwrap_err()
+                .to_string()
+                .contains("execution domain is closed"));
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    first.shutdown().await;
+    second.shutdown().await;
     Ok(())
 }

@@ -127,7 +127,7 @@ pub(crate) fn accept(mut request: Request<Incoming>, app: AppHandle) -> HttpRepl
         }
     };
     let upgrade = hyper::upgrade::on(&mut request);
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         let upgraded = match upgrade.await {
             Ok(upgraded) => upgraded,
             Err(_) => return,
@@ -136,7 +136,8 @@ pub(crate) fn accept(mut request: Request<Incoming>, app: AppHandle) -> HttpRepl
             TunnelKind::Do => serve_do(upgraded, app).await,
             TunnelKind::Rpc => serve_rpc(upgraded, app).await,
         }
-    });
+    })
+    .detach();
     let mut reply = response(StatusCode::SWITCHING_PROTOCOLS, "");
     reply.headers_mut().insert(
         hyper::header::UPGRADE,
@@ -264,14 +265,15 @@ async fn serve_do(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
             // task a local client gets, and answer with the real 101. The
             // Worker's application headers ride along; the sidecars and
             // the hop framing die here.
-            tokio::spawn(async move {
+            crate::asyncrt::spawn(async move {
                 match upgrade.await {
                     Ok(socket) => super::websocket::websocket_task(app, target, socket).await,
                     Err(error) => {
                         eprintln!("cellar tunneled upgrade failed: {error}");
                     }
                 }
-            });
+            })
+            .detach();
             let (accept_parts, _) = accept.into_parts();
             let mut answer = Response::from_parts(
                 accept_parts,
@@ -391,9 +393,10 @@ async fn establish(peer: &Peer<'_>, kind: &'static str) -> anyhow::Result<Tunnel
     let (sender, connection) = hyper::client::conn::http1::Builder::new()
         .handshake(TokioIo::new(upgraded))
         .await?;
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         let _ = connection.with_upgrades().await;
-    });
+    })
+    .detach();
     Ok(sender)
 }
 

@@ -10,13 +10,11 @@ use anyhow::{anyhow, Context};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
-use std::sync::OnceLock;
 
 const PROBE_DOMAIN: &str = "cells-peer-probe-v1";
 const CHALLENGE_BYTES: usize = 32;
 const MAX_RESPONSE_BYTES: usize = 4096;
 pub(crate) const REEXEC_SIGNER_ENV: &str = "CELLAR_REEXEC_PROBE_SIGNING_KEY";
-static INSTALLED_SIGNER: OnceLock<PeerProbeSigner> = OnceLock::new();
 
 pub struct PeerProbeSigner {
     key: SigningKey,
@@ -32,23 +30,23 @@ pub struct PeerProbeResponse {
 }
 
 impl PeerProbeSigner {
-    fn generate() -> Self {
+    pub fn generate() -> Self {
         let mut secret = [0_u8; 32];
         rand::rngs::OsRng.fill_bytes(&mut secret);
         Self::from_secret(secret)
     }
 
-    fn from_secret(mut secret: [u8; 32]) -> Self {
+    pub fn from_secret(mut secret: [u8; 32]) -> Self {
         let key = SigningKey::from_bytes(&secret);
         secret.fill(0);
         Self { key }
     }
 
-    fn public_key_hex(&self) -> String {
+    pub fn public_key_hex(&self) -> String {
         encode_hex(&self.key.verifying_key().to_bytes())
     }
 
-    fn respond(
+    pub fn respond(
         &self,
         node: &str,
         advertise: &str,
@@ -85,16 +83,12 @@ pub fn install_signer() -> anyhow::Result<String> {
         }
     };
     let public_key = signer.public_key_hex();
-    INSTALLED_SIGNER
-        .set(signer)
-        .map_err(|_| anyhow!("peer probe signer is already installed"))?;
+    crate::asyncrt::services().configure_peer_probe(std::sync::Arc::new(signer))?;
     Ok(public_key)
 }
 
 pub(crate) fn reexec_signer_secret() -> anyhow::Result<String> {
-    let signer = INSTALLED_SIGNER
-        .get()
-        .context("peer probe signer is not installed")?;
+    let signer = crate::asyncrt::services().peer_probe_signer()?;
     let mut secret = signer.key.to_bytes();
     let encoded = encode_hex(&secret);
     secret.fill(0);
@@ -102,9 +96,8 @@ pub(crate) fn reexec_signer_secret() -> anyhow::Result<String> {
 }
 
 pub fn respond(node: &str, advertise: &str, challenge: &str) -> anyhow::Result<PeerProbeResponse> {
-    INSTALLED_SIGNER
-        .get()
-        .context("peer probe signer is not installed")?
+    crate::asyncrt::services()
+        .peer_probe_signer()?
         .respond(node, advertise, challenge)
 }
 

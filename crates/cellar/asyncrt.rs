@@ -10,6 +10,8 @@
 //! This module delegates tasks and timers to Tokio and obtains nondeterministic
 //! process values from the host. A cfg-gated build can replace this module
 //! with another execution backend.
+//! Library work enters an instance-owned [`ExecutionDomain`]; the command-line
+//! runner can install a single fallback domain with [`set_host_handle`].
 
 use crate::host_services::HostServices;
 use rand::{CryptoRng, RngCore};
@@ -18,12 +20,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::{poll_fn, Future};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-static PROCESS_DOMAIN: OnceLock<ProductionDomain> = OnceLock::new();
+static PROCESS_DOMAIN: OnceLock<Arc<ProductionDomain>> = OnceLock::new();
 static FALLBACK_SERVICES: OnceLock<Arc<HostServices>> = OnceLock::new();
 static RUNTIME_SERVICES: OnceLock<Mutex<HashMap<tokio::runtime::Id, Weak<HostServices>>>> =
     OnceLock::new();
@@ -31,6 +33,7 @@ static SELECT_STATE: OnceLock<AtomicU64> = OnceLock::new();
 
 thread_local! {
     static SPAWNS: RefCell<Vec<Spawn>> = const { RefCell::new(Vec::new()) };
+    static CURRENT_DOMAIN: RefCell<Option<Arc<ProductionDomain>>> = const { RefCell::new(None) };
 }
 
 struct ProductionDomain {
@@ -43,34 +46,56 @@ struct ProductionDomain {
 }
 
 impl ProductionDomain {
-    fn new(handle: tokio::runtime::Handle) -> Self {
+    fn new(handle: tokio::runtime::Handle) -> Arc<Self> {
+        Self::with_services(handle, Arc::new(HostServices::production()))
+    }
+
+    fn with_services(handle: tokio::runtime::Handle, services: Arc<HostServices>) -> Arc<Self> {
         let owner = Arc::new(ProductionDomainOwner::new(handle));
         let token = DomainToken::new(&owner);
-        let services = Arc::new(HostServices::production());
         services.bind_domain(token.clone());
-        Self {
+        let domain = Arc::new(Self {
             owner,
             services,
             filesystem: Arc::new(cellar_ltx::DirectFileSystem),
             next_core_request: AtomicU64::new(1),
             next_async_op: AtomicU64::new(1),
             process_tag: u64::from(std::process::id()),
-        }
+        });
+        let _ = domain.owner.domain.set(Arc::downgrade(&domain));
+        domain
     }
 }
 
 // No lazy initialization: a first call from a thread whose current runtime is
 // not the shared one, such as the core's, would bind every later spawn to that
 // runtime and silently put effect work back on the lease timer thread.
-fn current_domain() -> &'static ProductionDomain {
-    PROCESS_DOMAIN
-        .get()
-        .expect("asyncrt::set_host_handle must run before the first spawn or domain access")
+fn installed_domain() -> Option<Arc<ProductionDomain>> {
+    CURRENT_DOMAIN
+        .with(|slot| slot.borrow().clone())
+        .or_else(|| PROCESS_DOMAIN.get().cloned())
+}
+
+fn current_domain() -> Arc<ProductionDomain> {
+    installed_domain()
+        .expect("enter an ExecutionDomain or call set_host_handle before domain access")
 }
 
 struct ProductionDomainOwner {
     handle: tokio::runtime::Handle,
     started_at: Instant,
+    domain: OnceLock<Weak<ProductionDomain>>,
+    closed: AtomicBool,
+    resources_closed: AtomicBool,
+    closed_notice: tokio::sync::Notify,
+    tasks_done: tokio::sync::Notify,
+    next_task: AtomicU64,
+    tasks: Mutex<HashMap<u64, TrackedTask>>,
+}
+
+struct TrackedTask {
+    abort: Option<tokio::task::AbortHandle>,
+    cleanup: bool,
 }
 
 impl ProductionDomainOwner {
@@ -78,7 +103,323 @@ impl ProductionDomainOwner {
         Self {
             handle,
             started_at: Instant::now(),
+            domain: OnceLock::new(),
+            closed: AtomicBool::new(false),
+            resources_closed: AtomicBool::new(false),
+            closed_notice: tokio::sync::Notify::new(),
+            tasks_done: tokio::sync::Notify::new(),
+            next_task: AtomicU64::new(1),
+            tasks: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn close(&self) {
+        // Installation and closure share the same lock, so a racing spawn is
+        // either registered for cancellation or refused before it starts.
+        let tasks = {
+            let tasks = self.tasks.lock().unwrap();
+            if self.closed.swap(true, Ordering::AcqRel) {
+                return;
+            }
+            tasks
+                .values()
+                .filter(|task| !task.cleanup)
+                .filter_map(|task| task.abort.clone())
+                .collect::<Vec<_>>()
+        };
+        self.closed_notice.notify_waiters();
+        for task in tasks {
+            task.abort();
+        }
+        if let Some(domain) = self.domain.get().and_then(Weak::upgrade) {
+            let _scope = DomainScope::enter(domain.clone());
+            domain.services.close_resources();
+        }
+        self.resources_closed.store(true, Ordering::Release);
+        self.tasks_done.notify_waiters();
+    }
+
+    // Entered roots belong to the caller's task. Wake them through the close
+    // notice instead of aborting the surrounding application's task, and join
+    // their scoped destructors just as we join spawned work.
+    fn register_root(self: &Arc<Self>) -> Result<TaskRegistration, DomainClosed> {
+        let mut tasks = self.tasks.lock().unwrap();
+        if self.closed.load(Ordering::Acquire) {
+            return Err(DomainClosed);
+        }
+        let id = self.next_task.fetch_add(1, Ordering::Relaxed);
+        tasks.insert(
+            id,
+            TrackedTask {
+                abort: None,
+                cleanup: false,
+            },
+        );
+        Ok(TaskRegistration {
+            owner: Arc::downgrade(self),
+            id,
+        })
+    }
+
+    fn spawn<T, F>(self: &Arc<Self>, future: F) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
+    {
+        self.spawn_inner(&self.handle, future, false)
+    }
+
+    // Private cleanup retains its owner and is joined after admission closes.
+    fn spawn_inner<T, F>(
+        self: &Arc<Self>,
+        executor: &tokio::runtime::Handle,
+        future: F,
+        cleanup: bool,
+    ) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
+    {
+        let domain = self
+            .domain
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or(DomainClosed)?;
+        let mut tasks = self.tasks.lock().unwrap();
+        if !cleanup && self.closed.load(Ordering::Acquire) {
+            drop(tasks);
+            let _scope = DomainScope::enter(domain);
+            drop(future);
+            return Err(DomainClosed);
+        }
+        let id = self.next_task.fetch_add(1, Ordering::Relaxed);
+        let registration = TaskRegistration {
+            owner: Arc::downgrade(self),
+            id,
+        };
+        let mut future = ScopedFuture::new(domain, future);
+        future.registration = Some(registration);
+        let inner = executor.spawn(future);
+        tasks.insert(
+            id,
+            TrackedTask {
+                abort: Some(inner.abort_handle()),
+                cleanup,
+            },
+        );
+        Ok(TaskHandle { inner })
+    }
+
+    fn blocking<T, F>(self: &Arc<Self>, operation: F) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        let domain = self
+            .domain
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or(DomainClosed)?;
+        let mut tasks = self.tasks.lock().unwrap();
+        if self.closed.load(Ordering::Acquire) {
+            drop(tasks);
+            let _scope = DomainScope::enter(domain);
+            drop(operation);
+            return Err(DomainClosed);
+        }
+        let id = self.next_task.fetch_add(1, Ordering::Relaxed);
+        let registration = TaskRegistration {
+            owner: Arc::downgrade(self),
+            id,
+        };
+        let inner = self.handle.spawn_blocking(move || {
+            let _registration = registration;
+            let _scope = DomainScope::enter(domain.clone());
+            assert!(
+                !domain.owner.closed.load(Ordering::Acquire),
+                "execution domain is closed"
+            );
+            operation()
+        });
+        tasks.insert(
+            id,
+            TrackedTask {
+                abort: Some(inner.abort_handle()),
+                cleanup: false,
+            },
+        );
+        Ok(TaskHandle { inner })
+    }
+}
+
+struct TaskRegistration {
+    owner: Weak<ProductionDomainOwner>,
+    id: u64,
+}
+impl Drop for TaskRegistration {
+    fn drop(&mut self) {
+        if let Some(owner) = self.owner.upgrade() {
+            owner.tasks.lock().unwrap().remove(&self.id);
+            owner.tasks_done.notify_waiters();
+        }
+    }
+}
+
+struct DomainScope(Option<Arc<ProductionDomain>>);
+impl DomainScope {
+    fn enter(domain: Arc<ProductionDomain>) -> Self {
+        Self(CURRENT_DOMAIN.with(|slot| slot.replace(Some(domain))))
+    }
+}
+impl Drop for DomainScope {
+    fn drop(&mut self) {
+        CURRENT_DOMAIN.with(|slot| slot.replace(self.0.take()));
+    }
+}
+
+// Install authority for each poll and for cancellation cleanup, rather than
+// tying it to a worker thread or whichever host happens to run there first.
+struct ScopedFuture<F> {
+    domain: Arc<ProductionDomain>,
+    future: Option<Pin<Box<F>>>,
+    registration: Option<TaskRegistration>,
+}
+impl<F> ScopedFuture<F> {
+    fn new(domain: Arc<ProductionDomain>, future: F) -> Self {
+        Self {
+            domain,
+            future: Some(Box::pin(future)),
+            registration: None,
+        }
+    }
+}
+impl<F: Future> Future for ScopedFuture<F> {
+    type Output = F::Output;
+    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.get_mut();
+        let _scope = DomainScope::enter(this.domain.clone());
+        this.future.as_mut().unwrap().as_mut().poll(context)
+    }
+}
+impl<F> Drop for ScopedFuture<F> {
+    fn drop(&mut self) {
+        let _scope = DomainScope::enter(self.domain.clone());
+        drop(self.future.take());
+        // A join must observe resource cleanup, not only the end of polling.
+        drop(self.registration.take());
+    }
+}
+
+/// Instance-owned scheduling and host services on an application-owned Tokio
+/// runtime. This is the execution boundary for library hosts; it does not
+/// install process signals, logging, listeners or a process-wide runtime.
+///
+/// Work scheduled through this domain inherits it across polls, blocking work
+/// and cancellation cleanup. Raw `tokio::spawn` does not inherit authority.
+/// Routing, gates, abort registrations, TCP/TLS transports, loaded applications,
+/// facet records and container infrastructure belong to this owner. Closing
+/// releases registries and schedules namespace-specific container cleanup.
+/// Retained SDK capabilities reject calls once their owner closes.
+/// Closing or dropping the owner refuses new work and cancels its tracked
+/// async tasks. Rust blocking work that already started must return itself.
+/// This boundary does not supply production-node startup or a durability drain;
+/// the command-line host lifecycle still needs an application-owned startup
+/// and drain API before a full node can be embedded.
+pub struct ExecutionDomain {
+    inner: Arc<ProductionDomain>,
+}
+impl ExecutionDomain {
+    pub fn new(handle: tokio::runtime::Handle) -> Self {
+        Self {
+            inner: ProductionDomain::new(handle),
+        }
+    }
+
+    pub fn services(&self) -> Arc<HostServices> {
+        self.inner.services.clone()
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.inner.owner.closed.load(Ordering::Acquire)
+    }
+
+    /// Poll host work in this domain, returning authority loss if it closes.
+    pub async fn run<F: Future>(&self, future: F) -> Result<F::Output, DomainClosed> {
+        let mut scoped = ScopedFuture::new(self.inner.clone(), future);
+        scoped.registration = Some(self.inner.owner.register_root()?);
+        let mut future = Box::pin(scoped);
+        let mut closed = Box::pin(self.inner.owner.closed_notice.notified());
+        poll_fn(|context| {
+            if self.is_closed() || closed.as_mut().poll(context).is_ready() {
+                Poll::Ready(Err(DomainClosed))
+            } else {
+                future.as_mut().poll(context).map(Ok)
+            }
+        })
+        .await
+    }
+
+    pub fn spawn<T, F>(&self, future: F) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
+    {
+        self.inner.owner.spawn(future)
+    }
+
+    /// Schedule domain-owned work on an application-supplied executor.
+    ///
+    /// This permits a dedicated core executor without moving ordinary effects
+    /// and blocking work off this domain's host runtime. Both kinds of work
+    /// retain this domain's authority and are joined by `shutdown`. The caller
+    /// must keep every supplied executor running until shutdown finishes.
+    pub fn spawn_on<T, F>(
+        &self,
+        executor: &tokio::runtime::Handle,
+        future: F,
+    ) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
+    {
+        self.inner.owner.spawn_inner(executor, future, false)
+    }
+
+    pub fn close(&self) {
+        self.inner.owner.close();
+    }
+
+    pub fn blocking<T, F>(&self, operation: F) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        self.inner.owner.blocking(operation)
+    }
+
+    /// Close and wait for entered work, tasks and container cleanup to release
+    /// their resources. Invoke this wait from the surrounding application.
+    /// Container reaping is bounded and reports infrastructure failures through
+    /// tracing. An already running blocking operation must finish; callers may
+    /// bound this wait. This forced closure does not flush outstanding cell writes.
+    pub async fn shutdown(&self) {
+        self.close();
+        loop {
+            let done = self.inner.owner.tasks_done.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
+            if self.inner.owner.resources_closed.load(Ordering::Acquire)
+                && self.inner.owner.tasks.lock().unwrap().is_empty()
+            {
+                return;
+            }
+            done.await;
+        }
+    }
+}
+impl Drop for ExecutionDomain {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -90,7 +431,7 @@ pub(crate) struct DomainToken {
 
 /// The execution domain no longer accepts work.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct DomainClosed;
+pub struct DomainClosed;
 
 impl fmt::Display for DomainClosed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -108,11 +449,45 @@ impl DomainToken {
     }
 
     fn owner(&self) -> Result<Arc<ProductionDomainOwner>, DomainClosed> {
-        self.inner.upgrade().ok_or(DomainClosed)
+        self.inner
+            .upgrade()
+            .filter(|owner| !owner.closed.load(Ordering::Acquire))
+            .ok_or(DomainClosed)
     }
 
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
         Weak::ptr_eq(&self.inner, &other.inner)
+    }
+
+    pub(crate) fn spawn_cleanup<F>(&self, future: F) -> Result<TaskHandle<()>, DomainClosed>
+    where
+        F: Future<Output = ()> + Send + 'static,
+    {
+        let owner = self.inner.upgrade().ok_or(DomainClosed)?;
+        owner.spawn_inner(&owner.handle, future, true)
+    }
+
+    /// Wait for application tasks to finish dropping before infrastructure
+    /// cleanup. The public shutdown joins application work and cleanup alike.
+    pub(crate) async fn wait_for_work(&self) {
+        let Some(owner) = self.inner.upgrade() else {
+            return;
+        };
+        loop {
+            let done = owner.tasks_done.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
+            if !owner
+                .tasks
+                .lock()
+                .unwrap()
+                .values()
+                .any(|task| !task.cleanup)
+            {
+                return;
+            }
+            done.await;
+        }
     }
 
     pub(crate) fn mono_ms(&self) -> Result<u64, DomainClosed> {
@@ -140,10 +515,10 @@ impl DomainToken {
         T: Send + 'static,
         F: Future<Output = T> + Send + 'static,
     {
-        let owner = self.owner()?;
-        Ok(TaskHandle {
-            inner: owner.handle.spawn(future),
-        })
+        // `spawn` refuses closed owners and drops the rejected future under
+        // that owner, so resource destructors retain their original domain.
+        let owner = self.inner.upgrade().ok_or(DomainClosed)?;
+        owner.spawn(future)
     }
 }
 
@@ -194,8 +569,15 @@ impl<T> Future for TaskHandle<T> {
 /// Install the process runtime handle, exactly once. A second call would
 /// otherwise be ignored and leave the first runtime in place.
 pub fn set_host_handle(handle: tokio::runtime::Handle) {
+    // A cancellation can be registered before this CLI host initializes.
+    // Adopt those services rather than switching registries under the caller.
+    let services = FALLBACK_SERVICES
+        .get_or_init(|| Arc::new(HostServices::production()))
+        .clone();
     assert!(
-        PROCESS_DOMAIN.set(ProductionDomain::new(handle)).is_ok(),
+        PROCESS_DOMAIN
+            .set(ProductionDomain::with_services(handle, services))
+            .is_ok(),
         "asyncrt::set_host_handle must run exactly once"
     );
 }
@@ -210,8 +592,31 @@ where
     T: Send + 'static,
     F: Future<Output = T> + Send + 'static,
 {
-    TaskHandle {
-        inner: current_domain().owner.handle.spawn(future),
+    current_domain()
+        .owner
+        .spawn(future)
+        .expect("execution domain is closed")
+}
+
+/// Preserve the owning domain when a host adapter uses a Tokio join handle.
+/// Standalone adapters without an installed domain retain their caller runtime.
+pub(crate) fn spawn_on<T, F>(
+    handle: &tokio::runtime::Handle,
+    future: F,
+) -> tokio::task::JoinHandle<T>
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    match installed_domain() {
+        Some(domain) => {
+            domain
+                .owner
+                .spawn(future)
+                .expect("execution domain is closed")
+                .inner
+        }
+        None => handle.spawn(future),
     }
 }
 
@@ -220,9 +625,16 @@ where
     T: Send + 'static,
     F: FnOnce() -> T + Send + 'static,
 {
-    TaskHandle {
-        inner: current_domain().owner.handle.spawn_blocking(operation),
-    }
+    try_blocking(operation).expect("execution domain is closed")
+}
+
+/// Admit blocking work without panicking when cancellation closes its owner.
+pub fn try_blocking<T, F>(operation: F) -> Result<TaskHandle<T>, DomainClosed>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    current_domain().owner.blocking(operation)
 }
 
 pub fn block_on<F>(future: F) -> F::Output
@@ -230,7 +642,11 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    current_domain().owner.handle.block_on(future)
+    let domain = current_domain();
+    domain
+        .owner
+        .handle
+        .block_on(ScopedFuture::new(domain.clone(), future))
 }
 
 /// Return the local filesystem for the process.
@@ -301,8 +717,7 @@ pub fn next_core_request() -> u64 {
 }
 
 pub fn services() -> Arc<HostServices> {
-    PROCESS_DOMAIN
-        .get()
+    installed_domain()
         .map(|domain| domain.services.clone())
         .unwrap_or_else(|| {
             FALLBACK_SERVICES
@@ -313,7 +728,7 @@ pub fn services() -> Arc<HostServices> {
 
 /// Return services bound to the current runtime without installing a process domain.
 pub(crate) fn runtime_services() -> Arc<HostServices> {
-    if let Some(domain) = PROCESS_DOMAIN.get() {
+    if let Some(domain) = installed_domain() {
         return domain.services.clone();
     }
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
@@ -337,12 +752,10 @@ pub(crate) fn runtime_services() -> Arc<HostServices> {
     if let Some(services) = runtimes.get(&handle.id()).and_then(Weak::upgrade) {
         return services;
     }
-    let owner = Arc::new(ProductionDomainOwner::new(handle.clone()));
-    let token = DomainToken::new(&owner);
-    let services = Arc::new(HostServices::production());
-    services.bind_domain(token);
+    let domain = ProductionDomain::new(handle.clone());
+    let services = domain.services.clone();
     let anchor_services = services.clone();
-    let anchor_owner = owner;
+    let anchor_owner = domain;
     handle.spawn(async move {
         std::future::pending::<()>().await;
         drop((anchor_services, anchor_owner));
@@ -354,8 +767,9 @@ pub(crate) fn runtime_services() -> Arc<HostServices> {
 pub type Sleep = Pin<Box<dyn Future<Output = ()> + Send>>;
 
 pub fn sleep_until(deadline_ms: u64) -> Sleep {
-    let wait = Duration::from_millis(deadline_ms.saturating_sub(mono_ms()));
-    Box::pin(tokio::time::sleep(wait))
+    DomainToken::new(&current_domain().owner)
+        .sleep_until(deadline_ms)
+        .expect("execution domain is closed")
 }
 
 pub fn sleep(duration: Duration) -> Sleep {

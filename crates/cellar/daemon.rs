@@ -1,8 +1,8 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/main.rs.
 
-// Connection, startup and shutdown paths shared by compiled applications and
-// the transitional source executable. The Actor owns the execution domain.
+// Production node bootstrap, connections and shutdown shared by the Rust
+// library and compiled application's command-line runner.
 #![allow(clippy::disallowed_methods)]
 
 //! Runnable cellar vertical slice.
@@ -49,9 +49,14 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod driver;
+#[cfg(not(cellar_internal_tests))]
+mod embedded;
+#[cfg(not(cellar_internal_tests))]
+pub use embedded::*;
 mod native;
 use native::Backend;
-pub use native::NativeDaemon;
+pub use native::{CompiledApplications, NativeDaemon};
 
 /// Let an admitted HTTP request finish, then close the transport even when a
 /// response stream or a client keep-alive does not settle. The semantic drain
@@ -636,6 +641,7 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
 /// protocol. Dropping a Reqwest future does not guarantee that its pooled
 /// HTTP/1 transport closes, so the owner cannot use transport EOF alone.
 struct RemoteFetchAbortGuard {
+    domain: Option<crate::asyncrt::DomainToken>,
     http: reqwest::Client,
     auth: Arc<PeerAuth>,
     node: String,
@@ -654,6 +660,7 @@ impl RemoteFetchAbortGuard {
         request: Option<crate::engine_api::RequestId>,
     ) -> Self {
         Self {
+            domain: crate::asyncrt::services().domain_token(),
             http: app.peer_http.clone(),
             auth: app.peer_auth.clone(),
             node,
@@ -684,7 +691,10 @@ impl Drop for RemoteFetchAbortGuard {
         let addr = self.addr.clone();
         let scope = self.scope.clone();
         let phase = self.phase;
-        crate::asyncrt::op_handle().spawn(async move {
+        let Some(domain) = &self.domain else {
+            return;
+        };
+        let _ = domain.spawn_cleanup(async move {
             let abort = send_peer_abort(http, auth, node.clone(), addr, scope.clone(), request);
             match tokio::time::timeout(std::time::Duration::from_secs(2), abort).await {
                 Ok(Ok(())) => tracing::debug!(
@@ -788,7 +798,7 @@ fn spawn_cron_arm(app: AppHandle) {
     let Some(cell) = app.runtime.as_ref().and_then(|runtime| runtime.cron_cell()) else {
         return;
     };
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         // Routing needs node authority, exactly as the wake scan does.
         let deadline = Instant::now() + std::time::Duration::from_secs(30);
         while !app.healthy().await {
@@ -814,7 +824,8 @@ fn spawn_cron_arm(app: AppHandle) {
                 }
             }
         }
-    });
+    })
+    .detach();
 }
 
 /// Adopt the deployment `pointer` names.
@@ -3196,7 +3207,7 @@ fn spawn_shutdown_acceptor(
     // Shutdown selects finish whenever a timer, request, or actor message
     // wins. Keep each listener's accept and retry waits in one task so those
     // unrelated events cannot cancel a wait or reset its retry delay.
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         let mut retry_delay = SHUTDOWN_ACCEPT_RETRY_INITIAL;
         let mut recovering = false;
         #[cfg(all(test, cellar_internal_tests))]
@@ -3273,7 +3284,8 @@ fn spawn_shutdown_acceptor(
                 }
             }
         }
-    });
+    })
+    .detach();
 }
 
 fn serve_http_connection(
@@ -3294,7 +3306,7 @@ fn serve_http_connection(
         // Serve on the runtime, not on this task. `main` drives its loop with
         // `block_on`, so serving there put every connection on one core.
         // Awaiting the spawned task keeps shutdown tracking unchanged.
-        let served = tokio::spawn(async move {
+        let served = crate::asyncrt::spawn(async move {
             let connection_requests = ConnectionWorkerRequests::default();
             let service_requests = connection_requests.clone();
             let service = service_fn(move |request| {
@@ -3524,6 +3536,9 @@ async fn async_main(
     }
     let host_runtime = tokio::runtime::Handle::current();
     crate::asyncrt::set_host_handle(host_runtime.clone());
+    crate::asyncrt::services()
+        .configure_runtime(crate::runtime_policy::RuntimePolicy::from_env()?)?;
+    crate::asyncrt::services().configure_loader(crate::loader_policy::LoaderPolicy::from_env()?)?;
     // Docker and journald can stop consuming the process pipe during a log
     // burst. Logging must lose diagnostics under that backpressure rather
     // than block the Tokio workers that route requests and renew authority.
@@ -3721,6 +3736,7 @@ async fn async_main(
         "CELLAR_MAX_REQUEST_BODY_BYTES cannot exceed {DEFAULT_MAX_REQUEST_BODY_BYTES}"
     );
     let local_cache_max_bytes = local_cache_max_bytes_from_environment()?;
+    let shutdown_policy = crate::node_lifecycle::ShutdownPolicy::from_env()?;
     let fail_publish_once = std::env::var_os("CELLAR_TEST_FAIL_PUBLISH_ONCE").is_some();
     let ingress = crate::startup::bind_ingress_listener(&settings.listen).await?;
     let internal =
@@ -3809,7 +3825,7 @@ async fn async_main(
             covered: false,
         });
     });
-    let (fence_tx, mut fence_rx) = mpsc::unbounded_channel();
+    let (fence_tx, fence_rx) = mpsc::unbounded_channel();
     let node = std::env::var("CELLAR_NODE").unwrap_or_else(|_| random_node_session_id());
     let clean_reload_node = node.clone();
     crate::control_plane::install_reexec_node_session_id(&node)?;
@@ -3897,7 +3913,7 @@ async fn async_main(
             // of today's manifest. Start it even for a stateless deployment
             // so a later deployment can introduce cells without changing the
             // durability contract underneath the node.
-            let replication = Some(Replication::start(
+            let replication = Some(Replication::from_environment(
                 client.clone(),
                 &data_dir,
                 settings.endpoint.clone(),
@@ -4289,8 +4305,7 @@ async fn async_main(
         .as_ref()
         .map(|ownership| ownership.bucket_client());
     let explorer_replication = runtime.as_ref().and_then(|runtime| runtime.replication());
-    let local_cache_replication = explorer_replication.clone();
-    let (websocket_tx, mut websocket_rx) = mpsc::unbounded_channel();
+    let (websocket_tx, websocket_rx) = mpsc::unbounded_channel();
     // The log tier's follower store (crate::node_log): fragments other
     // leaders replicate here live under the node's data dir beside the cell
     // databases.
@@ -4369,14 +4384,13 @@ async fn async_main(
                 }),
                 write_lock: tokio::sync::Mutex::new(()),
             });
-            let manager = Arc::new(crate::node_log::NodeLogManager::new(
+            let manager = Arc::new(crate::node_log::NodeLogManager::from_environment(
                 &format!("{node}/{process_generation}"),
                 log_bucket,
                 own_log,
                 ltx.clone(),
                 app.peer_auth.clone(),
-                crate::node_log::eviction_policy_from_env()?,
-            ));
+            )?);
             *actor.node_log.lock().unwrap() = Some(manager.clone());
             // Recovery-before-install is fatal for every posture: the
             // predecessor's folded state lives in the lease record this
@@ -4432,33 +4446,8 @@ async fn async_main(
             durability_owner.install_runtime(owner);
         }
     }
-    let mut durability_owner = durability_owner.select();
-    let (do_call_tx, mut do_call_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_do_call_tx(do_call_tx);
-    let (gate_tx, mut gate_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_gate_tx(gate_tx);
-    let (facet_tx, mut facet_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_facet_tx(facet_tx);
-    {
-        let app = app.clone();
-        tokio::spawn(async move {
-            while let Some(req) = facet_rx.recv().await {
-                tokio::spawn(dispatch_facet(app.clone(), req));
-            }
-        });
-    }
-    let (rpc_call_tx, mut rpc_call_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_rpc_call_tx(rpc_call_tx);
-    let (service_call_tx, mut service_call_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_svc_call_tx(service_call_tx);
-    let (service_rpc_tx, mut service_rpc_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_svc_rpc_tx(service_rpc_tx);
-    let (queue_dispatch_tx, mut queue_dispatch_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_queue_dispatch_tx(queue_dispatch_tx);
-    let (asset_call_tx, mut asset_call_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_asset_call_tx(asset_call_tx);
-    let (outbound_ws_tx, mut outbound_ws_rx) = mpsc::unbounded_channel();
-    crate::host_channels::set_outbound_ws_tx(outbound_ws_tx);
+    let durability_owner = durability_owner.select();
+    let channels = driver::Channels::install(websocket_rx);
     // KV large values live in the fleet bucket. The cloneable handle follows
     // the Blob binding's startup pattern, so independent cells issue bucket I/O
     // independently instead of queueing behind one task. Blob I/O takes no
@@ -4477,7 +4466,7 @@ async fn async_main(
     // runtime also keeps state transitions ordered exactly as the deterministic
     // executor models them. Request work, restores, and blocking scans stay on
     // the shared runtime and report their results back as messages.
-    let (actor_exit_tx, mut actor_exit_rx) = mpsc::unbounded_channel();
+    let (actor_exit_tx, actor_exit_rx) = mpsc::unbounded_channel();
     std::thread::Builder::new()
         .name("cellar-core".into())
         .spawn(move || {
@@ -4485,7 +4474,11 @@ async fn async_main(
                 .enable_all()
                 .build()
                 .map_err(|error| error.to_string())
-                .map(|runtime| runtime.block_on(actor.run(rx)));
+                .and_then(|runtime| {
+                    runtime
+                        .block_on(actor.run(rx))
+                        .map_err(|error| error.to_string())
+                });
             let _ = actor_exit_tx.send(result);
         })?;
 
@@ -4824,880 +4817,40 @@ async fn async_main(
         internal_listener.local_addr()?,
         app.advertise
     ))?;
-    let (shutdown_tx, mut shutdown_rx) = mpsc::unbounded_channel();
-    #[cfg(all(test, cellar_internal_tests))]
-    if shutdown_accept_failure_test_active {
-        let _ = shutdown_tx.send(ShutdownMode::Handoff);
-    }
-    // A SIGTERM (systemd stop, `docker stop`, a Kubernetes pod delete) or a
-    // SIGINT begins the same graceful shutdown as `POST /shutdown`, so the
-    // orchestrator's ordinary stop drains and hands off instead of killing.
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
-    let (connection_drain_tx, connection_drain) = watch::channel(false);
-    let shutdown_timing = crate::env_vars::shutdown_timing()?;
-    let drain_ms = shutdown_timing.drain_no_progress_ms;
-    let shutdown_total_ms = shutdown_timing.total_ms;
-    let drain_token_wait_ms = shutdown_timing.drain_token_wait_ms;
-    // A hung connection must not consume the whole preserve budget: the
-    // semantic drain and the clean-reload certificate come out of the same
-    // deadline.
-    let connection_grace =
-        CONNECTION_DRAIN_GRACE.min(std::time::Duration::from_millis(drain_ms / 4));
-    let mut connections: FuturesUnordered<ConnectionFuture> = FuturesUnordered::new();
-    let mut do_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
-    let mut gate_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
-    let mut service_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
-    let mut queue_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
-    let mut asset_calls: FuturesUnordered<AssetCallFuture> = FuturesUnordered::new();
-    let mut websockets: FuturesUnordered<WebSocketFuture> = FuturesUnordered::new();
-    let mut cache_prunes: FuturesUnordered<CachePruneFuture> = FuturesUnordered::new();
-    let mut replication_health = tokio::time::interval(std::time::Duration::from_millis(250));
-    let mut local_cache_prune = tokio::time::interval_at(
-        tokio::time::Instant::now() + LOCAL_CACHE_PRUNE_PERIOD,
-        LOCAL_CACHE_PRUNE_PERIOD,
-    );
-    local_cache_prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let shutdown_mode = loop {
-        crate::asyncrt::select! {
-            connection = listener.accept() => {
-                let (stream, _) = connection?;
-                connections.push(serve_http_connection(
-                    stream,
-                    HttpSurface::Public,
-                    app.clone(),
-                    shutdown_tx.clone(),
-                    connection_drain.clone(),
-                    connection_grace,
-                ));
-            }
-            connection = internal_listener.accept() => {
-                let (stream, _) = connection?;
-                connections.push(serve_http_connection(
-                    stream,
-                    HttpSurface::Internal,
-                    app.clone(),
-                    shutdown_tx.clone(),
-                    connection_drain.clone(),
-                    connection_grace,
-                ));
-            }
-            Some(()) = connections.next(), if !connections.is_empty() => {}
-            call = do_call_rx.recv() => {
-                let Some(call) = call else {
-                    anyhow::bail!("Durable Object call channel closed");
-                };
-                do_calls.push(Box::pin(dispatch_do_call(app.clone(), call)));
-            }
-            Some(()) = do_calls.next(), if !do_calls.is_empty() => {}
-            req = gate_rx.recv() => {
-                let Some(req) = req else {
-                    anyhow::bail!("output-gate channel closed");
-                };
-                gate_calls.push(Box::pin(dispatch_gate(app.clone(), req)));
-            }
-            Some(()) = gate_calls.next(), if !gate_calls.is_empty() => {}
-            call = service_call_rx.recv() => {
-                let Some(call) = call else {
-                    anyhow::bail!("service call channel closed");
-                };
-                service_calls.push(Box::pin(dispatch_service_call(app.clone(), call)));
-            }
-            call = service_rpc_rx.recv() => {
-                let Some(call) = call else {
-                    anyhow::bail!("service RPC channel closed");
-                };
-                service_calls.push(Box::pin(dispatch_service_rpc(app.clone(), call)));
-            }
-            Some(()) = service_calls.next(), if !service_calls.is_empty() => {}
-            call = queue_dispatch_rx.recv() => {
-                let Some(call) = call else {
-                    anyhow::bail!("Queue dispatch channel closed");
-                };
-                queue_calls.push(Box::pin(dispatch_queue_batch(app.clone(), call)));
-            }
-            Some(()) = queue_calls.next(), if !queue_calls.is_empty() => {}
-            call = rpc_call_rx.recv() => {
-                let Some(call) = call else {
-                    anyhow::bail!("Durable Object RPC channel closed");
-                };
-                do_calls.push(Box::pin(dispatch_rpc_call(app.clone(), call)));
-            }
-            call = asset_call_rx.recv() => {
-                let Some(call) = call else {
-                    anyhow::bail!("asset call channel closed");
-                };
-                asset_calls.push(Box::pin(dispatch_asset_call(app.clone(), call)));
-            }
-            Some(()) = asset_calls.next(), if !asset_calls.is_empty() => {}
-            socket = websocket_rx.recv() => {
-                let Some(socket) = socket else {
-                    anyhow::bail!("WebSocket channel closed");
-                };
-                websockets.push(socket);
-            }
-            Some(()) = websockets.next(), if !websockets.is_empty() => {}
-            _ = local_cache_prune.tick(), if local_cache_replication.is_some()
-                && local_cache_max_bytes.is_some() && cache_prunes.is_empty() => {
-                let replication = local_cache_replication.clone().unwrap();
-                let max_bytes = local_cache_max_bytes.unwrap();
-                cache_prunes.push(Box::pin(async move {
-                    let result = crate::asyncrt::blocking(move || {
-                        replication.prune_local_cache(max_bytes)
-                    }).await;
-                    (max_bytes, result)
-                }));
-            }
-            Some((max_bytes, result)) = cache_prunes.next(), if !cache_prunes.is_empty() => {
-                match result {
-                    Ok(Ok((kept, evicted, bytes))) if evicted > 0 => {
-                        tracing::info!(
-                            event = "local_cache_pruned",
-                            kept,
-                            evicted,
-                            bytes,
-                            max_bytes,
-                            "pruned least-recently-used eviction snapshots"
-                        );
-                    }
-                    Ok(Ok(_)) => {}
-                    Ok(Err(error)) => {
-                        tracing::warn!(%error, "local cache inventory failed");
-                    }
-                    Err(error) => {
-                        tracing::warn!(%error, "local cache pruning task failed");
-                    }
-                }
-            }
-            outbound = outbound_ws_rx.recv() => {
-                let Some(outbound) = outbound else {
-                    anyhow::bail!("outbound WebSocket channel closed");
-                };
-                let app = app.clone();
-                websockets.push(Box::pin(async move {
-                    if let Err(error) = outbound_websocket_task(app, outbound).await {
-                        eprintln!("cellar outbound WebSocket failed: {error:#}");
-                    }
-                }));
-            }
-            mode = shutdown_rx.recv() => break mode.unwrap_or(ShutdownMode::Handoff),
-            _ = sigterm.recv() => break ShutdownMode::Handoff,
-            _ = sigint.recv() => break ShutdownMode::Handoff,
-            code = fence_rx.recv() => {
-                exit_flushed(code.unwrap_or(3));
-            }
-            actor_exit = actor_exit_rx.recv() => {
-                let error = match actor_exit {
-                    Some(Err(error)) => error,
-                    Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
-                    None => "the core actor thread panicked".to_string(),
-                };
-                tracing::error!(
-                    event = "core_actor_exit",
-                    %error,
-                    "SELF-FENCE: the core actor exited unexpectedly"
-                );
-                exit_flushed(3);
-            }
-            _ = replication_health.tick() => {
-                if let Some(runtime) = &app.runtime {
-                    match runtime.replication_status() {
-                        Ok(None) => {}
-                        Ok(Some(status)) => {
-                            eprintln!("SELF-FENCE: replication process exited unexpectedly: {status}");
-                            exit_flushed(3);
-                        }
-                        Err(error) => {
-                            eprintln!("SELF-FENCE: replication process health check failed: {error}");
-                            exit_flushed(3);
-                        }
-                    }
-                }
-            }
-        }
-    };
-    // This deadline starts at the stop signal and covers token acquisition,
-    // request drain, ownership handoff, transport flush, and local durability
-    // shutdown. Progress can extend only the inner stall deadline. The
-    // absolute bound leaves the orchestrator time to observe an orderly exit
-    // instead of replacing a progressing donor with SIGKILL.
-    let shutdown_started = tokio::time::Instant::now();
-    let process_deadline = shutdown_started + std::time::Duration::from_millis(shutdown_total_ms);
-    // A donor normally spends its complete budget making safe handoff
-    // progress. Reserve at most one second, and never more than ten percent of
-    // a short configured budget, for the token CAS. Otherwise a deadline-cut
-    // donor leaves the replacement behind the 120-second token TTL and turns
-    // serialization into artificial rollout recovery.
-    let token_release_reserve_ms = if shutdown_mode == ShutdownMode::Handoff
-        && fleet_bucket.is_some()
-        && drain_token_wait_ms > 0
-    {
-        (shutdown_total_ms / 10).min(1_000)
-    } else {
-        0
-    };
-    let handoff_deadline =
-        process_deadline - std::time::Duration::from_millis(token_release_reserve_ms);
-    // Stop public admission immediately. Before a handoff changes any cell
-    // lifecycle, finish the public requests which crossed the old admission
-    // gate. A DO call reaches its output gate only after it writes, so
-    // beginning the final durability cut first would let that call cross the
-    // cut without a core activity pin. Peer connections stay open:
-    // cells outside the current batch must remain reachable during handoff.
-    app.draining
-        .store(true, std::sync::atomic::Ordering::SeqCst);
-    let stall_window = std::time::Duration::from_millis(drain_ms);
-    // New drain-time connections need a fresh watch version. A receiver cloned
-    // from `connection_drain` after its signal would close immediately, before
-    // it could serve a health response or authenticated peer request.
-    let (drain_connection_tx, drain_connection) = watch::channel(false);
-    let mut drain_connections: FuturesUnordered<ConnectionFuture> = FuturesUnordered::new();
-    // Each acceptor waits until this loop receives its previous connection.
-    // One surface therefore cannot occupy both slots and block the other.
-    let (shutdown_connection_tx, mut shutdown_connection_rx) = mpsc::channel(2);
-    #[cfg(all(test, cellar_internal_tests))]
-    let mut shutdown_accept_failure_recovered_for_test = !shutdown_accept_failure_test_active;
-    #[cfg(all(test, cellar_internal_tests))]
-    shutdown_accept_failure_test_checkpoint(
-        shutdown_accept_failure_test_active,
-        "listener failure armed",
-    );
-    #[cfg(all(test, cellar_internal_tests))]
-    {
-        spawn_shutdown_acceptor(
+    let outcome = driver::run(
+        driver::PreparedDriver {
+            app,
             listener,
-            HttpSurface::Public,
-            shutdown_connection_tx.clone(),
+            internal_listener,
+            channels,
+            fence_rx,
+            actor_exit_rx,
+            ready_ownership,
+            fleet_bucket,
+            clean_reload_node,
+            process_generation,
+            data_dir,
+            durability_owner,
+            policy: driver::RunPolicy {
+                shutdown: shutdown_policy,
+                local_cache_max_bytes,
+                local_cache_prune_period: LOCAL_CACHE_PRUNE_PERIOD,
+            },
+            #[cfg(all(test, cellar_internal_tests))]
             shutdown_accept_failure_test_active,
-        );
-        spawn_shutdown_acceptor(
-            internal_listener,
-            HttpSurface::Internal,
-            shutdown_connection_tx,
-            false,
-        );
-    }
-    #[cfg(not(all(test, cellar_internal_tests)))]
-    {
-        spawn_shutdown_acceptor(
-            listener,
-            HttpSurface::Public,
-            shutdown_connection_tx.clone(),
-        );
-        spawn_shutdown_acceptor(
-            internal_listener,
-            HttpSurface::Internal,
-            shutdown_connection_tx,
-        );
-    }
-    let mut drain_token_hold: Option<crate::drain_token::Hold> = None;
-    let handoff_started = if shutdown_mode == ShutdownMode::Handoff {
-        // Serialize donors: claim the fleet drain token beside the
-        // admitted-request drain, so simultaneous stop signals hand off one
-        // node at a time. A waiting donor keeps serving peers and refuses
-        // new handoffs because it is already draining. The wait has its own
-        // bound inside the task; the pre-drain deadline never covers it.
-        let drain_token: Arc<std::sync::Mutex<Option<crate::drain_token::Outcome>>> =
-            Arc::new(std::sync::Mutex::new(None));
-        match &fleet_bucket {
-            Some(bucket) if drain_token_wait_ms > 0 => {
-                let bucket = bucket.clone();
-                let slot = drain_token.clone();
-                let token_node = clean_reload_node.clone();
-                let baseline_ownership = ready_ownership.clone();
-                let wait = std::time::Duration::from_millis(drain_token_wait_ms)
-                    .min(handoff_deadline.saturating_duration_since(tokio::time::Instant::now()));
-                tokio::spawn(async move {
-                    let now_ms = crate::ownership_store::now_ms();
-                    let restoration_baseline = match baseline_ownership {
-                        Some(ownership) => match ownership.read_capacity_peers().await {
-                            Ok(peers) => {
-                                let mut baseline = peers
-                                    .into_iter()
-                                    .filter(|peer| peer.expires_ms > now_ms)
-                                    .map(|peer| cellar_logic::drain::RestorationBaseline {
-                                        node: peer.node,
-                                        restoring: peer.restoring,
-                                    })
-                                    .collect::<Vec<_>>();
-                                baseline.sort_by(|left, right| left.node.cmp(&right.node));
-                                baseline
-                            }
-                            Err(error) => {
-                                tracing::warn!(
-                                    event = "drain_restoration_baseline_unavailable",
-                                    %error,
-                                    "the donor could not snapshot the pre-drain restore baseline"
-                                );
-                                Vec::new()
-                            }
-                        },
-                        None => Vec::new(),
-                    };
-                    tracing::info!(
-                        event = "drain_restoration_baseline",
-                        nodes = restoration_baseline.len(),
-                        maximum = restoration_baseline
-                            .iter()
-                            .map(|baseline| baseline.restoring)
-                            .max()
-                            .unwrap_or(0),
-                        "captured the pre-drain restore baseline"
-                    );
-                    let outcome = crate::drain_token::acquire(
-                        &bucket,
-                        &token_node,
-                        wait,
-                        restoration_baseline,
-                    )
-                    .await;
-                    *slot.lock().expect("drain token slot") = Some(outcome);
-                });
-            }
-            _ => {
-                *drain_token.lock().expect("drain token slot") =
-                    Some(crate::drain_token::Outcome::Disabled);
-            }
-        }
-        let pre_drain_deadline = (tokio::time::Instant::now() + stall_window).min(handoff_deadline);
-        let mut pre_drain_tick = tokio::time::interval(std::time::Duration::from_millis(5));
-        let mut admitted = None;
-        let admitted_drained = loop {
-            if admitted.is_none() && app.public_in_flight() == 0 {
-                admitted = Some(true);
-            }
-            if let Some(admitted_drained) = admitted {
-                let token_ready = drain_token.lock().expect("drain token slot").is_some();
-                #[cfg(all(test, cellar_internal_tests))]
-                let token_ready = token_ready && shutdown_accept_failure_recovered_for_test;
-                if token_ready {
-                    break admitted_drained;
-                }
-            }
+        },
+        async move {
             crate::asyncrt::select! {
-                _ = tokio::time::sleep_until(pre_drain_deadline), if admitted.is_none() => {
-                    admitted = Some(false);
-                }
-                _ = tokio::time::sleep_until(handoff_deadline) => break false,
-                _ = pre_drain_tick.tick() => {}
-                connection = shutdown_connection_rx.recv() => {
-                    let Some(connection) = connection else {
-                        anyhow::bail!("shutdown listener tasks stopped during pre-drain");
-                    };
-                    drain_connections.push(serve_http_connection(
-                        connection.stream,
-                        connection.surface,
-                        app.clone(),
-                        shutdown_tx.clone(),
-                        drain_connection.clone(),
-                        connection_grace,
-                    ));
-                    #[cfg(all(test, cellar_internal_tests))]
-                    if connection.recovered_after_error {
-                        shutdown_accept_failure_recovered_for_test = true;
-                    }
-                    let _ = connection.received.send(());
-                }
-                Some(_) = drain_connections.next(), if !drain_connections.is_empty() => {}
-                Some(_) = connections.next(), if !connections.is_empty() => {}
-                call = do_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("Durable Object call channel closed during shutdown pre-drain");
-                    };
-                    do_calls.push(Box::pin(dispatch_do_call(app.clone(), call)));
-                }
-                Some(_) = do_calls.next(), if !do_calls.is_empty() => {}
-                req = gate_rx.recv() => {
-                    let Some(req) = req else {
-                        anyhow::bail!("output-gate channel closed during shutdown pre-drain");
-                    };
-                    gate_calls.push(Box::pin(dispatch_gate(app.clone(), req)));
-                }
-                Some(_) = gate_calls.next(), if !gate_calls.is_empty() => {}
-                call = service_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("service call channel closed during shutdown pre-drain");
-                    };
-                    service_calls.push(Box::pin(dispatch_service_call(app.clone(), call)));
-                }
-                call = service_rpc_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("service RPC channel closed during shutdown pre-drain");
-                    };
-                    service_calls.push(Box::pin(dispatch_service_rpc(app.clone(), call)));
-                }
-                Some(_) = service_calls.next(), if !service_calls.is_empty() => {}
-                call = queue_dispatch_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("Queue dispatch channel closed during shutdown pre-drain");
-                    };
-                    queue_calls.push(Box::pin(dispatch_queue_batch(app.clone(), call)));
-                }
-                Some(_) = queue_calls.next(), if !queue_calls.is_empty() => {}
-                call = rpc_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("Durable Object RPC channel closed during shutdown pre-drain");
-                    };
-                    do_calls.push(Box::pin(dispatch_rpc_call(app.clone(), call)));
-                }
-                call = asset_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("asset call channel closed during shutdown pre-drain");
-                    };
-                    asset_calls.push(Box::pin(dispatch_asset_call(app.clone(), call)));
-                }
-                Some(_) = asset_calls.next(), if !asset_calls.is_empty() => {}
-                code = fence_rx.recv() => exit_flushed(code.unwrap_or(3)),
-                actor_exit = actor_exit_rx.recv() => {
-                    let error = match actor_exit {
-                        Some(Err(error)) => error,
-                        Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
-                        None => "the core actor thread panicked".to_string(),
-                    };
-                    tracing::error!(event = "core_actor_exit", %error, "SELF-FENCE during shutdown pre-drain");
-                    exit_flushed(3);
-                }
+                _ = sigterm.recv() => ShutdownMode::Handoff,
+                _ = sigint.recv() => ShutdownMode::Handoff,
             }
-        };
-        drain_token_hold = match drain_token.lock().expect("drain token slot").take() {
-            Some(crate::drain_token::Outcome::Acquired(hold)) => Some(hold),
-            _ => None,
-        };
-        if !admitted_drained {
-            tracing::warn!(
-                event = "shutdown_pre_drain_forced",
-                public_in_flight = app.public_in_flight(),
-                do_calls = do_calls.len(),
-                gate_calls = gate_calls.len(),
-                service_calls = service_calls.len(),
-                queue_calls = queue_calls.len(),
-                asset_calls = asset_calls.len(),
-                grace_ms = stall_window.as_millis(),
-                "shutdown reached its admitted-request deadline before cell handoff"
-            );
-        }
-        if admitted_drained {
-            let _ = app.tx.send(Message::ReleaseAll);
-        }
-        admitted_drained
-    } else {
-        let _ = connection_drain_tx.send(true);
-        let _ = app.tx.send(Message::BeginPreserve);
-        true
-    };
-    // Progress extends the stall deadline, but never the complete process
-    // deadline. A deadline-cut cell keeps its durable owner record and follows
-    // the same lease-expiry recovery path as an abrupt process loss.
-    let mut stall_deadline = (tokio::time::Instant::now() + stall_window).min(handoff_deadline);
-    let mut handed_off = 0;
-    let mut process_deadline_fired = false;
-    let mut handoff = tokio::time::interval(std::time::Duration::from_millis(50));
-    let mut containers_reaped = false;
-    let drained = if shutdown_mode == ShutdownMode::Handoff && !handoff_started {
-        false
-    } else {
-        loop {
-            let requests_drained = connections.is_empty()
-                && do_calls.is_empty()
-                && gate_calls.is_empty()
-                && service_calls.is_empty()
-                && queue_calls.is_empty()
-                && asset_calls.is_empty();
-            let shell_drained = requests_drained && websockets.is_empty();
-            // The actor can be busy driving an immediate-effect failure loop, so
-            // a status request is not itself allowed to bypass the drain deadline.
-            let status = before_process_deadline(
-                handoff_deadline,
-                tokio::time::timeout(std::time::Duration::from_millis(50), app.drain_status()),
-            )
-            .await
-            .and_then(Result::ok);
-            if shutdown_mode == ShutdownMode::Handoff
-                && status.is_some_and(|status| status.handed_off > handed_off)
-            {
-                handed_off = status.expect("checked drain status").handed_off;
-                stall_deadline = (tokio::time::Instant::now() + stall_window).min(handoff_deadline);
-            }
-            // A drain that makes progress can outlive the token TTL, so the
-            // holder renews and only a dead holder lets the token lapse.
-            let renew_due = drain_token_hold.as_ref().is_some_and(|hold| {
-                crate::drain_token::renew_due(hold, crate::ownership_store::now_ms())
-            });
-            if renew_due {
-                let mut lost = false;
-                if let (Some(bucket), Some(hold)) = (&fleet_bucket, drain_token_hold.as_mut()) {
-                    let Some(renewed) = before_process_deadline(
-                        handoff_deadline,
-                        crate::drain_token::renew(bucket, &clean_reload_node, hold),
-                    )
-                    .await
-                    else {
-                        process_deadline_fired = true;
-                        break false;
-                    };
-                    lost = !renewed;
-                }
-                if lost {
-                    drain_token_hold = None;
-                }
-            }
-            let core_drained = status.is_some_and(|status| match shutdown_mode {
-                ShutdownMode::Handoff => {
-                    status.occupied == 0
-                        && status.activating == 0
-                        && status.quiescing == 0
-                        && status.evicting == 0
-                        && status.releasing == 0
-                        && status.adopting == 0
-                }
-                ShutdownMode::Preserve => status.activating == 0 && status.evicting == 0,
-            });
-            let completely_drained = match shutdown_mode {
-                ShutdownMode::Handoff => core_drained,
-                ShutdownMode::Preserve => shell_drained && core_drained,
-            };
-            if completely_drained {
-                break true;
-            }
-            // A preserve drain keeps its objects resident, so a socket an
-            // object holds into its container never ends on its own and
-            // the drain would sit out its whole deadline on it (the Sandbox
-            // SDK's RPC transport is one such socket). The containers are
-            // destroyed at exit anyway; destroying them once every request
-            // has answered ends those sockets now.
-            if !containers_reaped
-                && shutdown_mode == ShutdownMode::Preserve
-                && requests_drained
-                && core_drained
-            {
-                containers_reaped = true;
-                before_process_deadline(handoff_deadline, crate::container::shutdown()).await;
-                continue;
-            }
-            crate::asyncrt::select! {
-                _ = tokio::time::sleep_until(stall_deadline) => {
-                    process_deadline_fired = tokio::time::Instant::now() >= handoff_deadline;
-                    break false;
-                },
-                _ = handoff.tick() => {}
-                connection = shutdown_connection_rx.recv() => {
-                    let Some(connection) = connection else {
-                        anyhow::bail!("shutdown listener tasks stopped during drain");
-                    };
-                    drain_connections.push(serve_http_connection(
-                        connection.stream,
-                        connection.surface,
-                        app.clone(),
-                        shutdown_tx.clone(),
-                        drain_connection.clone(),
-                        connection_grace,
-                    ));
-                    let _ = connection.received.send(());
-                }
-                Some(_) = drain_connections.next(), if !drain_connections.is_empty() => {}
-                Some(_) = connections.next(), if !connections.is_empty() => {}
-                call = do_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("Durable Object call channel closed during shutdown");
-                    };
-                    do_calls.push(Box::pin(dispatch_do_call(app.clone(), call)));
-                }
-                Some(_) = do_calls.next(), if !do_calls.is_empty() => {}
-                req = gate_rx.recv() => {
-                    let Some(req) = req else {
-                        anyhow::bail!("output-gate channel closed during shutdown");
-                    };
-                    gate_calls.push(Box::pin(dispatch_gate(app.clone(), req)));
-                }
-                Some(_) = gate_calls.next(), if !gate_calls.is_empty() => {}
-                call = service_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("service call channel closed during shutdown");
-                    };
-                    service_calls.push(Box::pin(dispatch_service_call(app.clone(), call)));
-                }
-                call = service_rpc_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("service RPC channel closed during shutdown");
-                    };
-                    service_calls.push(Box::pin(dispatch_service_rpc(app.clone(), call)));
-                }
-                Some(_) = service_calls.next(), if !service_calls.is_empty() => {}
-                call = queue_dispatch_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("Queue dispatch channel closed during shutdown");
-                    };
-                    queue_calls.push(Box::pin(dispatch_queue_batch(app.clone(), call)));
-                }
-                Some(_) = queue_calls.next(), if !queue_calls.is_empty() => {}
-                call = rpc_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("Durable Object RPC channel closed during shutdown");
-                    };
-                    do_calls.push(Box::pin(dispatch_rpc_call(app.clone(), call)));
-                }
-                call = asset_call_rx.recv() => {
-                    let Some(call) = call else {
-                        anyhow::bail!("asset call channel closed during shutdown");
-                    };
-                    asset_calls.push(Box::pin(dispatch_asset_call(app.clone(), call)));
-                }
-                Some(_) = asset_calls.next(), if !asset_calls.is_empty() => {}
-                socket = websocket_rx.recv() => {
-                    let Some(socket) = socket else {
-                        anyhow::bail!("WebSocket channel closed during shutdown");
-                    };
-                    websockets.push(socket);
-                }
-                outbound = outbound_ws_rx.recv() => {
-                    let Some(outbound) = outbound else {
-                        anyhow::bail!("outbound WebSocket channel closed during shutdown");
-                    };
-                    let app = app.clone();
-                    websockets.push(Box::pin(async move {
-                        if let Err(error) = outbound_websocket_task(app, outbound).await {
-                            eprintln!("cellar outbound WebSocket failed: {error:#}");
-                        }
-                    }));
-                }
-                Some(_) = websockets.next(), if !websockets.is_empty() => {}
-                code = fence_rx.recv() => exit_flushed(code.unwrap_or(3)),
-                actor_exit = actor_exit_rx.recv() => {
-                    let error = match actor_exit {
-                        Some(Err(error)) => error,
-                        Some(Ok(())) => "the core actor stopped unexpectedly".to_string(),
-                        None => "the core actor thread panicked".to_string(),
-                    };
-                    tracing::error!(event = "core_actor_exit", %error, "SELF-FENCE during shutdown");
-                    exit_flushed(3);
-                }
-            }
-        }
-    };
-    let _ = connection_drain_tx.send(true);
-    let _ = drain_connection_tx.send(true);
-    // Release the token whether or not the drain completed: the process is
-    // about to exit either way, and the next donor must not wait out the TTL.
-    // The connection flush below needs nothing from the token, so releasing
-    // first keeps the next donor off the TTL during the flush grace.
-    if let (Some(bucket), Some(hold)) = (&fleet_bucket, drain_token_hold.take()) {
-        if before_process_deadline(
-            process_deadline,
-            crate::drain_token::release(bucket, &clean_reload_node, hold),
-        )
-        .await
-        .is_none()
-        {
-            tracing::warn!(
-                event = "drain_token_release_deadline",
-                "the process deadline skipped or cancelled the drain token release; the TTL bounds the residue"
-            );
-        }
-    }
-    #[cfg(all(test, cellar_internal_tests))]
-    shutdown_accept_failure_test_checkpoint(
-        shutdown_accept_failure_test_active,
-        "drain token release finished",
-    );
-    if !handoff_started {
-        tracing::error!(
-            event = "shutdown_handoff_not_started",
-            drain_ms,
-            admitted_public = app.public_in_flight(),
-            "the shutdown pre-drain did not finish"
-        );
-    } else if !drained && shutdown_mode == ShutdownMode::Handoff {
-        let drain_state = before_process_deadline(
-            process_deadline,
-            tokio::time::timeout(std::time::Duration::from_millis(50), app.snapshot()),
-        )
-        .await
-        .and_then(Result::ok)
-        .unwrap_or_else(|| "{\"error\":\"process_deadline\"}".to_string());
-        match before_process_deadline(
-            process_deadline,
-            tokio::time::timeout(
-                std::time::Duration::from_millis(50),
-                app.drain_status(),
-            ),
-        )
-        .await
-        .and_then(Result::ok)
-        {
-            Some(status) => tracing::error!(
-                event = "shutdown_handoff_stalled",
-                drain_ms,
-                shutdown_total_ms,
-                process_deadline_fired,
-                occupied = status.occupied,
-                activating = status.activating,
-                quiescing = status.quiescing,
-                evicting = status.evicting,
-                releasing = status.releasing,
-                adopting = status.adopting,
-                handed_off = status.handed_off,
-                drain_state,
-                "the shutdown handoff made no progress"
-            ),
-            None => tracing::error!(
-                event = "shutdown_handoff_stalled",
-                drain_ms,
-                shutdown_total_ms,
-                process_deadline_fired,
-                drain_state,
-                "the shutdown handoff made no observable progress because the core status was unavailable"
-            ),
-        }
-    } else if !drained {
-        eprintln!(
-            "cellar preserve drain reached its {drain_ms}ms deadline: connections={} do_calls={} gate_calls={} service_calls={} queue_calls={} asset_calls={} websockets={}",
-            connections.len(),
-            do_calls.len(),
-            gate_calls.len(),
-            service_calls.len(),
-            queue_calls.len(),
-            asset_calls.len(),
-            websockets.len(),
-        );
-    }
-    // Let every accepted connection FINISH its current response before the
-    // process exits. The demand-driven drain can complete in milliseconds
-    // on a quiet node, and exit_flushed is a hard process::exit — without
-    // this wait, a diagnostic request accepted during the drain window is
-    // reset mid-response, and a WebSocket close frame written during the
-    // release races the exit (#262). The watches above already told each
-    // connection to close after the response it is serving, so this drains
-    // fast; the grace only bounds a stuck peer. The dispatch sets (do_calls,
-    // gate_calls, service_calls, asset_calls) are NOT polled here: a
-    // connection whose response depends on one stalls for the grace and is
-    // then cut, so a drain-window internal route must never dispatch into a
-    // cell. Today none does — /state, /health, and /peer/abort answer from the
-    // shell.
-    // The backstop for a handoff cut by its deadline: a cell left behind
-    // must not leave its container running until the next start of this
-    // node reaps it. Idempotent after the preserve drain's own call.
-    before_process_deadline(process_deadline, crate::container::shutdown()).await;
-    let flush_connections = async {
-        while drain_connections.next().await.is_some() {}
-        while connections.next().await.is_some() {}
-        while websockets.next().await.is_some() {}
-    };
-    flush_shutdown_connections(
-        process_deadline,
-        crate::ws_registry::ws_await_all_flushes(),
-        flush_connections,
+        },
     )
-    .await;
-    // The graceful-shutdown drain point: seal our node-log record so the
-    // next incarnation starts with no gather. Guarded inside — it seals
-    // only when every shipped frame is bucket-covered.
-    let durability_quiesced = if let Some(owner) = &mut durability_owner {
-        let remaining = process_deadline.saturating_duration_since(tokio::time::Instant::now());
-        let completed = if remaining.is_zero() {
-            owner.stop_local_now();
-            false
-        } else {
-            owner.quiesce_and_seal_within(remaining).await
-        };
-        if !completed {
-            eprintln!("cellar durability quiesce exceeded the process deadline");
-        }
-        completed
-    } else {
-        true
-    };
-    #[cfg(all(test, cellar_internal_tests))]
-    shutdown_accept_failure_test_checkpoint(
-        shutdown_accept_failure_test_active,
-        "durability quiesce finished",
-    );
-    // Preparation captures and uploads each stopped cell's exact database
-    // position. A failed proof abandons the marker and leaves normal startup
-    // to reconcile the preserved files against bucket coverage.
-    if clean_reload_is_eligible(durability_quiesced, drained, shutdown_mode) {
-        let presence = before_process_deadline(process_deadline, app.presence()).await;
-        let prepared = match (&app.runtime, presence) {
-            (Some(runtime), Some(Some(presence))) => {
-                before_process_deadline(
-                    process_deadline,
-                    runtime.prepare_clean_reload(&presence.cells),
-                )
-                .await
-            }
-            (_, Some(None)) | (None, Some(Some(_))) => Some(Err(anyhow::anyhow!(
-                "clean reload requires a runtime and a resident snapshot"
-            ))),
-            (_, None) => None,
-        };
-        match prepared {
-            Some(Ok(pruned)) => {
-                match before_process_deadline(process_deadline, app.healthy()).await {
-                    Some(true) => match crate::runtime::write_clean_reload_marker(
-                        &data_dir,
-                        &clean_reload_node,
-                        &process_generation,
-                    ) {
-                        Ok(()) => tracing::info!(
-                            event = "clean_reload_prepared",
-                            stale_live_databases_pruned = pruned,
-                            "prepared local cells for an exact-generation reload"
-                        ),
-                        Err(error) => tracing::warn!(
-                            event = "clean_reload_abandoned",
-                            %error,
-                            "could not publish the clean local reload certificate"
-                        ),
-                    },
-                    Some(false) => tracing::warn!(
-                        event = "clean_reload_abandoned",
-                        "node authority was lost while local cells were closing"
-                    ),
-                    None => tracing::warn!(
-                        event = "clean_reload_abandoned",
-                        "the process deadline skipped the final authority check"
-                    ),
-                }
-            }
-            Some(Err(error)) => tracing::warn!(
-                event = "clean_reload_abandoned",
-                %error,
-                "local reload preparation failed; replacement will use normal recovery"
-            ),
-            None => tracing::warn!(
-                event = "clean_reload_abandoned",
-                "local reload preparation exceeded the shutdown deadline"
-            ),
-        }
-    }
-    if let Some(owner) = &mut durability_owner {
-        let remaining = process_deadline.saturating_duration_since(tokio::time::Instant::now());
-        let completed = if remaining.is_zero() {
-            owner.stop_local_now();
-            false
-        } else {
-            owner.shutdown_local_within(remaining).await
-        };
-        if !completed {
-            eprintln!("cellar local durability shutdown exceeded the process deadline");
-        }
-    }
-    #[cfg(all(test, cellar_internal_tests))]
-    shutdown_accept_failure_test_checkpoint(
-        shutdown_accept_failure_test_active,
-        "local durability shutdown finished",
-    );
-    // Exit without unwinding. Returning from here drops the tokio runtime
-    // underneath tasks and workers that may still be alive after the
-    // drain deadline. Nothing below needs a destructor:
-    // every release the drain completed proved durability first, and a
-    // cell the deadline cut off keeps its owner record exactly as a kill
-    // would have left it.
-    #[cfg(all(test, cellar_internal_tests))]
-    shutdown_accept_failure_test_checkpoint(
-        shutdown_accept_failure_test_active,
-        "final log flush reached",
-    );
-    exit_flushed(0);
+    .await?;
+    // Process ownership belongs to this command-line adapter alone.
+    exit_flushed(outcome.cli_exit_code());
 }
 
 use crate::machine::{

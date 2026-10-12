@@ -32,7 +32,7 @@ struct OwnerWireOwned {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(from = "NodeLeaseWireRaw")]
+#[serde(try_from = "NodeLeaseWireRaw")]
 pub(crate) struct NodeLeaseWire {
     pub(crate) node: String,
     pub(crate) expires_ms: u64,
@@ -42,16 +42,9 @@ pub(crate) struct NodeLeaseWire {
     pub(crate) probe_public_key: String,
     #[serde(default)]
     pub(crate) peer_protocol: u16,
-    /// This node accepts a signed shutdown-adoption request and responds only
-    /// after it publishes the requested cell. The default keeps old node
-    /// records readable during a mixed-version rollout.
-    #[serde(default)]
+    /// Signed shutdown adoption publishes the cell before responding.
     pub(crate) paced_handoff: bool,
-    /// The process generation has the same value as `probe_public_key` in
-    /// production. Keep writing both names while older nodes read this one.
-    /// `NodeLeaseWireRaw` reads the probe key when this field is absent, so
-    /// a later format can omit the duplicate after mixed-version support ends.
-    #[serde(default, rename = "ownership_index_generation")]
+    /// Explicit process generation; required by the Cellar lease format.
     pub(crate) generation: String,
     /// The folded node log: absent until the
     /// session's first fleet open. Every writer of this record carries it
@@ -167,24 +160,16 @@ impl NodeLeaseWire {
     }
 }
 
-/// The lease as it sits in the bucket. Deserialization goes through this
-/// shape so a record written without `ownership_index_generation` still
-/// yields a generation: a writer that has completed part 2 above publishes
-/// only the probe key, and an empty generation would make its peers treat
-/// a live node as a pre-generation one for the length of a rollout.
+/// The Cellar lease format requires an explicit process generation. Original
+/// lease field names and probe-key fallbacks are intentionally unsupported.
 #[derive(Deserialize)]
 struct NodeLeaseWireRaw {
     node: String,
     expires_ms: u64,
-    #[serde(default)]
     addr: String,
-    #[serde(default)]
     probe_public_key: String,
-    #[serde(default)]
     peer_protocol: u16,
-    #[serde(default)]
     paced_handoff: bool,
-    #[serde(default, rename = "ownership_index_generation")]
     generation: String,
     #[serde(default)]
     log: Option<NodeLogWire>,
@@ -192,24 +177,22 @@ struct NodeLeaseWireRaw {
     load: NodeLoadWire,
 }
 
-impl From<NodeLeaseWireRaw> for NodeLeaseWire {
-    fn from(raw: NodeLeaseWireRaw) -> Self {
-        let generation = if raw.generation.is_empty() {
-            raw.probe_public_key.clone()
-        } else {
-            raw.generation
-        };
-        Self {
+impl TryFrom<NodeLeaseWireRaw> for NodeLeaseWire {
+    type Error = anyhow::Error;
+    fn try_from(raw: NodeLeaseWireRaw) -> anyhow::Result<Self> {
+        crate::machine::validate_node_name(&raw.node)?;
+        crate::machine::validate_node_name(&raw.generation)?;
+        Ok(Self {
             node: raw.node,
             expires_ms: raw.expires_ms,
             addr: raw.addr,
             probe_public_key: raw.probe_public_key,
             peer_protocol: raw.peer_protocol,
             paced_handoff: raw.paced_handoff,
-            generation,
+            generation: raw.generation,
             log: raw.log,
             load: raw.load,
-        }
+        })
     }
 }
 
@@ -224,13 +207,10 @@ pub(crate) struct NodeLogWire {
     /// False means this epoch has no fleet acknowledgements. True means it
     /// can have them: the lease writer persists this marker before the first
     /// fleet credit, and bucket coverage never clears it within that epoch.
-    /// The Rust field was originally named `active`. It was renamed to
-    /// `may_have_fleet_acks` to distinguish acknowledgement history from liveness.
-    /// The JSON key remains `active` for compatibility with existing records.
-    #[serde(default, rename = "active")]
+    /// Required in every Cellar log record, independently of current liveness.
     pub(crate) may_have_fleet_acks: bool,
     /// The node recovering this log and its last heartbeat, while the state
-    /// is `recovering`. Absent from records older than the claim.
+    /// is `recovering`. Empty outside a recovery claim.
     #[serde(default)]
     pub(crate) claimant: Option<String>,
     #[serde(default)]
@@ -538,6 +518,10 @@ impl BucketOwnership {
     #[cfg(all(test, cellar_internal_tests))]
     pub(crate) fn load_sample_for_test(&self) -> NodeLoadWire {
         self.process_load()
+    }
+
+    pub(crate) fn node(&self) -> &str {
+        &self.node
     }
 
     pub fn lease_ttl_ms(&self) -> u64 {
@@ -935,6 +919,11 @@ impl BucketOwnership {
                 "refusing to publish a node lease without a signed-probe key"
             )));
         }
+        if record.node != self.node || record.generation != self.probe_public_key {
+            return Err(LeaseCasError::NotCommitted(anyhow::anyhow!(
+                "node lease must match its writer's node and process generation"
+            )));
+        }
         let key = format!("nodes/{}.json", self.node);
         // Snapshot the folded log ONCE, before serialization: the applied
         // notification below reports THIS seq — the identity of the body
@@ -951,9 +940,6 @@ impl BucketOwnership {
             probe_public_key: self.probe_public_key.clone(),
             peer_protocol: record.peer_protocol,
             paced_handoff: true,
-            // Part 2, after 2026-10-01: delete this line. Every reader since
-            // part 1 falls back to `probe_public_key`, which is the same
-            // value. See the field's doc on `NodeLeaseWire`.
             generation: record.generation.clone(),
             load: self.process_load(),
             // The CORE's lease writes carry the folded log through

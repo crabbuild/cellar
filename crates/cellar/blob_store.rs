@@ -249,7 +249,7 @@ pub(crate) fn blob_key(bucket_name: &str, key: &str) -> String {
 }
 
 /// The fleet bucket, or the error every op answers without one.
-pub(crate) fn store() -> Result<&'static Bucket, String> {
+pub(crate) fn store() -> Result<Bucket, String> {
     BLOB_STORE.get().ok_or_else(|| {
         "Blob bindings need a fleet bucket: start cellar with --bucket (or CELLAR_BUCKET)"
             .to_string()
@@ -698,11 +698,14 @@ pub(crate) async fn list(
                 .map(|entry| entry.key.clone())
                 .collect::<Vec<_>>();
             let heads = futures_util::stream::iter(keys)
-                .map(|key| async move {
-                    store
-                        .head_blob(&key)
-                        .await
-                        .map_err(|error| error.to_string())
+                .map(|key| {
+                    let store = store.clone();
+                    async move {
+                        store
+                            .head_blob(&key)
+                            .await
+                            .map_err(|error| error.to_string())
+                    }
                 })
                 .buffered(LIST_HEADS)
                 .collect::<Vec<_>>()

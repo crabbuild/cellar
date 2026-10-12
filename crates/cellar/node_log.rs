@@ -1,27 +1,16 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-//! v0 of the in-fleet replicated log tier (`CELLAR_DURABILITY=fleet`).
+//! The in-fleet replicated log tier. Each node sends captured LTX rows to
+//! a follower ensemble through the supplied authenticated transport. A write
+//! is proven by follower fsyncs or by ordinary bucket upload, whichever wins.
+//! The ensemble and acknowledgement history live in the leader's node lease;
+//! every log session is identified by `<node>/<generation>`.
 //!
-//! Each node streams the per-cell L0 LTX segments it has captured but not
-//! yet uploaded to a small follower ensemble over the signed peer
-//! transport. A write acknowledges when every member holds its segment on
-//! disk — write-all, ack-all — or when the ordinary bucket upload proves
-//! it first, whichever wins. The bucket upload path is unchanged and
-//! remains the tiering mechanism, so node-log recovery re-creates exactly
-//! the objects the dead leader would have uploaded and every per-cell
-//! restore and compaction mechanism stays byte-for-byte as it is.
-//!
-//! `log/<node>.json` is the CAS-guarded root of truth for the ensemble and
-//! the log epoch. It is created before the node's first fleet-durable ack
-//! and never deleted, so a takeover that finds no record may treat the
-//! bucket as complete. The decisions are `cellar_logic::log_tier`; this
-//! module is their executor.
-//!
-//! v0 limits, deliberate: entries travel as base64 JSON; a follower
-//! failure degrades the node to bucket-proof acks until a periodic
-//! re-recruit CASes a fresh ensemble; recovery gathers from every
-//! reachable sealed member and requires at least one.
+//! Append data and ranged recovery tails use binary framing. Recovery requires
+//! a complete retained range from a sealed follower before certifying its data.
+//! The original entries-only tail protocol is unsupported. Policy and peer
+//! transport are fixed at construction for every replacement ensemble.
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -43,6 +32,7 @@ use futures_util::FutureExt;
 use futures_util::StreamExt;
 
 use crate::bucket::Bucket;
+use crate::log_options::LogOptions;
 use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
@@ -50,9 +40,9 @@ mod recovery_progress;
 
 /// The one peer-POST boundary used by the node log.
 ///
-/// Production installs the signed `reqwest` implementation below. A
-/// scheduler-controlled implementation can replace the transport while all
-/// codecs and follower handlers remain the shipping ones.
+/// Applications can retain their HTTP pools through [`SignedPeerTransport`]
+/// or supply another transport. A custom transport must authenticate peer
+/// identity and protocol on both ends; the log manager trusts this boundary.
 pub trait LogTransport: Send + Sync + 'static {
     fn post<'a>(
         &'a self,
@@ -101,13 +91,11 @@ where
 {
     use tokio::io::AsyncReadExt;
     let mut len = [0_u8; 4];
-    match io.read_exact(&mut len).await {
-        Ok(_) => {}
-        // EOF on a frame boundary is the peer closing; mid-frame EOF below
-        // is an error, exactly like a torn append body.
-        Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(error) => return Err(error.into()),
+    if io.read(&mut len[..1]).await? == 0 {
+        return Ok(None);
     }
+    // Once a header begins, EOF is a torn frame, never a clean close.
+    io.read_exact(&mut len[1..]).await?;
     let len = u32::from_le_bytes(len) as usize;
     if len > STREAM_FRAME_CAP {
         anyhow::bail!("stream frame of {len} bytes exceeds the cap");
@@ -637,12 +625,17 @@ pub struct OwnLog {
 }
 
 impl OwnLog {
-    async fn write(&self, log: Option<crate::ownership_store::NodeLogWire>) -> anyhow::Result<()> {
+    async fn write(
+        &self,
+        log: Option<crate::ownership_store::NodeLogWire>,
+        timeout: std::time::Duration,
+    ) -> anyhow::Result<()> {
         let _serialized = self.write_lock.lock().await;
         let mut rx = self.ownership.applied_log();
         let seq = self.ownership.set_own_log(log);
         (self.nudge)();
-        let deadline = crate::asyncrt::mono_ms().saturating_add(10_000);
+        let deadline = crate::asyncrt::mono_ms()
+            .saturating_add(crate::replication_options::duration_ms(timeout));
         loop {
             if rx.borrow_and_update().1 >= seq {
                 return Ok(());
@@ -654,7 +647,7 @@ impl OwnLog {
                 },
                 _ = crate::asyncrt::sleep_until(deadline) => {
                     anyhow::bail!(
-                        "no lease write carried the folded log within 10s;                          treating this session as fenced"
+                        "no lease write carried the folded log within {timeout:?}; treating this session as fenced"
                     );
                 }
             }
@@ -680,6 +673,7 @@ enum NodeLogLifecycle {
 struct LiveLogTransitions {
     own_log: Arc<OwnLog>,
     lifecycle: tokio::sync::Mutex<NodeLogLifecycle>,
+    publish_timeout: std::time::Duration,
 }
 
 struct LiveLogTransition<'a> {
@@ -688,9 +682,10 @@ struct LiveLogTransition<'a> {
 }
 
 impl LiveLogTransitions {
-    fn new(own_log: Arc<OwnLog>) -> Self {
+    fn new(own_log: Arc<OwnLog>, publish_timeout: std::time::Duration) -> Self {
         Self {
             own_log,
+            publish_timeout,
             lifecycle: tokio::sync::Mutex::new(NodeLogLifecycle::Running),
         }
     }
@@ -737,7 +732,10 @@ impl LiveLogTransition<'_> {
     }
 
     async fn write(&self, log: Option<crate::ownership_store::NodeLogWire>) -> anyhow::Result<()> {
-        self.transitions.own_log.write(log).await
+        self.transitions
+            .own_log
+            .write(log, self.transitions.publish_timeout)
+            .await
     }
 }
 
@@ -751,16 +749,12 @@ impl LiveLogTransition<'_> {
 //
 //   append body:   "CLA1" u16 leader_len leader u64 epoch u64 truncate_to
 //                  u32 count entry*
-//   legacy tail:   "CLT1" u32 count entry*
 //   ranged tail:   "CLT2" u64 fragment_epoch u64 base u64 end
 //                  u8 complete u32 count entry*
 //   entry:         "CLE1" u64 seq u16 cell_len cell u64 cell_epoch
 //                  u64 txid u32 len bytes
 
 const APPEND_MAGIC: &[u8; 4] = b"CLA1";
-// Keep distinct layouts and decoded variants: reading an old peer's entries
-// does not prove that its retained range is complete.
-const LEGACY_TAIL_MAGIC: &[u8; 4] = b"CLT1";
 const TAIL_MAGIC: &[u8; 4] = b"CLT2";
 const ENTRY_MAGIC: &[u8; 4] = b"CLE1";
 
@@ -788,7 +782,7 @@ fn validate_log_leader(leader: &str) -> anyhow::Result<()> {
             validate(node)?;
             validate(generation)?;
         }
-        None => validate(leader)?,
+        None => anyhow::bail!("log leader requires node/generation"),
     }
     Ok(())
 }
@@ -923,17 +917,12 @@ pub fn encode_tail_resp(resp: &TailResp) -> Vec<u8> {
     out
 }
 
-pub fn decode_tail_resp(mut body: &[u8]) -> anyhow::Result<TailReply> {
+pub fn decode_tail_resp(mut body: &[u8]) -> anyhow::Result<TailResp> {
     let buf = &mut body;
-    match take(buf, 4, "tail magic")? {
-        magic if magic == LEGACY_TAIL_MAGIC => {
-            return Ok(TailReply::Legacy {
-                entries: decode_entries(buf, "tail")?,
-            });
-        }
-        magic if magic == TAIL_MAGIC => {}
-        _ => return Err(anyhow!("log wire: bad tail magic")),
-    }
+    anyhow::ensure!(
+        take(buf, 4, "tail magic")? == TAIL_MAGIC,
+        "log wire: unsupported tail format"
+    );
     let fragment_epoch = take_u64(buf, "tail fragment_epoch")?;
     let base = take_u64(buf, "tail base")?;
     let end = take_u64(buf, "tail end")?;
@@ -953,7 +942,7 @@ pub fn decode_tail_resp(mut body: &[u8]) -> anyhow::Result<TailReply> {
     if range.complete && !tail_covers_sealed_range(range.base, range.end, &entries) {
         anyhow::bail!("log wire: complete tail does not cover its range");
     }
-    Ok(TailReply::Ranged(TailResp { range, entries }))
+    Ok(TailResp { range, entries })
 }
 
 /// The frames one commit may carry: consecutive stream frames of ONE
@@ -998,10 +987,19 @@ pub struct AppendResp {
     /// The fragment epoch the reported `end` belongs to. A refusal whose
     /// echo matches the request epoch and whose end covers the batch still
     /// confirms durability — the retransmission case — while a refusal
-    /// from another fragment says nothing about these sequences. Absent
-    /// from binaries that predate hedging, which reads as unconfirmable.
-    #[serde(default)]
+    /// from another fragment says nothing about these sequences.
+    #[serde(deserialize_with = "deserialize_present_option")]
     pub epoch: Option<u64>,
+}
+
+// A null value represents an unknown fragment. An absent field represents an
+// unsupported wire shape and must not silently deserialize to the same value.
+fn deserialize_present_option<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    serde::Deserialize::deserialize(deserializer)
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -1016,20 +1014,17 @@ pub struct SealResp {
     pub end: u64,
     /// The highest sequence that this follower already removed after the
     /// bucket covered it. Recovery must receive every sequence in
-    /// `(base, end]` before this follower is complete evidence. An older
-    /// follower omits this field, so it cannot certify a recovery pass.
-    #[serde(default)]
+    /// `(base, end]` before this follower is complete evidence.
+    #[serde(deserialize_with = "deserialize_present_option")]
     pub base: Option<u64>,
     /// The fragment epoch that this response can certify. A name-reused
     /// machine with a fresh disk answers 0. A follower with an incomplete
-    /// retained range also answers 0, so an older recovery caller cannot
-    /// count a successful-looking response with a gap.
-    #[serde(default)]
+    /// retained range also answers 0, so a gap cannot certify recovery.
     pub fragment_epoch: u64,
     /// The fragment epoch that this follower actually holds. Recovery uses
     /// this field to distinguish an incomplete current fragment from a
-    /// different fragment. An older follower omits it.
-    #[serde(default)]
+    /// different fragment.
+    #[serde(deserialize_with = "deserialize_present_option")]
     pub held_fragment_epoch: Option<u64>,
 }
 
@@ -1039,45 +1034,35 @@ pub struct TailReq {
     pub leader: String,
 }
 
-#[derive(Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "u8", into = "u8")]
 enum TailFormat {
-    #[default]
-    Legacy,
     Ranged,
 }
-
 impl TryFrom<u8> for TailFormat {
     type Error = &'static str;
-
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(Self::Legacy),
-            2 => Ok(Self::Ranged),
-            _ => Err("unsupported tail_format"),
+        if value == 2 {
+            Ok(Self::Ranged)
+        } else {
+            Err("unsupported tail_format")
         }
     }
 }
-
 impl From<TailFormat> for u8 {
-    fn from(value: TailFormat) -> Self {
-        match value {
-            TailFormat::Legacy => 1,
-            TailFormat::Ranged => 2,
-        }
+    fn from(_: TailFormat) -> Self {
+        2
     }
 }
 
-/// The wire envelope keeps response negotiation out of internal disk reads.
-/// Old requests omit `tail_format`, so they must receive the CLT1 layout.
+/// Current tail requests require the ranged format; no format is inferred
+/// from an omitted field or negotiated down to entries-only responses.
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct TailWireReq {
     #[serde(flatten)]
     pub request: TailReq,
-    #[serde(default)]
     tail_format: TailFormat,
 }
-
 impl TailWireReq {
     pub fn ranged(request: TailReq) -> Self {
         Self {
@@ -1085,33 +1070,8 @@ impl TailWireReq {
             tail_format: TailFormat::Ranged,
         }
     }
-
     pub fn encode_response(&self, response: &TailResp) -> anyhow::Result<Vec<u8>> {
-        match self.tail_format {
-            TailFormat::Ranged => Ok(encode_tail_resp(response)),
-            TailFormat::Legacy => {
-                // A legacy reader cannot see an incomplete range or an absent
-                // fragment epoch. Stripping that evidence into a successful
-                // entries-only response would revive silent partial recovery.
-                anyhow::ensure!(
-                    response.range.fragment_epoch != 0
-                        && response.range.complete
-                        && tail_covers_sealed_range(
-                            response.range.base,
-                            response.range.end,
-                            &response.entries,
-                        ),
-                    "log wire: legacy tail cannot certify the retained range"
-                );
-                let mut out = Vec::new();
-                out.extend_from_slice(LEGACY_TAIL_MAGIC);
-                out.extend_from_slice(&(response.entries.len() as u32).to_le_bytes());
-                for entry in &response.entries {
-                    encode_entry(entry, &mut out);
-                }
-                Ok(out)
-            }
-        }
+        Ok(encode_tail_resp(response))
     }
 }
 
@@ -1128,13 +1088,6 @@ pub struct TailRange {
 pub struct TailResp {
     pub range: TailRange,
     pub entries: Vec<Entry>,
-}
-
-/// An old response is decodable data, not evidence of either completeness
-/// or loss. Never synthesize a retained range from its returned entries.
-pub enum TailReply {
-    Legacy { entries: Vec<Entry> },
-    Ranged(TailResp),
 }
 
 // ── The follower side ───────────────────────────────────────────────────────
@@ -1732,7 +1685,7 @@ impl FollowerStore {
     /// Adopt a new fragment epoch — only against the record. A leader's
     /// stream announcing an epoch is not authority: a fenced leader could
     /// invent one above our seal mark and talk past the fence, so the view
-    /// change is verified against `log/<leader>.json` before any entry at
+    /// change is verified against the leader's folded node lease before any entry at
     /// the new epoch is accepted.
     async fn adopt(&self, leader: &str, epoch: u64, first_seq: u64) -> bool {
         let Some(bucket) = &self.bucket else {
@@ -2104,12 +2057,9 @@ impl FollowerStore {
                 ..state
             },
         )?;
-        // `fragment_epoch` is the field that older recovery callers already
-        // use as their certificate. Inspect the frozen tail before returning
-        // it, so a torn current fragment fails closed even when the caller
-        // ignores the newer range fields. The actual epoch travels
-        // separately so a new caller can still gather the readable prefix
-        // and classify the incomplete fragment conclusively.
+        // Inspect the frozen tail before certifying it. Keep the held epoch
+        // separate from the certificate so an incomplete fragment remains
+        // visible without proving durability.
         let tail = self.read_tail(&TailReq {
             leader: req.leader.clone(),
         })?;
@@ -2465,21 +2415,39 @@ fn tail_covers_sealed_range(base: u64, end: u64, entries: &[Entry]) -> bool {
 
 /// The signed production implementation. It preserves the previous request
 /// construction, authentication, response validation, and timeout behavior.
-struct SignedPeerTransport {
+pub struct SignedPeerTransport {
     http: reqwest::Client,
+    stream_http: reqwest::Client,
     auth: Arc<PeerAuth>,
 }
 
 impl SignedPeerTransport {
-    fn new(auth: Arc<PeerAuth>) -> Self {
+    /// Retain the application's HTTP pools and authentication. The stream
+    /// client must allow a long-lived upgraded body without a total timeout.
+    pub fn from_clients(
+        http: reqwest::Client,
+        stream_http: reqwest::Client,
+        auth: Arc<PeerAuth>,
+    ) -> Self {
         Self {
-            http: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .tcp_nodelay(true)
-                .build()
-                .expect("build log peer client"),
+            http,
+            stream_http,
             auth,
         }
+    }
+
+    fn for_cli(auth: Arc<PeerAuth>) -> anyhow::Result<Self> {
+        Ok(Self::from_clients(
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .tcp_nodelay(true)
+                .build()?,
+            reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(5))
+                .tcp_nodelay(true)
+                .build()?,
+            auth,
+        ))
     }
 }
 
@@ -2501,8 +2469,8 @@ impl LogTransport for SignedPeerTransport {
             }
             let request = self.auth.sign(builder, "POST", path, &body, node)?;
             let response = request.body(body).send().await?;
-            // Status before response-auth: an older peer can answer an
-            // unsigned route error, and callers need that status to classify
+            // Status before response-auth: a peer can answer an unsigned
+            // route error, and callers need that status to classify
             // a protocol-incapable member separately from transport failure.
             if !response.status().is_success() {
                 let status = response.status();
@@ -2522,17 +2490,10 @@ impl LogTransport for SignedPeerTransport {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<LogStreamIo>> + Send + 'a>>
     {
         Box::pin(async move {
-            // A dedicated client: the shared one carries a 10 s whole-request
-            // timeout that would sever a healthy long-lived stream. The
-            // handshake is authenticated both ways — the request by the
-            // peer HMAC, the 101 by the response validation — and the
-            // upgraded byte channel inherits that establishment, which is
-            // the same trust shape as every other authenticated connection.
-            let client = reqwest::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(5))
-                .tcp_nodelay(true)
-                .build()?;
-            let builder = client
+            // The supplied pool survives stream reconnects; the application
+            // controls its transport and handshake timeout policy.
+            let builder = self
+                .stream_http
                 .post(format!("http://{addr}{path}"))
                 .header(hyper::header::CONNECTION, "upgrade")
                 .header(hyper::header::UPGRADE, "cellar-log-stream");
@@ -2835,7 +2796,7 @@ async fn post_append_to(
     member: &Member,
     req: &AppendReq,
 ) -> AppendSend {
-    let deadline = std::time::Duration::from_millis(policy.backstop_ms + 100);
+    let deadline = std::time::Duration::from_millis(policy.backstop_ms.saturating_add(100));
     let encode_started = mono_us();
     let body = encode_append(req);
     let encode_us = mono_us().saturating_sub(encode_started);
@@ -2851,8 +2812,7 @@ async fn post_append_to(
         .await
     {
         Ok(bytes) => bytes,
-        // A missing or unimplemented route is a binary that does not
-        // speak the log tier — the mixed-version seam. Everything
+        // A missing or unimplemented route cannot serve log appends. Everything
         // else (timeouts, resets, 5xx) stays a transient failure.
         Err(error) => {
             let incapable = error
@@ -2884,8 +2844,7 @@ async fn post_append_to(
 /// deadline from the follower-health ledger per arming, so the deadline
 /// tracks the fleet's measured honest tail instead of a constant that a
 /// loaded fleet's tail can cross (the log-hedge-deadline design).
-#[derive(Clone, Copy)]
-#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HedgeMode {
     Fixed(u64),
     Adaptive,
@@ -2985,7 +2944,7 @@ fn resolve_append(
 }
 
 /// One job through the one-shot HTTP path, hedged: the serial lane's whole
-/// step, also the stream lane's fallback for an old follower.
+/// step, used when the host selects individual HTTP requests.
 async fn http_append_job(
     member: &Member,
     transport: &Arc<dyn LogTransport>,
@@ -3235,8 +3194,8 @@ fn arm_head(
 /// no progress since the last dial fails every outstanding job instead,
 /// which degrades the shipper exactly as a failed append does today. A
 /// head frame stalled past the hedge deadline is raced by a one-shot
-/// duplicate; an old follower without the route drops the lane to the
-/// one-shot path for its lifetime.
+/// duplicate. A peer that refuses ordered streams is classified as incapable;
+/// the configured lane never silently changes transport modes.
 async fn stream_lane(
     member: &Member,
     transport: &Arc<dyn LogTransport>,
@@ -3337,20 +3296,6 @@ async fn stream_lane(
                     let incapable = error
                         .downcast_ref::<PeerHttpError>()
                         .is_some_and(|http| matches!(http.status.as_u16(), 404 | 405 | 501));
-                    if incapable {
-                        // An old follower: this lane speaks one-shot HTTP for
-                        // its lifetime. The mixed fleet is safe and merely
-                        // slow on this member.
-                        info!(
-                            member = member.node,
-                            "follower has no stream route; lane falls back to one-shot appends"
-                        );
-                        http_append_job(member, transport, policy, health, tuning, job).await;
-                        while let Some(job) = jobs.recv().await {
-                            http_append_job(member, transport, policy, health, tuning, job).await;
-                        }
-                        return;
-                    }
                     let started = mono_ms();
                     health.lock().unwrap().append_started(&member.node, started);
                     resolve_append(
@@ -3361,7 +3306,11 @@ async fn stream_lane(
                         job,
                         started,
                         0,
-                        AppendSend::Failed(error),
+                        if incapable {
+                            AppendSend::Incapable(error)
+                        } else {
+                            AppendSend::Failed(error)
+                        },
                     );
                     continue;
                 }
@@ -3409,7 +3358,7 @@ async fn stream_lane(
                 .iter()
                 .find(|entry| entry.job.is_some())
                 .filter(|entry| !entry.hedged)
-                .and_then(|entry| Some(entry.head_started? + armed_hedge_ms))
+                .and_then(|entry| Some(entry.head_started?.saturating_add(armed_hedge_ms)))
         } else {
             None
         };
@@ -3487,7 +3436,7 @@ async fn stream_lane(
                     } => stopped,
                     event = async {
                         crate::asyncrt::select_biased! {
-                            "a queued append wins a tie with a response to preserve legacy lane order";
+                            "a queued append wins a tie with a response to preserve lane order";
                             job = jobs.recv() => LaneEvent::Job(job),
                             response = responses.recv() => LaneEvent::Response(response),
                         }
@@ -3930,6 +3879,7 @@ pub struct NodeLogManager {
     ownership: Arc<crate::ownership_store::BucketOwnership>,
     ltx: Arc<crate::ltx_repl::LtxRepl>,
     transport: Arc<dyn LogTransport>,
+    options: LogOptions,
     /// The current ensemble's shipper, swapped whole by the maintenance
     /// loop. The manager itself is the installed `Shipper`, delegating here.
     inner: Mutex<Option<Arc<FleetShipper>>>,
@@ -4405,23 +4355,63 @@ impl NodeLogManager {
         self.shipper_injection_calls.load(Ordering::SeqCst)
     }
 
-    /// `session` is the process's full log identity, `<node>/<generation>`,
-    /// with the generation taken from the node lease record.
+    /// Start inside the owning execution domain. `session` must be the
+    /// ownership adapter's exact `<node>/<generation>` identity. The caller
+    /// supplies authenticated transport and immutable ensemble policy.
     pub fn new(
         session: &str,
         bucket: Arc<Bucket>,
         own_log: Arc<OwnLog>,
         ltx: Arc<crate::ltx_repl::LtxRepl>,
+        transport: Arc<dyn LogTransport>,
+        options: LogOptions,
+    ) -> anyhow::Result<Self> {
+        options.validate()?;
+        validate_log_leader(session)?;
+        let (node, generation) = session
+            .split_once('/')
+            .ok_or_else(|| anyhow!("log session requires node/generation"))?;
+        anyhow::ensure!(
+            node == own_log.ownership.node()
+                && Some(generation) == own_log.ownership.process_generation(),
+            "log session must match its ownership adapter's node and generation"
+        );
+        anyhow::ensure!(
+            bucket.prefix == own_log.ownership.bucket_client().prefix
+                && bucket.prefix == ltx.storage_prefix(),
+            "log, ownership and replication must use the same fleet prefix"
+        );
+        #[cfg(not(cellar_internal_tests))]
+        anyhow::ensure!(
+            Arc::ptr_eq(ltx.host_services(), &crate::asyncrt::services())
+                && crate::asyncrt::services().accepts_work(),
+            "log replication belongs to another or closed execution domain"
+        );
+        Ok(Self::assemble(
+            session, bucket, own_log, ltx, transport, options,
+        ))
+    }
+
+    /// Explicit process-runner adapter. Captures environment policy and builds
+    /// the CLI transport before any log ensemble can open.
+    pub fn from_environment(
+        session: &str,
+        bucket: Arc<Bucket>,
+        own_log: Arc<OwnLog>,
+        ltx: Arc<crate::ltx_repl::LtxRepl>,
         auth: Arc<PeerAuth>,
-        policy: cellar_logic::log_evict::EvictionPolicy,
-    ) -> Self {
-        Self::new_with_log_transport(
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            auth.source() == own_log.ownership.node(),
+            "log authentication must identify its owning node"
+        );
+        Self::new(
             session,
             bucket,
             own_log,
             ltx,
-            Arc::new(SignedPeerTransport::new(auth)),
-            policy,
+            Arc::new(SignedPeerTransport::for_cli(auth)?),
+            LogOptions::from_env()?,
         )
     }
 
@@ -4434,19 +4424,37 @@ impl NodeLogManager {
         transport: Arc<dyn LogTransport>,
         policy: cellar_logic::log_evict::EvictionPolicy,
     ) -> Self {
-        Self::new_with_log_transport(session, bucket, own_log, ltx, transport, policy)
+        Self::new(
+            session,
+            bucket,
+            own_log,
+            ltx,
+            transport,
+            LogOptions {
+                eviction: policy,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     }
 
-    fn new_with_log_transport(
+    pub fn options(&self) -> &LogOptions {
+        &self.options
+    }
+
+    fn assemble(
         session: &str,
         bucket: Arc<Bucket>,
         own_log: Arc<OwnLog>,
         ltx: Arc<crate::ltx_repl::LtxRepl>,
         transport: Arc<dyn LogTransport>,
-        policy: cellar_logic::log_evict::EvictionPolicy,
+        options: LogOptions,
     ) -> Self {
         let ownership = own_log.ownership.clone();
-        let live_log = Arc::new(LiveLogTransitions::new(own_log));
+        let live_log = Arc::new(LiveLogTransitions::new(
+            own_log,
+            options.record_publish_timeout,
+        ));
         let task_stop = crate::ltx_repl::StopToken::new();
         let child_tasks = crate::ltx_repl::TaskGroup::new(task_stop.clone());
         Self {
@@ -4465,7 +4473,8 @@ impl NodeLogManager {
             health: Arc::new(Mutex::new(
                 cellar_logic::log_evict::FollowerHealth::default(),
             )),
-            policy: Arc::new(policy),
+            policy: Arc::new(options.eviction.clone()),
+            options,
             suspect_self: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             shortfall_logged_ms: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             closing: std::sync::atomic::AtomicBool::new(false),
@@ -4734,7 +4743,7 @@ impl NodeLogManager {
 
     /// The tail POST: a JSON request, a binary response (the entries
     /// dominate it).
-    async fn post_tail(&self, node: &str, addr: &str, req: &TailReq) -> anyhow::Result<TailReply> {
+    async fn post_tail(&self, node: &str, addr: &str, req: &TailReq) -> anyhow::Result<TailResp> {
         let bytes = self
             .transport
             .post(
@@ -4862,6 +4871,7 @@ impl NodeLogManager {
     }
 
     pub(crate) async fn recover_as(&self, dead: &str, mode: RecoverMode) -> anyhow::Result<()> {
+        validate_log_leader(dead)?;
         let recovery_lock = {
             let mut locks = self.recovery_locks.lock().unwrap();
             locks.retain(|_, lock| lock.strong_count() > 0);
@@ -5111,27 +5121,15 @@ impl NodeLogManager {
                         continue;
                     }
                 };
-                let held_fragment_epoch =
-                    sealed.held_fragment_epoch.unwrap_or(sealed.fragment_epoch);
+                let Some(held_fragment_epoch) = sealed.held_fragment_epoch else {
+                    inconclusive += 1;
+                    continue;
+                };
                 let tail = TailReq {
                     leader: dead.to_string(),
                 };
                 let mut tail = match self.post_tail(member, &addr, &tail).await {
-                    Ok(TailReply::Ranged(tail)) => tail,
-                    Ok(TailReply::Legacy { .. }) => {
-                        // A legacy body has no retained range, even when the
-                        // seal claims an empty or different fragment. Do not
-                        // turn missing evidence into conclusive amnesia through
-                        // the failed-read classifier below.
-                        inconclusive += 1;
-                        warn!(
-                            member,
-                            dead,
-                            epoch = record.epoch,
-                            "recovery received a legacy tail without range evidence"
-                        );
-                        continue;
-                    }
+                    Ok(tail) => tail,
                     Err(error) => {
                         // The seal answer and the fragment are TWO requests,
                         // and only the second carries the data. Counting the
@@ -5150,9 +5148,7 @@ impl NodeLogManager {
                             %error,
                             "recovery could not read a sealed member's tail"
                         );
-                        if held_fragment_epoch == record.epoch {
-                            inconclusive += 1;
-                        }
+                        inconclusive += 1;
                         continue;
                     }
                 };
@@ -5161,8 +5157,6 @@ impl NodeLogManager {
                 // but it does not prove that every retained sequence is still
                 // readable. The seal and tail responses must describe the same
                 // range, and the ranged tail must certify its own complete read.
-                // A legacy response was kept inconclusive above, so it cannot
-                // certify recovery or declare loss.
                 if held_fragment_epoch == record.epoch {
                     match sealed.base {
                         Some(base)
@@ -5655,7 +5649,8 @@ impl NodeLogManager {
     }
 
     /// Followers in the installed ensemble, whether or not it is active.
-    fn ensemble_width(&self) -> usize {
+    /// Currently recruited followers, for application health and metrics.
+    pub fn ensemble_width(&self) -> usize {
         self.inner
             .lock()
             .unwrap()
@@ -5828,15 +5823,7 @@ impl NodeLogManager {
             "log ensemble open; fleet acks enabled"
         );
         self.health.lock().unwrap().reset();
-        // An unset override selects the adaptive deadline; a set value is
-        // the lab's fixed override, and 0 disables hedging entirely.
-        let hedge = match crate::env_vars::optional::<u64>("CELLAR_LOG_HEDGE_MS")
-            .ok()
-            .flatten()
-        {
-            Some(ms) => HedgeMode::Fixed(ms),
-            None => HedgeMode::Adaptive,
-        };
+        let hedge = self.options.hedge;
         // Local shutdown publishes stop before it takes `inner`. Keep the
         // stop recheck and successor installation under that same mutex: an
         // install that wins is removed by shutdown, and an install that loses
@@ -5845,30 +5832,15 @@ impl NodeLogManager {
         if self.task_stop.is_stopped() {
             return Ok(());
         }
-        // The stream window (the stream-window design): a nonzero
-        // CELLAR_LOG_WINDOW is the appends-per-lane bound and takes over the
-        // ship loop's depth; zero keeps the round pipeline unchanged.
-        let window = crate::env_vars::optional::<u64>("CELLAR_LOG_WINDOW")
-            .ok()
-            .flatten()
-            .unwrap_or(0);
-        let byte_cap = crate::env_vars::optional::<u64>("CELLAR_LOG_WINDOW_BYTES")
-            .ok()
-            .flatten()
-            .unwrap_or(8 * 1024 * 1024);
-        let stream = (window > 0)
-            .then(|| Arc::new(StreamWindow::new(window, byte_cap.max(1), members.len())));
-        // The ordered stream transport (the ordered-transport design)
-        // ships dark: an unset or "http" value keeps the one-shot lanes.
-        let stream_transport = crate::env_vars::value("CELLAR_LOG_TRANSPORT")
-            .ok()
-            .flatten()
-            .is_some_and(|value| value == "stream");
-        let pipeline = if window > 0 {
-            window as usize
-        } else {
-            crate::env_vars::positive_or("CELLAR_LOG_PIPELINE", 4_usize).unwrap_or(4)
-        };
+        let stream = self.options.window.map(|window| {
+            Arc::new(StreamWindow::new(
+                window.max_appends as u64,
+                window.max_bytes,
+                members.len(),
+            ))
+        });
+        let stream_transport = self.options.ordered_streams;
+        let pipeline = self.options.rounds();
         let mut lanes = Vec::with_capacity(members.len());
         for (index, member) in members.iter().enumerate() {
             let (send, receive) = tokio::sync::mpsc::unbounded_channel();
@@ -6923,14 +6895,7 @@ impl NodeLogManager {
                 )
                 .await
             {
-                Ok(TailReply::Ranged(tail)) => tail,
-                Ok(TailReply::Legacy { .. }) => {
-                    warn!(
-                        cell,
-                        member, "live-session fold received a legacy tail without range evidence"
-                    );
-                    continue;
-                }
+                Ok(tail) => tail,
                 Err(error) => {
                     warn!(cell, member, %error, "live-session fold could not read a follower tail");
                     continue;

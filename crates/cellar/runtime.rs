@@ -35,6 +35,23 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+// Preserve Tokio join-error reporting while scheduling through the owning
+// library domain. The simulated host retains its existing task adapter.
+fn spawn_host<T, F>(handle: tokio::runtime::Handle, future: F) -> tokio::task::JoinHandle<T>
+where
+    T: Send + 'static,
+    F: std::future::Future<Output = T> + Send + 'static,
+{
+    #[cfg(not(cellar_internal_tests))]
+    {
+        crate::asyncrt::spawn_on(&handle, future)
+    }
+    #[cfg(cellar_internal_tests)]
+    {
+        handle.spawn(future)
+    }
+}
+
 const REMOTE_ABORT_TTL: Duration = Duration::from_secs(600);
 const REMOTE_COMPLETION_TTL: Duration = Duration::from_secs(60);
 const MAX_REMOTE_PENDING_ABORTS: usize = 65_536;
@@ -70,6 +87,7 @@ pub const DEFAULT_MAX_CELL_REQUESTS: usize = 64;
 /// lifetime to the driver through [`Self::drive_stateless_fetch`].
 #[doc(hidden)]
 pub struct RequestCancellationLifetime {
+    gates: Arc<crate::host_gates::GateService>,
     request_id: crate::engine_api::RequestId,
     finished: Mutex<bool>,
 }
@@ -82,6 +100,7 @@ impl RequestCancellationLifetime {
 
     fn from_request_id(request_id: crate::engine_api::RequestId) -> Arc<Self> {
         Arc::new(Self {
+            gates: crate::asyncrt::services().gates(),
             request_id,
             finished: Mutex::new(false),
         })
@@ -104,7 +123,7 @@ impl RequestCancellationLifetime {
             .lock()
             .expect("request cancellation lifetime poisoned");
         if !*finished {
-            crate::host_gates::abort_request(self.request_id);
+            self.gates.abort_request(self.request_id);
         }
     }
 
@@ -113,7 +132,7 @@ impl RequestCancellationLifetime {
             .finished
             .lock()
             .expect("request cancellation lifetime poisoned");
-        crate::host_gates::clear_request_cancellation(self.request_id);
+        self.gates.clear_request_cancellation(self.request_id);
         *finished = true;
     }
 
@@ -501,36 +520,9 @@ impl Drop for AlarmRequestGuard {
     }
 }
 
-/// The isolate pool's limits, built from the environment here because the
-/// decision core never reads it.
-///
-/// `max_requests` is the node's only bound on stateless memory, and it is
-/// live: `Slot::affiliate` counts an affiliation for a request's whole life,
-/// `observe` reports it, and `isolate::admit` refuses against it. Unset
-/// means unbounded, not unwired — `engine/load-under-pressure.md` measures
-/// `CELLAR_MAX_REQUESTS=32` admitting 641 rps against a theoretical 640.
+/// The current host's immutable worker pool limits.
 pub fn pool_limits() -> cellar_logic::isolate::PoolLimits {
-    const GROW_AT: usize = 2;
-    const SHRINK_UNDER: usize = 1;
-    const MAX_CELLS_PER_ISOLATE: usize = 32;
-    let cores = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4);
-    cellar_logic::isolate::PoolLimits {
-        // These thresholds form one hysteresis policy, so they are constants
-        // rather than two independently configurable values.
-        grow_at: GROW_AT,
-        shrink_under: SHRINK_UNDER,
-        max_stateless: env_usize("CELLAR_MAX_STATELESS_ISOLATES").unwrap_or(cores),
-        max_requests: env_usize("CELLAR_MAX_REQUESTS"),
-        // This is an engine blast-radius policy. The resident-cell and RSS
-        // limits are the operator controls for node memory.
-        max_cells: MAX_CELLS_PER_ISOLATE,
-    }
-}
-
-fn env_usize(name: &str) -> Option<usize> {
-    crate::env_vars::positive(name).expect("validated positive runtime limit")
+    crate::asyncrt::services().runtime_policy().pool_limits()
 }
 
 #[derive(Clone)]
@@ -676,6 +668,7 @@ struct CellRegistry {
 
 #[derive(Clone)]
 pub struct RuntimeManager {
+    host_services: Arc<crate::host_services::HostServices>,
     /// What the node's cell runtime holds whichever engine runs the cells.
     core: crate::cell_runtime::CellRuntime,
     cells: Arc<Mutex<CellRegistry>>,
@@ -866,6 +859,10 @@ pub(crate) async fn receive_service_fetch_response_for_test(
 }
 
 impl RuntimeManager {
+    pub(crate) fn host_services(&self) -> &Arc<crate::host_services::HostServices> {
+        &self.host_services
+    }
+
     /// A deployment with no Durable Object classes can never land a Worker fetch
     /// on a cell, so the core's round-robin routing always returns `None`. Lets
     /// the request path skip the core round-trip entirely for stateless workers.
@@ -897,8 +894,8 @@ impl RuntimeManager {
             region,
             bucket,
         } = options;
-        let max_cell_requests =
-            crate::env_vars::positive_or("CELLAR_MAX_CELL_REQUESTS", DEFAULT_MAX_CELL_REQUESTS)?;
+        let host_services = crate::asyncrt::services();
+        let max_cell_requests = host_services.runtime_policy().max_cell_requests;
         let generation = Arc::new(generation);
         let core = crate::cell_runtime::CellRuntime::new(
             generation.clone(),
@@ -912,6 +909,7 @@ impl RuntimeManager {
         let cells = Arc::new(Mutex::new(CellRegistry::default()));
         let alarm_reporter = alarm_reporter(&cells, &core.alarm_observer);
         let manager = Self {
+            host_services,
             core,
             cells,
             alarm_reporter,
@@ -924,7 +922,7 @@ impl RuntimeManager {
             manager.node.to_string(),
             bucket,
             manager.data_dir.as_ref().clone(),
-        );
+        )?;
         install_container_specs(&generation);
         Ok(manager)
     }
@@ -980,7 +978,7 @@ impl RuntimeManager {
         };
         let reaping = Arc::downgrade(generation);
         let generations = self.generations.clone();
-        handle.spawn(async move {
+        spawn_host(handle, async move {
             let mut tick = tokio::time::interval_at(
                 tokio::time::Instant::now() + REAP_INTERVAL,
                 REAP_INTERVAL,
@@ -1104,7 +1102,7 @@ impl RuntimeManager {
             tail_report: None,
             reply,
         };
-        tokio::spawn(async move {
+        spawn_host(tokio::runtime::Handle::current(), async move {
             let _inline_activity = inline_activity;
             drive_worker_on_cell(isolate, job).await;
         });
@@ -1346,7 +1344,8 @@ impl RuntimeManager {
                 epoch,
                 crate::host_facets::RootRelease::Swap,
             )
-            .await;
+            .await
+            .map_err(anyhow::Error::msg)?;
             tracing::info!(
                 event = "generation_swap_out",
                 scope = %cell,
@@ -1412,12 +1411,13 @@ impl RuntimeManager {
         let isolates = generation
             .cell_isolates(&config.script_name)
             .ok_or_else(|| anyhow!("no cell isolates for script {}", config.script_name))?;
-        // Building an isolate compiles the script, so it runs on a blocking
-        // thread: the pool builds before taking its lock, but the caller is a
-        // tokio worker either way.
+        // Building a worker can block and captures its host services, so it
+        // runs on the domain's blocking executor. The pool builds before
+        // taking its lock; neither construction nor placement holds Tokio's
+        // reactor thread.
         let placed = {
             let isolates = isolates.clone();
-            tokio::task::spawn_blocking(move || isolates.place_cell())
+            asyncrt::blocking(move || isolates.place_cell())
                 .await
                 .context("cell placement panicked")?
         };
@@ -1599,7 +1599,8 @@ impl RuntimeManager {
         // and before the facet streams stop, so no write reaches a file that
         // the facet's eviction unlinked.
         crate::host_facets::release_root_facets(cell, epoch, crate::host_facets::RootRelease::Stop)
-            .await;
+            .await
+            .map_err(anyhow::Error::msg)?;
         let Some(replication) = &self.replication else {
             self.facets.forget(cell, epoch);
             return Ok(());
@@ -1744,7 +1745,7 @@ impl RuntimeManager {
         };
         let alarm_reporter = self.alarm_reporter.clone();
         let drive_cancellation = cancellation.clone();
-        tokio::spawn(async move {
+        spawn_host(tokio::runtime::Handle::current(), async move {
             let _permit = permit;
             drive_cell_with_request_cancellation(
                 affiliation,
@@ -2077,13 +2078,10 @@ impl RuntimeManager {
         };
         let reporter = self.alarm_reporter.clone();
         let driving = cancellation.clone();
-        tokio::spawn(drive_cell_with_request_cancellation(
-            isolate,
-            job,
-            Some(reporter),
-            None,
-            driving,
-        ));
+        spawn_host(
+            tokio::runtime::Handle::current(),
+            drive_cell_with_request_cancellation(isolate, job, Some(reporter), None, driving),
+        );
         let result = receive_cell_reply(
             receive,
             cancellation,
@@ -2325,7 +2323,10 @@ async fn run_cell_event<T>(
     receive: tokio::sync::oneshot::Receiver<anyhow::Result<T>>,
     dropped: &'static str,
 ) -> anyhow::Result<T> {
-    tokio::spawn(drive_cell(isolate, job, report, None));
+    spawn_host(
+        tokio::runtime::Handle::current(),
+        drive_cell(isolate, job, report, None),
+    );
     receive.await.context(dropped)?
 }
 
@@ -2426,12 +2427,8 @@ fn drive_affiliated(
     job: StatelessWorkerJob,
     telemetry: Option<(Arc<str>, Arc<str>)>,
 ) -> impl std::future::Future<Output = ()> + Send + 'static {
-    drive_affiliated_with_budget(
-        affiliation,
-        job,
-        telemetry,
-        crate::engine_api::handler_budget(),
-    )
+    let budget = affiliation.slot().handler_budget();
+    drive_affiliated_with_budget(affiliation, job, telemetry, budget)
 }
 
 fn drive_affiliated_with_budget(
@@ -2995,7 +2992,7 @@ impl StatelessRuntime {
             // alive: it ends when the pool is dropped.
             let reaping = Arc::downgrade(&isolates);
             let reclaim = isolates.reclaim_bell();
-            handle.spawn(async move {
+            spawn_host(handle, async move {
                 // `interval` fires its first tick immediately, which
                 // reaped the isolate `warm` had just built and handed the
                 // first request the compile cost warming exists to avoid.
@@ -3078,11 +3075,14 @@ impl StatelessRuntime {
         // Spawned rather than awaited inline, because the response and the
         // event are not the same lifetime: `waitUntil` work outlives the
         // answer, and the driver keeps turning until it settles.
-        let driving = tokio::spawn(drive_affiliated(
-            affiliation,
-            job,
-            Some((self.node.clone(), self.region.clone())),
-        ));
+        let driving = spawn_host(
+            tokio::runtime::Handle::current(),
+            drive_affiliated(
+                affiliation,
+                job,
+                Some((self.node.clone(), self.region.clone())),
+            ),
+        );
         match receive.await {
             Ok(result) => result,
             // The driver dropped the reply without sending. Joining it here —
@@ -3270,7 +3270,7 @@ async fn drive_worker_on_cell(affiliation: crate::pool::Affiliation, job: crate:
         &slot,
         job,
         trace,
-        crate::engine_api::handler_budget(),
+        slot.handler_budget(),
         |_| {},
         |entry| {
             if let (Some(ids), Some((started, start_unix))) = (recording, span_started) {
@@ -3338,27 +3338,20 @@ pub(crate) async fn drive_cell_owned(
     parent: Option<crate::telemetry::TraceContext>,
     cancellation: Option<Arc<RequestCancellationLifetime>>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     #[cfg(cellar_internal_tests)]
     let _ = drive_cell_inner(
         affiliation,
         job,
         report,
         parent,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers::default(),
     )
     .await;
     #[cfg(not(cellar_internal_tests))]
-    let _ = drive_cell_inner(
-        affiliation,
-        job,
-        report,
-        parent,
-        crate::engine_api::handler_budget(),
-        cancellation,
-    )
-    .await;
+    let _ = drive_cell_inner(affiliation, job, report, parent, budget, cancellation).await;
 }
 
 /// Let an answered alarm's leftover I/O finish on its own, and report how it
@@ -3403,6 +3396,7 @@ pub(crate) async fn drive_alarm(
     job: CellJob,
     report: Option<AlarmReporter>,
 ) -> anyhow::Result<Option<u64>> {
+    let budget = affiliation.slot().handler_budget();
     let cancellation = job
         .request_id()
         .map(RequestCancellationLifetime::from_request_id);
@@ -3411,7 +3405,7 @@ pub(crate) async fn drive_alarm(
         job,
         report,
         None,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         #[cfg(cellar_internal_tests)]
         DriveCellTestObservers::default(),
@@ -3450,6 +3444,7 @@ async fn drive_cell_with_request_cancellation(
     parent: Option<crate::telemetry::TraceContext>,
     cancellation: Option<Arc<RequestCancellationLifetime>>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     assert_eq!(
         job.request_id(),
         cancellation.as_ref().map(|lifetime| lifetime.request_id),
@@ -3461,21 +3456,13 @@ async fn drive_cell_with_request_cancellation(
         job,
         report,
         parent,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers::default(),
     )
     .await;
     #[cfg(not(cellar_internal_tests))]
-    let _ = drive_cell_inner(
-        affiliation,
-        job,
-        report,
-        parent,
-        crate::engine_api::handler_budget(),
-        cancellation,
-    )
-    .await;
+    let _ = drive_cell_inner(affiliation, job, report, parent, budget, cancellation).await;
 }
 
 #[cfg(cellar_internal_tests)]
@@ -3485,6 +3472,7 @@ pub async fn drive_cell_observing_gated_failure_for_test(
     job: CellJob,
     gated_failure: tokio::sync::oneshot::Sender<bool>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     let cancellation = job
         .request_id()
         .map(RequestCancellationLifetime::from_request_id);
@@ -3493,7 +3481,7 @@ pub async fn drive_cell_observing_gated_failure_for_test(
         job,
         None,
         None,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers {
             gated_failure: Some(gated_failure),
@@ -3511,6 +3499,7 @@ pub async fn drive_cell_observing_gated_op_drop_for_test(
     gated_failure: tokio::sync::oneshot::Sender<bool>,
     native_op_dropped: tokio::sync::oneshot::Sender<()>,
 ) {
+    let budget = affiliation.slot().handler_budget();
     let cancellation = job
         .request_id()
         .map(RequestCancellationLifetime::from_request_id);
@@ -3519,7 +3508,7 @@ pub async fn drive_cell_observing_gated_op_drop_for_test(
         job,
         None,
         None,
-        crate::engine_api::handler_budget(),
+        budget,
         cancellation,
         DriveCellTestObservers {
             gated_failure: Some(gated_failure),
@@ -3873,6 +3862,6 @@ fn install_container_specs(generation: &Generation) {
         return;
     }
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        handle.spawn(crate::container::prewarm());
+        spawn_host(handle, crate::container::prewarm());
     }
 }

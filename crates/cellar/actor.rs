@@ -5,21 +5,15 @@
 
 use crate::cell_host::CellHost;
 use crate::engine_api::HttpResponse;
-use crate::machine::{
-    ownership_on_evict_from_environment, pressure_config_from_environment,
-    random_process_generation, DEFAULT_MAX_OUTBOUND_WEBSOCKETS,
-    DEFAULT_OWNER_LOG_RECOVERY_ATTEMPTS, DEFAULT_OWNER_LOG_RECOVERY_BACKOFF_MS,
-};
 use crate::ownership_store::{now_ms, BucketOwnership, LeaseCasError};
 use crate::peer_auth::{self, PeerAuth};
 use crate::runtime::RuntimeManager;
 use crate::ws_registry::WsBatch;
 use anyhow::Context as _;
 use cellar_logic::{
-    on_event, AdoptedCell, CapacityPeer, CasGuard, CasOutcome, CellId, Channel, Config, Effect,
-    Event, EvictionAdmission, Failure, LeaseCasOutcome, NodeLeaseRecord, NodeLeaseSpec, OpId,
-    OwnerRecord, OwnershipOnEvict, Phase, RequestError, Route, State, StopCause, Timer,
-    WebSocketKind, WorkerRoute,
+    on_event, AdoptedCell, CapacityPeer, CasGuard, CasOutcome, CellId, Channel, Effect, Event,
+    EvictionAdmission, Failure, LeaseCasOutcome, NodeLeaseRecord, NodeLeaseSpec, OpId, OwnerRecord,
+    Phase, RequestError, Route, State, StopCause, Timer, WebSocketKind, WorkerRoute,
 };
 use futures_util::stream::FuturesUnordered;
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
@@ -30,7 +24,9 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot, watch, Mutex};
 use tokio_util::time::{delay_queue, DelayQueue};
 
+mod config;
 mod effects;
+pub use config::ActorOptions;
 mod local_request;
 mod production;
 pub use cellar_logic::{EvictCancellation, EvictError, EvictFailure, EvictRefusal, EvictSuccess};
@@ -38,22 +34,22 @@ pub use effects::StepOutput;
 pub(crate) use effects::{drain_step_output, LeaseRequest};
 pub use local_request::{LocalRequest, LocalRequestCompletion, LocalRequestFailure};
 
+#[cfg(all(test, cellar_internal_tests))]
+use cellar_logic::Config;
+
 type EvictionReply = oneshot::Sender<Result<EvictSuccess, EvictError>>;
 
-const DEFAULT_OPERATION_DEADLINE_MS: u64 = 15_000;
+pub(crate) const DEFAULT_OPERATION_DEADLINE_MS: u64 = 15_000;
 /// How long a graceful handoff keeps refreshing an uncovered alarm's wake
 /// entry before it gives up and lets the drain deadline decide.
 const HANDOFF_ALARM_COVERAGE_MS: u64 = 5_000;
 
 /// The shell's deadline for one actor operation. Queue leases include this
-/// exact budget for their settlement call, so the actor and broker must read
-/// one accessor rather than duplicate the environment default.
+/// exact budget for their settlement call, so the actor and broker share the
+/// host-owned policy. The CLI resolves its fallback before serving.
 #[doc(hidden)]
 pub fn operation_deadline_ms() -> anyhow::Result<u64> {
-    crate::env_vars::positive_or(
-        "CELLAR_OPERATION_DEADLINE_MS",
-        DEFAULT_OPERATION_DEADLINE_MS,
-    )
+    crate::asyncrt::services().operation_deadline_ms()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1918,6 +1914,7 @@ impl HeldOutputKey {
 }
 
 pub struct Actor {
+    host_services: Arc<crate::host_services::HostServices>,
     state: ActorState,
     pub ownership: Ownership,
     peer_http: reqwest::Client,
@@ -2036,6 +2033,7 @@ async fn handoff_candidates(
     source: &str,
     cell: &str,
     rebalance: bool,
+    lease_ttl_ms: u64,
 ) -> Result<Vec<CapacityPeer>, Failure> {
     let mut directory = directory.lock().await;
     let now_mono_ms = crate::asyncrt::mono_ms();
@@ -2076,12 +2074,8 @@ async fn handoff_candidates(
         // A drain takes any peer with room. A balancing move takes only a
         // peer below its ownership target, least dense first; a fuller peer
         // would hand the cell straight back on its own next sample.
-        let receivers = cellar_logic::rebalance::receivers(
-            &directory.peers,
-            source,
-            now_ms(),
-            crate::machine::lease_ttl_ms_from_environment(),
-        );
+        let receivers =
+            cellar_logic::rebalance::receivers(&directory.peers, source, now_ms(), lease_ttl_ms);
         ranked.retain(|peer| receivers.contains(&peer.node));
         ranked.sort_by_key(|peer| receivers.iter().position(|node| *node == peer.node));
         if ranked.is_empty() {
@@ -2359,13 +2353,8 @@ impl Actor {
         .await
     }
 
-    /// Build the scripted Actor with one recorded core configuration.
-    ///
-    /// Concurrent node construction cannot safely mutate process-wide
-    /// environment variables. Build the ordinary scripted shell first, then
-    /// install the supplied configuration in both the unstarted decision core
-    /// and the shell fields that consume it. The shell services, ownership,
-    /// and host boundary stay identical to the ordinary constructor.
+    /// Install the recorded decision configuration before any actor state or
+    /// services are initialized. Lease identity follows the test host adapter.
     #[cfg(all(test, cellar_internal_tests))]
     pub(crate) async fn from_environment_with_scripted_host_and_config(
         fail_publish_once: bool,
@@ -2380,38 +2369,28 @@ impl Actor {
             placement_weight,
             config,
         } = decision_state;
-        let operation_deadline_ms = config
-            .operation_deadline_ms
-            .filter(|deadline| *deadline > 0)
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "the scripted Actor configuration requires a positive operation deadline"
-                )
-            })?;
-        let limits = AdmissionLimits {
-            resident: config.max_resident,
-            activations: config.max_activations,
-            evictions: config.max_evictions,
-            releases: config.max_releases,
+        let options = ActorOptions {
+            core: config,
+            lease_ttl_ms: crate::env_vars::positive_or("CELLAR_TTL_MS", 10_000)?,
             placement_weight,
+            generation: config::environment_generation(ownership.as_ref()),
+            resume_generation,
         };
-        let node = identity.node.clone();
-        let mut actor = Self::from_environment_with_scripted_host(
-            limits,
+        let peer_auth = Arc::new(PeerAuth::new([0; 32], identity.node.clone())?);
+        Self::with_cell_host(
+            options,
             fail_publish_once,
             fence,
-            host,
-            ownership,
+            ActorHostServices {
+                host: Some(CellHost::Scripted(host)),
+                drain_pins: DrainPinRegistry::default(),
+                ownership,
+                peer_http: reqwest::Client::new(),
+                peer_auth,
+            },
             identity,
-            resume_generation,
         )
-        .await?;
-        // The shell uses this deadline for handoff and stop retries while the
-        // core uses the same value to arm operation timers. Installing only
-        // the core configuration creates two different clocks in one Actor.
-        actor.operation_deadline_ms = operation_deadline_ms;
-        actor.state = ActorState::from(State::new(node, config));
-        Ok(actor)
+        .await
     }
 
     async fn from_environment_with_cell_host(
@@ -2422,6 +2401,62 @@ impl Actor {
         identity: ActorIdentity,
         resume_generation: Option<String>,
     ) -> anyhow::Result<Self> {
+        let options =
+            ActorOptions::from_environment(limits, services.ownership.as_ref(), resume_generation)?;
+        Self::with_cell_host(options, fail_publish_once, fence, services, identity).await
+    }
+
+    /// Construct a production actor from application-owned policy and services.
+    /// Configure the domain's policy before building application generations,
+    /// then call inside that domain. No process environment, runtime, logger,
+    /// signal handler or exit policy is installed.
+    pub async fn new(
+        options: ActorOptions,
+        fence: mpsc::UnboundedSender<i32>,
+        services: ActorServices,
+        identity: ActorIdentity,
+    ) -> anyhow::Result<Self> {
+        options.validate(&identity, &services).await?;
+        let ActorServices {
+            runtime,
+            drain_pins,
+            ownership,
+            peer_http,
+            peer_auth,
+        } = services;
+        Self::with_cell_host(
+            options,
+            false,
+            fence,
+            ActorHostServices {
+                host: runtime.map(CellHost::Engine),
+                drain_pins,
+                ownership,
+                peer_http,
+                peer_auth,
+            },
+            identity,
+        )
+        .await
+    }
+
+    async fn with_cell_host(
+        options: ActorOptions,
+        fail_publish_once: bool,
+        fence: mpsc::UnboundedSender<i32>,
+        services: ActorHostServices,
+        identity: ActorIdentity,
+    ) -> anyhow::Result<Self> {
+        let host_services = crate::asyncrt::services();
+        anyhow::ensure!(
+            host_services.accepts_work(),
+            "actor execution domain is closed"
+        );
+        let operation_deadline_ms = options
+            .core
+            .operation_deadline_ms
+            .filter(|deadline| *deadline > 0)
+            .ok_or_else(|| anyhow::anyhow!("actor requires a positive operation deadline"))?;
         let ActorHostServices {
             host,
             drain_pins,
@@ -2434,6 +2469,22 @@ impl Actor {
             advertise,
             region,
         } = identity;
+        anyhow::ensure!(
+            peer_auth.source() == node,
+            "actor and peer authentication must identify the same node"
+        );
+        if let Some(CellHost::Engine(runtime)) = &host {
+            anyhow::ensure!(
+                Arc::ptr_eq(runtime.host_services(), &host_services),
+                "actor runtime belongs to another execution domain"
+            );
+            anyhow::ensure!(
+                runtime.node.as_ref() == node && runtime.region.as_ref() == region,
+                "actor and runtime must identify the same node and region"
+            );
+        }
+        #[cfg(not(cellar_internal_tests))]
+        host_services.configure_actor(&options)?;
         let ownership = if let Some(ownership) = ownership {
             ownership
         } else {
@@ -2450,73 +2501,21 @@ impl Actor {
         };
         live_load
             .placement_weight
-            .store(limits.placement_weight.max(1), Ordering::Relaxed);
+            .store(options.placement_weight, Ordering::Relaxed);
         if matches!(&ownership, Ownership::Bucket(_)) {
             crate::ownership_store::set_node_load(live_load.clone());
         }
-        let process_generation = match &ownership {
-            Ownership::Bucket(bucket) => bucket
-                .process_generation()
-                .map(str::to_owned)
-                .unwrap_or_else(random_process_generation),
-            Ownership::Memory(_) => random_process_generation(),
-        };
-        let ttl_ms = crate::env_vars::positive_or("CELLAR_TTL_MS", 10_000)?;
-        let operation_deadline_ms = operation_deadline_ms()?;
         let lease_spec = NodeLeaseSpec {
-            // Startup has already resolved the environment and CLI settings
-            // into this validated internal address. Reading the environment
-            // again would let CELLAR_ADVERTISE override a later CLI option and
-            // publish an address that the bound listener did not validate.
             addr: advertise,
-            peer_protocol: peer_auth::PROTOCOL_VERSION,
-            generation: std::env::var("CELLAR_TEST_GENERATION").unwrap_or(process_generation),
-            resume_generation,
-            ttl_ms,
+            peer_protocol: options.core.peer_protocol,
+            generation: options.generation,
+            resume_generation: options.resume_generation,
+            ttl_ms: options.lease_ttl_ms,
         };
         Ok(Self {
             node_log: Arc::new(std::sync::Mutex::new(None)),
-            state: ActorState::from(State::new(
-                node,
-                Config {
-                    max_resident: limits.resident,
-                    max_activations: limits.activations,
-                    // Each eviction proves durability, so bound background bucket I/O.
-                    #[cfg(not(all(test, cellar_internal_tests)))]
-                    max_evictions: 4,
-                    #[cfg(all(test, cellar_internal_tests))]
-                    max_evictions: limits.evictions,
-                    max_releases: limits.releases,
-                    alarm_resident_ms: crate::wake::resident_ms().max(0) as u64,
-                    require_node_lease: true,
-                    peer_protocol: crate::peer_auth::PROTOCOL_VERSION,
-                    operation_deadline_ms: Some(operation_deadline_ms),
-                    owner_log_recovery_backoff_ms: crate::env_vars::positive_or(
-                        "CELLAR_RECOVERY_RETRY_MS",
-                        DEFAULT_OWNER_LOG_RECOVERY_BACKOFF_MS,
-                    )?,
-                    owner_log_recovery_attempts: crate::env_vars::positive_or(
-                        "CELLAR_RECOVERY_RETRIES",
-                        DEFAULT_OWNER_LOG_RECOVERY_ATTEMPTS,
-                    )?,
-                    idle_evict_ms: crate::env_vars::positive::<u64>("CELLAR_IDLE_EVICT_S")?
-                        .map(|seconds| seconds.saturating_mul(1_000)),
-                    pressure: pressure_config_from_environment()?,
-                    max_outbound_websockets: crate::env_vars::positive_or(
-                        "CELLAR_MAX_OUTBOUND_WEBSOCKETS",
-                        DEFAULT_MAX_OUTBOUND_WEBSOCKETS,
-                    )?,
-                    ownership_on_evict: match &ownership {
-                        // Releasing a cell says "any node may take this
-                        // one", which is only true if some other node could
-                        // restore it. Without a bucket the sole copy is this
-                        // node's disk, keyed to an epoch a re-acquire will
-                        // step past, so releasing would lose the cell.
-                        Ownership::Memory(_) => OwnershipOnEvict::Sticky,
-                        Ownership::Bucket(_) => ownership_on_evict_from_environment()?,
-                    },
-                },
-            )),
+            host_services,
+            state: ActorState::from(State::new(node, options.core)),
             ownership,
             peer_http,
             peer_auth,
@@ -2560,6 +2559,8 @@ impl Actor {
 
     /// Emits the exactly-once pre-loop node-lease transition.
     pub fn start(&mut self, out: &mut StepOutput) {
+        self.ensure_owner()
+            .expect("actor entered a foreign or closed execution domain");
         assert!(!self.started, "Actor::start was called more than once");
         self.started = true;
         // A later sample does not rewrite the lease. Fold a sample before the
@@ -2667,6 +2668,8 @@ impl Actor {
 
     /// Handles exactly one ready mailbox item, completion, or timer.
     pub fn step(&mut self, input: ActorInput, out: &mut StepOutput) {
+        self.ensure_owner()
+            .expect("actor entered a foreign or closed execution domain");
         assert!(self.started, "Actor::step was called before Actor::start");
         match input {
             ActorInput::Message(message) => self.handle_message(message, out),
@@ -3391,6 +3394,7 @@ impl Actor {
                 }
                 let ownership = self.ownership.clone();
                 let directory = self.handoff_directory.clone();
+                let lease_ttl_ms = self.lease_spec.ttl_ms;
                 let http = self.peer_http.clone();
                 let auth = self.peer_auth.clone();
                 let source = self.state.node().to_string();
@@ -3409,7 +3413,7 @@ impl Actor {
                     let mut attempts = 0_u64;
                     let adoption = async { loop {
                         let peers =
-                            handoff_candidates(&ownership, &directory, &source, &cell, rebalance)
+                            handoff_candidates(&ownership, &directory, &source, &cell, rebalance, lease_ttl_ms)
                                 .await
                                 .unwrap_or_default();
                         for peer in peers {

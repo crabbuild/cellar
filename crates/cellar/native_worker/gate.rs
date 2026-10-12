@@ -1,7 +1,7 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Adapted for Cellar from Celld: crates/celld/js.rs.
 
-//! Native holds on the same process input gate used by cell delivery.
+//! Native holds on the owning host's input gate used by cell delivery.
 
 use super::*;
 use futures_util::future::{BoxFuture, FutureExt, Shared};
@@ -20,28 +20,34 @@ pub(crate) struct InputGate {
 }
 
 struct Queued {
+    service: Arc<GateService>,
     cell: String,
     owner: u64,
 }
 
 impl Queued {
-    fn new(cell: String, owner: u64) -> Self {
-        *cell_gates()
+    fn new(service: Arc<GateService>, cell: String, owner: u64) -> Self {
+        *service
+            .cells
             .lock()
             .unwrap()
             .entry(cell.clone())
-            .or_default()
+            .or_insert_with(|| CellGate::new(&service))
             .queued
             .entry(owner)
             .or_default() += 1;
-        GATE_ENGAGEMENTS.fetch_add(1, Ordering::Relaxed);
-        Self { cell, owner }
+        service.engagements.fetch_add(1, Ordering::Relaxed);
+        Self {
+            service,
+            cell,
+            owner,
+        }
     }
 }
 
 impl Drop for Queued {
     fn drop(&mut self) {
-        let mut gates = cell_gates().lock().unwrap();
+        let mut gates = self.service.cells.lock().unwrap();
         let remove = gates.get_mut(&self.cell).is_some_and(|gate| {
             if let Some(count) = gate.queued.get_mut(&self.owner) {
                 *count -= 1;
@@ -54,7 +60,7 @@ impl Drop for Queued {
         if remove {
             gates.remove(&self.cell);
         }
-        GATE_ENGAGEMENTS.fetch_sub(1, Ordering::Relaxed);
+        self.service.engagements.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -63,7 +69,8 @@ impl InputGate {
         let owner = context
             .continuation_id()
             .ok_or_else(|| anyhow!(RETIRED_INPUT_GATE))?;
-        let event = NEXT_GATE_EVENT.fetch_add(1, Ordering::Relaxed);
+        let service = context.host_services().gates();
+        let event = service.next_event.fetch_add(1, Ordering::Relaxed);
         let held = Arc::new(AtomicBool::new(false));
         let acquired = acquire_cell_gate(&context, &cell, event, Some(owner), &mut None);
         let ready: BoxFuture<'static, Result<(), String>> = match acquired {
@@ -76,7 +83,7 @@ impl InputGate {
                 mut gate,
                 mut retirement,
             } => {
-                let queued = Queued::new(cell.clone(), owner);
+                let queued = Queued::new(service, cell.clone(), owner);
                 let context = context.clone();
                 let cell = cell.clone();
                 let held = held.clone();
@@ -159,6 +166,7 @@ impl InputGate {
                 && self.context.release_input_gate(&self.cell, self.event)
             {
                 release_cell_gate(
+                    &self.context,
                     &self.cell,
                     self.event,
                     Err(failure.as_ref().unwrap().clone()),
@@ -174,7 +182,36 @@ impl Drop for InputGate {
             && self.context.release_input_gate(&self.cell, self.event)
         {
             let outcome = self.failure.get_mut().unwrap().take().map_or(Ok(()), Err);
-            release_cell_gate(&self.cell, self.event, outcome);
+            release_cell_gate(&self.context, &self.cell, self.event, outcome);
         }
+    }
+}
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+mod library_ownership_tests {
+    use super::*;
+    use crate::asyncrt::ExecutionDomain;
+
+    #[tokio::test]
+    async fn queued_cleanup_uses_its_owner_after_the_domain_closes() {
+        let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let first_service = first.services().gates();
+        let second_service = second.services().gates();
+        let first_queued = Queued::new(first_service.clone(), "Account:same".into(), 1);
+        let second_queued = Queued::new(second_service.clone(), "Account:same".into(), 1);
+        first.shutdown().await;
+        second.run(async { drop(first_queued) }).await.unwrap();
+        assert!(first_service.cells.lock().unwrap().is_empty());
+        assert_eq!(first_service.engagements.load(Ordering::Relaxed), 0);
+        assert_eq!(second_service.engagements.load(Ordering::Relaxed), 1);
+        assert_eq!(
+            second_service.cells.lock().unwrap()["Account:same"].queued[&1],
+            1
+        );
+        drop(second_queued);
+        assert!(second_service.cells.lock().unwrap().is_empty());
+        assert_eq!(second_service.engagements.load(Ordering::Relaxed), 0);
+        second.shutdown().await;
     }
 }

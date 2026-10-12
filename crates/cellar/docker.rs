@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! A minimal Docker Engine API client over the daemon's unix socket.
 //!
@@ -115,23 +116,54 @@ impl Docker {
             .context("build Docker request")
     }
 
-    async fn send(
+    // Drive each connection inside its request future, so cancelling a
+    // request also drops long-polled waits and unfinished upgrade transports.
+    async fn exchange<T, F, Fut>(
         &self,
         request: Request<Full<Bytes>>,
-    ) -> anyhow::Result<(
-        Response<Incoming>,
-        hyper::client::conn::http1::SendRequest<Full<Bytes>>,
-    )> {
+        receive: F,
+    ) -> anyhow::Result<T>
+    where
+        F: FnOnce(Response<Incoming>) -> Fut,
+        Fut: std::future::Future<Output = anyhow::Result<T>>,
+    {
         let stream = self.connect().await?;
         let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(stream))
             .await
             .context("HTTP handshake with the container engine")?;
-        drive(connection);
-        let response = sender
-            .send_request(request)
-            .await
-            .context("send request to the container engine")?;
-        Ok((response, sender))
+        let operation = async move {
+            let response = sender
+                .send_request(request)
+                .await
+                .context("send request to the container engine")?;
+            let result = receive(response).await;
+            drop(sender);
+            result
+        };
+        tokio::pin!(operation);
+        let connection = connection.with_upgrades();
+        tokio::pin!(connection);
+        crate::asyncrt::select! {
+            result = &mut operation => result,
+            result = &mut connection => {
+                result.context("drive the container engine connection")?;
+                operation.await
+            }
+        }
+    }
+
+    async fn reply(&self, request: Request<Full<Bytes>>) -> anyhow::Result<Reply> {
+        self.exchange(request, |response| async move {
+            let status = response.status();
+            let body = response
+                .into_body()
+                .collect()
+                .await
+                .context("read Docker response")?
+                .to_bytes();
+            Ok(Reply { status, body })
+        })
+        .await
     }
 
     /// One call, whole body. A long-polled `wait` is fine here: the body
@@ -146,15 +178,7 @@ impl Docker {
             Some(value) => Bytes::from(serde_json::to_vec(&value)?),
             None => Bytes::new(),
         };
-        let (response, _sender) = self.send(self.request(method, path, body)?).await?;
-        let status = response.status();
-        let body = response
-            .into_body()
-            .collect()
-            .await
-            .context("read Docker response")?
-            .to_bytes();
-        Ok(Reply { status, body })
+        self.reply(self.request(method, path, body)?).await
     }
 
     /// `call`, failing on any non-success status with the daemon's message.
@@ -188,15 +212,7 @@ impl Docker {
             .header(CONTENT_TYPE, "application/x-tar")
             .body(Full::new(body))
             .context("build Docker request")?;
-        let (response, _sender) = self.send(request).await?;
-        let status = response.status();
-        let body = response
-            .into_body()
-            .collect()
-            .await
-            .context("read Docker response")?
-            .to_bytes();
-        let reply = Reply { status, body };
+        let reply = self.reply(request).await?;
         if !reply.status.is_success() {
             return Err(anyhow!(
                 "{what} failed with [{}] {}",
@@ -224,38 +240,29 @@ impl Docker {
             .header(UPGRADE, "tcp")
             .body(Full::new(Bytes::from(serde_json::to_vec(&body)?)))
             .context("build Docker request")?;
-        let (mut response, _sender) = self.send(request).await?;
-        if response.status() != StatusCode::SWITCHING_PROTOCOLS {
-            let status = response.status();
-            let body = response
-                .into_body()
-                .collect()
+        self.exchange(request, |mut response| async move {
+            if response.status() != StatusCode::SWITCHING_PROTOCOLS {
+                let status = response.status();
+                let body = response
+                    .into_body()
+                    .collect()
+                    .await
+                    .map(|body| body.to_bytes())
+                    .unwrap_or_default();
+                let reply = Reply { status, body };
+                return Err(anyhow!(
+                    "exec start failed with [{}] {}",
+                    status.as_u16(),
+                    reply.message()
+                ));
+            }
+            let upgraded = hyper::upgrade::on(&mut response)
                 .await
-                .map(|body| body.to_bytes())
-                .unwrap_or_default();
-            let reply = Reply { status, body };
-            return Err(anyhow!(
-                "exec start failed with [{}] {}",
-                status.as_u16(),
-                reply.message()
-            ));
-        }
-        let upgraded = hyper::upgrade::on(&mut response)
-            .await
-            .context("upgrade the exec connection")?;
-        Ok(Box::new(TokioIo::new(upgraded)))
+                .context("upgrade the exec connection")?;
+            Ok(Box::new(TokioIo::new(upgraded)) as Box<dyn Stream>)
+        })
+        .await
     }
-}
-
-/// Poll the connection to completion. The daemon socket is outside the
-/// execution boundary: no engine decision depends on when the daemon
-/// answers, which is why the ambient runtime drives it, as `ws_client`
-/// drives its handshakes.
-#[allow(clippy::disallowed_methods)]
-fn drive(connection: hyper::client::conn::http1::Connection<TokioIo<UnixStream>, Full<Bytes>>) {
-    tokio::spawn(async move {
-        let _ = connection.with_upgrades().await;
-    });
 }
 
 /// Parse one frame header of Docker's multiplexed stream: one byte of

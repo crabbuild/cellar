@@ -28,7 +28,7 @@ pub(crate) type BackgroundRegistration = Box<dyn Any + Send>;
 pub(crate) struct ContextCleanup {
     pub retire_input_gates: fn(&IoContext),
     pub close_websockets: fn(&IoContext, Vec<u64>),
-    pub close_tcp: fn(u64),
+    pub close_tcp: fn(&IoContext, u64),
 }
 
 struct ContextRegistration {
@@ -311,6 +311,7 @@ impl RequestVfs {
 /// and cleanup callbacks; the host never interprets engine handles. A weak
 /// registry registration attributes continuations without retaining the event.
 pub struct IoContext {
+    host_services: Arc<crate::host_services::HostServices>,
     pub(crate) native_activation: Option<Arc<crate::application::Activation>>,
     registration: Option<ContextRegistration>,
     engine: OnceLock<Box<dyn Any + Send + Sync>>,
@@ -609,6 +610,7 @@ impl IoContext {
 
     pub(crate) fn with_options(limits: Option<ResourceLimits>, tail_reporting: bool) -> Arc<Self> {
         Arc::new(Self {
+            host_services: asyncrt::services(),
             registration: None,
             engine: OnceLock::new(),
             cleanup: OnceLock::from(ContextCleanup {
@@ -616,7 +618,9 @@ impl IoContext {
                     let _ = crate::host_gates::abandon_context_input_gates(context);
                 },
                 close_websockets: crate::host_gates::ws_close_request_sockets,
-                close_tcp: crate::host_tcp::free,
+                close_tcp: |context, id| {
+                    crate::host_tcp::free_in(&context.host_services().tcp(), id);
+                },
             }),
             cpu_clock: OnceLock::new(),
             call_chains: CallChains::default(),
@@ -645,6 +649,10 @@ impl IoContext {
             native_activation: None,
             tail_logs: Mutex::new(TailLogCapture::default()),
         })
+    }
+
+    pub(crate) fn host_services(&self) -> &Arc<crate::host_services::HostServices> {
+        &self.host_services
     }
 
     /// Take an op that another event's turn enqueued for this event.
@@ -827,7 +835,7 @@ impl IoContext {
         let tcp: Vec<u64> = self.tcp_sockets.lock().unwrap().drain(..).collect();
         if let Some(cleanup) = self.cleanup.get() {
             for id in tcp {
-                (cleanup.close_tcp)(id);
+                (cleanup.close_tcp)(self, id);
             }
         }
     }

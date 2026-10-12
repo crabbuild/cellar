@@ -380,7 +380,7 @@ fn close_owned_websockets(owner: &IoContext, sockets: Vec<u64>) {
     CLOSED_SOCKETS.with(|closed| closed.borrow_mut().extend(sockets));
 }
 
-fn close_owned_tcp(socket: u64) {
+fn close_owned_tcp(_: &IoContext, socket: u64) {
     CLOSED_SOCKETS.with(|closed| closed.borrow_mut().push(socket));
 }
 

@@ -25,6 +25,12 @@ pub(super) fn print_help() -> anyhow::Result<()> {
          application. Fleet graphs watch the deployment pointer and accept only\n\
          registered script versions. Use the application's Rust delivery workflow\n\
          to build and publish code. The source deploy/dev commands are unavailable.\n\n\
+         COMPILED LOADER BUDGETS:\n\
+           CELLAR_LOADER_MAX_WORKERS                Workers per host (default: 256)\n\
+           CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL  Workers per script and generation\n\
+                                                   (default: host limit minus one, minimum 1)\n\
+           CELLAR_LOADER_MAX_ENV_BYTES              Copied values and routes (default: 1 MiB)\n\
+           CELLAR_LOADER_MAX_PROPS_BYTES            Entrypoint and class props (default: 1 MiB)\n\n\
          Node environment and operator options are documented in the cellar docs."
     ))
 }
@@ -39,13 +45,14 @@ pub(super) fn print_help() -> anyhow::Result<()> {
 /// fleet deployment pointer. Publishing native artifacts remains a separate
 /// delivery concern; this runner does not compile or download Rust code.
 ///
-/// Call once from `main`, outside a Tokio runtime. Like the source daemon,
-/// the runner owns process signals and can exit the process after shutdown.
+/// Call once from `main`, outside a Tokio runtime. The runner owns process
+/// signals and can exit the process after shutdown. Use [`super::Node`] to embed
+/// an engine while retaining control of the process and infrastructure.
 /// Production applications should install jemalloc as their global allocator
 /// so the existing allocator pressure metrics measure application allocations.
 pub struct NativeDaemon {
     local_graph: Option<DeploymentGraph>,
-    applications: NativeApplications,
+    applications: CompiledApplications,
 }
 
 impl NativeDaemon {
@@ -57,7 +64,7 @@ impl NativeDaemon {
     pub fn local(graph: DeploymentGraph) -> Self {
         Self {
             local_graph: Some(graph),
-            applications: NativeApplications::default(),
+            applications: CompiledApplications::default(),
         }
     }
 
@@ -67,7 +74,7 @@ impl NativeDaemon {
     pub fn fleet() -> Self {
         Self {
             local_graph: None,
-            applications: NativeApplications::default(),
+            applications: CompiledApplications::default(),
         }
     }
 
@@ -80,24 +87,7 @@ impl NativeDaemon {
         version: impl Into<String>,
         factory: impl Fn() -> anyhow::Result<Arc<dyn Application>> + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        let script = script.into();
-        let version = version.into();
-        anyhow::ensure!(
-            !script.is_empty(),
-            "native application script must not be empty"
-        );
-        anyhow::ensure!(
-            !version.is_empty(),
-            "native application version must not be empty"
-        );
-        let key = (script, version);
-        anyhow::ensure!(
-            !self.applications.factories.contains_key(&key),
-            "duplicate compiled application {} at version {}",
-            key.0,
-            key.1
-        );
-        self.applications.factories.insert(key, Arc::new(factory));
+        self.applications = self.applications.register(script, version, factory)?;
         Ok(self)
     }
 
@@ -140,12 +130,41 @@ impl NativeDaemon {
     }
 }
 
-#[derive(Default)]
-pub(super) struct NativeApplications {
+/// Immutable compiled code registrations shared by library nodes and the CLI.
+#[derive(Clone, Default)]
+pub struct CompiledApplications {
     factories: HashMap<(String, String), Arc<ApplicationFactory>>,
 }
 
-impl NativeApplications {
+impl CompiledApplications {
+    /// Register one script and code version before constructing a generation.
+    pub fn register(
+        mut self,
+        script: impl Into<String>,
+        version: impl Into<String>,
+        factory: impl Fn() -> anyhow::Result<Arc<dyn Application>> + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
+        let script = script.into();
+        let version = version.into();
+        anyhow::ensure!(
+            !script.is_empty(),
+            "native application script must not be empty"
+        );
+        anyhow::ensure!(
+            !version.is_empty(),
+            "native application version must not be empty"
+        );
+        let key = (script, version);
+        anyhow::ensure!(
+            !self.factories.contains_key(&key),
+            "duplicate compiled application {} at version {}",
+            key.0,
+            key.1
+        );
+        self.factories.insert(key, Arc::new(factory));
+        Ok(self)
+    }
+
     fn check_package(&self, package: &crate::native_deploy::Package) -> anyhow::Result<()> {
         let executable = crate::native_deploy::current_executable_identity()?;
         // Validate every registration before invoking any application factory.
@@ -253,7 +272,7 @@ fn registration_version(deployment: &crate::fleet::LoadedDeployment) -> &str {
 
 #[derive(Clone)]
 pub(super) enum Backend {
-    Native(Arc<NativeApplications>),
+    Native(Arc<CompiledApplications>),
 }
 
 impl Backend {

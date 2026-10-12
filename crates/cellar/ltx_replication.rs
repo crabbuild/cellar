@@ -4,8 +4,10 @@
 //! The node's replication engine behind one engine-neutral handle.
 
 use crate::ltx_repl::LtxRepl;
+use crate::replica_storage::ReplicaStorage;
 use crate::replication::ActivationOptions;
 use crate::replication::StorageCredentials;
+use crate::replication_options::ReplicationOptions;
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::path::PathBuf;
@@ -30,7 +32,8 @@ impl Replication {
         self.ltx.paged_fleet()
     }
 
-    pub fn start(
+    /// CLI adapter that resolves environment and creates backend clients.
+    pub fn from_environment(
         bucket: crate::bucket::Bucket,
         watch: &Path,
         endpoint: Option<String>,
@@ -38,7 +41,7 @@ impl Replication {
         credentials: Option<StorageCredentials>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            ltx: Arc::new(LtxRepl::start(
+            ltx: Arc::new(LtxRepl::start_from_environment(
                 watch,
                 bucket.backend(),
                 bucket.name,
@@ -48,6 +51,24 @@ impl Replication {
                 credentials,
             )?),
         })
+    }
+
+    /// Start production replication inside its owning execution domain, using
+    /// the caller's exact storage client and explicit policy. No environment
+    /// is read and no replacement connection pool is constructed.
+    pub fn start(
+        watch: &Path,
+        storage: ReplicaStorage,
+        options: ReplicationOptions,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            ltx: Arc::new(LtxRepl::start(watch, storage, options)?),
+        })
+    }
+
+    /// The immutable options selected when the engine started.
+    pub fn options(&self) -> &ReplicationOptions {
+        self.ltx.options()
     }
 
     /// The log tier installs its shipper and takeover interlock here.

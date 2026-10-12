@@ -294,7 +294,7 @@ impl ObjectStoreConfig {
 
     /// The concrete S3 store, kept beside the erased one so the paged fault
     /// path can borrow its credential.
-    fn build_s3(&self) -> Result<Arc<AmazonS3>> {
+    pub fn build_s3(&self) -> Result<Arc<AmazonS3>> {
         if self.bucket.is_empty() {
             return Err(Error::Other("s3: bucket name is required".into()));
         }
@@ -557,10 +557,11 @@ fn match_filebase(host: &str) -> Option<String> {
 /// s3/replica_client.go:322-477), so construction is infallible and race-free.
 pub struct ObjectStoreClient {
     store: tokio::sync::OnceCell<Arc<dyn ObjectStore>>,
-    /// The config's S3 store, initialized for replica I/O or when a shared
-    /// store's paged reader needs an ambient credential provider.
+    /// The configured or supplied S3 store, retaining the original provider
+    /// for explicitly selected signed blocking page reads.
     s3: tokio::sync::OnceCell<Arc<AmazonS3>>,
     config: ObjectStoreConfig,
+    native_s3_ranges: bool,
 }
 
 impl std::fmt::Debug for ObjectStoreClient {
@@ -579,11 +580,14 @@ impl ObjectStoreClient {
             store: tokio::sync::OnceCell::new(),
             s3: tokio::sync::OnceCell::new(),
             config,
+            native_s3_ranges: true,
         }
     }
 
     /// Create a client directly from an already-built `ObjectStore`, such as an
-    /// in-memory store or a pre-configured backend.
+    /// in-memory store or a pre-configured backend. Every operation, including
+    /// paged reads, uses this exact store. Use [`Self::with_s3_store`] to opt
+    /// into signed blocking S3 reads over its original credential provider.
     pub fn with_store(config: ObjectStoreConfig, store: Arc<dyn ObjectStore>) -> Self {
         let cell = tokio::sync::OnceCell::new();
         cell.set(store).ok();
@@ -591,6 +595,22 @@ impl ObjectStoreClient {
             store: cell,
             s3: tokio::sync::OnceCell::new(),
             config,
+            native_s3_ranges: false,
+        }
+    }
+
+    /// Share an explicitly configured S3 client and its credential provider.
+    /// `config` must describe that client's bucket, endpoint, region and
+    /// addressing. Paged reads borrow the supplied client's credentials;
+    /// they never construct a replacement client from ambient settings.
+    pub fn with_s3_store(config: ObjectStoreConfig, store: Arc<AmazonS3>) -> Self {
+        let s3 = tokio::sync::OnceCell::new();
+        s3.set(store.clone()).ok();
+        let client = Self::with_store(config, store);
+        Self {
+            s3,
+            native_s3_ranges: true,
+            ..client
         }
     }
 
@@ -613,36 +633,23 @@ impl ObjectStoreClient {
     /// thread SQLite is on, with no runtime in the loop.
     pub async fn blocking_range_reader(&self) -> Result<Box<dyn RangeReader>> {
         let config = &self.config;
-        // Only native S3 is read by a signed request of our own; any other
-        // store — the deterministic simulation's, a directory, memory —
-        // is read through the store on a helper thread.
+        // Only an explicitly selected native S3 client uses our signed fault
+        // path. A supplied generic store remains authoritative regardless of
+        // its Display name or concrete backend.
         let store = self.store().await?;
-        if !store.to_string().starts_with("AmazonS3") {
+        if !self.native_s3_ranges {
             return Ok(Box::new(StoreRangeReader::new(
                 store.clone(),
                 config.path.clone(),
             )));
         }
-        let mut provider = None;
-        let credential = if !config.access_key_id.is_empty() {
-            Arc::new(AwsCredential {
-                key_id: config.access_key_id.clone(),
-                secret_key: config.secret_access_key.clone(),
-                token: (!config.session_token.is_empty()).then(|| config.session_token.clone()),
-            })
-        } else {
-            // A shared store erases AmazonS3's credential provider. Waiting
-            // for replica I/O to install it leaves every paged restore with
-            // ambient credentials failing. Build it from the same config on
-            // demand; retain its provider so expired role credentials can
-            // refresh during page faults. Static keys need no second store.
-            let s3 = self.s3().await?;
-            provider = Some(s3.credentials().clone());
-            s3.credentials()
-                .get_credential()
-                .await
-                .map_err(map_os_error)?
-        };
+        let s3 = self.s3().await?;
+        let provider = Some(s3.credentials().clone());
+        let credential = s3
+            .credentials()
+            .get_credential()
+            .await
+            .map_err(map_os_error)?;
         let region = if config.region.is_empty() {
             DEFAULT_REGION.to_string()
         } else {
@@ -1220,8 +1227,7 @@ impl RangeReader for StoreRangeReader {
 
 pub struct S3RangeReader {
     credential: std::sync::RwLock<Arc<AwsCredential>>,
-    /// The store's provider when the credential came from an ambient chain
-    /// (STS, instance roles), which rotates; `None` for static keys.
+    /// The original S3 client's provider, retained for credential refresh.
     provider: Option<object_store::aws::AwsCredentialProvider>,
     region: String,
     base: String,
@@ -1310,7 +1316,7 @@ impl RangeReader for S3RangeReader {
         loop {
             match self.get(&url, offset, len) {
                 Ok(body) => return Ok(body),
-                // A rotated ambient credential fails with 403; take a fresh
+                // A rotated provider credential fails with 403; take a fresh
                 // one from the provider once, then treat a second 403 as
                 // final.
                 Err(Error::Forbidden) if !refreshed && self.provider.is_some() => {
@@ -1330,7 +1336,7 @@ impl RangeReader for S3RangeReader {
     }
 }
 
-/// Fetches a fresh credential from an ambient provider, from a thread that
+/// Fetches a fresh credential from the retained provider, from a thread that
 /// is not on any runtime: the fault path runs on whatever thread SQLite is
 /// on, which may be a runtime worker where `block_on` panics, so the async
 /// provider is driven on a helper thread with its own runtime.

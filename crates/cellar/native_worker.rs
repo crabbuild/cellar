@@ -880,8 +880,18 @@ impl NativeWorker {
             entry.context.close_sockets();
             return adopt(entry);
         }
-        if entry.reply.is_some() && take_request_cancellation(entry.request_id) {
-            let shutdown = take_shutdown_cancellation(entry.request_id);
+        if entry.reply.is_some()
+            && entry
+                .context
+                .host_services()
+                .gates()
+                .take_request_cancellation(entry.request_id)
+        {
+            let shutdown = entry
+                .context
+                .host_services()
+                .gates()
+                .take_shutdown_cancellation(entry.request_id);
             return self.cancel(entry, shutdown);
         }
         let Some(native) = entry.native.take() else {
@@ -915,7 +925,8 @@ impl NativeWorker {
             native.delivery_gate = None;
         } else if let Some(scope) = &entry.scope {
             if native.delivery_gate.is_none() {
-                native.delivery_gate = cell_gate_wait(scope);
+                native.delivery_gate =
+                    cell_gate_wait_in(&entry.context.host_services().gates(), scope);
             }
             if let Some(wait) = &mut native.delivery_gate {
                 match Pin::new(wait).poll(&mut cx) {
@@ -926,7 +937,9 @@ impl NativeWorker {
                             Ok(Ok(())) => {
                                 // Opening a gate wakes every waiter; another
                                 // holder can take it before this event's turn.
-                                if let Some(wait) = cell_gate_wait(scope) {
+                                if let Some(wait) =
+                                    cell_gate_wait_in(&entry.context.host_services().gates(), scope)
+                                {
                                     native.delivery_gate = Some(wait);
                                     // Register this turn's wake before yielding.
                                     let _ = Pin::new(native.delivery_gate.as_mut().unwrap())

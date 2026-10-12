@@ -20,17 +20,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tracing::warn;
 
-/// Stay-resident threshold: alarms due sooner than this keep their cell
-/// resident when residency is cheaper than a wake cycle. Alarms further out
-/// are evicted behind an entry.
-pub fn resident_ms() -> i64 {
-    static MS: std::sync::OnceLock<i64> = std::sync::OnceLock::new();
-    *MS.get_or_init(|| {
-        crate::env_vars::with_default("CELLAR_ALARM_RESIDENT_MS", 3_600_000)
-            .expect("validated CELLAR_ALARM_RESIDENT_MS")
-    })
-}
-
 /// Scan the due wake buckets: used by the boot-time orphan scan and the
 /// periodic waker tick.
 ///
@@ -256,7 +245,7 @@ async fn run_due_scans(
     let mut tick = crate::asyncrt::interval(Duration::from_millis(tick_ms));
     tick.set_missed_tick_behavior(crate::asyncrt::MissedTickBehavior::Delay);
     tick.tick().await;
-    let mut dead_node_gc = crate::dead_node_gc::DeadNodeGc::default();
+    let mut dead_node_gc = crate::dead_node_gc::DeadNodeGc;
     loop {
         tick.tick().await;
         let elected = dead_node_gc.run_elected_pass(&bucket, &node, tick_ms).await;

@@ -9,11 +9,9 @@ use crate::host_gates::{await_egress_gate, egress_gate_request};
 use crate::http_streams::RequestBodyGuard;
 use cellar_native::clone::{encode, Object, StructuredValue, Value};
 use futures_util::FutureExt;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Weak;
 use tokio::sync::watch;
-
-static NEXT_MANAGER: AtomicU64 = AtomicU64::new(1);
 
 /// An exported cell class and its copied startup properties. A class with a
 /// storage migration must be addressed through its namespace instead.
@@ -23,14 +21,19 @@ pub struct Class {
     slot: Weak<crate::pool::Slot>,
     props: Arc<Vec<u8>>,
     loaded: Option<super::loader::Worker>,
+    service: Option<Weak<dyn host_facets::FacetService>>,
+    props_limit: usize,
 }
 impl Class {
     pub(crate) fn loaded(worker: super::loader::Worker, name: String) -> Self {
+        let props_limit = worker.props_limit();
         Self {
             name,
+            props_limit,
             slot: Weak::new(),
             props: Arc::new(Vec::new()),
             loaded: Some(worker),
+            service: None,
         }
     }
     pub fn with_props(&self, props: &StructuredValue) -> Result<Self> {
@@ -38,24 +41,22 @@ impl Class {
         // ctx.exports specialization below retains its object-only contract.
         if self.loaded.is_some() {
             return Ok(Self {
-                props: Arc::new(super::loader::props_bytes(props)?),
+                props: Arc::new(super::loader::props_bytes(props, self.props_limit)?),
                 ..self.clone()
             });
         }
+        let default_props;
         let props = if props.root == Value::Undefined {
-            StructuredValue::from_json(serde_json::json!({}))?
+            default_props = StructuredValue::from_json(serde_json::json!({}))?;
+            &default_props
         } else {
             anyhow::ensure!(
                 matches!(props.root, Value::Reference(_)),
                 "DurableObjectClass props must be an object."
             );
-            props.clone()
+            props
         };
-        let bytes = encode(&props)?;
-        anyhow::ensure!(
-            bytes.len() <= crate::host_loader::MAX_DYNAMIC_WORKER_PROPS_SIZE,
-            "worker loader: props exceed size limit"
-        );
+        let bytes = super::loader::props_bytes(props, self.props_limit)?;
         Ok(Self {
             props: Arc::new(bytes),
             ..self.clone()
@@ -69,6 +70,12 @@ impl Class {
                 None => FacetHost::NativeLoaded(worker.clone()),
             });
         }
+        let service = self
+            .service
+            .as_ref()
+            .and_then(Weak::upgrade)
+            .ok_or_else(|| anyhow!("facet class execution domain has retired"))?;
+        host_facets::check_facet_service(&service).map_err(anyhow::Error::msg)?;
         let slot = self
             .slot
             .upgrade()
@@ -208,8 +215,13 @@ impl Context {
         Ok(Class {
             name: name.into(),
             slot: Arc::downgrade(&slot),
-            props: Arc::new(encode(&StructuredValue::from_json(serde_json::json!({}))?)?),
+            props: Arc::new(super::loader::props_bytes(
+                &StructuredValue::from_json(serde_json::json!({}))?,
+                self.io.host_services().loader_policy().max_props_bytes,
+            )?),
             loaded: None,
+            service: Some(Arc::downgrade(&self.io.host_services().facets())),
+            props_limit: self.io.host_services().loader_policy().max_props_bytes,
         })
     }
 
@@ -229,7 +241,7 @@ impl Context {
                         activation: Arc::downgrade(activation),
                         slot: Arc::downgrade(&slot),
                         scope: activation.scope.clone(),
-                        owner: NEXT_MANAGER.fetch_add(1, Ordering::Relaxed),
+                        owner: self.io.host_services().facets().next_manager(),
                         entries: Mutex::new(Entries::default()),
                     })
                 })

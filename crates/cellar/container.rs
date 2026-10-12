@@ -29,8 +29,8 @@ use bytes::Bytes;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};
@@ -166,8 +166,6 @@ pub fn running_instances_by_class() -> std::collections::BTreeMap<String, u64> {
 const PIDS_LIMIT: u64 = 1024;
 /// The host interfaces of the two bridges, named so the fence can address
 /// them; Docker's default `br-<id>` changes with every recreation.
-const OPEN_BRIDGE: &str = "cellar0";
-const INTERNAL_BRIDGE: &str = "cellar1";
 const BRIDGE_NAME_OPTION: &str = "com.docker.network.bridge.name";
 /// The fence, installed on the node from a one-shot privileged container of
 /// the `cellar-fence` image: a container may reach the Internet and nothing
@@ -179,18 +177,18 @@ const BRIDGE_NAME_OPTION: &str = "com.docker.network.bridge.name";
 /// the metadata service live. Rules on the host side of the bridge cover
 /// every runtime, gVisor included, and no process inside a container can
 /// see them, let alone remove them.
-const FENCE_RULES: &str = r#"table inet cellar
-delete table inet cellar
-table inet cellar {
+const FENCE_RULES: &str = r#"table inet __TABLE__
+delete table inet __TABLE__
+table inet __TABLE__ {
   chain input {
     type filter hook input priority -10; policy accept;
-    iifname { "cellar0", "cellar1" } ct state established,related accept
-    iifname { "cellar0", "cellar1" } reject
+    iifname { "__OPEN__", "__INTERNAL__" } ct state established,related accept
+    iifname { "__OPEN__", "__INTERNAL__" } reject
   }
   chain forward {
     type filter hook forward priority -10; policy accept;
-    iifname { "cellar0", "cellar1" } ip daddr { 169.254.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 } reject
-    iifname { "cellar0", "cellar1" } ip6 daddr { fe80::/10, fc00::/7 } reject
+    iifname { "__OPEN__", "__INTERNAL__" } ip daddr { 169.254.0.0/16, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10 } reject
+    iifname { "__OPEN__", "__INTERNAL__" } ip6 daddr { fe80::/10, fc00::/7 } reject
   }
 }
 "#;
@@ -263,6 +261,7 @@ pub struct CellContainer {
     /// Processes `exec()` started in this container. An object drops one
     /// after `output()`; the rest go with the container.
     processes: Mutex<Vec<u64>>,
+    process_registry: Weak<ProcessRegistry>,
     /// The exit of the current run, `None` while it runs. `Some(Err)` is
     /// an engine failure the wait could not attribute to the process.
     /// Written with `send_replace`: a plain `send` discards the value
@@ -285,7 +284,9 @@ impl CellContainer {
             .lock()
             .unwrap()
             .retain(|current| *current != id);
-        drop_process(id);
+        if let Some(registry) = self.process_registry.upgrade() {
+            registry.remove(id);
+        }
     }
     pub fn running(&self) -> bool {
         self.state.lock().unwrap().running
@@ -339,6 +340,8 @@ impl CellContainer {
 }
 
 pub struct ContainerEngine {
+    service: Weak<ContainerService>,
+    names: ResourceNames,
     /// See `Config::runtime`.
     runtime: Option<String>,
     /// See `Config::dns`.
@@ -359,7 +362,10 @@ pub struct ContainerEngine {
 }
 
 /// What the runtime told this module about the node: set once at start.
+#[derive(Clone)]
 struct Config {
+    docker: Option<Docker>,
+    namespace: Option<String>,
     node: String,
     bucket: Option<crate::bucket::Bucket>,
     /// `CELLAR_CONTAINER_RUNTIME`: the OCI runtime every container starts
@@ -378,35 +384,208 @@ struct Config {
     data_dir: PathBuf,
 }
 
-static CONFIG: RwLock<Option<Config>> = RwLock::new(None);
-/// The deployment's container classes. Replaced on every generation swap;
-/// a running container keeps the spec it started with.
-static SPECS: RwLock<Vec<Arc<ContainerSpec>>> = RwLock::new(Vec::new());
-/// The deployment's `cellar-fence` image; see `Manifest::fence_image`.
-static FENCE_IMAGE: RwLock<Option<String>> = RwLock::new(None);
-static IMAGE_ARCHIVES: std::sync::LazyLock<RwLock<HashMap<String, ImageArchive>>> =
-    std::sync::LazyLock::new(|| RwLock::new(HashMap::new()));
-/// The engine, connected on first use. A node whose deployment declares no
-/// container class never opens the socket.
-static ENGINE: tokio::sync::OnceCell<Arc<ContainerEngine>> = tokio::sync::OnceCell::const_new();
+/// Infrastructure for one embedded host. An explicit socket avoids process
+/// environment discovery. A namespace is stable across restarts and must be
+/// unique among hosts sharing a daemon; when omitted it uses node and state path.
+#[derive(Clone, Debug)]
+pub struct EngineOptions {
+    /// Docker or Podman Engine API Unix socket owned by the application.
+    pub socket: PathBuf,
+    /// Stable identity for restart cleanup. Omission derives it from the node
+    /// ID and absolute state path. Distinct hosts must have distinct identities.
+    pub namespace: Option<String>,
+    /// Default OCI runtime, overridden by a class's explicit runtime.
+    pub runtime: Option<String>,
+    /// Resolvers; an empty list uses the daemon's default or the runtime default.
+    pub dns: Vec<String>,
+}
 
-pub fn configure(node: String, bucket: Option<crate::bucket::Bucket>, data_dir: PathBuf) {
-    let runtime = std::env::var("CELLAR_CONTAINER_RUNTIME")
-        .ok()
-        .filter(|runtime| !runtime.is_empty());
-    let dns = std::env::var("CELLAR_CONTAINER_DNS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|resolver| resolver.trim().to_string())
-        .filter(|resolver| !resolver.is_empty())
-        .collect();
-    *CONFIG.write().unwrap() = Some(Config {
-        node,
-        bucket,
-        runtime,
-        dns,
-        data_dir,
-    });
+#[derive(Default)]
+struct Settings {
+    options: Option<EngineOptions>,
+    config: Option<Config>,
+    sealed: bool,
+}
+
+#[derive(Default)]
+struct Deployment {
+    specs: Vec<Arc<ContainerSpec>>,
+    fence_image: Option<String>,
+    archives: HashMap<String, ImageArchive>,
+}
+
+#[derive(Default)]
+pub(crate) struct ContainerService {
+    domain: OnceLock<asyncrt::DomainToken>,
+    closed: AtomicBool,
+    settings: Mutex<Settings>,
+    deployment: RwLock<Deployment>,
+    engine: Mutex<Option<Arc<ContainerEngine>>>,
+    initialize: tokio::sync::Mutex<()>,
+    processes: Arc<ProcessRegistry>,
+}
+
+impl ContainerService {
+    pub(crate) fn bind_domain(&self, domain: asyncrt::DomainToken) {
+        if let Err(candidate) = self.domain.set(domain) {
+            assert!(
+                self.domain
+                    .get()
+                    .is_some_and(|bound| bound.same_owner(&candidate)),
+                "container services cannot belong to more than one execution domain"
+            );
+        }
+    }
+
+    fn check_open(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.closed.load(Ordering::Acquire),
+            "container host is closed"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn configure_options(&self, options: EngineOptions) -> anyhow::Result<()> {
+        let mut settings = self.settings.lock().unwrap();
+        self.check_open()?;
+        anyhow::ensure!(
+            settings.config.is_none(),
+            "configure container infrastructure before starting the host"
+        );
+        anyhow::ensure!(
+            !options.socket.as_os_str().is_empty(),
+            "container socket is empty"
+        );
+        anyhow::ensure!(
+            options
+                .namespace
+                .as_ref()
+                .is_none_or(|namespace| !namespace.is_empty()),
+            "container namespace is empty"
+        );
+        settings.options = Some(options);
+        Ok(())
+    }
+
+    fn configure(
+        &self,
+        node: String,
+        bucket: Option<crate::bucket::Bucket>,
+        data_dir: PathBuf,
+    ) -> anyhow::Result<()> {
+        let mut settings = self.settings.lock().unwrap();
+        self.check_open()?;
+        anyhow::ensure!(
+            !settings.sealed,
+            "container host configuration is already in use"
+        );
+        let (docker, namespace, runtime, dns) = match &settings.options {
+            Some(options) => (
+                Some(Docker::new(&options.socket)),
+                options.namespace.clone(),
+                options.runtime.clone(),
+                options.dns.clone(),
+            ),
+            None => {
+                let runtime = std::env::var("CELLAR_CONTAINER_RUNTIME")
+                    .ok()
+                    .filter(|runtime| !runtime.is_empty());
+                let dns = std::env::var("CELLAR_CONTAINER_DNS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|resolver| resolver.trim().to_string())
+                    .filter(|resolver| !resolver.is_empty())
+                    .collect();
+                (None, None, runtime, dns)
+            }
+        };
+        settings.config = Some(Config {
+            docker,
+            namespace,
+            node,
+            bucket,
+            runtime,
+            dns,
+            data_dir: std::path::absolute(data_dir)?,
+        });
+        Ok(())
+    }
+
+    async fn engine(self: &Arc<Self>) -> anyhow::Result<Arc<ContainerEngine>> {
+        self.check_open()?;
+        let _initializing = self.initialize.lock().await;
+        self.check_open()?;
+        if let Some(engine) = self.engine.lock().unwrap().clone() {
+            return Ok(engine);
+        }
+        let config = {
+            let mut settings = self.settings.lock().unwrap();
+            let config = settings
+                .config
+                .clone()
+                .ok_or_else(|| anyhow!("the container engine is not configured on this host"))?;
+            settings.sealed = true;
+            config
+        };
+        let docker = config
+            .docker
+            .clone()
+            .or_else(Docker::discover)
+            .ok_or_else(|| {
+                anyhow!(
+                    "no container engine: configure a unix socket or run a Docker or Podman daemon"
+                )
+            })?;
+        let engine = Arc::new(ContainerEngine::connect(self, docker, config).await?);
+        let mut cache = self.engine.lock().unwrap();
+        self.check_open()?;
+        *cache = Some(engine.clone());
+        Ok(engine)
+    }
+
+    #[allow(clippy::disallowed_methods)] // Forced cleanup uses the application runtime after admission closes.
+    pub(crate) fn close(&self) {
+        if self.closed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.processes.close();
+        let engine = self.engine.lock().unwrap().take();
+        self.settings.lock().unwrap().config = None;
+        *self.deployment.write().unwrap() = Deployment::default();
+        let Some(engine) = engine else {
+            return;
+        };
+        engine.close_cells();
+        if let Some(domain) = self.domain.get() {
+            let cleanup_domain = domain.clone();
+            let cleanup = domain.spawn_cleanup(async move {
+                cleanup_domain.wait_for_work().await;
+                // Infrastructure may be unavailable during forced shutdown.
+                // Bound cleanup without consuming the surrounding runtime.
+                match tokio::time::timeout(Duration::from_secs(10), engine.reap()).await {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => tracing::warn!(event = "container_shutdown_reap_failed", %error, "containers of this host may still be running"),
+                    Err(_) => tracing::warn!(event = "container_shutdown_reap_timeout", "containers of this host may still be running"),
+                }
+            });
+            if let Ok(task) = cleanup {
+                task.detach();
+            }
+        }
+    }
+}
+
+/// Configure the current host. Embedded applications can first call
+/// [`crate::host_services::HostServices::configure_containers`] to supply their
+/// infrastructure directly; the process runner otherwise reads its environment.
+pub fn configure(
+    node: String,
+    bucket: Option<crate::bucket::Bucket>,
+    data_dir: PathBuf,
+) -> anyhow::Result<()> {
+    asyncrt::services()
+        .containers()
+        .configure(node, bucket, data_dir)
 }
 
 pub fn install_specs(
@@ -414,58 +593,47 @@ pub fn install_specs(
     fence_image: Option<String>,
     archives: Vec<ImageArchive>,
 ) {
-    *SPECS.write().unwrap() = specs.into_iter().map(Arc::new).collect();
-    *FENCE_IMAGE.write().unwrap() = fence_image;
-    *IMAGE_ARCHIVES.write().unwrap() = archives
-        .into_iter()
-        .map(|archive| (archive.image.clone(), archive))
-        .collect();
+    let service = asyncrt::services().containers();
+    let mut deployment = service.deployment.write().unwrap();
+    if service.closed.load(Ordering::Acquire) {
+        return;
+    }
+    *deployment = Deployment {
+        specs: specs.into_iter().map(Arc::new).collect(),
+        fence_image,
+        archives: archives
+            .into_iter()
+            .map(|archive| (archive.image.clone(), archive))
+            .collect(),
+    };
 }
 
 pub fn spec(class: &str) -> Option<Arc<ContainerSpec>> {
-    SPECS
-        .read()
-        .unwrap()
+    let service = asyncrt::services().containers();
+    if service.closed.load(Ordering::Acquire) {
+        return None;
+    }
+    let deployment = service.deployment.read().unwrap();
+    deployment
+        .specs
         .iter()
         .find(|spec| spec.class_name == class)
         .cloned()
 }
 
-/// The engine, connecting on the first call. A failure is returned rather
-/// than cached, so a daemon that comes up later is found by the next call.
+/// Connect the current host on first use. Connection failures are retryable.
 pub async fn engine() -> anyhow::Result<Arc<ContainerEngine>> {
-    ENGINE
-        .get_or_try_init(|| async {
-            let (node, bucket, runtime, dns, data_dir) = {
-                let config = CONFIG.read().unwrap();
-                let config = config.as_ref().ok_or_else(|| {
-                    anyhow!("the container engine is not configured on this node")
-                })?;
-                (
-                    config.node.clone(),
-                    config.bucket.clone(),
-                    config.runtime.clone(),
-                    config.dns.clone(),
-                    config.data_dir.clone(),
-                )
-            };
-            let docker = Docker::discover().ok_or_else(|| {
-                anyhow!(
-                    "no container engine: set DOCKER_HOST to a unix socket, or run a Docker or \
-                     Podman daemon on this node"
-                )
-            })?;
-            Ok(Arc::new(
-                ContainerEngine::connect(docker, node, bucket, runtime, dns, data_dir).await?,
-            ))
-        })
-        .await
-        .cloned()
+    asyncrt::services().containers().engine().await
 }
 
-/// The engine only if a previous call connected it.
+/// The current host's engine, if already connected.
 pub fn engine_if_ready() -> Option<Arc<ContainerEngine>> {
-    ENGINE.get().cloned()
+    let service = asyncrt::services().containers();
+    if service.closed.load(Ordering::Acquire) {
+        return None;
+    }
+    let engine = service.engine.lock().unwrap().clone();
+    engine
 }
 
 /// Destroy every container of this node at process exit. A preserve
@@ -504,7 +672,13 @@ pub async fn prewarm() {
             "the container bridges are not fenced; no container starts on this node"
         );
     }
-    let specs = SPECS.read().unwrap().clone();
+    let specs = asyncrt::services()
+        .containers()
+        .deployment
+        .read()
+        .unwrap()
+        .specs
+        .clone();
     for spec in specs {
         if let Err(error) = engine.ensure_image(&spec.image).await {
             tracing::warn!(
@@ -523,14 +697,21 @@ impl ContainerEngine {
     /// containers still belong to cells it will own again, and a container
     /// whose object has lost track of it is a leak, so a restart starts
     /// clean. The next `start()` of each object creates a fresh one.
-    pub async fn connect(
+    async fn connect(
+        service: &Arc<ContainerService>,
         docker: Docker,
-        node: String,
-        bucket: Option<crate::bucket::Bucket>,
-        runtime: Option<String>,
-        dns: Vec<String>,
-        data_dir: PathBuf,
+        config: Config,
     ) -> anyhow::Result<Self> {
+        let Config {
+            node,
+            bucket,
+            runtime,
+            dns,
+            data_dir,
+            namespace,
+            ..
+        } = config;
+        let names = ResourceNames::new(&node, &data_dir, namespace.as_deref());
         // Write the resolv.conf once, to bind into every container that runs
         // under a non-default runtime. gVisor cannot reach Docker's embedded
         // resolver, so a bind-mounted file with a public resolver, which the
@@ -544,7 +725,7 @@ impl ContainerEngine {
             dns.clone()
         };
         let resolv_conf = {
-            let path = data_dir.join("container-resolv.conf");
+            let path = data_dir.join(format!("container-resolv-{}.conf", names.tag));
             let body: String = resolvers
                 .iter()
                 .map(|resolver| format!("nameserver {resolver}\n"))
@@ -562,6 +743,8 @@ impl ContainerEngine {
             }
         };
         let engine = Self {
+            service: Arc::downgrade(service),
+            names,
             docker,
             node,
             bucket,
@@ -582,40 +765,80 @@ impl ContainerEngine {
     }
 
     async fn reap(&self) -> anyhow::Result<()> {
-        // Reap Cellar containers left on this node.
-        for label in ["cellar.node"] {
-            let filters = json!({ "label": [format!("{label}={}", self.node)] }).to_string();
-            let reply = self
-                .docker
-                .expect(
-                    "GET",
-                    &format!(
-                        "/containers/json?all=true&filters={}",
-                        percent_encoding::utf8_percent_encode(
-                            &filters,
-                            percent_encoding::NON_ALPHANUMERIC
-                        )
-                    ),
-                    None,
-                    "list containers",
-                )
-                .await?;
-            let list = reply.json()?;
-            for entry in list.as_array().into_iter().flatten() {
-                if let Some(id) = entry.get("Id").and_then(Value::as_str) {
-                    let _ = self
-                        .docker
-                        .call("DELETE", &format!("/containers/{id}?force=true"), None)
-                        .await;
-                }
+        let filters = json!({ "label": [format!("cellar.node={}", self.node), format!("cellar.host={}", self.names.key)] }).to_string();
+        let reply = self
+            .docker
+            .expect(
+                "GET",
+                &format!(
+                    "/containers/json?all=true&filters={}",
+                    percent_encoding::utf8_percent_encode(
+                        &filters,
+                        percent_encoding::NON_ALPHANUMERIC
+                    )
+                ),
+                None,
+                "list containers",
+            )
+            .await?;
+        let list = reply.json()?;
+        for entry in list.as_array().into_iter().flatten() {
+            if let Some(id) = entry.get("Id").and_then(Value::as_str) {
+                let removed = self
+                    .docker
+                    .call("DELETE", &format!("/containers/{id}?force=true"), None)
+                    .await?;
+                anyhow::ensure!(
+                    removed.status.is_success() || removed.status.as_u16() == 404,
+                    "reap container failed with [{}] {}",
+                    removed.status.as_u16(),
+                    removed.message()
+                );
             }
         }
         Ok(())
     }
 
+    pub(crate) fn check_owner(&self) -> anyhow::Result<Arc<ContainerService>> {
+        let service = self
+            .service
+            .upgrade()
+            .ok_or_else(|| anyhow!("container host is gone"))?;
+        service.check_open()?;
+        anyhow::ensure!(
+            Arc::ptr_eq(&service, &asyncrt::services().containers()),
+            "container belongs to another host"
+        );
+        Ok(service)
+    }
+
+    fn check_cell(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
+        self.check_owner()?;
+        anyhow::ensure!(
+            self.cell(&cell.scope)
+                .is_some_and(|current| Arc::ptr_eq(&current, cell)),
+            "container belongs to another or retired host activation"
+        );
+        Ok(())
+    }
+
+    fn close_cells(&self) {
+        let cells = std::mem::take(&mut *self.cells.lock().unwrap());
+        for cell in cells.into_values() {
+            let mut state = cell.state.lock().unwrap();
+            state.running = false;
+            state.address = Address::None;
+            state.sweeper = None;
+            let run = state.run;
+            drop(state);
+            cell.publish_exit(run, Err("container host is closed".into()));
+        }
+    }
+
     /// Make the class's image present in the engine, loading it from the
     /// bucket when it is not. Idempotent and serialized per image.
     pub async fn ensure_image(&self, image: &str) -> anyhow::Result<()> {
+        let service = self.check_owner()?;
         let lock = self
             .images
             .lock()
@@ -640,7 +863,13 @@ impl ContainerEngine {
             .bucket
             .as_ref()
             .ok_or_else(|| anyhow!("image {image} is not present in the container engine"))?;
-        let archive = IMAGE_ARCHIVES.read().unwrap().get(image).cloned();
+        let archive = service
+            .deployment
+            .read()
+            .unwrap()
+            .archives
+            .get(image)
+            .cloned();
         let key = match &archive {
             Some(archive) => archive.key()?,
             None => image_key(image),
@@ -675,29 +904,35 @@ impl ContainerEngine {
         if let Some(names) = guard.as_ref() {
             return Ok(names.clone());
         }
-        for (name, internal) in [("cellar", false), ("cellar-internal", true)] {
-            // A bridge keeps the options it was created with, so one from
-            // before containers were isolated from each other is replaced.
-            // The replacement fails while a container is attached, which a
-            // node start after its reap never has; a failure keeps the old
-            // bridge and says so rather than refusing every container.
+        for (name, internal) in [
+            (&self.names.open_network, false),
+            (&self.names.internal_network, true),
+        ] {
+            // Replace only resources carrying this host's namespace. An
+            // unusable bridge fails startup rather than bypassing isolation.
             let current = self
                 .docker
                 .call("GET", &format!("/networks/{name}"), None)
                 .await?;
             if current.status.is_success() {
                 let bridge = if internal {
-                    INTERNAL_BRIDGE
+                    &self.names.internal_bridge
                 } else {
-                    OPEN_BRIDGE
+                    &self.names.open_bridge
                 };
-                let current_options = current
-                    .json()
-                    .ok()
-                    .and_then(|network| network.get("Options").cloned())
-                    .unwrap_or(Value::Null);
+                let network = current.json()?;
+                anyhow::ensure!(
+                    network
+                        .pointer("/Labels/cellar.host")
+                        .and_then(Value::as_str)
+                        == Some(&self.names.key),
+                    "container network {name} belongs to another host"
+                );
+                let current_options = network.get("Options").cloned().unwrap_or(Value::Null);
                 let option = |key: &str| current_options.get(key).and_then(Value::as_str);
-                if option(ICC_OPTION) == Some("false") && option(BRIDGE_NAME_OPTION) == Some(bridge)
+                if network.get("Internal").and_then(Value::as_bool) == Some(internal)
+                    && option(ICC_OPTION) == Some("false")
+                    && option(BRIDGE_NAME_OPTION) == Some(bridge)
                 {
                     continue;
                 }
@@ -709,10 +944,12 @@ impl ContainerEngine {
                     tracing::warn!(
                         network = name,
                         error = %removed.message(),
-                        "the container bridge predates container isolation and is in use; \
-                         containers on it can reach each other until the node restarts idle"
+                        "the container bridge cannot be replaced while in use"
                     );
-                    continue;
+                    return Err(anyhow!(
+                        "replace container network {name}: {}",
+                        removed.message()
+                    ));
                 }
             }
             let reply = self
@@ -724,14 +961,50 @@ impl ContainerEngine {
                         "Name": name,
                         "Driver": "bridge",
                         "Internal": internal,
+                        "Labels": { "cellar.host": self.names.key },
                         "Options": {
                             ICC_OPTION: "false",
-                            BRIDGE_NAME_OPTION: if internal { INTERNAL_BRIDGE } else { OPEN_BRIDGE },
+                            BRIDGE_NAME_OPTION: if internal { &self.names.internal_bridge } else { &self.names.open_bridge },
                         },
                     })),
                 )
                 .await?;
-            // 409: it exists, which is the steady state.
+            if reply.status.as_u16() == 409 {
+                // A competing creator must not bypass ownership or isolation.
+                let network = self
+                    .docker
+                    .expect(
+                        "GET",
+                        &format!("/networks/{name}"),
+                        None,
+                        "inspect container network",
+                    )
+                    .await?
+                    .json()?;
+                let bridge = if internal {
+                    &self.names.internal_bridge
+                } else {
+                    &self.names.open_bridge
+                };
+                anyhow::ensure!(
+                    network
+                        .pointer("/Labels/cellar.host")
+                        .and_then(Value::as_str)
+                        == Some(&self.names.key)
+                        && network.get("Internal").and_then(Value::as_bool) == Some(internal)
+                        && network
+                            .get("Options")
+                            .and_then(|options| options.get(ICC_OPTION))
+                            .and_then(Value::as_str)
+                            == Some("false")
+                        && network
+                            .get("Options")
+                            .and_then(|options| options.get(BRIDGE_NAME_OPTION))
+                            .and_then(Value::as_str)
+                            == Some(bridge),
+                    "container network {name} has foreign ownership or incompatible isolation"
+                );
+            }
             if !reply.status.is_success() && reply.status.as_u16() != 409 {
                 return Err(anyhow!(
                     "create network {name} failed with [{}] {}",
@@ -740,7 +1013,10 @@ impl ContainerEngine {
                 ));
             }
         }
-        let names = ("cellar".to_string(), "cellar-internal".to_string());
+        let names = (
+            self.names.open_network.clone(),
+            self.names.internal_network.clone(),
+        );
         *guard = Some(names.clone());
         Ok(names)
     }
@@ -752,23 +1028,31 @@ impl ContainerEngine {
     /// metadata service. The rules live in the kernel and outlive this
     /// process; a restart re-applies them, which is idempotent.
     pub async fn ensure_fence(&self) -> anyhow::Result<()> {
+        let service = self.check_owner()?;
         let mut fenced = self.fenced.lock().await;
         if *fenced {
             return Ok(());
         }
-        let image = FENCE_IMAGE.read().unwrap().clone().ok_or_else(|| {
-            anyhow!(
-                "this deployment has no fence image; deploy it again with this cellar, which \
+        let image = service
+            .deployment
+            .read()
+            .unwrap()
+            .fence_image
+            .clone()
+            .ok_or_else(|| {
+                anyhow!(
+                    "this deployment has no fence image; deploy it again with this cellar, which \
                  saves the cellar-fence image beside the container images"
-            )
-        })?;
+                )
+            })?;
         self.ensure_image(&image).await?;
         self.networks().await?;
+        let rules = self.names.fence_rules();
         let body = json!({
             "Image": image,
-            "Env": [format!("CELLAR_NFT={FENCE_RULES}")],
+            "Env": [format!("CELLAR_NFT={rules}")],
             "Cmd": ["sh", "-c", "printf '%s' \"$CELLAR_NFT\" | nft -f -"],
-            "Labels": { "cellar.node": self.node, "cellar.fence": "1" },
+            "Labels": { "cellar.node": self.node, "cellar.host": self.names.key, "cellar.fence": "1" },
             "HostConfig": { "NetworkMode": "host", "CapAdd": ["NET_ADMIN"] },
         });
         let created = self
@@ -826,7 +1110,7 @@ impl ContainerEngine {
         outcome.context("fence the container bridges")?;
         tracing::info!(
             event = "container_bridges_fenced",
-            bridges = format!("{OPEN_BRIDGE},{INTERNAL_BRIDGE}"),
+            bridges = format!("{},{}", self.names.open_bridge, self.names.internal_bridge),
             "containers can reach the Internet and nothing of the node's own"
         );
         *fenced = true;
@@ -859,7 +1143,16 @@ impl ContainerEngine {
     /// activation on this node left running. Called at cell start for a
     /// class with a spec; the object's `running` reads the answer.
     pub async fn attach(&self, scope: &str, class: &str) -> anyhow::Result<Arc<CellContainer>> {
-        let spec = spec(class).ok_or_else(|| anyhow!("class {class} has no container"))?;
+        let service = self.check_owner()?;
+        let spec = service
+            .deployment
+            .read()
+            .unwrap()
+            .specs
+            .iter()
+            .find(|spec| spec.class_name == class)
+            .cloned()
+            .ok_or_else(|| anyhow!("class {class} has no container"))?;
         let previous = self.cell(scope);
         let _previous_control = match &previous {
             Some(cell) => Some(cell.sdk_control.lock().await),
@@ -879,10 +1172,11 @@ impl ContainerEngine {
                 Arc::new(CellContainer {
                     sdk_control: tokio::sync::Mutex::new(()),
                     scope: scope.to_string(),
-                    name: container_name(&self.node, scope),
+                    name: container_name(&self.names.key, scope),
                     spec,
                     state: Mutex::new(CellState::default()),
                     processes: Mutex::new(Vec::new()),
+                    process_registry: Arc::downgrade(&service.processes),
                     exit: watch::channel(None).0,
                 })
             });
@@ -918,6 +1212,13 @@ impl ContainerEngine {
 
     /// The cell's handle, if the cell started on this node.
     pub fn cell(&self, scope: &str) -> Option<Arc<CellContainer>> {
+        if self
+            .service
+            .upgrade()
+            .is_none_or(|service| service.closed.load(Ordering::Acquire))
+        {
+            return None;
+        }
         self.cells.lock().unwrap().get(scope).cloned()
     }
 
@@ -1016,6 +1317,7 @@ impl ContainerEngine {
         run: u64,
         params: StartParams,
     ) -> anyhow::Result<()> {
+        self.check_cell(cell)?;
         let started = self.create_and_start(cell, params).await;
         let address = match started {
             Ok(address) => address,
@@ -1114,6 +1416,7 @@ impl ContainerEngine {
         );
         let mut labels = serde_json::Map::new();
         labels.insert("cellar.node".into(), json!(self.node));
+        labels.insert("cellar.host".into(), json!(self.names.key));
         labels.insert("cellar.cell".into(), json!(cell.scope));
         labels.insert("cellar.class".into(), json!(cell.spec.class_name));
         for (name, value) in &params.labels {
@@ -1122,7 +1425,7 @@ impl ContainerEngine {
         // Off Linux the node reaches a container only through published
         // ports, and Docker publishes nothing on an internal network, so
         // `enableInternet: false` would make the container unreachable.
-        // Development there keeps egress; the compat page says so.
+        // Development there keeps egress and reports the limitation below.
         let offline = !params.enable_internet && cfg!(target_os = "linux");
         if !params.enable_internet && !offline {
             tracing::warn!(
@@ -1261,6 +1564,7 @@ impl ContainerEngine {
     /// Wait for the current run to end. `Ok(code)` is the root process's
     /// exit code; a destroyed container reports 137.
     pub async fn monitor(&self, cell: &Arc<CellContainer>, run: u64) -> Result<i64, String> {
+        self.check_cell(cell).map_err(|error| error.to_string())?;
         let mut receiver = cell.exit.subscribe();
         loop {
             if let Some((ended, result)) = receiver.borrow_and_update().clone() {
@@ -1275,6 +1579,7 @@ impl ContainerEngine {
     }
 
     pub async fn destroy(&self, cell: &Arc<CellContainer>) -> anyhow::Result<()> {
+        self.check_cell(cell)?;
         // Kill first so the wait task reports 137 before the removal makes
         // the name disappear under it.
         let _ = self
@@ -1306,6 +1611,7 @@ impl ContainerEngine {
     }
 
     pub async fn signal(&self, cell: &Arc<CellContainer>, signal: u32) -> anyhow::Result<()> {
+        self.check_cell(cell)?;
         self.docker
             .expect(
                 "POST",
@@ -1323,6 +1629,7 @@ impl ContainerEngine {
     /// last stop, and a destroy left to a detached task did not always get
     /// its two daemon calls in before the exit.
     pub async fn release(self: &Arc<Self>, scope: &str, release: Release) -> anyhow::Result<()> {
+        self.check_owner()?;
         let Some(cell) = self.cell(scope) else {
             return Ok(());
         };
@@ -1368,8 +1675,11 @@ impl ContainerEngine {
             return Ok(());
         }
         self.destroy(cell).await?;
-        for id in cell.processes.lock().unwrap().drain(..) {
-            drop_process(id);
+        let ids = std::mem::take(&mut *cell.processes.lock().unwrap());
+        if let Some(registry) = cell.process_registry.upgrade() {
+            for id in ids {
+                registry.remove(id);
+            }
         }
         let mut cells = self.cells.lock().unwrap();
         if cells
@@ -1386,6 +1696,8 @@ impl ContainerEngine {
         cell: &Arc<CellContainer>,
         params: ExecParams,
     ) -> anyhow::Result<Arc<ExecProcess>> {
+        self.check_cell(cell)?;
+        let service = self.check_owner()?;
         if !cell.running() {
             return Err(anyhow!("exec() requires a running container."));
         }
@@ -1459,14 +1771,16 @@ impl ContainerEngine {
         let (stderr_tx, stderr_rx) = mpsc::channel(16);
         let combined = params.combined;
         let ended = watch::channel(false).0;
-        let ended_ = ended.clone();
-        asyncrt::spawn(async move {
+        let completion = ExecCompletion(ended.clone());
+        let reader = asyncrt::spawn(async move {
+            let _completion = completion;
             demux(read, stdout_tx, stderr_tx, combined).await;
-            ended_.send_replace(true);
-        })
-        .detach();
+        });
         let process = Arc::new(ExecProcess {
-            id: next_exec_id(),
+            id: service.processes.next.fetch_add(1, Ordering::Relaxed),
+            service: self.service.clone(),
+            closed: AtomicBool::new(false),
+            reader: Mutex::new(Some(reader)),
             exec_id,
             container: cell.name.clone(),
             pid,
@@ -1477,10 +1791,7 @@ impl ContainerEngine {
             ended,
             exit_code: tokio::sync::Mutex::new(None),
         });
-        processes()
-            .lock()
-            .unwrap()
-            .insert(process.id, process.clone());
+        service.processes.insert(process.clone())?;
         cell.processes.lock().unwrap().push(process.id);
         Ok(process)
     }
@@ -1499,6 +1810,9 @@ type WriteHalf = tokio::io::WriteHalf<Box<dyn Stream>>;
 
 pub struct ExecProcess {
     pub id: u64,
+    service: Weak<ContainerService>,
+    closed: AtomicBool,
+    reader: Mutex<Option<asyncrt::TaskHandle<()>>>,
     exec_id: String,
     container: String,
     pub pid: i64,
@@ -1512,27 +1826,121 @@ pub struct ExecProcess {
     exit_code: tokio::sync::Mutex<Option<i64>>,
 }
 
-fn processes() -> &'static Mutex<HashMap<u64, Arc<ExecProcess>>> {
-    static PROCESSES: OnceLock<Mutex<HashMap<u64, Arc<ExecProcess>>>> = OnceLock::new();
-    PROCESSES.get_or_init(Default::default)
+struct ProcessRegistry {
+    closed: AtomicBool,
+    next: AtomicU64,
+    entries: Mutex<HashMap<u64, Arc<ExecProcess>>>,
 }
-
-fn next_exec_id() -> u64 {
-    static NEXT: AtomicU64 = AtomicU64::new(1);
-    NEXT.fetch_add(1, Ordering::Relaxed)
+impl Default for ProcessRegistry {
+    fn default() -> Self {
+        Self {
+            closed: AtomicBool::new(false),
+            next: AtomicU64::new(1),
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+}
+impl ProcessRegistry {
+    fn insert(&self, process: Arc<ExecProcess>) -> anyhow::Result<()> {
+        let mut entries = self.entries.lock().unwrap();
+        anyhow::ensure!(
+            !self.closed.load(Ordering::Acquire),
+            "container host is closed"
+        );
+        entries.insert(process.id, process);
+        Ok(())
+    }
+    fn remove(&self, id: u64) {
+        let process = self.entries.lock().unwrap().remove(&id);
+        if let Some(process) = process {
+            process.close();
+        }
+    }
+    fn close(&self) {
+        let entries = {
+            let mut entries = self.entries.lock().unwrap();
+            self.closed.store(true, Ordering::Release);
+            std::mem::take(&mut *entries)
+        };
+        for process in entries.into_values() {
+            process.close();
+        }
+    }
 }
 
 pub fn process(id: u64) -> Option<Arc<ExecProcess>> {
-    processes().lock().unwrap().get(&id).cloned()
+    asyncrt::services()
+        .containers()
+        .processes
+        .entries
+        .lock()
+        .unwrap()
+        .get(&id)
+        .cloned()
 }
 
 pub fn drop_process(id: u64) {
-    processes().lock().unwrap().remove(&id);
+    asyncrt::services().containers().processes.remove(id);
+}
+
+struct ExecCompletion(watch::Sender<bool>);
+impl Drop for ExecCompletion {
+    fn drop(&mut self) {
+        self.0.send_replace(true);
+    }
+}
+
+struct StdinLease<'a> {
+    closed: &'a AtomicBool,
+    stdin: tokio::sync::MutexGuard<'a, Option<WriteHalf>>,
+}
+impl Drop for StdinLease<'_> {
+    fn drop(&mut self) {
+        if self.closed.load(Ordering::Acquire) {
+            self.stdin.take();
+        }
+    }
+}
+
+impl Drop for ExecProcess {
+    fn drop(&mut self) {
+        self.close();
+    }
 }
 
 impl ExecProcess {
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.ended.send_replace(true);
+        let reader = self.reader.lock().unwrap().take();
+        drop(reader);
+        if let Ok(mut stdin) = self.stdin.try_lock() {
+            stdin.take();
+        }
+    }
+
+    fn check_open(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !self.closed.load(Ordering::Acquire),
+            "container host is closed"
+        );
+        let service = self
+            .service
+            .upgrade()
+            .ok_or_else(|| anyhow!("container host is gone"))?;
+        service.check_open()?;
+        anyhow::ensure!(
+            Arc::ptr_eq(&service, &asyncrt::services().containers()),
+            "exec process belongs to another host"
+        );
+        Ok(())
+    }
+
     /// One chunk of stdout (`1`) or stderr (`2`); empty at end of stream.
     pub async fn read(&self, which: u8) -> Bytes {
+        if self.check_open().is_err() {
+            return Bytes::new();
+        }
         let mut receiver = match which {
             1 => self.stdout.lock().await,
             _ => self.stderr.lock().await,
@@ -1541,8 +1949,12 @@ impl ExecProcess {
     }
 
     pub async fn write(&self, bytes: &[u8]) -> Result<(), String> {
-        let mut guard = self.stdin.lock().await;
-        let stdin = guard.as_mut().ok_or("stdin is closed")?;
+        let mut guard = StdinLease {
+            closed: &self.closed,
+            stdin: self.stdin.lock().await,
+        };
+        self.check_open().map_err(|error| error.to_string())?;
+        let stdin = guard.stdin.as_mut().ok_or("stdin is closed")?;
         stdin
             .write_all(bytes)
             .await
@@ -1556,12 +1968,16 @@ impl ExecProcess {
     /// End stdin. Half-closing the hijacked connection is how the daemon
     /// learns the process's stdin reached EOF.
     pub async fn close_stdin(&self) {
+        if self.check_open().is_err() {
+            return;
+        }
         if let Some(mut stdin) = self.stdin.lock().await.take() {
             let _ = stdin.shutdown().await;
         }
     }
 
     pub async fn wait(&self) -> anyhow::Result<i64> {
+        self.check_open()?;
         let mut exit = self.exit_code.lock().await;
         if let Some(code) = *exit {
             return Ok(code);
@@ -1572,6 +1988,7 @@ impl ExecProcess {
                 break;
             }
         }
+        self.check_open()?;
         // The stream closes when the process exits, but the daemon records
         // the exit code a moment later.
         let mut code = None;
@@ -1604,6 +2021,7 @@ impl ExecProcess {
     /// The Engine API has no exec kill, so the signal is delivered by a
     /// second exec of `kill`, as workerd does.
     pub async fn kill(&self, signal: u32) -> anyhow::Result<()> {
+        self.check_open()?;
         if *self.ended.borrow() {
             return Ok(());
         }
@@ -1705,14 +2123,61 @@ fn address_of(info: &Value) -> Address {
     Address::Published(ports)
 }
 
-/// A Docker name from a node and a cell scope: the scope's characters are
-/// not all legal, so the name is a hash and the scope rides in a label.
-/// The node is part of it because two nodes can share one engine in a
-/// development or test setup, and a name from the scope alone let one
-/// node adopt, or reap, the other's container for the same object.
-fn container_name(node: &str, scope: &str) -> String {
+/// Stable infrastructure names belonging to one host, independent of the
+/// process ID. Bridges fit Linux's 15-character interface-name limit.
+struct ResourceNames {
+    key: String,
+    tag: String,
+    open_network: String,
+    internal_network: String,
+    open_bridge: String,
+    internal_bridge: String,
+    table: String,
+}
+impl ResourceNames {
+    fn new(node: &str, data_dir: &std::path::Path, namespace: Option<&str>) -> Self {
+        use base64::Engine;
+        use sha2::Digest;
+        let mut hash = sha2::Sha256::new();
+        hash.update(node.as_bytes());
+        hash.update([0]);
+        match namespace {
+            Some(namespace) => {
+                hash.update(b"namespace:");
+                hash.update(namespace.as_bytes());
+            }
+            None => {
+                hash.update(b"state:");
+                hash.update(data_dir.as_os_str().as_encoded_bytes());
+            }
+        }
+        let digest = hash.finalize();
+        let key = format!("{digest:x}");
+        let tag = key[..24].to_string();
+        let bridge = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&digest[..9]);
+        Self {
+            open_network: format!("cellar-{tag}"),
+            internal_network: format!("cellar-{tag}-internal"),
+            open_bridge: format!("cl{bridge}0"),
+            internal_bridge: format!("cl{bridge}1"),
+            table: format!("cellar_{tag}"),
+            key,
+            tag,
+        }
+    }
+    fn fence_rules(&self) -> String {
+        FENCE_RULES
+            .replace("__TABLE__", &self.table)
+            .replace("__OPEN__", &self.open_bridge)
+            .replace("__INTERNAL__", &self.internal_bridge)
+    }
+}
+
+/// A Docker name from a host namespace and cell scope. The full identities
+/// live in labels; names use a content digest with legal daemon characters.
+fn container_name(host: &str, scope: &str) -> String {
     use sha2::Digest;
-    let digest = sha2::Sha256::digest(format!("{node}\n{scope}").as_bytes());
+    let digest = sha2::Sha256::digest(format!("{host}\n{scope}").as_bytes());
     format!("cellar-{:x}", digest)[..30].to_string()
 }
 
@@ -1734,6 +2199,7 @@ mod exit_tests {
             }),
             state: Mutex::new(CellState::default()),
             processes: Mutex::new(Vec::new()),
+            process_registry: Weak::new(),
             exit: watch::channel(None).0,
         };
         let old = cell.begin_run();
