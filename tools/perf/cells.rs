@@ -5,8 +5,10 @@ use cellar::engine_api::{Compat, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
 use cellar::generation::DeploymentGraph;
 use cellar::sdk::http::{Response, Url};
-use cellar::sdk::{Application, Cell, Context, HandlerFuture, Host, Invocation, Output, Registry};
+use cellar::sdk::{Application, Cell, Context, HandlerFuture, Invocation, Output, Registry};
 use std::sync::Arc;
+
+mod embedded;
 
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -116,8 +118,5 @@ fn graph() -> DeploymentGraph {
 }
 
 fn main() -> Result<()> {
-    let node: Arc<str> = std::env::var("CELLAR_NODE")?.into();
-    Host::local(graph())
-        .register("perf-cells", "v1", move || application(node.clone()))?
-        .run()
+    embedded::run(graph(), application)
 }

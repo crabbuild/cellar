@@ -1,0 +1,256 @@
+//! The measuring application owns its process, executors, clients and signals.
+//! No CLI host or environment-resolving framework constructors are used here.
+
+// These operations belong to the embedding application, outside the node's
+// execution domain. In particular, post-stop tasks check the caller's runtimes.
+#![allow(clippy::disallowed_methods)]
+
+use anyhow::{ensure, Context, Result};
+use base64::Engine;
+use cellar::bucket::{Bucket, StorageBackend};
+use cellar::sdk::{
+    ActorIdentity, ActorOptions, ActorPolicy, Application, CompiledApplications, DeploymentGraph,
+    LogOptions, Node, NodeConfig, NodeFleet, NodeOutcome, NodeServices, OwnershipOnEvict, PeerAuth,
+    PeerProbeSigner, ReplicaStorage, ReplicaStorageOptions, ReplicationOptions, ShutdownMode,
+    ShutdownPolicy,
+};
+use object_store::aws::{AmazonS3Builder, S3ConditionalPut};
+use object_store::RetryConfig;
+use serde::Deserialize;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Arguments {
+    bucket: String,
+    endpoint: String,
+    region: String,
+    listen: String,
+    internal_listen: String,
+    advertise: String,
+}
+
+impl Arguments {
+    fn parse() -> Result<Self> {
+        let mut arguments = std::env::args().skip(1);
+        let mut values = serde_json::Map::new();
+        while let Some(option) = arguments.next() {
+            let name = option
+                .strip_prefix("--")
+                .context("expected --OPTION VALUE")?;
+            let value = arguments.next().context("missing option value")?;
+            ensure!(
+                !value.starts_with("--"),
+                "missing option value for {option}"
+            );
+            ensure!(
+                values
+                    .insert(name.replace('-', "_"), value.into())
+                    .is_none(),
+                "duplicate option {option}"
+            );
+        }
+        serde_json::from_value(values.into()).context("invalid embedded benchmark arguments")
+    }
+}
+
+fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T>
+where
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    match std::env::var(name) {
+        Ok(value) => value.parse().with_context(|| format!("invalid {name}")),
+        Err(std::env::VarError::NotPresent) => Ok(default),
+        Err(error) => Err(error).with_context(|| format!("invalid {name}")),
+    }
+}
+
+fn report(value: serde_json::Value) -> Result<()> {
+    cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!("{value}"))
+}
+
+pub(super) fn run(
+    graph: DeploymentGraph,
+    factory: fn(Arc<str>) -> Result<Arc<dyn Application>>,
+) -> Result<()> {
+    let arguments = Arguments::parse()?;
+    let node: Arc<str> = std::env::var("CELLAR_PERF_NODE")?.into();
+    let directory = PathBuf::from(std::env::var("CELLAR_PERF_DATA_DIR")?);
+    let threads = setting("CELLAR_PERF_THREADS", 1usize)?;
+    let resident = setting("CELLAR_PERF_MAX_RESIDENT", 256usize)?;
+    let shutdown_ms = setting("CELLAR_PERF_SHUTDOWN_MS", 30_000u64)?;
+    ensure!(
+        threads > 0 && resident > 0 && shutdown_ms > 0,
+        "invalid node limits"
+    );
+    let fleet_durability = match std::env::var("CELLAR_PERF_DURABILITY")?.as_str() {
+        "fleet" => true,
+        "bucket" => false,
+        _ => anyhow::bail!("CELLAR_PERF_DURABILITY must be fleet or bucket"),
+    };
+    let peer_key: [u8; 32] = base64::engine::general_purpose::STANDARD
+        .decode(std::env::var("CELLAR_PERF_PEER_KEY")?)
+        .context("invalid CELLAR_PERF_PEER_KEY encoding")?
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("CELLAR_PERF_PEER_KEY must encode 32 bytes"))?;
+    // Credentials are supplied to clients by this application. The library
+    // receives the clients themselves and never resolves the AWS environment.
+    let builder = AmazonS3Builder::new()
+        .with_bucket_name(&arguments.bucket)
+        .with_region(&arguments.region)
+        .with_endpoint(&arguments.endpoint)
+        .with_virtual_hosted_style_request(false)
+        .with_allow_http(true)
+        .with_access_key_id(std::env::var("AWS_ACCESS_KEY_ID")?)
+        .with_secret_access_key(std::env::var("AWS_SECRET_ACCESS_KEY")?)
+        .with_conditional_put(S3ConditionalPut::ETagMatch);
+    let store = Arc::new(builder.clone().build()?);
+    // A retried conditional write could hide an ambiguous ownership outcome.
+    let conditional = Arc::new(
+        builder
+            .with_retry(RetryConfig {
+                max_retries: 0,
+                retry_timeout: Duration::from_secs(30),
+                ..Default::default()
+            })
+            .build()?,
+    );
+    let bucket = Bucket::from_clients(
+        store.clone(),
+        conditional,
+        store,
+        StorageBackend::S3,
+        arguments.bucket,
+        String::new(),
+    )?;
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .with_writer(std::io::stderr)
+        .try_init()
+        .map_err(|error| anyhow::anyhow!("could not install application logger: {error}"))?;
+    let host = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(threads)
+        .thread_name("perf-application")
+        .enable_all()
+        .build()?;
+    let core = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(threads)
+        .thread_name("perf-core")
+        .enable_all()
+        .build()?;
+    host.block_on(async {
+        let signer = Arc::new(PeerProbeSigner::generate());
+        let auth = Arc::new(PeerAuth::new(peer_key, node.as_ref())?);
+        let peer_http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
+            .tcp_nodelay(true)
+            .build()?;
+        let stream_http = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .tcp_nodelay(true)
+            .build()?;
+        let replica_storage = ReplicaStorage::new(bucket.store.clone(), ReplicaStorageOptions::default())?;
+        let fleet = NodeFleet {
+            lease_bucket: bucket.clone(),
+            bucket,
+            replica_storage,
+            replication: ReplicationOptions::default(),
+            log_transport: Arc::new(cellar::sdk::SignedPeerTransport::from_clients(
+                peer_http.clone(), stream_http, auth.clone(),
+            )),
+            log: LogOptions::default(),
+            fleet_durability,
+        };
+        let actor = ActorOptions {
+            core: ActorPolicy {
+                max_resident: resident,
+                max_activations: 64,
+                max_evictions: 4,
+                max_releases: 32,
+                max_outbound_websockets: 32,
+                ownership_on_evict: OwnershipOnEvict::Release,
+                require_node_lease: true,
+                peer_protocol: cellar::peer_auth::PROTOCOL_VERSION,
+                operation_deadline_ms: Some(30_000),
+                owner_log_recovery_backoff_ms: 1_000,
+                owner_log_recovery_attempts: 240,
+                alarm_resident_ms: 3_600_000,
+                idle_evict_ms: None,
+                pressure: Default::default(),
+            },
+            lease_ttl_ms: 10_000,
+            placement_weight: 1,
+            generation: signer.public_key_hex(),
+            resume_generation: None,
+        };
+        let mut config = NodeConfig::new(
+            ActorIdentity { node: node.to_string(), advertise: arguments.advertise, region: arguments.region },
+            actor,
+            directory,
+        );
+        config.maintenance.rebalance = false;
+        config.shutdown = ShutdownPolicy {
+            total_ms: shutdown_ms,
+            token_wait_ms: 0,
+            no_progress_ms: shutdown_ms.min(25_000),
+        };
+        let services = NodeServices {
+            host_executor: host.handle().clone(),
+            core_executor: core.handle().clone(),
+            listener: tokio::net::TcpListener::bind(arguments.listen).await?,
+            internal_listener: tokio::net::TcpListener::bind(arguments.internal_listen).await?,
+            peer_http,
+            peer_auth: auth,
+            probe_signer: signer,
+            fleet: Some(fleet),
+            containers: None,
+            metrics: None,
+        };
+        let applications = CompiledApplications::default()
+            .register("perf-cells", "v1", move || factory(node.clone()))?;
+        // Signals are the embedding application's policy. Internal /shutdown
+        // also completes run_until through the returned node outcome.
+        #[cfg(unix)]
+        let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+        let node = Node::start(config, services, graph, applications).await?;
+        report(serde_json::json!({"event": "embedded_node_started", "executors": "caller_owned"}))?;
+        let outcome = node.run_until(async {
+            #[cfg(unix)]
+            cellar::asyncrt::select! {
+                _ = terminate.recv() => {},
+                _ = tokio::signal::ctrl_c() => {},
+            }
+            #[cfg(not(unix))]
+            let _ = tokio::signal::ctrl_c().await;
+            ShutdownMode::Handoff
+        }).await?;
+        let executors_alive = tokio::time::timeout(Duration::from_secs(2), async {
+            Ok::<_, anyhow::Error>(host.handle().spawn(async { true }).await?
+                && core.handle().spawn(async { true }).await?)
+        }).await??;
+        let NodeOutcome::Stopped(stopped) = outcome else {
+            report(serde_json::json!({"event": "embedded_node_stopped", "outcome": format!("{outcome:?}"), "caller_executors_alive": executors_alive}))?;
+            anyhow::bail!("embedded node failed: {outcome:?}");
+        };
+        report(serde_json::json!({
+            "event": "embedded_node_stopped", "outcome": "stopped",
+            "mode": match stopped.mode { ShutdownMode::Handoff => "handoff", ShutdownMode::Preserve => "preserve" },
+            "ingress_drained": stopped.ingress_drained,
+            "application_work_drained": stopped.application_work_drained,
+            "pending_application_events": stopped.pending_application_events,
+            "cells_drained": stopped.cells_drained,
+            "pending_dispatches": stopped.pending_dispatches,
+            "log_quiesced": stopped.log_quiesced,
+            "local_durability_closed": stopped.local_durability_closed,
+            "clean_reload_prepared": stopped.clean_reload_prepared,
+            "drain_timed_out": stopped.drain_timed_out,
+            "deadline_elapsed": stopped.deadline_elapsed,
+            "caller_executors_alive": executors_alive,
+        }))?;
+        ensure!(executors_alive, "node stopped a caller-owned executor");
+        Ok(())
+    })
+}
