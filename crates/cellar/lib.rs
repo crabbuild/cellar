@@ -46,23 +46,29 @@ mod asyncrt_contract_tests {
     include!(env!("CELLAR_INTERNAL_ASYNCRT_TESTS"));
 }
 pub mod bucket;
+#[path = "cli/cell_cli.rs"]
 pub mod cell_cli;
 pub mod cell_dispatch;
 mod cell_host;
 pub mod cell_runtime;
 pub mod clean_reload;
+#[path = "cli/cli_options.rs"]
 pub mod cli_options;
+#[path = "cli/cli_output.rs"]
 pub mod cli_output;
 pub mod container;
 pub mod control_plane;
 pub mod daemon;
 pub mod dead_node_gc;
+#[path = "cli/deploy/mod.rs"]
 pub mod deploy;
+#[path = "cli/dev.rs"]
 pub mod dev;
 pub mod docker;
 pub mod drain_token;
 pub mod engine_api;
 pub mod env_vars;
+#[path = "cli/sql_cli.rs"]
 pub mod sql_cli;
 #[cfg(cellar_internal_tests)]
 #[allow(clippy::disallowed_methods)]
@@ -94,6 +100,7 @@ pub(crate) mod html_rewriter;
 #[allow(dead_code)]
 pub mod http_streams;
 pub mod kv_blob;
+#[path = "cli/kv_cli.rs"]
 pub mod kv_cli;
 pub mod loader_policy;
 pub(crate) mod local_store;
@@ -102,6 +109,7 @@ pub mod ltx_repl;
 pub mod ltx_replication;
 pub mod machine;
 pub mod memory;
+#[path = "cli/native_deploy/mod.rs"]
 pub mod native_deploy;
 pub(crate) mod native_worker;
 pub mod worker;
@@ -110,10 +118,12 @@ pub mod worker;
 pub mod worker_config;
 /// Engine-independent Rust application primitives.
 pub use cellar_native as native;
+#[path = "cli/blob_cli.rs"]
 pub mod blob_cli;
 pub(crate) mod blob_store;
 pub mod node_lifecycle;
 pub mod node_log;
+#[path = "cli/operator_cell.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]
 pub mod otlp;
@@ -123,6 +133,7 @@ pub mod peer_probe;
 pub mod pool;
 pub mod protocol;
 pub(crate) mod queue_batching;
+#[path = "cli/queue_cli.rs"]
 pub mod queue_cli;
 pub mod queue_policy;
 pub mod replica_storage;

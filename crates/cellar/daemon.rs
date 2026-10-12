@@ -3405,7 +3405,7 @@ async fn recover_with_follower_listener(
     while connections.next().await.is_some() {}
     result
 }
-#[path = "main/cli.rs"]
+#[path = "cli/daemon.rs"]
 mod cli;
 use cli::{action_from_process, print_help, Action};
 
