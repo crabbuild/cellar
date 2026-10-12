@@ -148,7 +148,11 @@ impl ActorOptions {
                 #[cfg(all(test, cellar_internal_tests))]
                 max_evictions: limits.evictions,
                 max_releases: limits.releases,
-                alarm_resident_ms: crate::wake::resident_ms().max(0) as u64,
+                alarm_resident_ms: crate::env_vars::with_default(
+                    "CELLAR_ALARM_RESIDENT_MS",
+                    3_600_000_i64,
+                )?
+                .max(0) as u64,
                 require_node_lease: true,
                 peer_protocol: crate::peer_auth::PROTOCOL_VERSION,
                 operation_deadline_ms: Some(crate::env_vars::positive_or(

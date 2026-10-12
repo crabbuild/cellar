@@ -58,7 +58,7 @@ fn options(label: &str, ttl: u64, capacity: usize) -> ActorOptions {
             operation_deadline_ms: Some(if capacity == 7 { 6_000 } else { 3_000 }),
             owner_log_recovery_backoff_ms: 50,
             owner_log_recovery_attempts: 3,
-            alarm_resident_ms: 100,
+            alarm_resident_ms: capacity as u64 * 100,
             idle_evict_ms: None,
             pressure: Default::default(),
         },
