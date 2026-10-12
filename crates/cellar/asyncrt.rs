@@ -591,10 +591,16 @@ where
     T: Send + 'static,
     F: Future<Output = T> + Send + 'static,
 {
-    current_domain()
-        .owner
-        .spawn(future)
-        .expect("execution domain is closed")
+    try_spawn(future).expect("execution domain is closed")
+}
+
+/// Refuse new work without panicking when closure races the current poll.
+pub fn try_spawn<T, F>(future: F) -> Result<TaskHandle<T>, DomainClosed>
+where
+    T: Send + 'static,
+    F: Future<Output = T> + Send + 'static,
+{
+    current_domain().owner.spawn(future)
 }
 
 /// Preserve the owning domain when a host adapter uses a Tokio join handle.

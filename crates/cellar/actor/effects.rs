@@ -232,15 +232,27 @@ pub(crate) fn drain_step_output(
     effects: &mut FuturesUnordered<EffectFuture>,
     delays: &mut DelayQueue<TimerArm>,
     timers: &mut TimerSlots<delay_queue::Key>,
-) {
+) -> Result<(), crate::asyncrt::DomainClosed> {
+    if !crate::asyncrt::services().accepts_work() {
+        return Err(crate::asyncrt::DomainClosed);
+    }
     for job in out.effects.drain(..) {
         match job {
             EffectJob::Spawn(future) => {
                 // Spawn only at the production drain so deterministic drivers
                 // can take the futures and retain their existing schedule.
-                let task = crate::asyncrt::spawn(future);
+                let task = crate::asyncrt::try_spawn(future)?;
                 effects.push(Box::pin(async move {
-                    task.await.expect("actor effect task panicked")
+                    match task.await {
+                        Ok(completed) => completed,
+                        // Cancellation supplies no completion event or proof.
+                        // The owning actor is also being cancelled; park until
+                        // its abort drops this future in the owning domain.
+                        Err(_) if !crate::asyncrt::services().accepts_work() => {
+                            std::future::pending().await
+                        }
+                        Err(error) => panic!("actor effect task panicked: {error}"),
+                    }
                 }));
             }
             EffectJob::Lease(future) => effects.push(future),
@@ -255,4 +267,5 @@ pub(crate) fn drain_step_output(
             delays.remove(&displaced);
         }
     }
+    Ok(())
 }

@@ -117,6 +117,9 @@ remain outside the CLI directory.
    Forced cancellation supplies no graceful durability proof; report incomplete
    drain phases through `ShutdownReport` and return `NodeOutcome` to library
    callers. Process exits belong to the CLI boundary.
+   Domain closure can race a task's current poll. Production actor selectors
+   use `try_start`/`try_step` and fallible effect admission; cancellation must
+   not become an invariant panic or a fabricated completion event.
 
 ## Build and validation
 
