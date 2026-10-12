@@ -166,12 +166,13 @@ impl ProductionDomainOwner {
         T: Send + 'static,
         F: Future<Output = T> + Send + 'static,
     {
-        self.spawn_inner(future, false)
+        self.spawn_inner(&self.handle, future, false)
     }
 
     // Private cleanup retains its owner and is joined after admission closes.
     fn spawn_inner<T, F>(
         self: &Arc<Self>,
+        executor: &tokio::runtime::Handle,
         future: F,
         cleanup: bool,
     ) -> Result<TaskHandle<T>, DomainClosed>
@@ -198,7 +199,7 @@ impl ProductionDomainOwner {
         };
         let mut future = ScopedFuture::new(domain, future);
         future.registration = Some(registration);
-        let inner = self.handle.spawn(future);
+        let inner = executor.spawn(future);
         tasks.insert(
             id,
             TrackedTask {
@@ -366,6 +367,24 @@ impl ExecutionDomain {
         self.inner.owner.spawn(future)
     }
 
+    /// Schedule domain-owned work on an application-supplied executor.
+    ///
+    /// This permits a dedicated core executor without moving ordinary effects
+    /// and blocking work off this domain's host runtime. Both kinds of work
+    /// retain this domain's authority and are joined by `shutdown`. The caller
+    /// must keep every supplied executor running until shutdown finishes.
+    pub fn spawn_on<T, F>(
+        &self,
+        executor: &tokio::runtime::Handle,
+        future: F,
+    ) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: Future<Output = T> + Send + 'static,
+    {
+        self.inner.owner.spawn_inner(executor, future, false)
+    }
+
     pub fn close(&self) {
         self.inner.owner.close();
     }
@@ -444,10 +463,8 @@ impl DomainToken {
     where
         F: Future<Output = ()> + Send + 'static,
     {
-        self.inner
-            .upgrade()
-            .ok_or(DomainClosed)?
-            .spawn_inner(future, true)
+        let owner = self.inner.upgrade().ok_or(DomainClosed)?;
+        owner.spawn_inner(&owner.handle, future, true)
     }
 
     /// Wait for application tasks to finish dropping before infrastructure

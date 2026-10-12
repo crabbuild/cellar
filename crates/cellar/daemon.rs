@@ -4485,7 +4485,11 @@ async fn async_main(
                 .enable_all()
                 .build()
                 .map_err(|error| error.to_string())
-                .map(|runtime| runtime.block_on(actor.run(rx)));
+                .and_then(|runtime| {
+                    runtime
+                        .block_on(actor.run(rx))
+                        .map_err(|error| error.to_string())
+                });
             let _ = actor_exit_tx.send(result);
         })?;
 

@@ -540,6 +540,10 @@ impl BucketOwnership {
         self.process_load()
     }
 
+    pub(crate) fn node(&self) -> &str {
+        &self.node
+    }
+
     pub fn lease_ttl_ms(&self) -> u64 {
         self.lease_ttl_ms
     }

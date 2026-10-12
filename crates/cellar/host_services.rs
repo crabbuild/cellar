@@ -38,6 +38,8 @@ pub struct HostServices {
     facets: Arc<dyn crate::host_facets::FacetService>,
     containers: Arc<crate::container::ContainerService>,
     node_load: OnceLock<Arc<LiveLoad>>,
+    actor_options: OnceLock<crate::actor::ActorOptions>,
+    operation_deadline_ms: OnceLock<u64>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
     http_streams: Arc<crate::http_streams::HttpStreamService>,
@@ -57,6 +59,8 @@ impl HostServices {
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            actor_options: OnceLock::new(),
+            operation_deadline_ms: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -77,6 +81,8 @@ impl HostServices {
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            actor_options: OnceLock::new(),
+            operation_deadline_ms: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -118,6 +124,49 @@ impl HostServices {
         options: crate::container::EngineOptions,
     ) -> anyhow::Result<()> {
         self.containers.configure_options(options)
+    }
+
+    /// Install this node's policy before building application generations.
+    /// SDK queue settlement and actor effects share its operation deadline.
+    /// Once a generation has used a deadline it cannot be changed underneath
+    /// queued work. Repeating an identical configuration is harmless.
+    pub fn configure_actor(&self, options: &crate::actor::ActorOptions) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "actor execution domain is closed");
+        options.validate_policy()?;
+        if let Some(existing) = self.actor_options.get() {
+            anyhow::ensure!(
+                existing == options,
+                "actor policy is already configured for this host"
+            );
+            return Ok(());
+        }
+        self.pin_operation_deadline(options.core.operation_deadline_ms.unwrap())?;
+        if self.actor_options.set(options.clone()).is_err() {
+            anyhow::ensure!(
+                self.actor_options.get() == Some(options),
+                "actor policy is already configured for this host"
+            );
+        }
+        Ok(())
+    }
+
+    fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {
+        if self.operation_deadline_ms.set(deadline).is_err() {
+            anyhow::ensure!(self.operation_deadline_ms.get() == Some(&deadline),
+                "application generation and actor must use the same operation deadline; configure actor policy before building the generation");
+        }
+        Ok(deadline)
+    }
+
+    pub(crate) fn operation_deadline_ms(&self) -> anyhow::Result<u64> {
+        if let Some(deadline) = self.operation_deadline_ms.get() {
+            return Ok(*deadline);
+        }
+        let deadline = crate::env_vars::positive_or(
+            "CELLAR_OPERATION_DEADLINE_MS",
+            crate::actor::DEFAULT_OPERATION_DEADLINE_MS,
+        )?;
+        self.pin_operation_deadline(deadline)
     }
 
     pub(crate) fn close_resources(&self) {

@@ -695,6 +695,7 @@ struct CellRegistry {
 
 #[derive(Clone)]
 pub struct RuntimeManager {
+    host_services: Arc<crate::host_services::HostServices>,
     /// What the node's cell runtime holds whichever engine runs the cells.
     core: crate::cell_runtime::CellRuntime,
     cells: Arc<Mutex<CellRegistry>>,
@@ -885,6 +886,10 @@ pub(crate) async fn receive_service_fetch_response_for_test(
 }
 
 impl RuntimeManager {
+    pub(crate) fn host_services(&self) -> &Arc<crate::host_services::HostServices> {
+        &self.host_services
+    }
+
     /// A deployment with no Durable Object classes can never land a Worker fetch
     /// on a cell, so the core's round-robin routing always returns `None`. Lets
     /// the request path skip the core round-trip entirely for stateless workers.
@@ -931,6 +936,7 @@ impl RuntimeManager {
         let cells = Arc::new(Mutex::new(CellRegistry::default()));
         let alarm_reporter = alarm_reporter(&cells, &core.alarm_observer);
         let manager = Self {
+            host_services: crate::asyncrt::services(),
             core,
             cells,
             alarm_reporter,
