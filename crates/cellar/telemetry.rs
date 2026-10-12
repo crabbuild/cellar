@@ -80,7 +80,7 @@ impl Retention {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SinkChoice {
     /// Parquet into the operator's bucket: zero configuration beyond the flag.
-    /// DuckDB reads the result as described in `docs/telemetry.md`.
+    /// The result can be queried with DuckDB.
     Bucket,
     /// OTLP/http-protobuf to a collector — the ClickHouse-class path.
     Otlp { endpoint: String },
@@ -1087,9 +1087,8 @@ fn hex(bytes: &[u8]) -> String {
     out
 }
 
-/// The Parquet schema, in message-type form because the text is the
-/// documentation. These column names are the contract in `docs/telemetry.md`,
-/// so a schema change requires a documentation change.
+/// The exported Parquet schema in message-type form. Column names form the
+/// contract for telemetry consumers.
 const MESSAGE_TYPE: &str = "
 message cellar_span {
   required binary node (STRING);

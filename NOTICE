@@ -12,7 +12,8 @@ Cellar includes source inherited or adapted from celld:
 
 This attribution applies to the inherited and adapted celld portions, not to
 all Cellar additions. Those files retain their upstream notices and identify
-local modifications. See docs/licensing.md for the source provenance policy.
+local modifications. Original Cellar files use the repository license without
+individual copyright or license headers.
 
 Code adapted from Tokio is under the MIT License; see the header of
 crates/cellar/tokio_select.rs. The vendored replication and LZ4 source retains

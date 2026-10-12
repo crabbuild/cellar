@@ -17,9 +17,8 @@ The SDK provides storage and transactions, structured RPC, SQL, KV, queues,
 workflows, cron, Blob, HTTP and bodies, assets, caches, HTML rewriting,
 WebSockets, TCP/TLS, cell-owned containers, facets, and compiled application loaders. Owned values
 include URLs, headers, forms, blobs/files, events, cancellation, byte streams,
-encoding, compression, and cryptography. See the [SDK guide](docs/sdk.md)
-for APIs and capability boundaries, and the
-[container cell example](examples/native-container/README.md).
+encoding, compression, and cryptography. See the
+[native Rust examples](examples/README.md).
 
 ## Build and run
 
@@ -42,8 +41,8 @@ with your node's bucket, listeners, and peer settings. The existing
 
 Rust application code is compiled into its host executable. Source JavaScript,
 Node.js modules, and the previous JavaScript-based Python/Wasm wrappers are no
-longer executable in Cellar. Use the [native Rust examples](examples/README.md) and the SDK guide for
-current application development.
+longer executable in Cellar. Use the [native Rust examples](examples/README.md)
+for current application development.
 
 ## Fleet and deployment
 
@@ -51,8 +50,7 @@ A conditional bucket write grants cell ownership to one node. LTX captures
 committed SQLite writes. One node waits for bucket upload to prove durability;
 a fleet can prove it through peer log replication before bucket upload.
 Ownership fencing, restore, durable wakes, and shutdown use the retained host.
-See [guarantees](docs/guarantees.md) and [migration work](docs/rust-native-migration.md)
-for the rollout and recovery checks still required.
+Broader fleet rollout and recovery validation remain follow-up work.
 
 The default Docker image contains the Rust CLI:
 
@@ -76,5 +74,4 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 Cellar, Cellar Logic, Cellar LTX, and Cellar Native are Apache-2.0 licensed.
-See the [licensing policy](docs/licensing.md) for upstream attribution and the
-header convention for original Cellar files.
+See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the license and attribution.

@@ -1,8 +1,7 @@
 # Native Rust examples
 
 These applications use `cellar::sdk` and compile into native host executables.
-Run the commands below from the repository root. See the [SDK guide](../docs/sdk.md)
-for the supported primitives and their boundaries.
+Run the commands below from the repository root.
 
 | Example | Demonstrates |
 | --- | --- |

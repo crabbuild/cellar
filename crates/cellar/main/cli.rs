@@ -387,7 +387,7 @@ TUNING:
   CELLAR_LTX_RETENTION_SECS        Grace in seconds before an owner deletes superseded epochs (default: unset, no deletion)
   RUST_LOG                        Runtime log filter (default: info)
 
-Documentation: https://cellar.dev/docs"#,
+Repository: https://github.com/crabbuild/cellar"#,
         shutdown_total_ms = crate::env_vars::DEFAULT_SHUTDOWN_TOTAL_MS,
     );
     crate::cli_output::Output::new(crate::cli_output::Format::Text).help(&help)

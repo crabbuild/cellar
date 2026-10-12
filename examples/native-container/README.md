@@ -19,5 +19,4 @@ the fleet selector. The installed `cellar-native-container` executable registers
 the `native-container` application at code version `v1`.
 
 The container disk is ephemeral. Put durable state in `Context::storage` or a
-binding. See the [container guide](../../docs/services/containers.md) for
-ownership, event authority, image integrity and isolation boundaries.
+binding.
