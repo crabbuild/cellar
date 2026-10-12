@@ -253,8 +253,15 @@ impl<F> Drop for ScopedFuture<F> {
 ///
 /// Work scheduled through this domain inherits it across polls, blocking work
 /// and cancellation cleanup. Raw `tokio::spawn` does not inherit authority.
+/// Routing, gates, abort registrations, TCP/TLS transports, loaded applications
+/// and facet records belong to this owner. Closing releases its transport and
+/// loader/facet registry references; retained SDK capabilities reject further
+/// calls once their owner closes.
 /// Closing or dropping the owner refuses new work and cancels its tracked
 /// async tasks. Rust blocking work that already started must return itself.
+/// This boundary does not supply production-node startup or a durability drain;
+/// container services and the command-line host lifecycle still need separate
+/// instance ownership before a full node can be embedded.
 pub struct ExecutionDomain {
     inner: Arc<ProductionDomain>,
 }

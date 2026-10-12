@@ -553,7 +553,9 @@ pub(crate) async fn check_native_facet_lifecycles() -> Result<()> {
     slot.turn(|worker| worker.turn_abandon_input_gates(&pending))
         .await;
     pending.abandon();
-    crate::host_facets::release_root_facets(root, 7, crate::host_facets::RootRelease::Stop).await;
+    crate::host_facets::release_root_facets(root, 7, crate::host_facets::RootRelease::Stop)
+        .await
+        .map_err(anyhow::Error::msg)?;
     assert!(late
         .await
         .err()
@@ -581,6 +583,8 @@ pub(crate) async fn check_native_facet_lifecycles() -> Result<()> {
     assert!(retained_slot.upgrade().is_none());
     assert!(retained_loaded_slot.upgrade().is_none());
     assert!(!crate::host_facets::root_facets()
+        .lock()
+        .unwrap()
         .keys()
         .any(|(scope, _)| scope == root));
     assert!(installed_context().is_none());

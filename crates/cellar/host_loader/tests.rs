@@ -76,9 +76,7 @@ impl Drop for DropProbe {
             "worker dropped under loader registry lock"
         );
         assert!(
-            ROOT_FACETS
-                .get()
-                .is_none_or(|roots| roots.try_lock().is_ok()),
+            root_facets().try_lock().is_ok(),
             "worker dropped under root facet lock"
         );
         self.0.fetch_add(1, Ordering::SeqCst);
@@ -221,7 +219,16 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
             &["p".into(), "child".into(), "deep".into()],
         )
         .unwrap();
-    assert_eq!(root_facets().get(&(root.into(), 7)).unwrap().open.len(), 3);
+    assert_eq!(
+        root_facets()
+            .lock()
+            .unwrap()
+            .get(&(root.into(), 7))
+            .unwrap()
+            .open
+            .len(),
+        3
+    );
     assert!(Arc::ptr_eq(
         &recorded_facet_slot(root, 7, "Facet:child").unwrap(),
         &child
@@ -235,17 +242,24 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
         ["Facet:deep", "Facet:child"]
     );
     drop(below);
-    release_root_facets(root, 7, RootRelease::Stop).await;
+    release_root_facets(root, 7, RootRelease::Stop)
+        .await
+        .map_err(anyhow::Error::msg)?;
     assert!(pending.record(&child, "Facet:late", &["p".into()]).is_err());
     assert!(PendingFacet::begin(root, 7).is_err());
     assert!(recorded_facet_slot(root, 7, "Facet:parent").is_none());
     drop(pending);
-    assert!(!root_facets().contains_key(&(root.into(), 7)));
+    assert!(!root_facets()
+        .lock()
+        .unwrap()
+        .contains_key(&(root.into(), 7)));
 
     let root = "host-facet-swap";
     let pending = PendingFacet::begin(root, 8).unwrap();
     pending.record(&parent, "Facet:old", &["p".into()]).unwrap();
-    release_root_facets(root, 8, RootRelease::Swap).await;
+    release_root_facets(root, 8, RootRelease::Swap)
+        .await
+        .map_err(anyhow::Error::msg)?;
     pending.record(&child, "Facet:new", &["p".into()]).unwrap();
     let next = PendingFacet::begin(root, 8).unwrap();
     assert!(recorded_facet_slot(root, 8, "Facet:old").is_none());
@@ -257,7 +271,10 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
     drop(parent);
     drop(child);
     assert_eq!(drops.load(Ordering::SeqCst), 2);
-    assert!(!root_facets().contains_key(&(root.into(), 8)));
+    assert!(!root_facets()
+        .lock()
+        .unwrap()
+        .contains_key(&(root.into(), 8)));
     Ok(())
 }
 
@@ -320,4 +337,117 @@ async fn loader_quotas_and_owner_retirement_are_independent_on_one_application_r
         .lock()
         .unwrap()
         .is_empty());
+}
+
+#[tokio::test]
+async fn facet_claims_root_retirement_and_pins_keep_their_host_when_identities_collide() {
+    use crate::asyncrt::ExecutionDomain;
+    let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let first_roots = first.services().facets().registry();
+    let second_roots = second.services().facets().registry();
+    let root = "Account:same";
+    let key = (root.to_string(), 1);
+    let drops = Arc::new(AtomicUsize::new(0));
+    let (first_pending, first_slot) = first
+        .run(async {
+            assert_eq!(crate::asyncrt::services().facets().next_manager(), 1);
+            let pending = PendingFacet::begin(root, 1).unwrap();
+            let slot = slot(drops.clone());
+            pending
+                .record(&slot, "Facet:same", &["same".into()])
+                .unwrap();
+            (pending, slot)
+        })
+        .await
+        .unwrap();
+    let (second_pending, second_slot) = second
+        .run(async {
+            assert_eq!(crate::asyncrt::services().facets().next_manager(), 1);
+            let pending = PendingFacet::begin(root, 1).unwrap();
+            let slot = slot(drops.clone());
+            pending
+                .record(&slot, "Facet:same", &["same".into()])
+                .unwrap();
+            (pending, slot)
+        })
+        .await
+        .unwrap();
+    let extra = first
+        .run(async { PendingFacet::begin(root, 1).unwrap() })
+        .await
+        .unwrap();
+    second.run(async { drop(extra) }).await.unwrap();
+    assert_eq!(first_roots.lock().unwrap()[&key].pending, 1);
+    assert_eq!(second_roots.lock().unwrap()[&key].pending, 1);
+    let foreign_release = first
+        .run(std::future::poll_fn(|_| {
+            // Prepare in the first host, but deliberately poll in the second.
+            std::task::Poll::Ready(release_root_facets(root, 1, RootRelease::Stop))
+        }))
+        .await
+        .unwrap();
+    second
+        .run(async {
+            assert!(foreign_release
+                .await
+                .unwrap_err()
+                .contains("another execution domain"));
+            assert!(first_pending
+                .record(&second_slot, "Facet:foreign", &["foreign".into()])
+                .unwrap_err()
+                .contains("another execution domain"));
+            assert!(Arc::ptr_eq(
+                &recorded_facet_slot(root, 1, "Facet:same").unwrap(),
+                &second_slot
+            ));
+        })
+        .await
+        .unwrap();
+    first
+        .run(async { release_root_facets(root, 1, RootRelease::Stop).await })
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(first_roots.lock().unwrap()[&key].open.is_empty());
+    assert_eq!(second_roots.lock().unwrap()[&key].open.len(), 1);
+    second.run(async { drop(first_pending) }).await.unwrap();
+    assert!(!first_roots.lock().unwrap().contains_key(&key));
+    assert_eq!(second_roots.lock().unwrap()[&key].pending, 1);
+
+    let pinned_drops = Arc::new(AtomicUsize::new(0));
+    let (pending, weak) = first
+        .run(async {
+            let pending = PendingFacet::begin(root, 2).unwrap();
+            let worker = slot(pinned_drops.clone());
+            pending
+                .record(&worker, "Facet:pinned", &["pinned".into()])
+                .unwrap();
+            (pending, Arc::downgrade(&worker))
+        })
+        .await
+        .unwrap();
+    assert!(weak.upgrade().is_some());
+    first.shutdown().await;
+    assert!(weak.upgrade().is_none());
+    assert_eq!(pinned_drops.load(Ordering::SeqCst), 1);
+    assert!(first_roots.lock().unwrap().is_empty());
+    second
+        .run(async {
+            drop(pending);
+            assert_eq!(root_facets().lock().unwrap()[&key].open.len(), 1);
+            second_pending
+                .record(&second_slot, "Facet:still-live", &["live".into()])
+                .unwrap();
+            forget_root_facet(root, 1, &second_slot, "Facet:same");
+            assert!(recorded_facet_slot(root, 1, "Facet:still-live").is_some());
+        })
+        .await
+        .unwrap();
+    second.shutdown().await;
+    drop(second_pending);
+    drop(first_slot);
+    drop(second_slot);
+    assert!(second_roots.lock().unwrap().is_empty());
+    assert_eq!(drops.load(Ordering::SeqCst), 2);
 }

@@ -11,7 +11,8 @@ use crate::storage;
 use crate::ws_registry::{ws_attach_facet, ws_close_facet, ws_release_unanswered, FacetSocket};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 mod calls;
 pub(crate) use calls::{abort_facet, delete_facet_files};
@@ -83,6 +84,7 @@ pub(crate) struct FacetStart {
 
 /// A facet ready for one call, with what its reply must wait for.
 pub(crate) struct LoadedFacet {
+    service: Weak<dyn FacetService>,
     pub(crate) slot: Arc<crate::pool::Slot>,
     pub(crate) scope: String,
     /// The cell whose database holds the facet's, which owns the facet.
@@ -94,12 +96,20 @@ pub(crate) struct LoadedFacet {
 }
 
 impl LoadedFacet {
+    fn check_host(&self) -> Result<(), String> {
+        let service = self
+            .service
+            .upgrade()
+            .ok_or_else(|| "facet execution domain has retired".to_string())?;
+        check_facet_service(&service)
+    }
     /// Route the socket of a facet's upgrade through the facet's root.
     ///
     /// Recorded here, where the host knows which facet answered, because the
     /// response's target names only the facet's scope. A target that the
     /// facet did not accept keeps its own route.
-    pub(crate) fn attach_websocket(&self, response: &HttpResponse) {
+    pub(crate) fn attach_websocket(&self, response: &HttpResponse) -> Result<(), String> {
+        self.check_host()?;
         if let Some(HttpResponseWebSocket::Cell(target)) = &response.websocket {
             ws_attach_facet(
                 target.id,
@@ -112,6 +122,7 @@ impl LoadedFacet {
                 },
             );
         }
+        Ok(())
     }
 
     /// Prove the facet's stream before its response leaves, and release a
@@ -127,6 +138,7 @@ impl LoadedFacet {
     /// body stream is not `Sync`, so a borrow of it across the proof would
     /// make the op's future not `Send`.
     pub(crate) async fn gate_response(&self, socket: Option<u64>) -> Result<(), String> {
+        self.check_host()?;
         let gated = self.gate_reply().await;
         if let (Err(_), Some(id)) = (&gated, socket) {
             ws_release_unanswered(id, &self.scope);
@@ -139,6 +151,7 @@ impl LoadedFacet {
     /// covers an earlier call's write this reply can reveal as well as the
     /// call's own, and an error reply as well as a result.
     pub(crate) async fn gate_reply(&self) -> Result<(), String> {
+        self.check_host()?;
         prove_facet(self.stream.clone(), self.epoch)
             .await
             .map_err(|refusal| format!("facet reply: {refusal}"))
@@ -187,7 +200,7 @@ impl FacetHost {
     }
 
     /// Whether the facet runs in a loaded Worker's isolate, which the root's
-    /// give-back must close and which `ROOT_FACETS` records. A facet of a
+    /// give-back must close and which its host records. A facet of a
     /// loaded Worker's own class runs in that Worker's isolate too.
     pub(crate) fn is_loaded_worker(&self) -> bool {
         match self {
@@ -197,31 +210,100 @@ impl FacetHost {
     }
 }
 
-/// The facets that each root runs in loaded Workers' isolates, by the root's
+/// The facets that each root runs in loaded Workers' executors, by the root's
 /// cell and epoch. A facet of a loaded Worker's own class counts, because it
 /// runs in that Worker's isolate.
 ///
 /// A loaded Worker can outlive a root through another stub or until garbage
 /// collection. Neither lifetime tells the loaded isolate when a root stops,
 /// so connection closure cannot depend on collection. The root's own
-/// `facets._release()` invalidates its stubs synchronously: the give-back
-/// turn cannot drive an asynchronous abort. Previously, each reactivation
-/// left a connection open on an unlinked file, with the facet's JavaScript
-/// state. The adoption turn records each facet here, and the root's
-/// give-back closes them.
+/// retirement invalidates its stubs synchronously: the give-back turn cannot
+/// drive an asynchronous abort. The adoption turn records each facet here,
+/// and the root's give-back closes them.
 ///
 /// A facet that runs in the root's own isolate is not recorded:
 /// `finish_cell_adoption` closes it in the root's give-back turn, and its
 /// slot can be freed while a reference is held, so a later turn on it would
 /// panic.
-pub(crate) static ROOT_FACETS: OnceLock<Mutex<HashMap<(String, u64), RootFacets>>> =
-    OnceLock::new();
+type FacetRoots = HashMap<(String, u64), RootFacets>;
 
-pub(crate) fn root_facets() -> std::sync::MutexGuard<'static, HashMap<(String, u64), RootFacets>> {
-    ROOT_FACETS
-        .get_or_init(Mutex::default)
-        .lock()
-        .expect("root facets poisoned")
+/// Erase the recursive slot/worker graph at the host-services boundary.
+pub(crate) trait FacetService: Send + Sync {
+    fn bind_domain(&self, domain: crate::asyncrt::DomainToken);
+    fn accepts_work(&self) -> bool;
+    fn close(&self);
+    fn registry(&self) -> Arc<Mutex<FacetRoots>>;
+    fn next_manager(&self) -> u64;
+}
+
+pub(crate) struct FacetRegistry {
+    roots: Arc<Mutex<FacetRoots>>,
+    closed: AtomicBool,
+    domain: OnceLock<crate::asyncrt::DomainToken>,
+    next_manager: AtomicU64,
+}
+
+impl Default for FacetRegistry {
+    fn default() -> Self {
+        Self {
+            roots: Arc::new(Mutex::new(HashMap::new())),
+            closed: AtomicBool::new(false),
+            domain: OnceLock::new(),
+            next_manager: AtomicU64::new(1),
+        }
+    }
+}
+
+impl FacetService for FacetRegistry {
+    fn bind_domain(&self, domain: crate::asyncrt::DomainToken) {
+        if let Err(candidate) = self.domain.set(domain) {
+            assert!(self
+                .domain
+                .get()
+                .is_some_and(|bound| bound.same_owner(&candidate)));
+        }
+    }
+
+    fn accepts_work(&self) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && self
+                .domain
+                .get()
+                .is_none_or(|domain| domain.mono_ms().is_ok())
+    }
+
+    fn close(&self) {
+        let roots = {
+            let mut roots = self.roots.lock().expect("root facets poisoned");
+            self.closed.store(true, Ordering::Release);
+            std::mem::take(&mut *roots)
+        };
+        // Dropping a final worker or pin can reenter host resource cleanup.
+        drop(roots);
+    }
+
+    fn registry(&self) -> Arc<Mutex<FacetRoots>> {
+        self.roots.clone()
+    }
+
+    fn next_manager(&self) -> u64 {
+        self.next_manager.fetch_add(1, Ordering::Relaxed)
+    }
+}
+
+pub(crate) fn check_facet_service(service: &Arc<dyn FacetService>) -> Result<(), String> {
+    if !Arc::ptr_eq(service, &crate::asyncrt::services().facets()) {
+        return Err("facet belongs to another execution domain".into());
+    }
+    if !service.accepts_work() {
+        return Err("facet execution domain is closed".into());
+    }
+    Ok(())
+}
+
+#[cfg(any(test, cellar_internal_tests))]
+pub(crate) fn root_facets() -> Arc<Mutex<FacetRoots>> {
+    crate::asyncrt::services().facets().registry()
 }
 
 #[derive(Default)]
@@ -254,18 +336,24 @@ pub(crate) struct RecordedFacet {
 /// One facet call of a root, from its start until its adoption turn.
 pub(crate) struct PendingFacet {
     pub(crate) key: (String, u64),
+    service: Arc<dyn FacetService>,
 }
 
 impl PendingFacet {
     pub(crate) fn begin(root: &str, epoch: u64) -> Result<Self, String> {
         let key = (root.to_string(), epoch);
-        let mut roots = root_facets();
+        let service = crate::asyncrt::services().facets();
+        let registry = service.registry();
+        let mut roots = registry.lock().expect("root facets poisoned");
+        if !service.accepts_work() {
+            return Err("facet execution domain is closed".into());
+        }
         let entry = roots.entry(key.clone()).or_default();
         if entry.stopped {
             return Err(format!("{root} epoch {epoch} stopped"));
         }
         entry.pending += 1;
-        Ok(Self { key })
+        Ok(Self { key, service })
     }
 
     /// Record the facet before its adoption. Call inside the adoption turn:
@@ -277,7 +365,12 @@ impl PendingFacet {
         scope: &str,
         path: &[String],
     ) -> Result<(), String> {
-        let mut roots = root_facets();
+        check_facet_service(&self.service)?;
+        let registry = self.service.registry();
+        let mut roots = registry.lock().expect("root facets poisoned");
+        if !self.service.accepts_work() {
+            return Err("facet execution domain is closed".into());
+        }
         let entry = roots
             .get_mut(&self.key)
             .expect("a pending facet keeps its entry");
@@ -302,7 +395,8 @@ impl PendingFacet {
 
 impl Drop for PendingFacet {
     fn drop(&mut self) {
-        let mut roots = root_facets();
+        let registry = self.service.registry();
+        let mut roots = registry.lock().expect("root facets poisoned");
         if let Some(entry) = roots.get_mut(&self.key) {
             entry.pending -= 1;
             if entry.pending == 0 && entry.open.is_empty() {
@@ -333,12 +427,32 @@ pub(crate) enum RootRelease {
 /// Close each facet that `root` runs in a loaded Worker's isolate. The
 /// caller gives the root back first, so the root cannot start a facet call
 /// after the facets are taken.
-pub(crate) async fn release_root_facets(root: &str, epoch: u64, release: RootRelease) {
-    let key = (root.to_string(), epoch);
+pub(crate) fn release_root_facets(
+    root: &str,
+    epoch: u64,
+    release: RootRelease,
+) -> impl std::future::Future<Output = Result<(), String>> + Send {
+    release_root_facets_in(
+        crate::asyncrt::services().facets(),
+        root.to_string(),
+        epoch,
+        release,
+    )
+}
+
+async fn release_root_facets_in(
+    service: Arc<dyn FacetService>,
+    root: String,
+    epoch: u64,
+    release: RootRelease,
+) -> Result<(), String> {
+    check_facet_service(&service)?;
+    let key = (root.clone(), epoch);
     let open = {
-        let mut roots = root_facets();
+        let registry = service.registry();
+        let mut roots = registry.lock().expect("root facets poisoned");
         let Some(entry) = roots.get_mut(&key) else {
-            return;
+            return Ok(());
         };
         if matches!(release, RootRelease::Stop) {
             entry.stopped = true;
@@ -360,6 +474,7 @@ pub(crate) async fn release_root_facets(root: &str, epoch: u64, release: RootRel
         ws_close_facet(&scope, "the parent Durable Object was released");
         drop(pin);
     }
+    Ok(())
 }
 
 /// Take the records of the facets below the facet at `path`, deepest first.
@@ -371,7 +486,8 @@ pub(crate) fn take_recorded_facets_below(
     path: &[String],
 ) -> Vec<RecordedFacet> {
     let key = (root.to_string(), epoch);
-    let mut roots = root_facets();
+    let registry = crate::asyncrt::services().facets().registry();
+    let mut roots = registry.lock().expect("root facets poisoned");
     let Some(entry) = roots.get_mut(&key) else {
         return Vec::new();
     };
@@ -394,7 +510,11 @@ pub(crate) fn recorded_facet_slot(
     epoch: u64,
     scope: &str,
 ) -> Option<Arc<crate::pool::Slot>> {
-    root_facets()
+    crate::asyncrt::services()
+        .facets()
+        .registry()
+        .lock()
+        .expect("root facets poisoned")
         .get(&(root.to_string(), epoch))?
         .open
         .iter()
@@ -417,15 +537,25 @@ pub(crate) fn forget_root_facet(
     scope: &str,
 ) {
     let key = (root.to_string(), epoch);
-    let mut roots = root_facets();
-    if let Some(entry) = roots.get_mut(&key) {
-        entry
-            .open
-            .retain(|open| !(Arc::ptr_eq(&open.slot, slot) && open.scope == scope));
-        if entry.pending == 0 && entry.open.is_empty() {
-            roots.remove(&key);
+    let forgotten = {
+        let registry = crate::asyncrt::services().facets().registry();
+        let mut roots = registry.lock().expect("root facets poisoned");
+        if let Some(entry) = roots.get_mut(&key) {
+            let (forgotten, kept) = std::mem::take(&mut entry.open)
+                .into_iter()
+                .partition::<Vec<_>, _>(|open| {
+                    Arc::ptr_eq(&open.slot, slot) && open.scope == scope
+                });
+            entry.open = kept;
+            if entry.pending == 0 && entry.open.is_empty() {
+                roots.remove(&key);
+            }
+            forgotten
+        } else {
+            Vec::new()
         }
-    }
+    };
+    drop(forgotten);
 }
 
 #[allow(dead_code)]
@@ -438,7 +568,13 @@ pub(crate) fn prepare_facet(
     } else {
         Ok(None)
     };
-    prepare_facet_in(host, start, pending, None)
+    prepare_facet_in(
+        crate::asyncrt::services().facets(),
+        host,
+        start,
+        pending,
+        None,
+    )
 }
 
 /// Take the pending claim while the parent is still executing. A host task
@@ -449,21 +585,30 @@ pub(crate) fn prepare_native_facet(
     authority: Arc<crate::application::Activation>,
 ) -> impl std::future::Future<Output = Result<LoadedFacet, String>> + Send {
     let pending = PendingFacet::begin(&start.parent.root_scope, start.parent.epoch).map(Some);
-    prepare_facet_in(host, start, pending, Some(authority))
+    prepare_facet_in(
+        crate::asyncrt::services().facets(),
+        host,
+        start,
+        pending,
+        Some(authority),
+    )
 }
 
 async fn prepare_facet_in(
+    service: Arc<dyn FacetService>,
     host: FacetHost,
     start: FacetStart,
     pending: Result<Option<PendingFacet>, String>,
     authority: Option<Arc<crate::application::Activation>>,
 ) -> Result<LoadedFacet, String> {
     let pending = pending?;
+    check_facet_service(&service)?;
     if start.parent.facet_path.len() >= 3 {
         return Err("Facet nesting depth limit exceeded. The maximum depth including the root Durable Object is 4.".into());
     }
     let recorded = host.is_loaded_worker();
     let slot = host.slot().await?;
+    check_facet_service(&service)?;
     let file = open_facet_file(&start.parent, &start.name).await?;
     let mut names = start.parent.facet_path.clone();
     names.push(start.name.clone());
@@ -504,6 +649,7 @@ async fn prepare_facet_in(
         .await
         .map_err(|error| format!("worker loader facet: {error}"))?;
     Ok(LoadedFacet {
+        service: Arc::downgrade(&service),
         slot,
         scope,
         root: start.parent.root_scope,

@@ -28,13 +28,14 @@ enum MetricsBackend {
     Scripted(Mutex<HostMetricsSample>),
 }
 
-/// All process-like services owned by one execution domain.
+/// Services and resource registries owned by one execution domain.
 pub struct HostServices {
     domain: OnceLock<crate::asyncrt::DomainToken>,
     channels: crate::host_channels::HostChannels,
     gates: Arc<crate::host_gates::GateService>,
     tcp: Arc<crate::host_tcp::TcpService>,
     loader: Arc<dyn crate::host_loader::LoaderService>,
+    facets: Arc<dyn crate::host_facets::FacetService>,
     node_load: OnceLock<Arc<LiveLoad>>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
@@ -52,6 +53,7 @@ impl HostServices {
             gates: Arc::new(crate::host_gates::GateService::default()),
             tcp: Arc::new(crate::host_tcp::TcpService::default()),
             loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
+            facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             node_load: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -70,6 +72,7 @@ impl HostServices {
             gates: Arc::new(crate::host_gates::GateService::default()),
             tcp: Arc::new(crate::host_tcp::TcpService::default()),
             loader: Arc::new(crate::host_loader::LoaderRegistry::default()),
+            facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             node_load: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -96,8 +99,13 @@ impl HostServices {
         self.loader.clone()
     }
 
+    pub(crate) fn facets(&self) -> Arc<dyn crate::host_facets::FacetService> {
+        self.facets.clone()
+    }
+
     pub(crate) fn close_resources(&self) {
         self.tcp.close();
+        self.facets.close();
         self.loader.close();
     }
 
@@ -137,6 +145,7 @@ impl HostServices {
             );
         }
         self.loader.bind_domain(self.domain.get().unwrap().clone());
+        self.facets.bind_domain(self.domain.get().unwrap().clone());
         self.http_streams.bind_domain(
             self.domain
                 .get()

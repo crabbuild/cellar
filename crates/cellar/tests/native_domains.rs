@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Ownership boundaries for library hosts sharing an application runtime.
 // The surrounding application uses Tokio directly, including its watchdog
 // after the Cellar domain has closed and can no longer provide a timer.
@@ -1043,5 +1042,259 @@ async fn native_socket_shutdown_closes_one_hosts_peer_and_preserves_the_siblings
     );
     peer.await?;
     second.shutdown().await;
+    Ok(())
+}
+
+#[derive(Default)]
+struct FacetDomainProbe {
+    exported: std::sync::Mutex<Option<cellar::sdk::facets::Class>>,
+    foreign: std::sync::Mutex<Option<cellar::sdk::facets::Class>>,
+    scopes: std::sync::Mutex<Vec<String>>,
+    retired: std::sync::atomic::AtomicUsize,
+}
+struct FacetCounter {
+    storage: cellar::sdk::Storage,
+    label: &'static str,
+    probe: Arc<FacetDomainProbe>,
+}
+impl Drop for FacetCounter {
+    fn drop(&mut self) {
+        self.probe.retired.fetch_add(1, Ordering::SeqCst);
+    }
+}
+impl cellar::sdk::Cell for FacetCounter {
+    fn invoke(
+        self: Arc<Self>,
+        context: cellar::sdk::Context,
+        _: cellar::sdk::Invocation,
+    ) -> cellar::sdk::HandlerFuture<cellar::sdk::Output> {
+        Box::pin(async move {
+            context.storage()?;
+            let count = self
+                .storage
+                .get_json("count")?
+                .and_then(|n| n.as_u64())
+                .unwrap_or(0)
+                + 1;
+            self.storage.put_json("count", &serde_json::json!(count))?;
+            Ok(cell_response(
+                serde_json::json!({"host": self.label, "count": count}),
+            ))
+        })
+    }
+}
+struct FacetParent {
+    facets: cellar::sdk::facets::Facets,
+    label: &'static str,
+    probe: Arc<FacetDomainProbe>,
+}
+impl cellar::sdk::Cell for FacetParent {
+    fn invoke(
+        self: Arc<Self>,
+        context: cellar::sdk::Context,
+        invocation: cellar::sdk::Invocation,
+    ) -> cellar::sdk::HandlerFuture<cellar::sdk::Output> {
+        Box::pin(async move {
+            let cellar::sdk::Invocation::Fetch(request) = invocation else {
+                anyhow::bail!("expected facet parent fetch")
+            };
+            let foreign = request.url.ends_with("/foreign");
+            let class = if foreign {
+                self.probe.foreign.lock().unwrap().clone().unwrap()
+            } else {
+                let label = self.label;
+                let probe = self.probe.clone();
+                let child = cellar::sdk::Registry::new(|_, _| {
+                    Box::pin(async { Ok(cellar::sdk::Output::Done) })
+                })
+                .cell("Child", move |context, identity| {
+                    probe.scopes.lock().unwrap().push(identity.scope.clone());
+                    Ok(Arc::new(FacetCounter {
+                        storage: context.storage()?,
+                        label,
+                        probe: probe.clone(),
+                    }))
+                })?;
+                context
+                    .loader("EXT")?
+                    .get(&context, "same-child", move |_| {
+                        Box::pin(async move {
+                            Ok(cellar::sdk::loader::WorkerCode::new(Arc::new(child)))
+                        })
+                    })?
+                    .cell_class("Child")
+            };
+            let name = if foreign { "foreign" } else { "same-child" };
+            let facet = self.facets.get(&context, name, move |_| {
+                Box::pin(async move { Ok(cellar::sdk::facets::Startup::new(class)) })
+            })?;
+            let result = facet
+                .fetch(
+                    &context,
+                    cellar::sdk::Request {
+                        url: "http://facet/count".into(),
+                        method: "POST".into(),
+                        body: Vec::new().into(),
+                        headers: Vec::new(),
+                        entrypoint: None,
+                    },
+                )
+                .await;
+            if foreign {
+                let error = result
+                    .err()
+                    .expect("a foreign exported class ran in this host");
+                anyhow::ensure!(
+                    error.to_string().contains("another execution domain"),
+                    "{error}"
+                );
+                return Ok(domain_response(b"foreign class refused".to_vec()));
+            }
+            Ok(cellar::sdk::Output::Http(result?))
+        })
+    }
+}
+async fn facet_application(
+    domain: &ExecutionDomain,
+    path: &std::path::Path,
+    label: &'static str,
+    probe: Arc<FacetDomainProbe>,
+) -> Result<cellar::runtime::RuntimeManager> {
+    use cellar::sdk::{Application, Registry};
+    domain
+        .run(async {
+            let registry =
+                Registry::new(|_, _| Box::pin(async { anyhow::bail!("only cell exports") }))
+                    .cell("Account", move |context, _| {
+                        *probe.exported.lock().unwrap() =
+                            Some(context.exported_cell_class("Local")?);
+                        Ok(Arc::new(FacetParent {
+                            facets: context.facets()?,
+                            label,
+                            probe: probe.clone(),
+                        }))
+                    })?
+                    .cell("Local", |_, _| {
+                        anyhow::bail!("the foreign class must be refused before construction")
+                    })?;
+            let mut graph = fixture::graph("embedded-facets", "", vec!["Account".into()]);
+            graph.primary.loader_bindings.push("EXT".into());
+            let generation = cellar::generation::Generation::build_native(
+                1,
+                graph,
+                fixture::generation_options(),
+                std::collections::HashMap::from([(
+                    "embedded-facets".into(),
+                    Arc::new(registry) as Arc<dyn Application>,
+                )]),
+            )?;
+            let runtime = cellar::runtime::RuntimeManager::start(
+                generation,
+                fixture::runtime_options(path.join("cells")),
+            )?;
+            runtime
+                .restore_cell(
+                    "Account:same",
+                    &cellar_logic::RestoreSpec {
+                        epoch: 1,
+                        fresh: true,
+                        took_over: false,
+                        resume_local: false,
+                        prior: None,
+                    },
+                )
+                .await?;
+            runtime.start_cell("Account:same".into(), 1, true).await?;
+            runtime.publish_cell("Account:same", 1)?;
+            let (send, mut requests) = mpsc::unbounded_channel();
+            host_channels::set_gate_tx(send);
+            asyncrt::spawn(async move {
+                while let Some(request) = requests.recv().await {
+                    let _ = request.reply.send(Ok(()));
+                }
+            })
+            .detach();
+            Ok(runtime)
+        })
+        .await?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn identical_facet_roots_keep_loaded_children_and_exported_classes_in_their_host(
+) -> Result<()> {
+    let first = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let second = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let first_directory = tempfile::tempdir()?;
+    let second_directory = tempfile::tempdir()?;
+    let first_probe = Arc::new(FacetDomainProbe::default());
+    let second_probe = Arc::new(FacetDomainProbe::default());
+    let first_runtime = facet_application(
+        &first,
+        first_directory.path(),
+        "first-host",
+        first_probe.clone(),
+    )
+    .await?;
+    let second_runtime = facet_application(
+        &second,
+        second_directory.path(),
+        "second-host",
+        second_probe.clone(),
+    )
+    .await?;
+    let (a, b) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(
+            first.run(account_fetch(first_runtime.clone(), "/count")),
+            second.run(account_fetch(second_runtime.clone(), "/count"))
+        )
+    })
+    .await?;
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&a??.body)?,
+        serde_json::json!({"host":"first-host", "count":1})
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&b??.body)?,
+        serde_json::json!({"host":"second-host", "count":1})
+    );
+    assert_eq!(first_probe.scopes.lock().unwrap().len(), 1);
+    assert_eq!(
+        *first_probe.scopes.lock().unwrap(),
+        *second_probe.scopes.lock().unwrap()
+    );
+    *second_probe.foreign.lock().unwrap() = first_probe.exported.lock().unwrap().clone();
+    assert_eq!(
+        second
+            .run(account_fetch(second_runtime.clone(), "/foreign"))
+            .await??
+            .body,
+        b"foreign class refused"
+    );
+    first
+        .run(async { first_runtime.swap_out_cell("Account:same", 1).await })
+        .await??;
+    assert_eq!(first_probe.retired.load(Ordering::SeqCst), 1);
+    assert_eq!(second_probe.retired.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &second
+                .run(account_fetch(second_runtime.clone(), "/count"))
+                .await??
+                .body
+        )?,
+        serde_json::json!({"host":"second-host", "count":2})
+    );
+    first.shutdown().await;
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &second
+                .run(account_fetch(second_runtime, "/count"))
+                .await??
+                .body
+        )?,
+        serde_json::json!({"host":"second-host", "count":3})
+    );
+    second.shutdown().await;
+    assert_eq!(second_probe.retired.load(Ordering::SeqCst), 1);
     Ok(())
 }

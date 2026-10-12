@@ -1365,7 +1365,8 @@ impl RuntimeManager {
                 epoch,
                 crate::host_facets::RootRelease::Swap,
             )
-            .await;
+            .await
+            .map_err(anyhow::Error::msg)?;
             tracing::info!(
                 event = "generation_swap_out",
                 scope = %cell,
@@ -1431,12 +1432,13 @@ impl RuntimeManager {
         let isolates = generation
             .cell_isolates(&config.script_name)
             .ok_or_else(|| anyhow!("no cell isolates for script {}", config.script_name))?;
-        // Building an isolate compiles the script, so it runs on a blocking
-        // thread: the pool builds before taking its lock, but the caller is a
-        // tokio worker either way.
+        // Building a worker can block and captures its host services, so it
+        // runs on the domain's blocking executor. The pool builds before
+        // taking its lock; neither construction nor placement holds Tokio's
+        // reactor thread.
         let placed = {
             let isolates = isolates.clone();
-            tokio::task::spawn_blocking(move || isolates.place_cell())
+            asyncrt::blocking(move || isolates.place_cell())
                 .await
                 .context("cell placement panicked")?
         };
@@ -1618,7 +1620,8 @@ impl RuntimeManager {
         // and before the facet streams stop, so no write reaches a file that
         // the facet's eviction unlinked.
         crate::host_facets::release_root_facets(cell, epoch, crate::host_facets::RootRelease::Stop)
-            .await;
+            .await
+            .map_err(anyhow::Error::msg)?;
         let Some(replication) = &self.replication else {
             self.facets.forget(cell, epoch);
             return Ok(());

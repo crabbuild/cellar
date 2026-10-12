@@ -428,7 +428,8 @@ async fn check_shared_worker_pool() -> Result<()> {
         1,
         crate::host_facets::RootRelease::Stop,
     )
-    .await;
+    .await
+    .map_err(anyhow::Error::msg)?;
     pool.reap();
     assert!(pool.is_drained());
     assert!(crate::pool::current_slot().is_none());
