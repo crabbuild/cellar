@@ -44,7 +44,10 @@ explicitly. The CLI defaults to 2,048 and accepts `CELLAR_MAX_CACHED_ROUTES`.
 Production dispatch and draining now share a driver that accepts a captured
 `ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
 fencing, core failure, or replication failure; the CLI alone maps these to process
-exits. Both stop modes drain complete application event drivers and queued SDK
+exits. `NodeOutcome::Fenced` includes a `FenceReason` for an expired, missing or
+unrecognized node lease. A lost fencing-report channel returns `CoreFailed`.
+Lower-level `Actor` hosts receive `FenceReport` values with both code and reason.
+Both stop modes drain complete application event drivers and queued SDK
 calls before changing cell lifecycle. This includes post-response `wait_until`
 work, nested calls, alarms, and events from previous application generations.
 `ShutdownReport` records ingress, application-event and cell drain completion,

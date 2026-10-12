@@ -5,6 +5,15 @@
 //! domain before returning. Forced closure does not prove a graceful drain.
 
 pub use crate::actor::ShutdownMode;
+pub use cellar_logic::HaltReason as FenceReason;
+
+/// An authority loss reported by the core, with its observed cause. Losing
+/// this reporting channel is a supervision failure, not an authority report.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FenceReport {
+    pub code: i32,
+    pub reason: FenceReason,
+}
 
 /// One absolute shutdown budget, including ownership and local durability.
 /// Progress can extend the stall window but never the complete budget.
@@ -85,8 +94,10 @@ pub enum NodeOutcome {
     Stopped(ShutdownReport),
     /// Forced domain closure; no graceful durability proof is claimed.
     Cancelled,
+    /// Authority loss observed by the core, including its specific cause.
     Fenced {
         code: i32,
+        reason: FenceReason,
     },
     CoreFailed {
         error: String,
@@ -101,7 +112,7 @@ impl NodeOutcome {
     pub(crate) fn cli_exit_code(&self) -> i32 {
         match self {
             Self::Stopped(_) => 0,
-            Self::Fenced { code } => *code,
+            Self::Fenced { code, .. } => *code,
             Self::Cancelled | Self::CoreFailed { .. } | Self::ReplicationFailed { .. } => 3,
         }
     }

@@ -720,6 +720,122 @@ fn graph() -> DeploymentGraph {
     graph.primary.options.bindings = vec![("ACCOUNTS".into(), "Account".into())];
     graph
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_node_reports_missing_and_replaced_lease_authority() -> Result<()> {
+    for reason in [
+        FenceReason::NodeLeaseMissing,
+        FenceReason::NodeLeaseMismatch,
+    ] {
+        let directory = tempfile::tempdir()?;
+        let core = Executor::new("application-core")?;
+        let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let (mut config, services) = inputs(
+            "fenced",
+            &directory.path().join("node"),
+            &core,
+            Some(bucket.clone()),
+            0,
+        )
+        .await?;
+        // Give the real store rejection and readback time to distinguish the
+        // cause from expiry; do not change the ordinary lifecycle fixture.
+        config.actor.lease_ttl_ms = 5_000;
+        config.startup.recovery_retry_backoff = Duration::from_millis(5_000);
+        let node = Node::start(config, services, graph(), applications("fenced", None)?).await?;
+        ready(&node).await?;
+        let owner = node.services();
+        let faults = ExecutionDomain::new(tokio::runtime::Handle::current());
+        faults
+            .run(async {
+                let key = "nodes/fenced.json";
+                let (bytes, _) = bucket.get(key).await?.expect("published node lease");
+                if reason == FenceReason::NodeLeaseMissing {
+                    bucket.delete(key).await?;
+                } else {
+                    let mut lease: serde_json::Value = serde_json::from_slice(&bytes)?;
+                    lease["generation"] = serde_json::json!("replacement-process");
+                    bucket.put(key, serde_json::to_vec(&lease)?).await?;
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+        faults.shutdown().await;
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(10),
+            node.run_until(std::future::pending()),
+        )
+        .await??;
+        ensure!(
+            outcome == NodeOutcome::Fenced { code: 3, reason },
+            "lease fault returned {outcome:?}, expected {reason:?}"
+        );
+        ensure!(
+            owner
+                .configure_metrics(Arc::new(HostMetricsSample::default))
+                .is_err(),
+            "fencing returned before closing the node domain"
+        );
+        ensure!(
+            core.handle().spawn(async { 7 }).await? == 7,
+            "fencing stopped the caller's executor"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_node_reports_expired_authority_after_its_executor_resumes() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("application-core")?;
+    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let node = start(
+        "paused",
+        "paused",
+        &directory.path().join("node"),
+        &core,
+        Some(bucket),
+        None,
+        0,
+    )
+    .await?;
+    ready(&node).await?;
+    let owner = node.services();
+    let (entered, paused) = tokio::sync::oneshot::channel();
+    // Suspend the caller's sole core worker beyond two lease lifetimes. A
+    // renewal started before suspension cannot authorize work after resuming.
+    let suspended = core.handle().spawn(async move {
+        let _ = entered.send(());
+        std::thread::sleep(Duration::from_millis(2_500));
+    });
+    paused.await?;
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        node.run_until(std::future::pending()),
+    )
+    .await??;
+    suspended.await?;
+    ensure!(
+        outcome
+            == NodeOutcome::Fenced {
+                code: 3,
+                reason: FenceReason::NodeLeaseExpired
+            },
+        "executor suspension returned {outcome:?}"
+    );
+    ensure!(
+        owner
+            .configure_metrics(Arc::new(HostMetricsSample::default))
+            .is_err(),
+        "expiry returned before closing the node domain"
+    );
+    ensure!(
+        core.handle().spawn(async { 7 }).await? == 7,
+        "expiry stopped the caller's executor"
+    );
+    Ok(())
+}
+
 fn actor(generation: String) -> ActorOptions {
     ActorOptions {
         core: ActorPolicy {

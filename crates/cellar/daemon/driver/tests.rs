@@ -1,7 +1,7 @@
 use super::*;
 use crate::application::{Application, Cell, Context, HandlerFuture, Invocation, Output, Registry};
 use crate::asyncrt::{ExecutionDomain, TaskHandle};
-use crate::node_lifecycle::{NodeOutcome, ShutdownPolicy};
+use crate::node_lifecycle::{FenceReason, FenceReport, NodeOutcome, ShutdownPolicy};
 use std::{collections::HashMap, time::Duration};
 use tokio::sync::Semaphore;
 
@@ -103,7 +103,7 @@ struct Host {
     origin: String,
     stop: oneshot::Sender<ShutdownMode>,
     task: TaskHandle<anyhow::Result<NodeOutcome>>,
-    fence: mpsc::UnboundedSender<i32>,
+    fence: mpsc::UnboundedSender<FenceReport>,
     core_exit: mpsc::UnboundedSender<Result<(), String>>,
     signals: Arc<Signals>,
     entered: mpsc::UnboundedReceiver<()>,
@@ -125,13 +125,24 @@ async fn host_with_policy(
     data_dir: &std::path::Path,
     shutdown: ShutdownPolicy,
 ) -> anyhow::Result<Host> {
+    host_with_fence_input(label, data_dir, shutdown, false).await
+}
+async fn host_with_fence_input(
+    label: &'static str,
+    data_dir: &std::path::Path,
+    shutdown: ShutdownPolicy,
+    fence_reports_closed: bool,
+) -> anyhow::Result<Host> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let (entered, received) = mpsc::unbounded_channel();
     let signals = Arc::new(Signals {
         entered,
         release: Semaphore::new(0),
     });
-    let (fence, fence_rx) = mpsc::unbounded_channel();
+    let (fence, mut fence_rx) = mpsc::unbounded_channel();
+    if fence_reports_closed {
+        fence_rx.close();
+    }
     let (core_exit, actor_exit_rx) = mpsc::unbounded_channel();
     let options = crate::actor::ActorOptions {
         core: cellar_logic::Config {
@@ -396,10 +407,16 @@ async fn fencing_core_failure_and_cancellation_return_control_and_close_admissio
     let directory = tempfile::tempdir()?;
     let a = host("a", &directory.path().join("a")).await?;
     let b = host("b", &directory.path().join("b")).await?;
-    a.fence.send(9)?;
+    a.fence.send(FenceReport {
+        code: 9,
+        reason: FenceReason::NodeLeaseMissing,
+    })?;
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(3), a.task).await???,
-        NodeOutcome::Fenced { code: 9 }
+        NodeOutcome::Fenced {
+            code: 9,
+            reason: FenceReason::NodeLeaseMissing,
+        }
     );
     assert!(a.app.is_draining());
     a.domain.shutdown().await;
@@ -418,6 +435,69 @@ async fn fencing_core_failure_and_cancellation_return_control_and_close_admissio
     assert!(c.task.await.is_err());
     assert!(c.app.is_draining());
     c.domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn fencing_during_application_drain_preserves_the_authority_report() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let mut h = host("draining", directory.path()).await?;
+    let request_client = client()?;
+    let origin = h.origin.clone();
+    let held =
+        tokio::spawn(async move { request_client.post(format!("{origin}/hold")).send().await });
+    tokio::time::timeout(Duration::from_secs(3), h.entered.recv())
+        .await?
+        .unwrap();
+    h.stop.send(ShutdownMode::Handoff).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !h.app.is_draining() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    h.fence.send(FenceReport {
+        code: 3,
+        reason: FenceReason::NodeLeaseMismatch,
+    })?;
+    let outcome = tokio::time::timeout(Duration::from_secs(3), h.task).await???;
+    assert_eq!(
+        outcome,
+        NodeOutcome::Fenced {
+            code: 3,
+            reason: FenceReason::NodeLeaseMismatch
+        }
+    );
+    h.domain.shutdown().await;
+    let _ = held.await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn losing_fence_reports_is_a_core_failure_without_fabricating_a_fence() -> anyhow::Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let a = host_with_fence_input(
+        "closed-fence-input",
+        directory.path(),
+        ShutdownPolicy {
+            total_ms: 5_000,
+            token_wait_ms: 0,
+            no_progress_ms: 3_000,
+        },
+        true,
+    )
+    .await?;
+    // The actor is healthy and has issued no Halt. Only its reporting path
+    // was disconnected; supervision must fail closed without inventing one.
+    assert!(a.app.healthy().await);
+    let outcome = tokio::time::timeout(Duration::from_secs(3), a.task).await???;
+    assert!(
+        matches!(outcome, NodeOutcome::CoreFailed { .. }),
+        "closed fence input fabricated an authority fence: {outcome:?}"
+    );
+    assert!(a.app.is_draining());
+    a.domain.shutdown().await;
     Ok(())
 }
 

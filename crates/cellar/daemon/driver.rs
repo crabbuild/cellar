@@ -4,7 +4,7 @@
 //! Production dispatch and bounded drain without signals or process exits.
 
 use super::*;
-use crate::node_lifecycle::{NodeOutcome, ShutdownPolicy, ShutdownReport};
+use crate::node_lifecycle::{FenceReport, NodeOutcome, ShutdownPolicy, ShutdownReport};
 
 pub(super) struct RunPolicy {
     pub shutdown: ShutdownPolicy,
@@ -66,7 +66,7 @@ pub(super) struct PreparedDriver {
     pub listener: tokio::net::TcpListener,
     pub internal_listener: tokio::net::TcpListener,
     pub channels: Channels,
-    pub fence_rx: mpsc::UnboundedReceiver<i32>,
+    pub fence_rx: mpsc::UnboundedReceiver<FenceReport>,
     pub actor_exit_rx: mpsc::UnboundedReceiver<Result<(), String>>,
     pub ready_ownership: Option<Arc<BucketOwnership>>,
     pub fleet_bucket: Option<Bucket>,
@@ -83,6 +83,15 @@ struct AdmissionFence(Arc<std::sync::atomic::AtomicBool>);
 impl Drop for AdmissionFence {
     fn drop(&mut self) {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+fn fence_outcome(report: Option<FenceReport>) -> NodeOutcome {
+    match report {
+        Some(FenceReport { code, reason }) => NodeOutcome::Fenced { code, reason },
+        None => NodeOutcome::CoreFailed {
+            error: "the core fencing report channel closed without an authority report".into(),
+        },
     }
 }
 
@@ -353,8 +362,8 @@ where
             }
             mode = shutdown_rx.recv() => break mode.unwrap_or(ShutdownMode::Handoff),
             mode = &mut stop => break mode,
-            code = fence_rx.recv() => {
-                return Ok(NodeOutcome::Fenced { code: code.unwrap_or(3) });
+            report = fence_rx.recv() => {
+                return Ok(fence_outcome(report));
             }
             actor_exit = actor_exit_rx.recv() => {
                 let error = match actor_exit {
@@ -697,7 +706,7 @@ where
                     }));
                 }
                 Some(_) = websockets.next(), if !websockets.is_empty() => {}
-                code = fence_rx.recv() => return Ok(NodeOutcome::Fenced { code: code.unwrap_or(3) }),
+                report = fence_rx.recv() => return Ok(fence_outcome(report)),
                 actor_exit = actor_exit_rx.recv() => {
                     let error = match actor_exit {
                         Some(Err(error)) => error,
@@ -922,7 +931,7 @@ where
                     }));
                 }
                 Some(_) = websockets.next(), if !websockets.is_empty() => {}
-                code = fence_rx.recv() => return Ok(NodeOutcome::Fenced { code: code.unwrap_or(3) }),
+                report = fence_rx.recv() => return Ok(fence_outcome(report)),
                 actor_exit = actor_exit_rx.recv() => {
                     let error = match actor_exit {
                         Some(Err(error)) => error,

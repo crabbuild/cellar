@@ -120,6 +120,9 @@ remain outside the CLI directory.
    Domain closure can race a task's current poll. Production actor selectors
    use `try_start`/`try_step` and fallible effect admission; cancellation must
    not become an invariant panic or a fabricated completion event.
+   Preserve the core's typed fencing reason in `FenceReport` and
+   `NodeOutcome::Fenced`. A closed reporting channel is a supervision failure,
+   never evidence of an authority loss.
 9. Idle, unowned cell routing history uses the actor's captured
    `max_cached_routes` limit. Reclamation cannot discard ownership, alarms or
    unfinished work. Every cell-table replacement maintains the recency index;
