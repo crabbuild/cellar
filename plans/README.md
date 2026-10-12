@@ -15,7 +15,7 @@ mandatory captured-policy/cache-snapshot checks to the performance harness.
 
 | Plan | Priority | Effort | Risk | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
-| [001: Group framework files by component](001-component-layout.md) | P2 | M | MED | None | IN PROGRESS |
+| [001: Group framework files by component](001-component-layout.md) | P2 | M | MED | None | DONE |
 
 Read plan 001 fully before implementation. Its three batches can be reviewed
 and landed separately, in order. Update the status when implementation begins
@@ -154,13 +154,13 @@ ownership-sensitive modules. File length alone does not define a safe seam.
   discovers 43 direct test targets; test grouping needs a separate manifest
   change if pursued.
 
-## Planning validation and limits
+## Planning validation and limits (before implementation)
 
 Verified the current Git revision, source relationships, relative include
 paths, manifests, lint rules, and CI commands. `cargo metadata --no-deps
 --format-version 1 --locked` succeeds and reports four packages and 43 Cellar
-integration-test targets. There are 74 Rust files directly under
-`crates/cellar/`; the move map relocates 71 and retains the three root files
+integration-test targets. At the planned revision there were 74 Rust files
+directly under `crates/cellar/`; the move map relocates 71 and retains the three root files
 shown above.
 
 The current harness proof guards pass: `PYTHONDONTWRITEBYTECODE=1 python3 -m
@@ -171,3 +171,41 @@ or destination collisions.
 Local Rust is 1.97.0; SDK CI selects 1.98.1, while the Cellar manifest declares
 1.94.1 as its minimum. No fresh Rust compilation, Rust runtime test suite, security audit,
 or fleet-scale validation was performed during this planning pass.
+
+## Implementation and verification
+
+Completed on 2026-10-12 on `codex/organize-components`, against the same
+`origin/main` revision. `git pull --ff-only origin main` confirmed it was still
+current. The three implementation batches relocate all 95 tracked files,
+including 71 crate-root Rust files. Only `lib.rs`, `sdk.rs`, and `build.rs`
+remain as Rust files at the Cellar crate root.
+
+Byte comparisons against the planned revision confirm that relocated contents
+are unchanged except for the documented node-module and TLS-fixture paths.
+Removing the added physical path attributes reproduces the original `lib.rs`
+exactly. The SDK facade, module visibility, conditional builds, macro exports,
+Cargo package/target metadata, all 43 integration-test entry points, manifests,
+lockfile, other crates, examples, tools, and CI remain intact. `NOTICE` now
+points to `execution/select.rs`; its attribution and license text is preserved.
+
+All verification gates passed using Rust 1.97.0 and the checkout-specific
+target directory on the mounted workspace volume:
+
+- `cargo fmt --all -- --check`
+- `python3 tools/check_native_dependencies.py`: 386 reachable packages,
+  no JavaScript engine
+- `cargo check --workspace --all-targets --all-features --locked`
+- Each batch's targeted tests: 61, 44, and 9 passing tests respectively
+- `cargo test --workspace --all-features --lib --tests --locked`: 227 tests
+  passed, including the external Rust application's Cargo dev/restart workflow
+- `cargo test --workspace --all-features --doc --locked`: eight doctests passed
+- `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
+- `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_*.py'`:
+  13 tests passed
+- Both `cellar` and `cellar-native` CLI help commands
+- Original move-inventory assertions, exact-content/scope audits, obsolete
+  physical-path search, and `git diff --check`
+
+The SDK CI toolchain (1.98.1), externally supplied simulation/conformance
+harnesses, and a new Docker/Podman fleet-scale run were not exercised locally.
+The follow-up refactors above remain separate work.

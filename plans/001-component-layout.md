@@ -313,6 +313,8 @@ Reasons for less obvious placements:
 - `crates/cellar/tests/native_sockets.rs`: two fixture include paths only.
 - `AGENTS.md`: repository map, physical-path examples, boundary documentation.
 - `README.md`: add a short component map if useful; preserve behavior docs.
+- `NOTICE`: update the Tokio-derived selector's physical source path only;
+  preserve all attribution and license text.
 - `plans/README.md`: update execution status.
 
 **Out of scope:**
@@ -585,20 +587,20 @@ tests or using a live fleet.
 
 ## Done criteria
 
-- [ ] Every move-map destination exists and all moved source paths are retired.
-- [ ] Relocated contents match the base apart from the specifically allowed paths.
-- [ ] Direct crate-root Rust files are exactly `lib.rs`, `sdk.rs`, `build.rs`.
-- [ ] All 43 integration-test entry points remain; Cargo target metadata matches.
-- [ ] Existing module declarations, visibility, cfgs, exports, macros, and SDK
+- [x] Every move-map destination exists and all moved source paths are retired.
+- [x] Relocated contents match the base apart from the specifically allowed paths.
+- [x] Direct crate-root Rust files are exactly `lib.rs`, `sdk.rs`, `build.rs`.
+- [x] All 43 integration-test entry points remain; Cargo target metadata matches.
+- [x] Existing module declarations, visibility, cfgs, exports, macros, and SDK
       facade are preserved.
-- [ ] Formatting, dependency guard, locked all-target/all-feature check, full
+- [x] Formatting, dependency guard, locked all-target/all-feature check, full
       workspace library/integration tests, doctests, Clippy, and harness
       proof-guard tests exit 0.
-- [ ] Both CLI help commands exit 0.
-- [ ] `git diff --check` passes; no manifest, lockfile, other-crate, or
+- [x] Both CLI help commands exit 0.
+- [x] `git diff --check` passes; no manifest, lockfile, other-crate, or
       out-of-scope behavior change.
-- [ ] `AGENTS.md` describes the new physical layout and stable Rust namespaces.
-- [ ] `plans/README.md` status records completion and verification limitations.
+- [x] `AGENTS.md` describes the new physical layout and stable Rust namespaces.
+- [x] `plans/README.md` status records completion and verification limitations.
 
 ## Stop conditions
 
