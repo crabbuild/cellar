@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 use cellar_native::{
     clone::{StructuredValue, Value},
     streams::*,

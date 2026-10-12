@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Telemetry
 
 cellar can record traces and logs for the requests it serves. Telemetry is off

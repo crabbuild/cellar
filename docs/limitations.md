@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Limitations
 
 cellar v0.6.2 is a beta release with these operational limits. See

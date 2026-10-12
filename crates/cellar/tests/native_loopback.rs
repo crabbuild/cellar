@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Loaded loopback capabilities keep their loader lifetime and host authority.
 #[path = "support/html.rs"]
 mod fixture;

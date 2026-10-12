@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! Cell-scope predicates, reified sans-IO.
 //!
 //! A cell scope names one Durable Object: `Class:instance`, or a bare instance

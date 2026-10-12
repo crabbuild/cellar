@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Native loaders and loaded facets through the production runtime, without V8.
 use anyhow::{anyhow, Result};
 use cellar::application::facets::{Class, CompletionError, Startup};

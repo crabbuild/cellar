@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 use super::*;
 use crate::application::{
     Application, Cell, HandlerFuture, Invocation, ListOptions, Output, Storage,

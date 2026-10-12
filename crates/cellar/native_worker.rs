@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js.rs.
 
 //! Native execution behind the existing Worker/turn boundary. No V8 handle
 //! is created on this path. The host still owns admission and durability.

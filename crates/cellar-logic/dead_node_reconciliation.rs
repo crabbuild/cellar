@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Sans-I/O decisions for retiring compatibility ownership-index debris.
 //!

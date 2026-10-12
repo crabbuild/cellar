@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The replication streams of Durable Object facets, shared by both engines.
 //!

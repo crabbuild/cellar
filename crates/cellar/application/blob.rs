@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Native object storage over the fleet bucket and shared Blob host registries.
 
 use super::Context;

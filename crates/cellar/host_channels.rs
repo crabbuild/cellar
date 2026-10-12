@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The channels a cell runtime uses to hand work to the host: one request
 //! type and one sender per host service for Rust application turns.

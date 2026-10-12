@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Shared byte pipes with read acknowledgements and owned BYOB buffers.
 //! No executor or cell authority is stored here. A write starts when called;
 //! its future observes consumption rather than driving the other endpoint.

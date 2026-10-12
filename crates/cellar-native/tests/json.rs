@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 use cellar_native::clone::{Limits, Object, StructuredValue, Value, ViewKind};
 use cellar_native::json::{parse, parse_utf8, parse_with_limits, stringify, stringify_with_limits};
 

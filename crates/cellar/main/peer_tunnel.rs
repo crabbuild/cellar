@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. All rights reserved.
+// Modified for Cellar.
 
 //! The peer tunnel: an upgraded stream per peer, plain HTTP inside.
 //!

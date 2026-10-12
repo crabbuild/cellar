@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Durable Object Facets
 
 A facet is a child object inside a Durable Object, with a SQLite database of

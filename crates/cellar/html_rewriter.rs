@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js/html_rewriter.rs.
 
 //! HTMLRewriter host ops over the `lol_html` crate — the same parser
 //! Workerd embeds.

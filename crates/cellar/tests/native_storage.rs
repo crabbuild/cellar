@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Production native turns with no engine initialization. The proof adapter
 //! records actual host gate requests; it does not emulate fleet replication.
 

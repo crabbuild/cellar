@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Production native Workflow turns and persisted journals. No engine initialization.
 
 use anyhow::{anyhow, Result};

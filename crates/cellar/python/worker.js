@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 // Entrypoint of a Python Worker bundle built by `cellar deploy`.
 //
 // Adapted from workerd at commit da46ad950c54b19158c5ea5cb997a9727491ca17

@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js/r2_ops.rs.
 
 //! Shared Blob host state, used by native bindings and the transitional adapter.
 

@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Native cancellation uses the production event driver and routed call guard.
 #[path = "support/html.rs"]
 mod fixture;

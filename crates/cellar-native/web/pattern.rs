@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! URL patterns with the retained parser and Rust ECMAScript regex execution.
 use super::Error;
 pub use quirks::UrlPatternInit;

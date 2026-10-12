@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! A scoped host clock for synchronous owned-value construction.
 use std::{cell::Cell, marker::PhantomData, rc::Rc};
 thread_local! {static CLOCK:Cell<Option<fn()->f64>>=const{Cell::new(None)};}

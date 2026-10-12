@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Alarm retry policy, reified sans-IO. After a handler fails, `cellar` persists
 //! a backoff in SQLite (`storage.rs`) and abandons the alarm once a bounded

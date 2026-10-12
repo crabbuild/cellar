@@ -1,3 +1,4 @@
+# Modified for Cellar from Celld.
 # Clean-sheet cellar workspace. `crates/cellar-logic` owns all behavioral state and
 # decisions; `crates/cellar` is only an effect executor and adapter host.
 [workspace]

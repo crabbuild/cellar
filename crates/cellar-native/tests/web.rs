@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 use cellar_native::web::{Headers, SearchParams, Url};
 fn units(value: &str) -> Vec<u16> {
     value.encode_utf16().collect()

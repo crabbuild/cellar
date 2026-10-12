@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 pub fn assert_system_tables(path: &std::path::Path, expected: &[&str]) -> anyhow::Result<()> {
     let connection = rusqlite::Connection::open(path)?;
     let mut statement = connection.prepare(

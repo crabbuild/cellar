@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // The SQL CLI reads operator input and migration files outside node storage.
 #![allow(clippy::disallowed_methods)]

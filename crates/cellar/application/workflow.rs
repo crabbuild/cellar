@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Native Workflow bindings and the retained instance journal/RPC protocol.
 
 mod cell;

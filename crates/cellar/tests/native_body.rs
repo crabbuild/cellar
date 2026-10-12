@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Owned upload readers, typed bodies, proofs and cleanup without engine startup.
 #[path = "support/html.rs"]
 mod fixture;

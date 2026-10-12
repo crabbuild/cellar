@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Native socket ownership and ordered streaming through production turns.
 use anyhow::{anyhow, Result};
 use cellar::application::websocket::{SocketEvent, WebSocket};

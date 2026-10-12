@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // The Blob CLI reads operator input and object bodies outside node storage.
 #![allow(clippy::disallowed_methods)]

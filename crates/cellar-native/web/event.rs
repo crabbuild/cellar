@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! At-target events and listener identity, retaining cellar's dispatch rules.
 use super::{AbortReason, AbortSignal, DomException, Error};
 use std::{

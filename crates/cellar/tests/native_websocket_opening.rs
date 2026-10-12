@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Native turn ownership and durability; the connector/proof verdicts are adapters.
 #[path = "support/html.rs"]
 mod fixture;

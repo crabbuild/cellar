@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Rust application primitives shared by cellar's runtime adapters.
 //!
 //! This crate does not depend on a JavaScript engine. Runtime adapters own

@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Workers
 
 A Worker is a stateless request handler that uses the

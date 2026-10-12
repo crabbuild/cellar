@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 // The stand-alone file replica is an external ReplicaClient backend. Cellar
 // production uses the injected local node filesystem and an object client.
 #![allow(clippy::disallowed_methods)]

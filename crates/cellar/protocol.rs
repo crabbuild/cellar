@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Durable types on the bucket contract between deployment tools and cellar.
 //! These objects are the interface; nothing else is exchanged.

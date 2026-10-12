@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Run the Cargo development workflow against an external application project.
 #![allow(clippy::disallowed_methods)]
 #![cfg(unix)]

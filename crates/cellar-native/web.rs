@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Owned Web API values. Cloning a facade shares its live list; explicit copy
 //! constructors create independent values. UTF-16 entry points preserve DOMStrings.
 mod abort;

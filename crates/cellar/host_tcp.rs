@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js/tcp.rs.
 //! Event-owned outbound TCP/TLS operations shared by both application backends.
 
 use crate::host_gates::{await_egress_gate, EgressGate};

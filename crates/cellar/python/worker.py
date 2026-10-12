@@ -1,3 +1,4 @@
+# Modified for Cellar from Celld.
 # Python side of the cellar Python Worker entrypoint.
 #
 # Adapted from workerd at commit da46ad950c54b19158c5ea5cb997a9727491ca17

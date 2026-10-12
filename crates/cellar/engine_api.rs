@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Shared Rust application, cell runtime and host protocol types.
 use crate::ws_registry::WorkerWebSocket;

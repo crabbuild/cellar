@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Async native content handlers over the shared interactive lol_html host.
 
 use super::{http::Response, Context, HandlerFuture};

@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Async savepoints and input gates through production native turns. No engine init.
 
 use anyhow::{anyhow, Result};

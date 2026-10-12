@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js/websocket.rs.
 //! Socket acceptance and metadata shared by native and source applications.
 
 use crate::engine_api::{HttpResponseWebSocket, WsTarget};

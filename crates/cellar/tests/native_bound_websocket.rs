@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Bound upgrade capabilities use production local and cross-node transports.
 #![allow(clippy::disallowed_methods)] // Process orchestration is outside application turns.
 #[path = "support/native_ws_node.rs"]

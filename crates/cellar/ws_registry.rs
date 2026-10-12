@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The WebSocket registry: the sockets an instance holds, the frames waiting
 //! to leave, and input queues polled by Rust application turns.

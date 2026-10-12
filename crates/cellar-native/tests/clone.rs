@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 use cellar_native::clone::{
     decode, decode_with_limits, encode, encode_with_limits, Limits, Object, StructuredValue, Value,
     ViewKind,

@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Activation-bound storage, transactions and lazy cursors.
 
 use super::*;

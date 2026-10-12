@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // Operator commands read the process environment for their fleet settings.
 #![allow(clippy::disallowed_methods)]

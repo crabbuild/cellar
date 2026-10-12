@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Public native facet API through production runtime turns, without an engine.
 //! This process uses standalone SQLite; fleet replication is a separate gate.
 

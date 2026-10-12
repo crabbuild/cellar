@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! WebSockets on the ingress: accepting them, proxying them to the owner,
 //! and the tasks that pump each one.

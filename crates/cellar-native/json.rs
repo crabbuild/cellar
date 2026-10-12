@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! JSON data operations on owned UTF-16 graphs. These retain JSON.parse's
 //! binary64 numbers and lone surrogates, and JSON.stringify's data semantics.
 //! Application callbacks (replacers, revivers, getters and custom toJSON)

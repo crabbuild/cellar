@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! A restore view over the epochs of one cell.
 //!
 //! A paged activation continues the chain it paged in: its first object

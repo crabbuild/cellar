@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Native SQL runs in production turns without initializing the JS engine.
 //! Host channel adapters stand in for fleet routing and durability proofs.
 

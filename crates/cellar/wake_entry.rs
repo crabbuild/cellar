@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The wake-entry gate: the durable discovery entry an armed alarm needs and
 //! the service that holds it, without depending on application execution.

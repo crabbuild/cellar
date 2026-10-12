@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! One Python HTTP process per business cell, controlled by the Rust SDK.
 use anyhow::{bail, Result};
 use cellar::sdk::{

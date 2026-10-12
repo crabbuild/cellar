@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Dynamically loaded compiled applications using host admission and turns.
 //! A named load shares its startup and lifetime with all derived handles.
 

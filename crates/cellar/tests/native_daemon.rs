@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Process-level native ingress, routing, bucket restore and reload coverage.
 
 // Process orchestration runs outside the cell execution boundary and uses

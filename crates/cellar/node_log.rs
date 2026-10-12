@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! v0 of the in-fleet replicated log tier (`CELLAR_DURABILITY=fleet`).
 //!

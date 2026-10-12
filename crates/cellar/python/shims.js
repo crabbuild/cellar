@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 // Lexical globals for the upstream Pyodide loader in a Python Worker bundle.
 //
 // `cellar deploy` injects this module into the generated bundle with esbuild's

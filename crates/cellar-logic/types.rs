@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The vocabulary the core is written in: what it is told, what it
 //! answers with, and the records it reads and writes.

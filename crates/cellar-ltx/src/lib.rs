@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 #![warn(clippy::disallowed_methods, clippy::disallowed_types)]
 
 //! `cellar-ltx` provides embeddable streaming replication for a SQLite database.

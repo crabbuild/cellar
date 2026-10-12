@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Outbound WebSockets with event-owned Workers and persistent business cells.
 //! Set CELLAR_WEBSOCKET_PEER to the peer's ws:// or wss:// origin before running.
 

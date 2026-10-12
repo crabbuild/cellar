@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Cellar's Rust application SDK.
 //!
 //! Import cell and service contracts, binding APIs, and owned primitive values

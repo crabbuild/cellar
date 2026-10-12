@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # WebAssembly
 
 A Worker bundle can import a `.wasm` file. As in Wrangler, the import gives

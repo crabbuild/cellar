@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # SQL
 
 SQL is a SQL database that a Worker reaches through a binding. cellar gives each

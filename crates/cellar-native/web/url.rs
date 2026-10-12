@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! The retained URL facade over the shared WHATWG parser. Setter writes are
 //! deliberately explicit: they retain the existing adapter's component rules.
 use super::Error;

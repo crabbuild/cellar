@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 454" role="img" aria-labelledby="workersFlowTitle workersFlowDesc">
   <title id="workersFlowTitle">Where a Worker request runs on a cellar fleet</title>
   <desc id="workersFlowDesc">An ingress terminates TLS and can send a request to any node of the fleet. The node that accepts the request runs the Worker deployment in a V8 isolate and calls fetch with the request, env, and ctx. The handler returns a Response. The env object holds the bindings, and a binding call leaves the isolate: a KV namespace, a SQL database, a queue, and a Durable Object are each a cell with one owner node, and a Blob binding reads the shared fleet bucket instead.</desc>

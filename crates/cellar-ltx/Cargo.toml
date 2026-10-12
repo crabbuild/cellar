@@ -1,3 +1,4 @@
+# Modified for Cellar from Celld.
 # cellar-ltx: in-process SQLite→object-store replication for cellar.
 #
 # Vendored 2026-08-03 from rustyriver (github.com/mikenomitch/rustyriver,

@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Typed finite HTTP bodies and their inferred Content-Type.
 use super::{Blob, Error, File, FormData, SearchParams};
 #[derive(Clone, Debug)]

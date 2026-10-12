@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // An operator command writes to the terminal and times its own work,
 // outside the execution boundary.

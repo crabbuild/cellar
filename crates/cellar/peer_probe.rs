@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // Peer probing is a real-wire diagnostic outside the Actor execution domain.
 #![allow(clippy::disallowed_types)]

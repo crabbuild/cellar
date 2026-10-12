@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Build images once, stage verified archives, publish before selectors.
 #![allow(clippy::disallowed_methods)]
 use super::*;

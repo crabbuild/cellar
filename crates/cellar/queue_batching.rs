@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 /// Two stages of one internal policy: producer calls share a transaction,
 /// then pending writes from multiple Queues share a fleet log capture.

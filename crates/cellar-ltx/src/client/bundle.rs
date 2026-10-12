@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! A [`ReplicaClient`] overlay that makes bundle-resident L0 segments
 //! visible beside a real per-cell client.
 //!

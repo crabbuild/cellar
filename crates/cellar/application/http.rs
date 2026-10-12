@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Owned native response bodies over the existing HTTP transport.
 
 use super::Context;

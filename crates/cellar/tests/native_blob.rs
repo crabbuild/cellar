@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Native Blob calls cross real cell turns and output gates, without engine initialization.
 
 use anyhow::{anyhow, Result};

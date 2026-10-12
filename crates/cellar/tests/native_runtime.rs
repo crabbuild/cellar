@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 use anyhow::{anyhow, Result};
 use cellar::application::{
     Cell, Context, HandlerFuture, Invocation, Output, Registry, Request, Storage,

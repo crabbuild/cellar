@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // RuntimeManager performs host lifecycle effects across worker backends; its
 // executor and observability clocks remain ambient.

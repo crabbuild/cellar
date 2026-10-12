@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Static assets
 
 Static assets serve the files of a directory, with a Worker or without one.

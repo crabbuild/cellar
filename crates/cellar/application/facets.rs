@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Activation-owned child cells using the ordinary host turn and stream gates.
 //! Pass the current event context to every operation, including operations on
 //! handles retained by a constructor. Startup callbacks run once, on first use.

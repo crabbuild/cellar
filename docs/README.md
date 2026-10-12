@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Cellar
 
 Start with the [Rust SDK guide](sdk.md) for current application APIs and delivery.

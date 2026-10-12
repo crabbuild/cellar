@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Event values and execution-domain abort timers for Rust applications.
 use super::{Context, HandlerFuture, Request};
 use anyhow::Result;

@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Event-owned TCP/TLS sockets with leased byte endpoints and STARTTLS.
 //!
 //! An echo exchange with a peer that replies after the write side closes:

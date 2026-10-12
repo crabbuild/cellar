@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Business cell identities and callable namespaces over existing host routing.
 use super::*;
 use cellar_native::cell_id;

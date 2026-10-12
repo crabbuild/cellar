@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Cell RPC waits own their cancellation across gates, routing and execution.
 use crate::engine_api::RpcData;
 use crate::host_channels::{begin_call_cancellation, RpcCallReq, RPC_CALL_TX};

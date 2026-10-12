@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Dynamic Workers
 
 A Dynamic Worker is Worker code that a running Worker supplies at runtime and

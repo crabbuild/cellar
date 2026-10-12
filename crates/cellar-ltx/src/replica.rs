@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! replica.rs — single-replica sync loop + restore orchestration.
 //! Ported from litestream@v0.5.11 `replica.go`.
 //!

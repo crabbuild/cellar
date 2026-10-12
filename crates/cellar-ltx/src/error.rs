@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! error.rs — thiserror-based error model + `Result` alias.
 //!
 //! Ported from litestream@v0.5.11 litestream.go:32-93

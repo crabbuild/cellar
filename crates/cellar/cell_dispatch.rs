@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Routed local execution and the durability gate for outgoing effects.
 use crate::actor::{ActivityGuard, AppHandle, LocalRequestFailure, Routed};

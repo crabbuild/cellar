@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Cellar identifiers and third-party endpoint recognition.
 use cellar::container::{image_key, image_reference};
 use cellar_ltx::replica_url::{is_cloudflare_blob_endpoint, is_minio_endpoint};

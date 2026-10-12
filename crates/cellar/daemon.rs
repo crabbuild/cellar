@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/main.rs.
 
 // Connection, startup and shutdown paths shared by compiled applications and
 // the transitional source executable. The Actor owns the execution domain.

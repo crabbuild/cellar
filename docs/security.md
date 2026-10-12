@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Security
 
 cellar v0.6.2 is a beta release. It is not safe for hostile multi-tenant use.

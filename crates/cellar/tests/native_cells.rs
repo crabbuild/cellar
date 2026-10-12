@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Business namespaces and entity stubs over production native cell turns.
 #[path = "support/html.rs"]
 mod fixture;

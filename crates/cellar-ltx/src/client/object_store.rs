@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! client::object_store — S3/Blob/MinIO `ReplicaClient` via the `object_store` crate.
 //!
 //! Ported (behavior only) from litestream@v0.5.11 `s3/replica_client.go`. We do

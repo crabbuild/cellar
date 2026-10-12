@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Cloudflare compatibility
 
 This page lists only the differences from the linked Cloudflare APIs. An entry

@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Server upgrades and outbound WebSockets for Rust cells and Workers.
 
 use super::{Activation, Context, EventState, HandlerFuture};

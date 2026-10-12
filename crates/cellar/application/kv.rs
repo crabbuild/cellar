@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Rust KV bindings and the runtime-supplied namespace cell. Identity, schema,
 //! RPC, expiry and blob commit order match the existing service. Fleet routing,
 //! ownership and durability still belong to the production host.

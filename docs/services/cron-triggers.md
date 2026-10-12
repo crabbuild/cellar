@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Cron Triggers
 
 A Cron Trigger runs a Worker on a schedule. cellar keeps the schedule of a script

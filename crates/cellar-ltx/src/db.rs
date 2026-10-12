@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! db.rs — SQLite database lifecycle: WAL-mode setup, the long-running read-lock
 //! checkpoint takeover, the WAL→LTX capture loop, and manual checkpointing.
 //! Ported from litestream@v0.5.11 `db.go`.

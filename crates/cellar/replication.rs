@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Shared replication primitives for the in-process LTX backend
 //! ([`crate::ltx_repl::LtxRepl`]). Each cell db lives at

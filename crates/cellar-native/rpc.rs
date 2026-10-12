@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! The existing RPC response envelope, including remote error values. Live
 //! capability envelopes require a host resolver and remain explicit refusals.
 

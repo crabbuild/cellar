@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Shared abort reasons and engine-independent cancellation notification.
 use super::{Error, Event, EventDispatchError, EventInit, EventTarget, Listener, ListenerOptions};
 use crate::clone::{StructuredValue, Value};

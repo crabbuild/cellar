@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! WHATWG text encoding with caller-owned incremental state.
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

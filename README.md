@@ -76,3 +76,5 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 Cellar, Cellar Logic, Cellar LTX, and Cellar Native are Apache-2.0 licensed.
+See the [licensing policy](docs/licensing.md) for upstream attribution and the
+header convention for original Cellar files.

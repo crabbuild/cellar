@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Effect dispatch keeps ordinary work off the core's lease timer thread.
 

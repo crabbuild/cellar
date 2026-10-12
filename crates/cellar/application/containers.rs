@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Cell-owned containers. Handles may be retained by a cell; every operation
 //! requires its current executing context. Mutations wait for durability.
 

@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js.rs.
 
 //! Native holds on the same process input gate used by cell delivery.
 

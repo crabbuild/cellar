@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! SQL wire contracts and value shaping used by the Rust SDK and host.
 
 /// One SQL request. The modes are explicit because their contracts differ:

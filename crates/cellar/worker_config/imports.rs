@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js/modules.rs.
 
 use crate::engine_api::BARE_NODE_BUILTINS;
 pub(crate) const PYTHON_HOST_SPECIFIER: &str = "cellar:python";

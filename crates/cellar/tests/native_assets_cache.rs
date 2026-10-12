@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Assets and the retained Cache API cross native turns without initializing V8.
 
 #[path = "support/assets.rs"]

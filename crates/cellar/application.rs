@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Rust application handlers executed by cellar's production turn driver.
 
 use crate::engine_api::{HttpResponse, QueueBatch, QueueDispatchResult, RequestBody, RpcData};

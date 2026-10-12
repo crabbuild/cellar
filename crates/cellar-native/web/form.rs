@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Ordered live form entries and the retained byte-oriented MIME protocol.
 use super::{Blob, Error, File, SearchParams};
 use regex::Regex;

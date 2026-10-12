@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 use super::{ActivityGuard, AppHandle};
 use crate::engine_api::{answer_ticket, GatedAnswer, RequestId};

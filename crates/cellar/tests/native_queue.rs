@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Real native broker/consumer turns, with routing and proof adapters. No JS
 //! engine initialization; persisted SQLite and local wake-entry storage.
 

@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! replica_url.rs — parse `s3://` and `file://` replica URLs + S3 endpoint
 //! detection helpers.
 //!

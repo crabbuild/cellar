@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // SQLite runs on the cell's execution thread outside the actor domain.
 #![allow(clippy::disallowed_methods)]

@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Native Queue producers, consumer settlement handles and the broker cell.
 //! Broker policy and fleet dispatch remain the existing Rust implementations.
 

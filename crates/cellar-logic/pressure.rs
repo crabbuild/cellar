@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Memory-pressure shedding as a pure classifier of a memory sample plus the
 //! prior shedding state (the hysteresis latch). No I/O, no clock — the env

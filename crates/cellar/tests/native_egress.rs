@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Native service/HTTP capabilities through production runtime dispatch.
 use anyhow::{anyhow, Result};
 use cellar::application::http::{Headers, MethodError, OutboundRequest, Redirect, Response};

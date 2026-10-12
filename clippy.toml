@@ -1,3 +1,4 @@
+# Modified for Cellar from Celld.
 # The execution boundary must use cellar::asyncrt. Modules outside that boundary
 # carry an explicit lint allow.
 disallowed-methods = [

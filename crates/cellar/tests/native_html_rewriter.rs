@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! HTML callbacks and response chunks retain the original native cell turn.
 #[path = "support/html.rs"]
 mod fixture;

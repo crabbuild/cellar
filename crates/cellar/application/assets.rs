@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Static assets through the generation-scoped host resolver.
 
 use super::{Context, HandlerFuture, Request};

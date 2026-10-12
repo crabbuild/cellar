@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Host input gates through production native turns, without engine startup.
 
 use anyhow::{anyhow, Result};

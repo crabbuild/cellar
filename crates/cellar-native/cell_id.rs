@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/engine_api.rs.
 //! Stable cell identity derivation and authentication, without an engine.
 use crate::web::Error;
 use std::cell::RefCell;

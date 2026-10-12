@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Containers
 
 A Rust cell can run one container beside its handler, reach its ports, execute

@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Queues
 
 [Queues](https://developers.cloudflare.com/queues/) is a message broker. A

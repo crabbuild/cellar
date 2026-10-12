@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // Placement and deadlines remain host decisions across worker executors.
 #![allow(clippy::disallowed_methods)]

@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 use super::*;
 use crate::application::storage::{SqlRow, SqlValue};
 use crate::application::{decode_rpc, Cell, Invocation, Storage};

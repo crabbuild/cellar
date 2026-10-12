@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Native delivery uses the retained asset builder, index and blob protocol.
 
 use super::*;

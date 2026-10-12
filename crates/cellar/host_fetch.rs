@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js.rs.
 //! Direct HTTP transport shared by application backends.
 use crate::engine_api::{HttpResponse, RequestBody};
 use crate::host_gates::{await_egress_gate, EgressGate};

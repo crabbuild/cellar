@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 456 690" role="img" aria-labelledby="assetsFlowTitle assetsFlowDesc">
   <title id="assetsFlowTitle">How cellar decides between an asset and the Worker</title>
   <desc id="assetsFlowDesc">A request reaches a node and passes down a column of tests. A method other

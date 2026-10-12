@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! The shipped default CLI and legacy alias expose the Rust delivery workflow.
 use anyhow::{ensure, Result};
 use std::process::Command;

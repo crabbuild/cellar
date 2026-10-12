@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 // Fleet CLI and peer-diagnostic work executes outside the Actor execution
 // domain.

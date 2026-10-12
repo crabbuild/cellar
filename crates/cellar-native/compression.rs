@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/js/zlib.rs.
 
 //! Owned, incremental gzip, zlib and raw-deflate transforms.
 use anyhow::{anyhow, Result};

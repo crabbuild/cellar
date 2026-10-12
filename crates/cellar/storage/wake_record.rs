@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Alarm installation identity, committed atomically with the alarm row.
 use cellar_logic::wake::{AlarmSnapshot, AlarmSource, PublicationId};

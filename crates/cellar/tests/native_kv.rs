@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Production native turns without Engine::init. Host adapters supply routing
 //! and accept proof tickets; the local bucket exercises real blob persistence.
 

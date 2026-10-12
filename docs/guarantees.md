@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # What cellar guarantees
 
 cellar makes two promises. Exactly one node serves a cell at a time, so two

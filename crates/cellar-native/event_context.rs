@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Event-local nesting, background registration and response-boundary gates.
 //!
 //! Drivers supply their own promise and gate types. No engine, executor or

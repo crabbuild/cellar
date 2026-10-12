@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Rust executable packaging and publication over the retained bucket protocol.
 
 // Build tools and executable inspection run outside cell execution domains.

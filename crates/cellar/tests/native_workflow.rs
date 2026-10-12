@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Binding preflight through native application turns, without engine startup.
 //! The native Workflow replay driver is still in the migration inventory.
 

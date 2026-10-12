@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Owned structured values and a compatibility reader for persisted clones.
 //!
 //! Object references retain cycles and shared identity; UTF-16 retains lone

@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! ltx.rs — LTX (Lite Transaction) file reader/writer + CRC64-ISO checksums.
 //!
 //! Ported from ltx@v0.5.2 `ltx.go`, `checksum.go`, `encoder.go`, `decoder.go`

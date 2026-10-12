@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Durable Objects / Cells
 
 A Durable Object is a single-threaded actor with its own SQLite database, and

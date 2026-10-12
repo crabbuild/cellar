@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! All Cellar-owned SQLite tables, indexes and triggers use this namespace.
 
 pub const PREFIX: &str = "__sys_";

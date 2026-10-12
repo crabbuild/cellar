@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The gray-follower eviction policy (sans-IO), the log tier's answer to
 //! write-all's classic price: one slow follower stalls every ack, so the

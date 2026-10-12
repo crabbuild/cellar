@@ -1,3 +1,4 @@
+// Modified for Cellar from Celld.
 //! paged.rs — read-on-demand paging from replica objects.
 //!
 //! The read path of paged restore, ported from Litestream's

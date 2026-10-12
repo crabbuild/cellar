@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 use cellar_native::cell_id::{perform, Namespace};
 const KEY: &str = "cells:v1:4:demo:Account";
 #[test]

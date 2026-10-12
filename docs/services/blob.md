@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # Blob
 
 Blob provides an object storage API compatible with [Cloudflare R2](https://developers.cloudflare.com/r2/). A Worker reaches

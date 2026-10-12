@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/dev.rs.
 //! Cargo development over the retained local store and node supervision path.
 #![allow(clippy::disallowed_methods)]
 

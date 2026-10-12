@@ -1,4 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
 //! Rust byte pipes connected to cellar's HTTP ownership and event driver.
 use super::{
     http::{Headers, Response},

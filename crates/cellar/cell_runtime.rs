@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! What a node's cell runtime holds whichever engine runs the cells: the
 //! generations it resolves calls against, the data directory, replication,

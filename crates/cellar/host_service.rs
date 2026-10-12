@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Adapted for Cellar from Celld: crates/celld/main.rs.
 //! Generation-scoped service calls over existing host routing.
 use crate::engine_api::HttpResponse;
 use crate::host_channels::{SvcCallReq, SvcRpcReq, SVC_CALL_TX, SVC_RPC_TX};

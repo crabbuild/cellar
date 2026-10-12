@@ -1,3 +1,4 @@
+<!-- Modified for Cellar from Celld. -->
 # KV
 
 KV is a key-value store that a Worker reaches through a binding. Each namespace

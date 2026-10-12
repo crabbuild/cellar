@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Initialize a fresh Cellar fleet's durable wake format. No Celld import.
 use crate::bucket::Bucket;

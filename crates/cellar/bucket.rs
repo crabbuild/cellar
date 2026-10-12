@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! The engine's single object-store client: the `object_store` crate
 //! `cellar-ltx` already links, bound to one bucket. Replaces aws-sdk-s3.

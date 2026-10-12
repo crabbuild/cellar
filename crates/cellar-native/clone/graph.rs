@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! Owned graph composition without projecting through JSON. References are
 //! remapped as one table, preserving cycles, views, errors and shared identity.
 

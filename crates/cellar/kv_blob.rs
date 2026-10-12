@@ -1,4 +1,5 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
+// Modified for Cellar.
 
 //! Large-value storage and limits for native KV namespace cells.
 //! One activation can collect only blobs authorized by its ownership epoch.

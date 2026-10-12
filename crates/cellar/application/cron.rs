@@ -1,5 +1,3 @@
-// Copyright 2026 Deno Land Inc. Apache-2.0 license.
-
 //! The native reserved cron cell. Schedule and retry policy remain in
 //! cellar_logic::cron; storage, wake discovery and ownership remain the host's.
 
