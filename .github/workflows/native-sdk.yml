@@ -1,0 +1,40 @@
+name: Cellar SDK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cellar-sdk-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_VERSION: 1.98.1
+
+jobs:
+  check:
+    name: Rust framework and SDK
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy
+          rustup default "$RUST_VERSION"
+      - name: Verify the workspace has no JavaScript engine
+        run: python3 tools/check_native_dependencies.py
+      - name: Test and lint
+        run: |
+          cargo test --workspace --all-features --lib --tests --locked
+          cargo test --workspace --all-features --doc --locked
+          cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Build a Rust application package
+        run: |
+          cargo run -p cellar --bin cellar --locked -- \
+            build examples/native-counter-project.json \
+            --output "$RUNNER_TEMP/native-counter-package"
