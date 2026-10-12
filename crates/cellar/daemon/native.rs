@@ -25,6 +25,12 @@ pub(super) fn print_help() -> anyhow::Result<()> {
          application. Fleet graphs watch the deployment pointer and accept only\n\
          registered script versions. Use the application's Rust delivery workflow\n\
          to build and publish code. The source deploy/dev commands are unavailable.\n\n\
+         COMPILED LOADER BUDGETS:\n\
+           CELLAR_LOADER_MAX_WORKERS                Workers per host (default: 256)\n\
+           CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL  Workers per script and generation\n\
+                                                   (default: host limit minus one, minimum 1)\n\
+           CELLAR_LOADER_MAX_ENV_BYTES              Copied values and routes (default: 1 MiB)\n\
+           CELLAR_LOADER_MAX_PROPS_BYTES            Entrypoint and class props (default: 1 MiB)\n\n\
          Node environment and operator options are documented in the cellar docs."
     ))
 }

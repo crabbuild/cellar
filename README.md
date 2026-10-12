@@ -21,13 +21,23 @@ encoding, compression, and cryptography. See the
 [native Rust examples](examples/README.md).
 
 Library hosts create an `ExecutionDomain` with their own Tokio handle and set
-`ActorOptions`, `RuntimePolicy`, and container infrastructure through its services
+`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, and container infrastructure through its services
 before building application generations. `RuntimePolicy` controls worker and
 request limits, admission waits, and handler budgets independently for each host;
 library defaults are bounded and do not read environment variables. The CLI
 resolves its environment settings at startup. The production actor can run on a
 separate caller-owned core executor. A complete library bootstrap and graceful
 durability drain API are still being extracted from the process runner.
+
+`LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
+quotas, copied environment size, and entrypoint or class property size. Environment
+budgets include supplied service-route metadata. Derived handles retain their
+originating host's property budget; service capabilities reject calls from another
+execution domain. Configure the policy before building a generation; reading it
+pins the defaults. Encoded values remain subject to the structured-value decoder's
+64 MiB ceiling. The CLI accepts `CELLAR_LOADER_MAX_WORKERS`,
+`CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL`, `CELLAR_LOADER_MAX_ENV_BYTES`, and
+`CELLAR_LOADER_MAX_PROPS_BYTES`. The obsolete module-byte setting is rejected.
 
 `Replication::start` takes `ReplicaStorage` and `ReplicationOptions`. Applications
 supply the storage client, fleet prefix, upload and compaction policy, restore

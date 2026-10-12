@@ -487,6 +487,7 @@ impl Generation {
         options: GenerationOptions,
         mut applications: HashMap<String, Arc<dyn crate::application::Application>>,
     ) -> anyhow::Result<Self> {
+        crate::asyncrt::services().loader_policy();
         let GenerationOptions { node, region } = options;
         let DeploymentGraph { primary, cohosted } = graph;
 

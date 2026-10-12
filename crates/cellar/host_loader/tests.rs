@@ -39,7 +39,10 @@ fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
         .iter()
         .filter_map(|result| result.as_ref().ok().copied())
         .collect::<HashSet<_>>();
-    assert_eq!(admitted.len(), MAX_LOADED_WORKERS_PER_PRINCIPAL);
+    assert_eq!(
+        admitted.len(),
+        crate::loader_policy::LoaderPolicy::default().max_workers_per_principal
+    );
     assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
     // The generation is part of the principal, even for the same script.
     let competing = LoaderOwner::fresh("host-quota", 2);
@@ -58,7 +61,7 @@ fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
     let remaining = take_loader_owner(&second);
     assert_eq!(
         taken.len() + remaining.len(),
-        MAX_LOADED_WORKERS_PER_PRINCIPAL
+        crate::loader_policy::LoaderPolicy::default().max_workers_per_principal
     );
     drop(taken);
     drop(remaining);
@@ -294,7 +297,7 @@ async fn loader_quotas_and_owner_retirement_are_independent_on_one_application_r
     assert_eq!(first_owner.id, second_owner.id);
     assert!(first_owner != second_owner);
     for owner in [&first_owner, &second_owner] {
-        for _ in 0..MAX_LOADED_WORKERS_PER_PRINCIPAL {
+        for _ in 0..crate::loader_policy::LoaderPolicy::default().max_workers_per_principal {
             let (_, state) = tokio::sync::watch::channel(LoaderState::Loading);
             admit_loaded_worker(owner.clone(), state).unwrap();
         }
@@ -308,7 +311,7 @@ async fn loader_quotas_and_owner_retirement_are_independent_on_one_application_r
             drop(take_loader_owner(&first_owner));
             assert_eq!(
                 loader_registry().lock().unwrap().len(),
-                MAX_LOADED_WORKERS_PER_PRINCIPAL
+                crate::loader_policy::LoaderPolicy::default().max_workers_per_principal
             );
         })
         .await
@@ -327,7 +330,7 @@ async fn loader_quotas_and_owner_retirement_are_independent_on_one_application_r
         .contains("execution domain is closed"));
     assert_eq!(
         second.services().loader().registry().lock().unwrap().len(),
-        MAX_LOADED_WORKERS_PER_PRINCIPAL
+        crate::loader_policy::LoaderPolicy::default().max_workers_per_principal
     );
     second.shutdown().await;
     assert!(second

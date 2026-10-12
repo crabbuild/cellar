@@ -367,7 +367,11 @@ TUNING:
   CELLAR_MAX_CELL_REQUESTS         Concurrent fetches per cell (default: 64)
   CELLAR_MAX_REQUEST_BODY_BYTES    Ingress request body limit (default: 1 GiB)
   CELLAR_MAX_ASSET_FILE_BYTES      Per-file asset limit (default: 25 MiB)
-  CELLAR_MAX_DYNAMIC_WORKER_CODE_BYTES  Loaded module total (default: 64 MiB)
+  CELLAR_LOADER_MAX_WORKERS        Compiled loader workers per host (default: 256)
+  CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL  Workers per script and generation
+                                  (default: host limit minus one, minimum 1)
+  CELLAR_LOADER_MAX_ENV_BYTES      Copied environment and routes (default: 1 MiB)
+  CELLAR_LOADER_MAX_PROPS_BYTES    Entrypoint and cell class props (default: 1 MiB)
   CELLAR_PRESSURE_OWNERSHIP        release to rebalance, sticky to cache locally
   CELLAR_MAX_RSS_MB                Active-memory shed threshold (default: 80%; 0 disables)
   CELLAR_ALARM_RESIDENT_MS         Near-alarm residency window

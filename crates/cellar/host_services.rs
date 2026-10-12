@@ -153,6 +153,20 @@ impl HostServices {
         Ok(())
     }
 
+    /// Fix loader admission and copied-value budgets before building a generation.
+    /// Repeating the same policy is harmless; a live policy cannot be replaced.
+    pub fn configure_loader(
+        &self,
+        policy: crate::loader_policy::LoaderPolicy,
+    ) -> anyhow::Result<()> {
+        self.loader.configure_policy(policy)
+    }
+
+    /// This host's immutable loader policy, including environment-free defaults.
+    pub fn loader_policy(&self) -> crate::loader_policy::LoaderPolicy {
+        self.loader.policy()
+    }
+
     /// Fix this host's runtime limits before building application generations.
     /// Reading the policy or building a pool pins the library defaults if no
     /// policy was supplied. A different policy cannot replace a live one.

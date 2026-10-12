@@ -5,7 +5,7 @@
 //! retain binding handles across events and pass the current context per call.
 //!
 //! Embedded engines enter an [`ExecutionDomain`] on the application's host
-//! runtime. Configure [`ActorOptions`] and [`RuntimePolicy`] through
+//! runtime. Configure [`ActorOptions`], [`RuntimePolicy`], and [`LoaderPolicy`] through
 //! `domain.services()` before building application generations, then construct
 //! [`Actor`] inside the domain and spawn it on the application's core executor.
 //! The application owns fencing, task results and executor lifetimes. Full node
@@ -15,7 +15,7 @@
 //! Configure an execution domain before loading application generations.
 //!
 //! ```no_run
-//! use cellar::sdk::{ActorOptions, ExecutionDomain, RuntimePolicy};
+//! use cellar::sdk::{ActorOptions, ExecutionDomain, LoaderPolicy, RuntimePolicy};
 //! use std::time::Duration;
 //!
 //! fn domain(handle: tokio::runtime::Handle, actor: ActorOptions)
@@ -29,9 +29,22 @@
 //!         ..Default::default()
 //!     })?;
 //!     domain.services().configure_actor(&actor)?;
+//!     domain.services().configure_loader(LoaderPolicy {
+//!         max_workers: 128,
+//!         max_workers_per_principal: 64,
+//!         ..Default::default()
+//!     })?;
 //!     Ok(domain)
 //! }
 //! ```
+//!
+//! Loader limits belong to the originating host and remain fixed across
+//! generations and derived handles. Environment budgets include copied values
+//! and supplied service-route metadata; property budgets apply to service
+//! handles, loaded entrypoints, and cell classes. Both are bounded by the
+//! structured-value decoder's 64 MiB ceiling. Library defaults do not inspect
+//! process environment. [`LoaderPolicy::from_env`] is the explicit CLI adapter.
+//! Service handles must be used with a context from their own execution domain.
 //!
 //! Replication uses the application's storage client and explicit policy.
 //! Start it inside the domain that will own its tasks and cell databases.
@@ -101,6 +114,7 @@ pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
 pub use crate::container::EngineOptions as ContainerEngineOptions;
 /// The process-owning command-line runner.
 pub use crate::daemon::NativeDaemon as Host;
+pub use crate::loader_policy::LoaderPolicy;
 pub use crate::log_options::{
     EvictionPolicy as LogEvictionPolicy, HedgeMode, LogOptions, LogWindowOptions,
 };

@@ -95,6 +95,7 @@ pub(crate) mod html_rewriter;
 pub mod http_streams;
 pub mod kv_blob;
 pub mod kv_cli;
+pub mod loader_policy;
 pub(crate) mod local_store;
 pub mod log_options;
 pub mod ltx_repl;

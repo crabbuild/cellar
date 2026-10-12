@@ -11,31 +11,6 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 pub(crate) mod calls;
 
-// Default to workerd's module-byte ceiling. A fleet operator may admit larger
-// compiled runtimes; loaded guest code cannot change this host policy.
-#[allow(dead_code)]
-pub(crate) const DEFAULT_MAX_DYNAMIC_WORKER_CODE_SIZE: usize = 64 * 1024 * 1024;
-pub(crate) const MAX_DYNAMIC_WORKER_ENV_SIZE: usize = 1024 * 1024;
-
-#[allow(dead_code)]
-pub(crate) fn dynamic_worker_code_limit() -> usize {
-    static LIMIT: OnceLock<usize> = OnceLock::new();
-    *LIMIT.get_or_init(|| {
-        crate::env_vars::positive_or(
-            "CELLAR_MAX_DYNAMIC_WORKER_CODE_BYTES",
-            DEFAULT_MAX_DYNAMIC_WORKER_CODE_SIZE,
-        )
-        .expect("validated CELLAR_MAX_DYNAMIC_WORKER_CODE_BYTES")
-    })
-}
-
-/// The largest `props` value one loaded entrypoint or Durable Object class can
-/// carry, as structured-clone bytes. Workerd does not impose this bound, but
-/// cellar holds the value on a host job for the whole call. The harness shares
-/// the caller's isolate and cannot prevent that unbounded host allocation, so
-/// every op that accepts call props must enforce the limit.
-pub(crate) const MAX_DYNAMIC_WORKER_PROPS_SIZE: usize = 1024 * 1024;
-
 #[derive(Clone)]
 pub(crate) enum LoaderState {
     Loading,
@@ -92,6 +67,8 @@ pub(crate) trait LoaderService: Send + Sync {
     fn bind_domain(&self, domain: crate::asyncrt::DomainToken);
     fn accepts_work(&self) -> bool;
     fn close(&self);
+    fn configure_policy(&self, policy: crate::loader_policy::LoaderPolicy) -> anyhow::Result<()>;
+    fn policy(&self) -> crate::loader_policy::LoaderPolicy;
     fn registry(&self) -> Arc<Mutex<LoadedWorkers>>;
     fn next_id(&self) -> u64;
     fn next_owner(&self) -> u64;
@@ -105,6 +82,7 @@ pub(crate) struct LoaderRegistry {
     next_owner: AtomicU64,
     closed: AtomicBool,
     domain: OnceLock<crate::asyncrt::DomainToken>,
+    policy: OnceLock<crate::loader_policy::LoaderPolicy>,
 }
 impl Default for LoaderRegistry {
     fn default() -> Self {
@@ -114,10 +92,23 @@ impl Default for LoaderRegistry {
             next_owner: AtomicU64::new(1),
             closed: AtomicBool::new(false),
             domain: OnceLock::new(),
+            policy: OnceLock::new(),
         }
     }
 }
 impl LoaderService for LoaderRegistry {
+    fn configure_policy(&self, policy: crate::loader_policy::LoaderPolicy) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "loader execution domain is closed");
+        policy.validate()?;
+        if self.policy.set(policy).is_err() {
+            anyhow::ensure!(self.policy.get() == Some(&policy),
+                "loader policy is already in use; configure loader policy before building the generation");
+        }
+        Ok(())
+    }
+    fn policy(&self) -> crate::loader_policy::LoaderPolicy {
+        *self.policy.get_or_init(Default::default)
+    }
     fn registry(&self) -> Arc<Mutex<LoadedWorkers>> {
         self.registry.clone()
     }
@@ -125,6 +116,7 @@ impl LoaderService for LoaderRegistry {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
     fn next_owner(&self) -> u64 {
+        self.policy();
         self.next_owner.fetch_add(1, Ordering::Relaxed)
     }
     fn bind_domain(&self, domain: crate::asyncrt::DomainToken) {
@@ -192,16 +184,8 @@ pub(crate) fn take_loader_owner(
         .collect()
 }
 
-// Bound live Dynamic Workers so a runaway loader cannot exhaust workers.
-// Keep admission policy inside the registry: a caller-selected bound would let
-// different entry points disagree about how much host capacity remains.
-pub(crate) const MAX_LOADED_WORKERS: usize = 256;
-// Reserve only the final host slot. A fixed fraction needlessly reduces
-// single-script capacity without giving every competing principal a share.
-pub(crate) const MAX_LOADED_WORKERS_PER_PRINCIPAL: usize = MAX_LOADED_WORKERS - 1;
-
 /// Check both limits and install the live state under one registry lock. A
-/// separate check and insert lets concurrent isolates exceed either limit.
+/// separate check and insert lets concurrent workers exceed either limit.
 pub(crate) fn admit_loaded_worker(
     owner: LoaderOwner,
     state: tokio::sync::watch::Receiver<LoaderState>,
@@ -215,7 +199,8 @@ pub(crate) fn admit_loaded_worker(
     if !service.accepts_work() {
         return Err("worker loader: execution domain is closed".into());
     }
-    let principal_limit = MAX_LOADED_WORKERS_PER_PRINCIPAL;
+    let policy = service.policy();
+    let principal_limit = policy.max_workers_per_principal;
     let principal_count = registry
         .values()
         .filter(|entry| entry.owner.principal == owner.principal)
@@ -226,9 +211,10 @@ pub(crate) fn admit_loaded_worker(
             owner.principal.script, owner.principal.generation
         ));
     }
-    if registry.len() >= MAX_LOADED_WORKERS {
+    if registry.len() >= policy.max_workers {
         return Err(format!(
-            "worker loader: too many loaded workers (limit {MAX_LOADED_WORKERS})"
+            "worker loader: too many loaded workers (limit {})",
+            policy.max_workers
         ));
     }
 

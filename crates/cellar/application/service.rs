@@ -20,16 +20,21 @@ pub struct Fetcher {
     entrypoint: Option<crate::WorkerFetchEntrypoint>,
     // A derived loader lifetime or weak activation authority; no Slot cycle.
     loaded: Option<super::loader::CallOrigin>,
+    host: std::sync::Weak<crate::host_services::HostServices>,
+    props_limit: usize,
 }
 impl Fetcher {
     pub(crate) fn from_route(
         generation: crate::generation::GenerationId,
         route: &LoaderEnvRoute,
+        host: &Arc<crate::host_services::HostServices>,
     ) -> Self {
         Self {
             generation,
             script: route.script.clone(),
             loaded: None,
+            host: Arc::downgrade(host),
+            props_limit: host.loader_policy().max_props_bytes,
             entrypoint: route
                 .entrypoint
                 .clone()
@@ -39,8 +44,18 @@ impl Fetcher {
                 }),
         }
     }
-    pub(crate) fn route(&self) -> LoaderEnvRoute {
-        LoaderEnvRoute {
+    /// Charge the copied route fields before allocating their copies.
+    pub(crate) fn route(&self, remaining: &mut usize) -> Result<LoaderEnvRoute> {
+        let bytes = self
+            .script
+            .len()
+            .checked_add(self.entrypoint.as_ref().map_or(0, |e| e.name.len()))
+            .and_then(|n| n.checked_add(self.entrypoint.as_ref().map_or(0, |e| e.props.len())))
+            .ok_or_else(|| anyhow!("worker loader: environment exceeds size limit"))?;
+        *remaining = remaining
+            .checked_sub(bytes)
+            .ok_or_else(|| anyhow!("worker loader: environment exceeds size limit"))?;
+        Ok(LoaderEnvRoute {
             script: self.script.clone(),
             entrypoint: self.entrypoint.as_ref().map(|e| e.name.clone()),
             props: self
@@ -48,7 +63,7 @@ impl Fetcher {
                 .as_ref()
                 .map(|e| e.props.clone())
                 .unwrap_or_default(),
-        }
+        })
     }
     pub(crate) fn broker(&self) -> OutboundBroker {
         OutboundBroker {
@@ -57,6 +72,17 @@ impl Fetcher {
             entrypoint: self.entrypoint.clone(),
         }
     }
+    pub(crate) fn check_context(&self, context: &Context) -> Result<()> {
+        context.check_turn()?;
+        anyhow::ensure!(
+            self.host.upgrade().is_some_and(
+                |host| Arc::ptr_eq(&host, context.io.host_services()) && host.accepts_work()
+            ),
+            "service capability belongs to another or closed execution domain"
+        );
+        Ok(())
+    }
+
     pub fn with_props(&self, props: &StructuredValue) -> Result<Self> {
         let name = self
             .entrypoint
@@ -66,12 +92,15 @@ impl Fetcher {
         Ok(Self {
             entrypoint: Some(crate::WorkerFetchEntrypoint {
                 name,
-                props: super::loader::props_bytes(props)?,
+                props: super::loader::props_bytes(props, self.props_limit)?,
             }),
             ..self.clone()
         })
     }
     pub fn fetch(&self, context: &Context, mut request: Request) -> HandlerFuture<HttpResponse> {
+        if let Err(error) = self.check_context(context) {
+            return Box::pin(async move { Err(error) });
+        }
         // Incoming dispatch metadata is not request-selected authority. A
         // forwarded request always uses this handle's target and properties.
         request.entrypoint = None;
@@ -102,6 +131,9 @@ impl Fetcher {
         guard: RequestBodyGuard,
         gate: EgressGate,
     ) -> HandlerFuture<HttpResponse> {
+        if let Err(error) = self.check_context(context) {
+            return Box::pin(async move { Err(error) });
+        }
         if let Some(worker) = &self.loaded {
             return worker
                 .routed_entrypoint(self.entrypoint.as_ref())
@@ -140,6 +172,9 @@ impl Fetcher {
         context: &Context,
         operation: crate::WorkerRpcOperation,
     ) -> HandlerFuture<Vec<u8>> {
+        if let Err(error) = self.check_context(context) {
+            return Box::pin(async move { Err(error) });
+        }
         if let Some(worker) = &self.loaded {
             return worker
                 .routed_entrypoint(self.entrypoint.as_ref())
@@ -237,6 +272,8 @@ impl Context {
             generation: self.generation,
             script: script.clone(),
             loaded: None,
+            host: Arc::downgrade(self.io.host_services()),
+            props_limit: self.io.host_services().loader_policy().max_props_bytes,
             entrypoint: entrypoint
                 .as_ref()
                 .map(|name| crate::WorkerFetchEntrypoint {
@@ -257,6 +294,8 @@ impl Context {
             generation: self.generation,
             script: self.worker_config.script_name.clone(),
             loaded,
+            host: Arc::downgrade(self.io.host_services()),
+            props_limit: self.io.host_services().loader_policy().max_props_bytes,
             entrypoint: Some(crate::WorkerFetchEntrypoint {
                 name: name.into(),
                 props: Vec::new(),
@@ -300,7 +339,11 @@ impl Context {
         if let Some(fetcher) = self.worker_config.native_environment_fetchers.get(index) {
             return Ok(fetcher.clone());
         }
-        Ok(Fetcher::from_route(self.generation, route))
+        Ok(Fetcher::from_route(
+            self.generation,
+            route,
+            self.io.host_services(),
+        ))
     }
     /// Perform SDK outbound HTTP through this worker's configured authority.
     /// This policy does not sandbox arbitrary Rust network access.

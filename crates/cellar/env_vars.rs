@@ -172,8 +172,13 @@ const REMOVED: &[Removed] = &[
         empty_was_inert: false,
     },
     Removed {
+        name: "CELLAR_MAX_DYNAMIC_WORKER_CODE_BYTES",
+        replacement: "remove this setting; Cellar loads compiled Rust applications",
+        empty_was_inert: false,
+    },
+    Removed {
         name: "CELLAR_MAX_LOADED_WORKERS",
-        replacement: "remove this setting; cellar manages Dynamic Worker admission",
+        replacement: "set CELLAR_LOADER_MAX_WORKERS and CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL",
         // Even an empty value failed in the old typed reader. Refuse it rather
         // than silently changing the operator's configured admission policy.
         empty_was_inert: false,
@@ -291,7 +296,7 @@ pub fn validate() -> anyhow::Result<()> {
 
     shutdown_timing()?;
 
-    positive::<usize>("CELLAR_MAX_DYNAMIC_WORKER_CODE_BYTES")?;
+    crate::loader_policy::LoaderPolicy::from_env()?;
 
     if let Some(value) = optional::<u64>("CELLAR_PRESENCE_HEARTBEAT_MS")? {
         if !(50..=30_000).contains(&value) {

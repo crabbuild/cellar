@@ -9,7 +9,8 @@ use crate::host_gates::{await_egress_gate, egress_gate_request};
 use crate::host_loader::{self, LoaderOwner, LoaderState};
 use crate::http_streams::RequestBodyGuard;
 use crate::worker_config::{LoaderEnv, WorkerConfig};
-use cellar_native::clone::{encode, Object, StructuredValue, Value};
+use anyhow::Context as _;
+use cellar_native::clone::{encode_with_limits, Limits, Object, StructuredValue, Value};
 use futures_util::FutureExt;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Weak;
@@ -233,6 +234,7 @@ impl Loader {
         callback: impl FnOnce(Context) -> HandlerFuture<WorkerCode> + Send + 'static,
     ) -> Result<Worker> {
         let owner = self.check(context)?;
+        let policy = context.io.host_services().loader_policy();
         let (sender, result) = watch::channel(None);
         let load = Arc::new(Load {
             service: context.io.host_services().loader(),
@@ -269,30 +271,29 @@ impl Loader {
                     .environment
                     .filter(|value| !matches!(value.root, Value::Undefined | Value::Null))
                     .map(|value| -> Result<_> {
-                        let bytes = encode(&value)?;
+                        let bytes = encode_with_limits(
+                            &value,
+                            Limits {
+                                bytes: policy.max_environment_bytes,
+                                ..Default::default()
+                            },
+                        )
+                        .context("worker loader: environment exceeds size limit or is invalid")?;
                         let mut routes = Vec::new();
-                        let mut total = bytes.len();
+                        let mut remaining = policy
+                            .max_environment_bytes
+                            .checked_sub(bytes.len())
+                            .ok_or_else(|| {
+                            anyhow!("worker loader: environment exceeds size limit")
+                        })?;
                         for fetcher in &environment_fetchers {
+                            fetcher.check_context(&context_copy)?;
                             anyhow::ensure!(
                                 fetcher.generation == context_copy.generation,
                                 "worker loader: environment fetcher belongs to another generation"
                             );
-                            let route = fetcher.route();
-                            total = total
-                                .checked_add(route.script.len())
-                                .and_then(|n| {
-                                    n.checked_add(route.entrypoint.as_ref().map_or(0, String::len))
-                                })
-                                .and_then(|n| n.checked_add(route.props.len()))
-                                .ok_or_else(|| {
-                                    anyhow!("worker loader: environment exceeds size limit")
-                                })?;
-                            routes.push(route);
+                            routes.push(fetcher.route(&mut remaining)?);
                         }
-                        anyhow::ensure!(
-                            total <= host_loader::MAX_DYNAMIC_WORKER_ENV_SIZE,
-                            "worker loader: environment exceeds size limit"
-                        );
                         Ok(LoaderEnv { bytes, routes })
                     })
                     .transpose()?;
@@ -306,6 +307,7 @@ impl Loader {
                     ),
                     Outbound::Deny => (crate::worker_config::EgressPolicy::Deny, None),
                     Outbound::Broker(fetcher) => {
+                        fetcher.check_context(&context_copy)?;
                         anyhow::ensure!(
                             fetcher.generation == context_copy.generation,
                             "worker loader: outbound fetcher belongs to another generation"
@@ -450,6 +452,9 @@ impl Worker {
             limits: None,
         }
     }
+    pub(crate) fn props_limit(&self) -> usize {
+        self.0.service.policy().max_props_bytes
+    }
     pub fn cell_class(&self, name: impl Into<String>) -> super::facets::Class {
         super::facets::Class::loaded(self.clone(), name.into())
     }
@@ -467,11 +472,13 @@ pub(crate) enum CallOrigin {
         service: Weak<dyn host_loader::LoaderService>,
         slot: Weak<crate::pool::Slot>,
         activation: Weak<Activation>,
+        props_limit: usize,
     },
     Event {
         service: Weak<dyn host_loader::LoaderService>,
         slot: Weak<crate::pool::Slot>,
         event: Weak<EventState>,
+        props_limit: usize,
     },
 }
 
@@ -489,6 +496,7 @@ impl CallOrigin {
                 service: Arc::downgrade(&context.io.host_services().loader()),
                 slot: Arc::downgrade(&slot),
                 activation: Arc::downgrade(activation),
+                props_limit: context.io.host_services().loader_policy().max_props_bytes,
             });
         }
         if let Some(load) = &context.worker_config.native_load {
@@ -506,6 +514,7 @@ impl CallOrigin {
             service: Arc::downgrade(&context.io.host_services().loader()),
             slot: Arc::downgrade(&slot),
             event: Arc::downgrade(&context.state),
+            props_limit: context.io.host_services().loader_policy().max_props_bytes,
         })
     }
 
@@ -520,6 +529,13 @@ impl CallOrigin {
                 .into(),
             props: entrypoint.map_or_else(Vec::new, |entry| entry.props.clone()),
             limits: None,
+        }
+    }
+
+    fn props_limit(&self) -> usize {
+        match self {
+            Self::Loader(worker) => worker.props_limit(),
+            Self::Activation { props_limit, .. } | Self::Event { props_limit, .. } => *props_limit,
         }
     }
 
@@ -606,22 +622,25 @@ pub struct FetchWithTail {
     pub report: HandlerFuture<String>,
 }
 type PreparedFetch = Result<(RequestBodyGuard, EgressGate, Option<CallCapture>)>;
-pub(crate) fn props_bytes(props: &StructuredValue) -> Result<Vec<u8>> {
-    let bytes = if props.root == Value::Undefined {
-        Vec::new()
-    } else {
-        encode(props)?
-    };
-    anyhow::ensure!(
-        bytes.len() <= host_loader::MAX_DYNAMIC_WORKER_PROPS_SIZE,
-        "worker loader: props exceed size limit"
-    );
-    Ok(bytes)
+pub(crate) fn props_bytes(props: &StructuredValue, limit: usize) -> Result<Vec<u8>> {
+    if props.root == Value::Undefined {
+        return Ok(Vec::new());
+    }
+    encode_with_limits(
+        props,
+        Limits {
+            bytes: limit,
+            ..Default::default()
+        },
+    )
+    .with_context(|| {
+        format!("worker loader: cannot encode props within size limit of {limit} bytes")
+    })
 }
 impl Entrypoint {
     pub fn with_props(&self, props: &StructuredValue) -> Result<Self> {
         Ok(Self {
-            props: props_bytes(props)?,
+            props: props_bytes(props, self.origin.props_limit())?,
             ..self.clone()
         })
     }
