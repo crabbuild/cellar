@@ -41,6 +41,8 @@ allow root requests to retain their slots while nested cell calls settle under
 the offered load. This limit is recorded with each run. It does not disable
 admission control. Failed measurements remain in the report, and `completed`
 is true only after all selected recovery and shutdown checks pass.
+The application also captures an explicit 2,048-record limit for idle, unowned
+routing history through `ActorPolicy::max_cached_routes`.
 Summarize them with:
 
 ```sh

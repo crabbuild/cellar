@@ -724,6 +724,7 @@ fn actor(generation: String) -> ActorOptions {
     ActorOptions {
         core: ActorPolicy {
             max_resident: 16,
+            max_cached_routes: 0,
             max_activations: 8,
             max_evictions: 4,
             max_releases: 4,
@@ -1277,6 +1278,7 @@ fn explicit_public_node_policy_ignores_invalid_process_configuration() -> Result
         .env("CELLAR_OPERATION_DEADLINE_MS", "unusable")
         .env("CELLAR_SHUTDOWN_TOTAL_MS", "unusable")
         .env("CELLAR_ACTIVATIONS", "unusable")
+        .env("CELLAR_MAX_CACHED_ROUTES", "unusable")
         .env("CELLAR_LOADER_MAX_WORKERS", "unusable")
         .env("CELLAR_MAX_STATELESS_REQUESTS", "unusable")
         .env("CELLAR_DURABILITY", "unusable")

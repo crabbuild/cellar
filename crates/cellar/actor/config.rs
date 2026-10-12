@@ -142,6 +142,10 @@ impl ActorOptions {
         Ok(Self {
             core: Config {
                 max_resident: limits.resident,
+                max_cached_routes: crate::env_vars::with_default(
+                    "CELLAR_MAX_CACHED_ROUTES",
+                    2_048usize,
+                )?,
                 max_activations: limits.activations,
                 #[cfg(not(all(test, cellar_internal_tests)))]
                 max_evictions: 4,

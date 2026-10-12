@@ -43,6 +43,9 @@
 //! leaves the current generation serving. [`Host`] is the process-owning CLI
 //! runner. Lower-level hosts can configure an [`ExecutionDomain`] before building
 //! generations and constructing [`Actor`] on their own core executor.
+//! [`ActorPolicy::max_cached_routes`] bounds idle, unowned routing history;
+//! zero disables caching. Ownership and unfinished work retain their records
+//! through their normal lifecycle, independently of this cache limit.
 //!
 //! Configure an execution domain before loading application generations.
 //!

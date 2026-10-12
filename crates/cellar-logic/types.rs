@@ -73,6 +73,9 @@ impl PresenceSnapshot {
 pub struct Config {
     /// Resident cells plus activation reservations may never exceed this.
     pub max_resident: usize,
+    /// Idle, unowned routing records retained for reuse. Zero disables this
+    /// cache. Owned cells and unfinished work are never cache eviction victims.
+    pub max_cached_routes: usize,
     /// Complete nonresident routes which may be in flight at once.
     ///
     /// This is deliberately independent of the stateless Worker pool. A warm
@@ -803,7 +806,7 @@ pub enum Event {
     },
     RuntimeStarted {
         op: OpId,
-        /// The node-wide identity of the V8 heap now holding this cell's
+        /// The node-wide identity of the native worker now holding this cell's
         /// realm. Placement happens in the shell, so the core has to be told;
         /// the walk down groups on it to empty a heap rather than scatter its
         /// cuts across every one. `None` when no runtime placed the cell.

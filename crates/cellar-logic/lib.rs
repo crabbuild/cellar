@@ -406,6 +406,8 @@ pub struct DrainPin {
 #[derive(Clone, Debug)]
 struct Cell {
     phase: Phase,
+    /// Exact recency in the bounded cache of idle, unowned routing records.
+    cached_route_order: Option<u128>,
     /// The highest committed-write position a verified proof has covered in
     /// this residency, and the epoch it belongs to. A read-only output that
     /// observed no more than this reveals nothing a crash can still lose, so
@@ -461,7 +463,7 @@ struct Cell {
     /// cells that have not just failed, while still coming back to them when
     /// they are all that is left.
     eviction_refused_mono_ms: Option<u64>,
-    /// The node-wide identity of the V8 heap holding this cell's realm.
+    /// The node-wide identity of the native worker holding this cell.
     /// Eviction order reads it: taking a heap's last cell returns the heap,
     /// while taking one of thirty-two returns only a cell record.
     isolate: Option<isolate::HeapId>,
@@ -590,6 +592,7 @@ impl Default for Cell {
     fn default() -> Self {
         Self {
             phase: Phase::Inactive,
+            cached_route_order: None,
             proven_position: None,
             owner_log_recovery_attempts: 0,
             quiescing: false,
@@ -673,6 +676,10 @@ pub struct State {
     next_op: OpId,
     next_timer_generation: u64,
     cells: BTreeMap<CellId, Cell>,
+    /// Only reclaimable routing history lives here; authority and pending
+    /// lifecycle work stay in the cell table until their normal retirement.
+    cached_routes: BTreeMap<u128, CellId>,
+    next_cached_route_order: u128,
     request_cells: BTreeMap<RequestId, CellId>,
     /// Local routes handed to the executor but not yet reported complete.
     /// These are eviction pins: the adapter may still be running user code.
@@ -860,6 +867,8 @@ impl State {
             next_op: 1,
             next_timer_generation: 1,
             cells: BTreeMap::new(),
+            cached_routes: BTreeMap::new(),
+            next_cached_route_order: 0,
             request_cells: BTreeMap::new(),
             active_requests: BTreeMap::new(),
             active_cells: BTreeMap::new(),
@@ -899,6 +908,81 @@ impl State {
 
     pub fn node(&self) -> &str {
         &self.node
+    }
+
+    /// Idle routing records currently retained by the captured cache policy.
+    pub fn cached_routes(&self) -> usize {
+        self.cached_routes.len()
+    }
+
+    fn route_cacheable(&self, id: &str, cell: &Cell) -> bool {
+        // A queued timer's old generation is only a tombstone once the cell
+        // has no requests and no waiting phase. Node-wide timer generations
+        // prevent that timer from matching later demand after cache eviction.
+        matches!(cell.phase, Phase::Inactive | Phase::Remote { .. })
+            && cell.held_epoch.is_none()
+            && cell.requests.is_empty()
+            && cell.websockets.is_empty()
+            && cell.waiting_for.is_none()
+            && cell.waiting_activation.is_none()
+            && cell.releasing.is_none()
+            && cell.alarm.is_none()
+            && !cell.alarm_wake
+            && !cell.resume_demand
+            && !cell.confirming
+            && !cell.quiescing
+            && !cell.handoff
+            && !cell.swapping
+            && cell.isolate.is_none()
+            && !self.active_cells.contains_key(id)
+    }
+
+    fn put_cell(&mut self, id: CellId, mut cell: Cell) {
+        // A transition temporarily removes its cell from the main table. Its
+        // prior cache order travels with it, so neither removal nor a later
+        // replacement can leave an orphan in the recency index.
+        if let Some(order) = cell.cached_route_order.take() {
+            self.cached_routes.remove(&order);
+        }
+        if let Some(order) = self.cells.get(&id).and_then(|old| old.cached_route_order) {
+            self.cached_routes.remove(&order);
+        }
+        if self.route_cacheable(&id, &cell) {
+            let order = self.next_cached_route_order;
+            self.next_cached_route_order = order.wrapping_add(1);
+            self.cached_routes.insert(order, id.clone());
+            cell.cached_route_order = Some(order);
+        }
+        self.cells.insert(id, cell);
+    }
+
+    fn refresh_route_cache(&mut self, id: &str) {
+        if let Some(cell) = self.cells.remove(id) {
+            self.put_cell(id.to_owned(), cell);
+        }
+    }
+
+    fn trim_route_cache(&mut self) {
+        while self.cached_routes.len() > self.config.max_cached_routes {
+            let (order, id) = self
+                .cached_routes
+                .pop_first()
+                .expect("cache exceeds its bound");
+            let Some(cell) = self.cells.get(&id) else {
+                continue;
+            };
+            if cell.cached_route_order != Some(order) {
+                continue;
+            }
+            // Recheck obligations at eviction, including activity which can
+            // change without a cell-table replacement. Never reclaim authority
+            // or work merely to meet a cache limit.
+            if self.route_cacheable(&id, cell) {
+                self.cells.remove(&id);
+            } else if let Some(cell) = self.cells.get_mut(&id) {
+                cell.cached_route_order = None;
+            }
+        }
     }
 
     pub fn is_fenced(&self) -> bool {
@@ -1168,7 +1252,7 @@ impl State {
         }
     }
 
-    /// The isolate each resident cell sits in. A node holds one V8 heap per
+    /// The isolate each resident cell sits in. A node holds one native worker per
     /// distinct value here, so the spread of this is the memory a walk down
     /// can still return.
     pub fn resident_isolates(&self) -> Vec<isolate::HeapId> {
@@ -1298,6 +1382,16 @@ impl State {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if self.cached_routes.len() > self.config.max_cached_routes {
+            return Err("routing cache exceeds its captured limit".into());
+        }
+        for (order, id) in &self.cached_routes {
+            if !self.cells.get(id).is_some_and(|cell| {
+                cell.cached_route_order == Some(*order) && self.route_cacheable(id, cell)
+            }) {
+                return Err(format!("routing cache entry {id} has no reclaimable cell"));
+            }
+        }
         if !self.occupied_below(self.config.max_resident.saturating_add(1)) {
             return Err(format!(
                 "occupied {} exceeds ceiling {}",
@@ -1368,6 +1462,11 @@ impl State {
         }
 
         for (id, cell) in &self.cells {
+            if self.route_cacheable(id, cell) && cell.cached_route_order.is_none() {
+                return Err(format!(
+                    "reclaimable cell {id} is missing from the routing cache"
+                ));
+            }
             let in_pipeline = match cell.phase {
                 Phase::Dormant { .. } => cell.releasing.is_some(),
                 Phase::Adopting { .. } => true,
@@ -1777,6 +1876,7 @@ impl State {
                 }
             }
         }
+        self.refresh_route_cache(&cell);
         Some(cell)
     }
 
@@ -1958,7 +2058,7 @@ impl State {
                     );
                 }
                 Self::record_local_request(&mut cell, request, self.now_mono_ms);
-                self.cells.insert(route.cell.clone(), cell);
+                self.put_cell(route.cell.clone(), cell);
             }
         }
         effects.push(Effect::CompleteWorker { request, route });
@@ -2043,11 +2143,11 @@ impl State {
                 continue;
             };
             if cell.phase != Phase::WaitingActivation {
-                self.cells.insert(id, cell);
+                self.put_cell(id, cell);
                 continue;
             }
             let Some(start) = cell.waiting_activation.take() else {
-                self.cells.insert(id, cell);
+                self.put_cell(id, cell);
                 continue;
             };
             if cell.requests.is_empty()
@@ -2067,7 +2167,7 @@ impl State {
                 self.activation_permits.insert(id.clone());
                 self.begin_cold_route(&id, &mut cell, start, effects);
             }
-            self.cells.insert(id, cell);
+            self.put_cell(id, cell);
         }
     }
 
@@ -2116,7 +2216,7 @@ impl State {
                 }),
                 effects,
             );
-            self.cells.insert(local.id, cell);
+            self.put_cell(local.id, cell);
         }
         if self.resuming_cells.is_empty() {
             self.resuming = false;
@@ -2151,7 +2251,7 @@ impl State {
             };
             self.confirming_cells.insert(local.id.clone());
             self.admit_or_queue_activation(&local.id, &mut cell, ColdStart::ReadOwner, effects);
-            self.cells.insert(local.id, cell);
+            self.put_cell(local.id, cell);
         }
         if self.confirming_cells.is_empty() {
             self.confirming = false;
@@ -2171,6 +2271,7 @@ impl State {
         if let Some(cell) = self.cells.get_mut(id) {
             cell.resume_demand = false;
         }
+        self.refresh_route_cache(id);
     }
 
     /// A leaving node can still discover a live successor, but it must not
@@ -2299,11 +2400,11 @@ impl State {
                 continue;
             };
             if cell.phase != Phase::WaitingCapacity {
-                self.cells.insert(id, cell);
+                self.put_cell(id, cell);
                 continue;
             }
             let Some(activation) = cell.waiting_for.take() else {
-                self.cells.insert(id, cell);
+                self.put_cell(id, cell);
                 continue;
             };
             if cell.requests.is_empty() && !cell.alarm_wake && !cell.resume_demand {
@@ -2318,7 +2419,7 @@ impl State {
             } else {
                 self.begin_activation(&id, &mut cell, activation, effects);
             }
-            self.cells.insert(id, cell);
+            self.put_cell(id, cell);
         }
         self.shed_one(effects);
     }
@@ -3138,7 +3239,7 @@ impl State {
                 | Phase::EnsuringDurability { .. }
                 | Phase::Cleaning { .. }
         ) {
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         }
         let source = alarm.source().map(|source| source.id);
@@ -3146,7 +3247,7 @@ impl State {
             cell.held_epoch != Some(source.epoch)
                 || cell.alarm_source.is_some_and(|previous| previous > source)
         }) {
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         }
         // A failed output proof has already chosen the durable recovery
@@ -3161,7 +3262,7 @@ impl State {
                 ..
             }
         ) {
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         }
         if let Phase::EnsuringDurability { epoch, .. } = cell.phase {
@@ -3196,7 +3297,7 @@ impl State {
                         .zip(alarm.source())
                         .is_some_and(|(staged, next)| staged.id > next.id)
                 }) {
-                    self.cells.insert(id.to_string(), cell);
+                    self.put_cell(id.to_string(), cell);
                     return;
                 }
                 if at_ms == Some(*firing_at_ms) && observed.is_none() && source == cell.alarm_source
@@ -3205,7 +3306,7 @@ impl State {
                 } else {
                     *observed = Some((alarm, covered));
                 }
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
         }
@@ -3263,7 +3364,7 @@ impl State {
         if source.is_some() {
             cell.alarm_source = source;
         }
-        self.cells.insert(id.to_string(), cell);
+        self.put_cell(id.to_string(), cell);
     }
 
     fn cell_alarm_timer(
@@ -3286,16 +3387,16 @@ impl State {
             covered,
         }) = cell.alarm
         else {
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         };
         if current != generation {
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         }
         if i64::try_from(now_ms).unwrap_or(i64::MAX) < at_ms {
             self.schedule_alarm_timer(id, generation, at_ms, now_ms, now_mono_ms, effects);
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         }
         let epoch = match cell.phase {
@@ -3313,7 +3414,7 @@ impl State {
                     },
                     at_mono_ms: now_mono_ms.saturating_add(100),
                 });
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
             Phase::Resident { epoch } => epoch,
@@ -3323,7 +3424,7 @@ impl State {
             }
             Phase::Fenced => {
                 cell.alarm = None;
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
             // A draining node has released this cell, or is about to.
@@ -3334,7 +3435,7 @@ impl State {
             // from the cell's storage when it activates.
             Phase::Dormant { .. } | Phase::Inactive if self.draining => {
                 cell.alarm = None;
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
             Phase::Dormant { .. } => {
@@ -3352,7 +3453,7 @@ impl State {
                     },
                     at_mono_ms: now_mono_ms.saturating_add(100),
                 });
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
             Phase::Inactive => {
@@ -3365,7 +3466,7 @@ impl State {
                     },
                     at_mono_ms: now_mono_ms.saturating_add(100),
                 });
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
             _ => {
@@ -3376,7 +3477,7 @@ impl State {
                     },
                     at_mono_ms: now_mono_ms.saturating_add(100),
                 });
-                self.cells.insert(id.to_string(), cell);
+                self.put_cell(id.to_string(), cell);
                 return;
             }
         };
@@ -3389,7 +3490,7 @@ impl State {
             observed: None,
         });
         cell.alarm_wake = false;
-        self.cells.insert(id.to_string(), cell);
+        self.put_cell(id.to_string(), cell);
         effects.push(Effect::FireAlarm {
             op,
             cell: id.to_string(),
@@ -3473,7 +3574,7 @@ impl State {
             ..
         }) = cell.alarm
         else {
-            self.cells.insert(id, cell);
+            self.put_cell(id, cell);
             return;
         };
         match result {
@@ -3483,7 +3584,7 @@ impl State {
                 // what was there to decide whether the bucket entry has to
                 // follow. Clearing it here first makes a consumed alarm look
                 // like it was never armed, and the entry is never deleted.
-                self.cells.insert(id.clone(), cell);
+                self.put_cell(id.clone(), cell);
                 let (alarm, covered) = observed.unwrap_or((alarm, covered));
                 self.alarm_observed(
                     &id,
@@ -3503,7 +3604,7 @@ impl State {
                     generation,
                     covered,
                 });
-                self.cells.insert(id.clone(), cell);
+                self.put_cell(id.clone(), cell);
                 effects.push(Effect::ScheduleTimer {
                     timer: Timer::CellAlarm {
                         cell: id,
@@ -3738,7 +3839,7 @@ impl State {
                 }
             }
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     fn wake_hint(
@@ -3787,7 +3888,7 @@ impl State {
             }
             _ => {}
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     fn cancel(&mut self, request: RequestId, effects: &mut Vec<Effect>) {
@@ -3845,6 +3946,7 @@ impl State {
             );
             self.capacity_waiters.retain(|queued| queued != &id);
         }
+        self.refresh_route_cache(&id);
     }
 
     /// Retire cold work that cannot contribute to a clean local reload.
@@ -3900,7 +4002,7 @@ impl State {
                 cell.resume_demand = false;
                 self.resuming_cells.remove(&id);
             }
-            self.cells.insert(id, cell);
+            self.put_cell(id, cell);
         }
         if self.resuming_cells.is_empty() {
             self.resuming = false;
@@ -4047,7 +4149,7 @@ impl State {
                     _ => Phase::Inactive,
                 };
                 set_phase(&mut self.occupied, &mut cell, phase);
-                self.cells.insert(id, cell);
+                self.put_cell(id, cell);
                 return;
             }
         }
@@ -4111,7 +4213,7 @@ impl State {
             Ok(Some(record)) if record.node.as_deref() == Some(self.node.as_str()) => {
                 let Some(epoch) = self.next_writer_epoch(&id, &mut cell, record.epoch, effects)
                 else {
-                    self.cells.insert(id, cell);
+                    self.put_cell(id, cell);
                     return;
                 };
                 let prior = record.node.clone();
@@ -4132,7 +4234,7 @@ impl State {
             Ok(Some(record)) if record.node.is_none() => {
                 let Some(epoch) = self.next_writer_epoch(&id, &mut cell, record.epoch, effects)
                 else {
-                    self.cells.insert(id, cell);
+                    self.put_cell(id, cell);
                     return;
                 };
                 self.place_unowned(
@@ -4203,7 +4305,7 @@ impl State {
                 self.finish_requests(&id, &mut cell, Err(RequestError::ResolveFailed), effects);
             }
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
         if reconciling_claim.is_some() {
             self.pump_capacity(effects);
         }
@@ -4254,7 +4356,7 @@ impl State {
             }
         }
         self.apply_node_lease_result(&id, &mut cell, record, issued_ms, result, effects);
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     fn capacity_peers_read(
@@ -4297,7 +4399,7 @@ impl State {
                     WhenFull::HoldResidents,
                     effects,
                 );
-                self.cells.insert(id, cell);
+                self.put_cell(id, cell);
                 return;
             }
         };
@@ -4395,7 +4497,7 @@ impl State {
                 effects,
             );
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     fn apply_node_lease_result(
@@ -4537,7 +4639,7 @@ impl State {
             Ok(()) => {
                 let Some(epoch) = self.next_writer_epoch(&id, &mut cell, owner.epoch, effects)
                 else {
-                    self.cells.insert(id, cell);
+                    self.put_cell(id, cell);
                     return;
                 };
                 let prior = owner.node.clone();
@@ -4591,7 +4693,7 @@ impl State {
                 }
             }
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
         self.pump_activations(effects);
     }
 
@@ -4604,7 +4706,7 @@ impl State {
             return;
         };
         if cell.phase != (Phase::WaitingOwnerLogRecovery { generation }) {
-            self.cells.insert(id.to_string(), cell);
+            self.put_cell(id.to_string(), cell);
             return;
         }
         if cell.requests.is_empty() && !cell.alarm_wake && !cell.resume_demand {
@@ -4615,7 +4717,7 @@ impl State {
         } else {
             self.admit_or_queue_activation(id, &mut cell, ColdStart::ReadOwner, effects);
         }
-        self.cells.insert(id.to_string(), cell);
+        self.put_cell(id.to_string(), cell);
     }
 
     fn owner_cas_completed(
@@ -4733,7 +4835,7 @@ impl State {
                 self.finish_requests(&id, &mut cell, Err(RequestError::AcquireFailed), effects);
             }
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
         self.pump_capacity(effects);
     }
 
@@ -4802,7 +4904,7 @@ impl State {
                 resume_failed = cell.resume_demand;
             }
         }
-        self.cells.insert(id.clone(), cell);
+        self.put_cell(id.clone(), cell);
         if resume_failed {
             self.settle_local_resume(&id);
         }
@@ -4852,7 +4954,7 @@ impl State {
                 resume_failed = cell.resume_demand;
             }
         }
-        self.cells.insert(id.clone(), cell);
+        self.put_cell(id.clone(), cell);
         if resume_failed {
             self.settle_local_resume(&id);
         }
@@ -4861,7 +4963,7 @@ impl State {
 
     /// Fail the callers waiting on a runtime start without retiring the start.
     ///
-    /// The shell cannot cancel a V8 startup turn. Treating this deadline as a
+    /// The shell cannot preempt a blocking application factory. Treating this deadline as a
     /// definite failure lets the next request start a second runtime while the
     /// first task can still insert its handle. The late first completion then
     /// becomes an untracked runtime which every later request reports as an
@@ -4875,12 +4977,12 @@ impl State {
             return;
         };
         if !matches!(cell.phase, Phase::Starting { op: current, .. } if current == op) {
-            self.cells.insert(id, cell);
+            self.put_cell(id, cell);
             return;
         }
         self.timed_out_runtime_starts.insert(op);
         self.finish_requests(&id, &mut cell, Err(RequestError::RuntimeFailed), effects);
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     fn published(&mut self, op: OpId, result: Result<(), Failure>, effects: &mut Vec<Effect>) {
@@ -4925,7 +5027,7 @@ impl State {
                 });
             }
         }
-        self.cells.insert(id.clone(), cell);
+        self.put_cell(id.clone(), cell);
         if completing_resume {
             self.settle_local_resume(&id);
         }
@@ -4993,7 +5095,7 @@ impl State {
                 self.admit_or_queue_activation(&id, &mut cell, ColdStart::ReadOwner, effects);
             }
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     /// Finish one shutdown handoff after a successor acquired the cell. The
@@ -5064,7 +5166,7 @@ impl State {
                 self.finish_requests(&id, &mut cell, Err(RequestError::NodeUnavailable), effects);
             }
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     fn runtime_stopped(&mut self, op: OpId, effects: &mut Vec<Effect>) {
@@ -5165,7 +5267,7 @@ impl State {
             }
             StopCause::Fence => unreachable!("fenced cells do not wait for runtime shutdown"),
         }
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
         self.pump_capacity(effects);
         self.shed_toward_floor(effects);
         // The permit this stop returned is spent here, not on the next load
@@ -5221,7 +5323,7 @@ impl State {
             cell: id.clone(),
             epoch,
         });
-        self.cells.insert(id, cell);
+        self.put_cell(id, cell);
     }
 
     /// Announce the generation the node now serves.
@@ -6036,6 +6138,7 @@ impl State {
         if settles_resume {
             self.settle_local_resume(cell);
         }
+        self.refresh_route_cache(cell);
     }
 
     fn shed_candidate(&self) -> Option<CellId> {
@@ -6528,6 +6631,7 @@ impl State {
         if let Some(cell) = self.cells.get_mut(id) {
             cell.websockets.remove(&websocket);
         }
+        self.refresh_route_cache(id);
         self.shed_one(effects);
     }
 
@@ -6650,7 +6754,7 @@ impl State {
             cell.alarm = None;
             cell.alarm_wake = false;
             cell.websockets.clear();
-            self.cells.insert(id, cell);
+            self.put_cell(id, cell);
         }
     }
 
@@ -6929,6 +7033,7 @@ pub fn on_event(state: &mut State, event: Event) -> Vec<Effect> {
     state.pump_activations(&mut effects);
     state.pump_release(&mut effects);
     state.pump_swap(&mut effects);
+    state.trim_route_cache();
     if cfg!(debug_assertions) {
         state.validate().expect("state invariant");
     }

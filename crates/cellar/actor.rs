@@ -4241,10 +4241,11 @@ impl Actor {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "{{\"ownership\":{:?},\"owned_cells\":{},\"occupied\":{},\"quiescing\":{},\"evicting\":{},\"releasing\":{},\"adopting\":{},\"restoring\":{},\"activating\":{},\"activation_waiting\":{},\"capacity_waiting\":{},\"phases\":{{{}}},\"handed_off\":{},\"handoff_failed\":{},\"rebalanced\":{},\"rebalance_failed\":{},\"remote_route_refreshes\":{},\"shedding\":{},\"rss_bytes\":{},\"in_use_bytes\":{},\"allocator\":{},\"libc_malloc\":{},\"cgroup_working_set_bytes\":{},\"cgroup_current_bytes\":{},\"node_load\":{},\"residents\":[{}],\"published\":[{}],\"publishes\":{},\"stops\":{}}}",
+            "{{\"ownership\":{:?},\"owned_cells\":{},\"occupied\":{},\"cached_routes\":{},\"quiescing\":{},\"evicting\":{},\"releasing\":{},\"adopting\":{},\"restoring\":{},\"activating\":{},\"activation_waiting\":{},\"capacity_waiting\":{},\"phases\":{{{}}},\"handed_off\":{},\"handoff_failed\":{},\"rebalanced\":{},\"rebalance_failed\":{},\"remote_route_refreshes\":{},\"shedding\":{},\"rss_bytes\":{},\"in_use_bytes\":{},\"allocator\":{},\"libc_malloc\":{},\"cgroup_working_set_bytes\":{},\"cgroup_current_bytes\":{},\"node_load\":{},\"residents\":[{}],\"published\":[{}],\"publishes\":{},\"stops\":{}}}",
             self.ownership.name(),
             self.state.owned_cells(),
             self.state.occupied(),
+            self.state.cached_routes(),
             self.state.quiescing(),
             self.state.evicting(),
             self.state.releasing(),

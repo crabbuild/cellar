@@ -106,6 +106,7 @@ fn options(label: &str, ttl: u64, capacity: usize) -> ActorOptions {
     ActorOptions {
         core: ActorPolicy {
             max_resident: capacity,
+            max_cached_routes: 0,
             max_activations: capacity,
             max_evictions: 2,
             max_releases: 2,
