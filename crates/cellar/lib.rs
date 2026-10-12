@@ -9,6 +9,7 @@
 //! `cellar_logic::on_event`. Adapter futures never borrow core state; they send
 //! versioned completion events back through its mailbox.
 
+#[path = "execution/select.rs"]
 mod tokio_select;
 // The retained externally supplied daemon conformance sources previously
 // ran in the binary and may name its library dependency explicitly.
@@ -17,7 +18,9 @@ extern crate self as cellar;
 #[doc(hidden)]
 pub use tokio_select::__asyncrt_select_support;
 
+#[path = "actor/mod.rs"]
 pub mod actor;
+#[path = "application/mod.rs"]
 pub mod application;
 pub mod sdk;
 #[cfg(all(test, cellar_internal_tests))]
@@ -30,6 +33,7 @@ mod conformance_facet_failure_tests {
 }
 pub mod assets;
 #[cfg(not(cellar_internal_tests))]
+#[path = "execution/domain.rs"]
 pub mod asyncrt;
 // The internal test flag alone selects the simulated asyncrt, so an external
 // test harness built with the flag sees the same simulated world the
@@ -48,16 +52,22 @@ mod asyncrt_contract_tests {
 pub mod bucket;
 #[path = "cli/cell_cli.rs"]
 pub mod cell_cli;
+#[path = "runtime/cells/dispatch.rs"]
 pub mod cell_dispatch;
+#[path = "runtime/cells/host.rs"]
 mod cell_host;
+#[path = "runtime/cells/state.rs"]
 pub mod cell_runtime;
+#[path = "node/reload_certificate.rs"]
 pub mod clean_reload;
 #[path = "cli/cli_options.rs"]
 pub mod cli_options;
 #[path = "cli/cli_output.rs"]
 pub mod cli_output;
 pub mod container;
+#[path = "node/managed.rs"]
 pub mod control_plane;
+#[path = "node/mod.rs"]
 pub mod daemon;
 pub mod dead_node_gc;
 #[path = "cli/deploy/mod.rs"]
@@ -66,6 +76,7 @@ pub mod deploy;
 pub mod dev;
 pub mod docker;
 pub mod drain_token;
+#[path = "runtime/contracts.rs"]
 pub mod engine_api;
 pub mod env_vars;
 #[path = "cli/sql_cli.rs"]
@@ -76,32 +87,48 @@ pub mod sql_cli;
 pub mod fault {
     include!(env!("CELLAR_INTERNAL_SQLITE_FAULT"));
 }
+#[path = "runtime/cells/facet_streams.rs"]
 pub(crate) mod facet_streams;
 pub mod fleet;
+#[path = "runtime/generation.rs"]
 pub mod generation;
+#[path = "runtime/invocation/channels.rs"]
 pub mod host_channels;
+#[path = "runtime/cells/facets/mod.rs"]
 pub mod host_facets;
+#[path = "transport/http/fetch.rs"]
 pub(crate) mod host_fetch;
+#[path = "runtime/invocation/gates.rs"]
 pub mod host_gates;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
+#[path = "runtime/invocation/context/mod.rs"]
 pub mod host_io;
+#[path = "runtime/workers/loader/mod.rs"]
 pub mod host_loader;
+#[path = "runtime/invocation/rpc.rs"]
 pub(crate) mod host_rpc;
+#[path = "runtime/invocation/service.rs"]
 pub mod host_service;
+#[path = "execution/services.rs"]
 pub mod host_services;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
+#[path = "transport/tcp/mod.rs"]
 pub(crate) mod host_tcp;
+#[path = "runtime/invocation/turn.rs"]
 pub mod host_turn;
+#[path = "transport/websocket/bindings.rs"]
 pub(crate) mod host_websocket;
 pub(crate) mod html_rewriter;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
+#[path = "transport/http/streams.rs"]
 pub mod http_streams;
 pub mod kv_blob;
 #[path = "cli/kv_cli.rs"]
 pub mod kv_cli;
+#[path = "runtime/workers/loader_policy.rs"]
 pub mod loader_policy;
 pub(crate) mod local_store;
 pub mod log_options;
@@ -111,16 +138,20 @@ pub mod machine;
 pub mod memory;
 #[path = "cli/native_deploy/mod.rs"]
 pub mod native_deploy;
+#[path = "runtime/workers/native/mod.rs"]
 pub(crate) mod native_worker;
+#[path = "runtime/workers/worker.rs"]
 pub mod worker;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
+#[path = "runtime/workers/config/mod.rs"]
 pub mod worker_config;
 /// Engine-independent Rust application primitives.
 pub use cellar_native as native;
 #[path = "cli/blob_cli.rs"]
 pub mod blob_cli;
 pub(crate) mod blob_store;
+#[path = "node/lifecycle.rs"]
 pub mod node_lifecycle;
 pub mod node_log;
 #[path = "cli/operator_cell.rs"]
@@ -130,6 +161,7 @@ pub mod otlp;
 pub mod ownership_store;
 pub mod peer_auth;
 pub mod peer_probe;
+#[path = "runtime/workers/pool.rs"]
 pub mod pool;
 pub mod protocol;
 pub(crate) mod queue_batching;
@@ -139,16 +171,22 @@ pub mod queue_policy;
 pub mod replica_storage;
 pub mod replication;
 pub mod replication_options;
+#[path = "runtime/mod.rs"]
 pub mod runtime;
+#[path = "runtime/policy.rs"]
 pub mod runtime_policy;
+#[path = "node/listeners.rs"]
 pub mod startup;
 pub mod storage;
 pub mod telemetry;
 pub mod wake;
 pub mod wake_entry;
 pub mod wake_format;
+#[path = "transport/websocket/client.rs"]
 pub mod ws_client;
+#[path = "transport/websocket/registry.rs"]
 pub mod ws_registry;
+#[path = "transport/websocket/upgrades.rs"]
 pub(crate) mod ws_tunnel;
 
 #[cfg(all(test, cellar_internal_tests))]

@@ -474,10 +474,10 @@ async fn run() -> Result<()> {
     });
     let tls_task = tokio::spawn(async move {
         let certificate = rustls::pki_types::CertificateDer::from(
-            include_bytes!("../host_tcp/fixtures/server.der").to_vec(),
+            include_bytes!("../transport/tcp/fixtures/server.der").to_vec(),
         );
         let key = rustls::pki_types::PrivatePkcs8KeyDer::from(
-            include_bytes!("../host_tcp/fixtures/key.der").to_vec(),
+            include_bytes!("../transport/tcp/fixtures/key.der").to_vec(),
         );
         let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(
             rustls::ServerConfig::builder()

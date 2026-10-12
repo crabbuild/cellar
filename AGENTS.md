@@ -38,8 +38,14 @@ crates/
     cli/                  CLI entry points, commands, packaging, and development
     application/          SDK bindings, storage, transactions, and application APIs
     actor/                Serialized core driver and effect execution
-    daemon/               Node startup, supervision, and shared production driver
-    main/                 Host peer-tunnel and WebSocket transport modules
+    execution/            Execution domains, injected services, and task ownership
+    node/                 Startup, supervision, managed integration, and shutdown
+      network/            Node WebSocket ingress and authenticated peer tunnels
+    runtime/              Generations and application execution
+      cells/              Cell activation, dispatch, and facet lifetimes
+      workers/            Compiled workers, pools, loading, and configuration
+      invocation/         Event context, gates, turns, channels, and service calls
+    transport/            HTTP, TCP/TLS, and WebSocket adapters and registries
     tests/                Native SDK and host integration tests
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
@@ -49,8 +55,10 @@ tools/                    Dependency checks and fleet performance tooling
 .github/workflows/        SDK checks and release builds
 ```
 
-Most crate modules live next to their `Cargo.toml`; do not assume a `src/`
-directory. `cellar-ltx` uses `src/`. Cargo declares the CLI entry points as
+Cellar groups its implementation into component directories next to
+`Cargo.toml`; `lib.rs` declares the existing Rust module names. The logic and
+native crates retain flat crate roots, and `cellar-ltx` uses `src/`. Cargo
+declares the CLI entry points as
 `crates/cellar/cli/main.rs` and `crates/cellar/cli/native_main.rs`.
 
 CLI files retain their existing Rust module paths through `#[path]` declarations
@@ -59,6 +67,14 @@ in `crates/cellar/lib.rs`. For example, `cellar::native_deploy` is implemented i
 publication helpers also serve the SDK and host. Keep those callers in view
 when editing CLI tooling. Shared bucket, fleet, protocol, and runtime adapters
 remain outside the CLI directory.
+
+Physical folders describe component responsibilities, while Rust paths retain
+their existing names through `#[path]` declarations. For example,
+`cellar::daemon` is implemented in `node/mod.rs`, `cellar::runtime` in
+`runtime/mod.rs`, and `cellar::asyncrt` in `execution/domain.rs`. Keep module
+visibility, conditional-build selection, and exported macro paths stable when
+moving files. Node ingress modules under `node/network/` remain logical
+children of `daemon`.
 
 ## Ownership boundaries
 
@@ -76,6 +92,9 @@ remain outside the CLI directory.
   runtime, loader, replication, log, and shutdown configuration explicit in
   library APIs; environment resolution belongs in CLI adapters. Capabilities
   and spawned work must retain the domain that created them.
+- Transport registries and binding adapters retain their execution-domain and
+  event ownership. Their location under `transport/` does not make sockets,
+  HTTP streams, or upgrade capabilities independent of invocation gates.
 - `cellar::application` implements application contracts and binding adapters;
   `cellar::sdk` is the application-facing namespace. Storage and context handles
   carry event/activation authority. Retiring an activation must invalidate its
