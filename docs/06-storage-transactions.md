@@ -51,12 +51,77 @@ required write position and ownership. Never bypass framework egress or return
 a fabricated success when a gate/proof fails. Explore
 [write durability](diagrams/write-flow.svg).
 
-For an external payment or message, propose a transactional outbox: persist a
-uniquely identified intent and the state mutation together; dispatch it using
-an alarm/workflow/queue; use the same idempotency key at the receiver; record
-completion and reconcile uncertain outcomes. No atomic transaction spanning
-SQLite and an arbitrary external service is established by this framework.
-An outbox is application code, not an automatically created Cellar table.
+For an arbitrary external service, persist a uniquely identified intent with
+the state mutation and preserve its idempotency key through delivery/recovery.
+No atomic transaction spanning SQLite and an arbitrary external service is
+established by this framework.
+
+## Framework stream delivery under implementation
+
+The repository implements a framework outbox for durable stream destinations.
+It remains under development with open fleet/release qualification gates; see
+the [implementation status](../plans/outbox-implementation-status.md) and the
+[runnable stream example](../examples/durable-streams/README.md). A deployed
+stream binding currently requires a bucket-backed node or fleet, replicated
+storage and durable wake discovery. SQLite-only nodes without that recovery
+infrastructure refuse activation.
+
+Define a typed `Event` with a stable family/version and routing key, then resolve
+its declared binding through `context.stream::<YourEvent>("EVENTS")`. Binding
+flags authorize new publication and the receiver independently checks current
+durable resource grants. The producer's short transaction API is:
+
+```rust
+let db = context.storage()?;
+let events = context.stream::<OrderConfirmed>("EVENTS")?;
+db.tx(|tx| {
+    tx.put_json("order", &serde_json::to_value(&order)?)?;
+    tx.emit(&events, order)?;
+    Ok(())
+})?;
+```
+
+`tx.emit` inserts a framework-owned obligation in the same cell database. It
+does not contact the stream inside the transaction. Rollback removes business
+state and the obligation together. The response's output gates prove state and
+the recoverable obligation; eventual append is a separate result. Caller retries
+still need business command receipts or another explicit idempotency guard.
+The same atomicity applies to cell-local SQL through `tx.sql`. A separate SQL
+binding is another database: updating it and emitting from the caller's outbox
+would not form one atomic transaction.
+
+Consumers obtain a subscription batch with `subscription.next`. Fetch does not
+advance the checkpoint. Compose each local effect with its inbox receipt:
+
+```rust
+for record in &batch.records {
+    db.tx(|tx| {
+        if tx.inbox("order-projection-v1")?.accept(record)? {
+            let event = record.event.decode::<OrderConfirmed>()?;
+            // Apply validated business effects using this transaction.
+            tx.put_json(&format!("orders/{}", event.order_id),
+                &serde_json::to_value(event)?)?;
+        }
+        Ok(())
+    })?;
+}
+db.sync().await?;
+batch.ack(&context).await?;
+```
+
+The explicit sync proves local effects before the remote checkpoint changes.
+Replay after a lost ack or retry sees retained receipts and suppresses those
+effects. Ack uses the exact batch receipt; stale/reset/expired processing
+authority has typed results. `batch.retry` releases a delivery for later
+processing and `extend_until` uses an absolute bounded lease deadline. Local
+inbox protection lasts while receipts are retained; explicit pruning ends it.
+External effects still require their own idempotency protocol.
+
+Streams expose bounded reads and resumable cursors. Retention can expire
+optional readers or backpressure producers behind required subscriptions.
+Do not promise unlimited history or assume a sealed source proves that unseen
+producers are quiescent. Use the [owner-routed controls](23-cli-reference.md) for
+inspection, guarded retries, subscription changes and audited retirement.
 
 ## Migrations and data retention
 

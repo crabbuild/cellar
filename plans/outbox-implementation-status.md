@@ -226,10 +226,10 @@ this does not constitute a released deployed primitive yet.
 | Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling | Complete deadline/error/race matrix and production lifecycle/crash qualification |
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
-| Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects | Runnable consumer example and complete proof/crash qualification |
+| Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
 | Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, metadata reads and payload opt-in | Resource inventories, exported metrics, source destruction and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer 6/native 3/fleet 3 and explicit audited format-2 upgrade; source/inbox migrations and incompatible source-policy refusal | Actual prior executable and full cutover fault qualification; destination/consumer policy-adoption matrix |
-| Examples and documentation | Full joint design and this requirement audit | Runnable stream-backed application, implemented API guide and catalog/smoke integration |
+| Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
 
 ## Next implementation step
@@ -288,11 +288,13 @@ Normalized native projects currently supply explicit resolved UUIDs in
 catalog resolution. Resource definition capture alone must not be mistaken for
 successful activation.
 
-Then add the native example and real failure qualification through discovery,
-replication, follower proof, ownership changes, output gates, and shutdown. The
-fixture deliberately supplies a successful proof adapter and no replication;
-it cannot establish those production guarantees. Do not mark the goal complete
-from a local passing delivery test.
+Continue real failure qualification through discovery, replication, follower
+proof, ownership changes, output gates and shutdown. The runnable example uses
+actual bucket-backed Node services and requires complete preserving shutdown;
+it verifies explicit retry and clean restart, not crash or actual response loss.
+The lower-level fixture deliberately supplies a successful proof adapter and
+no replication; it cannot establish those production guarantees. Do not mark
+the goal complete from a local passing delivery test.
 
 ## Verification and environment
 
@@ -587,3 +589,29 @@ rebuild/restart regression. All 11 doctests pass in the separate target cache;
 all-target/all-feature Clippy with warnings denied passes on final source.
 The earlier actor failures remain recorded above; passing reruns do not establish
 their cause or qualify the complete production fault/capacity matrix.
+
+
+The cataloged `cellar-example-streams` executable now demonstrates a business
+transaction and `tx.emit`, bounded resumable reads, a required subscription and
+a local projection composed with `tx.inbox`. Its explicit `db.sync` precedes
+remote retry/ack. The smoke test verifies duplicate/conflicting commands, two
+source cells, stream delivery, cursor resumption, committed effects before retry,
+a preserving process restart, retained-inbox suppression before acknowledgment,
+an empty fetch and a fresh effect after restart. Both shutdowns require complete
+ingress, application, cell and pending-dispatch drain reports. The example owns
+its executors and a private SQLite-backed object-store fleet, and persists a
+randomly generated fleet secret across restart. It does not qualify a bucketless
+SQLite node, abrupt process failure, network response loss or a production fleet.
+
+`examples/durable-streams/README.md` provides the runnable walkthrough and smoke
+command. The storage and asynchronous-work guides distinguish implemented APIs
+from remaining release criteria. The example is included in the 35-entry catalog.
+The all-feature executable build and actual smoke pass; all-target/all-feature
+workspace check and Clippy with warnings denied pass. Formatting, native
+dependency inspection (401 reachable packages, no JavaScript engine), catalog
+source/guide existence, documentation integrity (35 documents, 6 flows, 370 local
+references) and whitespace checks pass. The default-feature executable check
+and required CLI/artifact/catalog regressions are running separately and are
+not claimed complete here. Resource inventories and bounded exported metrics are the
+next operational priorities, alongside the still-open source destruction and
+full lifecycle/fault/capacity matrix.

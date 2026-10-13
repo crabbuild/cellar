@@ -400,6 +400,15 @@ drain phases. `cellar-example-container-peer` validates the dependency-free Rust
 peer built inside the example container. Native pattern equivalents do not imply
 third-party SDK compatibility; keep gaps in `examples/ROADMAP.md` explicit.
 
+`cellar-example-streams` is a separate bucket-backed `sdk::Node` host. It provisions
+required stream retention, commits order state with `tx.emit`, composes projection
+effects with inbox receipts and syncs before remote acknowledgment. Its explicit
+retry endpoint plus preserving process restart demonstrate redelivery without
+duplicate local effects. The private bucket also retains the randomly generated
+fleet secret. Verify the real binary with `python3 examples/durable-streams/smoke.py
+--binary "$CARGO_TARGET_DIR/debug/cellar-example-streams"`; this is a local demo,
+not production crash/response-loss or multi-node capacity qualification.
+
 ## Change discipline
 
 - Read the changed module, its callers, adjacent implementations, and relevant

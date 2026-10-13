@@ -4,9 +4,13 @@ Choose the mechanism from its durability and coordination needs. The SDK has
 alarms, durable wake infrastructure, Queue, Workflow and cron. Application teams
 still define business delivery guarantees, deduplication and external effects.
 
-The proposed [transactional outbox and durable event delivery design](../plans/002-outbox-streams-subscriptions.md)
-specifies framework-managed emission, streams, and resumable subscriptions.
-Those APIs are not part of the implemented mechanisms documented below.
+The [transactional outbox and durable event delivery design](../plans/002-outbox-streams-subscriptions.md)
+has a native implementation under development: `db.tx`/`tx.emit`, ordered stream
+reads, resumable subscription leases and atomic consumer inbox receipts. The
+[stream example](../examples/durable-streams/README.md) runs those APIs through a
+bucket-backed node. Open fleet/release qualifications remain explicit in the
+[implementation status](../plans/outbox-implementation-status.md); this is not a
+released production guarantee.
 
 ![Interactive asynchronous delivery](diagrams/async-flow.svg)
 
@@ -15,6 +19,7 @@ Those APIs are not part of the implemented mechanisms documented below.
 | `Context::wait_until` | Bounded work attached to an event after its response | Participates in drain; no crash-survival guarantee by itself |
 | Cell alarm | A persisted cell-local deadline | Handler must tolerate failure/re-execution |
 | Durable wake discovery | Discover cells with persisted wake/alarm obligations | Framework recovery and ownership cover wake lifecycle |
+| Framework outbox + stream | Commit business state and an event obligation together, then consume with replay | One source database is atomic; append/ack are separate durable operations; inbox protection lasts while receipts are retained; under implementation |
 | Queue | Decouple producer and consumer throughput | Define ack, retry, deduplication, poison-message handling |
 | Workflow | Multi-step durable business process | Stable replay and external-effect idempotency |
 | Cron | Periodically create/check work | Invocation is not proof of one completed business job |

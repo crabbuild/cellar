@@ -38,6 +38,10 @@ name = "cellar-example-embedded"
 path = "../../examples/embedded-node/main.rs"
 
 [[bin]]
+name = "cellar-example-streams"
+path = "../../examples/durable-streams/main.rs"
+
+[[bin]]
 name = "cellar-example-container-peer"
 path = "../../examples/native-container/server.rs"
 
