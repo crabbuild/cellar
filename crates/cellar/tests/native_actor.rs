@@ -457,6 +457,86 @@ async fn supplied_executor_keeps_effects_and_joined_cancellation_in_the_owning_d
 
 // Poison only a child process: parallel test hosts never share an environment mutation.
 #[test]
+fn default_actor_deadline_ignores_process_environment() -> Result<()> {
+    const CHILD: &str = "CELLAR_DEFAULT_DEADLINE_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        let runner = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        return runner.block_on(async {
+            let default = ExecutionDomain::new(tokio::runtime::Handle::current());
+            let configured = ExecutionDomain::new(tokio::runtime::Handle::current());
+            let explicit = options("explicit-deadline", 1_000, 7);
+            configured.services().configure_actor(&explicit)?;
+            // Generation construction samples Queue settlement policy before
+            // there is an actor, even for a script without Queue consumers.
+            for domain in [&default, &configured] {
+                domain
+                    .run(async {
+                        let registry = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }));
+                        let _generation = Generation::build_native(
+                            1,
+                            fixture::graph("deadline-policy", "", Vec::new()),
+                            fixture::generation_options(),
+                            HashMap::from([(
+                                "deadline-policy".into(),
+                                Arc::new(registry) as Arc<dyn Application>,
+                            )]),
+                        )?;
+                        Ok::<_, anyhow::Error>(())
+                    })
+                    .await??;
+            }
+            assert_eq!(
+                default
+                    .run(async { cellar::actor::operation_deadline_ms() })
+                    .await??,
+                15_000,
+                "library default sampled the process deadline"
+            );
+            assert_eq!(
+                configured
+                    .run(async { cellar::actor::operation_deadline_ms() })
+                    .await??,
+                6_000
+            );
+            let mut matching = options("default-deadline", 1_000, 2);
+            matching.core.operation_deadline_ms = Some(15_000);
+            default.services().configure_actor(&matching)?;
+            matching.core.operation_deadline_ms = Some(6_000);
+            assert!(default.services().configure_actor(&matching).is_err());
+            default.shutdown().await;
+            assert_eq!(
+                configured
+                    .run(async { cellar::actor::operation_deadline_ms() })
+                    .await??,
+                6_000
+            );
+            configured.shutdown().await;
+            Ok(())
+        });
+    }
+    for process_deadline in ["37", "unusable", "0"] {
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "default_actor_deadline_ignores_process_environment",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("CELLAR_OPERATION_DEADLINE_MS", process_deadline)
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "library default depended on process deadline {process_deadline:?}:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn explicit_actor_policy_survives_unusable_process_environment() -> Result<()> {
     let mut command = std::process::Command::new(std::env::current_exe()?);
     command.args([

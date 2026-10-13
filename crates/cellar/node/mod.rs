@@ -3779,6 +3779,10 @@ async fn async_main(
         "host runtime initialized"
     );
     crate::startup::raise_file_limit();
+    // Queue generations sample this budget before the actor is constructed.
+    // Capture the CLI override now; library hosts use explicit actor policy
+    // or deterministic defaults without reading process environment.
+    let operation_deadline_ms = crate::actor::capture_operation_deadline_from_environment()?;
     let max_resident = crate::env_vars::optional("CELLAR_MAX_RESIDENT_CELLS")?
         // cellar has no resident ceiling unless the operator configures one.
         // The clean-sheet prototype originally defaulted to eight, which
@@ -4406,7 +4410,7 @@ async fn async_main(
             DEFAULT_MAX_OUTBOUND_WEBSOCKETS,
         )?,
         max_request_body_bytes,
-        operation_deadline_ms: crate::actor::operation_deadline_ms()?,
+        operation_deadline_ms,
         follower: follower.clone(),
     };
 

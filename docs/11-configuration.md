@@ -17,6 +17,7 @@ library defaults and CLI defaults are the same.
 | `admission_wait` | 1 s | Saturated stateless pool wait; zero rejects immediately |
 | `handler_budget` | 300 s | Handler response budget; excludes subsequent background/proof settlement |
 | `HttpPolicy.request_timeout` | 120 s | SDK HTTP deadline, including response-body consumption |
+| Lower-level host operation deadline | 15 s | Used when actor policy was not configured; first Queue-policy use pins it |
 | `NodeServices.http_client` | `None` | Default HTTP builder ignores ambient proxies; supply a factory for host transport settings |
 | `AssetCacheOptions.directory` | Required | Caller-selected asset cache directory; no process default |
 | `AssetCacheOptions.max_bytes` | 512 MiB | Best-effort cache cleanup target; open files and failed removals can retain more |
@@ -30,6 +31,11 @@ library defaults and CLI defaults are the same.
 These are source defaults, not recommended production sizing. The structured
 decoder caps encoded values at 64 MiB, and loader budgets must not exceed it.
 Choose lower business-specific bounds where appropriate.
+
+Install `ActorOptions` with `domain.services().configure_actor(&options)` before
+building generations to select a different operation deadline. Queue leases and
+actor settlement share that captured value. A live host rejects a different
+deadline; library defaults ignore `CELLAR_OPERATION_DEADLINE_MS`.
 
 ## Lift cell API ceilings in an embedded host
 
@@ -105,6 +111,7 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_ASSET_CACHE_DIR` / `CELLAR_ASSET_CACHE_BYTES` | CLI captures cache directory and cleanup target once; default directory is `asset-cache` under the node data directory |
 | `CELLAR_MAX_ASSET_FILE_BYTES` | CLI captures the serving file ceiling; deployment builders use the same explicit environment adapter |
 | `CELLAR_FETCH_TIMEOUT_S` | CLI captures SDK HTTP request timeout at startup |
+| `CELLAR_OPERATION_DEADLINE_MS` | CLI captures the actor/Queue settlement budget before building generations; default 15,000 ms |
 | `CELLAR_MAX_RESIDENT_CELLS` | Actor resident-cell limit |
 | `CELLAR_MAX_CACHED_ROUTES` | Idle unowned route history; CLI default 2,048, zero disables |
 | `CELLAR_LOADER_MAX_WORKERS` | Host loaded-worker limit |

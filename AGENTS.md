@@ -27,6 +27,10 @@ handlers and body producers retain SDK event authority; only the node driver
 polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
+Queue leases and actor settlement share the host's captured operation deadline.
+Lower-level library hosts pin a 15-second default on first use; configure actor
+policy before constructing generations to choose another budget. CLI startup
+captures its environment override before any generation can sample that budget.
 SDK HTTP uses `NodeConfig::http` and an optional `NodeServices::http_client`
 builder factory. Lower-level hosts configure HTTP through `HostServices` before
 the first fetch. Keep required redirect behavior and invocation subrequest

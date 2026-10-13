@@ -383,7 +383,7 @@ impl HostServices {
         *self.cell_limits.get_or_init(Default::default)
     }
 
-    fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {
+    pub(crate) fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {
         if self.operation_deadline_ms.set(deadline).is_err() {
             anyhow::ensure!(self.operation_deadline_ms.get() == Some(&deadline),
                 "application generation and actor must use the same operation deadline; configure actor policy before building the generation");
@@ -395,11 +395,11 @@ impl HostServices {
         if let Some(deadline) = self.operation_deadline_ms.get() {
             return Ok(*deadline);
         }
-        let deadline = crate::env_vars::positive_or(
-            "CELLAR_OPERATION_DEADLINE_MS",
-            crate::actor::DEFAULT_OPERATION_DEADLINE_MS,
-        )?;
-        self.pin_operation_deadline(deadline)
+        self.pin_operation_deadline(crate::actor::DEFAULT_OPERATION_DEADLINE_MS)
+    }
+
+    pub(crate) fn pinned_operation_deadline_ms(&self) -> Option<u64> {
+        self.operation_deadline_ms.get().copied()
     }
 
     pub(crate) fn close_resources(&self) {
