@@ -24,7 +24,7 @@ required-features = ["openapi"]
 
 [features]
 default = ["openapi"]
-openapi = ["cellar-axum/openapi"]
+openapi = ["cellar-axum/openapi", "dep:utoipa-swagger-ui"]
 
 [dependencies]
 anyhow.workspace = true
@@ -35,6 +35,7 @@ serde.workspace = true
 serde_json.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 tokio = { workspace = true, features = ["full"] }
+utoipa-swagger-ui = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile.workspace = true

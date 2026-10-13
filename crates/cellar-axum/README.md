@@ -135,9 +135,12 @@ not automatically public or added to the default document.
 `ApplicationDefinition::export_openapi` performs no I/O and starts no node.
 `/openapi.json` serves the same immutable document through either host, inside
 the application's middleware. Adoption replaces the application and document as
-one generation. A documentation UI is not bundled. The counter has an offline
-export binary, checked-in contract, reproducible Rust client generator and
-client tests against both hosts.
+one generation. Applications can merge a documentation UI into their public
+Router. The counter example mounts vendored Swagger UI at `/docs` and redirects
+`/api` there, using the existing `/openapi.json` route. Its optional UI dependency
+is separate from this adapter. The counter also has an offline export binary,
+checked-in contract, reproducible Rust client generator and client tests against
+both hosts.
 
 ```sh
 cargo test -p cellar-axum --no-default-features --locked

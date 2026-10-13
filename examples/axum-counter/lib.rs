@@ -54,8 +54,18 @@ async fn increment(context: CellContext) -> Result<Json<Count>, Error> {
 }
 
 pub fn definition() -> Result<ApplicationDefinition> {
-    let builder =
-        ApplicationBuilder::new(Router::new().route("/health", get(|| async { "ready" })));
+    let router = Router::new().route("/health", get(|| async { "ready" }));
+    #[cfg(feature = "openapi")]
+    let router = router
+        .merge(
+            utoipa_swagger_ui::SwaggerUi::new("/docs")
+                .config(utoipa_swagger_ui::Config::new(["/openapi.json"]).validator_url("none")),
+        )
+        .route(
+            "/api",
+            get(|| async { axum::response::Redirect::to("/docs/") }),
+        );
+    let builder = ApplicationBuilder::new(router);
     #[cfg(feature = "openapi")]
     let builder = builder
         .info(utoipa::openapi::Info::new("Cellar Axum Counter", "v1"))
