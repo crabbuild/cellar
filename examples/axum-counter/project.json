@@ -1,0 +1,23 @@
+{
+  "cargo_manifest": "Cargo.toml",
+  "package": "cellar-axum-counter",
+  "binary": "cellar-host",
+  "profile": "dev",
+  "primary": {
+    "script_name": "axum-counter",
+    "application_version": "v1",
+    "cells": [
+      "Counter"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "COUNTERS",
+        "class_name": "Counter"
+      }
+    ]
+  },
+  "features": [
+    "openapi"
+  ]
+}

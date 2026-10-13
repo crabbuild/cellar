@@ -122,6 +122,15 @@ pub trait Cell: Send + Sync + 'static {
 pub trait Application: Send + Sync + 'static {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output>;
 
+    /// Validate compiled application requirements against this deployment before
+    /// it becomes active. Implementations must not perform I/O or create cells.
+    fn validate_configuration(
+        &self,
+        _options: &crate::engine_api::WorkerConfigOptions,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn supports_cell(&self, class: &str) -> bool;
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>>;

@@ -1,4 +1,4 @@
-# Cellar component organization plan
+# Cellar architecture and integration plans
 
 Prepared on 2026-10-12 against `origin/main` at
 `0bbb2b11ffbcc2ccb3bd08f62a83c84c73c8c5f6`, using the improve planning workflow.
@@ -16,10 +16,28 @@ mandatory captured-policy/cache-snapshot checks to the performance harness.
 | Plan | Priority | Effort | Risk | Depends on | Status |
 | --- | --- | --- | --- | --- | --- |
 | [001: Group framework files by component](001-component-layout.md) | P2 | M | MED | None | DONE |
+| [002: Embed Cellar behind Axum with integrated OpenAPI](002-axum-openapi-adapter.md) | P1 | L | HIGH | 001 | DONE |
 
 Read plan 001 fully before implementation. Its three batches can be reviewed
 and landed separately, in order. Update the status when implementation begins
 or finishes. Do not implement the deferred refactors as part of the file moves.
+
+Plan 002 was prepared on 2026-10-12 at
+`4d52bacbdc49346c1fdc5193ca3d165f543ea753`, after the component layout was
+implemented in [PR #12](https://github.com/crabbuild/cellar/pull/12). The user
+selected Axum with an embedded Cellar runtime. It adds two adapters: Axum
+handlers inside SDK invocations, and shared node ingress mounted in an
+application-owned Axum server. One application definition supplies the cell
+factories, HTTP routes, and optional OpenAPI document for both hosts.
+
+Implementation is complete on `codex/axum-ingress`, initially based on merged
+PR #12 (`c24feb2`) and rebased onto `origin/main` at `fddb002` for its pull request.
+The adapter, shared builder, two-host counter and
+OpenAPI export are implemented. Integration tests cover typed request bodies,
+host parity, SDK events, replication proof, streams, local/remote WebSockets,
+reload and bounded shutdown. Local workspace checks, both feature modes,
+generated-client calls, CLI package validation and two-host restart smoke tests
+passed. See plan 002 for the verification record and toolchain limits.
 
 ## Recommended layout
 
@@ -78,7 +96,8 @@ flowchart TD
     Durability --> LTX[cellar-ltx: WAL and LTX mechanisms]
 ```
 
-The four existing crates remain appropriate. `cellar-logic` owns behavioral
+The four foundational crates retain their ownership boundaries; `cellar-axum`
+adds an SDK adapter above them. `cellar-logic` owns behavioral
 decisions without dependencies or I/O. `cellar-ltx` owns replication mechanics,
 not fleet authority or output-gate policy. `cellar-native` owns engine-independent
 primitives. `cellar` composes production adapters and exposes the SDK and CLI.

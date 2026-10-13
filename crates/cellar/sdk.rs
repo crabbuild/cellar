@@ -196,7 +196,8 @@ pub use crate::daemon::CompiledApplications;
 pub use crate::daemon::NativeDaemon as Host;
 #[cfg(not(cellar_internal_tests))]
 pub use crate::daemon::{
-    Node, NodeConfig, NodeFleet, NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
+    ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
+    NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
 };
 pub use crate::generation::DeploymentGraph;
 pub use crate::host_services::{

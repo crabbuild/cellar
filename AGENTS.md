@@ -21,6 +21,10 @@ were not compiled into it.
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
 supplies listeners, executors, clients, authentication, and any fleet services.
+Axum hosts use `Node::start_external` with `ExternalNodeServices` and mount
+`cellar_axum::CellarService` on their already-bound public listener. Application
+handlers and body producers retain SDK event authority; only the node driver
+polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
 SDK HTTP uses `NodeConfig::http` and an optional `NodeServices::http_client`
@@ -71,6 +75,7 @@ crates/
     observability/        Telemetry export and OTLP encoding
     platform/             Machine and process-memory adapters
     tests/                Native SDK and host integration tests
+  cellar-axum/            Axum handlers, external ingress service, shared builder, OpenAPI
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
   cellar-native/          Owned values, structured clone, crypto, and web primitives
@@ -234,6 +239,21 @@ without writing source files; CI runs it before tests. The tool lives under
 `tools/xtask` and covers tracked and unignored new Rust files, including examples.
 Run `cargo test -p cellar-xtask --locked` when changing formatter behavior.
 Plain `cargo fmt --all` remains available for rustfmt alone.
+
+For Axum adapter changes also run both feature modes and the shared example:
+
+```sh
+cargo test -p cellar-axum --no-default-features --locked
+cargo test -p cellar-axum --all-features --locked
+cargo test -p cellar-axum-counter --all-features --locked
+cargo check -p cellar-axum-counter --no-default-features --bins --locked
+```
+
+Read `crates/cellar-axum/README.md` for middleware, body and WebSocket lifetime
+constraints. Cellar WebSocket handlers use `CellWebSocketUpgrade`; ambient
+Axum upgrade tasks do not carry SDK authority. Each acknowledging body chunk
+uses the existing output gate. OpenAPI is an optional immutable declaration
+owned by the same application generation; export must not start a node.
 
 Choose additional existing integration tests for the changed bindings, host
 behavior, or storage paths. The full SDK CI gates are:

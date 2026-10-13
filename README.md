@@ -32,6 +32,13 @@ standalone embedded Node. See the [example suite](examples/README.md) for
 runnable projects and the [application-builder roadmap](examples/ROADMAP.md)
 for remaining reference applications and distributed validation criteria.
 
+[cellar-axum](crates/cellar-axum/README.md) runs Axum handlers inside the same
+SDK invocations and mounts an embedded Cellar runtime in an Axum-owned server.
+Its shared application builder supports cells, middleware, streams, WebSockets
+and optional OpenAPI 3.1 generation/export. The
+[two-host counter](examples/axum-counter/README.md) includes both runnable hosts
+and a generated client.
+
 Library hosts call `sdk::Node::start` with `NodeConfig`, `NodeServices`, a
 `DeploymentGraph` and `CompiledApplications`. The application supplies bound
 listeners, host and core executors, HTTP clients, peer authentication and a
@@ -160,7 +167,8 @@ For example, `cellar::daemon` is implemented in `node/mod.rs`,
 `durability/log/mod.rs`. Transport registries retain their originating domain
 and event authority. The other crates keep their existing boundaries:
 `cellar-logic` owns decisions, `cellar-ltx` owns SQLite/LTX mechanisms, and
-`cellar-native` owns engine-independent primitives. See [AGENTS.md](AGENTS.md)
+`cellar-native` owns engine-independent primitives. `cellar-axum` composes Axum
+with the SDK and owns no cell state or fleet policy. See [AGENTS.md](AGENTS.md)
 for module ownership and contribution guidance.
 
 ## Build and run
