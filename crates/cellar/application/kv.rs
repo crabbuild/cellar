@@ -87,29 +87,36 @@ fn now() -> i64 {
 fn error(message: impl std::fmt::Display) -> anyhow::Error {
     anyhow!("KV_ERROR: {message}")
 }
+fn list_limit(requested: Option<i64>) -> usize {
+    let maximum = crate::application::limits::current().kv.max_list_limit;
+    requested
+        .filter(|n| *n > 0)
+        .map_or(policy::MAX_LIST_LIMIT, |n| n as usize)
+        .min(maximum)
+}
 fn check_key(key: &str) -> Result<()> {
     ensure!(!key.is_empty(), "KV_ERROR: a key must not be empty");
     ensure!(
-        key.len() <= policy::MAX_KEY_BYTES,
+        key.len() <= crate::application::limits::current().kv.max_key_bytes,
         "KV_ERROR: a key is at most {} bytes, got {}",
-        policy::MAX_KEY_BYTES,
+        crate::application::limits::current().kv.max_key_bytes,
         key.len()
     );
     Ok(())
 }
 fn check_value(size: usize) -> Result<()> {
     ensure!(
-        size <= policy::MAX_VALUE_BYTES,
+        size <= crate::application::limits::current().kv.max_value_bytes,
         "KV_ERROR: a value is at most {} bytes, got {size}",
-        policy::MAX_VALUE_BYTES
+        crate::application::limits::current().kv.max_value_bytes
     );
     Ok(())
 }
 fn check_metadata(metadata: &str) -> Result<()> {
     ensure!(
-        metadata.len() <= policy::MAX_METADATA_BYTES,
+        metadata.len() <= crate::application::limits::current().kv.max_metadata_bytes,
         "KV_ERROR: metadata is at most {} bytes, got {}",
-        policy::MAX_METADATA_BYTES,
+        crate::application::limits::current().kv.max_metadata_bytes,
         metadata.len()
     );
     Ok(())
@@ -120,9 +127,9 @@ fn check_bulk(keys: &[String]) -> Result<()> {
         "KV_ERROR: a bulk get needs at least one key"
     );
     ensure!(
-        keys.len() <= policy::MAX_BULK_KEYS,
+        keys.len() <= crate::application::limits::current().kv.max_bulk_keys,
         "KV_ERROR: a bulk get takes at most {} keys, got {}",
-        policy::MAX_BULK_KEYS,
+        crate::application::limits::current().kv.max_bulk_keys,
         keys.len()
     );
     for key in keys {
@@ -406,9 +413,13 @@ impl Namespace {
         let mut bytes = Vec::new();
         while let Some(chunk) = stream.try_next().await.map_err(anyhow::Error::msg)? {
             ensure!(
-                chunk.len() <= policy::MAX_VALUE_BYTES.saturating_sub(bytes.len()),
+                chunk.len()
+                    <= crate::application::limits::current()
+                        .kv
+                        .max_value_bytes
+                        .saturating_sub(bytes.len()),
                 "KV_ERROR: a value is at most {} bytes, and the stream is larger",
-                policy::MAX_VALUE_BYTES
+                crate::application::limits::current().kv.max_value_bytes
             );
             bytes.extend(chunk);
         }
@@ -441,7 +452,7 @@ impl Namespace {
             .map(cursor_decode)
             .transpose()?
             .unwrap_or_default();
-        let reply = self.call(context, "__kvList", StructuredValue::from_json(json!([{ "prefix":options.prefix, "limit":policy::list_limit(options.limit), "after":after, "now":now() }]))?).await?.to_json()?;
+        let reply = self.call(context, "__kvList", StructuredValue::from_json(json!([{ "prefix":options.prefix, "limit":list_limit(options.limit), "after":after, "now":now() }]))?).await?.to_json()?;
         let complete = reply["complete"]
             .as_bool()
             .ok_or_else(|| error("invalid list response"))?;
@@ -630,6 +641,7 @@ impl NamespaceCell {
         expiration: bool,
         at: i64,
     ) -> Result<StructuredValue> {
+        check_bulk(keys)?;
         self.open()?;
         let mut rows = Vec::with_capacity(keys.len());
         let mut bytes = Vec::with_capacity(keys.len());
@@ -689,6 +701,13 @@ impl NamespaceCell {
     }
 
     async fn put(&self, context: &Context, entries: Vec<Entry>) -> Result<()> {
+        for entry in &entries {
+            check_key(&entry.key)?;
+            check_value(entry.value.len())?;
+            if let Some(metadata) = &entry.metadata {
+                check_metadata(metadata)?;
+            }
+        }
         if crate::kv_blob::limits()["raceSweepPut"] == true
             && entries
                 .iter()
@@ -798,7 +817,8 @@ impl NamespaceCell {
     fn list(&self, prefix: String, limit: i64, after: String, at: i64) -> Result<Value> {
         self.open()?;
         ensure!(
-            (0..i64::MAX).contains(&limit),
+            (0..i64::MAX).contains(&limit)
+                && limit as usize <= crate::application::limits::current().kv.max_list_limit,
             "KV_ERROR: invalid list limit"
         );
         let upper = prefix_upper(&prefix);

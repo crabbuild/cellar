@@ -647,8 +647,10 @@ pub(crate) async fn list(
         .map_err(|error| format!("invalid Blob list options: {error}"))?;
     let store = store()?;
     let limit = match request.limit.unwrap_or(0) {
-        limit if limit > 0 => (limit as usize).min(LIST_LIMIT),
-        _ => LIST_LIMIT,
+        limit if limit > 0 => {
+            (limit as usize).min(crate::application::limits::current().blob.max_list_limit)
+        }
+        _ => LIST_LIMIT.min(crate::application::limits::current().blob.max_list_limit),
     };
     let scoped = blob_key(bucket_name, &request.prefix);
     // Blob resumes from the cursor when it has one and ignores

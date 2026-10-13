@@ -99,8 +99,13 @@ impl Retention {
                 .transpose()?
                 .unwrap_or(RETENTION_MAX_MS);
             ensure!(
-                ms <= RETENTION_MAX_MS,
-                "WORKFLOW_ERROR: retention is above cellar's 30-day limit"
+                ms.is_finite()
+                    && ms >= 0.0
+                    && ms < i64::MAX.saturating_sub(cell::now()) as f64
+                    && limits()
+                        .max_retention_ms
+                        .is_none_or(|maximum| ms <= maximum as f64),
+                "WORKFLOW_ERROR: retention exceeds the host limit or timestamp range"
             );
             Ok(ms)
         };
@@ -224,14 +229,37 @@ fn name_valid(name: &str, max: usize) -> bool {
             .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
+fn limits() -> crate::application::limits::WorkflowLimits {
+    crate::application::limits::current().workflow
+}
+fn check_event_type(name: &str) -> Result<()> {
+    ensure!(
+        name_valid(name, limits().max_event_type_bytes),
+        "WORKFLOW_ERROR: invalid event type"
+    );
+    Ok(())
+}
+fn check_horizon(ms: f64, what: &str) -> Result<()> {
+    ensure!(
+        ms.is_finite()
+            && ms >= 0.0
+            && ms < i64::MAX.saturating_sub(cell::now()) as f64
+            && limits()
+                .max_sleep_ms
+                .is_none_or(|maximum| ms <= maximum as f64),
+        "WORKFLOW_ERROR: {what} exceeds the host limit or timestamp range"
+    );
+    Ok(())
+}
 fn check_id(id: &str) -> Result<()> {
-    ensure!(name_valid(id,100),"WORKFLOW_ERROR: invalid instance id {id:?}: use at most 100 letters, digits, hyphens, or underscores, not starting with a hyphen");
+    ensure!(name_valid(id, limits().max_id_bytes), "WORKFLOW_ERROR: invalid instance id {id:?}: use at most {} letters, digits, hyphens, or underscores, not starting with a hyphen", limits().max_id_bytes);
     Ok(())
 }
 pub(crate) fn check_step_name(name: &[u16]) -> Result<()> {
     ensure!(
-        name.len() <= 256 && !name.iter().any(|unit| *unit <= 0x1f),
-        "WORKFLOW_ERROR: invalid step name: use at most 256 UTF-16 units and no control characters"
+        name.len() <= limits().max_step_name_units && !name.iter().any(|unit| *unit <= 0x1f),
+        "WORKFLOW_ERROR: invalid step name: use at most {} UTF-16 units and no control characters",
+        limits().max_step_name_units
     );
     Ok(())
 }
@@ -244,7 +272,12 @@ fn check_value(value: &StructuredValue, what: &str) -> Result<()> {
     check_encoded(&bytes, what)
 }
 fn check_encoded(bytes: &[u8], what: &str) -> Result<()> {
-    ensure!(bytes.len()<=VALUE_LIMIT,"WORKFLOW_ERROR: {what} is {} bytes, above the 1 MiB limit; store large output externally and return a reference",bytes.len());
+    ensure!(
+        bytes.len() <= limits().max_value_bytes,
+        "WORKFLOW_ERROR: {what} is {} bytes, above the host limit of {} bytes",
+        bytes.len(),
+        limits().max_value_bytes
+    );
     Ok(())
 }
 fn property(graph: &StructuredValue, name: &str) -> Result<Option<StructuredValue>> {
@@ -334,8 +367,9 @@ impl Workflow {
         batch: Vec<CreateOptions>,
     ) -> Result<Vec<Instance>> {
         ensure!(
-            !batch.is_empty() && batch.len() <= 100,
-            "WORKFLOW_ERROR: createBatch() accepts 1 to 100 instances, got {}",
+            !batch.is_empty() && batch.len() <= limits().max_batch_size,
+            "WORKFLOW_ERROR: createBatch() accepts 1 to {} instances, got {}",
+            limits().max_batch_size,
             batch.len()
         );
         // Every structural error and every encoded size error is discovered
@@ -385,8 +419,9 @@ impl Workflow {
         ids: Vec<String>,
     ) -> Result<DeleteBatchResult> {
         ensure!(
-            !ids.is_empty() && ids.len() <= 100,
-            "WORKFLOW_ERROR: deleteBatch() accepts 1 to 100 instance ids, got {}",
+            !ids.is_empty() && ids.len() <= limits().max_batch_size,
+            "WORKFLOW_ERROR: deleteBatch() accepts 1 to {} instance ids, got {}",
+            limits().max_batch_size,
             ids.len()
         );
         for id in &ids {
@@ -466,7 +501,7 @@ impl Instance {
         })
     }
     pub async fn send_event(&self, context: &Context, event: SendEvent) -> Result<()> {
-        ensure!(name_valid(&event.event_type,100),"WORKFLOW_ERROR: invalid event type: use at most 100 letters, digits, hyphens, or underscores");
+        check_event_type(&event.event_type)?;
         let mut data = StructuredValue::from_json(json!({"type":event.event_type}))?;
         if let Some(payload) = event.payload {
             check_value(&payload, "the event payload")?;

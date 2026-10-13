@@ -88,6 +88,7 @@ pub struct HostServices {
     actor_options: OnceLock<crate::actor::ActorOptions>,
     operation_deadline_ms: OnceLock<u64>,
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
+    cell_limits: OnceLock<crate::application::limits::CellLimits>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
     http_streams: Arc<crate::http_streams::HttpStreamService>,
@@ -113,6 +114,7 @@ impl HostServices {
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
+            cell_limits: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -139,6 +141,7 @@ impl HostServices {
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
+            cell_limits: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -309,6 +312,27 @@ impl HostServices {
     /// the application did not configure it. No environment is read here.
     pub fn runtime_policy(&self) -> crate::runtime_policy::RuntimePolicy {
         *self.runtime_policy.get_or_init(Default::default)
+    }
+
+    /// Capture API budgets before constructing generations or opening storage.
+    /// An identical repeated configuration is harmless; live budgets are fixed.
+    pub fn configure_cell_limits(
+        &self,
+        limits: crate::application::limits::CellLimits,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "cell execution domain is closed");
+        limits.validate()?;
+        if self.cell_limits.set(limits).is_err() {
+            anyhow::ensure!(
+                self.cell_limits.get() == Some(&limits),
+                "cell limits are already in use; configure them before building the generation"
+            );
+        }
+        Ok(())
+    }
+
+    pub fn cell_limits(&self) -> crate::application::limits::CellLimits {
+        *self.cell_limits.get_or_init(Default::default)
     }
 
     fn pin_operation_deadline(&self, deadline: u64) -> anyhow::Result<u64> {

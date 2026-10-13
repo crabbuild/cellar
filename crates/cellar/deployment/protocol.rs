@@ -387,6 +387,15 @@ pub struct QueueConsumerConfig {
 /// binding and prevents an invalid consumer policy from reaching the broker.
 #[doc(hidden)]
 pub fn validate_queue_manifest(manifest: &Manifest) -> anyhow::Result<()> {
+    validate_queue_manifest_with_limits(manifest, &cellar_logic::queue::Limits::default())
+}
+
+/// Validate an embedded host's manifest using its captured Queue ceilings.
+pub fn validate_queue_manifest_with_limits(
+    manifest: &Manifest,
+    limits: &cellar_logic::queue::Limits,
+) -> anyhow::Result<()> {
+    limits.validate().map_err(anyhow::Error::new)?;
     let queue_bindings = manifest
         .raw_metadata
         .get("bindings")
@@ -438,14 +447,17 @@ pub fn validate_queue_manifest(manifest: &Manifest) -> anyhow::Result<()> {
                     format!("Queue binding {environment:?} has an invalid delivery_delay")
                 })?,
         };
-        cellar_logic::queue::validate_config(&cellar_logic::queue::QueueConfig {
-            max_batch_size: cellar_logic::queue::DEFAULT_MAX_BATCH_SIZE,
-            max_batch_timeout_seconds: cellar_logic::queue::DEFAULT_MAX_BATCH_TIMEOUT_SECONDS,
-            max_retries: cellar_logic::queue::DEFAULT_MAX_RETRIES,
-            max_concurrency: None,
-            delivery_delay_seconds,
-            retry_delay_seconds: None,
-        })
+        cellar_logic::queue::validate_config_with_limits(
+            &cellar_logic::queue::QueueConfig {
+                max_batch_size: cellar_logic::queue::DEFAULT_MAX_BATCH_SIZE,
+                max_batch_timeout_seconds: cellar_logic::queue::DEFAULT_MAX_BATCH_TIMEOUT_SECONDS,
+                max_retries: cellar_logic::queue::DEFAULT_MAX_RETRIES,
+                max_concurrency: None,
+                delivery_delay_seconds,
+                retry_delay_seconds: None,
+            },
+            limits,
+        )
         .map_err(anyhow::Error::new)
         .with_context(|| format!("Queue binding {environment:?} for {queue:?} is invalid"))?;
     }
@@ -477,14 +489,17 @@ pub fn validate_queue_manifest(manifest: &Manifest) -> anyhow::Result<()> {
                 dead_letter_queue
             );
         }
-        cellar_logic::queue::validate_config(&cellar_logic::queue::QueueConfig {
-            max_batch_size: consumer.max_batch_size,
-            max_batch_timeout_seconds: consumer.max_batch_timeout,
-            max_retries: consumer.max_retries,
-            max_concurrency: consumer.max_concurrency,
-            delivery_delay_seconds: 0,
-            retry_delay_seconds: consumer.retry_delay,
-        })
+        cellar_logic::queue::validate_config_with_limits(
+            &cellar_logic::queue::QueueConfig {
+                max_batch_size: consumer.max_batch_size,
+                max_batch_timeout_seconds: consumer.max_batch_timeout,
+                max_retries: consumer.max_retries,
+                max_concurrency: consumer.max_concurrency,
+                delivery_delay_seconds: 0,
+                retry_delay_seconds: consumer.retry_delay,
+            },
+            limits,
+        )
         .map_err(anyhow::Error::new)
         .with_context(|| format!("Queue consumer for {:?} is invalid", consumer.queue))?;
     }

@@ -70,6 +70,7 @@ pub struct NodeConfig {
     pub actor: crate::actor::ActorOptions,
     pub data_dir: PathBuf,
     pub runtime: RuntimePolicy,
+    pub cell_limits: crate::application::limits::CellLimits,
     pub loader: LoaderPolicy,
     pub shutdown: ShutdownPolicy,
     pub startup: NodeStartupPolicy,
@@ -93,6 +94,7 @@ impl NodeConfig {
             actor,
             data_dir,
             runtime: RuntimePolicy::default(),
+            cell_limits: Default::default(),
             loader: LoaderPolicy::default(),
             shutdown: ShutdownPolicy::default(),
             startup,
@@ -106,6 +108,7 @@ impl NodeConfig {
     fn validate(&self, services: &NodeServices) -> anyhow::Result<()> {
         self.actor.validate_policy()?;
         self.runtime.validate()?;
+        self.cell_limits.validate()?;
         self.loader.validate()?;
         self.shutdown.validate()?;
         crate::machine::validate_node_name(&self.identity.node)?;
@@ -323,6 +326,9 @@ impl Node {
             .await?;
         domain.services().configure_actor(&config.actor)?;
         domain.services().configure_runtime(config.runtime)?;
+        domain
+            .services()
+            .configure_cell_limits(config.cell_limits)?;
         domain.services().configure_loader(config.loader)?;
         domain
             .services()

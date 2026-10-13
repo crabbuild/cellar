@@ -778,7 +778,10 @@ async fn load_worker_at_pointer(
     }
     crate::protocol::validate_required_features(&manifest.required_features)?;
     crate::protocol::validate_execution_manifest(&manifest)?;
-    crate::protocol::validate_queue_manifest(&manifest)?;
+    crate::protocol::validate_queue_manifest_with_limits(
+        &manifest,
+        &crate::application::limits::current().queue,
+    )?;
     // Old managed uploads can contain AI metadata without a required-feature
     // gate. Refuse it before loading code, rather than serve a missing binding.
     anyhow::ensure!(

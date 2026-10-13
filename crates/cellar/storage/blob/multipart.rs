@@ -7,8 +7,6 @@ use super::*;
 use std::sync::atomic::Ordering;
 const IDLE: std::time::Duration = std::time::Duration::from_secs(3600);
 
-const PART_BACKLOG: usize = 256 << 20;
-
 struct UploadEntry {
     bucket_name: String,
     key: String,
@@ -20,8 +18,9 @@ struct UploadEntry {
     /// Parts that arrived before the one in front of them, held until
     /// their turn. A caller uploading parts sequentially never fills this.
     pending: BTreeMap<u32, Vec<u8>>,
-    /// Bytes in `pending`, against [`PART_BACKLOG`].
+    /// Bytes in `pending`, against the captured host budget.
     held: usize,
+    max_backlog_bytes: usize,
     /// The record the object was opened with, answered again by the
     /// completion the way Blob answers one.
     envelope: Envelope,
@@ -123,6 +122,9 @@ pub(crate) async fn begin(
             flushed: Vec::new(),
             pending: BTreeMap::new(),
             held: 0,
+            max_backlog_bytes: crate::application::limits::current()
+                .blob
+                .max_multipart_backlog_bytes,
             envelope,
             written: 0,
             touched: idle_stamp(),
@@ -186,8 +188,10 @@ pub(crate) async fn part(
         // without discounting the replaced would grow `held` past what
         // is actually held and refuse an upload well inside the limit.
         let replaced = entry.pending.get(&part_number).map_or(0, Vec::len);
-        let held = entry.held - replaced + bytes.len();
-        if held > PART_BACKLOG {
+        let held = (entry.held - replaced)
+            .checked_add(bytes.len())
+            .ok_or_else(|| "Blob multipart backlog size overflow".to_string())?;
+        if held > entry.max_backlog_bytes {
             return Err(format!(
                 "Blob multipart upload {upload_id} is holding {} bytes of parts waiting for \
                      part {}: cellar hands parts to the object store in ascending order, so \

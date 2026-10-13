@@ -121,9 +121,11 @@ existing identity, default-policy, and explicit environment adapters.
   `clippy.toml` before touching these paths. Direct host operations in CLI/build
   tooling need an explicit, justified boundary exception.
 - Node policy and services belong to their execution domain. Keep actor,
-  runtime, loader, replication, log, and shutdown configuration explicit in
-  library APIs; environment resolution belongs in CLI adapters. Capabilities
+  runtime, cell API limits, loader, replication, log, and shutdown configuration
+  explicit in library APIs; environment resolution belongs in CLI adapters. Capabilities
   and spawned work must retain the domain that created them.
+  `CellLimits` is pinned before generation construction or SQLite activation;
+  preserve host isolation and receiver-side budgets when extending API limits.
 - Transport registries and binding adapters retain their execution-domain and
   event ownership. Their location under `transport/` does not make sockets,
   HTTP streams, or upgrade capabilities independent of invocation gates.

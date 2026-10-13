@@ -867,28 +867,18 @@ fn finish_open(
     if replicated_wake {
         wake_record::initialize(&c, scope, epoch)?;
     }
-    // Match Workerd's SQLite security budgets. Applying native connection
-    // limits once here avoids request-path parsing and keeps rejected queries
-    // from consuming unbounded parser, VDBE, or expression resources.
-    // SAFETY: `c` owns a live SQLite connection for the duration of this call.
+    let limits = crate::application::limits::current().sql;
+    // Keep the storage isolation restrictions under every API policy.
+    // SAFETY: the connection owns this live SQLite handle.
     unsafe {
         let database = c.handle();
-        for (category, limit) in [
-            (rusqlite::ffi::SQLITE_LIMIT_LENGTH, 2_200_000),
-            (rusqlite::ffi::SQLITE_LIMIT_SQL_LENGTH, 100_000),
-            (rusqlite::ffi::SQLITE_LIMIT_COLUMN, 100),
-            (rusqlite::ffi::SQLITE_LIMIT_EXPR_DEPTH, 100),
-            (rusqlite::ffi::SQLITE_LIMIT_COMPOUND_SELECT, 5),
-            (rusqlite::ffi::SQLITE_LIMIT_VDBE_OP, 25_000),
-            (rusqlite::ffi::SQLITE_LIMIT_FUNCTION_ARG, 127),
-            (rusqlite::ffi::SQLITE_LIMIT_ATTACHED, 0),
-            (rusqlite::ffi::SQLITE_LIMIT_LIKE_PATTERN_LENGTH, 50),
-            (rusqlite::ffi::SQLITE_LIMIT_VARIABLE_NUMBER, 100),
-            (rusqlite::ffi::SQLITE_LIMIT_TRIGGER_DEPTH, 10),
-            (rusqlite::ffi::SQLITE_LIMIT_WORKER_THREADS, 0),
-        ] {
-            rusqlite::ffi::sqlite3_limit(database, category, limit);
+        if let Some(connection) = limits.connection {
+            for (category, limit) in connection.categories() {
+                rusqlite::ffi::sqlite3_limit(database, category, limit);
+            }
         }
+        rusqlite::ffi::sqlite3_limit(database, rusqlite::ffi::SQLITE_LIMIT_ATTACHED, 0);
+        rusqlite::ffi::sqlite3_limit(database, rusqlite::ffi::SQLITE_LIMIT_WORKER_THREADS, 0);
     }
     c.authorizer(Some(authorize_sql));
     // rusqlite's default holds 16 statements; the KV texts plus a cell's
@@ -2209,12 +2199,8 @@ pub fn sql_database_size(scope: &str) -> Result<u64, String> {
 /// "the query was too large" and "the isolate died" are different messages.
 pub const SQL_MAX_ROWS: usize = 100_000;
 
-/// Bytes one SQL result set can carry across the binding. The result exists in
-/// two heaps at once -- materialized in the database cell's isolate, then
-/// cloned into the caller's -- and the default isolate heap is 128 MiB, so
-/// 32 MiB keeps both copies inside it with room for the application's own
-/// state. The row cap bounds ordinary rows; this bounds wide ones, which
-/// 100,000 rows of TEXT or BLOB would otherwise not.
+/// Default bytes one materialized SQL result set may carry across a binding.
+/// Embedded hosts select the effective budget through `CellLimits.sql`.
 pub const SQL_MAX_RESULT_BYTES: usize = 32 * 1024 * 1024;
 
 pub use cellar_native::sql::{
@@ -2387,7 +2373,7 @@ fn sql_result_limit_error() -> String {
     format!(
         "query result exceeds {} bytes, which is more than one SQL result set can carry across a \
          binding; narrow the query, or iterate inside a Durable Object where the cursor streams",
-        SQL_MAX_RESULT_BYTES
+        crate::application::limits::current().sql.max_result_bytes
     )
 }
 
@@ -2404,17 +2390,19 @@ struct SqlStepped {
 
 /// Step a prepared statement to completion, keeping at most `keep` rows and
 /// charging kept bytes against `budget`. The caller finalizes the statement
-/// on every path. `keep` below the row cap means the caller asked for fewer
-/// rows (`first()` keeps one), so rows past it are dropped without an error;
-/// at the cap, overflow is a refusal.
+/// on every path. `Some(keep)` explicitly truncates (`first()` keeps one);
+/// `None` materializes the full result and refuses overflow of the host budget.
 unsafe fn sql_step_to_done(
     scope: &str,
     database: *mut rusqlite::ffi::sqlite3,
     statement: *mut rusqlite::ffi::sqlite3_stmt,
     started_in_transaction: bool,
-    keep: usize,
+    keep: Option<usize>,
     budget: &mut usize,
 ) -> Result<SqlStepped, String> {
+    let reject_overflow = keep.is_none();
+    let row_limit = crate::application::limits::current().sql.max_rows;
+    let keep = keep.unwrap_or(row_limit);
     let column_count = rusqlite::ffi::sqlite3_column_count(statement);
     let mut stepped = SqlStepped {
         rows: Vec::new(),
@@ -2429,11 +2417,12 @@ unsafe fn sql_step_to_done(
                     continue;
                 }
                 if stepped.rows.len() >= keep {
-                    if keep >= SQL_MAX_ROWS {
+                    if reject_overflow {
                         stepped.over = Some(format!(
-                            "query returned more than {SQL_MAX_ROWS} rows, which is more than \
+                            "query returned more than {} rows, which is more than \
                              one SQL result set can carry across a binding; narrow the query, \
-                             or iterate inside a Durable Object where the cursor streams"
+                             or iterate inside a Durable Object where the cursor streams",
+                            row_limit
                         ));
                     }
                     continue;
@@ -2558,7 +2547,7 @@ unsafe fn sql_run_statements(
     check_sql_rename(input).map_err(failure)?;
     let database = connection.handle();
     let started_in_transaction = rusqlite::ffi::sqlite3_get_autocommit(database) == 0;
-    let mut budget = SQL_MAX_RESULT_BYTES;
+    let mut budget = crate::application::limits::current().sql.max_result_bytes;
     let mut source_ptr = source.as_ptr();
     let mut count = 0_u64;
     let mut results = Vec::new();
@@ -2601,7 +2590,7 @@ unsafe fn sql_run_statements(
         }
         let columns = sql_cursor_columns(statement);
         let keep = if keep_rows && !columns.is_empty() {
-            SQL_MAX_ROWS
+            crate::application::limits::current().sql.max_rows
         } else {
             0
         };
@@ -2610,7 +2599,7 @@ unsafe fn sql_run_statements(
             database,
             statement,
             started_in_transaction,
-            keep,
+            if keep_rows { None } else { Some(0) },
             &mut budget,
         );
         rusqlite::ffi::sqlite3_finalize(statement);
@@ -2634,7 +2623,7 @@ unsafe fn sql_run_prepared(
     connection: &Connection,
     sql: &str,
     params: &[serde_json::Value],
-    keep: usize,
+    keep: Option<usize>,
     budget: &mut usize,
     started: std::time::Instant,
 ) -> Result<SqlPreparedResult, SqlFailure> {
@@ -2894,10 +2883,10 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
     let started = std::time::Instant::now();
     match request {
         SqlRequest::Prepared { sql, params, first } => {
-            let keep = if *first { 1 } else { SQL_MAX_ROWS };
+            let keep = first.then_some(1);
             with(scope, |connection| {
                 as_user_sql(|| {
-                    let mut budget = SQL_MAX_RESULT_BYTES;
+                    let mut budget = crate::application::limits::current().sql.max_result_bytes;
                     // SAFETY: the connection lives in DBS until close(), and
                     // the helper finalizes its statement on every path.
                     unsafe {
@@ -2915,7 +2904,7 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
             sql_transaction_control(scope, connection, SqlTransactionOperation::Begin, sql_error)?;
             let ran = as_user_sql(|| {
                 let mut results = Vec::with_capacity(statements.len());
-                let mut budget = SQL_MAX_RESULT_BYTES;
+                let mut budget = crate::application::limits::current().sql.max_result_bytes;
                 for statement in statements {
                     let statement_started = std::time::Instant::now();
                     // SAFETY: as for the prepared mode above. Every statement
@@ -2926,7 +2915,7 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                             connection,
                             &statement.sql,
                             &statement.params,
-                            SQL_MAX_ROWS,
+                            None,
                             &mut budget,
                             statement_started,
                         )
@@ -3040,7 +3029,11 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                             let name = row?;
                             bytes = bytes.saturating_add(serde_json::to_vec(&name)?.len() + 1);
                             anyhow::ensure!(
-                                names.len() < SQL_MAX_ROWS && bytes <= SQL_MAX_RESULT_BYTES,
+                                names.len() < crate::application::limits::current().sql.max_rows
+                                    && bytes
+                                        <= crate::application::limits::current()
+                                            .sql
+                                            .max_result_bytes,
                                 "migration history exceeds SQL result limits"
                             );
                             names.push(name);

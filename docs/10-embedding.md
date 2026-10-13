@@ -12,7 +12,10 @@ signals or exit the process.
 1. Own and keep alive the host and core executors. Bind distinct public and
    internal listeners, and select a unique data directory for each node.
 2. Build an `ActorIdentity` and `ActorOptions`, then `NodeConfig`. Select actor,
-   runtime, loader, startup, maintenance and shutdown policies explicitly.
+   runtime, cell API limits, loader, startup, maintenance and shutdown policies
+   explicitly. `config.cell_limits = CellLimits::unrestricted()` lifts the
+   inherited API ceilings for trusted native applications; see
+   [configuration](11-configuration.md) for backend and protocol ceilings.
 3. Supply `NodeServices`: executor handles, listeners, peer HTTP client,
    `PeerAuth`, `PeerProbeSigner`, optional `NodeFleet`, container engine and
    metrics sampler. Node and peer-auth identity must agree.
