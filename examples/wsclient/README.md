@@ -8,12 +8,13 @@ GET /wsclient consumes a local room upgrade with no external service. For a real
 outbound TCP/WebSocket handshake, start wsecho on port 9876, set
 WEBSOCKET_PEER=ws://127.0.0.1:9876/rooms/outbound in examples/wsclient/.dev.vars, start
 this project with --port 9877, and request /wsclient/outbound. The older
-native_websocket.rs additionally demonstrates persistent cell-owned outbound sockets and
+[native-websocket/main.rs](../native-websocket/main.rs) additionally demonstrates
+persistent cell-owned outbound sockets and
 declined upgrades.
 
 Read the [Rust source](../wsecho/main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by
-[native_examples.rs](../native_examples.rs), rather than a standalone `rustc` input.
+[main.rs](../main.rs), rather than a standalone `rustc` input.
 
 ## Run end to end
 

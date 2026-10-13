@@ -17,13 +17,14 @@ on the workspace volume as required by [repository guidance](../AGENTS.md):
 ```sh
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-docs"
 cargo run -p cellar --bin cellar --locked -- \
-  dev examples/native-counter-project.json
+  dev examples/native-counter/project.json
 ```
 
 Choose a different target directory if another checkout uses that name. `dev`
 builds the selected native binary and watches project sources. The project file
 resolves paths relative to its directory. Its state is under
-`examples/.cellar/native-dev`; restarting the dev command preserves it.
+`examples/native-counter/.cellar/native-dev`; restarting the dev command
+preserves it.
 `--no-watch` runs one build, `--logs` exposes node logs, and `--clean`
 intentionally resets this project's local development state.
 
@@ -45,12 +46,12 @@ increment twice.
 
 ## Read the implementation
 
-In [native_counter.rs](../examples/native_counter.rs), the root handler parses
+In [native-counter/main.rs](../examples/native-counter/main.rs), the root handler parses
 `/counters/NAME`, obtains `context.namespace("COUNTERS")`, and calls the named
 stub. The `Counter` cell reads and writes `count` through `context.storage()`.
 `Registry::cell` registers its factory. The graph declares the class and binding,
 and `Host::local(...).register(...).run()` owns process execution.
-The [project file](../examples/native-counter-project.json) selects the Cargo
+The [project file](../examples/native-counter/project.json) selects the Cargo
 package, binary, profile, application version, binding and static assets.
 
 For a new application, copy this shape into your own Rust package, rename the
@@ -63,7 +64,7 @@ mutations to retrying clients.
 
 ```sh
 cargo run -p cellar --bin cellar --locked -- \
-  build examples/native-counter-project.json --output counter-package
+  build examples/native-counter/project.json --output counter-package
 ```
 
 The package contains `package.json`, the digest-addressed native executable and

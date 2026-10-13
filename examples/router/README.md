@@ -9,7 +9,7 @@ node. Equal names address equal cells; different names are independent.
 
 Read the [Rust source](../counter/main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by
-[native_examples.rs](../native_examples.rs), rather than a standalone `rustc` input.
+[main.rs](../main.rs), rather than a standalone `rustc` input.
 
 ## Run end to end
 

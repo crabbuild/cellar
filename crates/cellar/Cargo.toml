@@ -19,7 +19,7 @@ path = "cli/main.rs"
 
 [[bin]]
 name = "cellar-native-counter"
-path = "../../examples/native_counter.rs"
+path = "../../examples/native-counter/main.rs"
 
 [[bin]]
 name = "cellar-native"
@@ -27,15 +27,15 @@ path = "cli/native_main.rs"
 
 [[bin]]
 name = "cellar-native-websocket"
-path = "../../examples/native_websocket.rs"
+path = "../../examples/native-websocket/main.rs"
 
 [[bin]]
 name = "cellar-native-container"
-path = "../../examples/native_container.rs"
+path = "../../examples/native-container/main.rs"
 
 [[bin]]
 name = "cellar-native-examples"
-path = "../../examples/native_examples.rs"
+path = "../../examples/main.rs"
 
 [[bin]]
 name = "cellar-example-embedded"

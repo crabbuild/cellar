@@ -21,7 +21,7 @@ From the repository root, using the Rust toolchain required by `Cargo.toml`:
 
 ```sh
 cargo run -p cellar --bin cellar --locked -- \
-  dev examples/native-examples-project.json
+  dev examples/project.json
 ```
 
 In another terminal:
@@ -45,10 +45,14 @@ cargo run -p cellar --bin cellar --locked -- dev examples/queues/project.json
 The cookbook and focused projects share `cellar-native-examples`, with factories
 registered for each script name. Focused projects enable only their required
 bindings and use separate built-in resource identities.
-[native_examples.rs](native_examples.rs) is the composition root; each recipe's
+[main.rs](main.rs) is the cookbook entry point; each focused recipe's
 `main.rs` is a Rust module compiled into that executable, not a standalone
 `rustc` input. To create your own application, copy the relevant handler,
 register its factories in your host and give its project a new script name.
+
+The combined cookbook uses [project.json](project.json). Standalone hosts under
+`native-counter/`, `native-websocket/` and `native-container/` have their own
+`main.rs` entry points and `project.json` files alongside their README and assets.
 
 `dev` watches the project and preserves state under `.cellar/native-dev` beside
 its configuration. Ctrl-C requests a graceful stop. `--no-watch` builds once;

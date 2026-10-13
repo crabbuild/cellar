@@ -14,7 +14,7 @@ optional `target`/`features`, a `primary` application and optional `cohosted`
 applications. Paths resolve relative to the project file. Application records
 include script/version, cells, bindings and optional compatibility settings,
 cron, Queue consumers, assets and containers. See the
-[counter project](../examples/native-counter-project.json) for a runnable shape.
+[counter project](../examples/native-counter/project.json) for a runnable shape.
 
 Build uses locked Cargo dependencies with explicitly selected features and
 rejects JavaScript engine dependencies in the application's normal/build graph.
@@ -24,7 +24,7 @@ bytes and refuses to overwrite an existing executable. Preserve immutable
 artifacts and the corresponding package manifest for rollback.
 
 ```sh
-cellar build examples/native-counter-project.json --output counter-package
+cellar build examples/native-counter/project.json --output counter-package
 cellar deploy counter-package --bucket YOUR_BUCKET --region YOUR_REGION
 cellar install counter-package --bucket YOUR_BUCKET \
   --region YOUR_REGION --output ./counter-v1

@@ -5,7 +5,7 @@ fixed tool inside that cell's container.
 
 ## How it works
 
-[native_container.rs](../native_container.rs) routes `/sandboxes/NAME/PATH`
+[main.rs](main.rs) routes `/sandboxes/NAME/PATH`
 through `SANDBOXES` to a `Sandbox` cell. A startup lock avoids concurrent
 starts. The SDK starts the container, waits for port 8080, and forwards the
 request. [server.rs](server.rs) is a dependency-free Rust HTTP peer. Its response
@@ -14,7 +14,7 @@ includes `CELLAR_CELL_ID`, injected by the container host.
 POST `/sandboxes/NAME/exec` runs the fixed command `/app/server --tool`. The SDK
 collects at most 4096 output bytes and reports exit status, stdout and stderr.
 The caller does not supply an arbitrary shell command. The [Dockerfile](Dockerfile)
-compiles Rust and stages the peer in Alpine. The [project](../native-container-project.json)
+compiles Rust and stages the peer in Alpine. The [project](project.json)
 packages the application image and network fence image with the host executable.
 
 ## Prerequisites
@@ -40,7 +40,7 @@ In terminal 1:
 
 ```sh
 cargo run -p cellar --bin cellar --locked -- \
-  dev examples/native-container-project.json --no-watch --clean
+  dev examples/native-container/project.json --no-watch --clean
 ```
 
 This builds the native application, peer image and fence image. Wait for the
@@ -76,8 +76,8 @@ Sandbox SDK compatibility.
 ## Stop, restart and cleanup
 
 Press Ctrl-C and wait for graceful shutdown; the host releases its managed
-containers. State lives under `examples/.cellar/native-dev`. Add `--clean` on
-the next start to reset this project. Images remain in the engine's cache;
+containers. State lives under `examples/native-container/.cellar/native-dev`.
+Add `--clean` on the next start to reset this project. Images remain in the engine's cache;
 remove only your walkthrough's images if desired, without pruning shared resources.
 
 Container disks are ephemeral. Put durable job state in `Context::storage` or
