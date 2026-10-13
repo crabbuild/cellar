@@ -63,7 +63,8 @@ crates/
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
   cellar-native/          Owned values, structured clone, crypto, and web primitives
 examples/                 Compiled Rust applications and project configurations
-tools/                    Dependency checks and fleet performance tooling
+docs/                     Builder/team guides, evidence, decisions, and SVG explorer
+tools/                    Dependency checks, documentation, and fleet performance tooling
 .github/workflows/        SDK checks and release builds
 ```
 
@@ -203,6 +204,7 @@ by the current checkout's identifier:
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-<checkout-name>"
 cargo fmt --all -- --check
 python3 tools/check_native_dependencies.py
+python3 tools/docs/check.py
 cargo check --workspace --all-targets --all-features --locked
 cargo test -p cellar --test native_cli --test native_artifacts --locked
 ```
@@ -241,6 +243,15 @@ The native dev supervisor retains project state under `.cellar/native-dev`.
 `--clean` intentionally resets that project's local state. Container examples
 require Docker or Podman. See `examples/README.md` for application packaging and
 other runnable examples.
+
+`docs/README.md` indexes builder, platform, operations, and team documentation.
+Keep source-backed behavior distinct from proposed practices and release-specific
+qualification gates. `python3 tools/docs/build.py` regenerates the catalog,
+offline explorer, and SVG sources; `python3 tools/docs/check.py` validates their
+local references and coverage. Browser-only documentation scripts are independent
+of the Rust application execution format. Use the optional preview renderer in
+`tools/docs/render.py` only when generating PNG previews; it requires an existing
+`agent-browser` installation and is not an application or CI dependency.
 
 ## Change discipline
 

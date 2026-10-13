@@ -1,0 +1,73 @@
+# Operating a Cellar application
+
+These runbooks specify decisions and proof requirements. Integrate them with
+your supervisor and authenticated operator interface. Exact operator subcommand
+flags come from that binary's `--help`; do not improvise direct SQLite mutation.
+
+![Interactive stop flow](diagrams/shutdown-flow.svg)
+
+## Start and accept traffic
+
+Confirm executable digest/target, configuration, bucket/prefix, credentials,
+logical node identity and unique local directory. Start the compiled application
+under its supervisor. Keep internal ingress protected. Wait for startup recovery,
+authority and real readiness, then run an authenticated business read/write
+probe. Capture the effective limits and source revision with the node record.
+
+If startup recovery fails, keep traffic out and preserve predecessor logs and
+lease/recovery pointers. Investigate credentials, store/range reads, peer
+reachability, available disk and deadlines. Repeatedly deleting local state or
+replacing leases can destroy evidence rather than resolve the failure.
+
+## Graceful removal or restart
+
+Use `ShutdownMode::Handoff` when the logical node is leaving and another owner
+should take over. Use `Preserve` when the same logical node will resume at the
+same address with its local cache and ownership. Both modes drain ingress,
+complete event drivers (including background work, nested calls and prior
+generations), then cells and durability. Preserve also needs clean-reload
+preparation.
+
+Require these report conditions before recording a graceful stop:
+
+```text
+ingress_drained && application_work_drained && cells_drained
+pending_application_events == 0 && pending_dispatches == 0
+log_quiesced && local_durability_closed
+!drain_timed_out && !deadline_elapsed
+Preserve additionally: clean_reload_prepared
+```
+
+The node closes and joins owned work before returned completion; retain both
+caller executors through that completion. Started blocking work can outlast the
+semantic drain budget. A zero CLI exit or `Stopped` variant alone is insufficient
+proof. Cancellation, drop or forced termination supplies no graceful proof.
+Record incomplete phases and expect lease-expiry recovery to handle unfinished
+ownership.
+
+## Failure triage
+
+| Observation | First actions | Resume criterion |
+| --- | --- | --- |
+| `Fenced` with reason | Remove traffic, retain typed reason and lease/log evidence | Recovery and valid authority on a supervised node |
+| `CoreFailed` | Preserve failure/logs, contain traffic, inspect supervision | Tested fix or qualified replacement |
+| `ReplicationFailed` / unproven output | Treat failed commands as potentially ambiguous; reconcile IDs | Proof path restored and receipts verified |
+| Admission refusal / high latency | Inspect nested work, hot keys, limits, store/disk latency | SLO and backlog stable with measured headroom |
+| Disk full / hydration failure | Preserve files, inspect space and recovery requirements | Qualified safe cleanup/expansion and verified reads |
+| Incomplete drain | Retain report and recovery pointers; halt rollout advance | Takeover and post-takeover writes reconcile |
+
+Do not call a lost fencing-report channel a genuine authority loss. Keep
+`NodeOutcome` semantics in incident evidence. For ambiguous client writes,
+query receipts or retry the same command ID; avoid issuing a new ID automatically.
+
+## Routine maintenance
+
+Review capacity/backlog and overdue alarms, exercise credential rotation,
+inspect telemetry coverage, run a restore drill, and qualify upgrades of the
+store/host/kernel/dependencies. Route SQL/KV/Queue operations through the owning
+cell; reuse Blob's shared backend for Blob operations. Back up a recovery set
+before approved destructive maintenance. Record incidents using the
+[incident template](templates/incident-record.md).
+
+Sources: [shutdown/outcomes](../crates/cellar/node/lifecycle.rs),
+[stop modes](../crates/cellar/actor/mod.rs), [embedded supervisor](../crates/cellar/node/embedded.rs).

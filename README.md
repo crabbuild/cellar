@@ -1,5 +1,10 @@
 # Cellar
 
+Start with the [documentation library](docs/README.md) for builder guides,
+architecture, deployment, operations, team practices, and production qualification.
+The [visual explorer](docs/index.html) includes interactive SVG flows and a
+searchable document catalog; open it locally in a browser.
+
 Cellar is a Rust framework for applications built from durable business cells.
 It provides SQLite storage, bucket ownership, LTX replication, routing, alarms,
 and fleet infrastructure. Cellar has no V8 or other JavaScript engine dependency,

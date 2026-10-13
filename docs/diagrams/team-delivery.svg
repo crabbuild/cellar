@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 650" role="img" aria-labelledby="title desc">
+<title id="title">Teams: evidence travels with the release</title><desc id="desc">Proposed team delivery loop from domain contract to implementation, qualification, operation and observed feedback.</desc>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+<marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>
+<marker id="alert-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#fb7185"/></marker>
+</defs>
+<style>
+text { font-family: 'SF Mono', 'Cascadia Code', Menlo, monospace; fill:#e2e8f0; }
+.title {font-size:26px;font-weight:700} .subtitle {font-size:13px;fill:#cbd5e1}
+.name {font-size:16px;font-weight:600} .label {font-size:12px;fill:#cbd5e1}
+.edge {fill:none;stroke:#94a3b8;stroke-width:1.6;marker-end:url(#arrow)}
+.node,.control {cursor:pointer} .node:focus .surface,.control:focus rect {stroke:#fff;stroke-width:3}
+.node.active .surface {stroke:#60a5fa;stroke-width:3;fill:#1e3a5f}
+.node.visited .surface {stroke:#34d399} .control:hover rect {fill:#334155}
+.control[aria-disabled="true"] {opacity:.45} .error.active .surface {stroke:#fb7185;fill:#4c1528}
+</style>
+<rect width="100%" height="100%" fill="#0f172a"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<path class="edge" d="M330 220H430"/><path class="edge" d="M760 220H860"/><path class="edge" d="M1025 255V390"/><path class="edge" d="M860 425H760"/><path class="edge" d="M430 425H330"/><path class="edge" d="M165 390V255"/><g ><rect x="40" y="185" width="290" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="40" y="185" width="290" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="185.0" y="214" text-anchor="middle">Domain contract</text>
+<text class="label" style="font-size:12.00px" x="185.0" y="235" text-anchor="middle">Invariant, identity and owner</text></g><g ><rect x="430" y="185" width="330" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="430" y="185" width="330" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="595.0" y="214" text-anchor="middle">Native vertical slice</text>
+<text class="label" style="font-size:12.00px" x="595.0" y="235" text-anchor="middle">Receipts, schema and tests</text></g><g ><rect x="860" y="185" width="290" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="860" y="185" width="290" height="70" rx="7" fill="#3d3020" stroke="#fbbf24" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="1005.0" y="214" text-anchor="middle">Release qualification</text>
+<text class="label" style="font-size:12.00px" x="1005.0" y="235" text-anchor="middle">Exact artifact + failure evidence</text></g><g ><rect x="860" y="390" width="290" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="860" y="390" width="290" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="1005.0" y="419" text-anchor="middle">Controlled rollout</text>
+<text class="label" style="font-size:12.00px" x="1005.0" y="440" text-anchor="middle">Readiness + complete drain</text></g><g ><rect x="430" y="390" width="330" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="430" y="390" width="330" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="595.0" y="419" text-anchor="middle">Operate and recover</text>
+<text class="label" style="font-size:12.00px" x="595.0" y="440" text-anchor="middle">SLO, command ledger, restore</text></g><g ><rect x="40" y="390" width="290" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="40" y="390" width="290" height="70" rx="7" fill="#3f1c2e" stroke="#fb7185" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="185.0" y="419" text-anchor="middle">Review observations</text>
+<text class="label" style="font-size:12.00px" x="185.0" y="440" text-anchor="middle">Incidents and changed assumptions</text></g><text class="title" x="40" y="45">Teams: evidence travels with the release</text><text class="subtitle" x="40" y="77">Proposed ownership loop · a passing build is one input to a go/no-go decision</text><text class="label" x="40" y="556">Each boundary needs a named owner, versioned contract and reviewable evidence.</text><text class="label" x="40" y="588">Failed qualification remains visible. Runtime observations feed the next contract and test.</text></svg>

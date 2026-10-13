@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-labelledby="title desc">
+<title id="title">Cells: local atomicity, explicit coordination</title><desc id="desc">Proposed inventory and order domain. Transactions remain within each cell; workflow calls and external effects need receipts.</desc>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+<marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>
+<marker id="alert-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#fb7185"/></marker>
+</defs>
+<style>
+text { font-family: 'SF Mono', 'Cascadia Code', Menlo, monospace; fill:#e2e8f0; }
+.title {font-size:26px;font-weight:700} .subtitle {font-size:13px;fill:#cbd5e1}
+.name {font-size:16px;font-weight:600} .label {font-size:12px;fill:#cbd5e1}
+.edge {fill:none;stroke:#94a3b8;stroke-width:1.6;marker-end:url(#arrow)}
+.node,.control {cursor:pointer} .node:focus .surface,.control:focus rect {stroke:#fff;stroke-width:3}
+.node.active .surface {stroke:#60a5fa;stroke-width:3;fill:#1e3a5f}
+.node.visited .surface {stroke:#34d399} .control:hover rect {fill:#334155}
+.control[aria-disabled="true"] {opacity:.45} .error.active .surface {stroke:#fb7185;fill:#4c1528}
+</style>
+<rect width="100%" height="100%" fill="#0f172a"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<rect x="30" y="150" width="430" height="350" rx="12" fill="none" stroke="#22d3ee" stroke-dasharray="8 4"/><rect x="740" y="150" width="430" height="350" rx="12" fill="none" stroke="#34d399" stroke-dasharray="8 4"/><path class="edge" d="M400 235H800"/><text class="label" x="600" y="210" text-anchor="middle">command ID + receipt</text><path class="edge" d="M955 290V390"/><path class="edge" d="M245 290V390"/><path class="edge" d="M245 460V615H450"/><path class="edge" d="M750 615H955V460"/><text class="label" x="1020" y="555" text-anchor="middle">replay-safe calls</text><g ><rect x="90" y="200" width="310" height="90" rx="7" fill="#0f172a"/>
+<rect class="surface" x="90" y="200" width="310" height="90" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="245.0" y="229" text-anchor="middle">Order cell</text>
+<text class="label" style="font-size:12.00px" x="245.0" y="250" text-anchor="middle">tenant / order identity</text></g><g ><rect x="800" y="200" width="310" height="90" rx="7" fill="#0f172a"/>
+<rect class="surface" x="800" y="200" width="310" height="90" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="955.0" y="229" text-anchor="middle">Inventory cell</text>
+<text class="label" style="font-size:12.00px" x="955.0" y="250" text-anchor="middle">tenant / SKU / location</text></g><g ><rect x="90" y="390" width="310" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="90" y="390" width="310" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="245.0" y="419" text-anchor="middle">Order SQLite</text>
+<text class="label" style="font-size:12.00px" x="245.0" y="440" text-anchor="middle">State + command receipts</text></g><g ><rect x="800" y="390" width="310" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="800" y="390" width="310" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="955.0" y="419" text-anchor="middle">Inventory SQLite</text>
+<text class="label" style="font-size:12.00px" x="955.0" y="440" text-anchor="middle">Stock invariant + receipts</text></g><g ><rect x="450" y="580" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="450" y="580" width="300" height="70" rx="7" fill="#3d3020" stroke="#fbbf24" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="600.0" y="609" text-anchor="middle">Workflow / outbox</text>
+<text class="label" style="font-size:12.00px" x="600.0" y="630" text-anchor="middle">Intent, retry, compensation</text></g><text class="title" x="40" y="45">Cells: local atomicity, explicit coordination</text><text class="subtitle" x="40" y="77">Proposed application model · Cellar does not establish a global ACID transaction</text><text class="label" x="55" y="178">TRANSACTION BOUNDARY A</text><text class="label" x="765" y="178">TRANSACTION BOUNDARY B</text><text class="label" x="40" y="685">State invariants stay local. Cross-cell and external effects require an application protocol.</text></svg>

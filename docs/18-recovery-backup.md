@@ -1,0 +1,70 @@
+# Recovery, backup and disaster drills
+
+Cellar's ownership recovery and an operator backup policy solve related but
+different problems. Recovery accounts for prior owners' replicated logs before
+takeover. A backup must preserve a coherent, tested recovery set against the
+failures your business chooses to cover.
+
+![Interactive recovery flow](diagrams/recovery-flow.svg)
+
+## Framework recovery contract
+
+`Node::start` recovers a predecessor log before installing a replacement lease.
+Failed recovery must preserve the predecessor generation. Lease records require
+an explicit `generation`; logs require `may_have_fleet_acks`. Recovery accepts
+complete ranged tails; original aliases and entries-only tails are rejected.
+Expired node leases become CAS tombstones after sealing their logs, retaining
+recovery pointers and protecting successor generations.
+
+Do not erase tombstones, logs or ownership data because a node appears offline.
+Cell restore/hydration and takeover require the correct write history and
+authority. Follower proof can acknowledge before bucket upload; losing all
+required follower/local evidence at that moment may violate the deployment's
+loss assumptions. A bucket-only snapshot cannot simply be assumed to contain
+every fleet-acknowledged write.
+
+## Proposed backup policy
+
+No turnkey point-in-time backup/restore product or arbitrary timestamp recovery
+guarantee is established by this documentation. Design and qualify a procedure
+for your store, durability posture and retention policy:
+
+1. Define the recovery point, business RPO/RTO, loss cases and source of authority.
+2. Preserve package manifests/executables, application configuration, identity
+   conventions and schema/workflow versions alongside the relevant data history.
+3. Capture a coherent ownership/log/LTX/object set, accounting for acknowledged
+   writes not yet in the bucket. A quiesced, fully proven fleet stop is one
+   candidate boundary; online capture needs a separately verified protocol.
+4. Preserve application Blob objects and outbox/receipt state consistently with
+   cell references. Protect backup credentials, encryption and retention.
+5. Record inventory, digests, source version, write/receipt ledger and completion
+   evidence. Copy to the chosen independent recovery authority/storage.
+6. Restore into an isolated bucket/prefix and distinct node directories using
+   matching application versions and credentials. Verify through owner-routed
+   reads, then exercise new writes, async work and a complete stop.
+
+Never copy live SQLite files and assume that is a fleet-consistent backup.
+Do not run a drill against the live production prefix, reuse production node
+identity while active, or mutate a recovered database behind its owner.
+
+## Qualification matrix
+
+| Loss case | State to verify | Additional criterion |
+| --- | --- | --- |
+| One node killed | Acknowledged receipts/counters on survivors | Takeover and subsequent writes |
+| All nodes lost in bucket posture | Fresh local restore | Every required cell, payload and alarm |
+| Local cache lost | Bucket/log restoration and hydration | Bounded disk/memory and restore time |
+| Crash during writes | Acknowledged versus ambiguous commands | Acknowledged effects present; ambiguous receipts reconciled |
+| Shared store or zone lost | Independently retained recovery set | Business-approved RPO/RTO and traffic steering |
+| Version rollback | Old executable against resulting state | Schema and workflow compatibility |
+
+Measure RTO through business readiness and state reconciliation, not just
+process launch. Measure RPO against a durable client command ledger. Retain
+failed drills and their artifacts. The current main-baseline reports do not
+prove in-flight network-partition or ambiguous-ack recovery; newer branch work
+must be merged and qualified before being cited as release evidence.
+
+Sources: [SDK recovery contract](../crates/cellar/sdk.rs),
+[node logs](../crates/cellar/durability/log/mod.rs),
+[reference recovery](../tools/perf/results/2026-10-12-embedded-10000-reference.md),
+[LTX format](../crates/cellar-ltx/reference/ltx-format.md).

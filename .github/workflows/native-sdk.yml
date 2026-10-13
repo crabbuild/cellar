@@ -28,6 +28,8 @@ jobs:
           rustup default "$RUST_VERSION"
       - name: Verify the workspace has no JavaScript engine
         run: python3 tools/check_native_dependencies.py
+      - name: Verify documentation integrity
+        run: python3 tools/docs/check.py
       - name: Test and lint
         run: |
           cargo test --workspace --all-features --lib --tests --locked
