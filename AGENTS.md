@@ -14,9 +14,9 @@ durable wakes, replication, recovery, and fleet shutdown.
 
 Applications implement contracts from `cellar::sdk` and compile into native
 executables with their application factories embedded. The `cellar` CLI builds,
-develops, publishes, installs, and operates those applications. `cellar-native`
-is a CLI alias. A generic CLI binary cannot serve an application whose factories
-were not compiled into it.
+develops, publishes, installs, and operates those applications. `cellar` is the
+single CLI executable. A generic CLI binary cannot serve an application whose
+factories were not compiled into it.
 
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
@@ -83,8 +83,7 @@ tools/                    Formatting, dependency checks, documentation, and flee
 Cellar groups its implementation into component directories next to
 `Cargo.toml`; `lib.rs` declares the existing Rust module names. The logic and
 native crates retain flat crate roots, and `cellar-ltx` uses `src/`. Cargo
-declares the CLI entry points as
-`crates/cellar/cli/main.rs` and `crates/cellar/cli/native_main.rs`.
+declares the CLI entry point as `crates/cellar/cli/main.rs`.
 
 CLI files retain their existing Rust module paths through `#[path]` declarations
 in `crates/cellar/lib.rs`. For example, `cellar::native_deploy` is implemented in
@@ -275,7 +274,9 @@ Keep image tags and compiled target caches private to the
 checkout. Run the harness proof guards with
 `python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
 
-The native dev supervisor retains project state under `.cellar/native-dev`.
+The dev supervisor retains project state under `.cellar/<project-hash>` beside
+the configuration, keyed by its canonical path. It does not migrate earlier
+development-state layouts.
 `--clean` intentionally resets that project's local state. Container examples
 require Docker or Podman. See `examples/README.md` for application packaging and
 other runnable examples.

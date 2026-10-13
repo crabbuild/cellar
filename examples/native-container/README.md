@@ -76,7 +76,7 @@ Sandbox SDK compatibility.
 ## Stop, restart and cleanup
 
 Press Ctrl-C and wait for graceful shutdown; the host releases its managed
-containers. State lives under `examples/native-container/.cellar/native-dev`.
+containers. State lives under `examples/native-container/.cellar`.
 Add `--clean` on the next start to reset this project. Images remain in the engine's cache;
 remove only your walkthrough's images if desired, without pruning shared resources.
 

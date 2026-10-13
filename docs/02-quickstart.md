@@ -23,7 +23,7 @@ cargo run -p cellar --bin cellar --locked -- \
 Choose a different target directory if another checkout uses that name. `dev`
 builds the selected native binary and watches project sources. The project file
 resolves paths relative to its directory. Its state is under
-`examples/native-counter/.cellar/native-dev`; restarting the dev command
+`examples/native-counter/.cellar`; restarting the dev command
 preserves it.
 `--no-watch` runs one build, `--logs` exposes node logs, and `--clean`
 intentionally resets this project's local development state.

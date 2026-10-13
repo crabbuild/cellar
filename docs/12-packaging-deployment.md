@@ -35,6 +35,31 @@ prefix. Custom stores can use `--endpoint URL`. These are publication
 instructions for an operator-approved environment, not actions executed during
 documentation work. Supply credentials through supported providers.
 
+## Running workers and upgrading code
+
+Cellar supplies the worker runtime and fleet coordination inside each application
+executable: cells, SQLite state, routing, ownership, replication, alarms and
+shutdown. The CLI builds and publishes that executable. Production servers need
+the executable for their OS and architecture and its runtime dependencies; Rust,
+Cargo and native build tools belong on the development machine or build runner.
+
+Fleet hosts watch the shared deployment pointer and construct a replacement
+generation before adopting it. Adoption requires every application version to
+be registered in the running executable and its artifact identity to match the
+manifest. A failed build or validation keeps the serving generation. New requests
+use an adopted generation; existing requests retain their generation, and cells
+transition under the configured generation-age policy. Embedded `sdk::Node`
+hosts select updates explicitly through `Node::adopt`.
+
+A configuration update or selection of code already compiled into the same
+executable can use generation adoption. Changing Rust code requires building and
+publishing a new executable, installing it at a new path, and having the process
+supervisor roll nodes to that executable with graceful drain and readiness
+checks. Cellar does not download and replace its running executable automatically.
+Keep cell and resource identities stable to retain durable state; application
+schema and workflow compatibility still need explicit migration and rollout
+decisions.
+
 ## Proposed promotion procedure
 
 1. Record the source SHA, locked dependency set, target and release profile.

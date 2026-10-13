@@ -53,7 +53,7 @@ additional peer contracts.
 ## Stop, restart and cleanup
 
 Press Ctrl-C and let the host drain. State is under
-`examples/native-websocket/.cellar/native-dev`. Restart without `--clean` and
+`examples/native-websocket/.cellar`. Restart without `--clean` and
 GET `/room-state` to observe the persisted received bytes. A closed network
 connection does not survive restart. Add `--clean` on the next start to reset
 this example, or use another `--port` when another host occupies 9876.

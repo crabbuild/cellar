@@ -54,7 +54,7 @@ The combined cookbook uses [project.json](project.json). Standalone hosts under
 `native-counter/`, `native-websocket/` and `native-container/` have their own
 `main.rs` entry points and `project.json` files alongside their README and assets.
 
-`dev` watches the project and preserves state under `.cellar/native-dev` beside
+`dev` watches the project and preserves state under `.cellar/<project-hash>` beside
 its configuration. Ctrl-C requests a graceful stop. `--no-watch` builds once;
 `--port` allows multiple projects. `--clean` deletes that project's local state.
 Fleet deployments still need deliberate bucket and resource names; local dev
