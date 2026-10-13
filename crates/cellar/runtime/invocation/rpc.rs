@@ -10,7 +10,7 @@ pub(crate) async fn call(
     name: Option<String>,
     method: String,
     args: RpcData,
-    authority: Option<crate::application::event_stream::Authority>,
+    authority: Option<crate::runtime::RpcAuthority>,
 ) -> Result<RpcData> {
     let (request_id, cancel, mut cancellation) = begin_call_cancellation();
     let (reply, receive) = tokio::sync::oneshot::channel();

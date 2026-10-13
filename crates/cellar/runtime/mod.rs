@@ -862,13 +862,18 @@ pub(crate) async fn receive_service_fetch_response_for_test(
     receive_service_response(response, lifetime, Some(cancel)).await
 }
 
+pub(crate) mod rpc_authority;
+pub(crate) mod source_control;
+#[doc(hidden)]
+pub use rpc_authority::{RpcAuthority, SourceAuthority};
+
 pub(crate) struct RpcInvocation {
     pub cell: String,
     pub name: Option<String>,
     pub method: String,
     pub args: crate::engine_api::RpcData,
     pub request_id: Option<crate::engine_api::RequestId>,
-    pub authority: Option<crate::application::event_stream::Authority>,
+    pub authority: Option<crate::runtime::RpcAuthority>,
 }
 
 impl RuntimeManager {
@@ -2113,12 +2118,7 @@ impl RuntimeManager {
             request_id,
             authority,
         } = invocation;
-        if crate::application::event_stream::is_event_scope(&cell) {
-            let authority = authority
-                .as_ref()
-                .context("event RPC requires host authority")?;
-            crate::application::event_stream::validate_target(&cell, authority)?;
-        }
+        rpc_authority::validate_target(authority.as_ref(), &cell, &method)?;
         if cancel
             .as_mut()
             .is_some_and(|cancel| cancel.try_recv().is_ok())

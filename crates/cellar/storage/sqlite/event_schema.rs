@@ -124,6 +124,7 @@ mod tests {
     fn future_and_missing_markers_fail_before_any_schema_mutation() -> anyhow::Result<()> {
         for marker in [
             "__sys_outbox_schema",
+            "__sys_outbox_control_schema",
             "__sys_inbox_schema",
             "__sys_stream_schema",
             "__sys_event_catalog_schema",

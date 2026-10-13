@@ -30,6 +30,7 @@ pub enum ErrorCode {
     InboxFull,
     TooManyWaiters,
     OperationLimit,
+    OperationUnknown,
     ProducerSealed,
     PendingDelivery,
 }

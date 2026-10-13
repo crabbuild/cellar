@@ -592,19 +592,18 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                 None => None,
                 Some(header) => {
                     use base64::Engine;
-                    let decoded =
-                        (|| -> anyhow::Result<crate::application::event_stream::Authority> {
-                            anyhow::ensure!(
-                                header.as_bytes().len() <= 16_384,
-                                "event authority header is too large"
-                            );
-                            let bytes = base64::engine::general_purpose::STANDARD
-                                .decode(header.as_bytes())?;
-                            let authority: crate::application::event_stream::Authority =
-                                serde_json::from_slice(&bytes)?;
-                            authority.validate()?;
-                            Ok(authority)
-                        })();
+                    let decoded = (|| -> anyhow::Result<crate::runtime::RpcAuthority> {
+                        anyhow::ensure!(
+                            header.as_bytes().len() <= 16_384,
+                            "event authority header is too large"
+                        );
+                        let bytes =
+                            base64::engine::general_purpose::STANDARD.decode(header.as_bytes())?;
+                        let authority: crate::runtime::RpcAuthority =
+                            serde_json::from_slice(&bytes)?;
+                        authority.validate()?;
+                        Ok(authority)
+                    })();
                     match decoded {
                         Ok(authority) => Some(authority),
                         Err(_) => {
@@ -650,13 +649,19 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     "RPC method header is missing",
                 )));
             };
-            let body =
-                match collect_limited_body(inner.into_body(), MAX_PEER_FORWARD_BODY_BYTES).await {
-                    Ok(body) => body,
-                    Err(error) => {
-                        return Ok(peer_response(body_read_error("tunnel RPC", error)));
-                    }
-                };
+            let body_limit = if method == crate::runtime::source_control::METHOD
+                || matches!(&authority, Some(crate::runtime::RpcAuthority::Source(_)))
+            {
+                crate::runtime::source_control::MAX_RPC_BYTES
+            } else {
+                MAX_PEER_FORWARD_BODY_BYTES
+            };
+            let body = match collect_limited_body(inner.into_body(), body_limit).await {
+                Ok(body) => body,
+                Err(error) => {
+                    return Ok(peer_response(body_read_error("tunnel RPC", error)));
+                }
+            };
             let args = if structured {
                 crate::engine_api::RpcData::Structured(body)
             } else {
@@ -688,7 +693,7 @@ pub(crate) async fn rpc(
     method: &str,
     args: &crate::engine_api::RpcData,
     request_id: Option<crate::engine_api::RequestId>,
-    authority: Option<&crate::application::event_stream::Authority>,
+    authority: Option<&crate::runtime::RpcAuthority>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let (content_type, payload) = match args {
         crate::engine_api::RpcData::Json(json) => ("application/json", Bytes::from(json.clone())),

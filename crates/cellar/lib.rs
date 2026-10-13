@@ -174,6 +174,9 @@ pub(crate) mod blob_store;
 pub mod node_lifecycle;
 #[path = "durability/log/mod.rs"]
 pub mod node_log;
+#[path = "cli/outbox_cli.rs"]
+pub mod outbox_cli;
+
 #[path = "cli/operator_cell.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]

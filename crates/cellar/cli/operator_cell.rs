@@ -62,6 +62,7 @@ pub(crate) struct Reachable {
     /// even when the cell moves between calls.
     entrances: Vec<Entrance>,
     subject: Subject,
+    reply_limit: Option<usize>,
 }
 
 impl Reachable {
@@ -70,6 +71,24 @@ impl Reachable {
         subject: Subject,
         scope: String,
         name: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, name, "runtime").await
+    }
+
+    pub(crate) async fn open_source(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "outbox").await
+    }
+
+    async fn open_route(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+        name: Option<&str>,
+        route: &str,
     ) -> anyhow::Result<Self> {
         let bucket = crate::fleet::bucket_client(fleet.bucket, fleet.endpoint, fleet.region)?;
         let nodes = live_nodes(&bucket, fleet.unsafe_public_advertise, subject.source).await?;
@@ -85,7 +104,7 @@ impl Reachable {
             .timeout(subject.timeout)
             .build()
             .with_context(|| format!("build the {} client", subject.noun))?;
-        let mut path = format!("/runtime/{scope}");
+        let mut path = format!("/{route}/{scope}");
         if let Some(name) = name {
             // An operator command can be the first request to construct a
             // reserved cell. A later named binding call cannot repair the
@@ -101,6 +120,8 @@ impl Reachable {
             http,
             auth,
             subject,
+            reply_limit: (route == "outbox")
+                .then_some(crate::runtime::source_control::MAX_REPLY_BYTES),
             entrances: nodes
                 .into_iter()
                 .map(|(node, addr)| Entrance {
@@ -154,7 +175,10 @@ impl Reachable {
                 }
             };
             let status = response.status();
-            let text = response.text().await.context("read the reply")?;
+            let text = match self.reply_limit {
+                Some(limit) => bounded_reply(response, limit).await?,
+                None => response.text().await.context("read the reply")?,
+            };
             if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
                 && text.contains("\"draining\"")
                 && !last
@@ -174,7 +198,10 @@ impl Reachable {
             }
             let value: Value = serde_json::from_str(&text)
                 .with_context(|| format!("decode the reply ({status}): {text}"))?;
-            if let Some(error) = value.get("error").and_then(Value::as_str) {
+            if let Some(error) = value.get("error") {
+                if let Some(error) = error.as_str() {
+                    bail!("{error}{}", report(&refused));
+                }
                 bail!("{error}{}", report(&refused));
             }
             if !status.is_success() {
@@ -249,4 +276,21 @@ pub(crate) fn report(refused: &[String]) -> String {
     } else {
         format!("\n  {}", refused.join("\n  "))
     }
+}
+
+async fn bounded_reply(mut response: reqwest::Response, limit: usize) -> anyhow::Result<String> {
+    if response
+        .content_length()
+        .is_some_and(|size| size > limit as u64)
+    {
+        bail!("source operator reply exceeds its byte budget");
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.context("read the operator reply")? {
+        if chunk.len() > limit.saturating_sub(bytes.len()) {
+            bail!("source operator reply exceeds its byte budget");
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).context("operator reply is not UTF-8")
 }

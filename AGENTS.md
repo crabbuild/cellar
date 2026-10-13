@@ -46,8 +46,12 @@ before release.
 Source diagnostics use `Storage::outbox` under the owning activation, with
 bounded metadata pages and source-incarnation continuations. Lane retry requires
 the captured producer revision and advances its dispatch generation to fence
-old replies; the dependency-free core owns that decision. Authenticated fleet
-operator ingress/CLI integration and exported event metrics remain unfinished.
+old replies; the dependency-free core owns that decision. `cellar outbox`
+inspect/retry/status/audit uses fleet-HMAC ingress, a distinct source RPC
+capability and the original owner/output/discovery gates. Retry operation
+receipts and bounded audit pages live in an independent version-1 source
+control schema and survive business reset. Stream/subscription operator
+integration and exported event metrics remain unfinished.
 
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller

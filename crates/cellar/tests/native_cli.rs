@@ -20,6 +20,26 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
         let sql = Command::new(executable).args(["sql", "--help"]).output()?;
         ensure!(sql.status.success(), "SQL operator help failed: {:?}", sql);
         ensure!(String::from_utf8(sql.stdout)?.contains("cellar sql"));
+        let outbox = Command::new(executable)
+            .args(["outbox", "--help"])
+            .output()?;
+        ensure!(outbox.status.success());
+        let help = String::from_utf8(outbox.stdout)?;
+        ensure!(
+            help.contains("cellar outbox retry SCOPE") && help.contains("--expected REVISION.json")
+        );
+        let invalid = Command::new(executable)
+            .args(["outbox", "inspect", "Account:source", "--limit", "101"])
+            .output()?;
+        ensure!(!invalid.status.success());
+        ensure!(
+            String::from_utf8(invalid.stderr)?.contains("invalid source diagnostic page bounds")
+        );
+        let retry = Command::new(executable)
+            .args(["outbox", "retry", "Account:source"])
+            .output()?;
+        ensure!(!retry.status.success());
+        ensure!(String::from_utf8(retry.stderr)?.contains("requires --operation"));
         let fleet = Command::new(executable)
             .args(["fleet", "upgrade", "--help"])
             .output()?;

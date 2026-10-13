@@ -10,7 +10,7 @@ pub(super) fn print_help() -> anyhow::Result<()> {
         "Compiled Rust cell application\n\n\
          USAGE:\n\
            APPLICATION [NODE OPTIONS]\n\
-           APPLICATION cell|sql|kv|queue|blob [COMMAND OPTIONS]\n\
+           APPLICATION cell|sql|kv|queue|outbox|blob [COMMAND OPTIONS]\n\
            APPLICATION diagnose --bucket NAME [OPTIONS]\n\n\
          NODE OPTIONS:\n\
            --bucket [s3://|gs://|az://]NAME[/PREFIX]  Fleet storage\n\

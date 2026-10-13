@@ -389,3 +389,9 @@ fn hex_nibble(value: u8) -> anyhow::Result<u8> {
         _ => Err(anyhow!("hexadecimal must be lowercase ASCII")),
     }
 }
+
+/// Caller label from a request that the ingress has already verified.
+pub(crate) fn verified_source(headers: &hyper::http::HeaderMap) -> anyhow::Result<&str> {
+    header(headers, HEADER_SOURCE)
+        .ok_or_else(|| anyhow::anyhow!("verified operator has no caller identity"))
+}

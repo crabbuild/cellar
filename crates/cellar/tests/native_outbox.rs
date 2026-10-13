@@ -384,7 +384,16 @@ fn bindings() -> Vec<Binding> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sdk_emission_obeys_transaction_authority_and_bound_publication_grants() -> Result<()> {
-    cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let mut limits = cellar::sdk::CellLimits::default();
+    limits.events.max_operation_receipts = 2;
+    domain.services().configure_cell_limits(limits)?;
+    let result = domain.run(source_scenario()).await;
+    domain.shutdown().await;
+    result?
+}
+
+async fn source_scenario() -> Result<()> {
     let registry = Registry::new(|_, _| Box::pin(async { Ok(response()) }))
         .cell("Order", |_, _| Ok(Arc::new(Order)))?;
     let graph = DeploymentGraph::single(LoadedDeployment {
@@ -479,6 +488,34 @@ async fn sdk_emission_obeys_transaction_authority_and_bound_publication_grants()
             .await?;
         assert_eq!(result.body, b"ok");
     }
+    let initial = source_operation(&runtime, serde_json::json!({"op":"inspect"})).await?;
+    let first = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000001","reason":"test retained retry receipt","expected":initial["result"]["lanes"][0]["revision"]}});
+    let first_receipt = source_operation(&runtime, first.clone()).await?;
+    assert_eq!(first_receipt["result"]["rearmed"], true);
+    let page = source_operation(&runtime, serde_json::json!({"op":"inspect"})).await?;
+    let second = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000002","reason":"test second retained receipt","expected":page["result"]["lanes"][0]["revision"]}});
+    assert_eq!(
+        source_operation(&runtime, second).await?["result"]["rearmed"],
+        true
+    );
+    let before = source_operation(&runtime, serde_json::json!({"op":"inspect"})).await?;
+    let third = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000003","reason":"test exhausted operation budget","expected":before["result"]["lanes"][0]["revision"]}});
+    assert_eq!(
+        source_operation(&runtime, third).await?["error"]["code"],
+        "OperationLimit"
+    );
+    assert_eq!(
+        source_operation(&runtime, serde_json::json!({"op":"inspect"})).await?,
+        before,
+        "capacity failure changed source metadata or wake deadline"
+    );
+    assert_eq!(
+        source_operation(&runtime, first).await?,
+        first_receipt,
+        "receipt replay consumed capacity or retried again"
+    );
+    let audit = source_operation(&runtime, serde_json::json!({"op":"audit","limit":100})).await?;
+    assert_eq!(audit["result"]["records"].as_array().unwrap().len(), 2);
     runtime.swap_out_cell(SCOPE, 1).await?;
     let connection = rusqlite::Connection::open(
         directory
@@ -506,4 +543,28 @@ async fn sdk_emission_obeys_transaction_authority_and_bound_publication_grants()
     assert_eq!(events[0].lane, events[1].lane);
     assert_eq!(events[0].decode::<OrderEvent>()?.order, "123");
     Ok(())
+}
+
+// This fixture exercises local storage admission, not ownership or fleet proof.
+// The public Node fixture separately covers the authenticated production route.
+async fn source_operation(
+    runtime: &RuntimeManager,
+    body: serde_json::Value,
+) -> Result<serde_json::Value> {
+    let authority = serde_json::from_value::<cellar::runtime::RpcAuthority>(
+        serde_json::json!({"kind":"outbox-operator-v1","scope":SCOPE,"operator":"outbox"}),
+    )?;
+    let (reply, _receive) = tokio::sync::oneshot::channel();
+    let mut call = cellar::host_channels::RpcCallReq {
+        authority: Some(authority),
+        request_id: None,
+        cancel: None,
+        scope: SCOPE.into(),
+        name: None,
+        method: "__outboxControl".into(),
+        args: cellar::engine_api::RpcData::Json(body.to_string()),
+        reply,
+    };
+    let result = runtime.rpc_from_host(&mut call).await?;
+    cellar::application::decode_rpc_result(&result.data)?.to_json()
 }

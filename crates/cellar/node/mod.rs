@@ -54,6 +54,7 @@ mod driver;
 mod embedded;
 mod event_resources;
 mod ingress;
+mod source_operator;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
@@ -1457,12 +1458,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     } = call;
     let request_id = Some(request_id.unwrap_or_else(crate::engine_api::next_request_id));
     let result = async {
-        if crate::application::event_stream::is_event_scope(&scope) {
-            let authority = authority
-                .as_ref()
-                .context("event RPC requires a host capability")?;
-            crate::application::event_stream::validate_target(&scope, authority)?;
-        }
+        crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &method)?;
         anyhow::ensure!(
             cellar_logic::cell::valid_cell_scope(&scope),
             "cell scope is malformed or exceeds the fleet storage limit"
@@ -2370,16 +2366,14 @@ pub(crate) async fn dispatch_forwarded_rpc(
     rpc_method: String,
     args: crate::engine_api::RpcData,
     request_id: Option<crate::engine_api::RequestId>,
-    authority: Option<crate::application::event_stream::Authority>,
+    authority: Option<crate::runtime::RpcAuthority>,
 ) -> HttpReply {
-    if crate::application::event_stream::is_event_scope(&scope)
-        && authority.as_ref().is_none_or(|authority| {
-            crate::application::event_stream::validate_target(&scope, authority).is_err()
-        })
+    if crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &rpc_method)
+        .is_err()
     {
         return peer_response(response(
             StatusCode::FORBIDDEN,
-            "event RPC requires valid host authority",
+            "framework RPC requires valid host authority",
         ));
     }
     let Some(runtime) = &app.runtime else {
@@ -3072,6 +3066,9 @@ async fn handle_internal(
         // `RESERVED_CLASSES` inherits both. (The pre-v5 `/__sql/` alias died
         // with the v0.4.0 stop-the-world upgrade; the CLI in this tree sends
         // `/runtime/`.)
+        _ if path.starts_with("/outbox/") && app.runtime.is_some() => {
+            source_operator::handle(&app, request).await
+        }
         _ if path.starts_with("/runtime/") && app.runtime.is_some() => {
             let scope = path
                 .strip_prefix("/runtime/")
@@ -3693,6 +3690,7 @@ async fn async_main(
         Action::Sql(arguments) => return crate::sql_cli::run(arguments).await,
         Action::Kv(arguments) => return crate::kv_cli::run(arguments).await,
         Action::Queue(arguments) => return crate::queue_cli::run(arguments).await,
+        Action::Outbox(arguments) => return crate::outbox_cli::run(arguments).await,
         Action::Blob(arguments) => return crate::blob_cli::run(arguments).await,
         Action::Connect(arguments) => {
             return crate::control_plane::handle_connect_command(arguments).await

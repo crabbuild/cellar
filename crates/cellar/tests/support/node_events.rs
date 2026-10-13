@@ -5,6 +5,7 @@ use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Result};
 use cellar::sdk::{event_stream::*, *};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -88,7 +89,48 @@ impl Cell for Counter {
             let path = url::Url::parse(&request.url)?.path().to_owned();
             let db = context.storage()?;
             let events = context.stream::<Changed>("EVENTS")?;
-            let body = if path == "/events" {
+            let body = if path == "/revoke-publish" || path == "/restore-publish" {
+                let revision = if path == "/revoke-publish" { 2 } else { 3 };
+                let mut desired = graph(revision, false).primary.event_streams[0].clone();
+                if revision == 2 {
+                    desired
+                        .grants
+                        .iter_mut()
+                        .find(|grant| grant.id == "application")
+                        .unwrap()
+                        .publish = false;
+                }
+                let admin = context.stream::<Changed>("ADMIN_EVENTS")?;
+                admin
+                    .configure(
+                        &context,
+                        &desired,
+                        if revision == 2 {
+                            "00000000000000000000000000000088"
+                        } else {
+                            "00000000000000000000000000000089"
+                        },
+                    )
+                    .await?
+                    .state
+            } else if path == "/reset-source" {
+                db.delete_all()?;
+                "reset".into()
+            } else if path == "/forge-source" {
+                let stub = context.namespace("ACCOUNTS")?.get_by_name("events");
+                let failure = stub
+                    .rpc(
+                        &context,
+                        "__outboxControl",
+                        cellar::engine_api::RpcData::Json(
+                            serde_json::json!({"op":"inspect"}).to_string(),
+                        ),
+                    )
+                    .await
+                    .err()
+                    .expect("ordinary RPC must refuse source authority");
+                failure.to_string()
+            } else if path == "/events" {
                 events
                     .read(&context, None, ReadOptions::default())
                     .await?
@@ -169,7 +211,15 @@ impl Cell for Counter {
 }
 
 fn applications(label: &'static str) -> Result<CompiledApplications> {
+    applications_with_probe(label, None)
+}
+
+fn applications_with_probe(
+    label: &'static str,
+    probe: Option<Arc<AtomicUsize>>,
+) -> Result<CompiledApplications> {
     CompiledApplications::default().register("embedded-node", "test", move || {
+        let probe = probe.clone();
         Ok(Arc::new(
             Registry::new(|context, invocation| {
                 Box::pin(async move {
@@ -180,7 +230,12 @@ fn applications(label: &'static str) -> Result<CompiledApplications> {
                     Ok(Output::Http(account.fetch(&context, request).await?))
                 })
             })
-            .cell("Account", move |_, _| Ok(Arc::new(Counter(label))))?,
+            .cell("Account", move |_, _| {
+                if let Some(probe) = &probe {
+                    probe.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(Arc::new(Counter(label)))
+            })?,
         ))
     })
 }
@@ -387,5 +442,267 @@ async fn node_cutover_refuses_previous_storage_and_peer_protocol_before_admissio
         reply.status()
     );
     stopped(node).await?;
+    Ok(())
+}
+
+async fn operator(
+    client: &reqwest::Client,
+    node: &Node,
+    scope: &str,
+    body: &serde_json::Value,
+    caller: &str,
+) -> Result<serde_json::Value> {
+    let path = format!("/outbox/{scope}");
+    let body = serde_json::to_vec(body)?;
+    let auth = PeerAuth::new([11; 32], caller)?;
+    let request = auth.sign(
+        client
+            .post(format!("http://{}{path}", node.info().internal_address))
+            .body(body.clone()),
+        "POST",
+        &path,
+        &body,
+        &node.info().node,
+    )?;
+    let response = request.send().await?;
+    ensure!(
+        response.status() == 200,
+        "operator response {}: {}",
+        response.status(),
+        response.text().await?
+    );
+    Ok(response.json().await?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn source_operator_routes_to_owner_replays_receipts_and_recovers_handoff() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("source-operator-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let constructors = Arc::new(AtomicUsize::new(0));
+    let (config, services) = inputs(
+        "source-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(
+        config,
+        services,
+        graph(1, false),
+        applications_with_probe("owner", Some(constructors.clone()))?,
+    )
+    .await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    let script = "embedded-node";
+    let namespace = format!("cells:v1:{}:{script}:Account", script.len());
+    let cell_id = cellar_native::cell_id::for_name(&namespace, "events");
+    let scope = format!("Account:{}", cellar_native::cell_id::encode_hex(&cell_id));
+    let before = constructors.load(Ordering::SeqCst);
+    let unsigned = client
+        .post(format!(
+            "http://{}/outbox/{scope}",
+            owner.info().internal_address
+        ))
+        .json(&serde_json::json!({"op":"inspect"}))
+        .send()
+        .await?;
+    ensure!(
+        unsigned.status() == 401,
+        "unsigned source inspection admitted"
+    );
+    let oversized = client
+        .post(format!(
+            "http://{}/outbox/{scope}",
+            owner.info().internal_address
+        ))
+        .body("x".repeat((16 << 10) + 1))
+        .send()
+        .await?;
+    ensure!(
+        oversized.status() == 413,
+        "source ingress did not enforce its byte budget"
+    );
+    let empty = operator(
+        &client,
+        &owner,
+        &scope,
+        &serde_json::json!({"op":"inspect"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(empty["result"]["incarnation"].is_null());
+    ensure!(
+        constructors.load(Ordering::SeqCst) == before,
+        "framework inspection invoked the application constructor"
+    );
+    ensure!(
+        call(&client, &owner, reqwest::Method::GET, "/forge-source")
+            .await?
+            .contains("framework RPC requires host authority"),
+        "ordinary application RPC forged source authority"
+    );
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/revoke-publish").await? == "active");
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let inspected = operator(
+                &client,
+                &owner,
+                &scope,
+                &serde_json::json!({"op":"inspect"}),
+                "outbox",
+            )
+            .await?;
+            if inspected["result"]["lanes"][0]["status"] == "blocked" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    // Restore the deployment's accepted definition before admitting a second
+    // node. The durable source obligation remains blocked until explicit retry.
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/restore-publish").await? == "active");
+    let (config, services) = inputs(
+        "source-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut external = graph(3, false);
+    external.primary.event_streams.clear();
+    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let page = operator(
+        &client,
+        &entrance,
+        &scope,
+        &serde_json::json!({"op":"inspect","limit":1}),
+        "outbox",
+    )
+    .await?;
+    ensure!(page["result"]["pending_rows"] == "1");
+    let expected = page["result"]["lanes"][0]["revision"].clone();
+    ensure!(expected["source"] == scope);
+    let request = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000055","reason":"retry after restoring destination publication","expected":expected}});
+    let first = operator(&client, &entrance, &scope, &request, "outbox").await?;
+    ensure!(
+        first["result"]["rearmed"] == true,
+        "owner-routed retry did not rearm pending delivery: {first}"
+    );
+    // Treat the first reply as lost. Replaying the same operation cannot run
+    // the retry again even after dispatch has changed its observed revision.
+    ensure!(operator(&client, &entrance, &scope, &request, "outbox").await? == first);
+    let mut changed = request.clone();
+    changed["change"]["reason"] = "changed intent".into();
+    ensure!(
+        operator(&client, &entrance, &scope, &changed, "outbox").await?["error"]["code"]
+            == "ConfigConflict"
+    );
+    ensure!(
+        operator(&client, &entrance, &scope, &request, "other-operator").await?["error"]["code"]
+            == "Forbidden"
+    );
+    let status = serde_json::json!({"op":"status","operation":"00000000000000000000000000000055"});
+    ensure!(operator(&client, &entrance, &scope, &status, "outbox").await? == first);
+    let mut stale = request.clone();
+    stale["change"]["operation"] = "00000000000000000000000000000056".into();
+    ensure!(
+        operator(&client, &entrance, &scope, &stale, "outbox").await?["error"]["code"]
+            == "ConfigConflict"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let page = operator(
+                &client,
+                &entrance,
+                &scope,
+                &serde_json::json!({"op":"inspect"}),
+                "outbox",
+            )
+            .await?;
+            if page["result"]["pending_rows"] == "0" {
+                return Ok::<_, anyhow::Error>(page);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(call(&client, &entrance, reqwest::Method::GET, "/events").await? == "1");
+    let page = operator(
+        &client,
+        &entrance,
+        &scope,
+        &serde_json::json!({"op":"inspect"}),
+        "outbox",
+    )
+    .await?;
+    let settled = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000057","reason":"record settled producer observation","expected":page["result"]["lanes"][0]["revision"]}});
+    ensure!(
+        operator(&client, &entrance, &scope, &settled, "outbox").await?["result"]["rearmed"]
+            == false
+    );
+    let audit = operator(
+        &client,
+        &entrance,
+        &scope,
+        &serde_json::json!({"op":"audit","limit":1}),
+        "outbox",
+    )
+    .await?;
+    ensure!(audit["result"]["records"].as_array().unwrap().len() == 1);
+    let next = audit["result"]["next"].clone();
+    ensure!(next == "1");
+    let rest = operator(
+        &client,
+        &entrance,
+        &scope,
+        &serde_json::json!({"op":"audit","limit":1,"after":next}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        rest["result"]["records"][0]["receipt"]["operation"] == "00000000000000000000000000000057"
+    );
+    ensure!(rest["result"]["next"].is_null());
+    stopped(owner).await?;
+    let recovered = operator(&client, &entrance, &scope, &request, "outbox").await?;
+    ensure!(
+        recovered == first,
+        "ownership handoff lost the immutable source operation receipt"
+    );
+    let page = operator(
+        &client,
+        &entrance,
+        &scope,
+        &serde_json::json!({"op":"inspect"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        page["result"]["pending_rows"] == "0"
+            && page["result"]["incarnation"] == expected["incarnation"]
+    );
+    ensure!(call(&client, &entrance, reqwest::Method::POST, "/reset-source").await? == "reset");
+    ensure!(
+        operator(&client, &entrance, &scope, &status, "outbox").await? == first,
+        "business reset discarded source operation receipts"
+    );
+    let unknown = operator(
+        &client,
+        &entrance,
+        &scope,
+        &serde_json::json!({"op":"status","operation":"ffffffffffffffffffffffffffffffff"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(unknown["error"]["code"] == "OperationUnknown");
+    stopped(entrance).await?;
     Ok(())
 }

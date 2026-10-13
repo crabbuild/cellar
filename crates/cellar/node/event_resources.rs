@@ -54,7 +54,7 @@ async fn rpc(
 ) -> Result<Value> {
     let (reply, receiver) = tokio::sync::oneshot::channel();
     let request = RpcCallReq {
-        authority: Some(authority),
+        authority: Some(authority.into()),
         request_id: Some(crate::engine_api::next_request_id()),
         cancel: None,
         scope,

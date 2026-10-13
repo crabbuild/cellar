@@ -383,7 +383,7 @@ struct Captured {
     name: Option<String>,
     method: String,
     args: RpcData,
-    authority: Option<cellar::sdk::event_stream::Authority>,
+    authority: Option<cellar::runtime::RpcAuthority>,
 }
 
 async fn resident(

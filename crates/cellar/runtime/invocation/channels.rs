@@ -352,7 +352,7 @@ pub fn set_asset_call_tx(tx: tokio::sync::mpsc::UnboundedSender<AssetCallReq>) {
 /// Routing/activation is identical to fetch calls.
 pub struct RpcCallReq {
     #[doc(hidden)]
-    pub authority: Option<crate::application::event_stream::Authority>,
+    pub authority: Option<crate::runtime::RpcAuthority>,
     /// Correlates local execution and the authenticated peer abort protocol.
     pub request_id: Option<RequestId>,
     /// The caller's owned wait signals cancellation before or during dispatch.

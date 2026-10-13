@@ -1199,6 +1199,27 @@ requires explicit destructive intent. Payload display is opt-in and authorized.
 Use bounded pagination, machine-readable stdout, and stderr progress according
 to the existing CLI contract.
 
+The current source-control implementation exposes fleet-HMAC authenticated
+`POST /outbox/SCOPE` operations for inspection, guarded retry, operation status
+and paginated audit. It mints a distinct source RPC capability, bound to the
+exact source scope and control method; ordinary application RPC cannot supply
+that capability. Execution retains the original owner, input, output and
+discovery gates and bypasses application constructors/handlers. Event authority
+packets retain their previous JSON wire shape.
+
+Source retry records an immutable operation UUID, request digest, authenticated
+operator label, reason, expected source/producer revision and result in the
+same transaction as re-arming work. The dependency-free core decides receipt
+replay/conflict/capacity and dispatch-generation advancement. Exact replay
+returns the original receipt, including after owner handoff; changed arguments
+or caller identity cannot reuse it. Settled producers return `rearmed: false`.
+The independent source-control schema has a version-1 marker and retained
+accounting; business reset preserves it. Unknown operations return
+`OperationUnknown`. New operations stop at the smaller of the captured receipt
+limit and 10,000 records; no automatic receipt expiry or row abandonment is
+introduced. Request, RPC, receipt and CLI reply budgets are 16 KiB, 64 KiB,
+4 KiB and 1 MiB respectively. Diagnostic/audit pages contain at most 100 records.
+
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;
 an in-memory event bus would conceal the main failure modes.

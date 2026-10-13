@@ -74,7 +74,7 @@ pub(crate) struct NativeFlight {
 }
 
 struct Start {
-    authority: Option<crate::application::event_stream::Authority>,
+    authority: Option<crate::runtime::RpcAuthority>,
     invocation: Invocation,
     answer: Answer,
     request_id: Option<RequestId>,
@@ -595,7 +595,14 @@ impl NativeWorker {
                 return (None, Vec::new());
             }
         };
-        context.event_authority = authority;
+        let source_authority = match authority {
+            Some(crate::runtime::RpcAuthority::Source(authority)) => Some(authority),
+            Some(crate::runtime::RpcAuthority::Event(authority)) => {
+                context.event_authority = Some(authority);
+                None
+            }
+            None => None,
+        };
         let writes_before = scope.as_deref().and_then(storage::event_start_position);
         if matches!(&invocation, Invocation::WebSocketMessage { .. }) {
             *context.state.websocket_capture.lock().unwrap() = Some(Default::default());
@@ -620,6 +627,12 @@ impl NativeWorker {
         context.io.begin_cpu_turn();
         let handler = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             || -> Result<HandlerFuture<Output>> {
+                if let Some(authority) = source_authority {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        crate::runtime::source_control::invoke(context, invocation, authority)
+                    }));
+                }
                 if let Some(installation) = work {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
@@ -1740,7 +1753,7 @@ pub(crate) fn event_rpc(
         name,
         method,
         args,
-        Some(authority),
+        Some(authority.into()),
     ))
 }
 

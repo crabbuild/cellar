@@ -430,3 +430,41 @@ pub fn retry_producer(
 pub fn next_dispatch_generation(current: i64) -> Result<i64, RetryRefusal> {
     current.checked_add(1).ok_or(RetryRefusal::Exhausted)
 }
+
+/// Durable facts supplied by the source administration adapter.
+pub enum OperationReceipt {
+    New {
+        retained: u64,
+        capacity: u64,
+    },
+    Existing {
+        operator_matches: bool,
+        arguments_match: bool,
+    },
+}
+
+#[derive(Debug)]
+pub enum OperationRefusal {
+    Forbidden,
+    Conflict,
+    Capacity,
+}
+
+/// Returns true for a new operation, false for immutable receipt replay.
+pub fn admit_operation(receipt: OperationReceipt) -> Result<bool, OperationRefusal> {
+    match receipt {
+        OperationReceipt::Existing {
+            operator_matches: false,
+            ..
+        } => Err(OperationRefusal::Forbidden),
+        OperationReceipt::Existing {
+            arguments_match: false,
+            ..
+        } => Err(OperationRefusal::Conflict),
+        OperationReceipt::Existing { .. } => Ok(false),
+        OperationReceipt::New { retained, capacity } if retained >= capacity => {
+            Err(OperationRefusal::Capacity)
+        }
+        OperationReceipt::New { .. } => Ok(true),
+    }
+}

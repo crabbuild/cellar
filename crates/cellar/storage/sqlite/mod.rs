@@ -19,6 +19,7 @@ use std::sync::Arc;
 mod event_schema;
 pub(crate) mod inbox;
 pub(crate) mod outbox;
+pub(crate) mod outbox_control;
 pub(crate) mod wake_record;
 pub(crate) mod work;
 
@@ -386,6 +387,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     // Refuse unsupported event state before creating tables or changing any
     // wake projection. The epoch's activation cannot reinterpret that state.
     outbox::check_schema(c)?;
+    outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
     event_schema::check_version(c, "__sys_stream_schema", &[1, 2, 3])?;
     event_schema::check_version(c, "__sys_event_catalog_schema", &[1, 2])?;
@@ -416,6 +418,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
         )?;
         c.execute_batch(work::SCHEMA)?;
         outbox::restore_schema(c)?;
+        outbox_control::restore_schema(c)?;
         inbox::restore_schema(c)?;
         transaction.commit()?;
         Ok(())

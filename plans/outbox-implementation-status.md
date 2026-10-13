@@ -22,8 +22,21 @@ turns together; that local evidence does not satisfy the fleet/release gates.
   wake work atomically, without changing event bytes or skipping sequences.
   The existing bulk SDK retry now advances pending-lane generations too and
   refuses exhaustion before changing any lane.
-  This is the application SDK foundation; the authenticated fleet operator
-  ingress and CLI remain to be implemented.
+  The authenticated operator route now exposes this foundation.
+- `cellar outbox inspect/retry/status/audit` reaches the source owner through
+  fleet-HMAC ingress and distinct source RPC provenance. Source control methods
+  run before application constructors or handlers. Event authority retains its
+  prior wire shape. The original input, ownership, output and discovery gates
+  cover both local and tunneled source commands.
+- Source retry receipts are committed with wake work and retained under an
+  independent version-1 control marker. Their operation/digest/operator/reason/
+  expected-revision/result identities resolve replay and reject conflicting
+  requests. The pure core owns admission/replay/capacity decisions. Status and
+  bounded audit survive business reset and owner handoff; unknown operations
+  return `OperationUnknown`. No receipt expiry or sequence abandonment is added.
+  New operations cap at the captured receipt limit or 10,000 per source;
+  exact replay remains available at capacity. Request/RPC/receipt/client-reply
+  budgets are 16/64/4/1024 KiB, and revision files are read through a 4 KiB cap.
 - `Context::stream`, typed `Event`/`Stream` handles, resolved resource identities,
   binding publication permissions, domain ownership, and fallible envelope
   decoding are present. `WorkerConfigOptions::stream_bindings` is propagated
@@ -225,10 +238,10 @@ It retains the full existing shutdown assertion and explicitly verifies that a
 failed unsupported startup releases its directory for immediate reuse. Friendly
 name-only resource configuration remains separate from resolved UUID bindings.
 
-Expose the source inspection and guarded retry SDK through authenticated
-framework operator ingress, and add stream/subscription listings and CLI
-routing. Source diagnostic pagination is implemented; fleet operator routing
-and bounded exported metrics remain. Subscription
+Add stream/subscription listings and CLI routing, exported bounded metrics and
+remaining source inventory/lifecycle controls. Source inspection, guarded
+retry, operation status and audit now have authenticated owner-routed HTTP/CLI
+entry points. Subscription
 administration, producer sealing and stream retirement are implemented, but
 operator integration and production proof/failure coverage remain part of the
 full goal. Audited whole-source destruction is still absent. It must verify
@@ -236,11 +249,19 @@ terminal retirement of every pending destination and fence the captured source
 incarnation before discarding obligations; never add a sequence-skipping API as
 a substitute for that protocol.
 
-Source operator ingress needs distinct host-minted framework authority carried
-through the existing owner RPC/tunnel path. Intercept it in framework execution;
-an application method name or HTTP header alone must not authorize source
-administration. Retain ordinary ownership, output and discovery gates and add
-durable administrative operation receipts before exposing retry in the CLI.
+Retain the source operator's separate host-minted authority and owner RPC/tunnel
+path when extending controls. Source retirement/destruction still needs its
+own audited lifecycle protocol, rather than a raw delete or generation skip.
+Qualify source operator cancellation, real response truncation and stale-owner
+routing beyond the current two-node handoff test. Inspect activation behavior
+when a source's application class is removed; constructor bypass on a retained
+class alone does not qualify orphan-source recovery.
+Current cold activation still requires `Generation::cell_config(class)` in
+`RuntimeManager::start_cell_native`; an absent class returns "no Worker exports
+Durable Object class" before source framework work can run. Independent recovery
+and inspection of those source obligations requires an explicit materialization
+contract or a qualified class-retirement gate. Do not silently claim that the
+constructor-bypass test proves that case.
 
 Exercise the implemented schema and compatibility contracts under real fleet
 faults and previous executables. The logical peer/fleet/native revisions are now
@@ -437,3 +458,26 @@ warnings denied, formatting across 400 Rust files, documentation (35 documents,
 packages; no JavaScript engine) pass. GitHub CI did not start: its check
 annotation reports failed account payments or a spending-limit restriction.
 This does not change the outstanding event release qualification gates.
+
+The source-operator milestone passes the complete workspace/all-feature library
+and integration command: 344 tests, including the external development
+build/restart workflow and all Axum suites. The focused source/event/CLI/library/
+public-Node command passes 96 tests. All 11 workspace doctests pass in the
+separate target cache; final-source all-target/all-feature Clippy with warnings
+denied and formatting across 405 Rust files pass. Documentation validates 35
+documents, 6 flows and 364 references; whitespace and the 401-package native
+dependency graph pass, with no JavaScript engine.
+
+The new actual two-node test sends signed commands through a non-owner, proves
+that unsigned/oversized requests are refused and inspection does not construct
+the application cell, repairs a grant-blocked event, and verifies immutable
+retry replay/conflict/caller guards, stale producer refusal, audit pagination,
+settled no-op retry, delivery and receipt recovery after owner handoff. Business
+reset retains the receipt and an unknown operation has a typed result. The SDK
+fixture uses an isolated domain with a two-receipt budget: capacity rejection
+leaves metadata/wake deadlines unchanged and exact replay remains available.
+Schema tests retain receipts across activation and refuse corrupt accounting;
+wire tests preserve the original event authority JSON shape. Treating a received
+reply as lost exercises idempotent replay, not actual network truncation. The
+complete production event failure matrix and orphan-class materialization
+remain unqualified.
