@@ -26,6 +26,10 @@ import urllib.request
 from run import Harness, command, event_report, logs, validate_node_limits, validate_routing_cache, validate_shutdown
 
 
+class JournalError(RuntimeError):
+    pass
+
+
 def validate_reply(operation, value):
     receipt = value.get("receipt")
     if (value.get("operation_id") != operation["operation_id"]
@@ -85,9 +89,12 @@ class Ledger:
         self._append("plan", operations=self.operations)
 
     def _append(self, event, **fields):
-        self.stream.write(json.dumps(dict(event=event, timestamp=time.time(), **fields)) + "\n")
-        self.stream.flush()
-        os.fsync(self.stream.fileno())
+        try:
+            self.stream.write(json.dumps(dict(event=event, timestamp=time.time(), **fields)) + "\n")
+            self.stream.flush()
+            os.fsync(self.stream.fileno())
+        except OSError as error:
+            raise JournalError("measuring client journal could not be synchronized") from error
 
     def attempt(self, operation, url, hold_ms=0):
         key = operation["operation_id"]

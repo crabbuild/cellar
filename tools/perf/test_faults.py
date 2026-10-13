@@ -2,6 +2,7 @@
 
 import hashlib
 import http.server
+import io
 import json
 import pathlib
 import tempfile
@@ -94,6 +95,25 @@ class ReceiptOracleTests(unittest.TestCase):
 
 
 class ResponseLossTests(unittest.TestCase):
+    def test_acknowledgement_journal_failure_is_fatal_not_a_network_ambiguity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Ledger(pathlib.Path(directory) / "operations.json", 1, 1)
+            try:
+                op = ledger.operations[0]
+                reply = {"operation_id": op["operation_id"], "receipt": {"sha256": op["sha256"], "ordinal": 1}, "node": "node1"}
+                with mock.patch("faults.os.fsync", side_effect=[None, OSError("journal unavailable"), None]), mock.patch(
+                        "faults.urllib.request.urlopen", return_value=io.BytesIO(json.dumps(reply).encode())):
+                    with self.assertRaises(RuntimeError):
+                        ledger.attempt(op, "http://fixture/cells/0000")
+                self.assertTrue(ledger.fatal)
+                self.assertIsNone(op["ack"])
+                self.assertFalse(ledger.pending)
+                events = [json.loads(l)["event"] for l in ledger.path.with_suffix(".jsonl").read_text().splitlines()]
+                self.assertNotIn("ambiguous", events)
+                self.assertIn("protocol_failure", events)
+            finally:
+                ledger.close()
+
     def test_real_client_socket_loses_response_after_upstream_acknowledges(self):
         class Backend(http.server.BaseHTTPRequestHandler):
             def do_POST(self):
