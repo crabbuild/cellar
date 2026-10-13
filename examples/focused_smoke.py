@@ -60,7 +60,7 @@ def exercise(name, origin, with_cron):
         assert call("/kv")["keys"] == ["demo"]
         call("/kv/demo", method="DELETE")
         call("/kv/demo", status=404)
-    elif name == "r2":
+    elif name == "blob":
         assert call("/blobs/demo", method="PUT", data="hello Blob")["object"]["size"] == 10
         assert call("/blobs/demo") == b"hello Blob"
         call("/blobs/demo", method="DELETE")

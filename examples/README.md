@@ -66,7 +66,7 @@ isolation is not a deployment tenancy policy.
 | counter | [counter](counter/README.md) | Durable named counter and atomic increments |
 | vectordb | [vectordb](vectordb/README.md) | Per-cell sqlite-vec index and nearest-color query |
 | d1 | [sql](sql/README.md) | Native SQL binding, parameterized inserts and guestbook |
-| r2 | [r2](r2/README.md) | Native Blob binding, writes, streamed reads and deletion |
+| r2 | [blob](blob/README.md) | Native Blob binding, writes, streamed reads and deletion |
 | kv | [kv](kv/README.md) | Bytes, TTL, metadata and bounded listing with cursor |
 | queues | [queues](queues/README.md) | Producer, consumer, retries, DLQ and deduplicated effects |
 | async | [async](async/README.md) | Event-owned timer, background storage and sync |

@@ -10,7 +10,7 @@ mod agent;
 mod alarm;
 #[path = "async/main.rs"]
 mod background;
-#[path = "r2/main.rs"]
+#[path = "blob/main.rs"]
 mod blob;
 #[path = "body/main.rs"]
 mod body;

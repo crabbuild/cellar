@@ -94,12 +94,12 @@
       "guide": "kv/README.md"
     },
     {
-      "name": "r2",
-      "project": "r2/project.json",
-      "source": "r2/main.rs",
+      "name": "blob",
+      "project": "blob/project.json",
+      "source": "blob/main.rs",
       "route": "/blobs/demo",
       "status": "runnable",
-      "guide": "r2/README.md"
+      "guide": "blob/README.md"
     },
     {
       "name": "vectordb",
