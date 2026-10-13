@@ -51,8 +51,8 @@ The workspace contains four crates. Keep their boundaries:
 - `cellar-native`: engine-independent owned values and web/crypto primitives.
 
 The Cellar crate uses `lib.rs` beside its manifest rather than `src/lib.rs`.
-`crates/cellar/Cargo.toml` already points binaries to `cli/main.rs` and
-`cli/native_main.rs`. Keep these entry points and all 43 direct
+`crates/cellar/Cargo.toml` points the CLI binary to `cli/main.rs`.
+Keep this entry point and all 43 direct
 `crates/cellar/tests/*.rs` integration targets.
 
 Existing relocation pattern, `crates/cellar/lib.rs:49`:
@@ -524,10 +524,9 @@ cargo test -p cellar --locked \
   --test native_container_packages --test native_containers \
   --test native_html_rewriter
 cargo run -p cellar --bin cellar --locked -- --help
-cargo run -p cellar --bin cellar-native --locked -- --help
 ```
 
-Expected: exit 0; all tests pass and both binaries show their existing help.
+Expected: exit 0; all tests pass and the CLI shows its existing help.
 
 ### Step 5: Verify the complete migration and hand off
 

@@ -49,7 +49,7 @@ Durable facet storage remains under its root's ownership.
 ## Stop, restart and cleanup
 
 Press Ctrl-C in terminal 1 and let the host stop. Local state lives in
-`examples/facets/.cellar/native-dev`. Restart with the same command without `--clean` to
+`examples/facets/.cellar`. Restart with the same command without `--clean` to
 retain it; add `--clean` on the next start to reset this example. Stop before running
 another example on port 9876, or choose another `--port` and change the request URLs.
 JSON field order is not significant.

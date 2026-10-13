@@ -27,7 +27,7 @@ impl State {
         let root = project
             .parent()
             .context("native project has no directory")?;
-        let parent = root.join(".cellar/native-dev");
+        let parent = root.join(".cellar");
         std::fs::create_dir_all(&parent)?;
         let lock = std::fs::OpenOptions::new()
             .read(true)
@@ -36,7 +36,7 @@ impl State {
             .truncate(false)
             .open(parent.join(format!("{hash}.lock")))?;
         lock.try_lock().map_err(|error| {
-            anyhow::anyhow!("another native dev supervisor owns this project: {error}")
+            anyhow::anyhow!("another dev supervisor owns this project: {error}")
         })?;
         let directory = parent.join(&hash);
         let mut cleaned = false;
@@ -226,11 +226,10 @@ async fn start(
 }
 
 pub async fn run(arguments: Vec<String>) -> Result<()> {
-    let Some(options) =
-        crate::dev::stack_options_from_arguments(arguments, "cellar-native dev", true)?
+    let Some(options) = crate::dev::stack_options_from_arguments(arguments, "cellar dev", true)?
     else {
         crate::cli_output::Output::new(crate::cli_output::Format::Text).line(format_args!(
-            "cellar-native dev PROJECT.json [--host IP] [--port PORT] [--logs] [--no-watch]\n\
+            "cellar dev PROJECT.json [--host IP] [--port PORT] [--logs] [--no-watch]\n\
              Options: --clean discards this project's local state; --watch-ignore GLOB may repeat.\n\
              Rust sources, local dependencies, configuration and assets trigger verified rebuilds.\n\
              Failed builds/checks leave the current node serving. Local state survives restarts."
@@ -239,11 +238,11 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
     };
     let project = options
         .project
-        .context("cellar-native dev requires PROJECT.json")?
+        .context("cellar dev requires PROJECT.json")?
         .canonicalize()?;
     let state = State::open(&project, options.clean)?;
     let console = Console::new();
-    console.header_as("cellar-native dev");
+    console.header_as("cellar dev");
     console.detail("Project", &project.display().to_string());
     console.detail("State", &state.directory.display().to_string());
     if options.clean {

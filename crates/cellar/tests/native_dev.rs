@@ -6,6 +6,7 @@ use anyhow::{bail, Context as _, Result};
 use cellar::native_deploy::{current_target, executable_identity, ApplicationConfig, Package};
 use reqwest::{Client, Method};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -42,7 +43,7 @@ impl Supervisor {
     ) -> Result<Self> {
         let log = root.join(format!("{name}.log"));
         let stdout = File::create(&log)?;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_cellar-native"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_cellar"));
         command
             .args(["dev", project.to_str().unwrap(), "--port", "0"])
             .args(flags)
@@ -369,6 +370,21 @@ async fn scenario(root: &Path) -> Result<()> {
     let mut origin = dev
         .observed(&client, (0, "v1-one", "local"), Some("first assets"))
         .await?;
+    let canonical_project = project_path.canonicalize()?;
+    let project_hash = format!(
+        "{:x}",
+        Sha256::digest(canonical_project.as_os_str().as_encoded_bytes())
+    );
+    let state_root = directory.join(".cellar");
+    assert!(state_root
+        .join(&project_hash)
+        .join("objects.sqlite3")
+        .is_file());
+    assert!(state_root.join(format!("{project_hash}.lock")).is_file());
+    assert!(!state_root.join("native-dev").exists());
+    let sibling = state_root.join("other-project");
+    std::fs::create_dir_all(&sibling)?;
+    std::fs::write(sibling.join("sentinel"), "other project state")?;
     assert_eq!(
         counter(&client, &origin, true).await?,
         (1, "v1-one".into(), "local".into())
@@ -403,7 +419,7 @@ async fn scenario(root: &Path) -> Result<()> {
     assert!(!output.success());
     assert!(second
         .text()?
-        .contains("another native dev supervisor owns this project"));
+        .contains("another dev supervisor owns this project"));
     assert_eq!(counter(&client, &origin, false).await?.0, 1);
 
     let snapshot = root.join("checked-application");
@@ -504,5 +520,9 @@ async fn scenario(root: &Path) -> Result<()> {
         (0, "compiled-two-two".into(), "unwatched".into())
     );
     clean.stop().await?;
+    assert_eq!(
+        std::fs::read_to_string(sibling.join("sentinel"))?,
+        "other project state"
+    );
     Ok(())
 }

@@ -54,7 +54,7 @@ provide Cloudflare Sandbox SDK compatibility or a complete job service.
 ## Stop, restart and cleanup
 
 Press Ctrl-C and let the host release its containers. State is under
-`examples/native-container/.cellar/native-dev`; omit `--clean` on restart to retain cell state.
+`examples/native-container/.cellar`; omit `--clean` on restart to retain cell state.
 Container disks remain ephemeral: store durable business data in the cell or
 a binding. Add `--clean` on the next start to reset this project. Built images
 remain cached; remove only your own images if needed. Do not prune shared

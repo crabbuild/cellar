@@ -181,14 +181,14 @@ cargo build -p cellar --bin cellar --locked
 
 The example serves `http://127.0.0.1:9876/counters/NAME`; POST increments its
 persistent counter. `dev` builds the Rust application, watches its project,
-and keeps durable state in `.cellar/native-dev`. Use `--no-watch` for a single
+and keeps durable state in `.cellar/<project-hash>` beside the configuration.
+Use `--no-watch` for a single
 build, `--logs` for node logs, and `--clean` to reset the project's local state.
 
 `cellar build PROJECT.json --output DIRECTORY` produces a verified application
 package. `cellar deploy DIRECTORY --bucket NAME` publishes it; `cellar install`
 downloads and verifies the executable. Run that compiled application executable
-with your node's bucket, listeners, and peer settings. The existing
-`cellar-native` executable is an alias for the same CLI.
+with your node's bucket, listeners, and peer settings. `cellar` is the single CLI.
 
 Rust application code is compiled into its host executable. Source JavaScript,
 Node.js modules, and the previous JavaScript-based Python/Wasm wrappers are no

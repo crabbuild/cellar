@@ -221,7 +221,7 @@ target directory on the mounted workspace volume:
 - `cargo clippy --workspace --all-targets --all-features --locked -- -D warnings`
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tools/perf -p 'test_*.py'`:
   13 tests passed
-- Both `cellar` and `cellar-native` CLI help commands
+- Both CLI help commands available at that baseline (the CLI is now `cellar` only)
 - Original move-inventory assertions, exact-content/scope audits, obsolete
   physical-path search, and `git diff --check`
 
