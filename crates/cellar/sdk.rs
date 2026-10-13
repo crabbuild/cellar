@@ -147,6 +147,9 @@
 //! }
 //! ```
 pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
+pub use crate::application::limits::{
+    BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
+};
 pub use crate::application::*;
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
@@ -180,6 +183,7 @@ pub use crate::replica_storage::{
 };
 pub use crate::replication_options::{CompactionConfig, ReplicationOptions};
 pub use crate::runtime_policy::RuntimePolicy;
+pub use cellar_logic::queue::Limits as QueueLimits;
 pub use cellar_ltx::TimestampMetadataKey as ReplicaTimestampMetadataKey;
 pub use cellar_native as primitives;
 pub use cellar_native::{clone, compression, crypto, encoding, json, rpc, web};

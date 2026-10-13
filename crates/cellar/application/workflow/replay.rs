@@ -354,8 +354,10 @@ impl Steps {
             ensure!(!config.sensitive && !config.rollback,"WORKFLOW_ERROR: sensitive output and rollback handlers are not implemented in cellar");
             if let Some(retries) = &config.retries {
                 ensure!(
-                    retries.limit.is_finite() && (0.0..=10000.0).contains(&retries.limit),
-                    "WORKFLOW_ERROR: retry limit must be from zero to 10000"
+                    retries.limit.is_finite()
+                        && (0.0..=limits().max_retries as f64).contains(&retries.limit),
+                    "WORKFLOW_ERROR: retry limit must be from zero to {}",
+                    limits().max_retries
                 );
                 if let Delay::Fixed(delay) = &retries.delay {
                     delay.milliseconds()?;
@@ -481,10 +483,7 @@ impl Steps {
     }
     pub fn sleep(&self, name: impl Into<StepName>, duration: Duration) -> HandlerFuture<()> {
         let checked = duration.milliseconds().and_then(|ms| {
-            ensure!(
-                ms <= 365.0 * 86400000.0,
-                "WORKFLOW_ERROR: sleep exceeds 365 days"
-            );
+            check_horizon(ms, "sleep")?;
             Ok(ms)
         });
         self.sleep_deadline(name, checked.map(|ms| (ms, false)))
@@ -492,9 +491,10 @@ impl Steps {
     pub fn sleep_until(&self, name: impl Into<StepName>, timestamp_ms: f64) -> HandlerFuture<()> {
         let checked = (|| {
             ensure!(
-                timestamp_ms.is_finite() && timestamp_ms - now() as f64 <= 365.0 * 86400000.0,
+                timestamp_ms.is_finite() && timestamp_ms < i64::MAX as f64,
                 "WORKFLOW_ERROR: invalid sleepUntil timestamp"
             );
+            check_horizon((timestamp_ms - now() as f64).max(0.0), "sleepUntil")?;
             Ok((timestamp_ms, true))
         })();
         self.sleep_deadline(name, checked)
@@ -553,17 +553,15 @@ impl Steps {
         let name = name.into().0;
         let checked = (|| {
             check_step_name(&name)?;
-            ensure!(
-                name_valid(&event_type, 100),
-                "WORKFLOW_ERROR: invalid event type"
-            );
+            check_event_type(&event_type)?;
             let ms = timeout
                 .unwrap_or(Duration::Milliseconds(86400000.0))
                 .milliseconds()?;
             ensure!(
-                (1000.0..=365.0 * 86400000.0).contains(&ms),
-                "WORKFLOW_ERROR: event timeout must be 1 second to 365 days"
+                ms >= 1000.0,
+                "WORKFLOW_ERROR: event timeout must be at least 1 second"
             );
+            check_horizon(ms, "event timeout")?;
             Ok(ms)
         })();
         let ms = match checked {

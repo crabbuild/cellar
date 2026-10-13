@@ -109,6 +109,12 @@ fn message_id(at: i64) -> Result<String> {
 }
 
 impl Broker {
+    fn retention_cutoff(&self, at: i64) -> i64 {
+        self.config
+            .limits
+            .retention_ms
+            .map_or(i64::MIN, |ms| at.saturating_sub(ms))
+    }
     fn exec(&self, query: &str, params: &[SqlValue]) -> Result<Vec<SqlRow>> {
         self.storage.system_sql(query, params)
     }
@@ -149,7 +155,7 @@ impl Broker {
     }
     fn metrics(&self, at: i64, waiting: bool) -> Result<Value> {
         self.open()?;
-        let cutoff = at.saturating_sub(self.config.limits.retention_ms);
+        let cutoff = self.retention_cutoff(at);
         let stats=self.exec("SELECT backlog_count,backlog_bytes,oldest_message_timestamp FROM __sys_queue_stats WHERE id=1",&[])?.remove(0);
         let oldest = optional_number(&stats, "oldest_message_timestamp")?;
         let (count, bytes, oldest) = if oldest.is_some_and(|oldest| oldest <= cutoff) {
@@ -213,8 +219,16 @@ impl Broker {
         } else {
             self.exec("SELECT leased_until FROM __sys_queue_messages INDEXED BY __sys_queue_messages_lease WHERE lease_id IS NOT NULL ORDER BY leased_until LIMIT 1",&[])?.first().map(|row|number(row,"leased_until")).transpose()?
         };
-        let sweep=self.exec("SELECT enqueued_at+? AS next_sweep FROM __sys_queue_messages INDEXED BY __sys_queue_messages_retained WHERE dlq_target IS NULL AND purge_on_settle=0 ORDER BY enqueued_at,seq LIMIT 1",&[self.config.limits.retention_ms.into()])?.first().map(|row|number(row,"next_sweep")).transpose()?;
-        let receipts=self.exec("SELECT expires_at AS next_sweep FROM __sys_queue_transfer_receipts ORDER BY expires_at,transfer_id LIMIT 1",&[])?.first().map(|row|number(row,"next_sweep")).transpose()?;
+        let sweep = if let Some(retention) = self.config.limits.retention_ms {
+            self.exec("SELECT enqueued_at AS enqueued FROM __sys_queue_messages INDEXED BY __sys_queue_messages_retained WHERE dlq_target IS NULL AND purge_on_settle=0 ORDER BY enqueued_at,seq LIMIT 1", &[])?.first().map(|row| number(row, "enqueued").map(|at| at.saturating_add(retention))).transpose()?
+        } else {
+            None
+        };
+        let receipts = if self.config.limits.retention_ms.is_some() {
+            self.exec("SELECT expires_at AS next_sweep FROM __sys_queue_transfer_receipts ORDER BY expires_at,transfer_id LIMIT 1",&[])?.first().map(|row|number(row,"next_sweep")).transpose()?
+        } else {
+            None
+        };
         let pending=!self.exec("SELECT 1 FROM __sys_queue_messages INDEXED BY __sys_queue_messages_moving WHERE dlq_target IS NOT NULL LIMIT 1",&[])?.is_empty();
         let mut batch = if ready.is_empty() {
             None
@@ -244,6 +258,29 @@ impl Broker {
         context: &Context,
         entries: Vec<Encoded>,
     ) -> Result<tokio::sync::oneshot::Receiver<Reply>> {
+        ensure!(
+            !entries.is_empty()
+                && entries.len() <= usize::from(self.config.limits.max_batch_messages),
+            "QUEUE_ERROR: producer batch exceeds the host message count limit"
+        );
+        let mut total = 0usize;
+        for entry in &entries {
+            ensure!(
+                entry.body.len() <= self.config.limits.max_message_bytes
+                    && entry.delay
+                        <= crate::application::limits::current()
+                            .queue
+                            .max_delay_seconds,
+                "QUEUE_ERROR: message exceeds the host size or delay limit"
+            );
+            total = total
+                .checked_add(entry.body.len())
+                .ok_or_else(|| error("batch size overflow"))?;
+        }
+        ensure!(
+            total <= self.config.limits.max_batch_bytes,
+            "QUEUE_ERROR: producer batch exceeds the host byte limit"
+        );
         context.check_turn()?;
         let bytes = entries.iter().map(|entry| entry.body.len()).sum::<usize>();
         let (reply, receive) = tokio::sync::oneshot::channel();
@@ -252,8 +289,9 @@ impl Broker {
             let data = group.data.lock().unwrap();
             data.as_ref().is_none_or(|data| {
                 data.calls.len() + 1 > 64
-                    || data.entries.len() + entries.len() > 100
-                    || data.bytes + bytes > 256_000
+                    || data.entries.len().saturating_add(entries.len())
+                        > usize::from(self.config.limits.max_batch_messages)
+                    || data.bytes.saturating_add(bytes) > self.config.limits.max_batch_bytes
             })
         }) {
             if let Some(group) = pending.take() {
@@ -289,7 +327,10 @@ impl Broker {
         data.entries.extend(entries);
         data.calls.push(reply);
         data.bytes += bytes;
-        if data.calls.len() == 64 || data.entries.len() == 100 || data.bytes == 256_000 {
+        if data.calls.len() == 64
+            || data.entries.len() >= usize::from(self.config.limits.max_batch_messages)
+            || data.bytes >= self.config.limits.max_batch_bytes
+        {
             pending.take();
             let _ = group.flush.send(true);
         }
@@ -320,7 +361,7 @@ impl Broker {
 
     fn sweep(&self, at: i64) -> Result<usize> {
         self.open()?;
-        let cutoff = at.saturating_sub(self.config.limits.retention_ms);
+        let cutoff = self.retention_cutoff(at);
         let limit = self.config.limits.sweep_batch_rows;
         let messages=self.storage.transaction_sync(|_| {let rows=self.exec("SELECT seq,lease_id,leased_until FROM __sys_queue_messages WHERE enqueued_at<=? AND (purge_on_settle=0 OR lease_id IS NULL OR leased_until<=?) ORDER BY enqueued_at,seq LIMIT ?",&[cutoff.into(),at.into(),(limit as i64).into()])?;for row in &rows {let seq=number(row,"seq")?;if optional_text(row,"lease_id")?.is_some() && optional_number(row,"leased_until")?.is_some_and(|until|until>at) {self.exec("UPDATE __sys_queue_messages SET purge_on_settle=1 WHERE seq=?",&[seq.into()])?;}else{self.exec("DELETE FROM __sys_queue_messages WHERE seq=?",&[seq.into()])?;}}Ok(rows.len())})?;
         let remaining = limit - messages;
@@ -450,15 +491,28 @@ impl Broker {
     ) -> Result<Value> {
         let transfers = wire::array(graph, wire::field(graph, body, "transfers"))?;
         ensure!(
-            !transfers.is_empty() && transfers.len() <= policy::MAX_BATCH_MESSAGES,
+            !transfers.is_empty()
+                && transfers.len() <= usize::from(self.config.limits.max_batch_messages),
             "QUEUE_ERROR: a Queue transfer batch has an invalid size"
         );
+        for transfer in &transfers {
+            let entry = wire::field(graph, transfer, "entry");
+            let body = wire::bytes(graph, wire::field(graph, entry, "body"))?;
+            ensure!(
+                body.len() <= self.config.limits.max_message_bytes,
+                "QUEUE_ERROR: transferred message body exceeds the host limit"
+            );
+            ensure!(
+                usize::try_from(wire::number(wire::field(graph, entry, "size"))?)? == body.len(),
+                "QUEUE_ERROR: transferred message size does not match its body"
+            );
+        }
         let at = now();
         self.open()?;
         self.storage.transaction_sync(|_| {for transfer in &transfers {
             let field=|name|wire::field(graph,transfer,name);let transfer_id=wire::string(field("transferId"))?;ensure!(matches!(field("deadLetterSource"),CloneValue::Null|CloneValue::String(_)),"QUEUE_ERROR: a Queue transfer has an invalid dead-letter source");let source=wire::optional_string(field("deadLetterSource"))?;let entry=field("entry");let field=|name|wire::field(graph,entry,name);let id=wire::string(field("id"))?;
             if let Some(receipt)=self.exec("SELECT message_id,dead_letter_source FROM __sys_queue_transfer_receipts WHERE transfer_id=?",&[transfer_id.clone().into()])?.first() {ensure!(text(receipt,"message_id")?==id && optional_text(receipt,"dead_letter_source")?==source,"QUEUE_ERROR: a DLQ transfer collided with another message identity");continue;}
-            self.exec("INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,expires_at) VALUES (?,?,?,?)",&[transfer_id.clone().into(),id.clone().into(),sql_text(source.clone()),at.saturating_add(self.config.limits.retention_ms).into()])?;
+            self.exec("INSERT INTO __sys_queue_transfer_receipts(transfer_id,message_id,dead_letter_source,expires_at) VALUES (?,?,?,?)",&[transfer_id.clone().into(),id.clone().into(),sql_text(source.clone()),self.config.limits.retention_ms.map_or(i64::MAX, |ms| at.saturating_add(ms)).into()])?;
             self.exec("INSERT INTO __sys_queue_messages(id,body,content_type,size,enqueued_at,visible_at,attempts,dlq_transfer_id,dead_letter_source) VALUES (?,?,?,?,?,?,0,?,?)",&[id.into(),SqlValue::Blob(wire::bytes(graph,field("body"))?),wire::string(field("contentType"))?.into(),wire::number(field("size"))?.into(),at.into(),at.into(),transfer_id.into(),sql_text(source)])?;
         }Ok(())})?;
         self.rearm(context, at, false).await?;
@@ -466,7 +520,7 @@ impl Broker {
     }
     async fn drive_dlq(&self, context: &Context, limit: usize) -> Result<usize> {
         self.open()?;
-        let pending=self.exec("SELECT seq,id,body,content_type,size,dlq_target,dlq_transfer_id,transfer_kind FROM __sys_queue_messages WHERE dlq_target IS NOT NULL AND enqueued_at>? ORDER BY seq LIMIT ?",&[now().saturating_sub(self.config.limits.retention_ms).into(),(limit as i64).into()])?;
+        let pending=self.exec("SELECT seq,id,body,content_type,size,dlq_target,dlq_transfer_id,transfer_kind FROM __sys_queue_messages WHERE dlq_target IS NOT NULL AND enqueued_at>? ORDER BY seq LIMIT ?",&[self.retention_cutoff(now()).into(),(limit as i64).into()])?;
         let mut groups = IndexMap::<String, Vec<&SqlRow>>::new();
         for row in &pending {
             groups
@@ -634,7 +688,7 @@ impl Broker {
     fn peek(&self, limit: i64) -> Result<Value> {
         self.open()?;
         let at = now();
-        let rows=self.exec("SELECT id,body,content_type,size,enqueued_at,visible_at,attempts,lease_id,leased_until,purge_on_settle,dlq_target,dead_letter_source FROM __sys_queue_messages WHERE enqueued_at>? ORDER BY visible_at,seq LIMIT ?",&[at.saturating_sub(self.config.limits.retention_ms).into(),limit.into()])?;
+        let rows=self.exec("SELECT id,body,content_type,size,enqueued_at,visible_at,attempts,lease_id,leased_until,purge_on_settle,dlq_target,dead_letter_source FROM __sys_queue_messages WHERE enqueued_at>? ORDER BY visible_at,seq LIMIT ?",&[self.retention_cutoff(at).into(),limit.into()])?;
         let messages=rows.iter().map(|row| {let lease=optional_text(row,"lease_id")?.is_some() && optional_number(row,"leased_until")?.is_some_and(|until|until>at);let target=optional_text(row,"dlq_target")?;
             Ok(json!({"id":text(row,"id")?,"bodyBase64":base64::engine::general_purpose::STANDARD.encode(blob(row,"body")?),"contentType":text(row,"content_type")?,"size":number(row,"size")?,"enqueuedAt":number(row,"enqueued_at")?,"visibleAt":number(row,"visible_at")?,"attempts":number(row,"attempts")?,"state":if target.is_some(){"moving"}else if number(row,"purge_on_settle")?!=0{"purging"}else if lease{"leased"}else if number(row,"visible_at")?<=at{"visible"}else{"delayed"},"leasedUntil":if lease{optional_number(row,"leased_until")?}else{None},"transferTarget":target,"deadLetterSource":optional_text(row,"dead_letter_source")?}))
         }).collect::<Result<Vec<_>>>()?;
@@ -643,7 +697,7 @@ impl Broker {
     async fn redrive(&self, context: &Context, limit: i64) -> Result<Value> {
         self.drive_dlq(context, 100).await?;
         let at = now();
-        let rows=self.exec("SELECT seq,dead_letter_source FROM __sys_queue_messages WHERE dead_letter_source IS NOT NULL AND dlq_target IS NULL AND purge_on_settle=0 AND enqueued_at>? AND (lease_id IS NULL OR leased_until<=?) ORDER BY visible_at,seq LIMIT ?",&[at.saturating_sub(self.config.limits.retention_ms).into(),at.into(),limit.into()])?;
+        let rows=self.exec("SELECT seq,dead_letter_source FROM __sys_queue_messages WHERE dead_letter_source IS NOT NULL AND dlq_target IS NULL AND purge_on_settle=0 AND enqueued_at>? AND (lease_id IS NULL OR leased_until<=?) ORDER BY visible_at,seq LIMIT ?",&[self.retention_cutoff(at).into(),at.into(),limit.into()])?;
         self.storage.transaction_sync(|_| {for row in &rows {let source=text(row,"dead_letter_source")?;self.exec("UPDATE __sys_queue_messages SET dlq_target=?,dlq_transfer_id=?,transfer_kind='redrive',lease_id=NULL,leased_until=NULL WHERE seq=? AND dead_letter_source=? AND dlq_target IS NULL AND purge_on_settle=0 AND (lease_id IS NULL OR leased_until<=?)",&[source.clone().into(),uuid(4,None)?.into(),number(row,"seq")?.into(),source.into(),at.into()])?;}Ok(())})?;
         self.rearm(context, at, false).await?;
         self.drive_dlq(context, 100).await?;
@@ -742,11 +796,12 @@ impl Broker {
                         }
                         Some(value) => value
                             .as_i64()
-                            .ok_or_else(|| error("limit must be an integer from 1 through 100"))?,
+                            .ok_or_else(|| error("limit must be a positive integer"))?,
                     };
                     ensure!(
-                        (1..=100).contains(&limit),
-                        "QUEUE_ERROR: limit must be an integer from 1 through 100"
+                        limit > 0 && limit as u64 <= self.config.limits.max_admin_batch_size as u64,
+                        "QUEUE_ERROR: limit must be from 1 through {}",
+                        self.config.limits.max_admin_batch_size
                     );
                     if op == "peek" {
                         self.peek(limit)?

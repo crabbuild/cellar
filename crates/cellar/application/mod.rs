@@ -19,6 +19,7 @@ pub mod facets;
 pub mod html_rewriter;
 pub mod http;
 pub mod kv;
+pub mod limits;
 pub mod loader;
 pub mod queue;
 pub mod service;

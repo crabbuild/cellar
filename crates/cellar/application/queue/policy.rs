@@ -414,6 +414,7 @@ fn effective_queue_batch_timeout(duration: i64) -> i64 {
 pub(crate) fn consumer_config(
     config: &crate::worker_config::WorkerConfig,
 ) -> Result<serde_json::Value> {
+    let limits = crate::application::limits::current().queue;
     let consumers: serde_json::Map<String, serde_json::Value> = config
         .queue_consumers
         .iter()
@@ -449,13 +450,14 @@ pub(crate) fn consumer_config(
         "consumers": consumers,
         "leaseDurationMs": lease,
         "limits": {
-            "maxMessageBytes": cellar_logic::queue::MAX_MESSAGE_BYTES,
-            "maxBatchBytes": cellar_logic::queue::MAX_SEND_BATCH_BYTES,
-            "maxBatchMessages": cellar_logic::queue::MAX_BATCH_MESSAGES,
+            "maxMessageBytes": limits.max_message_bytes,
+            "maxBatchBytes": limits.max_send_batch_bytes,
+            "maxBatchMessages": limits.max_batch_messages,
             "producerGroupMs": crate::queue_batching::timing().producer_ms,
-            "maxConcurrency": cellar_logic::queue::MAX_CONCURRENCY,
-            "maxDelaySeconds": cellar_logic::queue::MAX_DELAY_SECONDS,
-            "retentionMs": effective_queue_retention(cellar_logic::queue::RETENTION_MS),
+            "maxConcurrency": limits.max_concurrency,
+            "maxDelaySeconds": limits.max_delay_seconds,
+            "retentionMs": limits.retention_ms.map(effective_queue_retention),
+            "maxAdminBatchSize": limits.max_admin_batch_size,
             "sweepBatchRows": effective_queue_sweep_batch(cellar_logic::sweep::BATCH_ROWS),
         },
     }))

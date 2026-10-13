@@ -44,7 +44,11 @@ pub(crate) struct Consumer {
 pub(crate) struct Limits {
     pub producer_group_ms: u64,
     pub max_concurrency: u16,
-    pub retention_ms: i64,
+    pub retention_ms: Option<i64>,
+    pub max_admin_batch_size: usize,
+    pub max_message_bytes: usize,
+    pub max_batch_bytes: usize,
+    pub max_batch_messages: u16,
     pub sweep_batch_rows: usize,
 }
 
@@ -89,9 +93,14 @@ pub(super) fn now() -> i64 {
 }
 pub(super) fn check_delay(delay: u32) -> Result<u32> {
     ensure!(
-        delay <= cellar_logic::queue::MAX_DELAY_SECONDS,
+        delay
+            <= crate::application::limits::current()
+                .queue
+                .max_delay_seconds,
         "QUEUE_ERROR: delaySeconds must be an integer from 0 to {}",
-        cellar_logic::queue::MAX_DELAY_SECONDS
+        crate::application::limits::current()
+            .queue
+            .max_delay_seconds
     );
     Ok(delay)
 }
@@ -108,9 +117,14 @@ fn encode(body: Body, delay: u32) -> Result<Encoded> {
         ),
     };
     ensure!(
-        body.len() <= cellar_logic::queue::MAX_MESSAGE_BYTES,
+        body.len()
+            <= crate::application::limits::current()
+                .queue
+                .max_message_bytes,
         "QUEUE_ERROR: a message is at most {} bytes, got {}",
-        cellar_logic::queue::MAX_MESSAGE_BYTES,
+        crate::application::limits::current()
+            .queue
+            .max_message_bytes,
         body.len()
     );
     Ok(Encoded {
@@ -168,19 +182,35 @@ impl Producer {
     ) -> Result<SendResult> {
         let delay = check_delay(options.delay_seconds.unwrap_or(self.delivery_delay))?;
         let mut entries = Vec::new();
-        let mut bytes = 0;
+        let mut bytes = 0usize;
         for message in messages {
             ensure!(
-                entries.len() < cellar_logic::queue::MAX_BATCH_MESSAGES,
+                entries.len()
+                    < usize::from(
+                        crate::application::limits::current()
+                            .queue
+                            .max_batch_messages
+                    ),
                 "QUEUE_ERROR: a batch has at most {} messages",
-                cellar_logic::queue::MAX_BATCH_MESSAGES
+                usize::from(
+                    crate::application::limits::current()
+                        .queue
+                        .max_batch_messages
+                )
             );
             let entry = encode(message.body, message.delay_seconds.unwrap_or(delay))?;
-            bytes += entry.body.len();
+            bytes = bytes
+                .checked_add(entry.body.len())
+                .ok_or_else(|| error("batch size overflow"))?;
             ensure!(
-                bytes <= cellar_logic::queue::MAX_SEND_BATCH_BYTES,
+                bytes
+                    <= crate::application::limits::current()
+                        .queue
+                        .max_send_batch_bytes,
                 "QUEUE_ERROR: a batch is at most {} bytes, got {bytes}",
-                cellar_logic::queue::MAX_SEND_BATCH_BYTES
+                crate::application::limits::current()
+                    .queue
+                    .max_send_batch_bytes
             );
             entries.push(entry);
         }

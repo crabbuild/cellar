@@ -373,7 +373,7 @@ impl InstanceCell {
             }
             "__wfSendEvent" => {
                 let kind = text(&argument, "type")?;
-                ensure!(name_valid(&kind, 100), "WORKFLOW_ERROR: invalid event type");
+                check_event_type(&kind)?;
                 let payload = property(&argument, "payload")?;
                 if let Some(payload) = &payload {
                     check_value(payload, "the event payload")?;

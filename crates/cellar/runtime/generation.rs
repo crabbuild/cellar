@@ -492,6 +492,7 @@ impl Generation {
             "generation execution domain is closed"
         );
         crate::asyncrt::services().loader_policy();
+        let cell_limits = crate::application::limits::current();
         let GenerationOptions { node, region } = options;
         let DeploymentGraph { primary, cohosted } = graph;
 
@@ -509,6 +510,18 @@ impl Generation {
             )
         {
             for consumer in consumers {
+                cellar_logic::queue::validate_config_with_limits(
+                    &cellar_logic::queue::QueueConfig {
+                        max_batch_size: consumer.max_batch_size,
+                        max_batch_timeout_seconds: consumer.max_batch_timeout,
+                        max_retries: consumer.max_retries,
+                        max_concurrency: consumer.max_concurrency,
+                        delivery_delay_seconds: 0,
+                        retry_delay_seconds: consumer.retry_delay,
+                    },
+                    &cell_limits.queue,
+                )
+                .map_err(anyhow::Error::new)?;
                 let registration = crate::worker_config::QueueConsumerRegistration {
                     script: script.clone(),
                     config: consumer.clone(),
@@ -596,6 +609,13 @@ impl Generation {
                 assets.insert(script.clone(), resolver);
             }
             let classes = options.do_classes.clone();
+            for binding in &options.queue_bindings {
+                anyhow::ensure!(
+                    binding.delivery_delay <= cell_limits.queue.max_delay_seconds,
+                    "Queue binding {:?} delivery delay exceeds the host limit",
+                    binding.environment
+                );
+            }
             let mut config = WorkerConfig::new(options)
                 .with_services(services)
                 .with_asset_binding(asset_binding)
