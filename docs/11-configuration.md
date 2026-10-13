@@ -18,6 +18,9 @@ library defaults and CLI defaults are the same.
 | `handler_budget` | 300 s | Handler response budget; excludes subsequent background/proof settlement |
 | `HttpPolicy.request_timeout` | 120 s | SDK HTTP deadline, including response-body consumption |
 | `NodeServices.http_client` | `None` | Default HTTP builder ignores ambient proxies; supply a factory for host transport settings |
+| `AssetCacheOptions.directory` | Required | Caller-selected asset cache directory; no process default |
+| `AssetCacheOptions.max_bytes` | 512 MiB | Best-effort cache cleanup target; open files and failed removals can retain more |
+| `AssetCacheOptions.max_file_bytes` | 25 MiB | Serving and fallback-index per-file ceiling, fixed for this cache |
 | `LoaderPolicy.max_workers` | 256 | Loaded-worker limit per host |
 | `max_workers_per_principal` | 255 | Shared script/generation principal limit |
 | `max_environment_bytes` / `max_props_bytes` | 1 MiB each | Encoded values; environment includes service route metadata |
@@ -98,6 +101,8 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_STATELESS_ISOLATES` | Stateless worker count; CLI defaults to available parallelism |
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
 | `CELLAR_ADMISSION_WAIT_MS` / `CELLAR_HANDLER_BUDGET_S` | Admission wait / response budget |
+| `CELLAR_ASSET_CACHE_DIR` / `CELLAR_ASSET_CACHE_BYTES` | CLI captures cache directory and cleanup target once; default directory is `asset-cache` under the node data directory |
+| `CELLAR_MAX_ASSET_FILE_BYTES` | CLI captures the serving file ceiling; deployment builders use the same explicit environment adapter |
 | `CELLAR_FETCH_TIMEOUT_S` | CLI captures SDK HTTP request timeout at startup |
 | `CELLAR_MAX_RESIDENT_CELLS` | Actor resident-cell limit |
 | `CELLAR_MAX_CACHED_ROUTES` | Idle unowned route history; CLI default 2,048, zero disables |
@@ -128,6 +133,14 @@ Ordinary redirect modes reuse host pools; a redirect-limited invocation owns
 its accounting client. The CLI explicitly selects reqwest's system-proxy
 behavior, while library defaults ignore ambient proxy settings.
 
+`DeploymentGraph::load` and direct asset resolver loading require an explicit
+`AssetCache`. Cache construction performs no filesystem I/O. Use
+`AssetCacheOptions::from_env` only in an environment-owning adapter. A zero
+cleanup target removes cached paths after opening their response handles;
+removal is best effort. Caller filesystems must implement atomic `create_new`
+for publishing checked content. The deployment protocol still caps each index
+at 20,000 files and 1 GiB total content, independently of the per-file policy.
+
 `ReplicationOptions` controls upload/compaction, restoration/hydration and
 durability timeout. `LogOptions` controls pipeline, follower windows, streams,
 hedging, eviction and publication timeout. Tune from measurements of the actual
@@ -142,5 +155,6 @@ a representative load run and saturation test. Sources:
 [runtime](../crates/cellar/runtime/policy.rs),
 [loader](../crates/cellar/runtime/workers/loader_policy.rs),
 [HTTP](../crates/cellar/transport/http/policy.rs),
+[asset cache](../crates/cellar/runtime/assets/cache.rs),
 [Node config](../crates/cellar/node/embedded.rs),
 [shutdown](../crates/cellar/node/lifecycle.rs).

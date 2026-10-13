@@ -15,6 +15,9 @@ use std::collections::BTreeMap;
 async fn native_artifact_publication_install_and_source_refusal() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     let directory = tempfile::tempdir()?;
+    let asset_cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(
+        directory.path().join("asset-cache"),
+    ))?;
     let executable = directory.path().join("application");
     std::fs::write(&executable, b"native executable fixture\0payload")?;
     let artifact = executable_identity(&executable, current_target())?;
@@ -56,12 +59,12 @@ async fn native_artifact_publication_install_and_source_refusal() -> Result<()> 
         Some("accounts")
     );
     assert_eq!(
-        cellar::fleet::load_named_worker(&bucket, "audit", "node".into())
+        cellar::fleet::load_named_worker(&bucket, "audit", "node".into(), &asset_cache)
             .await?
             .script_name,
         "audit"
     );
-    let graph = DeploymentGraph::load(&bucket, "node".into()).await?;
+    let graph = DeploymentGraph::load(&bucket, "node".into(), &asset_cache).await?;
     assert!(graph.primary.native.is_some());
     assert!(graph.primary.options.src.is_empty());
     let error = Generation::build_native(
@@ -183,6 +186,9 @@ async fn staged_assets_preserve_shared_protocol_and_refuse_incomplete_publicatio
     use cellar::protocol::AssetIndex;
     use http_body_util::BodyExt;
     let root = tempfile::tempdir()?;
+    let asset_cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(
+        root.path().join("asset-cache"),
+    ))?;
     let assets = root.path().join("public");
     std::fs::create_dir(&assets)?;
     std::fs::write(assets.join("index.html"), b"native asset body")?;
@@ -312,7 +318,7 @@ async fn staged_assets_preserve_shared_protocol_and_refuse_incomplete_publicatio
         package.primary.script_name, package.primary.version
     );
     assert_eq!(bucket.get(&index_key).await?.unwrap().0, original_index);
-    let graph = DeploymentGraph::load(&bucket, "node".into()).await?;
+    let graph = DeploymentGraph::load(&bucket, "node".into(), &asset_cache).await?;
     let resolver = graph.primary.assets.as_ref().unwrap();
     assert!(
         !resolver.asset_only(),
@@ -336,7 +342,8 @@ async fn staged_assets_preserve_shared_protocol_and_refuse_incomplete_publicatio
     assert_eq!(response.status(), 302);
     assert_eq!(response.headers()["location"], "/");
     let component =
-        cellar::fleet::load_named_worker(&bucket, "static-component", "node".into()).await?;
+        cellar::fleet::load_named_worker(&bucket, "static-component", "node".into(), &asset_cache)
+            .await?;
     let resolver = component.assets.unwrap();
     assert_eq!(resolver.binding_name(), Some("ASSETS"));
     let response = resolver

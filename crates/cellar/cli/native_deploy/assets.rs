@@ -47,7 +47,7 @@ fn decode_index(bytes: &[u8], reference: &AssetManifestRef) -> Result<AssetIndex
         "native asset index checksum mismatch"
     );
     let index: AssetIndex = serde_json::from_slice(bytes).context("decode native asset index")?;
-    crate::assets::validate_index(&index, reference)?;
+    crate::assets::validate_index(&index, reference, crate::env_vars::max_asset_file_bytes()?)?;
     crate::assets::validate_directives(&index.config)?;
     Ok(index)
 }

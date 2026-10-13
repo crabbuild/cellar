@@ -21,6 +21,7 @@ identify their implementation at the documented source baseline.
 | HTTP values | `http::Response`, URL and outbound request/body helpers | [HTTP](../crates/cellar/application/http.rs) |
 | Host HTTP configuration | `HttpPolicy`, `HttpClientFactory`; `NodeConfig::http`, `NodeServices::http_client`, `HostServices::configure_http` | [HTTP policy](../crates/cellar/transport/http/policy.rs), [host services](../crates/cellar/execution/services.rs) |
 | Blob objects | `blob::Bucket`, `ObjectBody`, ranges, conditionals, multipart, metadata/checksums | [Blob](../crates/cellar/application/blob.rs) |
+| Host asset storage | `AssetCache`, `AssetCacheOptions`, `AssetResolver`, `FileSystem`; explicit cache passed to `DeploymentGraph::load` | [asset cache](../crates/cellar/runtime/assets/cache.rs), [filesystem](../crates/cellar-ltx/src/host.rs) |
 | Assets / cache / rewrite | `assets`, `cache`, `html_rewriter` modules | [assets](../crates/cellar/application/assets.rs), [cache](../crates/cellar/application/cache.rs), [rewriter](../crates/cellar/application/html_rewriter.rs) |
 | Streams | `streams` module and owned byte stream values | [streams](../crates/cellar/application/streams.rs) |
 | WebSockets | `websocket::WebSocketPair`, `WebSocket`, upgrade, hibernation, tags/attachments | [WebSocket](../crates/cellar/application/websocket.rs) |

@@ -129,6 +129,8 @@ impl DeploymentGraph {
     }
 
     /// Resolve the fleet-wide pointer and every script it depends on.
+    /// All resolvers retain the supplied cache, including cohosted scripts;
+    /// configuration is never inferred from the loading process.
     ///
     /// A service binding names a script, and that script's own pointer names
     /// its deployment. A queue dependency names a queue, and the queue's
@@ -136,8 +138,12 @@ impl DeploymentGraph {
     /// script that resolves twice and a queue attached to a deployment other
     /// than the one already loaded, because either would give one script two
     /// bodies in one process.
-    pub async fn load(bucket: &Bucket, node: String) -> anyhow::Result<Self> {
-        let primary = fleet::load_current_worker(bucket, node.clone()).await?;
+    pub async fn load(
+        bucket: &Bucket,
+        node: String,
+        cache: &crate::assets::AssetCache,
+    ) -> anyhow::Result<Self> {
+        let primary = fleet::load_current_worker(bucket, node.clone(), cache).await?;
         let primary_script = primary.script_name.clone();
         let mut loaded_scripts = BTreeMap::from([(primary_script.clone(), primary.prefix.clone())]);
         let mut loaded_consumers =
@@ -151,7 +157,7 @@ impl DeploymentGraph {
                     if target == primary_script || loaded_scripts.contains_key(&target) {
                         continue;
                     }
-                    let loaded = fleet::load_named_worker(bucket, &target, node.clone())
+                    let loaded = fleet::load_named_worker(bucket, &target, node.clone(), cache)
                         .await
                         .with_context(|| format!("load service binding target {target}"))?;
                     if loaded.script_name != target {
@@ -202,9 +208,15 @@ impl DeploymentGraph {
                         );
                         continue;
                     }
-                    fleet::load_queue_consumer_worker(bucket, &queue, &consumer, node.clone())
-                        .await
-                        .with_context(|| format!("load consumer for queue {queue:?}"))?
+                    fleet::load_queue_consumer_worker(
+                        bucket,
+                        &queue,
+                        &consumer,
+                        node.clone(),
+                        cache,
+                    )
+                    .await
+                    .with_context(|| format!("load consumer for queue {queue:?}"))?
                 }
             };
             let target = loaded.script_name.clone();

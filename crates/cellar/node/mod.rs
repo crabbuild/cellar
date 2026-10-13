@@ -829,6 +829,12 @@ fn spawn_cron_arm(app: AppHandle) {
     .detach();
 }
 
+/// Pointer transport and asset capability captured once by the CLI host.
+struct DeploymentResources {
+    bucket: Bucket,
+    assets: crate::assets::AssetCache,
+}
+
 /// Adopt the deployment `pointer` names.
 ///
 /// The same two calls boot makes -- `DeploymentGraph::load` and
@@ -836,7 +842,7 @@ fn spawn_cron_arm(app: AppHandle) {
 /// leaves the current generation serving; nothing has changed until `adopt`.
 async fn adopt_deployment(
     app: &AppHandle,
-    bucket: &Bucket,
+    deployment: &DeploymentResources,
     node: &str,
     region: &str,
     pointer: DeployPointer,
@@ -862,10 +868,12 @@ async fn adopt_deployment(
         prefix: pointer.prefix.clone(),
         error,
     };
-    let graph = match DeploymentGraph::load(bucket, node.to_string()).await {
-        Ok(graph) => graph,
-        Err(error) => return failed(format!("{error:#}")),
-    };
+    let graph =
+        match DeploymentGraph::load(&deployment.bucket, node.to_string(), &deployment.assets).await
+        {
+            Ok(graph) => graph,
+            Err(error) => return failed(format!("{error:#}")),
+        };
     let id = runtime.next_generation_id();
     let options = GenerationOptions {
         node: node.to_string(),
@@ -908,7 +916,7 @@ async fn adopt_deployment(
 /// forced: a broken bundle must not recompile every interval on every node.
 fn start_pointer_watcher(
     app: AppHandle,
-    bucket: Bucket,
+    deployment: DeploymentResources,
     node: String,
     region: String,
     mut requests: crate::generation::ReloadReceiver,
@@ -927,7 +935,7 @@ fn start_pointer_watcher(
                     None => return,
                 },
             };
-            let outcome = match fleet::read_current_pointer(&bucket).await {
+            let outcome = match fleet::read_current_pointer(&deployment.bucket).await {
                 Err(error) => {
                     tracing::warn!(event = "deployment_pointer_unreadable", %error);
                     ReloadOutcome::Failed {
@@ -948,7 +956,7 @@ fn start_pointer_watcher(
                     _ => {
                         adopt_deployment(
                             &app,
-                            &bucket,
+                            &deployment,
                             &node,
                             &region,
                             pointer,
@@ -3871,6 +3879,9 @@ async fn async_main(
         .or_else(|| std::env::var_os("CELLAR_WATCH"))
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join(format!("cellar-{}", std::process::id())));
+    let asset_cache = crate::assets::AssetCache::new(crate::assets::AssetCacheOptions::from_env(
+        data_dir.join("asset-cache"),
+    )?)?;
     let mut deploy_agent = None;
     // The channel `POST /reload` and a managed notification nudge the pointer
     // watcher through. Without a deployment bucket the receiver is dropped
@@ -3905,7 +3916,7 @@ async fn async_main(
                 && !(backend.is_native() && crate::env_vars::flag("CELLAR_NATIVE_DEV", false)?);
             let graph = match local_graph.take() {
                 Some(graph) => graph,
-                None => DeploymentGraph::load(&client, node.clone()).await?,
+                None => DeploymentGraph::load(&client, node.clone(), &asset_cache).await?,
             };
             let wake = Arc::new(crate::wake::WakeFlusher::new());
             crate::wake_entry::set_arm_gate(ArmGate {
@@ -4786,7 +4797,10 @@ async fn async_main(
     if let Some(bucket) = deploy_bucket {
         start_pointer_watcher(
             app.clone(),
-            bucket,
+            DeploymentResources {
+                bucket,
+                assets: asset_cache,
+            },
             node.clone(),
             settings.region.clone(),
             reload_rx,
