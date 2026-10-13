@@ -39,6 +39,7 @@ struct Signals {
 }
 
 struct DropFlag(Arc<Signals>);
+
 impl Drop for DropFlag {
     fn drop(&mut self) {
         self.0.child_dropped.store(true, Ordering::Release);
@@ -208,6 +209,7 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn fetch(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell("Counter:test".into(), None, request(path), None)

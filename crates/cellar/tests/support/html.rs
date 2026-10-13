@@ -3,6 +3,7 @@ use cellar::{
     fleet::LoadedDeployment,
     generation::{DeploymentGraph, GenerationOptions},
 };
+
 pub fn graph(script: &str, source: &str, classes: Vec<String>) -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -35,12 +36,14 @@ pub fn graph(script: &str, source: &str, classes: Vec<String>) -> DeploymentGrap
         container_images: Vec::new(),
     })
 }
+
 pub fn generation_options() -> GenerationOptions {
     GenerationOptions {
         node: "test".into(),
         region: "test".into(),
     }
 }
+
 pub fn runtime_options(path: std::path::PathBuf) -> RuntimeOptions {
     RuntimeOptions {
         data_dir: path,

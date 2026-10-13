@@ -28,6 +28,7 @@ pub struct WorkerCode {
     pub outbound: Outbound,
     environment_fetchers: Vec<super::service::Fetcher>,
 }
+
 #[derive(Clone, Default)]
 pub enum Outbound {
     #[default]
@@ -35,6 +36,7 @@ pub enum Outbound {
     Deny,
     Broker(super::service::Fetcher),
 }
+
 impl WorkerCode {
     pub fn new(application: Arc<dyn Application>) -> Self {
         Self {
@@ -46,6 +48,7 @@ impl WorkerCode {
             environment_fetchers: Vec::new(),
         }
     }
+
     /// Insert a capability placeholder into this environment's graph. Attach
     /// the returned reference wherever the loaded code should receive it.
     pub fn environment_fetcher(&mut self, fetcher: super::service::Fetcher) -> Result<Value> {
@@ -74,6 +77,7 @@ pub(crate) struct Owner {
     active: AtomicBool,
     managers: Mutex<HashMap<String, Arc<Manager>>>,
 }
+
 impl Owner {
     pub(crate) fn new(config: &WorkerConfig) -> Arc<Self> {
         Arc::new(Self {
@@ -82,6 +86,7 @@ impl Owner {
             managers: Mutex::new(HashMap::new()),
         })
     }
+
     pub(crate) fn retire(&self) {
         self.active.store(false, Ordering::Release);
         let states = host_loader::take_loader_owner(&self.host);
@@ -94,10 +99,12 @@ impl Owner {
         }
     }
 }
+
 struct Manager {
     owner: Weak<Owner>,
     names: Mutex<HashMap<String, Weak<Load>>>,
 }
+
 #[derive(Clone)]
 pub struct Loader(Arc<Manager>);
 
@@ -122,6 +129,7 @@ impl Context {
         });
         Ok(Loader(manager))
     }
+
     /// A copied graph, available to a loaded worker and its facet constructors.
     pub fn loaded_environment(&self) -> Result<Option<&StructuredValue>> {
         self.check_turn()?;
@@ -133,7 +141,9 @@ impl Context {
 struct Ready {
     id: u64,
 }
+
 type LoadResult = std::result::Result<Ready, Arc<anyhow::Error>>;
+
 pub(crate) struct Load {
     service: Arc<dyn host_loader::LoaderService>,
     serial: u64,
@@ -142,6 +152,7 @@ pub(crate) struct Load {
     disposed: AtomicBool,
     result: watch::Receiver<Option<LoadResult>>,
 }
+
 impl Load {
     fn remove_name(&self) {
         if let (Some(manager), Some(name)) = (self.manager.upgrade(), &self.name) {
@@ -155,6 +166,7 @@ impl Load {
             }
         }
     }
+
     fn release(&self) {
         self.disposed.store(true, Ordering::Release);
         self.remove_name();
@@ -165,6 +177,7 @@ impl Load {
         }
     }
 }
+
 impl Drop for Load {
     fn drop(&mut self) {
         self.release();
@@ -202,9 +215,11 @@ impl Loader {
         );
         Ok(owner)
     }
+
     pub fn load(&self, context: &Context, code: WorkerCode) -> Result<Worker> {
         self.start(context, None, move |_| Box::pin(async move { Ok(code) }))
     }
+
     pub fn get(
         &self,
         context: &Context,
@@ -227,6 +242,7 @@ impl Loader {
         }
         self.start(context, Some(name.into()), callback)
     }
+
     fn start(
         &self,
         context: &Context,
@@ -388,11 +404,13 @@ impl Worker {
         );
         Ok(())
     }
+
     pub(crate) fn from_origin(load: &Weak<Load>) -> Result<Self> {
         load.upgrade()
             .map(Self)
             .ok_or_else(|| anyhow!("worker loader: origin lifetime has retired"))
     }
+
     async fn ready(&self) -> Result<Ready> {
         let mut result = self.0.result.clone();
         loop {
@@ -409,6 +427,7 @@ impl Worker {
                 .map_err(|_| anyhow!("worker loader: startup event retired before completion"))?;
         }
     }
+
     pub(crate) async fn slot(&self) -> Result<Arc<crate::pool::Slot>> {
         self.check_host()?;
         let ready = self.ready().await?;
@@ -422,6 +441,7 @@ impl Worker {
             .await
             .map_err(anyhow::Error::msg)
     }
+
     pub(crate) fn capture(&self) -> Result<Option<watch::Receiver<LoaderState>>> {
         self.check_host()?;
         anyhow::ensure!(
@@ -438,12 +458,14 @@ impl Worker {
             .map(Some)
             .ok_or_else(|| anyhow!("worker loader: unknown worker"))
     }
+
     pub fn dispose(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
         self.check_host()?;
         self.0.release();
         Ok(())
     }
+
     pub fn entrypoint(&self, name: impl Into<String>) -> Entrypoint {
         Entrypoint {
             origin: CallOrigin::Loader(self.clone()),
@@ -452,12 +474,15 @@ impl Worker {
             limits: None,
         }
     }
+
     pub(crate) fn props_limit(&self) -> usize {
         self.0.service.policy().max_props_bytes
     }
+
     pub fn cell_class(&self, name: impl Into<String>) -> super::facets::Class {
         super::facets::Class::loaded(self.clone(), name.into())
     }
+
     pub async fn wait_ready(&self) -> Result<()> {
         self.slot().await.map(|_| ())
     }
@@ -617,11 +642,14 @@ pub struct Entrypoint {
     props: Vec<u8>,
     limits: Option<crate::WorkerInvocationLimits>,
 }
+
 pub struct FetchWithTail {
     pub response: HandlerFuture<HttpResponse>,
     pub report: HandlerFuture<String>,
 }
+
 type PreparedFetch = Result<(RequestBodyGuard, EgressGate, Option<CallCapture>)>;
+
 pub(crate) fn props_bytes(props: &StructuredValue, limit: usize) -> Result<Vec<u8>> {
     if props.root == Value::Undefined {
         return Ok(Vec::new());
@@ -637,6 +665,7 @@ pub(crate) fn props_bytes(props: &StructuredValue, limit: usize) -> Result<Vec<u
         format!("worker loader: cannot encode props within size limit of {limit} bytes")
     })
 }
+
 impl Entrypoint {
     pub fn with_props(&self, props: &StructuredValue) -> Result<Self> {
         Ok(Self {
@@ -644,15 +673,18 @@ impl Entrypoint {
             ..self.clone()
         })
     }
+
     pub fn with_limits(&self, limits: crate::WorkerInvocationLimits) -> Self {
         Self {
             limits: Some(limits),
             ..self.clone()
         }
     }
+
     pub fn fetch(&self, context: &Context, request: Request) -> HandlerFuture<HttpResponse> {
         self.fetch_in(context, request, None)
     }
+
     pub fn fetch_with_tail(&self, context: &Context, request: Request) -> FetchWithTail {
         let (send, receive) = oneshot::channel();
         FetchWithTail {
@@ -660,6 +692,7 @@ impl Entrypoint {
             report: Box::pin(async move { receive.await.map_err(anyhow::Error::from) }),
         }
     }
+
     fn fetch_in(
         &self,
         context: &Context,
@@ -692,6 +725,7 @@ impl Entrypoint {
         })();
         self.fetch_job(context, request, tail_report, prepared)
     }
+
     /// Invoke a supplied broker using its caller's already charged budget,
     /// captured gate and transferred body. Sampling/claiming again would lose
     /// that original write ticket and request-body authority.
@@ -716,6 +750,7 @@ impl Entrypoint {
         })();
         self.fetch_job(context, request, None, prepared)
     }
+
     fn fetch_job(
         &self,
         context: &Context,
@@ -772,6 +807,7 @@ impl Entrypoint {
             result
         })
     }
+
     pub fn rpc(
         &self,
         context: &Context,
@@ -810,6 +846,7 @@ impl Entrypoint {
             Ok(result)
         })
     }
+
     /// Cancel one loaded RPC while retaining the entrypoint's loader lifetime.
     pub fn rpc_with_signal(
         &self,

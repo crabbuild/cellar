@@ -1,9 +1,12 @@
 //! A bounded native tool loop with persisted checkpoints and durable wakes.
+
 use crate::support;
 use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output};
 use serde_json::json;
 use std::sync::Arc;
+
 pub struct Agent;
+
 impl Cell for Agent {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -26,13 +29,22 @@ impl Cell for Agent {
                                     "use a new agent name for a new run",
                                 ));
                             }
-                            tx.put_json("job", &json!({"text":text,"stage":"count","steps":0}))?;
+                            tx.put_json(
+                                "job",
+                                &json!({
+                                    "text": text,
+                                    "stage": "count",
+                                    "steps": 0,
+                                }),
+                            )?;
                             tx.set_alarm(support::now_ms() + 100)
                         })?;
                     }
                     support::json(
                         &context,
-                        storage.get_json("job")?.unwrap_or(json!({"stage":"idle"})),
+                        storage
+                            .get_json("job")?
+                            .unwrap_or(json!({ "stage": "idle" })),
                     )
                 }
                 Invocation::Alarm { .. } => {

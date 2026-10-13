@@ -44,6 +44,7 @@ impl ApplicationWork {
 }
 
 pub(crate) struct ApplicationWorkGuard(Arc<ApplicationWork>);
+
 impl Drop for ApplicationWorkGuard {
     fn drop(&mut self) {
         self.0.retired.fetch_add(1, Ordering::SeqCst);

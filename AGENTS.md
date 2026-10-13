@@ -298,6 +298,10 @@ third-party SDK compatibility; keep gaps in `examples/ROADMAP.md` explicit.
 - Follow surrounding Rust style. Propagate recoverable failures with `Result`
   and useful context; do not introduce input-triggered panics. Avoid blocking
   the actor or holding synchronous locks across `.await`.
+- Separate import blocks, types, implementations, and functions (including
+  methods) with a blank line. Keep documentation and attributes attached to
+  their declaration. Expand dense configuration, closures, and macro payloads
+  into readable lines; `cargo fmt` preserves many existing spacing choices.
 - Use `asyncrt::select!` for fair polling. A biased select needs a reason tied
   to lifecycle ordering. Never bypass the forbidden macros in `clippy.toml`.
 - Tests should exercise behavior and regressions. Do not weaken checks, alter

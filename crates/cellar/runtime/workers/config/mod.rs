@@ -7,6 +7,7 @@ use crate::engine_api::{Compat, ModuleSource, QueueBinding, WorkerConfigOptions,
 use std::sync::Arc;
 
 pub(crate) mod imports;
+
 const ENTRY_MODULE_NAME: &str = "worker.js";
 
 /// One queue's push consumer after the owning script has been resolved.
@@ -278,6 +279,7 @@ impl WorkerConfig {
         self.tail_reporting = enabled;
         self
     }
+
     /// Every `ModuleSource::EsModule` sibling with its name, its source and
     /// its scanned external imports.
     pub(crate) fn es_modules(

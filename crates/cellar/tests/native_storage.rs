@@ -20,12 +20,14 @@ use tokio::sync::Notify;
 fn clone_value(value: serde_json::Value) -> StructuredValue {
     StructuredValue::from_json(value).unwrap()
 }
+
 fn cycle() -> StructuredValue {
     StructuredValue {
         root: Value::Reference(0),
         objects: vec![Object::Object(vec![("self".into(), Value::Reference(0))])],
     }
 }
+
 fn response(value: &str) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -44,6 +46,7 @@ struct Signals {
     started: Notify,
     release: Notify,
 }
+
 struct Store {
     storage: Storage,
     signals: Arc<Signals>,

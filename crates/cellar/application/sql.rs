@@ -210,6 +210,7 @@ impl Session {
     pub fn prepare(&self, sql: impl Into<String>) -> PreparedStatement {
         self.0.prepare(sql.into())
     }
+
     pub async fn batch(
         &self,
         context: &Context,
@@ -217,6 +218,7 @@ impl Session {
     ) -> Result<Vec<ResultSet>> {
         self.0.batch(context, statements).await
     }
+
     pub fn get_bookmark(&self) -> Option<String> {
         self.0
             .bookmark
@@ -262,6 +264,7 @@ impl PreparedStatement {
             .await?
             .into_public())
     }
+
     pub async fn run(&self, context: &Context) -> Result<ResultSet> {
         self.all(context).await
     }

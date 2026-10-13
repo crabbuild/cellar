@@ -25,8 +25,11 @@ use std::time::{Duration, Instant};
 /// have no attachment; host lifetime and gate decisions remain shared.
 pub(crate) trait TurnEngine: std::any::Any + Send + Sync {
     fn background_active(&self) -> bool;
+
     fn clear_background(&mut self);
+
     fn remove_operations(&self, ids: Vec<u64>);
+
     fn discard_response_capture(&self, context: &IoContext);
 }
 
@@ -377,6 +380,7 @@ pub(crate) fn send_answer_after_arm_gates<T: Send + 'static>(
         if drop_task {
             return;
         }
+
         enum GateWait {
             Completed(Result<(), String>),
             CallerClosed,
@@ -566,6 +570,7 @@ pub(crate) struct AlarmClaim {
     /// recorded against the same one.
     pub(crate) now_ms: i64,
 }
+
 pub struct InFlight {
     /// The handler's promise. A `Global` because it outlives the turn that
     /// created it: Locals never cross a turn, exactly as workerd's
@@ -636,11 +641,13 @@ impl InFlight {
             .as_ref()
             .is_some_and(|engine| engine.background_active())
     }
+
     pub(crate) fn clear_engine_background(&mut self) {
         if let Some(engine) = &mut self.engine {
             engine.clear_background();
         }
     }
+
     pub(crate) fn remove_engine_ops(&self, ids: Vec<u64>) {
         if let Some(engine) = &self.engine {
             engine.remove_operations(ids);
@@ -1070,6 +1077,7 @@ impl InFlight {
 
 #[cfg(all(test, cellar_internal_tests))]
 static UNIX_CLOCK_FOR_TEST: std::sync::OnceLock<fn() -> Option<i64>> = std::sync::OnceLock::new();
+
 #[cfg(all(test, cellar_internal_tests))]
 pub(crate) fn set_unix_clock_for_test(clock: fn() -> Option<i64>) {
     let _ = UNIX_CLOCK_FOR_TEST.set(clock);
@@ -1089,6 +1097,7 @@ pub(crate) fn unix_now_ms() -> i64 {
         .as_millis()
         .min(i64::MAX as u128) as i64
 }
+
 pub(crate) fn gate_positions(
     scope: &str,
     writes_before: Option<u64>,
@@ -1102,12 +1111,14 @@ pub(crate) fn gate_positions(
     };
     Ok((write, observed))
 }
+
 pub(crate) fn write_delta(before: Option<u64>, after: Option<u64>) -> Option<u64> {
     match (before, after) {
         (Some(before), Some(after)) if after > before => Some(after),
         _ => None,
     }
 }
+
 /// The check runs in the turn that would start the handler, so no abort or
 /// give-back can close the facet between the check and the dispatch. An
 /// event for a facet that is not open would otherwise reach `_instance`,
@@ -1126,6 +1137,7 @@ pub(crate) fn facet_socket_refusal(
     (storage::facet_opening(scope) != Some(opening))
         .then(|| anyhow!("the Durable Object facet that holds this WebSocket is no longer running"))
 }
+
 /// Take the ops this turn enqueued that belong to this event, and hand every
 /// other event its own.
 ///

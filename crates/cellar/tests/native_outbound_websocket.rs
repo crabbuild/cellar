@@ -113,6 +113,7 @@ async fn native_outbound_websockets_use_production_transport() -> Result<()> {
     tokio::time::timeout(Duration::from_secs(90), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let root = tempfile::tempdir()?;
     let listener = TcpListener::bind("127.0.0.1:0").await?;

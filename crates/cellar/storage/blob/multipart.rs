@@ -5,6 +5,7 @@
 
 use super::*;
 use std::sync::atomic::Ordering;
+
 const IDLE: std::time::Duration = std::time::Duration::from_secs(3600);
 
 struct UploadEntry {
@@ -94,6 +95,7 @@ fn reap_uploads() {
 pub(crate) fn is_open(id: u64) -> bool {
     uploads().lock().unwrap().contains_key(&id)
 }
+
 pub(crate) async fn begin(
     bucket_name: String,
     key: String,
@@ -132,6 +134,7 @@ pub(crate) async fn begin(
     );
     Ok(upload_id.to_string())
 }
+
 pub(crate) async fn resume(
     bucket_name: String,
     key: String,
@@ -159,6 +162,7 @@ pub(crate) async fn resume(
         )),
     }
 }
+
 pub(crate) async fn part(
     upload_id: u64,
     part_number: u32,
@@ -208,6 +212,7 @@ pub(crate) async fn part(
     result?;
     Ok(serde_json::json!({ "partNumber": part_number }).to_string())
 }
+
 pub(crate) async fn finish(upload_id: u64, claimed: Vec<u32>) -> Result<String, String> {
     let Some(entry) = uploads().lock().unwrap().remove(&upload_id) else {
         return Err(format!("Blob multipart upload {upload_id} is not open"));
@@ -225,6 +230,7 @@ pub(crate) async fn finish(upload_id: u64, claimed: Vec<u32>) -> Result<String, 
     }
     result
 }
+
 async fn complete(
     entry: &mut UploadEntry,
     upload_id: u64,

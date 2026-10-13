@@ -28,6 +28,7 @@ pub(crate) struct Config {
     pub lease_duration_ms: i64,
     pub limits: Limits,
 }
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Consumer {
@@ -39,6 +40,7 @@ pub(crate) struct Consumer {
     pub retry_delay_seconds: Option<u32>,
     pub dead_letter_queue: Option<String>,
 }
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Limits {
@@ -58,6 +60,7 @@ pub struct Producer {
     delivery_delay: u32,
     json_default: bool,
 }
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SendOptions {
     pub delay_seconds: Option<u32>,
@@ -72,10 +75,12 @@ pub enum Body {
     JsonValue(StructuredValue),
     Structured(StructuredValue),
 }
+
 pub struct BatchEntry {
     pub body: Body,
     pub delay_seconds: Option<u32>,
 }
+
 pub struct SendResult {
     pub metrics: QueueMetrics,
 }
@@ -85,12 +90,15 @@ pub(super) struct Encoded {
     pub content_type: String,
     pub delay: u32,
 }
+
 pub(super) fn error(message: impl std::fmt::Display) -> anyhow::Error {
     anyhow!("QUEUE_ERROR: {message}")
 }
+
 pub(super) fn now() -> i64 {
     crate::ownership_store::now_ms() as i64
 }
+
 pub(super) fn check_delay(delay: u32) -> Result<u32> {
     ensure!(
         delay
@@ -104,6 +112,7 @@ pub(super) fn check_delay(delay: u32) -> Result<u32> {
     );
     Ok(delay)
 }
+
 fn encode(body: Body, delay: u32) -> Result<Encoded> {
     let (body, content_type) = match body {
         Body::Text(text) => (text.into_bytes(), "text"),
@@ -133,6 +142,7 @@ fn encode(body: Body, delay: u32) -> Result<Encoded> {
         delay: check_delay(delay)?,
     })
 }
+
 fn encode_json(value: &StructuredValue) -> Result<Vec<u8>> {
     Ok(cellar_native::json::stringify(value)
         .map_err(|_| error("the JSON message body cannot be serialized"))?
@@ -148,9 +158,11 @@ impl Producer {
             json_default,
         }
     }
+
     pub fn name(&self) -> &str {
         &self.queue
     }
+
     pub async fn send(
         &self,
         context: &Context,
@@ -160,6 +172,7 @@ impl Producer {
         let entry = encode(body, options.delay_seconds.unwrap_or(self.delivery_delay))?;
         self.send_encoded(context, vec![entry]).await
     }
+
     /// Apply the deployment's default content type to an ordinary owned value.
     pub async fn send_value(
         &self,
@@ -174,6 +187,7 @@ impl Producer {
         };
         self.send(context, body, options).await
     }
+
     pub async fn send_batch(
         &self,
         context: &Context,
@@ -220,6 +234,7 @@ impl Producer {
         );
         self.send_encoded(context, entries).await
     }
+
     async fn send_encoded(&self, context: &Context, entries: Vec<Encoded>) -> Result<SendResult> {
         let controls=entries.iter().map(|entry|json!({"body":null,"contentType":entry.content_type,"size":entry.body.len(),"delaySeconds":entry.delay})).collect::<Vec<_>>();
         let mut graph = StructuredValue::from_json(json!([{ "entries":controls }]))?;
@@ -233,6 +248,7 @@ impl Producer {
             metrics: metrics_from(&metrics)?,
         })
     }
+
     pub async fn metrics(&self, context: &Context) -> Result<QueueMetrics> {
         metrics_from(
             &self
@@ -244,6 +260,7 @@ impl Producer {
                 .await?,
         )
     }
+
     async fn call(&self, context: &Context, method: &str, args: StructuredValue) -> Result<Value> {
         let result = context
             .rpc_cell(
@@ -256,6 +273,7 @@ impl Producer {
         decode_rpc_result(&result)?.to_json()
     }
 }
+
 fn metrics_from(value: &Value) -> Result<QueueMetrics> {
     Ok(QueueMetrics {
         backlog_count: value["backlogCount"]
@@ -267,6 +285,7 @@ fn metrics_from(value: &Value) -> Result<QueueMetrics> {
         oldest_message_timestamp_ms: value["oldestMessageTimestamp"].as_i64(),
     })
 }
+
 fn decode(body: Vec<u8>, content_type: QueueContentType) -> Result<Body> {
     let text = |bytes: &[u8]| -> Result<String> {
         Ok(
@@ -309,6 +328,7 @@ struct Decisions {
     acks: IndexSet<String>,
     retries: IndexMap<String, Option<i32>>,
 }
+
 impl Decisions {
     fn active(&self) -> Result<()> {
         ensure!(
@@ -318,6 +338,7 @@ impl Decisions {
         Ok(())
     }
 }
+
 pub struct Message {
     pub id: String,
     pub timestamp_ms: i64,
@@ -325,6 +346,7 @@ pub struct Message {
     pub attempts: u16,
     decisions: Arc<Mutex<Decisions>>,
 }
+
 impl Message {
     pub fn ack(&self) -> Result<()> {
         let mut state = self.decisions.lock().unwrap();
@@ -334,6 +356,7 @@ impl Message {
         }
         Ok(())
     }
+
     pub fn retry(&self, delay_seconds: Option<i32>) -> Result<()> {
         let mut state = self.decisions.lock().unwrap();
         state.active()?;
@@ -346,16 +369,19 @@ impl Message {
         Ok(())
     }
 }
+
 #[derive(Clone)]
 pub struct Event {
     inner: Arc<EventData>,
 }
+
 struct EventData {
     queue: String,
     messages: Vec<Message>,
     metrics: QueueMetrics,
     decisions: Arc<Mutex<Decisions>>,
 }
+
 impl Event {
     fn new(incoming: QueueBatch) -> Result<Self> {
         let decisions = Arc::new(Mutex::new(Decisions {
@@ -390,15 +416,19 @@ impl Event {
             }),
         })
     }
+
     pub fn queue(&self) -> &str {
         &self.inner.queue
     }
+
     pub fn messages(&self) -> &[Message] {
         &self.inner.messages
     }
+
     pub fn metrics(&self) -> &QueueMetrics {
         &self.inner.metrics
     }
+
     pub fn ack_all(&self) -> Result<()> {
         let mut state = self.inner.decisions.lock().unwrap();
         state.active()?;
@@ -407,6 +437,7 @@ impl Event {
         }
         Ok(())
     }
+
     pub fn retry_all(&self, delay_seconds: Option<i32>) -> Result<()> {
         let mut state = self.inner.decisions.lock().unwrap();
         state.active()?;
@@ -419,7 +450,9 @@ impl Event {
         Ok(())
     }
 }
+
 struct Lifetime(Arc<Mutex<Decisions>>);
+
 impl Drop for Lifetime {
     fn drop(&mut self) {
         self.0.lock().unwrap().active = false;
@@ -472,6 +505,7 @@ where
         }))
     })
 }
+
 fn panic_error(panic: Box<dyn std::any::Any + Send>) -> anyhow::Error {
     anyhow!(
         "Queue handler panicked: {}",

@@ -15,6 +15,7 @@ use std::{
 use tokio::sync::{mpsc, Semaphore};
 
 struct Executor(Option<tokio::runtime::Runtime>);
+
 impl Executor {
     fn new(label: &str) -> Result<Self> {
         Ok(Self(Some(
@@ -25,10 +26,12 @@ impl Executor {
                 .build()?,
         )))
     }
+
     fn handle(&self) -> tokio::runtime::Handle {
         self.0.as_ref().unwrap().handle().clone()
     }
 }
+
 impl Drop for Executor {
     fn drop(&mut self) {
         self.0.take().unwrap().shutdown_background();
@@ -39,17 +42,21 @@ struct Signals {
     entered: mpsc::UnboundedSender<()>,
     release: Semaphore,
 }
+
 struct ReleaseFactoryOnDrop(Arc<(Mutex<bool>, Condvar)>);
+
 impl Drop for ReleaseFactoryOnDrop {
     fn drop(&mut self) {
         *self.0 .0.lock().unwrap() = true;
         self.0 .1.notify_all();
     }
 }
+
 struct Account {
     label: &'static str,
     signals: Option<Arc<Signals>>,
 }
+
 fn response(text: impl ToString) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -61,6 +68,7 @@ fn response(text: impl ToString) -> Output {
         observed_position: None,
     })
 }
+
 impl Cell for Account {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -85,6 +93,7 @@ impl Cell for Account {
         })
     }
 }
+
 fn applications(
     label: &'static str,
     signals: Option<Arc<Signals>>,
@@ -173,6 +182,7 @@ async fn background_event(
 }
 
 struct AlarmBackground(Arc<BackgroundSignals>);
+
 impl Cell for AlarmBackground {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -202,6 +212,7 @@ impl Cell for AlarmBackground {
         })
     }
 }
+
 fn alarm_background_applications(signals: Arc<BackgroundSignals>) -> Result<CompiledApplications> {
     CompiledApplications::default().register("embedded-node", "test", move || {
         let signals = signals.clone();
@@ -408,6 +419,7 @@ async fn public_node_shutdown_drains_nested_background_across_generations_and_is
     }
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn public_node_deadline_reports_background_work_before_forced_retirement() -> Result<()> {
     for mode in [ShutdownMode::Handoff, ShutdownMode::Preserve] {
@@ -724,6 +736,7 @@ fn graph() -> DeploymentGraph {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn public_node_applies_lifted_limits_to_cell_storage() -> Result<()> {
     struct WideSql;
+
     impl Cell for WideSql {
         fn invoke(self: Arc<Self>, context: Context, _: Invocation) -> HandlerFuture<Output> {
             Box::pin(async move {
@@ -899,6 +912,7 @@ fn actor(generation: String) -> ActorOptions {
         resume_generation: None,
     }
 }
+
 async fn inputs(
     name: &str,
     directory: &Path,
@@ -985,6 +999,7 @@ async fn inputs(
     };
     Ok((config, services))
 }
+
 async fn start(
     name: &str,
     label: &'static str,
@@ -997,11 +1012,13 @@ async fn start(
     let (config, services) = inputs(name, directory, core, bucket, metrics).await?;
     Node::start(config, services, graph(), applications(label, signals)?).await
 }
+
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .timeout(Duration::from_secs(15))
         .build()?)
 }
+
 async fn call(
     client: &reqwest::Client,
     node: &Node,
@@ -1022,6 +1039,7 @@ async fn call(
     );
     Ok(response.text().await?)
 }
+
 async fn ready(node: &Node) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(5), async {
         while !node.is_ready().await? {
@@ -1031,6 +1049,7 @@ async fn ready(node: &Node) -> Result<()> {
     })
     .await?
 }
+
 async fn stopped(node: Node) -> Result<()> {
     let services = node.services();
     let outcome = tokio::time::timeout(
@@ -1069,6 +1088,7 @@ fn unhex(value: &str) -> Result<Vec<u8>> {
         .map(|i| u8::from_str_radix(&value[i..i + 2], 16).map_err(Into::into))
         .collect()
 }
+
 async fn probe(client: &reqwest::Client, node: &Node) -> Result<()> {
     use ed25519_dalek::{Signature, VerifyingKey};
     let auth = PeerAuth::new([11; 32], "diagnostics")?;

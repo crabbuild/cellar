@@ -15,41 +15,50 @@ pub struct Event {
     pub instance_id: String,
     pub workflow_name: String,
 }
+
 #[derive(Clone, Debug)]
 pub struct StepName(pub Vec<u16>);
+
 impl From<&str> for StepName {
     fn from(name: &str) -> Self {
         Self(name.encode_utf16().collect())
     }
 }
+
 impl From<String> for StepName {
     fn from(name: String) -> Self {
         Self::from(name.as_str())
     }
 }
+
 impl From<Vec<u16>> for StepName {
     fn from(name: Vec<u16>) -> Self {
         Self(name)
     }
 }
+
 #[derive(Clone, Copy, Debug)]
 pub enum Backoff {
     Constant,
     Linear,
     Exponential,
 }
+
 pub type DelayCallback = Arc<dyn Fn(Attempt, ErrorRecord) -> HandlerFuture<Duration> + Send + Sync>;
+
 #[derive(Clone)]
 pub enum Delay {
     Fixed(Duration),
     Dynamic(DelayCallback),
 }
+
 #[derive(Clone)]
 pub struct Retries {
     pub limit: f64,
     pub delay: Delay,
     pub backoff: Option<Backoff>,
 }
+
 #[derive(Clone, Default)]
 pub struct StepConfig {
     pub retries: Option<Retries>,
@@ -57,6 +66,7 @@ pub struct StepConfig {
     pub sensitive: bool,
     pub rollback: bool,
 }
+
 #[derive(Clone, Debug)]
 pub struct Attempt {
     pub name: Vec<u16>,
@@ -67,11 +77,13 @@ pub struct Attempt {
     pub backoff: Option<Backoff>,
     pub timeout: Duration,
 }
+
 #[derive(Clone, Debug)]
 pub struct StepFailure {
     pub record: ErrorRecord,
     pub non_retryable: bool,
 }
+
 impl StepFailure {
     pub fn non_retryable(message: &str) -> Self {
         Self {
@@ -83,12 +95,15 @@ impl StepFailure {
         }
     }
 }
+
 impl std::fmt::Display for StepFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.record.message_lossy())
     }
 }
+
 impl std::error::Error for StepFailure {}
+
 fn failure(error: &anyhow::Error) -> StepFailure {
     let mut failure = error
         .downcast_ref::<StepFailure>()
@@ -108,6 +123,7 @@ fn failure(error: &anyhow::Error) -> StepFailure {
         .eq("NonRetryableError".encode_utf16());
     failure
 }
+
 fn error_value(error: &anyhow::Error) -> Result<StructuredValue> {
     let record = failure(error).record;
     let mut value = data(json!({}))?;
@@ -123,6 +139,7 @@ fn error_value(error: &anyhow::Error) -> Result<StructuredValue> {
     }
     Ok(value)
 }
+
 fn revive(record: &StructuredValue) -> Result<anyhow::Error> {
     let record = ErrorRecord::from_value(
         property(record, "error")?.ok_or_else(|| error("missing step error"))?,
@@ -138,23 +155,29 @@ fn revive(record: &StructuredValue) -> Result<anyhow::Error> {
     .into())
 }
 thread_local! {static ENCLOSING:RefCell<Option<Vec<u16>>>=const {RefCell::new(None)};}
+
 struct StepGuard(Option<Vec<u16>>);
+
 impl StepGuard {
     fn enter(name: &[u16]) -> Self {
         Self(ENCLOSING.with(|current| current.replace(Some(name.to_vec()))))
     }
 }
+
 impl Drop for StepGuard {
     fn drop(&mut self) {
         ENCLOSING.with(|current| current.replace(self.0.take()));
     }
 }
+
 struct Scoped<T> {
     name: Vec<u16>,
     future: HandlerFuture<T>,
 }
+
 impl<T> Future for Scoped<T> {
     type Output = Result<T>;
+
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         let _frame = StepGuard::enter(&this.name);
@@ -164,6 +187,7 @@ impl<T> Future for Scoped<T> {
         .unwrap_or_else(|panic| Poll::Ready(Err(crate::native_worker::panic_error(panic))))
     }
 }
+
 fn scoped<T: Send + 'static>(
     name: &[u16],
     callback: impl FnOnce() -> HandlerFuture<T>,
@@ -179,12 +203,15 @@ fn scoped<T: Send + 'static>(
         future,
     })
 }
+
 enum StepResult {
     Value(StructuredValue),
     Block(f64),
     Pause,
 }
+
 type Task = Pin<Box<dyn Future<Output = ()> + Send>>;
+
 #[derive(Default)]
 struct State {
     counts: HashMap<Vec<u16>, u64>,
@@ -198,6 +225,7 @@ struct State {
     held: Vec<tokio::sync::oneshot::Sender<Result<StructuredValue>>>,
     storage_failure: Option<String>,
 }
+
 struct Shared {
     storage: Storage,
     context: Context,
@@ -205,6 +233,7 @@ struct Shared {
     state: Mutex<State>,
     wake: AtomicWaker,
 }
+
 impl Shared {
     fn track<T>(&self, result: Result<T>) -> Result<T> {
         if let Err(error) = &result {
@@ -216,12 +245,15 @@ impl Shared {
         }
         result
     }
+
     fn get(&self, key: &str) -> Result<Option<StructuredValue>> {
         self.track(read(&self.storage, key))
     }
+
     fn put(&self, key: &str, value: &StructuredValue) -> Result<()> {
         self.track(self.storage.put_clone(key, value))
     }
+
     fn kind(&self, record: Option<StructuredValue>, kind: &str) -> Result<Option<StructuredValue>> {
         if let Some(record) = &record {
             if text(record, "kind")? != kind {
@@ -236,8 +268,10 @@ impl Shared {
         Ok(record)
     }
 }
+
 #[derive(Clone)]
 pub struct Steps(Arc<Shared>);
+
 impl Steps {
     fn frame(
         &self,
@@ -327,6 +361,7 @@ impl Steps {
             }
         })
     }
+
     pub fn do_step<F, Fut>(
         &self,
         name: impl Into<StepName>,
@@ -338,6 +373,7 @@ impl Steps {
     {
         self.do_with_config(name, StepConfig::default(), callback)
     }
+
     pub fn do_with_config<F, Fut>(
         &self,
         name: impl Into<StepName>,
@@ -481,6 +517,7 @@ impl Steps {
             })
         })
     }
+
     pub fn sleep(&self, name: impl Into<StepName>, duration: Duration) -> HandlerFuture<()> {
         let checked = duration.milliseconds().and_then(|ms| {
             check_horizon(ms, "sleep")?;
@@ -488,6 +525,7 @@ impl Steps {
         });
         self.sleep_deadline(name, checked.map(|ms| (ms, false)))
     }
+
     pub fn sleep_until(&self, name: impl Into<StepName>, timestamp_ms: f64) -> HandlerFuture<()> {
         let checked = (|| {
             ensure!(
@@ -499,6 +537,7 @@ impl Steps {
         })();
         self.sleep_deadline(name, checked)
     }
+
     fn sleep_deadline(
         &self,
         name: impl Into<StepName>,
@@ -544,6 +583,7 @@ impl Steps {
             Ok(())
         })
     }
+
     pub fn wait_for_event(
         &self,
         name: impl Into<StepName>,
@@ -634,12 +674,14 @@ impl Steps {
         })
     }
 }
+
 enum Outcome {
     Complete(StructuredValue),
     Error(anyhow::Error),
     Suspend(f64),
     Pause,
 }
+
 struct Run {
     shared: Arc<Shared>,
     context: Context,
@@ -649,8 +691,10 @@ struct Run {
     quiet: bool,
     stall: Option<crate::asyncrt::Sleep>,
 }
+
 impl Future for Run {
     type Output = Result<Outcome>;
+
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         this.shared.wake.register(cx.waker());
@@ -719,6 +763,7 @@ impl Future for Run {
         Poll::Ready(Ok(outcome.unwrap()))
     }
 }
+
 impl Drop for Run {
     fn drop(&mut self) {
         let mut state = self.shared.state.lock().unwrap();
@@ -726,7 +771,9 @@ impl Drop for Run {
         state.queued.clear();
     }
 }
+
 struct DriveGuard(Arc<InstanceCell>);
+
 impl Drop for DriveGuard {
     fn drop(&mut self) {
         let mut drive = self.0.drive.lock().unwrap();
@@ -736,6 +783,7 @@ impl Drop for DriveGuard {
         }
     }
 }
+
 pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<()> {
     let wait = {
         let mut drive = cell.drive.lock().unwrap();

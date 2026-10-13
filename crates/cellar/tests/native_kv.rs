@@ -25,9 +25,11 @@ use std::sync::{
 use std::time::Duration;
 
 const IDENTITY: &str = "native-kv/namespace";
+
 fn scope() -> String {
     cellar::engine_api::kv_cell_scope(IDENTITY, 0)
 }
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -60,6 +62,7 @@ fn graph() -> DeploymentGraph {
         container_images: Vec::new(),
     })
 }
+
 fn response(body: impl Into<Vec<u8>>) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -71,22 +74,26 @@ fn response(body: impl Into<Vec<u8>>) -> Output {
         observed_position: None,
     })
 }
+
 fn text(value: Option<ReadValue>) -> String {
     match value {
         Some(ReadValue::Text(value)) => value,
         _ => panic!("expected text"),
     }
 }
+
 fn bytes(value: Option<ReadValue>) -> Vec<u8> {
     match value {
         Some(ReadValue::Bytes(value)) => value,
         _ => panic!("expected bytes"),
     }
 }
+
 struct Caller {
     namespace: Namespace,
     storage: Storage,
 }
+
 impl Cell for Caller {
     fn invoke(self: Arc<Self>, context: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -99,6 +106,7 @@ impl Cell for Caller {
         })
     }
 }
+
 async fn binding(context: Context, invocation: Invocation) -> Result<Output> {
     let Invocation::Fetch(request) = invocation else {
         return Err(anyhow!("expected fetch"));
@@ -479,6 +487,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 fn request(bytes: Vec<u8>) -> RuntimeFetch {
     RuntimeFetch {
         url: "http://cell/".into(),
@@ -490,6 +499,7 @@ fn request(bytes: Vec<u8>) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn operator(runtime: &RuntimeManager, body: Value) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -500,6 +510,7 @@ async fn operator(runtime: &RuntimeManager, body: Value) -> Result<HttpResponse>
         )
         .await
 }
+
 async fn rpc(runtime: &RuntimeManager, method: &str, body: Value) -> Result<Value> {
     let result = runtime
         .rpc(
@@ -514,6 +525,7 @@ async fn rpc(runtime: &RuntimeManager, method: &str, body: Value) -> Result<Valu
         .await?;
     decode_rpc_result(&result.data)?.to_json()
 }
+
 async fn worker(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_worker(
@@ -552,6 +564,7 @@ async fn native_kv_preserves_bindings_expiry_blob_protocol_and_operator_routes()
     cellar::asyncrt::timeout(Duration::from_secs(60), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     std::env::set_var(
         "CELLAR_TEST_KV",

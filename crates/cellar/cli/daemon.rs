@@ -7,6 +7,7 @@
 //! Parsing answers one question — which `Action` to take — and refuses
 //! anything ambiguous rather than guessing. The help text is the public
 //! description of the configuration surface and remains stable across builds.
+
 pub(crate) struct Settings {
     pub(crate) control_plane: bool,
     pub(crate) bucket: Option<String>,

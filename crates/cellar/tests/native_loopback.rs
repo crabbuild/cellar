@@ -35,6 +35,7 @@ fn properties() -> StructuredValue {
         ],
     }
 }
+
 fn request(path: &str) -> Request {
     Request {
         url: format!("http://loopback/{path}"),
@@ -44,6 +45,7 @@ fn request(path: &str) -> Request {
         entrypoint: None,
     }
 }
+
 fn output(body: &str) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -55,6 +57,7 @@ fn output(body: &str) -> Output {
         observed_position: None,
     })
 }
+
 #[derive(Default)]
 struct Signals {
     codes: AtomicUsize,
@@ -69,7 +72,9 @@ struct Signals {
     dropped: Notify,
     app_dropped: Notify,
 }
+
 struct AppLifetime(Arc<Signals>);
+
 impl Drop for AppLifetime {
     fn drop(&mut self) {
         assert!(cellar::host_loader::loader_registry().try_lock().is_ok());
@@ -77,13 +82,16 @@ impl Drop for AppLifetime {
         self.0.app_dropped.notify_one();
     }
 }
+
 struct Pending(Arc<Signals>);
+
 impl Drop for Pending {
     fn drop(&mut self) {
         self.0.pending_drops.fetch_add(1, Ordering::SeqCst);
         self.0.dropped.notify_one();
     }
 }
+
 fn application(signals: Arc<Signals>) -> Arc<dyn Application> {
     let lifetime = Arc::new(AppLifetime(signals));
     let handler = Arc::new(
@@ -207,6 +215,7 @@ fn application(signals: Arc<Signals>) -> Arc<dyn Application> {
         .unwrap(),
     )
 }
+
 fn stream_request(context: &Context) -> Result<Request> {
     let pipe = FixedLengthStream::new(6.0)?;
     let writer = pipe.writable.get_writer()?;
@@ -224,7 +233,9 @@ fn stream_request(context: &Context) -> Result<Request> {
         &pipe.readable,
     )
 }
+
 struct Root(Arc<Signals>);
+
 impl Root {
     fn worker(&self, context: &Context) -> Result<Worker> {
         let signals = self.0.clone();
@@ -235,9 +246,11 @@ impl Root {
             })
         })
     }
+
     fn echo(&self) -> Fetcher {
         self.0.echo.lock().unwrap().clone().unwrap()
     }
+
     fn consumer(&self, context: &Context, mode: &str) -> Result<Worker> {
         let signals = self.0.clone();
         let retained_drops = signals.app_drops.load(Ordering::SeqCst);
@@ -296,6 +309,7 @@ impl Root {
         context.loader("WORKERS")?.load(context, code)
     }
 }
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -465,6 +479,7 @@ impl Cell for Root {
         })
     }
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -483,12 +498,14 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
         )
         .await
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn loaded_loopback_lifetimes_env_brokers_streams_cancellation_and_disposal() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let parents = signals.clone();

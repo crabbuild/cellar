@@ -88,7 +88,9 @@ fn refused_work_and_gates_return_ownership_without_implicit_cleanup() {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+
     struct Owned(Arc<AtomicUsize>);
+
     impl Drop for Owned {
         fn drop(&mut self) {
             self.0.fetch_add(1, Ordering::Relaxed);

@@ -53,6 +53,7 @@ fn response(text: &str) -> Output {
 }
 
 struct Room(Arc<Signals>);
+
 impl Cell for Room {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -221,17 +222,20 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn fetch(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell("Room:test".into(), None, request(path), None)
         .await
 }
+
 async fn message(runtime: &RuntimeManager, id: u64, text: &str) -> Result<ws::WsDispatch> {
     let (started, _) = tokio::sync::oneshot::channel();
     runtime
         .ws_message("Room:test".into(), id, WsIn::Text(text.into()), started)
         .await
 }
+
 async fn text(receiver: &mut tokio::sync::mpsc::UnboundedReceiver<WsOut>) -> String {
     match receiver.recv().await.unwrap() {
         WsOut::Text(text) => text,

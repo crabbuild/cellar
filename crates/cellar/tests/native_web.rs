@@ -21,8 +21,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+
 const SOURCE: &str = "Source:one";
 const PEER: &str = "Peer:one";
+
 #[derive(Default)]
 struct Signals {
     entered: Notify,
@@ -32,7 +34,9 @@ struct Signals {
     gates: Mutex<Vec<cellar::actor::GateTicket>>,
     retained: Mutex<Option<(Headers, Url)>>,
 }
+
 struct Source(Arc<Signals>);
+
 impl Cell for Source {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -118,7 +122,9 @@ impl Cell for Source {
         })
     }
 }
+
 struct Peer;
+
 impl Cell for Peer {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -148,6 +154,7 @@ impl Cell for Peer {
         })
     }
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -164,6 +171,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -185,12 +193,14 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
         )
         .await
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn native_headers_and_urls_retain_wire_shape_across_cell_calls() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let source = signals.clone();

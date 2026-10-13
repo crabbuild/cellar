@@ -80,6 +80,7 @@ impl WorkspaceWatcher {
         })?;
         Ok(watcher)
     }
+
     fn extend(&mut self, paths: super::build::WatchPaths) -> Result<bool> {
         self.ignored_directories.extend(paths.ignored);
         self.ignored_directories.sort();
@@ -109,6 +110,7 @@ impl WorkspaceWatcher {
         }
         Ok(added)
     }
+
     async fn changed(&mut self) -> Result<()> {
         let futures: Vec<_> = self
             .watchers
@@ -122,6 +124,7 @@ impl WorkspaceWatcher {
 // Cancellation must also stop Cargo's compiler/build-script descendants.
 // The node itself uses the retained process-group and graceful stop path.
 struct ProcessGroup(Option<u32>);
+
 impl Drop for ProcessGroup {
     fn drop(&mut self) {
         #[cfg(unix)]

@@ -1,6 +1,7 @@
 use crate::support;
 use anyhow::Result;
 use cellar::sdk::{http::Response, Context, Output, Request};
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     support::method(&request, &["POST"])?;
     let url = url::Url::parse(&request.url)?;

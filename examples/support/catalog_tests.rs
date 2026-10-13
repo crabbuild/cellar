@@ -1,4 +1,5 @@
 //! Validate tutorial configurations against the real native manifest contract.
+
 // Fixture reads belong to test tooling, outside the node execution boundary.
 #![allow(clippy::disallowed_methods)]
 use super::*;

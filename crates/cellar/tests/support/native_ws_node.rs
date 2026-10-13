@@ -5,18 +5,21 @@ use std::{
     process::{Child, Command, Stdio},
     time::Duration,
 };
+
 pub struct Node {
     pub child: Child,
     pub url: String,
     pub internal: String,
     pub log: std::path::PathBuf,
 }
+
 impl Drop for Node {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
+
 impl Node {
     pub async fn start(
         root: &Path,
@@ -27,6 +30,7 @@ impl Node {
     ) -> Result<Self> {
         Self::launch(root, name, program, peer, source, None).await
     }
+
     #[allow(dead_code)] // Shared by the separate fleet binding harness.
     pub async fn start_fleet(
         root: &Path,
@@ -36,6 +40,7 @@ impl Node {
     ) -> Result<Self> {
         Self::launch(root, name, program, "ws://127.0.0.1:1", None, Some(bucket)).await
     }
+
     async fn launch(
         root: &Path,
         name: &str,
@@ -109,6 +114,7 @@ impl Node {
         .context("daemon boot timeout")??;
         Ok(node)
     }
+
     pub async fn stop(&mut self, client: &Client) -> Result<()> {
         client
             .post(format!("{}/shutdown", self.internal))

@@ -16,6 +16,7 @@ impl std::fmt::Display for RemoteError {
         f.write_str(&self.message)
     }
 }
+
 impl std::error::Error for RemoteError {}
 
 pub fn decode_response(bytes: &[u8]) -> Result<StructuredValue> {

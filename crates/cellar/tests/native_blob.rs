@@ -24,6 +24,7 @@ use tokio::sync::Notify;
 
 const SCRIPT: &str = "native-blob";
 const SCOPE: &str = "Objects:one";
+
 #[derive(Default)]
 struct Signals {
     gates: Mutex<Vec<cellar::actor::GateTicket>>,
@@ -35,12 +36,15 @@ struct Signals {
     stream_started: Notify,
     stream_dropped: AtomicBool,
 }
+
 struct NeverStream {
     signals: Arc<Signals>,
     first: bool,
 }
+
 impl Stream for NeverStream {
     type Item = Result<Vec<u8>, String>;
+
     fn poll_next(mut self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         if self.first {
             self.first = false;
@@ -51,12 +55,15 @@ impl Stream for NeverStream {
         }
     }
 }
+
 impl Drop for NeverStream {
     fn drop(&mut self) {
         self.signals.stream_dropped.store(true, Ordering::SeqCst);
     }
 }
+
 struct Objects(Storage, Arc<Signals>);
+
 impl Cell for Objects {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -71,6 +78,7 @@ impl Cell for Objects {
         })
     }
 }
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -106,6 +114,7 @@ fn graph() -> DeploymentGraph {
         container_images: Vec::new(),
     })
 }
+
 fn response() -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -117,6 +126,7 @@ fn response() -> Output {
         observed_position: None,
     })
 }
+
 async fn body(context: &Context, key: &str) -> Result<cellar::application::blob::ObjectBody> {
     let GetResult::Body(body) = context
         .blob("DATA")?
@@ -127,6 +137,7 @@ async fn body(context: &Context, key: &str) -> Result<cellar::application::blob:
     };
     Ok(body)
 }
+
 async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>) -> Result<Output> {
     let Invocation::Fetch(request) = invocation else {
         return Err(anyhow!("expected fetch"));
@@ -629,6 +640,7 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
     }
     Ok(response())
 }
+
 async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime
         .restore_cell(
@@ -645,6 +657,7 @@ async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime.start_cell(SCOPE.into(), 1, true).await?;
     runtime.publish_cell(SCOPE, 1)
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -663,12 +676,14 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
         )
         .await
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_blob_preserves_records_streams_multipart_and_durability_gates() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let worker_signals = signals.clone();

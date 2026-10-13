@@ -102,6 +102,7 @@ struct PendingOperation {
 
 impl Future for PendingOperation {
     type Output = Result<asyncrt::OpOut, String>;
+
     fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Self::Output> {
         Poll::Pending
     }
@@ -293,6 +294,7 @@ impl Wake for RetirementWake {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
+
     fn wake_by_ref(self: &Arc<Self>) {
         let context = self.context.upgrade().unwrap();
         assert!(

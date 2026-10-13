@@ -336,6 +336,7 @@ pub struct WakeFlusher {
 /// through a replacement runtime that did not produce the snapshot.
 pub(crate) trait AlarmHost: Sync {
     fn alarm_snapshot(&self, cell: &str) -> anyhow::Result<AlarmSnapshot>;
+
     fn prove_alarm<'a>(
         &'a self,
         cell: &'a str,

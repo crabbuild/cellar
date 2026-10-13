@@ -42,12 +42,14 @@ pub(crate) struct ResponseHead {
     pub(crate) headers: Vec<(String, String)>,
     source: Option<(Arc<HttpStreamService>, u64)>,
 }
+
 impl ResponseHead {
     #[allow(dead_code)]
     pub(crate) fn into_json(mut self) -> String {
         let (_, id) = self.source.take().expect("registered response source");
         serde_json::json!({"status":self.status,"streamId":id,"headers":self.headers}).to_string()
     }
+
     pub(crate) fn into_http(mut self) -> Result<HttpResponse, String> {
         let (service, id) = self.source.as_ref().expect("registered response source");
         let claim = service
@@ -66,6 +68,7 @@ impl ResponseHead {
         })
     }
 }
+
 impl Drop for ResponseHead {
     fn drop(&mut self) {
         if let Some((service, id)) = self.source.take() {
@@ -73,6 +76,7 @@ impl Drop for ResponseHead {
         }
     }
 }
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn fetch(
     context: Arc<IoContext>,

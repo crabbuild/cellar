@@ -3,7 +3,9 @@ use anyhow::{bail, Result};
 use cellar::engine_api::RpcData;
 use cellar::sdk::{decode_rpc, Cell, Context, HandlerFuture, Invocation, Output, Request};
 use std::sync::Arc;
+
 pub struct Counter;
+
 impl Cell for Counter {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -53,14 +55,15 @@ impl Cell for Counter {
                         bail!("unknown counter method");
                     }
                     Ok(Output::Rpc(RpcData::Json(
-                        serde_json::json!({"count":count}).to_string(),
+                        serde_json::json!({ "count": count }).to_string(),
                     )))
                 }
-                _ => support::json(&context, serde_json::json!({"count":count})),
+                _ => support::json(&context, serde_json::json!({ "count": count })),
             }
         })
     }
 }
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     let url = url::Url::parse(&request.url)?;
     if url.path() == "/cron" {

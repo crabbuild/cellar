@@ -18,6 +18,7 @@ impl Context {
             .as_ref()
             .and_then(WeakAbortSignal::upgrade)
     }
+
     /// Timer work uses the injected clock and the original event. A timer alone
     /// cannot extend residency; finishing or retiring drops unused timers.
     pub fn abort_timeout(&self, ms: f64) -> Result<AbortSignal> {
@@ -35,6 +36,7 @@ impl Context {
             Ok(())
         })
     }
+
     /// Abort a routed fetch with the exact shared reason while the existing
     /// dispatch guard sends cancellation to the target and releases its body.
     pub fn fetch_cell_with_signal(

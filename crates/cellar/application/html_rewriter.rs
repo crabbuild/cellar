@@ -16,6 +16,7 @@ use std::{
 };
 
 pub use lol_html::html_content::ContentType;
+
 const DEAD: &str = concat!(
     "This content token is no longer valid. ",
     "Content tokens are only valid during the execution of the relevant content handler."
@@ -24,22 +25,27 @@ const ITER_INVALID: &str = concat!(
     "The attributes of this element have been modified during iteration. ",
     "You must create a new iterator after modifying attributes."
 );
+
 #[derive(Debug)]
 pub struct Error {
     name: &'static str,
     message: String,
 }
+
 impl Error {
     pub fn name(&self) -> &'static str {
         self.name
     }
 }
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
+
 impl std::error::Error for Error {}
+
 fn type_error(message: impl Into<String>) -> anyhow::Error {
     Error {
         name: "TypeError",
@@ -47,6 +53,7 @@ fn type_error(message: impl Into<String>) -> anyhow::Error {
     }
     .into()
 }
+
 fn parser_error(message: impl Into<String>) -> anyhow::Error {
     Error {
         name: "Error",
@@ -60,32 +67,39 @@ pub enum Content {
     Stream(HttpChunkStream),
     Response(Response),
 }
+
 impl From<String> for Content {
     fn from(text: String) -> Self {
         Self::Text(text)
     }
 }
+
 impl From<&str> for Content {
     fn from(text: &str) -> Self {
         Self::Text(text.into())
     }
 }
+
 impl From<Response> for Content {
     fn from(response: Response) -> Self {
         Self::Response(response)
     }
 }
+
 impl From<HttpChunkStream> for Content {
     fn from(stream: HttpChunkStream) -> Self {
         Self::Stream(stream)
     }
 }
+
 struct Deferred {
     op: &'static str,
     source: Content,
     kind: ContentType,
 }
+
 type Callback<T> = Arc<dyn Fn(Context, T) -> HandlerFuture<()> + Send + Sync>;
+
 struct TokenState {
     context: Context,
     id: u64,
@@ -94,6 +108,7 @@ struct TokenState {
     deferred: Mutex<Vec<Deferred>>,
     end_tag: Mutex<Option<Callback<EndTag>>>,
 }
+
 impl TokenState {
     fn check(&self) -> Result<()> {
         if !self.live.load(Ordering::Acquire) {
@@ -101,6 +116,7 @@ impl TokenState {
         }
         self.context.check_turn()
     }
+
     fn command(&self, command: Value) -> Result<Value> {
         self.check()?;
         let raw = host::command(self.id, command.to_string())
@@ -114,10 +130,12 @@ impl TokenState {
         }
         Ok(reply["ok"].clone())
     }
+
     fn mutation(&self, op: &'static str, content: &str, kind: ContentType) -> Result<()> {
         self.command(json!({"op":op,"content":content,"html":matches!(kind,ContentType::Html)}))
             .map(|_| ())
     }
+
     fn content(&self, op: &'static str, content: Content, kind: ContentType) -> Result<()> {
         self.check()?;
         match content {
@@ -132,7 +150,9 @@ impl TokenState {
         }
     }
 }
+
 struct TokenGuard(Arc<TokenState>);
+
 impl Drop for TokenGuard {
     fn drop(&mut self) {
         self.0.live.store(false, Ordering::Release);
@@ -140,51 +160,61 @@ impl Drop for TokenGuard {
         self.0.end_tag.lock().unwrap().take();
     }
 }
+
 #[derive(Clone)]
 pub struct Element(Arc<TokenState>);
+
 impl Element {
     pub fn tag_name(&self) -> Result<String> {
         Ok(serde_json::from_value(
             self.0.command(json!({"op":"tagName"}))?,
         )?)
     }
+
     pub fn set_tag_name(&self, name: &str) -> Result<()> {
         self.0
             .command(json!({"op":"setTagName","name":name}))
             .map(|_| ())
     }
+
     pub fn namespace_uri(&self) -> Result<String> {
         Ok(serde_json::from_value(
             self.0.command(json!({"op":"namespaceURI"}))?,
         )?)
     }
+
     pub fn removed(&self) -> Result<bool> {
         Ok(serde_json::from_value(
             self.0.command(json!({"op":"removed"}))?,
         )?)
     }
+
     pub fn get_attribute(&self, name: &str) -> Result<Option<String>> {
         Ok(serde_json::from_value(
             self.0.command(json!({"op":"getAttribute","name":name}))?,
         )?)
     }
+
     pub fn has_attribute(&self, name: &str) -> Result<bool> {
         Ok(serde_json::from_value(
             self.0.command(json!({"op":"hasAttribute","name":name}))?,
         )?)
     }
+
     pub fn set_attribute(&self, name: &str, value: &str) -> Result<()> {
         self.0
             .command(json!({"op":"setAttribute","name":name,"value":value}))?;
         self.0.attr_epoch.fetch_add(1, Ordering::AcqRel);
         Ok(())
     }
+
     pub fn remove_attribute(&self, name: &str) -> Result<()> {
         self.0
             .command(json!({"op":"removeAttribute","name":name}))?;
         self.0.attr_epoch.fetch_add(1, Ordering::AcqRel);
         Ok(())
     }
+
     pub fn attributes(&self) -> Result<Attributes> {
         let entries: Vec<(String, String)> =
             serde_json::from_value(self.0.command(json!({"op":"attributes"}))?)?;
@@ -194,32 +224,41 @@ impl Element {
             entries: entries.into_iter(),
         })
     }
+
     pub fn before(&self, content: impl Into<Content>, kind: ContentType) -> Result<()> {
         self.0.content("before", content.into(), kind)
     }
+
     pub fn after(&self, content: impl Into<Content>, kind: ContentType) -> Result<()> {
         self.0.content("after", content.into(), kind)
     }
+
     pub fn prepend(&self, content: impl Into<Content>, kind: ContentType) -> Result<()> {
         self.0.content("prepend", content.into(), kind)
     }
+
     pub fn append(&self, content: impl Into<Content>, kind: ContentType) -> Result<()> {
         self.0.content("append", content.into(), kind)
     }
+
     pub fn replace(&self, content: impl Into<Content>, kind: ContentType) -> Result<()> {
         self.0.content("replace", content.into(), kind)
     }
+
     pub fn set_inner_content(&self, content: impl Into<Content>, kind: ContentType) -> Result<()> {
         self.0.content("setInnerContent", content.into(), kind)
     }
+
     pub fn remove(&self) -> Result<()> {
         self.0.command(json!({"op":"remove"})).map(|_| ())
     }
+
     pub fn remove_and_keep_content(&self) -> Result<()> {
         self.0
             .command(json!({"op":"removeAndKeepContent"}))
             .map(|_| ())
     }
+
     pub fn on_end_tag(
         &self,
         handler: impl Fn(Context, EndTag) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -229,11 +268,13 @@ impl Element {
         Ok(())
     }
 }
+
 pub struct Attributes {
     state: Arc<TokenState>,
     epoch: u64,
     entries: std::vec::IntoIter<(String, String)>,
 }
+
 impl Attributes {
     pub fn next_pair(&mut self) -> Result<Option<(String, String)>> {
         self.state.check()?;
@@ -243,98 +284,122 @@ impl Attributes {
         Ok(self.entries.next())
     }
 }
+
 impl Iterator for Attributes {
     type Item = Result<(String, String)>;
+
     fn next(&mut self) -> Option<Self::Item> {
         self.next_pair().transpose()
     }
 }
+
 #[derive(Clone)]
 pub struct EndTag {
     state: Arc<TokenState>,
     name: String,
 }
+
 impl EndTag {
     pub fn name(&self) -> Result<&str> {
         self.state.check()?;
         Ok(&self.name)
     }
+
     pub fn before(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("before", content, kind)
     }
+
     pub fn after(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("after", content, kind)
     }
+
     pub fn remove(&self) -> Result<()> {
         self.state.command(json!({"op":"remove"})).map(|_| ())
     }
 }
+
 #[derive(Clone)]
 pub struct Comment {
     state: Arc<TokenState>,
     text: Arc<Mutex<String>>,
 }
+
 impl Comment {
     pub fn text(&self) -> Result<String> {
         self.state.check()?;
         Ok(self.text.lock().unwrap().clone())
     }
+
     pub fn set_text(&self, text: &str) -> Result<()> {
         self.state.command(json!({"op":"setText","text":text}))?;
         *self.text.lock().unwrap() = text.into();
         Ok(())
     }
+
     pub fn removed(&self) -> Result<bool> {
         Ok(serde_json::from_value(
             self.state.command(json!({"op":"removed"}))?,
         )?)
     }
+
     pub fn before(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("before", content, kind)
     }
+
     pub fn after(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("after", content, kind)
     }
+
     pub fn replace(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("replace", content, kind)
     }
+
     pub fn remove(&self) -> Result<()> {
         self.state.command(json!({"op":"remove"})).map(|_| ())
     }
 }
+
 #[derive(Clone)]
 pub struct Text {
     state: Arc<TokenState>,
     text: String,
     last: bool,
 }
+
 impl Text {
     pub fn text(&self) -> Result<&str> {
         self.state.check()?;
         Ok(&self.text)
     }
+
     pub fn last_in_text_node(&self) -> Result<bool> {
         self.state.check()?;
         Ok(self.last)
     }
+
     pub fn removed(&self) -> Result<bool> {
         Ok(serde_json::from_value(
             self.state.command(json!({"op":"removed"}))?,
         )?)
     }
+
     pub fn before(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("before", content, kind)
     }
+
     pub fn after(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("after", content, kind)
     }
+
     pub fn replace(&self, content: &str, kind: ContentType) -> Result<()> {
         self.state.mutation("replace", content, kind)
     }
+
     pub fn remove(&self) -> Result<()> {
         self.state.command(json!({"op":"remove"})).map(|_| ())
     }
 }
+
 #[derive(Clone)]
 pub struct Doctype {
     state: Arc<TokenState>,
@@ -342,22 +407,27 @@ pub struct Doctype {
     public_id: Option<String>,
     system_id: Option<String>,
 }
+
 impl Doctype {
     pub fn name(&self) -> Result<Option<&str>> {
         self.state.check()?;
         Ok(self.name.as_deref())
     }
+
     pub fn public_id(&self) -> Result<Option<&str>> {
         self.state.check()?;
         Ok(self.public_id.as_deref())
     }
+
     pub fn system_id(&self) -> Result<Option<&str>> {
         self.state.check()?;
         Ok(self.system_id.as_deref())
     }
 }
+
 #[derive(Clone)]
 pub struct DocumentEnd(Arc<TokenState>);
+
 impl DocumentEnd {
     pub fn append(&self, content: &str, kind: ContentType) -> Result<()> {
         self.0.mutation("append", content, kind)
@@ -370,10 +440,12 @@ pub struct ElementHandlers {
     comments: Option<Callback<Comment>>,
     text: Option<Callback<Text>>,
 }
+
 impl ElementHandlers {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn element(
         mut self,
         handler: impl Fn(Context, Element) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -381,6 +453,7 @@ impl ElementHandlers {
         self.element = Some(Arc::new(handler));
         self
     }
+
     pub fn comments(
         mut self,
         handler: impl Fn(Context, Comment) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -388,6 +461,7 @@ impl ElementHandlers {
         self.comments = Some(Arc::new(handler));
         self
     }
+
     pub fn text(
         mut self,
         handler: impl Fn(Context, Text) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -396,6 +470,7 @@ impl ElementHandlers {
         self
     }
 }
+
 #[derive(Clone, Default)]
 pub struct DocumentHandlers {
     doctype: Option<Callback<Doctype>>,
@@ -403,10 +478,12 @@ pub struct DocumentHandlers {
     text: Option<Callback<Text>>,
     end: Option<Callback<DocumentEnd>>,
 }
+
 impl DocumentHandlers {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn doctype(
         mut self,
         handler: impl Fn(Context, Doctype) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -414,6 +491,7 @@ impl DocumentHandlers {
         self.doctype = Some(Arc::new(handler));
         self
     }
+
     pub fn comments(
         mut self,
         handler: impl Fn(Context, Comment) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -421,6 +499,7 @@ impl DocumentHandlers {
         self.comments = Some(Arc::new(handler));
         self
     }
+
     pub fn text(
         mut self,
         handler: impl Fn(Context, Text) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -428,6 +507,7 @@ impl DocumentHandlers {
         self.text = Some(Arc::new(handler));
         self
     }
+
     pub fn end(
         mut self,
         handler: impl Fn(Context, DocumentEnd) -> HandlerFuture<()> + Send + Sync + 'static,
@@ -436,23 +516,28 @@ impl DocumentHandlers {
         self
     }
 }
+
 #[derive(Clone, Default)]
 pub struct HtmlRewriter {
     selectors: Vec<(String, ElementHandlers)>,
     document: Vec<DocumentHandlers>,
 }
+
 impl HtmlRewriter {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn on(mut self, selector: impl Into<String>, handlers: ElementHandlers) -> Self {
         self.selectors.push((selector.into(), handlers));
         self
     }
+
     pub fn on_document(mut self, handlers: DocumentHandlers) -> Self {
         self.document.push(handlers);
         self
     }
+
     pub fn transform(&self, context: &Context, response: Response) -> Result<Response> {
         context.check_turn()?;
         let config = host::RewriterConfig {
@@ -532,8 +617,10 @@ impl HtmlRewriter {
         Ok(response)
     }
 }
+
 fn charset(headers: &[(String, String)]) -> Option<String> {
     static PATTERN: OnceLock<regex::Regex> = OnceLock::new();
+
     // Match ECMAScript whitespace and its ASCII-only /i folding, including
     // the refusal to fold a long s into the ASCII spelling of "charset".
     const SPACE: &str =
@@ -552,12 +639,15 @@ fn charset(headers: &[(String, String)]) -> Option<String> {
         label.strip_suffix('"').unwrap_or(label).to_string()
     })
 }
+
 struct ParserGuard(u64);
+
 impl Drop for ParserGuard {
     fn drop(&mut self) {
         host::free(self.0);
     }
 }
+
 struct OutputStream {
     reader: tokio::sync::mpsc::Receiver<std::result::Result<Vec<u8>, String>>,
     id: u64,
@@ -565,8 +655,10 @@ struct OutputStream {
     completed: Arc<AtomicBool>,
     closed: bool,
 }
+
 impl Stream for OutputStream {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         if self.closed {
             return Poll::Ready(None);
@@ -586,6 +678,7 @@ impl Stream for OutputStream {
         }
     }
 }
+
 impl Drop for OutputStream {
     fn drop(&mut self) {
         host::free(self.id);
@@ -727,6 +820,7 @@ impl HtmlRewriter {
         host::command(id, done.to_string()).map_err(type_error)?;
         Ok(())
     }
+
     async fn pump(
         self,
         context: Context,
@@ -750,6 +844,7 @@ impl HtmlRewriter {
                     host::write_ready(id, buffered.drain(..count).collect()).map_err(type_error)?,
                 );
             }
+
             enum Next {
                 Cancel,
                 Event(std::result::Result<String, String>),

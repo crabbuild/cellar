@@ -13,6 +13,7 @@ struct CheckedTransport {
     inner: tokio::io::DuplexStream,
     drops: Arc<AtomicUsize>,
 }
+
 impl Drop for CheckedTransport {
     fn drop(&mut self) {
         assert!(
@@ -22,6 +23,7 @@ impl Drop for CheckedTransport {
         self.drops.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 impl AsyncRead for CheckedTransport {
     fn poll_read(
         mut self: Pin<&mut Self>,
@@ -31,6 +33,7 @@ impl AsyncRead for CheckedTransport {
         Pin::new(&mut self.inner).poll_read(cx, buf)
     }
 }
+
 impl AsyncWrite for CheckedTransport {
     fn poll_write(
         mut self: Pin<&mut Self>,
@@ -39,9 +42,11 @@ impl AsyncWrite for CheckedTransport {
     ) -> Poll<std::io::Result<usize>> {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
+
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
+
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
@@ -140,7 +145,9 @@ where
 {
     use crate::application::{sockets::*, Invocation, Output, Registry};
     let _serial = TRANSPORT_TESTS.lock().await;
+
     struct Reset;
+
     impl Drop for Reset {
         fn drop(&mut self) {
             *test_root().lock().unwrap() = None;

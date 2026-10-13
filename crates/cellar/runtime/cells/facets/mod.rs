@@ -103,6 +103,7 @@ impl LoadedFacet {
             .ok_or_else(|| "facet execution domain has retired".to_string())?;
         check_facet_service(&service)
     }
+
     /// Route the socket of a facet's upgrade through the facet's root.
     ///
     /// Recorded here, where the host knows which facet answered, because the
@@ -230,9 +231,13 @@ type FacetRoots = HashMap<(String, u64), RootFacets>;
 /// Erase the recursive slot/worker graph at the host-services boundary.
 pub(crate) trait FacetService: Send + Sync {
     fn bind_domain(&self, domain: crate::asyncrt::DomainToken);
+
     fn accepts_work(&self) -> bool;
+
     fn close(&self);
+
     fn registry(&self) -> Arc<Mutex<FacetRoots>>;
+
     fn next_manager(&self) -> u64;
 }
 

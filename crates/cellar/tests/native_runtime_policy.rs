@@ -18,6 +18,7 @@ struct Signals {
     started: mpsc::UnboundedSender<()>,
     release: Semaphore,
 }
+
 fn handler(signals: Arc<Signals>, event: Invocation) -> HandlerFuture<Output> {
     Box::pin(async move {
         let Invocation::Fetch(request) = event else {
@@ -38,12 +39,15 @@ fn handler(signals: Arc<Signals>, event: Invocation) -> HandlerFuture<Output> {
         }))
     })
 }
+
 struct WaitingCell(Arc<Signals>);
+
 impl Cell for WaitingCell {
     fn invoke(self: Arc<Self>, _: Context, event: Invocation) -> HandlerFuture<Output> {
         handler(self.0.clone(), event)
     }
 }
+
 fn signals() -> (Arc<Signals>, mpsc::UnboundedReceiver<()>) {
     let (started, receive) = mpsc::unbounded_channel();
     (
@@ -54,12 +58,14 @@ fn signals() -> (Arc<Signals>, mpsc::UnboundedReceiver<()>) {
         receive,
     )
 }
+
 fn registry(signals: Arc<Signals>) -> Result<Registry> {
     let cells = signals.clone();
     Registry::new(move |_, event| handler(signals.clone(), event)).cell("Waiting", move |_, _| {
         Ok(Arc::new(WaitingCell(cells.clone())))
     })
 }
+
 fn policy(requests: usize, cells: usize, budget: Duration) -> RuntimePolicy {
     RuntimePolicy {
         max_stateless_workers: cells,
@@ -70,6 +76,7 @@ fn policy(requests: usize, cells: usize, budget: Duration) -> RuntimePolicy {
         handler_budget: budget,
     }
 }
+
 async fn stateless(domain: &ExecutionDomain, signals: Arc<Signals>) -> Result<StatelessRuntime> {
     domain
         .run(async move {
@@ -79,6 +86,7 @@ async fn stateless(domain: &ExecutionDomain, signals: Arc<Signals>) -> Result<St
         })
         .await?
 }
+
 fn fetch(
     runtime: &StatelessRuntime,
     path: &str,
@@ -91,6 +99,7 @@ fn fetch(
         None,
     )
 }
+
 async fn started(receive: &mut mpsc::UnboundedReceiver<()>) -> Result<()> {
     ensure!(tokio::time::timeout(Duration::from_secs(2), receive.recv())
         .await?
@@ -254,6 +263,7 @@ async fn cells(
         })
         .await?
 }
+
 fn request(path: &str) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://policy/{path}"),
@@ -265,11 +275,13 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn cell_fetch(runtime: RuntimeManager) -> Result<HttpResponse> {
     runtime
         .fetch_cell("Waiting:one".into(), None, request("hold"), None)
         .await
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn separate_hosts_enforce_cell_admission_and_cells_per_worker() -> Result<()> {
     let first = ExecutionDomain::new(tokio::runtime::Handle::current());

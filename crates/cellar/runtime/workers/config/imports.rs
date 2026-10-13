@@ -2,7 +2,9 @@
 // Adapted for Cellar from Celld: crates/celld/js/modules.rs.
 
 use crate::engine_api::BARE_NODE_BUILTINS;
+
 pub(crate) const PYTHON_HOST_SPECIFIER: &str = "cellar:python";
+
 pub(crate) fn is_python_host(spec: &str) -> bool {
     spec == PYTHON_HOST_SPECIFIER
 }

@@ -82,6 +82,7 @@ async fn actor_closure_during_a_poll_does_not_panic_or_stop_the_caller_executor(
 
 // The application's executor owner also cleans up on a failed assertion.
 struct Executor(Option<tokio::runtime::Runtime>);
+
 impl Executor {
     fn new(name: &str) -> Result<Self> {
         Ok(Self(Some(
@@ -92,10 +93,12 @@ impl Executor {
                 .build()?,
         )))
     }
+
     fn handle(&self) -> &tokio::runtime::Handle {
         self.0.as_ref().unwrap().handle()
     }
 }
+
 impl Drop for Executor {
     fn drop(&mut self) {
         self.0.take().unwrap().shutdown_background();
@@ -127,6 +130,7 @@ fn options(label: &str, ttl: u64, capacity: usize) -> ActorOptions {
         resume_generation: None,
     }
 }
+
 fn identity() -> ActorIdentity {
     ActorIdentity {
         node: "test".into(),
@@ -134,6 +138,7 @@ fn identity() -> ActorIdentity {
         region: "test".into(),
     }
 }
+
 fn services(runtime: Option<RuntimeManager>) -> Result<ActorServices> {
     Ok(ActorServices {
         runtime,
@@ -143,7 +148,9 @@ fn services(runtime: Option<RuntimeManager>) -> Result<ActorServices> {
         peer_auth: Arc::new(PeerAuth::new([1; 32], "test")?),
     })
 }
+
 struct Account(&'static str);
+
 impl Cell for Account {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -169,6 +176,7 @@ impl Cell for Account {
         })
     }
 }
+
 async fn build(
     domain: &ExecutionDomain,
     label: &'static str,
@@ -249,6 +257,7 @@ async fn build(
         })
         .await?
 }
+
 async fn fetch(app: &AppHandle) -> Result<HttpResponse> {
     let cell = "Account:shared-id".to_string();
     let routed = app
@@ -280,6 +289,7 @@ async fn fetch(app: &AppHandle) -> Result<HttpResponse> {
     );
     Ok(response)
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn embedded_production_actors_route_and_prove_writes_on_caller_executors() -> Result<()> {
     // These executors and their lifetime belong to the application.
@@ -361,6 +371,7 @@ async fn embedded_production_actors_route_and_prove_writes_on_caller_executors()
     .await??;
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn typed_actor_rejects_foreign_authority_and_inconsistent_policy() -> Result<()> {
     let first = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -415,6 +426,7 @@ async fn typed_actor_rejects_foreign_authority_and_inconsistent_policy() -> Resu
     second.shutdown().await;
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn supplied_executor_keeps_effects_and_joined_cancellation_in_the_owning_domain() -> Result<()>
 {
@@ -442,6 +454,7 @@ async fn supplied_executor_keeps_effects_and_joined_cancellation_in_the_owning_d
     assert_eq!(tokio::spawn(async { 42 }).await?, 42);
     Ok(())
 }
+
 // Poison only a child process: parallel test hosts never share an environment mutation.
 #[test]
 fn explicit_actor_policy_survives_unusable_process_environment() -> Result<()> {

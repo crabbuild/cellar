@@ -24,6 +24,7 @@ use std::{
 };
 
 const CELL: &str = "Account:same-business-id";
+
 fn options() -> ReplicationOptions {
     ReplicationOptions {
         flush_interval: Duration::ZERO,
@@ -33,6 +34,7 @@ fn options() -> ReplicationOptions {
         ..Default::default()
     }
 }
+
 async fn start(
     domain: &ExecutionDomain,
     watch: &std::path::Path,
@@ -42,6 +44,7 @@ async fn start(
         .run(async { Replication::start(watch, storage, options()) })
         .await?
 }
+
 async fn write(replica: &Replication, value: i64) -> Result<()> {
     let active = replica
         .ltx()
@@ -72,17 +75,20 @@ async fn write(replica: &Replication, value: i64) -> Result<()> {
     );
     Ok(())
 }
+
 struct Readers {
     store: Arc<dyn ObjectStore>,
     owner: Arc<cellar::host_services::HostServices>,
     paths: Mutex<Vec<String>>,
     reads: Arc<AtomicUsize>,
 }
+
 struct Reader {
     inner: StoreRangeReader,
     owner: Arc<cellar::host_services::HostServices>,
     reads: Arc<AtomicUsize>,
 }
+
 impl RangeReader for Reader {
     fn read_range(
         &self,
@@ -98,6 +104,7 @@ impl RangeReader for Reader {
         self.inner.read_range(info, offset, len)
     }
 }
+
 #[async_trait::async_trait]
 impl ReplicaRangeReaderFactory for Readers {
     async fn create(&self, prefix: &str) -> Result<Box<dyn RangeReader>> {
@@ -242,9 +249,11 @@ async fn shared_store_namespaces_retain_real_durability_and_caller_page_readers(
 
 #[derive(Debug)]
 struct Credentials(Arc<AtomicUsize>);
+
 #[async_trait::async_trait]
 impl CredentialProvider for Credentials {
     type Credential = AwsCredential;
+
     async fn get_credential(&self) -> object_store::Result<Arc<AwsCredential>> {
         let call = self.0.fetch_add(1, Ordering::SeqCst);
         Ok(Arc::new(AwsCredential {
@@ -259,6 +268,7 @@ impl CredentialProvider for Credentials {
         }))
     }
 }
+
 async fn supplied_s3(native: bool) -> Result<()> {
     let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
     let address = listener.local_addr()?;
@@ -374,6 +384,7 @@ async fn supplied_s3(native: bool) -> Result<()> {
     );
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn generic_and_native_s3_page_reads_keep_the_supplied_credential_provider() -> Result<()> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());

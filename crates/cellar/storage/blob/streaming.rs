@@ -5,6 +5,7 @@
 
 use super::*;
 use std::sync::atomic::Ordering;
+
 const IDLE: std::time::Duration = std::time::Duration::from_secs(3600);
 
 fn reap_puts() {
@@ -49,6 +50,7 @@ pub(crate) async fn begin(
         .insert(put_id, Arc::new(tokio::sync::Mutex::new(put)));
     Ok(put_id.to_string())
 }
+
 pub(crate) async fn chunk(put_id: u64, chunk: Vec<u8>) -> Result<String, String> {
     let put = puts()
         .lock()
@@ -62,6 +64,7 @@ pub(crate) async fn chunk(put_id: u64, chunk: Vec<u8>) -> Result<String, String>
     put.touched = idle_stamp();
     put.push(chunk).await.map(|()| String::new())
 }
+
 pub(crate) async fn end(put_id: u64, abort: bool) -> Result<String, String> {
     let put = puts().lock().unwrap().remove(&put_id);
     let Some(put) = put else {

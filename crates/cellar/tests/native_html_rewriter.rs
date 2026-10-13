@@ -25,8 +25,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+
 const SCRIPT: &str = "native-html";
 const SCOPE: &str = "Page:one";
+
 #[derive(Default)]
 struct Signals {
     hold: AtomicBool,
@@ -46,18 +48,22 @@ struct Signals {
     read_release: Mutex<Option<tokio::sync::oneshot::Sender<Vec<u8>>>>,
     saved: Mutex<Option<(Element, Context)>>,
 }
+
 enum ProducerKind {
     Source,
     Deferred,
 }
+
 struct Producer {
     chunks: VecDeque<std::result::Result<Vec<u8>, String>>,
     signals: Arc<Signals>,
     kind: ProducerKind,
     pending: Option<tokio::sync::oneshot::Receiver<Vec<u8>>>,
 }
+
 impl Stream for Producer {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         if let Some(chunk) = self.chunks.pop_front() {
             match self.kind {
@@ -88,6 +94,7 @@ impl Stream for Producer {
         Poll::Ready(None)
     }
 }
+
 impl Drop for Producer {
     fn drop(&mut self) {
         match self.kind {
@@ -99,19 +106,24 @@ impl Drop for Producer {
         }
     }
 }
+
 struct HandlerGuard(Arc<Signals>);
+
 impl Drop for HandlerGuard {
     fn drop(&mut self) {
         self.0.handler_cancelled.store(true, Ordering::SeqCst);
         self.0.handler_dropped.notify_one();
     }
 }
+
 struct Page(Arc<Signals>);
+
 impl Cell for Page {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(worker(context, invocation, self.0.clone()))
     }
 }
+
 async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>) -> Result<Output> {
     let Invocation::Fetch(request) = invocation else {
         return Err(anyhow!("expected fetch"));
@@ -253,6 +265,7 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
         rewriter.transform(&context, input)?.into_http(&context)?,
     ))
 }
+
 async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime
         .restore_cell(
@@ -269,6 +282,7 @@ async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime.start_cell(SCOPE.into(), 1, true).await?;
     runtime.publish_cell(SCOPE, 1)
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -287,6 +301,7 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
         )
         .await
 }
+
 async fn body(mut response: HttpResponse) -> Result<Vec<u8>> {
     let mut bytes = response.body;
     if let Some(mut stream) = response.stream.take() {
@@ -296,6 +311,7 @@ async fn body(mut response: HttpResponse) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+
 fn reset(signals: &Signals) {
     for notify in [
         &signals.source_entered,
@@ -311,12 +327,14 @@ fn reset(signals: &Signals) {
     signals.source_pulls.store(0, Ordering::SeqCst);
     signals.deferred_pulls.store(0, Ordering::SeqCst);
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn native_html_preserves_durability_bounded_input_and_cancellation() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let factory = signals.clone();

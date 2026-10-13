@@ -36,6 +36,7 @@ mod gate;
 #[cfg(test)]
 mod tests;
 pub(crate) use gate::{InputGate, Ready};
+
 fn primitive_wall_ms() -> f64 {
     crate::asyncrt::wall_ms() as f64
 }
@@ -104,6 +105,7 @@ impl Drop for NativeFlight {
 }
 
 pub(crate) struct WakeTurn(Mutex<Option<tokio::sync::oneshot::Sender<()>>>);
+
 impl WakeTurn {
     pub(crate) fn pending(&self) -> bool {
         self.0
@@ -126,6 +128,7 @@ impl Drop for NativeWorker {
         // Cells::drop finalizes cursors and caches before closing databases.
     }
 }
+
 fn retire_activation(activation: &Activation) {
     // Called only with this worker's original Cells installed. Never promise
     // a position from an open transaction that retirement will roll back.
@@ -137,6 +140,7 @@ fn retire_activation(activation: &Activation) {
     *activation.resources.retired_position.lock().unwrap() = position;
     activation.retire();
 }
+
 impl futures_util::task::ArcWake for WakeTurn {
     fn wake_by_ref(wake: &Arc<Self>) {
         let sender = wake.0.lock().unwrap().take();
@@ -1621,6 +1625,7 @@ impl crate::worker::WorkerBackend for NativeWorker {
     fn heap_bytes(&self) -> Option<crate::worker::HeapBytes> {
         None
     }
+
     fn turn_begin(
         &mut self,
         job: crate::WorkerJob,
@@ -1628,20 +1633,25 @@ impl crate::worker::WorkerBackend for NativeWorker {
     ) -> (Option<InFlight>, Vec<Op>) {
         self.begin(job, trace)
     }
+
     fn turn_cancel(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.cancel(entry, false)
     }
+
     fn turn_cancel_for_shutdown(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.cancel(entry, true)
     }
+
     fn turn_retire_input_gates(&mut self, entry: &InFlight) {
         self.retire(entry);
         entry.context.force_retire_cross_entry_gates();
         let _ = crate::host_gates::abandon_context_input_gates(&entry.context);
     }
+
     fn turn_abandon_input_gates(&mut self, entry: &InFlight) {
         let _ = crate::host_gates::abandon_context_input_gates(&entry.context);
     }
+
     fn turn_deliver(
         &mut self,
         entry: &mut InFlight,
@@ -1652,6 +1662,7 @@ impl crate::worker::WorkerBackend for NativeWorker {
         entry.ops.remove(&op);
         self.poll(entry)
     }
+
     fn own_cell(
         &mut self,
         cell: &str,
@@ -1659,7 +1670,9 @@ impl crate::worker::WorkerBackend for NativeWorker {
     ) -> Result<cellar_logic::wake::AlarmSnapshot> {
         crate::native_worker::NativeWorker::own_cell(self, cell, storage)
     }
+
     fn settle_heap(&mut self) {}
+
     fn own_embedded_cell(
         &mut self,
         cell: &str,
@@ -1671,6 +1684,7 @@ impl crate::worker::WorkerBackend for NativeWorker {
     ) -> Result<u64> {
         NativeWorker::own_embedded_cell(self, cell, parent, name, id_sc, props_sc, file)
     }
+
     fn close_facet_tree(
         &mut self,
         cell: &str,
@@ -1679,14 +1693,17 @@ impl crate::worker::WorkerBackend for NativeWorker {
     ) -> (Vec<String>, Result<()>) {
         NativeWorker::close_facet_tree(self, cell, root, facet_path)
     }
+
     fn take_alarm_moves(&mut self) -> Vec<(String, cellar_logic::wake::AlarmSnapshot)> {
         let _installed = self.cells.install();
         crate::storage::take_alarm_moves()
     }
+
     fn set_id_name(&mut self, scope: &str, name: &str) -> Result<()> {
         let _installed = self.cells.install();
         crate::storage::set_actor_name(scope, name)
     }
+
     fn turn_begin_cell(
         &mut self,
         job: CellJob,
@@ -1694,12 +1711,15 @@ impl crate::worker::WorkerBackend for NativeWorker {
     ) -> (Option<InFlight>, Vec<Op>) {
         self.begin_cell(job, trace)
     }
+
     fn turn_poll(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.poll(entry)
     }
+
     fn turn_cancel_pending_events(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.poll(entry)
     }
+
     fn turn_finish_alarm(&mut self, entry: &mut InFlight) -> Result<Option<u64>> {
         self.finish_alarm(entry)
     }

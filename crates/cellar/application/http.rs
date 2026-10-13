@@ -17,6 +17,7 @@ pub enum Redirect {
     Manual,
     Error,
 }
+
 impl Redirect {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
@@ -26,6 +27,7 @@ impl Redirect {
         }
     }
 }
+
 /// Outbound HTTP input. `None` omits a body; present empty bytes retain explicit
 /// zero-length framing. Stream bodies must belong to the calling event.
 pub struct OutboundRequest {
@@ -36,6 +38,7 @@ pub struct OutboundRequest {
     pub body: Option<crate::engine_api::RequestBody>,
     pub redirect: Redirect,
 }
+
 impl OutboundRequest {
     pub fn get(url: impl Into<String>) -> Self {
         Self {
@@ -53,12 +56,14 @@ enum Body {
     Bytes(Vec<u8>),
     Stream(Option<HttpChunkStream>),
 }
+
 pub struct Response {
     head: HttpResponse,
     body: Body,
     used: bool,
     header_list: Option<Headers>,
 }
+
 impl Response {
     /// Serialize a Rust value as an HTTP JSON response.
     pub fn from_json(value: &impl serde::Serialize) -> Result<Self> {
@@ -75,6 +80,7 @@ impl Response {
     ) -> super::HandlerFuture<super::websocket::WebSocket> {
         context.accept_websocket(&mut self.head)
     }
+
     pub fn from_body(status: u16, body: &BodyInit, headers: &Headers) -> Result<Self> {
         let encoded = body.encode()?;
         let headers = Headers::from_headers(headers);
@@ -90,6 +96,7 @@ impl Response {
         response.set_header_list(headers);
         Ok(response)
     }
+
     pub fn new(status: u16, bytes: impl Into<Vec<u8>>, headers: Vec<(String, String)>) -> Self {
         Self::from_http(HttpResponse {
             status,
@@ -101,11 +108,13 @@ impl Response {
             observed_position: None,
         })
     }
+
     pub fn empty(status: u16, headers: Vec<(String, String)>) -> Self {
         let mut response = Self::new(status, Vec::new(), headers);
         response.body = Body::None;
         response
     }
+
     pub(crate) fn empty_from_http(head: HttpResponse) -> Self {
         Self {
             head,
@@ -114,6 +123,7 @@ impl Response {
             header_list: None,
         }
     }
+
     pub fn streaming(status: u16, stream: HttpChunkStream, headers: Vec<(String, String)>) -> Self {
         Self::from_http(HttpResponse {
             status,
@@ -125,6 +135,7 @@ impl Response {
             observed_position: None,
         })
     }
+
     pub fn from_http(mut response: HttpResponse) -> Self {
         let body = match response.stream.take() {
             Some(stream) => Body::Stream(Some(stream)),
@@ -137,15 +148,18 @@ impl Response {
             header_list: None,
         }
     }
+
     pub fn status(&self) -> u16 {
         self.head.status
     }
+
     pub fn headers(&self) -> Vec<(String, String)> {
         self.header_list
             .as_ref()
             .map(Headers::wire)
             .unwrap_or_else(|| self.head.headers.clone())
     }
+
     /// Lazily materialize a live typed list. Its aliases and iterators remain
     /// attached to this response until the list is explicitly replaced.
     pub fn header_list(&mut self) -> Result<Headers> {
@@ -154,14 +168,17 @@ impl Response {
         }
         Ok(self.header_list.as_ref().unwrap().clone())
     }
+
     pub fn set_header_list(&mut self, headers: Headers) {
         self.header_list = Some(headers);
     }
+
     /// Constructor-style copy through the sorted Headers iteration view.
     pub fn with_headers(mut self, headers: &Headers) -> Self {
         self.header_list = Some(Headers::from_headers(headers));
         self
     }
+
     /// Low-level transport editing replaces the typed list and detaches its
     /// old aliases, just as assigning a new header list does.
     pub fn headers_mut(&mut self) -> &mut Vec<(String, String)> {
@@ -170,9 +187,11 @@ impl Response {
         }
         &mut self.head.headers
     }
+
     pub fn body_used(&self) -> bool {
         self.used
     }
+
     pub fn has_body(&self) -> bool {
         !matches!(self.body, Body::None)
     }
@@ -180,6 +199,7 @@ impl Response {
     fn consumed() -> anyhow::Error {
         BodyError::Consumed.into()
     }
+
     /// Successful stream drains materialize bytes, retaining the existing
     /// adapter's repeatable reads. A failed or interrupted drain stays claimed.
     async fn consume(&mut self, context: &Context) -> Result<Vec<u8>> {
@@ -202,12 +222,15 @@ impl Response {
             }
         }
     }
+
     pub async fn bytes(&mut self, context: &Context) -> Result<Vec<u8>> {
         self.consume(context).await
     }
+
     pub async fn array_buffer(&mut self, context: &Context) -> Result<Vec<u8>> {
         self.bytes(context).await
     }
+
     pub async fn text(&mut self, context: &Context) -> Result<String> {
         let bytes = self.bytes(context).await?;
         let mut decoder = cellar_native::encoding::TextDecoder::new(
@@ -216,12 +239,14 @@ impl Response {
         )?;
         Ok(decoder.decode(&bytes, false)?)
     }
+
     pub async fn json(
         &mut self,
         context: &Context,
     ) -> Result<cellar_native::clone::StructuredValue> {
         cellar_native::json::parse_utf8(&self.text(context).await?)
     }
+
     pub async fn blob(&mut self, context: &Context) -> Result<Blob> {
         let bytes = self.bytes(context).await?;
         let kind = self
@@ -236,6 +261,7 @@ impl Response {
             },
         )?)
     }
+
     pub async fn form_data(&mut self, context: &Context) -> Result<FormData> {
         let bytes = self.bytes(context).await?;
         let kind = self
@@ -244,9 +270,11 @@ impl Response {
             .unwrap_or_default();
         Ok(FormData::parse_utf16(&bytes, &kind)?)
     }
+
     pub(crate) async fn drain(&mut self, context: &Context) -> Result<()> {
         self.consume(context).await.map(|_| ())
     }
+
     pub fn into_http(mut self, context: &Context) -> Result<HttpResponse> {
         context.check_turn()?;
         if let Some(headers) = self.header_list.as_ref() {
@@ -259,6 +287,7 @@ impl Response {
         }
         Ok(self.head)
     }
+
     pub(crate) fn rewrite_parts(
         mut self,
         context: &Context,
@@ -287,61 +316,75 @@ impl Response {
 pub struct BodyReader {
     response: Response,
 }
+
 impl BodyReader {
     pub fn body_used(&self) -> bool {
         self.response.body_used()
     }
+
     pub async fn bytes(&mut self, context: &Context) -> Result<Vec<u8>> {
         self.response.bytes(context).await
     }
+
     pub async fn array_buffer(&mut self, context: &Context) -> Result<Vec<u8>> {
         self.bytes(context).await
     }
+
     pub async fn text(&mut self, context: &Context) -> Result<String> {
         self.response.text(context).await
     }
+
     pub async fn json(
         &mut self,
         context: &Context,
     ) -> Result<cellar_native::clone::StructuredValue> {
         self.response.json(context).await
     }
+
     pub async fn blob(&mut self, context: &Context) -> Result<Blob> {
         self.response.blob(context).await
     }
+
     pub async fn form_data(&mut self, context: &Context) -> Result<FormData> {
         self.response.form_data(context).await
     }
 }
+
 #[derive(Debug)]
 pub enum BodyError {
     Consumed,
     Locked,
 }
+
 impl BodyError {
     pub fn name(&self) -> &'static str {
         "TypeError"
     }
 }
+
 impl std::fmt::Display for BodyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self{Self::Consumed=>"Body has already been used. It can only be used once. Use tee() first if you need to read it multiple times.",Self::Locked=>"ReadableStream is locked"})
     }
 }
+
 impl std::error::Error for BodyError {}
 
 #[derive(Debug)]
 pub struct MethodError(pub String);
+
 impl MethodError {
     pub fn name(&self) -> &'static str {
         "TypeError"
     }
 }
+
 impl std::fmt::Display for MethodError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "Invalid HTTP method string: {}", self.0)
     }
 }
+
 impl std::error::Error for MethodError {}
 
 pub(crate) fn normalize_method(method: &str) -> Result<String> {
@@ -372,6 +415,7 @@ impl super::Request {
             entrypoint: None,
         })
     }
+
     /// Transfer this request's body to an owned reader in its original turn.
     pub fn into_body_reader(self, context: &Context) -> Result<BodyReader> {
         context.check_turn()?;
@@ -385,6 +429,7 @@ impl super::Request {
         };
         Ok(BodyReader { response })
     }
+
     /// Construct a native request with the retained method normalization.
     /// URL strings remain as supplied; `parsed_url` performs explicit parsing.
     pub fn new(
@@ -402,14 +447,17 @@ impl super::Request {
             entrypoint: None,
         })
     }
+
     /// Request copying retains the raw wire list, including author spelling.
     pub fn header_list(&self) -> Result<Headers> {
         Ok(Headers::from_pairs(self.headers.clone())?)
     }
+
     pub fn set_header_list(&mut self, headers: &Headers) -> Result<()> {
         self.headers = headers.request_wire()?;
         Ok(())
     }
+
     pub fn parsed_url(&self) -> Result<Url> {
         Ok(Url::new(&self.url, None)?)
     }

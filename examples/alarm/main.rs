@@ -1,7 +1,9 @@
 use crate::support;
 use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output};
 use std::sync::Arc;
+
 pub struct Alarm;
+
 impl Cell for Alarm {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -20,7 +22,10 @@ impl Cell for Alarm {
                     }
                     support::json(
                         &context,
-                        serde_json::json!({"alarm":storage.get_alarm()?,"status":storage.get_json("status")?}),
+                        serde_json::json!({
+                            "alarm": storage.get_alarm()?,
+                            "status": storage.get_json("status")?,
+                        }),
                     )
                 }
                 Invocation::Alarm { scheduled_ms } => {

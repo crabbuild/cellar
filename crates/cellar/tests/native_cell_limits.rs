@@ -52,6 +52,7 @@ fn response() -> Output {
         observed_position: None,
     })
 }
+
 fn request(path: &str) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://test/{path}"),
@@ -63,6 +64,7 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -83,6 +85,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
 struct SqlProbe {
     mode: u8,
 }
+
 impl Cell for SqlProbe {
     fn invoke(self: Arc<Self>, context: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {

@@ -113,6 +113,7 @@ pub(crate) async fn abort_facet(
 ) -> Result<(), String> {
     let recorded = host.is_loaded_worker();
     let slot = host.slot().await?;
+
     const ABORTED: &str = "the Durable Object facet was aborted";
     let below = match &root {
         Some((root, epoch, path)) => take_recorded_facets_below(root, *epoch, path),

@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, Notify};
+
 fn graph() -> StructuredValue {
     StructuredValue {
         root: Value::Reference(0),
@@ -31,6 +32,7 @@ fn graph() -> StructuredValue {
         ],
     }
 }
+
 fn request(path: &str) -> Request {
     Request {
         url: format!("http://loaded/{path}"),
@@ -40,6 +42,7 @@ fn request(path: &str) -> Request {
         entrypoint: None,
     }
 }
+
 fn response(text: &str) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -51,6 +54,7 @@ fn response(text: &str) -> Output {
         observed_position: None,
     })
 }
+
 #[derive(Default)]
 struct Signals {
     codes: AtomicUsize,
@@ -76,7 +80,9 @@ struct Signals {
     self_event_handle: Mutex<Option<Fetcher>>,
     hold_self: AtomicBool,
 }
+
 struct AppDrop(Arc<Signals>);
+
 impl Drop for AppDrop {
     fn drop(&mut self) {
         assert!(
@@ -87,25 +93,32 @@ impl Drop for AppDrop {
         self.0.app_dropped.notify_one();
     }
 }
+
 struct Pending(Arc<Signals>);
+
 impl Drop for Pending {
     fn drop(&mut self) {
         self.0.pending_drops.fetch_add(1, Ordering::SeqCst);
         self.0.dropped.notify_one();
     }
 }
+
 #[derive(Debug)]
 struct Failure(u32);
+
 impl std::fmt::Display for Failure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "code failure {}", self.0)
     }
 }
+
 impl std::error::Error for Failure {}
+
 struct Leaf {
     props: StructuredValue,
     _application: Arc<AppDrop>,
 }
+
 impl Cell for Leaf {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -159,6 +172,7 @@ impl Cell for Leaf {
         })
     }
 }
+
 fn child(signals: Arc<Signals>) -> Result<Arc<dyn Application>> {
     let probe = Arc::new(AppDrop(signals.clone()));
     let factory = probe.clone();
@@ -292,7 +306,9 @@ fn child(signals: Arc<Signals>) -> Result<Arc<dyn Application>> {
     })?;
     Ok(Arc::new(registry))
 }
+
 struct Parent(Arc<Signals>);
+
 impl Parent {
     fn worker(&self, context: &Context) -> Result<Worker> {
         let signals = self.0.clone();
@@ -312,10 +328,12 @@ impl Parent {
                 })
             })
     }
+
     fn entry(&self) -> Entrypoint {
         self.0.entrypoint.lock().unwrap().clone().unwrap()
     }
 }
+
 impl Cell for Parent {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -672,6 +690,7 @@ fn deployment() -> LoadedDeployment {
         container_images: Vec::new(),
     }
 }
+
 async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -698,6 +717,7 @@ async fn native_loader_shares_handles_limits_cancellation_and_loaded_facet_retir
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let (send, mut gates) = mpsc::unbounded_channel();

@@ -47,11 +47,14 @@ use std::sync::{Arc, Mutex};
 /// Type-erased page reader so one VFS registration can serve any client type.
 pub trait PageReader: Send + Sync {
     fn page_size(&self) -> u32;
+
     fn commit(&self) -> u32;
+
     /// The cut's bytes for `pgno` and the pages stored right after it that
     /// came along in the same read (first entry is `pgno`); empty if the cut
     /// has no such page.
     fn read_run(&self, pgno: u32) -> crate::error::Result<Vec<(u32, Vec<u8>)>>;
+
     /// Faults served so far, for the hydration count.
     fn faults(&self) -> u64 {
         0
@@ -62,12 +65,15 @@ impl PageReader for PageSource {
     fn page_size(&self) -> u32 {
         PageSource::page_size(self)
     }
+
     fn commit(&self) -> u32 {
         PageSource::commit(self)
     }
+
     fn read_run(&self, pgno: u32) -> crate::error::Result<Vec<(u32, Vec<u8>)>> {
         self.read_run_blocking(pgno)
     }
+
     fn faults(&self) -> u64 {
         PageSource::faults(self)
     }

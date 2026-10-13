@@ -33,6 +33,7 @@ fn output(body: impl ToString) -> Output {
         observed_position: None,
     })
 }
+
 fn request() -> Request {
     Request {
         url: "http://loaded/read".into(),
@@ -42,6 +43,7 @@ fn request() -> Request {
         entrypoint: None,
     }
 }
+
 fn bytes() -> StructuredValue {
     StructuredValue {
         root: Value::Reference(0),
@@ -52,6 +54,7 @@ fn bytes() -> StructuredValue {
         }],
     }
 }
+
 fn props_object() -> StructuredValue {
     StructuredValue {
         root: Value::Reference(0),
@@ -65,6 +68,7 @@ fn props_object() -> StructuredValue {
         ],
     }
 }
+
 fn payload_len(graph: &StructuredValue) -> usize {
     graph
         .objects
@@ -75,12 +79,15 @@ fn payload_len(graph: &StructuredValue) -> usize {
         })
         .unwrap_or(0)
 }
+
 struct Leaf(usize);
+
 impl Cell for Leaf {
     fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move { Ok(output(self.0)) })
     }
 }
+
 fn child() -> Result<Arc<dyn Application>> {
     Ok(Arc::new(
         Registry::new(|ctx, event| {
@@ -101,15 +108,18 @@ fn child() -> Result<Arc<dyn Application>> {
         })?,
     ))
 }
+
 #[derive(Default)]
 struct Mailbox {
     own: Mutex<Option<Fetcher>>,
     foreign: Mutex<Option<Fetcher>>,
 }
+
 struct Parent {
     workers: Mutex<Vec<Worker>>,
     mailbox: Arc<Mailbox>,
 }
+
 impl Cell for Parent {
     fn invoke(self: Arc<Self>, ctx: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -239,6 +249,7 @@ impl Cell for Parent {
         })
     }
 }
+
 fn parent(mailbox: Arc<Mailbox>, class: &str) -> Result<Arc<dyn Application>> {
     Ok(Arc::new(
         Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
@@ -253,12 +264,14 @@ fn parent(mailbox: Arc<Mailbox>, class: &str) -> Result<Arc<dyn Application>> {
             })?,
     ))
 }
+
 struct Host {
     domain: ExecutionDomain,
     runtime: Arc<RuntimeManager>,
     mailbox: Arc<Mailbox>,
     _directory: tempfile::TempDir,
 }
+
 async fn host(policy: LoaderPolicy) -> Result<Host> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     domain.services().configure_loader(policy)?;
@@ -324,6 +337,7 @@ async fn host(policy: LoaderPolicy) -> Result<Host> {
         _directory: directory,
     })
 }
+
 async fn call(host: &Host, cell: &str, op: &str) -> Result<String> {
     let response = tokio::time::timeout(
         Duration::from_secs(10),
@@ -350,6 +364,7 @@ async fn call(host: &Host, cell: &str, op: &str) -> Result<String> {
     );
     Ok(String::from_utf8(response.body)?)
 }
+
 fn policy(workers: usize, principal: usize, bytes: usize) -> LoaderPolicy {
     LoaderPolicy {
         max_workers: workers,

@@ -8,12 +8,14 @@ use std::sync::Arc;
 pub struct Fetcher {
     script: Arc<str>,
 }
+
 impl Fetcher {
     pub(crate) fn new(script: &str) -> Self {
         Self {
             script: script.into(),
         }
     }
+
     pub fn fetch_url(
         &self,
         context: &Context,
@@ -30,6 +32,7 @@ impl Fetcher {
             },
         )
     }
+
     pub fn fetch(&self, context: &Context, request: Request) -> HandlerFuture<HttpResponse> {
         let prepared: anyhow::Result<_> = (|| {
             context.check_turn()?;

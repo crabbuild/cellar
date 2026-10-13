@@ -47,12 +47,14 @@ struct Current<'a> {
     blocks: &'a Blocks,
     previous: Option<Arc<Block>>,
 }
+
 impl<'a> Current<'a> {
     fn enter(blocks: &'a Blocks, block: Arc<Block>) -> Self {
         let previous = blocks.current.lock().unwrap().replace(block);
         Self { blocks, previous }
     }
 }
+
 impl Drop for Current<'_> {
     fn drop(&mut self) {
         *self.blocks.current.lock().unwrap() = self.previous.take();
@@ -232,18 +234,22 @@ pub(crate) struct Cancellation {
     pub(crate) lifetime: Arc<crate::runtime::RequestCancellationLifetime>,
     pub(crate) armed: bool,
 }
+
 impl Cancellation {
     pub(crate) fn disarm(&mut self) {
         self.armed = false;
     }
 }
+
 pub(crate) struct CallTask<T> {
     pub(crate) task: crate::asyncrt::TaskHandle<T>,
     pub(crate) lifetime: Arc<crate::runtime::RequestCancellationLifetime>,
     pub(crate) finished: bool,
 }
+
 impl<T> Future for CallTask<T> {
     type Output = std::result::Result<T, crate::asyncrt::TaskPanic>;
+
     fn poll(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -256,6 +262,7 @@ impl<T> Future for CallTask<T> {
         result
     }
 }
+
 impl<T> Drop for CallTask<T> {
     fn drop(&mut self) {
         if !self.finished {
@@ -264,6 +271,7 @@ impl<T> Drop for CallTask<T> {
         }
     }
 }
+
 impl Drop for Cancellation {
     fn drop(&mut self) {
         if self.armed {

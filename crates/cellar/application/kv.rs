@@ -84,9 +84,11 @@ pub struct ListResult {
 fn now() -> i64 {
     crate::ownership_store::now_ms() as i64
 }
+
 fn error(message: impl std::fmt::Display) -> anyhow::Error {
     anyhow!("KV_ERROR: {message}")
 }
+
 fn list_limit(requested: Option<i64>) -> usize {
     let maximum = crate::application::limits::current().kv.max_list_limit;
     requested
@@ -94,6 +96,7 @@ fn list_limit(requested: Option<i64>) -> usize {
         .map_or(policy::MAX_LIST_LIMIT, |n| n as usize)
         .min(maximum)
 }
+
 fn check_key(key: &str) -> Result<()> {
     ensure!(!key.is_empty(), "KV_ERROR: a key must not be empty");
     ensure!(
@@ -104,6 +107,7 @@ fn check_key(key: &str) -> Result<()> {
     );
     Ok(())
 }
+
 fn check_value(size: usize) -> Result<()> {
     ensure!(
         size <= crate::application::limits::current().kv.max_value_bytes,
@@ -112,6 +116,7 @@ fn check_value(size: usize) -> Result<()> {
     );
     Ok(())
 }
+
 fn check_metadata(metadata: &str) -> Result<()> {
     ensure!(
         metadata.len() <= crate::application::limits::current().kv.max_metadata_bytes,
@@ -121,6 +126,7 @@ fn check_metadata(metadata: &str) -> Result<()> {
     );
     Ok(())
 }
+
 fn check_bulk(keys: &[String]) -> Result<()> {
     ensure!(
         !keys.is_empty(),
@@ -137,6 +143,7 @@ fn check_bulk(keys: &[String]) -> Result<()> {
     }
     Ok(())
 }
+
 fn expiry(now: i64, expiration: Option<f64>, ttl: Option<f64>) -> Result<Option<i64>> {
     let floor = crate::kv_blob::limits()["minExpirationTtlMs"]
         .as_i64()
@@ -167,6 +174,7 @@ fn expiry(now: i64, expiration: Option<f64>, ttl: Option<f64>) -> Result<Option<
 fn cursor_encode(key: &str) -> String {
     hex_encode(key.as_bytes())
 }
+
 fn hex_encode(bytes: &[u8]) -> String {
     const DIGITS: &[u8] = b"0123456789abcdef";
     bytes
@@ -179,6 +187,7 @@ fn hex_encode(bytes: &[u8]) -> String {
         })
         .collect()
 }
+
 fn cursor_decode(cursor: &str) -> Result<String> {
     ensure!(
         cursor.len().is_multiple_of(2)
@@ -203,12 +212,14 @@ fn cursor_decode(cursor: &str) -> Result<String> {
         .collect::<Vec<_>>();
     decode_text(&bytes)
 }
+
 fn decode_text(bytes: &[u8]) -> Result<String> {
     Ok(
         cellar_native::encoding::TextDecoder::new("utf-8", Default::default())?
             .decode(bytes, false)?,
     )
 }
+
 fn decode_value(bytes: Vec<u8>, kind: ReadType) -> Result<ReadValue> {
     Ok(match kind {
         ReadType::Text => ReadValue::Text(decode_text(&bytes)?),
@@ -314,6 +325,7 @@ impl Namespace {
             .1
             .value)
     }
+
     pub async fn get_with_metadata(
         &self,
         context: &Context,
@@ -326,6 +338,7 @@ impl Namespace {
             .remove(0)
             .1)
     }
+
     pub async fn get_many(
         &self,
         context: &Context,
@@ -340,6 +353,7 @@ impl Namespace {
             .map(|(key, value)| (key, value.value))
             .collect())
     }
+
     pub async fn get_many_with_metadata(
         &self,
         context: &Context,
@@ -381,6 +395,7 @@ impl Namespace {
         self.call(context, "__kvPut", args).await?;
         Ok(())
     }
+
     pub async fn put_text(
         &self,
         context: &Context,
@@ -391,6 +406,7 @@ impl Namespace {
         self.put(context, key, text.as_bytes().to_vec(), "text", options)
             .await
     }
+
     pub async fn put_bytes(
         &self,
         context: &Context,
@@ -400,6 +416,7 @@ impl Namespace {
     ) -> Result<()> {
         self.put(context, key, bytes, "bytes", options).await
     }
+
     /// Own and drain the source with a bound checked on every chunk. Dropping
     /// the source on refusal propagates cancellation through its host claim.
     pub async fn put_stream(
@@ -425,6 +442,7 @@ impl Namespace {
         }
         self.put(context, key, bytes, "bytes", options).await
     }
+
     pub async fn delete(&self, context: &Context, key: &str) -> Result<()> {
         check_key(key)?;
         self.call(
@@ -435,6 +453,7 @@ impl Namespace {
         .await?;
         Ok(())
     }
+
     pub async fn delete_many(&self, context: &Context, keys: &[String]) -> Result<()> {
         check_bulk(keys)?;
         self.call(
@@ -445,6 +464,7 @@ impl Namespace {
         .await?;
         Ok(())
     }
+
     pub async fn list(&self, context: &Context, options: ListOptions) -> Result<ListResult> {
         let after = options
             .cursor
@@ -504,11 +524,13 @@ struct Entry {
     metadata: Option<String>,
     expires: Option<i64>,
 }
+
 struct Stored {
     entry: Entry,
     value: Option<Vec<u8>>,
     reference: Option<String>,
 }
+
 struct NamespaceCell {
     storage: Storage,
     ready: AtomicBool,
@@ -535,27 +557,32 @@ fn text(row: &SqlRow, key: &str) -> Result<String> {
         _ => Err(error(format!("invalid stored {key}"))),
     }
 }
+
 fn optional_text(row: &SqlRow, key: &str) -> Result<Option<String>> {
     match row.get(key) {
         Some(SqlValue::Null) => Ok(None),
         _ => text(row, key).map(Some),
     }
 }
+
 fn integer(row: &SqlRow, key: &str) -> Result<i64> {
     match row.get(key) {
         Some(SqlValue::Integer(value)) => Ok(*value),
         _ => Err(error(format!("invalid stored {key}"))),
     }
 }
+
 fn optional_integer(row: &SqlRow, key: &str) -> Result<Option<i64>> {
     match row.get(key) {
         Some(SqlValue::Null) => Ok(None),
         _ => integer(row, key).map(Some),
     }
 }
+
 fn sql_text(value: Option<String>) -> SqlValue {
     value.map(SqlValue::Text).unwrap_or(SqlValue::Null)
 }
+
 fn sql_integer(value: Option<i64>) -> SqlValue {
     value.map(SqlValue::Integer).unwrap_or(SqlValue::Null)
 }
@@ -564,6 +591,7 @@ impl NamespaceCell {
     fn exec(&self, query: &str, params: &[SqlValue]) -> Result<Vec<SqlRow>> {
         self.storage.system_sql(query, params)
     }
+
     fn open(&self) -> Result<()> {
         if self.ready.load(Ordering::Acquire) {
             return Ok(());
@@ -576,6 +604,7 @@ impl NamespaceCell {
         self.ready.store(true, Ordering::Release);
         Ok(())
     }
+
     fn blob_due(&self) -> Result<bool> {
         Ok(!self
             .exec(
@@ -584,6 +613,7 @@ impl NamespaceCell {
             )?
             .is_empty())
     }
+
     fn arm_blob(&self) -> Result<()> {
         self.open()?;
         self.exec("INSERT INTO __sys_kv_meta(name,value) VALUES ('blob-sweep-due',1) ON CONFLICT(name) DO UPDATE SET value=excluded.value", &[])?;
@@ -595,6 +625,7 @@ impl NamespaceCell {
             ),
         )
     }
+
     fn arm_before(&self, deadline: i64) -> Result<()> {
         let at = self.storage.get_alarm()?;
         if at.is_none_or(|at| at <= now() || at > deadline) {
@@ -602,6 +633,7 @@ impl NamespaceCell {
         }
         Ok(())
     }
+
     fn rearm(&self) -> Result<()> {
         if crate::kv_blob::limits()["sweepDisabled"] == true {
             return Ok(());
@@ -792,6 +824,7 @@ impl NamespaceCell {
         }
         Ok(())
     }
+
     async fn delete(&self, keys: Vec<String>) -> Result<()> {
         let _protocol = self.protocol.lock().await;
         self.open()?;
@@ -814,6 +847,7 @@ impl NamespaceCell {
             Ok(())
         })
     }
+
     fn list(&self, prefix: String, limit: i64, after: String, at: i64) -> Result<Value> {
         self.open()?;
         ensure!(
@@ -851,11 +885,13 @@ impl NamespaceCell {
         let keys = rows.into_iter().take(limit as usize).map(|row| Ok(json!({"name":text(&row,"name")?,"metadata":optional_text(&row,"metadata")?,"expiration":optional_integer(&row,"expires_at")?}))).collect::<Result<Vec<_>>>()?;
         Ok(json!({"keys":keys,"complete":complete}))
     }
+
     fn metrics(&self, at: i64) -> Result<Value> {
         self.open()?;
         let row = self.exec("SELECT COUNT(*) AS count,COALESCE(SUM(size),0) AS bytes FROM __sys_kv WHERE expires_at IS NULL OR expires_at>?", &[at.into()])?.remove(0);
         Ok(json!({"count":integer(&row,"count")?,"bytes":integer(&row,"bytes")?}))
     }
+
     fn sweep(&self, at: i64, limit: i64) -> Result<usize> {
         self.open()?;
         ensure!(limit >= 0, "KV_ERROR: invalid sweep bound");
@@ -865,6 +901,7 @@ impl NamespaceCell {
             Ok(rows.len())
         })
     }
+
     async fn alarm(&self, context: &Context) -> Result<()> {
         let removed = {
             let _protocol = self.protocol.lock().await;
@@ -1090,6 +1127,7 @@ impl NamespaceCell {
             ))),
         }
     }
+
     async fn fetch(&self, context: &Context, body: crate::engine_api::RequestBody) -> HttpResponse {
         let body = async {
             let mut stream = context.take_body(body)?;
@@ -1126,6 +1164,7 @@ fn names(graph: &StructuredValue, value: &CloneValue) -> Result<Vec<String>> {
         .map(wire::string)
         .collect()
 }
+
 fn prefix_upper(prefix: &str) -> Option<String> {
     let mut points = prefix.chars().collect::<Vec<_>>();
     while let Some(point) = points.pop() {
@@ -1142,6 +1181,7 @@ fn prefix_upper(prefix: &str) -> Option<String> {
     }
     None
 }
+
 fn js_string(value: Option<&Value>) -> String {
     match value {
         None => "undefined".into(),
@@ -1162,6 +1202,7 @@ fn js_string(value: Option<&Value>) -> String {
         Some(value) => value.to_string(),
     }
 }
+
 impl Cell for NamespaceCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {

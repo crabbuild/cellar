@@ -4,6 +4,7 @@ use cellar::sdk::{
     kv::{ListOptions, PutOptions, ReadType, ReadValue},
     Context, Output, Request,
 };
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     let url = url::Url::parse(&request.url)?;
     let namespace = context.kv("KV")?;
@@ -25,7 +26,11 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
             .await?;
         return support::json(
             context,
-            serde_json::json!({"keys":page.keys.iter().map(|key| &key.name).collect::<Vec<_>>(),"cursor":page.cursor,"complete":page.list_complete}),
+            serde_json::json!({
+                "keys": page.keys.iter().map(|key| &key.name).collect::<Vec<_>>(),
+                "cursor": page.cursor,
+                "complete": page.list_complete,
+            }),
         );
     }
     let key = support::name(url.path().strip_prefix("/kv/").unwrap_or_default())?;
@@ -40,12 +45,18 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
                     bytes,
                     PutOptions {
                         expiration_ttl: Some(60.0),
-                        metadata: Some(serde_json::json!({"example":"rust"})),
+                        metadata: Some(serde_json::json!({ "example": "rust" })),
                         ..Default::default()
                     },
                 )
                 .await?;
-            support::json(context, serde_json::json!({"stored":key,"ttl_seconds":60}))
+            support::json(
+                context,
+                serde_json::json!({
+                    "stored": key,
+                    "ttl_seconds": 60,
+                }),
+            )
         }
         "DELETE" => {
             namespace.delete(context, key).await?;

@@ -58,24 +58,37 @@ impl PartialEq for LoaderOwner {
             && Weak::ptr_eq(&self.service, &other.service)
     }
 }
+
 impl Eq for LoaderOwner {}
 
 type LoadedWorkers = HashMap<u64, LoaderEntry>;
+
 // Erase the recursive worker/turn graph at the service boundary, so importing
 // Context does not require applications to raise their compiler recursion limit.
 pub(crate) trait LoaderService: Send + Sync {
     fn bind_domain(&self, domain: crate::asyncrt::DomainToken);
+
     fn accepts_work(&self) -> bool;
+
     fn close(&self);
+
     fn configure_policy(&self, policy: crate::loader_policy::LoaderPolicy) -> anyhow::Result<()>;
+
     fn policy(&self) -> crate::loader_policy::LoaderPolicy;
+
     fn registry(&self) -> Arc<Mutex<LoadedWorkers>>;
+
     fn next_id(&self) -> u64;
+
     fn next_owner(&self) -> u64;
+
     fn state(&self, id: u64) -> Option<tokio::sync::watch::Receiver<LoaderState>>;
+
     fn take(&self, id: u64) -> Option<tokio::sync::watch::Receiver<LoaderState>>;
+
     fn defer_drop(&self, state: Box<dyn Send>);
 }
+
 pub(crate) struct LoaderRegistry {
     registry: Arc<Mutex<LoadedWorkers>>,
     next_id: AtomicU64,
@@ -84,6 +97,7 @@ pub(crate) struct LoaderRegistry {
     domain: OnceLock<crate::asyncrt::DomainToken>,
     policy: OnceLock<crate::loader_policy::LoaderPolicy>,
 }
+
 impl Default for LoaderRegistry {
     fn default() -> Self {
         Self {
@@ -96,6 +110,7 @@ impl Default for LoaderRegistry {
         }
     }
 }
+
 impl LoaderService for LoaderRegistry {
     fn configure_policy(&self, policy: crate::loader_policy::LoaderPolicy) -> anyhow::Result<()> {
         anyhow::ensure!(self.accepts_work(), "loader execution domain is closed");
@@ -106,24 +121,30 @@ impl LoaderService for LoaderRegistry {
         }
         Ok(())
     }
+
     fn policy(&self) -> crate::loader_policy::LoaderPolicy {
         *self.policy.get_or_init(Default::default)
     }
+
     fn registry(&self) -> Arc<Mutex<LoadedWorkers>> {
         self.registry.clone()
     }
+
     fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
+
     fn next_owner(&self) -> u64 {
         self.policy();
         self.next_owner.fetch_add(1, Ordering::Relaxed)
     }
+
     fn bind_domain(&self, domain: crate::asyncrt::DomainToken) {
         if let Err(candidate) = self.domain.set(domain) {
             assert!(self.domain.get().unwrap().same_owner(&candidate));
         }
     }
+
     fn accepts_work(&self) -> bool {
         !self.closed.load(Ordering::Acquire)
             && self
@@ -131,6 +152,7 @@ impl LoaderService for LoaderRegistry {
                 .get()
                 .is_none_or(|domain| domain.mono_ms().is_ok())
     }
+
     fn close(&self) {
         let entries = {
             let mut registry = self.registry.lock().unwrap();
@@ -139,6 +161,7 @@ impl LoaderService for LoaderRegistry {
         };
         drop(entries);
     }
+
     fn state(&self, id: u64) -> Option<tokio::sync::watch::Receiver<LoaderState>> {
         self.registry
             .lock()
@@ -146,10 +169,12 @@ impl LoaderService for LoaderRegistry {
             .get(&id)
             .map(|entry| entry.state.clone())
     }
+
     fn take(&self, id: u64) -> Option<tokio::sync::watch::Receiver<LoaderState>> {
         let entry = self.registry.lock().unwrap().remove(&id);
         entry.map(|entry| entry.state)
     }
+
     fn defer_drop(&self, state: Box<dyn Send>) {
         if let Some(domain) = self.domain.get() {
             // Refused work drops its resources under the captured owner.

@@ -29,6 +29,7 @@ pub fn perform(namespace: &str, operation: &str, input: &str) -> Result<String, 
         _ => Err(Error::type_error("unknown Durable Object ID operation")),
     }
 }
+
 fn validate(namespace: &str, id: &[u8; 32]) -> Result<(), Error> {
     use hmac::Mac;
     hmac(&key(namespace), &id[..16])
@@ -41,6 +42,7 @@ pub struct Namespace {
     class: Arc<str>,
     key: Arc<str>,
 }
+
 impl Namespace {
     /// A value factory, not authority to invoke a cell. Runtime adapters mint
     /// their callable namespaces from configured bindings and supplied handles.
@@ -50,6 +52,7 @@ impl Namespace {
             key: key.into(),
         }
     }
+
     fn id(&self, value: [u8; 32], name: Option<Arc<[u16]>>) -> Id {
         Id {
             class: self.class.clone(),
@@ -57,12 +60,14 @@ impl Namespace {
             name,
         }
     }
+
     pub fn id_from_name(&self, name: &str) -> Id {
         self.id(
             for_name(&self.key, name),
             Some(name.encode_utf16().collect::<Vec<_>>().into()),
         )
     }
+
     pub fn id_from_name_utf16(&self, name: &[u16]) -> Id {
         // The original host op hashes the V8 string's UTF-8 replacement view.
         self.id(
@@ -70,14 +75,17 @@ impl Namespace {
             Some(Arc::from(name)),
         )
     }
+
     pub fn id_from_string(&self, value: &str) -> Result<Id, Error> {
         let value = perform(&self.key, "validate", value)?;
         Ok(self.id(decode_hex(&value).expect("validated hex"), None))
     }
+
     pub fn new_unique_id(&self) -> Result<Id, Error> {
         let value = perform(&self.key, "unique", "")?;
         Ok(self.id(decode_hex(&value).expect("generated hex"), None))
     }
+
     /// Existing ID values are accepted by class, as in the original façade.
     /// Parsing an external hex string separately authenticates its namespace.
     pub fn accepts(&self, id: &Id) -> Result<(), Error> {
@@ -88,6 +96,7 @@ impl Namespace {
         }
         Ok(())
     }
+
     pub fn jurisdiction(&self, value: Option<&str>) -> Result<Self, Error> {
         match value {
             None => Ok(self.clone()),
@@ -97,41 +106,50 @@ impl Namespace {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct Id {
     class: Arc<str>,
     value: [u8; 32],
     name: Option<Arc<[u16]>>,
 }
+
 impl Id {
     pub fn name_utf16(&self) -> Option<&[u16]> {
         self.name.as_deref()
     }
+
     pub fn name(&self) -> Option<String> {
         self.name.as_deref().map(String::from_utf16_lossy)
     }
+
     /// The existing host persists at most 1024 UTF-8 bytes of routing name.
     /// The full name always participates in identity derivation.
     pub fn dispatch_name(&self) -> Option<String> {
         self.name().filter(|name| name.len() <= 1024)
     }
+
     pub fn scope(&self) -> String {
         format!("{}:{}", self.class, self)
     }
+
     pub fn equals(&self, other: &Self) -> bool {
         self.value == other.value
     }
 }
+
 impl std::fmt::Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&encode_hex(&self.value))
     }
 }
+
 impl PartialEq for Id {
     fn eq(&self, other: &Self) -> bool {
         self.equals(other)
     }
 }
+
 impl Eq for Id {}
 
 thread_local! {

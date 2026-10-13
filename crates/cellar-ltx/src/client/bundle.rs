@@ -38,6 +38,7 @@ pub trait BundleFetcher: Send + Sync {
     /// The rows for this client's cell-epoch, any order, duplicates
     /// allowed (the overlay dedupes by TXID).
     fn rows<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<Vec<LocatedRow>>> + Send + 'a>>;
+
     /// One row's verbatim L0 bytes.
     fn fetch<'a>(
         &'a self,

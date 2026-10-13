@@ -68,6 +68,7 @@ impl ViewKind {
             Self::DataView => b'?',
         }
     }
+
     fn decode(tag: u8) -> Result<Self> {
         Ok(match tag {
             b'b' => Self::Int8,
@@ -86,6 +87,7 @@ impl ViewKind {
             _ => bail!("unknown structured-clone view kind {tag:#x}"),
         })
     }
+
     fn element_size(self) -> usize {
         match self {
             Self::Int8 | Self::Uint8 | Self::Uint8Clamped | Self::DataView => 1,
@@ -299,15 +301,18 @@ impl Reader<'_> {
             .collect::<Result<_>>()?;
         Ok(StructuredValue { root, objects })
     }
+
     fn padding(&mut self) {
         while self.bytes.get(self.at) == Some(&0) {
             self.at += 1;
         }
     }
+
     fn peek(&mut self) -> Option<u8> {
         self.padding();
         self.bytes.get(self.at).copied()
     }
+
     fn byte(&mut self) -> Result<u8> {
         let byte = *self
             .bytes
@@ -316,6 +321,7 @@ impl Reader<'_> {
         self.at += 1;
         Ok(byte)
     }
+
     fn raw(&mut self, length: usize) -> Result<&[u8]> {
         let end = self
             .at
@@ -328,6 +334,7 @@ impl Reader<'_> {
         self.at = end;
         Ok(bytes)
     }
+
     fn varint(&mut self, bits: u32) -> Result<u64> {
         let mut result = 0;
         for shift in (0..bits).step_by(7) {
@@ -344,15 +351,19 @@ impl Reader<'_> {
         }
         bail!("clone varint overflow")
     }
+
     fn u32(&mut self) -> Result<u32> {
         Ok(self.varint(32)? as u32)
     }
+
     fn size(&mut self) -> Result<u64> {
         self.varint(if self.version >= 16 { 64 } else { 32 })
     }
+
     fn double(&mut self) -> Result<f64> {
         Ok(f64::from_le_bytes(self.raw(8)?.try_into().unwrap()))
     }
+
     fn bigint(&mut self) -> Result<Value> {
         let bits = self.u32()?;
         ensure!(bits != 1, "invalid negative-zero clone bigint");
@@ -361,6 +372,7 @@ impl Reader<'_> {
             magnitude: self.raw((bits >> 1) as usize)?.to_vec(),
         })
     }
+
     fn string(&mut self, depth: usize) -> Result<Vec<u16>> {
         if self.version < 12 {
             return self.utf8();
@@ -370,11 +382,13 @@ impl Reader<'_> {
             _ => bail!("clone requires a string"),
         }
     }
+
     fn utf8(&mut self) -> Result<Vec<u16>> {
         let len = self.u32()? as usize;
         let bytes = self.raw(len)?;
         Ok(std::str::from_utf8(bytes)?.encode_utf16().collect())
     }
+
     fn reserve(&mut self) -> Result<u32> {
         ensure!(
             self.objects.len() < self.limits.objects,
@@ -384,6 +398,7 @@ impl Reader<'_> {
         self.objects.push(None);
         Ok(id)
     }
+
     fn properties(&mut self, end: u8, depth: usize) -> Result<Properties> {
         let mut properties = Vec::new();
         while self.peek() != Some(end) {
@@ -402,6 +417,7 @@ impl Reader<'_> {
         );
         Ok(properties)
     }
+
     fn value(&mut self, depth: usize) -> Result<Value> {
         ensure!(depth <= self.limits.depth, "clone nesting limit exceeded");
         self.values += 1;
@@ -474,6 +490,7 @@ impl Reader<'_> {
         }
         Ok(value)
     }
+
     fn object(&mut self, tag: u8, depth: usize) -> Result<Object> {
         ensure!(depth <= self.limits.depth, "clone nesting limit exceeded");
         Ok(match tag {
@@ -593,6 +610,7 @@ impl Reader<'_> {
             _ => unreachable!("object tags checked before reserving"),
         })
     }
+
     fn view(&mut self, buffer: u32) -> Result<Value> {
         let kind = ViewKind::decode(self.varint(8)? as u8)?;
         let offset = self.size()?;
@@ -681,9 +699,11 @@ impl Writer<'_> {
         self.bytes.extend_from_slice(bytes);
         Ok(())
     }
+
     fn byte(&mut self, byte: u8) -> Result<()> {
         self.raw(&[byte])
     }
+
     fn varint(&mut self, mut value: u32) -> Result<()> {
         loop {
             let byte = (value & 0x7f) as u8;
@@ -694,12 +714,15 @@ impl Writer<'_> {
             }
         }
     }
+
     fn size(&mut self, value: usize) -> Result<()> {
         self.varint(u32::try_from(value)?)
     }
+
     fn double(&mut self, value: f64) -> Result<()> {
         self.raw(&value.to_le_bytes())
     }
+
     fn string(&mut self, string: &[u16]) -> Result<()> {
         if string.iter().all(|unit| *unit <= 255) {
             self.byte(b'"')?;
@@ -727,6 +750,7 @@ impl Writer<'_> {
         }
         Ok(())
     }
+
     fn bigint(&mut self, negative: bool, magnitude: &[u8]) -> Result<()> {
         ensure!(
             !negative || !magnitude.is_empty(),
@@ -737,6 +761,7 @@ impl Writer<'_> {
         self.varint((len << 1) | u32::from(negative))?;
         self.raw(magnitude)
     }
+
     fn value(&mut self, value: &Value, depth: usize) -> Result<()> {
         ensure!(depth <= self.limits.depth, "clone nesting limit exceeded");
         self.values += 1;
@@ -764,10 +789,12 @@ impl Writer<'_> {
             Value::Reference(id) => self.reference(*id, depth + 1),
         }
     }
+
     fn assign(&mut self, id: u32) {
         self.ids[id as usize] = Some(self.next_id);
         self.next_id += 1;
     }
+
     fn reference(&mut self, id: u32, depth: usize) -> Result<()> {
         let object = self
             .graph
@@ -805,6 +832,7 @@ impl Writer<'_> {
         self.assign(id);
         self.object(object, depth)
     }
+
     fn properties(&mut self, properties: &Properties, end: u8, depth: usize) -> Result<()> {
         for (key, value) in properties {
             self.value(key, depth)?;
@@ -813,6 +841,7 @@ impl Writer<'_> {
         self.byte(end)?;
         self.size(properties.len())
     }
+
     fn object(&mut self, object: &Object, depth: usize) -> Result<()> {
         match object {
             Object::Object(properties) => {

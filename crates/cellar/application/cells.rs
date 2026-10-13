@@ -8,29 +8,37 @@ use cellar_native::clone::{encode, Object, StructuredValue, Value};
 /// across instances, restarts and nodes using the existing namespace protocol.
 #[derive(Clone, Debug)]
 pub struct Namespace(cell_id::Namespace);
+
 impl Namespace {
     pub fn id_from_name(&self, name: &str) -> Id {
         self.0.id_from_name(name)
     }
+
     pub fn id_from_name_utf16(&self, name: &[u16]) -> Id {
         self.0.id_from_name_utf16(name)
     }
+
     pub fn id_from_string(&self, id: &str) -> Result<Id> {
         Ok(self.0.id_from_string(id)?)
     }
+
     pub fn new_unique_id(&self) -> Result<Id> {
         Ok(self.0.new_unique_id()?)
     }
+
     pub fn jurisdiction(&self, value: Option<&str>) -> Result<Self> {
         Ok(Self(self.0.jurisdiction(value)?))
     }
+
     pub fn get_by_name(&self, name: &str) -> Stub {
         self.stub(self.id_from_name(name))
     }
+
     pub fn get(&self, id: &Id) -> Result<Stub> {
         self.0.accepts(id)?;
         Ok(self.stub(id.clone()))
     }
+
     fn stub(&self, id: Id) -> Stub {
         Stub {
             name: id.dispatch_name().map(Arc::from),
@@ -48,16 +56,20 @@ pub struct Stub {
     name: Option<Arc<str>>,
     broken: Arc<Mutex<Option<Arc<str>>>>,
 }
+
 impl Stub {
     pub fn id(&self) -> &Id {
         &self.id
     }
+
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
+
     pub fn name_utf16(&self) -> Option<&[u16]> {
         self.name.as_ref().and(self.id.name_utf16())
     }
+
     fn check(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
         if let Some(reason) = self.broken.lock().unwrap().as_ref() {
@@ -65,6 +77,7 @@ impl Stub {
         }
         Ok(())
     }
+
     fn finish<T>(&self, result: Result<T>) -> Result<T> {
         result.map_err(|error| {
             // Typed routing errors are retryable host verdicts, not a reason
@@ -87,6 +100,7 @@ impl Stub {
             error
         })
     }
+
     pub fn fetch(&self, context: &Context, mut request: Request) -> HandlerFuture<HttpResponse> {
         if let Err(error) = self.check(context).and_then(|_| {
             request.method = super::http::normalize_method(&request.method)?;
@@ -108,6 +122,7 @@ impl Stub {
             stub.finish(response)
         })
     }
+
     pub fn fetch_with_signal(
         &self,
         context: &Context,
@@ -124,6 +139,7 @@ impl Stub {
             }
         })
     }
+
     pub fn rpc(
         &self,
         context: &Context,
@@ -147,6 +163,7 @@ impl Stub {
             stub.finish(result)
         })
     }
+
     pub fn rpc_with_signal(
         &self,
         context: &Context,
@@ -164,6 +181,7 @@ impl Stub {
             }
         })
     }
+
     /// Invoke with a structured argument array and decode the result graph.
     /// Cycles, shared references, typed buffers and UTF-16 values remain intact.
     pub fn call(
@@ -197,6 +215,7 @@ impl Stub {
             stub.finish(super::decode_rpc_result(&call.await?))
         })
     }
+
     pub fn call_with_signal(
         &self,
         context: &Context,
@@ -215,6 +234,7 @@ impl Stub {
         })
     }
 }
+
 impl Context {
     /// Resolve a declared business cell binding in the current invocation.
     /// Retain its stubs between turns and pass each turn's context when calling.
@@ -240,6 +260,7 @@ impl Context {
             .ok_or_else(|| anyhow!("no cell namespace binding named {binding}"))?;
         self.exported_namespace(class)
     }
+
     pub fn exported_namespace(&self, class: &str) -> Result<Namespace> {
         self.check_turn()?;
         anyhow::ensure!(

@@ -18,6 +18,7 @@ const CLASS: &str = "Counter";
 static APPLICATION_INSTANCES: AtomicU64 = AtomicU64::new(0);
 
 struct Counter;
+
 impl Cell for Counter {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -43,7 +44,7 @@ impl Cell for Counter {
             Ok(Output::Http(
                 Response::new(
                     200,
-                    serde_json::json!({"count": count}).to_string(),
+                    serde_json::json!({ "count": count }).to_string(),
                     vec![("content-type".into(), "application/json".into())],
                 )
                 .into_http(&context)?,

@@ -14,12 +14,14 @@ use std::{
     },
     task::{Context, Poll, Wake, Waker},
 };
+
 fn value(value: Value) -> StructuredValue {
     StructuredValue {
         root: value,
         objects: Vec::new(),
     }
 }
+
 fn log(log: &Arc<Mutex<Vec<String>>>, label: &str) -> Listener {
     let log = log.clone();
     let label = label.to_string();
@@ -341,14 +343,17 @@ fn abort_latches_shared_reason_any_order_and_handler_position() {
 }
 
 struct CountWake(AtomicUsize);
+
 impl Wake for CountWake {
     fn wake(self: Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
+
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 #[test]
 fn abort_waiters_release_wakers_and_wake_once_even_when_a_listener_throws() {
     let controller = AbortController::new();
@@ -423,7 +428,9 @@ fn timeout_uses_host_scheduling_and_retains_signed_32_bit_delay_conversion() {
             .unwrap();
         assert_eq!(signal.reason().unwrap().dom_exception().unwrap().code(), 23);
     }
+
     struct ObjectListener(AtomicUsize);
+
     impl EventListener for ObjectListener {
         fn handle_event(&self, _: &Event) -> Result<(), EventDispatchError> {
             self.0.fetch_add(1, Ordering::SeqCst);

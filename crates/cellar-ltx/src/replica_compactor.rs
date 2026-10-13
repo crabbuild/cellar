@@ -444,6 +444,7 @@ impl Write for ScratchWriter {
         self.0.write_all(bytes)?;
         Ok(bytes.len())
     }
+
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }

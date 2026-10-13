@@ -34,6 +34,7 @@ struct Signals {
     escaped: Mutex<Option<Storage>>,
     cursor: Mutex<Option<SqlCursor>>,
 }
+
 struct Store {
     storage: Storage,
     signals: Arc<Signals>,
@@ -68,6 +69,7 @@ fn write(storage: &Storage, key: &str, value: i64) -> Result<()> {
     )?;
     Ok(())
 }
+
 fn absent(storage: &Storage, key: &str) -> Result<()> {
     assert!(storage.get(key)?.is_none(), "{key} survived rollback");
     let row = storage
@@ -481,6 +483,7 @@ impl Cell for Store {
         })
     }
 }
+
 fn request(path: &str) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://cell{path}"),
@@ -492,11 +495,13 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn fetch(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(scope.into(), None, request(path), None)
         .await
 }
+
 async fn waiting(task: &mut cellar::asyncrt::TaskHandle<Result<HttpResponse>>, label: &str) {
     match cellar::asyncrt::timeout(Duration::from_millis(20), task).await {
         Err(_) => {}
@@ -509,6 +514,7 @@ async fn waiting(task: &mut cellar::asyncrt::TaskHandle<Result<HttpResponse>>, l
         Ok(Err(error)) => panic!("{label} task failed before release: {error}"),
     }
 }
+
 fn deployment() -> LoadedDeployment {
     LoadedDeployment {
         native: None,
@@ -548,6 +554,7 @@ async fn asynchronous_native_transactions_preserve_atomicity_and_lifecycle() -> 
     cellar::asyncrt::timeout(Duration::from_secs(50), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let factory_signals = signals.clone();

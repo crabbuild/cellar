@@ -553,6 +553,7 @@ pub(crate) enum StopMode {
     /// Remove an image whose durability proof failed.
     Discard,
 }
+
 /// One pool's isolates by state, as `/state` reports them.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct PoolCensus {
@@ -666,6 +667,7 @@ pub struct RpcOutcome {
 /// shape.
 pub trait GatedAnswer {
     fn write_position(&self) -> Option<u64>;
+
     fn observed_position(&self) -> Option<u64>;
 }
 

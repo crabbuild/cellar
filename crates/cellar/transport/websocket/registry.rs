@@ -436,20 +436,24 @@ impl Drop for WsPullReceiver {
 }
 
 pub(crate) type WsPullQueue = Arc<WsPullQueueState>;
+
 pub(crate) struct WsPullQueueState {
     receiver: tokio::sync::Mutex<WsPullReceiver>,
     capacity: Arc<tokio::sync::Semaphore>,
     retirement: tokio::sync::watch::Sender<bool>,
 }
+
 impl WsPullQueueState {
     pub(crate) async fn lock(&self) -> tokio::sync::MutexGuard<'_, WsPullReceiver> {
         self.receiver.lock().await
     }
+
     fn retire(&self) {
         self.capacity.close();
         let _ = self.retirement.send(true);
     }
 }
+
 type WsPullRegistry = std::sync::Mutex<HashMap<u64, WsPullQueue>>;
 
 /// Inbound queues for isolate-polled sockets, keyed by wsId.
@@ -478,6 +482,7 @@ pub fn ws_pull_unregister(id: u64) {
 #[cfg(all(test, not(cellar_internal_tests)))]
 mod retirement_tests {
     use super::*;
+
     #[tokio::test]
     async fn unregister_releases_backpressure_with_a_retained_reader() {
         let id = ws_next_id();
@@ -590,6 +595,7 @@ pub struct FacetSocket {
     /// that opening only, never a later one at the same scope.
     pub opening: u64,
 }
+
 #[derive(Default)]
 #[doc(hidden)]
 pub struct WsRegistry {
@@ -597,6 +603,7 @@ pub struct WsRegistry {
     pub metadata: HashMap<u64, WsMeta>,
     pub(crate) worker_handoffs: HashMap<u64, WsPullSender>,
 }
+
 impl WsRegistry {
     #[doc(hidden)]
     pub fn register(&mut self, id: u64, tx: tokio::sync::mpsc::UnboundedSender<WsOut>) {
@@ -628,6 +635,7 @@ impl WsRegistry {
         }
     }
 }
+
 /// Every piece of one instance's WebSocket state.
 ///
 /// A socket's id is allocated by `next_id` here, so an id identifies a socket
@@ -666,6 +674,7 @@ pub(crate) fn ws_registry() -> Arc<std::sync::Mutex<WsRegistry>> {
 fn regular_ws_counts() -> Arc<std::sync::Mutex<HashMap<String, usize>>> {
     asyncrt::services().websockets().regular_counts.clone()
 }
+
 pub(crate) fn increment_regular_ws(scope: &str) {
     *regular_ws_counts()
         .lock()
@@ -673,6 +682,7 @@ pub(crate) fn increment_regular_ws(scope: &str) {
         .entry(scope.to_string())
         .or_default() += 1;
 }
+
 pub(crate) fn decrement_regular_ws(scope: &str) {
     let counts = regular_ws_counts();
     let mut counts = counts.lock().unwrap();
@@ -684,6 +694,7 @@ pub(crate) fn decrement_regular_ws(scope: &str) {
         counts.remove(scope);
     }
 }
+
 pub fn has_regular_websocket(scope: &str) -> bool {
     regular_ws_counts()
         .lock()
@@ -691,6 +702,7 @@ pub fn has_regular_websocket(scope: &str) -> bool {
         .get(scope)
         .is_some_and(|count| *count > 0)
 }
+
 /// The auto-response pair per cell scope, set by
 /// `state.setWebSocketAutoResponse`. Shell state, like the socket registry:
 /// the whole point of the feature is answering a matched message while the
@@ -806,6 +818,7 @@ pub fn ws_next_id() -> u64 {
         .next_id
         .fetch_add(1, Ordering::Relaxed)
 }
+
 pub fn ws_register(id: u64, tx: tokio::sync::mpsc::UnboundedSender<WsOut>) {
     ws_registry().lock().unwrap().register(id, tx);
 }
@@ -833,6 +846,7 @@ pub(crate) fn ws_register_hibernatable_for_test(
         },
     );
 }
+
 /// Register an outbound socket of `scope`. A socket that a facet opened
 /// takes its facet record in the same insertion, so no event, close, or
 /// `ws_close_facet` can find the entry without it.
@@ -859,6 +873,7 @@ pub fn ws_register_outbound(id: u64, scope: &str, facet: Option<FacetSocket>) {
         increment_regular_ws(scope);
     }
 }
+
 pub fn ws_unregister(id: u64) {
     let meta = ws_registry().lock().unwrap().unregister(id);
     if let Some(meta) = meta.filter(|meta| !meta.hibernatable) {

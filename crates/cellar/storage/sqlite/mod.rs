@@ -419,6 +419,7 @@ thread_local! {
 
 fn as_user_sql<T>(callback: impl FnOnce() -> T) -> T {
     struct Reset(bool);
+
     impl Drop for Reset {
         fn drop(&mut self) {
             USER_SQL.with(|flag| flag.set(self.0));
