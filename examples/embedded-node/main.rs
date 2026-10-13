@@ -127,6 +127,7 @@ fn main() -> Result<()> {
         let mut key = [0; 32];
         getrandom::fill(&mut key)?;
         let services = NodeServices {
+            http_client: None,
             host_executor: host.handle().clone(),
             core_executor: core.handle().clone(),
             listener,

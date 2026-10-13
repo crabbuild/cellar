@@ -19,6 +19,7 @@ identify their implementation at the documented source baseline.
 | Cron | `cron::Scheduled`, `no_retry` | [cron](../crates/cellar/application/cron.rs) |
 | Services / egress | `service::Fetcher`, `Context::service`, outbound `fetch`, structured RPC and signals | [services](../crates/cellar/application/service.rs) |
 | HTTP values | `http::Response`, URL and outbound request/body helpers | [HTTP](../crates/cellar/application/http.rs) |
+| Host HTTP configuration | `HttpPolicy`, `HttpClientFactory`; `NodeConfig::http`, `NodeServices::http_client`, `HostServices::configure_http` | [HTTP policy](../crates/cellar/transport/http/policy.rs), [host services](../crates/cellar/execution/services.rs) |
 | Blob objects | `blob::Bucket`, `ObjectBody`, ranges, conditionals, multipart, metadata/checksums | [Blob](../crates/cellar/application/blob.rs) |
 | Assets / cache / rewrite | `assets`, `cache`, `html_rewriter` modules | [assets](../crates/cellar/application/assets.rs), [cache](../crates/cellar/application/cache.rs), [rewriter](../crates/cellar/application/html_rewriter.rs) |
 | Streams | `streams` module and owned byte stream values | [streams](../crates/cellar/application/streams.rs) |

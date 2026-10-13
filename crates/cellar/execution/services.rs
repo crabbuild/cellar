@@ -89,6 +89,7 @@ pub struct HostServices {
     actor_options: OnceLock<crate::actor::ActorOptions>,
     operation_deadline_ms: OnceLock<u64>,
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
+    http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
@@ -115,6 +116,7 @@ impl HostServices {
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
+            http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -142,6 +144,7 @@ impl HostServices {
             actor_options: OnceLock::new(),
             operation_deadline_ms: OnceLock::new(),
             runtime_policy: OnceLock::new(),
+            http: OnceLock::new(),
             cell_limits: OnceLock::new(),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
@@ -315,6 +318,50 @@ impl HostServices {
         *self.runtime_policy.get_or_init(Default::default)
     }
 
+    /// Fix outbound HTTP configuration before the first fetch. Factory identity
+    /// and deadline remain pinned across application generations and workers.
+    pub fn configure_http(
+        &self,
+        policy: crate::http_policy::HttpPolicy,
+        factory: Option<crate::http_policy::HttpClientFactory>,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(self.accepts_work(), "HTTP execution domain is closed");
+        policy.validate()?;
+        if let Err(candidate) = self
+            .http
+            .set(crate::http_policy::HttpService::new(policy, factory))
+        {
+            anyhow::ensure!(
+                self.http
+                    .get()
+                    .unwrap()
+                    .matches(candidate.policy, candidate.factory()),
+                "HTTP policy is already in use; configure HTTP before the first fetch"
+            );
+        }
+        if !self.accepts_work() {
+            self.http.get().unwrap().close();
+            anyhow::bail!("HTTP execution domain is closed");
+        }
+        Ok(())
+    }
+
+    pub(crate) fn http(&self) -> &crate::http_policy::HttpService {
+        let http = self.http.get_or_init(Default::default);
+        // Closure can race OnceLock publication, when close_resources cannot
+        // yet see the service. A retained host may never recreate open pools.
+        if !self.accepts_work() {
+            http.close();
+        }
+        http
+    }
+
+    /// Inspect this host's HTTP deadline. Reading it pins library defaults if
+    /// no explicit HTTP configuration was installed.
+    pub fn http_policy(&self) -> crate::http_policy::HttpPolicy {
+        self.http().policy
+    }
+
     /// Capture API budgets before constructing generations or opening storage.
     /// An identical repeated configuration is harmless; live budgets are fixed.
     pub fn configure_cell_limits(
@@ -356,6 +403,9 @@ impl HostServices {
     }
 
     pub(crate) fn close_resources(&self) {
+        if let Some(http) = self.http.get() {
+            http.close();
+        }
         self.tcp.close();
         self.facets.close();
         self.loader.close();

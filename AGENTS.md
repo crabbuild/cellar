@@ -23,6 +23,12 @@ Library applications start `sdk::Node` with explicit `NodeConfig`,
 supplies listeners, executors, clients, authentication, and any fleet services.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
+SDK HTTP uses `NodeConfig::http` and an optional `NodeServices::http_client`
+builder factory. Lower-level hosts configure HTTP through `HostServices` before
+the first fetch. Keep required redirect behavior and invocation subrequest
+accounting in Cellar; factories choose DNS, TLS, proxies, credentials and pools.
+Library HTTP defaults ignore ambient proxies. Domain closure drops cached pools
+and prevents their reconstruction.
 
 The workspace must remain free of JavaScript engines, including with all
 features enabled. Source JavaScript, Node.js modules, and the former Python/Wasm

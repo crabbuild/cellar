@@ -3,7 +3,9 @@
 #[allow(dead_code)]
 #[path = "support/html.rs"]
 mod fixture;
-use anyhow::{ensure, Result};
+#[path = "support/node_http.rs"]
+mod node_http;
+use anyhow::{ensure, Context as _, Result};
 use cellar::bucket::Bucket;
 use cellar::engine_api::HttpResponse;
 use cellar::sdk::*;
@@ -650,7 +652,8 @@ async fn progressing_background_keeps_the_fleet_drain_token_renewed() -> Result<
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
-    .await?;
+    .await
+    .context("background work did not confirm its first write within five seconds")?;
     let owner = node.services();
     let reader = ExecutionDomain::new(tokio::runtime::Handle::current());
     let started = tokio::time::Instant::now();
@@ -669,7 +672,8 @@ async fn progressing_background_keeps_the_fleet_drain_token_renewed() -> Result<
     };
     let expires_ms = cellar::asyncrt::select! {
         outcome = &mut stopping => anyhow::bail!("shutdown ended before acquiring its token: {outcome:?}"),
-        claim = tokio::time::timeout(Duration::from_secs(5), first_claim) => claim??,
+        claim = tokio::time::timeout(Duration::from_secs(5), first_claim) =>
+            claim.context("shutdown did not acquire its fleet drain token within five seconds")??,
     };
     let renewal = async {
         loop {
@@ -690,13 +694,22 @@ async fn progressing_background_keeps_the_fleet_drain_token_renewed() -> Result<
     };
     cellar::asyncrt::select! {
         outcome = &mut stopping => anyhow::bail!("shutdown ended before renewing its token: {outcome:?}"),
-        renewed = tokio::time::timeout(Duration::from_secs(65), renewal) => renewed??,
+        renewed = tokio::time::timeout(Duration::from_secs(65), renewal) =>
+            renewed.with_context(|| format!(
+                "drain token was not renewed within 65 seconds; {} confirmed writes, pending work {:?}",
+                confirmed.load(Ordering::SeqCst), owner.application_work(),
+            ))??,
     }
     ensure!(
         owner.application_work().pending_events > 0 && confirmed.load(Ordering::SeqCst) > 3,
         "accepted work did not progress while holding the token"
     );
-    let outcome = tokio::time::timeout(Duration::from_secs(25), stopping).await???;
+    let outcome = tokio::time::timeout(Duration::from_secs(25), stopping)
+        .await
+        .with_context(|| format!(
+            "shutdown did not join within 25 seconds after token renewal; elapsed {:?}, {} confirmed writes, pending work {:?}",
+            started.elapsed(), confirmed.load(Ordering::SeqCst), owner.application_work(),
+        ))???;
     let NodeOutcome::Stopped(report) = outcome else {
         anyhow::bail!("unexpected stop {outcome:?}");
     };
@@ -981,6 +994,7 @@ async fn inputs(
     config.maintenance.load_sample_period = Duration::from_millis(50);
     config.generation_max_age = Duration::ZERO;
     let services = NodeServices {
+        http_client: None,
         host_executor: tokio::runtime::Handle::current(),
         core_executor: core.handle(),
         listener,

@@ -477,7 +477,32 @@ async fn native_services_outbound_env_brokers_http_gates_and_cancellation() -> R
     Ok(())
 }
 
-async fn run() -> Result<()> {
+#[test]
+fn embedded_http_does_not_read_process_environment() -> Result<()> {
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "native_services_outbound_env_brokers_http_gates_and_cancellation",
+            "--nocapture",
+        ])
+        .env("CELLAR_FETCH_TIMEOUT_S", "not-a-host-policy")
+        .env("HTTP_PROXY", "http://127.0.0.1:9")
+        .env("http_proxy", "http://127.0.0.1:9")
+        .env("ALL_PROXY", "http://127.0.0.1:9")
+        .env("all_proxy", "http://127.0.0.1:9")
+        .env("NO_PROXY", "")
+        .env("no_proxy", "")
+        .output()?;
+    anyhow::ensure!(
+        output.status.success(),
+        "embedded HTTP read process settings:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    Ok(())
+}
+
+async fn run() -> Result<Arc<Signals>> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let signals = Arc::new(Signals {
         origin: format!("http://{}", listener.local_addr()?),
@@ -875,5 +900,122 @@ async fn run() -> Result<()> {
     services.abort();
     rpc.abort();
     gate_driver.abort();
+    Ok(signals)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_http_factory_applies_to_every_redirect_mode_and_limited_worker() -> Result<()> {
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let builds = Arc::new(AtomicUsize::new(0));
+    let observed = builds.clone();
+    let factory = cellar::sdk::HttpClientFactory::new(move || {
+        observed.fetch_add(1, Ordering::SeqCst);
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-cellar-host", "caller-owned".parse().unwrap());
+        reqwest::Client::builder()
+            .no_proxy()
+            .default_headers(headers)
+            // Cellar must still enforce each invocation's requested mode.
+            .redirect(reqwest::redirect::Policy::none())
+    });
+    domain
+        .services()
+        .configure_http(cellar::sdk::HttpPolicy::default(), Some(factory))?;
+    let signals = domain.run(run()).await??;
+    {
+        let requests = signals.peer_requests.lock().unwrap();
+        assert!(!requests.is_empty());
+        assert!(
+            requests
+                .iter()
+                .all(|request| request.contains("x-cellar-host: caller-owned")),
+            "a redirect mode bypassed the application's client configuration: {requests:?}"
+        );
+        assert!(
+            builds.load(Ordering::SeqCst) < requests.len(),
+            "HTTP clients were rebuilt for every fetch"
+        );
+    }
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test]
+async fn http_configuration_is_pinned_to_its_host_and_rejects_invalid_deadlines() -> Result<()> {
+    use cellar::sdk::{ExecutionDomain, HttpClientFactory, HttpPolicy};
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    for request_timeout in [Duration::ZERO, Duration::MAX] {
+        assert!(domain
+            .services()
+            .configure_http(HttpPolicy { request_timeout }, None)
+            .is_err());
+    }
+    let policy = HttpPolicy {
+        request_timeout: Duration::from_secs(3),
+    };
+    let factory = HttpClientFactory::new(reqwest::Client::builder);
+    domain
+        .services()
+        .configure_http(policy, Some(factory.clone()))?;
+    domain
+        .services()
+        .configure_http(policy, Some(factory.clone()))?;
+    assert_eq!(domain.services().http_policy(), policy);
+    assert!(domain
+        .services()
+        .configure_http(HttpPolicy::default(), Some(factory))
+        .is_err());
+    assert!(domain
+        .services()
+        .configure_http(
+            policy,
+            Some(HttpClientFactory::new(reqwest::Client::builder))
+        )
+        .is_err());
+    let defaults = ExecutionDomain::new(tokio::runtime::Handle::current());
+    assert_eq!(defaults.services().http_policy(), HttpPolicy::default());
+    assert!(defaults.services().configure_http(policy, None).is_err());
+    defaults.shutdown().await;
+    domain.shutdown().await;
+    assert!(domain.services().configure_http(policy, None).is_err());
+    Ok(())
+}
+
+// Environment changes occur only in an exact-test subprocess.
+#[test]
+fn command_line_http_policy_resolves_environment_once() -> Result<()> {
+    use cellar::sdk::{ExecutionDomain, HttpPolicy};
+
+    const CHILD: &str = "CELLAR_HTTP_POLICY_ADAPTER_CHILD";
+    if std::env::var(CHILD).as_deref() == Ok("1") {
+        let policy = HttpPolicy::from_env()?;
+        assert_eq!(policy.request_timeout, Duration::from_secs(3));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
+        let domain = ExecutionDomain::new(runtime.handle().clone());
+        domain.services().configure_http(policy, None)?;
+        std::env::set_var("CELLAR_FETCH_TIMEOUT_S", "unusable");
+        assert!(HttpPolicy::from_env().is_err());
+        assert_eq!(domain.services().http_policy(), policy);
+        runtime.block_on(domain.shutdown());
+        return Ok(());
+    }
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "command_line_http_policy_resolves_environment_once",
+            "--nocapture",
+        ])
+        .env_clear()
+        .env(CHILD, "1")
+        .env("CELLAR_FETCH_TIMEOUT_S", "3")
+        .output()?;
+    anyhow::ensure!(
+        output.status.success(),
+        "CLI HTTP policy adapter failed:\n{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
     Ok(())
 }
