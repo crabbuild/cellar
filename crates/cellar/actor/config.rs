@@ -159,10 +159,7 @@ impl ActorOptions {
                 .max(0) as u64,
                 require_node_lease: true,
                 peer_protocol: crate::peer_auth::PROTOCOL_VERSION,
-                operation_deadline_ms: Some(crate::env_vars::positive_or(
-                    "CELLAR_OPERATION_DEADLINE_MS",
-                    super::DEFAULT_OPERATION_DEADLINE_MS,
-                )?),
+                operation_deadline_ms: Some(capture_operation_deadline_from_environment()?),
                 owner_log_recovery_backoff_ms: crate::env_vars::positive_or(
                     "CELLAR_RECOVERY_RETRY_MS",
                     DEFAULT_OWNER_LOG_RECOVERY_BACKOFF_MS,
@@ -189,6 +186,20 @@ impl ActorOptions {
             resume_generation,
         })
     }
+}
+
+/// The process adapter captures this budget before Queue generations use it.
+/// Repeated environment construction retains the host's captured deadline.
+pub(crate) fn capture_operation_deadline_from_environment() -> anyhow::Result<u64> {
+    let services = crate::asyncrt::services();
+    if let Some(deadline) = services.pinned_operation_deadline_ms() {
+        return Ok(deadline);
+    }
+    let deadline = crate::env_vars::positive_or(
+        "CELLAR_OPERATION_DEADLINE_MS",
+        super::DEFAULT_OPERATION_DEADLINE_MS,
+    )?;
+    services.pin_operation_deadline(deadline)
 }
 
 pub(super) fn environment_generation(ownership: Option<&Ownership>) -> String {

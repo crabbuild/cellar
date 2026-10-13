@@ -17,6 +17,7 @@ library defaults and CLI defaults are the same.
 | `admission_wait` | 1 s | Saturated stateless pool wait; zero rejects immediately |
 | `handler_budget` | 300 s | Handler response budget; excludes subsequent background/proof settlement |
 | `HttpPolicy.request_timeout` | 120 s | SDK HTTP deadline, including response-body consumption |
+| Lower-level host operation deadline | 15 s | Used when actor policy was not configured; first Queue-policy use pins it |
 | `NodeServices.http_client` | `None` | Default HTTP builder ignores ambient proxies; supply a factory for host transport settings |
 | `LoaderPolicy.max_workers` | 256 | Loaded-worker limit per host |
 | `max_workers_per_principal` | 255 | Shared script/generation principal limit |
@@ -27,6 +28,11 @@ library defaults and CLI defaults are the same.
 These are source defaults, not recommended production sizing. The structured
 decoder caps encoded values at 64 MiB, and loader budgets must not exceed it.
 Choose lower business-specific bounds where appropriate.
+
+Install `ActorOptions` with `domain.services().configure_actor(&options)` before
+building generations to select a different operation deadline. Queue leases and
+actor settlement share that captured value. A live host rejects a different
+deadline; library defaults ignore `CELLAR_OPERATION_DEADLINE_MS`.
 
 ## Lift cell API ceilings in an embedded host
 
@@ -99,6 +105,7 @@ Source: [cell limits](../crates/cellar/application/limits.rs).
 | `CELLAR_MAX_CELL_REQUESTS` | Per-cell fetch/RPC admission |
 | `CELLAR_ADMISSION_WAIT_MS` / `CELLAR_HANDLER_BUDGET_S` | Admission wait / response budget |
 | `CELLAR_FETCH_TIMEOUT_S` | CLI captures SDK HTTP request timeout at startup |
+| `CELLAR_OPERATION_DEADLINE_MS` | CLI captures the actor/Queue settlement budget before building generations; default 15,000 ms |
 | `CELLAR_MAX_RESIDENT_CELLS` | Actor resident-cell limit |
 | `CELLAR_MAX_CACHED_ROUTES` | Idle unowned route history; CLI default 2,048, zero disables |
 | `CELLAR_LOADER_MAX_WORKERS` | Host loaded-worker limit |
