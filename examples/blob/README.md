@@ -5,7 +5,7 @@ Write, stream and delete objects through a native Blob binding.
 ## How it works
 
 PUT stores a small object; GET streams its body and metadata; DELETE removes it. Blob
-storage is a native binding over the configured store, not an R2 credential requirement.
+storage uses the node's configured object store.
 The tutorial buffers uploads to 64 KiB; the SDK also supports multipart and streamed
 uploads.
 
@@ -45,8 +45,8 @@ curl -sS -i http://127.0.0.1:9876/blobs/demo
 PUT returns an `object` with `key:"demo"`, `size:10`, version, ETag and upload metadata.
 Versions and timestamps vary. GET returns HTTP 200 with exactly `hello Blob` and the
 object's HTTP metadata. DELETE returns `deleted`, then GET returns HTTP 404 with
-`missing object`. This proves the body and object lifecycle independently of any R2
-account.
+`missing object`. The local example verifies the body and object lifecycle with its
+private development store.
 
 ## Stop, restart and cleanup
 

@@ -4,14 +4,14 @@
   "binary": "cellar-native-examples",
   "profile": "dev",
   "primary": {
-    "script_name": "native-r2",
+    "script_name": "native-blob",
     "application_version": "v1",
     "cells": [],
     "bindings": [
       {
         "type": "blob_bucket",
         "name": "BLOBS",
-        "bucket_name": "native-r2-example-blobs"
+        "bucket_name": "native-blob-example-blobs"
       }
     ]
   }
