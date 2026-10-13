@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>Cellar · Builder and team field guide</title>
+<style>
+:root{--paper:#edf3f7;--ink:#243544;--muted:#526574;--rule:#bdccd5;--teal:#14576b;--blue:#497fbb;--rust:#9f432c;--white:#fff;--mono:Menlo,Consolas,monospace}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+a{color:var(--teal);text-underline-offset:3px}button,input,select{font:inherit}button,select{cursor:pointer}a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,object:focus-visible{outline:3px solid var(--blue);outline-offset:4px}
+.skip{position:absolute;left:20px;top:-80px;background:white;padding:12px;z-index:10}.skip:focus{top:12px}
+header{max-width:1440px;margin:auto;padding:42px 40px 25px}.brand{display:flex;align-items:center;gap:12px;font:700 18px var(--mono);letter-spacing:1px}.mark{width:30px;height:30px;border:3px solid var(--teal);box-shadow:inset 0 0 0 5px var(--paper);background:var(--teal);border-radius:7px}
+.kicker{font:12px var(--mono);letter-spacing:1.2px;text-transform:uppercase;color:var(--teal)}h1{font:normal clamp(38px,4.5vw,64px)/1.08 Georgia,"Times New Roman",serif;max-width:1000px;margin:30px 0 20px;letter-spacing:-1.2px}header p{max-width:880px;color:var(--muted);margin:0 0 20px}
+.baseline{display:flex;gap:16px;flex-wrap:wrap;align-items:center;font:12px/1.5 var(--mono);border-top:1px solid var(--rule);padding-top:20px}.state{color:var(--rust);font-weight:bold}
+main{max-width:1440px;margin:auto;padding:8px 40px 50px}h2{font-size:24px;line-height:1.25;margin:0 0 9px}.intro{margin:0;color:var(--muted)}.section-head{display:flex;justify-content:space-between;gap:20px;align-items:end;margin:36px 0 18px}
+.flow-controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.flow-controls label{font:12px var(--mono)}select{min-width:245px;background:white;border:1px solid var(--rule);border-radius:5px;padding:9px 12px;color:var(--ink)}
+.flow-frame{background:#0f172a;border-radius:12px;padding:8px;box-shadow:0 9px 28px #24354415}.flow-frame object{width:100%;height:auto;aspect-ratio:4/3;display:block;border-radius:8px}.flow-caption{display:flex;gap:20px;flex-wrap:wrap;justify-content:space-between;margin:12px 0 0;font-size:14px;color:var(--muted)}.flow-caption p{margin:0}.flow-caption a{white-space:nowrap}
+.notice{border-left:3px solid var(--rust);padding:10px 15px;margin:22px 0 35px;font-size:14px;max-width:1000px}.notice p{margin:0}
+.catalog-tools{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:20px 0}.roles{display:flex;gap:7px;flex-wrap:wrap}.roles button{border:1px solid var(--rule);background:transparent;padding:8px 13px;border-radius:5px;color:var(--ink);font-size:14px;min-height:42px}.roles button[aria-pressed="true"]{background:var(--teal);border-color:var(--teal);color:white}
+.search{display:flex;align-items:center;gap:10px;flex:1;min-width:260px;max-width:430px}.search label{font:12px var(--mono)}input{min-width:0;width:100%;border:1px solid var(--rule);border-radius:5px;padding:9px 12px;background:white;color:var(--ink)}
+#count{color:var(--muted);font:12px var(--mono);margin:18px 0}#documents{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 28px}.document{padding:20px 0;border-top:1px solid var(--rule);min-width:0}.document .type{font:11px var(--mono);text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}.document h3{font-size:18px;line-height:1.4;margin:8px 0}.document p{font-size:14px;color:var(--muted);margin:0 0 12px}.document .path{font:11px var(--mono);overflow-wrap:anywhere;color:var(--muted)}
+.empty{padding:25px 0;grid-column:1/-1}.visuals{margin-top:40px}.visual-links{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}.visuals p{color:var(--muted);font-size:14px}footer{border-top:1px solid var(--rule);padding:25px 0;color:var(--muted);font:12px/1.8 var(--mono);margin-top:35px}
+@media(max-width:1000px){#documents{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{align-items:start;flex-direction:column}.flow-frame{overflow:auto}.flow-frame object{min-width:1200px;min-height:900px}}
+@media(max-width:600px){header{padding:24px 20px 15px}main{padding:8px 20px 30px}h1{letter-spacing:-.6px}#documents{grid-template-columns:1fr}.catalog-tools{flex-direction:column}.search{min-width:0;max-width:none}.baseline{gap:8px}select{min-width:0;max-width:100%}.flow-frame{border-radius:6px}.roles button{min-height:44px}.flow-controls{width:100%}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to documentation</a>
+<header>
+<div class="brand"><span class="mark" aria-hidden="true"></span>CELLAR <span class="kicker">/ field guide</span></div>
+<h1>Build around durable cells.<br>Operate with proof.</h1>
+<p>A documentation library for application builders and distributed teams: native Rust contracts, explicit authority, recovery, measured capacity, and release decisions that carry their evidence.</p>
+<div class="baseline"><span>REVIEWED 2026-10-12 · MAIN c24feb2</span><span class="state">Production scale requires release qualification</span><a href="README.md">Complete document list</a></div>
+</header>
+<main id="main">
+<section aria-labelledby="flows-heading">
+<div class="section-head"><div><h2 id="flows-heading">Follow an execution path</h2><p class="intro">Inspect each step and the failure boundary that changes its outcome.</p></div><div class="flow-controls"><label for="flow-select">FLOW</label><select id="flow-select"></select></div></div>
+<div class="flow-frame" tabindex="0" role="region" aria-label="Interactive SVG flow; scroll horizontally on narrow screens">
+<object id="flow" type="image/svg+xml" data="diagrams/write-flow.svg" aria-label="Interactive write durability flow"><p>Open <a href="diagrams/write-flow.svg">the standalone write flow</a> or read <a href="06-storage-transactions.md">the storage guide</a>.</p></object>
+</div>
+<div class="flow-caption"><p id="flow-kind">Framework behavior · conceptual path</p><div><a id="flow-guide" href="06-storage-transactions.md">Read the guide</a> · <a id="flow-download" href="diagrams/write-flow.svg" download>Download SVG</a> · <a id="flow-standalone" href="diagrams/write-flow.svg" target="_blank" rel="noopener">Open standalone</a></div></div>
+<div class="notice"><p>Guides distinguish implemented framework behavior, proposed application practices, and evidence still required. Local recovery reports do not certify a production fleet size. <a href="21-production-readiness.md">Review the release gates.</a></p></div>
+</section>
+<section aria-labelledby="catalog-heading">
+<h2 id="catalog-heading">The document library</h2><p class="intro">Choose your role, find a topic, and open its Markdown source in your editor or repository viewer.</p>
+<div class="catalog-tools"><div class="roles" role="group" aria-label="Filter documents by reader role">
+<button type="button" data-role="all" aria-pressed="true">All readers</button><button type="button" data-role="builder" aria-pressed="false">Builder</button><button type="button" data-role="platform" aria-pressed="false">Platform</button><button type="button" data-role="operations" aria-pressed="false">Operations</button><button type="button" data-role="team" aria-pressed="false">Team lead</button>
+</div><div class="search"><label for="search">FIND</label><input id="search" type="search" placeholder="Identity, shutdown, migrations…"></div></div>
+<p id="count" role="status" aria-live="polite"></p><div id="documents"></div>
+<noscript><p>Enable browser scripting for catalog filters and step inspection, or use <a href="README.md">the complete Markdown index</a>. SVGs retain labeled static paths.</p></noscript>
+</section>
+<section class="visuals" aria-labelledby="visuals-heading"><h2 id="visuals-heading">Architecture at a glance</h2><div class="visual-links"><a href="diagrams/architecture.svg">Framework architecture</a><a href="diagrams/architecture@2x.png">Shareable architecture PNG</a><a href="diagrams/cell-boundaries.svg">Cell boundaries</a><a href="diagrams/fleet-topology.svg">Fleet topology</a><a href="diagrams/team-delivery.svg">Team delivery</a></div><p>SVGs work offline. Markdown previews are static; open the SVG as a document for interaction. Narrow screens can scroll the flow to keep its labels readable.</p></section>
+<footer>Source-backed reference · <a href="sources.md">Evidence provenance</a> · <a href="catalog.json">Machine-readable catalog</a> · <a href="25-documentation-maintenance.md">Maintain these docs</a><br>Qualify the application, exact release bytes, workload, store and topology before making a production commitment.</footer>
+</main>
+<script>
+const catalog = /*CATALOG*/null;
+let role = 'all';
+const list = document.getElementById('documents');
+function render() {
+  const query = document.getElementById('search').value.trim().toLowerCase();
+  const selected = catalog.documents.filter(doc => (role === 'all' || doc.roles.includes(role)) &&
+    `${doc.title} ${doc.summary} ${doc.path} ${doc.category}`.toLowerCase().includes(query));
+  list.replaceChildren();
+  for (const doc of selected) {
+    const article = document.createElement('article'); article.className = 'document';
+    const type = document.createElement('span'); type.className = 'type'; type.textContent = doc.category;
+    const heading = document.createElement('h3'); const link = document.createElement('a');
+    link.href = doc.path; link.textContent = doc.title; heading.appendChild(link);
+    const description = document.createElement('p'); description.textContent = doc.summary;
+    const path = document.createElement('span'); path.className = 'path'; path.textContent = doc.path;
+    article.append(type,heading,description,path); list.appendChild(article);
+  }
+  if (!selected.length) {const empty = document.createElement('p');empty.className='empty';empty.textContent='No matching documents. Clear the search or choose another reader role.';list.appendChild(empty);}
+  document.getElementById('count').textContent = `${selected.length} of ${catalog.documents.length} documents`;
+}
+document.querySelectorAll('[data-role]').forEach(button => button.addEventListener('click', () => {
+  role = button.dataset.role;
+  document.querySelectorAll('[data-role]').forEach(b => b.setAttribute('aria-pressed', String(b === button)));
+  render();
+}));
+document.getElementById('search').addEventListener('input',render);
+const select = document.getElementById('flow-select');
+catalog.flows.forEach(flow => {const option=document.createElement('option');option.value=flow.id;option.textContent=flow.title;select.appendChild(option);});
+function changeFlow() {
+  const flow = catalog.flows.find(f => f.id === select.value);
+  const path = `diagrams/${flow.id}-flow.svg`;
+  document.getElementById('flow').data = path;
+  document.getElementById('flow').setAttribute('aria-label',`Interactive ${flow.title} flow`);
+  document.getElementById('flow-kind').textContent = flow.kind;
+  document.getElementById('flow-guide').href = flow.guide;
+  document.getElementById('flow-download').href = path;
+  document.getElementById('flow-standalone').href = path;
+}
+select.value = 'write'; select.addEventListener('change',changeFlow);
+changeFlow(); render();
+</script>
+</body>
+</html>

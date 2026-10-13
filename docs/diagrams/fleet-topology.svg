@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" role="img" aria-labelledby="title desc">
+<title id="title">Fleet: qualify the intended failure domains</title><desc id="desc">Proposed multi-zone topology. Shared object storage, ingress and peers must be qualified for the claimed failure model.</desc>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+<marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>
+<marker id="alert-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#fb7185"/></marker>
+</defs>
+<style>
+text { font-family: 'SF Mono', 'Cascadia Code', Menlo, monospace; fill:#e2e8f0; }
+.title {font-size:26px;font-weight:700} .subtitle {font-size:13px;fill:#cbd5e1}
+.name {font-size:16px;font-weight:600} .label {font-size:12px;fill:#cbd5e1}
+.edge {fill:none;stroke:#94a3b8;stroke-width:1.6;marker-end:url(#arrow)}
+.node,.control {cursor:pointer} .node:focus .surface,.control:focus rect {stroke:#fff;stroke-width:3}
+.node.active .surface {stroke:#60a5fa;stroke-width:3;fill:#1e3a5f}
+.node.visited .surface {stroke:#34d399} .control:hover rect {fill:#334155}
+.control[aria-disabled="true"] {opacity:.45} .error.active .surface {stroke:#fb7185;fill:#4c1528}
+</style>
+<rect width="100%" height="100%" fill="#0f172a"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<rect x="40" y="250" width="340" height="280" rx="12" fill="none" stroke="#fbbf24" stroke-dasharray="8 4"/><text class="label" x="60" y="278">FAILURE DOMAIN A</text><path class="edge" d="M600 200V230H210V310"/><path class="edge" d="M210 380V440"/><path class="edge" d="M210 500V555H600V610"/><rect x="430" y="250" width="340" height="280" rx="12" fill="none" stroke="#fbbf24" stroke-dasharray="8 4"/><text class="label" x="450" y="278">FAILURE DOMAIN B</text><path class="edge" d="M600 200V230H600V310"/><path class="edge" d="M600 380V440"/><path class="edge" d="M600 500V555H600V610"/><rect x="820" y="250" width="340" height="280" rx="12" fill="none" stroke="#fbbf24" stroke-dasharray="8 4"/><text class="label" x="840" y="278">FAILURE DOMAIN C</text><path class="edge" d="M600 200V230H990V310"/><path class="edge" d="M990 380V440"/><path class="edge" d="M990 500V555H600V610"/><g ><rect x="440" y="130" width="320" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="440" y="130" width="320" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="600.0" y="159" text-anchor="middle">Authenticated ingress</text>
+<text class="label" style="font-size:12.00px" x="600.0" y="180" text-anchor="middle">Load balance + business probes</text></g><g ><rect x="70" y="310" width="280" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="70" y="310" width="280" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="339" text-anchor="middle">Node A</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="360" text-anchor="middle">Owner / runtime / peer auth</text></g><g ><rect x="70" y="440" width="280" height="60" rx="7" fill="#0f172a"/>
+<rect class="surface" x="70" y="440" width="280" height="60" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="469" text-anchor="middle">Persistent local disk</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="490" text-anchor="middle">SQLite + follower / node logs</text></g><g ><rect x="460" y="310" width="280" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="460" y="310" width="280" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="600.0" y="339" text-anchor="middle">Node B</text>
+<text class="label" style="font-size:12.00px" x="600.0" y="360" text-anchor="middle">Owner / runtime / peer auth</text></g><g ><rect x="460" y="440" width="280" height="60" rx="7" fill="#0f172a"/>
+<rect class="surface" x="460" y="440" width="280" height="60" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="600.0" y="469" text-anchor="middle">Persistent local disk</text>
+<text class="label" style="font-size:12.00px" x="600.0" y="490" text-anchor="middle">SQLite + follower / node logs</text></g><g ><rect x="850" y="310" width="280" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="850" y="310" width="280" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="990.0" y="339" text-anchor="middle">Node C</text>
+<text class="label" style="font-size:12.00px" x="990.0" y="360" text-anchor="middle">Owner / runtime / peer auth</text></g><g ><rect x="850" y="440" width="280" height="60" rx="7" fill="#0f172a"/>
+<rect class="surface" x="850" y="440" width="280" height="60" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="990.0" y="469" text-anchor="middle">Persistent local disk</text>
+<text class="label" style="font-size:12.00px" x="990.0" y="490" text-anchor="middle">SQLite + follower / node logs</text></g><g ><rect x="400" y="610" width="400" height="90" rx="7" fill="#0f172a"/>
+<rect class="surface" x="400" y="610" width="400" height="90" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="600.0" y="639" text-anchor="middle">Shared object-store authority</text>
+<text class="label" style="font-size:12.00px" x="600.0" y="660" text-anchor="middle">Conditional ownership, LTX and recovery</text></g><text class="title" x="40" y="45">Fleet: qualify the intended failure domains</text><text class="subtitle" x="40" y="77">Proposed topology · independent zones and regions are not certified by the local reports</text><text class="label" x="40" y="747">Authenticated peer network links the nodes. Correlated store/network/disk failures need explicit tests.</text></svg>

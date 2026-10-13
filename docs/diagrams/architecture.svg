@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" role="img" aria-labelledby="title desc">
+<title id="title">Cellar: durable business cells</title><desc id="desc">Conceptual component responsibilities and main request, decision and durability relationships.</desc>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+<marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>
+<marker id="alert-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#fb7185"/></marker>
+</defs>
+<style>
+text { font-family: 'SF Mono', 'Cascadia Code', Menlo, monospace; fill:#e2e8f0; }
+.title {font-size:26px;font-weight:700} .subtitle {font-size:13px;fill:#cbd5e1}
+.name {font-size:16px;font-weight:600} .label {font-size:12px;fill:#cbd5e1}
+.edge {fill:none;stroke:#94a3b8;stroke-width:1.6;marker-end:url(#arrow)}
+.node,.control {cursor:pointer} .node:focus .surface,.control:focus rect {stroke:#fff;stroke-width:3}
+.node.active .surface {stroke:#60a5fa;stroke-width:3;fill:#1e3a5f}
+.node.visited .surface {stroke:#34d399} .control:hover rect {fill:#334155}
+.control[aria-disabled="true"] {opacity:.45} .error.active .surface {stroke:#fb7185;fill:#4c1528}
+</style>
+<rect width="100%" height="100%" fill="#0f172a"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<rect x="30" y="195" width="1140" height="340" rx="12" fill="none" stroke="#fbbf24" stroke-dasharray="8 4"/><text class="label" x="55" y="224">NODE EXECUTION DOMAIN · captured policy and owned tasks</text><path class="edge" d="M250 145H400"/><text class="label" x="320" y="127" text-anchor="middle">ingress</text><path class="edge" d="M650 145H800"/><text class="label" x="725" y="127" text-anchor="middle">invoke</text><path class="edge" d="M525 180V260"/><path class="edge" d="M950 180V260"/><path class="edge" d="M650 295H800"/><text class="label" x="725" y="278" text-anchor="middle">dispatch</text><path class="edge" d="M525 330V410"/><text class="label" x="590" y="368" text-anchor="middle">decisions</text><path class="edge" d="M950 330V410"/><text class="label" x="1005" y="368" text-anchor="middle">commit</text><path class="edge" d="M950 480V590"/><path class="edge" d="M800 625H650"/><text class="label" x="725" y="608" text-anchor="middle">proof request</text><path class="edge" d="M400 625H250"/><text class="label" x="320" y="608" text-anchor="middle">CAS / upload</text><g ><rect x="50" y="110" width="200" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="50" y="110" width="200" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="150.0" y="139" text-anchor="middle">Client / edge</text>
+<text class="label" style="font-size:12.00px" x="150.0" y="160" text-anchor="middle">Public authentication</text></g><g ><rect x="400" y="110" width="250" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="400" y="110" width="250" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="525.0" y="139" text-anchor="middle">Native application</text>
+<text class="label" style="font-size:12.00px" x="525.0" y="160" text-anchor="middle">Compiled Rust factories</text></g><g ><rect x="800" y="110" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="800" y="110" width="300" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="950.0" y="139" text-anchor="middle">HTTP / RPC bindings</text>
+<text class="label" style="font-size:12.00px" x="950.0" y="160" text-anchor="middle">Context and event authority</text></g><g ><rect x="400" y="260" width="250" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="400" y="260" width="250" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="525.0" y="289" text-anchor="middle">Serial actor</text>
+<text class="label" style="font-size:12.00px" x="525.0" y="310" text-anchor="middle">Effects + completion events</text></g><g ><rect x="800" y="260" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="800" y="260" width="300" height="70" rx="7" fill="#14392f" stroke="#34d399" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="950.0" y="289" text-anchor="middle">Runtime / cells</text>
+<text class="label" style="font-size:12.00px" x="950.0" y="310" text-anchor="middle">Generations and input gates</text></g><g ><rect x="400" y="410" width="250" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="400" y="410" width="250" height="70" rx="7" fill="#3d3020" stroke="#fbbf24" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="525.0" y="439" text-anchor="middle">cellar-logic</text>
+<text class="label" style="font-size:12.00px" x="525.0" y="460" text-anchor="middle">Pure decisions, no I/O</text></g><g ><rect x="800" y="410" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="800" y="410" width="300" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="950.0" y="439" text-anchor="middle">SQLite + cellar-ltx</text>
+<text class="label" style="font-size:12.00px" x="950.0" y="460" text-anchor="middle">Commit capture and restore</text></g><g ><rect x="50" y="590" width="200" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="50" y="590" width="200" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="150.0" y="619" text-anchor="middle">Object store</text>
+<text class="label" style="font-size:12.00px" x="150.0" y="640" text-anchor="middle">Ownership / LTX / logs</text></g><g ><rect x="400" y="590" width="250" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="400" y="590" width="250" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="525.0" y="619" text-anchor="middle">Fleet / durability</text>
+<text class="label" style="font-size:12.00px" x="525.0" y="640" text-anchor="middle">Leases and peer proofs</text></g><g ><rect x="800" y="590" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="800" y="590" width="300" height="70" rx="7" fill="#3f1c2e" stroke="#fb7185" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="950.0" y="619" text-anchor="middle">Output gate</text>
+<text class="label" style="font-size:12.00px" x="950.0" y="640" text-anchor="middle">Proof before visible success</text></g><text class="title" x="40" y="45">Cellar: durable business cells</text><text class="subtitle" x="40" y="77">Conceptual relationships, not an exhaustive import graph or timing sequence</text><text x="40" y="727" font-size="14" class=""><tspan x="40" dy="0">SDK: application-facing contracts · cellar-native: engine-independent owned values</tspan></text><text class="label" x="40" y="778">Cyan: callers · Green: execution · Violet: persistence · Amber: policy · Rose: output safety</text></svg>

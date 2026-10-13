@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="group" aria-labelledby="title desc">
+<title id="title">Native deployment</title><desc id="desc">Interactive conceptual flow. Tab to a node or control and press Enter or Space; arrows change the step. A static image shows the same labeled path.</desc>
+<defs>
+<pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern>
+<marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#94a3b8"/></marker>
+<marker id="alert-arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><path d="M0 0L10 3.5L0 7Z" fill="#fb7185"/></marker>
+</defs>
+<style>
+text { font-family: 'SF Mono', 'Cascadia Code', Menlo, monospace; fill:#e2e8f0; }
+.title {font-size:26px;font-weight:700} .subtitle {font-size:13px;fill:#cbd5e1}
+.name {font-size:16px;font-weight:600} .label {font-size:12px;fill:#cbd5e1}
+.edge {fill:none;stroke:#94a3b8;stroke-width:1.6;marker-end:url(#arrow)}
+.node,.control {cursor:pointer} .node:focus .surface,.control:focus rect {stroke:#fff;stroke-width:3}
+.node.active .surface {stroke:#60a5fa;stroke-width:3;fill:#1e3a5f}
+.node.visited .surface {stroke:#34d399} .control:hover rect {fill:#334155}
+.control[aria-disabled="true"] {opacity:.45} .error.active .surface {stroke:#fb7185;fill:#4c1528}
+</style>
+<rect width="100%" height="100%" fill="#0f172a"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<text class="title" x="40" y="48">Native deployment</text><text class="subtitle" x="40" y="79">CLI behavior + proposed team rollout</text><rect x="30" y="108" width="600" height="704" rx="12" fill="none" stroke="#334155" stroke-dasharray="8 4"/><path class="edge" d="M210 210V255"/><text class="label" x="270" y="236" text-anchor="middle">continue</text><path class="edge" d="M210 325V370"/><path class="edge" d="M210 440V485"/><path class="edge" d="M210 555V600"/><path class="edge" d="M210 670V715"/><path class="edge" d="M360 635H400" style="stroke:#fb7185;stroke-dasharray:6 4;marker-end:url(#alert-arrow)"/><text class="label" x="470" y="584" text-anchor="middle">failure</text><g id="step-0" class="node active" tabindex="0" role="button" aria-pressed="true" aria-label="Step 1: Build the executable" data-step="0"><rect x="60" y="140" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="60" y="140" width="300" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="169" text-anchor="middle">Build the executable</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="190" text-anchor="middle">1 · Cargo / project</text></g><g id="step-1" class="node" tabindex="0" role="button" aria-pressed="false" aria-label="Step 2: Verify the package" data-step="1"><rect x="60" y="255" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="60" y="255" width="300" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="284" text-anchor="middle">Verify the package</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="305" text-anchor="middle">2 · Artifact protocol</text></g><g id="step-2" class="node" tabindex="0" role="button" aria-pressed="false" aria-label="Step 3: Publish the package" data-step="2"><rect x="60" y="370" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="60" y="370" width="300" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="399" text-anchor="middle">Publish the package</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="420" text-anchor="middle">3 · cellar deploy</text></g><g id="step-3" class="node" tabindex="0" role="button" aria-pressed="false" aria-label="Step 4: Install verified bytes" data-step="3"><rect x="60" y="485" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="60" y="485" width="300" height="70" rx="7" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="514" text-anchor="middle">Install verified bytes</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="535" text-anchor="middle">4 · cellar install</text></g><g id="step-4" class="node" tabindex="0" role="button" aria-pressed="false" aria-label="Step 5: Qualify and roll out" data-step="4"><rect x="60" y="600" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="60" y="600" width="300" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="629" text-anchor="middle">Qualify and roll out</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="650" text-anchor="middle">5 · Team / supervisor</text></g><g id="step-5" class="node" tabindex="0" role="button" aria-pressed="false" aria-label="Step 6: Observe and retain" data-step="5"><rect x="60" y="715" width="300" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="60" y="715" width="300" height="70" rx="7" fill="#143343" stroke="#22d3ee" stroke-width="1.5"/>
+<text class="name" style="font-size:16.00px" x="210.0" y="744" text-anchor="middle">Observe and retain</text>
+<text class="label" style="font-size:12.00px" x="210.0" y="765" text-anchor="middle">6 · Release / SRE</text></g><g id="failure-node" class="node error" tabindex="0" role="button" aria-pressed="false" aria-label="Inspect failure branch" data-step="failure"><rect x="400" y="600" width="200" height="70" rx="7" fill="#0f172a"/>
+<rect class="surface" x="400" y="600" width="200" height="70" rx="7" fill="#3f1c2e" stroke="#fb7185" stroke-width="1.5"/>
+<text class="name" style="font-size:15.77px" x="500.0" y="629" text-anchor="middle">Release gate fails</text>
+<text class="label" style="font-size:12.00px" x="500.0" y="650" text-anchor="middle">Stop promotion</text></g><rect x="660" y="108" width="510" height="704" rx="12" fill="#152135" stroke="#334155"/><text class="label" x="690" y="151">STEP INSPECTOR</text><text id="step-number" class="subtitle" x="690" y="185" role="status" aria-live="polite">Step 1 of 6</text><text id="step-title" class="name" x="690" y="226">Build the executable</text><text id="detail" x="690" y="272" font-size="16" class=""><tspan x="690" dy="0">Compile registered Rust factories with</tspan><tspan x="690" dy="28">locked dependencies and the chosen profile</tspan><tspan x="690" dy="28">and target. Reject JavaScript-engine</tspan><tspan x="690" dy="28">dependency graphs.</tspan></text><text class="label" x="690" y="540">Click a node, or Tab + Enter.</text><text class="label" x="690" y="563">Arrow keys step through the main path.</text><g id="prev" class="control" role="button" tabindex="0" aria-label="Previous"><rect x="690" y="600" width="140" height="46" rx="6" fill="#1e293b" stroke="#64748b"/><text x="760.0" y="629" font-size="15" text-anchor="middle">Previous</text></g><g id="next" class="control" role="button" tabindex="0" aria-label="Next"><rect x="850" y="600" width="140" height="46" rx="6" fill="#1e293b" stroke="#64748b"/><text x="920.0" y="629" font-size="15" text-anchor="middle">Next</text></g><g id="reset" class="control" role="button" tabindex="0" aria-label="Reset"><rect x="690" y="666" width="140" height="46" rx="6" fill="#1e293b" stroke="#64748b"/><text x="760.0" y="695" font-size="15" text-anchor="middle">Reset</text></g><g id="failure" class="control" role="button" tabindex="0" aria-label="Inspect failure"><rect x="850" y="666" width="280" height="46" rx="6" fill="#1e293b" stroke="#64748b"/><text x="990.0" y="695" font-size="15" text-anchor="middle">Inspect failure</text></g><a href="../12-packaging-deployment.md" target="_top"><text x="690" y="766" fill="#22d3ee" font-size="14" text-decoration="underline">Open the related guide →</text></a><text class="label" x="40" y="852">Cyan: application / execution · Violet: persistence / proof · Rose: failure outcome</text><text class="label" x="40" y="876">Conceptual path; detailed implementation and evidence limits are in the guide.</text><script><![CDATA[
+(() => {
+  const model = {"steps": [["Build the executable", "Cargo / project", "Compile registered Rust factories with locked dependencies and the chosen profile and target. Reject JavaScript-engine dependency graphs."], ["Verify the package", "Artifact protocol", "Validate format, host protocol, target, executable digest and size, plus assets and configuration. Retain the exact source and artifact identity."], ["Publish the package", "cellar deploy", "Publish verified artifacts and configuration to the selected bucket. Publication does not activate a new process across the fleet."], ["Install verified bytes", "cellar install", "Download and verify the target executable into a new path. Installation refuses to overwrite an existing executable."], ["Qualify and roll out", "Team / supervisor", "Run compatibility, security, capacity, failure and restore gates on the exact candidate. The process supervisor starts nodes and advances a gradual rollout."], ["Observe and retain", "Release / SRE", "Require readiness, business probes and complete drain proofs. Keep a compatible prior artifact and record the evidence-backed operating envelope."]], "failure": ["Release gate fails", "Stop promotion", "Halt rollout and preserve the candidate evidence. Roll back only when data, workflow and peer compatibility are proven; otherwise contain and correct forward."]};
+  let selected = 0;
+  const nodes = Array.from(document.querySelectorAll('[data-step]'));
+  const root = document.documentElement;
+  function select(value) {
+    selected = value;
+    const failed = value === 'failure';
+    const entry = failed ? model.failure : model.steps[value];
+    nodes.forEach(node => {
+      const id = node.dataset.step;
+      node.classList.toggle('active', id === String(value));
+      node.classList.toggle('visited', !failed && id !== 'failure' && Number(id) < value);
+      node.setAttribute('aria-pressed', String(id === String(value)));
+    });
+    document.getElementById('step-number').textContent = failed ? 'Failure branch' : `Step ${value+1} of ${model.steps.length}`;
+    document.getElementById('step-title').textContent = entry[0];
+    const detail = document.getElementById('detail');
+    detail.replaceChildren();
+    const words = entry[2].split(' ');
+    const wrapped = []; let line = '';
+    words.forEach(word => {
+      if ((line + ' ' + word).trim().length > 43 && line) { wrapped.push(line); line = word; }
+      else { line = (line + ' ' + word).trim(); }
+    });
+    if (line) wrapped.push(line);
+    wrapped.forEach((line, i) => {
+      const span = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+      span.setAttribute('x', '690'); span.setAttribute('dy', i ? '28' : '0');
+      span.textContent = line; detail.appendChild(span);
+    });
+    document.getElementById('prev').setAttribute('aria-disabled', String(!failed && value === 0));
+    document.getElementById('next').setAttribute('aria-disabled', String(!failed && value === model.steps.length-1));
+    root.setAttribute('data-selected-step', String(value));
+  }
+  function bind(node, action) {
+    node.addEventListener('click', action);
+    node.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); action(); }
+    });
+  }
+  nodes.forEach(node => bind(node, () => select(node.dataset.step === 'failure' ? 'failure' : Number(node.dataset.step))));
+  bind(document.getElementById('prev'), () => select(selected === 'failure' ? 0 : Math.max(0, selected-1)));
+  bind(document.getElementById('next'), () => select(selected === 'failure' ? 0 : Math.min(model.steps.length-1, selected+1)));
+  bind(document.getElementById('reset'), () => select(0));
+  bind(document.getElementById('failure'), () => select('failure'));
+  root.addEventListener('keydown', event => {
+    if (['ArrowDown','ArrowRight','ArrowUp','ArrowLeft','Home','End'].includes(event.key)) {
+      event.preventDefault();
+      const n = typeof selected === 'number' ? selected : 0;
+      select(event.key === 'Home' ? 0 : event.key === 'End' ? model.steps.length-1 :
+        Math.max(0, Math.min(model.steps.length-1, n + (['ArrowDown','ArrowRight'].includes(event.key) ? 1 : -1))));
+    }
+  });
+  select(0);
+})();
+]]></script></svg>
