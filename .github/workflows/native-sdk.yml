@@ -40,7 +40,7 @@ jobs:
       - name: Build a Rust application package
         run: |
           cargo run -p cellar --bin cellar --locked -- \
-            build examples/native-counter-project.json \
+            build examples/native-counter/project.json \
             --output "$RUNNER_TEMP/native-counter-package"
       - name: Exercise native Rust examples
         run: |

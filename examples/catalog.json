@@ -24,7 +24,7 @@
     {
       "name": "static-assets",
       "project": "static-assets/project.json",
-      "source": "native_examples.rs",
+      "source": "main.rs",
       "route": "/",
       "status": "runnable",
       "guide": "static-assets/README.md"
@@ -78,12 +78,12 @@
       "guide": "body/README.md"
     },
     {
-      "name": "d1",
-      "project": "d1/project.json",
-      "source": "d1/main.rs",
+      "name": "sql",
+      "project": "sql/project.json",
+      "source": "sql/main.rs",
       "route": "/sql",
       "status": "runnable",
-      "guide": "d1/README.md"
+      "guide": "sql/README.md"
     },
     {
       "name": "kv",
@@ -94,12 +94,12 @@
       "guide": "kv/README.md"
     },
     {
-      "name": "r2",
-      "project": "r2/project.json",
-      "source": "r2/main.rs",
+      "name": "blob",
+      "project": "blob/project.json",
+      "source": "blob/main.rs",
       "route": "/blobs/demo",
       "status": "runnable",
-      "guide": "r2/README.md"
+      "guide": "blob/README.md"
     },
     {
       "name": "vectordb",
@@ -120,7 +120,7 @@
     {
       "name": "cron",
       "project": "cron/project.json",
-      "source": "native_examples.rs",
+      "source": "main.rs",
       "route": "/cron",
       "status": "runnable",
       "guide": "cron/README.md"
@@ -231,16 +231,16 @@
     },
     {
       "name": "container",
-      "project": "native-container-project.json",
-      "source": "native_container.rs",
+      "project": "native-container/project.json",
+      "source": "native-container/main.rs",
       "route": "/sandboxes/alice/hello",
       "status": "requires-container-engine",
       "guide": "container/README.md"
     },
     {
       "name": "sandbox",
-      "project": "native-container-project.json",
-      "source": "native_container.rs",
+      "project": "native-container/project.json",
+      "source": "native-container/main.rs",
       "route": "/sandboxes/alice/exec",
       "status": "requires-container-engine",
       "guide": "sandbox/README.md"
@@ -262,8 +262,8 @@
     },
     {
       "name": "native-counter",
-      "project": "native-counter-project.json",
-      "source": "native_counter.rs",
+      "project": "native-counter/project.json",
+      "source": "native-counter/main.rs",
       "guide": "native-counter/README.md",
       "route": "/counters/alpha",
       "status": "runnable"
@@ -271,7 +271,7 @@
     {
       "name": "native-websocket",
       "project": "native-websocket/project.json",
-      "source": "native_websocket.rs",
+      "source": "native-websocket/main.rs",
       "guide": "native-websocket/README.md",
       "route": "/bind/cell",
       "status": "runnable"

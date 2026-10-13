@@ -47,7 +47,7 @@ def exercise(name, origin, with_cron):
         for path in ("/body", "/body/stream"):
             assert call(path, method="POST", data=b"\x00\x80\xffRust") == b"\x00\x80\xffRust"
         call("/body", method="POST", data=b"x" * 65537, status=413)
-    elif name == "d1":
+    elif name == "sql":
         call("/sql", method="POST", data={"message": "hello Rust"})
         result = call("/sql")
         assert result["success"] and result["results"] == [{"id": 1, "message": "hello Rust"}]
@@ -60,7 +60,7 @@ def exercise(name, origin, with_cron):
         assert call("/kv")["keys"] == ["demo"]
         call("/kv/demo", method="DELETE")
         call("/kv/demo", status=404)
-    elif name == "r2":
+    elif name == "blob":
         assert call("/blobs/demo", method="PUT", data="hello Blob")["object"]["size"] == 10
         assert call("/blobs/demo") == b"hello Blob"
         call("/blobs/demo", method="DELETE")
@@ -169,7 +169,7 @@ def run_one(cellar, entry, with_cron):
                 origin = host.ready()
                 for path, options, expected in persisted:
                     result = request(origin, path, **options)
-                    if entry["name"] == "d1":
+                    if entry["name"] == "sql":
                         result = result["results"]
                     elif entry["name"] == "native-websocket":
                         result = json.loads(result)

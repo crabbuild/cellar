@@ -5,7 +5,7 @@ WebSocket host, with a local self-check requiring no external WebSocket service.
 
 ## How it works
 
-[native_websocket.rs](../native_websocket.rs) registers a Worker handler,
+[main.rs](main.rs) registers a Worker handler,
 hibernating EchoRoom cells and persistent outbound Peer cells. `/bind/worker`
 consumes a Worker upgrade; `/bind/cell` consumes a room upgrade. Both send text
 and non-UTF-8 binary bytes, observe the replies and record the close event.

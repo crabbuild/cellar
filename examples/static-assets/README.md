@@ -8,9 +8,9 @@ Package a website with its native application and access it through an asset bin
 website directly; `/assets-binding/index.html` enters the Rust handler and fetches
 the same index through `Context::assets`.
 
-Read the [Rust source](../native_examples.rs) and [project configuration](project.json). The
+Read the [Rust source](../main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by
-[native_examples.rs](../native_examples.rs), rather than a standalone `rustc` input.
+[main.rs](../main.rs), rather than a standalone `rustc` input.
 
 ## Run end to end
 

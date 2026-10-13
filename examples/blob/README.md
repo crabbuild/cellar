@@ -1,16 +1,17 @@
-# SQL guestbook
+# Blob objects
 
-Use native SQL with parameterized inserts and persistent shared data.
+Write, stream and delete objects through a native Blob binding.
 
 ## How it works
 
-A native SQL binding addresses a framework database cell. Inserts use bound parameters;
-reads return the newest 100 rows. The table is initialized idempotently. For evolving
-schemas use SQL migrations and the rollout plan.
+PUT stores a small object; GET streams its body and metadata; DELETE removes it. Blob
+storage is a native binding over the configured store, not an R2 credential requirement.
+The tutorial buffers uploads to 64 KiB; the SDK also supports multipart and streamed
+uploads.
 
 Read the [Rust source](main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by
-[native_examples.rs](../native_examples.rs), rather than a standalone `rustc` input.
+[main.rs](../main.rs), rather than a standalone `rustc` input.
 
 ## Run end to end
 
@@ -23,7 +24,7 @@ In terminal 1:
 
 ```sh
 cargo run -p cellar --bin cellar --locked -- \
-  dev examples/d1/project.json --no-watch --clean
+  dev examples/blob/project.json --no-watch --clean
 ```
 
 Wait for the `ready` URL before sending requests. The first run compiles the native
@@ -33,24 +34,24 @@ restarting to test persistence.
 In terminal 2:
 
 ```sh
-curl -sS -w '\n' -X POST -H 'Content-Type: application/json' \
-  -d '{"message":"hello Rust"}' http://127.0.0.1:9876/sql
-curl -sS -w '\n' http://127.0.0.1:9876/sql
-curl -sS -i -X POST -d 'not JSON' http://127.0.0.1:9876/sql
+curl -sS -w '\n' -X PUT --data-binary 'hello Blob' http://127.0.0.1:9876/blobs/demo
+curl -sS -i http://127.0.0.1:9876/blobs/demo
+curl -sS -w '\n' -X DELETE http://127.0.0.1:9876/blobs/demo
+curl -sS -i http://127.0.0.1:9876/blobs/demo
 ```
 
 ## Expected output and interpretation
 
-Both successful responses have `success:true` and `results:[{"id":1,"message":"hello
-Rust"}]`, plus execution metadata under `meta`. Metadata varies. Malformed JSON returns
-HTTP 400. Another valid message gets a new id and appears first. Stop and restart
-without `--clean`, then GET `/sql` to verify the table and messages survive. No D1
-credential is needed for the local native binding.
+PUT returns an `object` with `key:"demo"`, `size:10`, version, ETag and upload metadata.
+Versions and timestamps vary. GET returns HTTP 200 with exactly `hello Blob` and the
+object's HTTP metadata. DELETE returns `deleted`, then GET returns HTTP 404 with
+`missing object`. This proves the body and object lifecycle independently of any R2
+account.
 
 ## Stop, restart and cleanup
 
 Press Ctrl-C in terminal 1 and let the host stop. Local state lives in
-`examples/d1/.cellar/native-dev`. Restart with the same command without `--clean` to
+`examples/blob/.cellar/native-dev`. Restart with the same command without `--clean` to
 retain it; add `--clean` on the next start to reset this example. Stop before running
 another example on port 9876, or choose another `--port` and change the request URLs.
 JSON field order is not significant.

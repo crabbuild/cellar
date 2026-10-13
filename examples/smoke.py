@@ -177,7 +177,7 @@ def private_project(project, root):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cellar", type=Path, required=True, help="compiled cellar CLI path")
-    parser.add_argument("--project", type=Path, default=Path(__file__).with_name("native-examples-project.json"))
+    parser.add_argument("--project", type=Path, default=Path(__file__).with_name("project.json"))
     parser.add_argument("--suite", choices=["cookbook", "team"], default="cookbook")
     parser.add_argument("--with-cron", action="store_true", help="also wait for a real minute cron tick")
     args = parser.parse_args()

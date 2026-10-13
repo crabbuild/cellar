@@ -4,7 +4,7 @@ Use one container per business cell for HTTP processing, readiness and named iso
 
 ## How it works
 
-The [Rust handler](../native_container.rs) resolves a named `Sandbox` cell,
+The [Rust handler](../native-container/main.rs) resolves a named `Sandbox` cell,
 starts its container once, waits for port 8080 and forwards HTTP. For `/exec`
 it runs `/app/server --tool` and bounds collected output to 4096 bytes.
 The [Rust peer](../native-container/server.rs) and [Dockerfile](../native-container/Dockerfile)
@@ -27,7 +27,7 @@ running service socket. In terminal 1:
 
 ```sh
 cargo run -p cellar --bin cellar --locked -- \
-  dev examples/native-container-project.json --no-watch --clean
+  dev examples/native-container/project.json --no-watch --clean
 ```
 
 Wait for `ready`. This builds the Rust host, peer image and fence image.
@@ -50,7 +50,7 @@ cells and processes, not durable container disks.
 ## Stop, restart and cleanup
 
 Press Ctrl-C and let the host release its containers. State is under
-`examples/.cellar/native-dev`; omit `--clean` on restart to retain cell state.
+`examples/native-container/.cellar/native-dev`; omit `--clean` on restart to retain cell state.
 Container disks remain ephemeral: store durable business data in the cell or
 a binding. Add `--clean` on the next start to reset this project. Built images
 remain cached; remove only your own images if needed. Do not prune shared

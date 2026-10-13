@@ -15,7 +15,7 @@ fn focused_projects_validate_and_have_compiled_factories() -> Result<()> {
     let fixture = temporary.path().join("artifact");
     std::fs::write(&fixture, b"manifest validation fixture")?;
     let artifact = executable_identity(&fixture, current_target())?;
-    let mut paths = vec!["native-examples-project.json".to_string()];
+    let mut paths = vec!["project.json".to_string()];
     for entry in catalog["examples"]
         .as_array()
         .ok_or_else(|| anyhow::anyhow!("catalog examples missing"))?
