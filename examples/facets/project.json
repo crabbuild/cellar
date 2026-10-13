@@ -1,0 +1,24 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-facets",
+    "application_version": "v1",
+    "cells": [
+      "Supervisor"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "SUPERVISORS",
+        "class_name": "Supervisor"
+      },
+      {
+        "type": "worker_loader",
+        "name": "WORKERS"
+      }
+    ]
+  }
+}

@@ -25,6 +25,13 @@ include URLs, headers, forms, blobs/files, events, cancellation, byte streams,
 encoding, compression, and cryptography. See the
 [native Rust examples](examples/README.md).
 
+The catalog maps all 26 original celld patterns to native Rust recipes and
+documents where a native pattern replaces a Workers-specific SDK. It also
+includes tenant accounts, transactional outbox delivery, team services and a
+standalone embedded Node. See the [example suite](examples/README.md) for
+runnable projects and the [application-builder roadmap](examples/ROADMAP.md)
+for remaining reference applications and distributed validation criteria.
+
 Library hosts call `sdk::Node::start` with `NodeConfig`, `NodeServices`, a
 `DeploymentGraph` and `CompiledApplications`. The application supplies bound
 listeners, host and core executors, HTTP clients, peer authentication and a

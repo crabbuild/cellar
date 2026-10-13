@@ -1,0 +1,20 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-wsecho",
+    "application_version": "v1",
+    "cells": [
+      "Room"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "ROOMS",
+        "class_name": "Room"
+      }
+    ]
+  }
+}

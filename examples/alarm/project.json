@@ -1,0 +1,20 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-alarm",
+    "application_version": "v1",
+    "cells": [
+      "Alarm"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "ALARMS",
+        "class_name": "Alarm"
+      }
+    ]
+  }
+}

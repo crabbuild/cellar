@@ -1,0 +1,47 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-transactional-outbox",
+    "application_version": "v1",
+    "cells": [
+      "Outbox",
+      "Counter"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "OUTBOX",
+        "class_name": "Outbox"
+      },
+      {
+        "type": "queue",
+        "name": "JOBS",
+        "queue": "native-transactional-outbox-example-jobs"
+      },
+      {
+        "type": "queue",
+        "name": "DEAD",
+        "queue": "native-transactional-outbox-example-dead"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "COUNTERS",
+        "class_name": "Counter"
+      }
+    ],
+    "queue_consumers": [
+      {
+        "queue": "native-transactional-outbox-example-jobs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 2,
+        "dead_letter_queue": "native-transactional-outbox-example-dead",
+        "max_concurrency": 2,
+        "retry_delay": 1
+      }
+    ]
+  }
+}

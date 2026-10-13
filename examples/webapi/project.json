@@ -1,0 +1,12 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-webapi",
+    "application_version": "v1",
+    "cells": [],
+    "bindings": []
+  }
+}

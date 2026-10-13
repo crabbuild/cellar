@@ -1,0 +1,18 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-kv",
+    "application_version": "v1",
+    "cells": [],
+    "bindings": [
+      {
+        "type": "kv",
+        "name": "KV",
+        "id": "native-kv-example-kv"
+      }
+    ]
+  }
+}

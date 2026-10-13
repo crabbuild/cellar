@@ -1,0 +1,280 @@
+{
+  "upstream": {
+    "repository": "https://github.com/denoland/celld",
+    "revision": "90b43017241f81189453d326d05948f388b34652",
+    "path": "examples"
+  },
+  "examples": [
+    {
+      "name": "hello",
+      "project": "hello/project.json",
+      "source": "hello/main.rs",
+      "route": "/hello",
+      "status": "runnable",
+      "guide": "hello/README.md"
+    },
+    {
+      "name": "webapi",
+      "project": "webapi/project.json",
+      "source": "webapi/main.rs",
+      "route": "/webapi",
+      "status": "runnable",
+      "guide": "webapi/README.md"
+    },
+    {
+      "name": "static-assets",
+      "project": "static-assets/project.json",
+      "source": "native_examples.rs",
+      "route": "/",
+      "status": "runnable",
+      "guide": "static-assets/README.md"
+    },
+    {
+      "name": "counter",
+      "project": "counter/project.json",
+      "source": "counter/main.rs",
+      "route": "/counters/alpha",
+      "status": "runnable",
+      "guide": "counter/README.md"
+    },
+    {
+      "name": "router",
+      "project": "router/project.json",
+      "source": "counter/main.rs",
+      "route": "/router/alpha",
+      "status": "runnable",
+      "guide": "router/README.md"
+    },
+    {
+      "name": "rpc",
+      "project": "rpc/project.json",
+      "source": "counter/main.rs",
+      "route": "/rpc/alpha",
+      "status": "runnable",
+      "guide": "rpc/README.md"
+    },
+    {
+      "name": "alarm",
+      "project": "alarm/project.json",
+      "source": "alarm/main.rs",
+      "route": "/alarms/demo",
+      "status": "runnable",
+      "guide": "alarm/README.md"
+    },
+    {
+      "name": "async",
+      "project": "async/project.json",
+      "source": "async/main.rs",
+      "route": "/async/demo",
+      "status": "runnable",
+      "guide": "async/README.md"
+    },
+    {
+      "name": "body",
+      "project": "body/project.json",
+      "source": "body/main.rs",
+      "route": "/body/stream",
+      "status": "runnable",
+      "guide": "body/README.md"
+    },
+    {
+      "name": "d1",
+      "project": "d1/project.json",
+      "source": "d1/main.rs",
+      "route": "/sql",
+      "status": "runnable",
+      "guide": "d1/README.md"
+    },
+    {
+      "name": "kv",
+      "project": "kv/project.json",
+      "source": "kv/main.rs",
+      "route": "/kv/demo",
+      "status": "runnable",
+      "guide": "kv/README.md"
+    },
+    {
+      "name": "r2",
+      "project": "r2/project.json",
+      "source": "r2/main.rs",
+      "route": "/blobs/demo",
+      "status": "runnable",
+      "guide": "r2/README.md"
+    },
+    {
+      "name": "vectordb",
+      "project": "vectordb/project.json",
+      "source": "vectordb/main.rs",
+      "route": "/vectors/palette?rgb=250,20,20",
+      "status": "runnable",
+      "guide": "vectordb/README.md"
+    },
+    {
+      "name": "queues",
+      "project": "queues/project.json",
+      "source": "queues/main.rs",
+      "route": "/queues",
+      "status": "runnable",
+      "guide": "queues/README.md"
+    },
+    {
+      "name": "cron",
+      "project": "cron/project.json",
+      "source": "native_examples.rs",
+      "route": "/cron",
+      "status": "runnable",
+      "guide": "cron/README.md"
+    },
+    {
+      "name": "workflow",
+      "project": "workflow/project.json",
+      "source": "workflow/main.rs",
+      "route": "/workflows/report1",
+      "status": "runnable",
+      "guide": "workflow/README.md"
+    },
+    {
+      "name": "wsecho",
+      "project": "wsecho/project.json",
+      "source": "wsecho/main.rs",
+      "route": "/rooms/demo",
+      "status": "runnable",
+      "guide": "wsecho/README.md"
+    },
+    {
+      "name": "wsclient",
+      "project": "wsclient/project.json",
+      "source": "wsecho/main.rs",
+      "route": "/wsclient",
+      "status": "runnable",
+      "guide": "wsclient/README.md"
+    },
+    {
+      "name": "dynamic-worker-tails",
+      "project": "dynamic-worker-tails/project.json",
+      "source": "dynamic-worker-tails/main.rs",
+      "route": "/loaded",
+      "status": "native-pattern",
+      "guide": "dynamic-worker-tails/README.md"
+    },
+    {
+      "name": "facets",
+      "project": "facets/project.json",
+      "source": "facets/main.rs",
+      "route": "/facets/demo",
+      "status": "runnable",
+      "guide": "facets/README.md"
+    },
+    {
+      "name": "python",
+      "project": "python/project.json",
+      "source": "python/main.rs",
+      "route": "/html",
+      "status": "native-pattern",
+      "guide": "python/README.md"
+    },
+    {
+      "name": "wasm",
+      "project": "wasm/project.json",
+      "source": "wasm/main.rs",
+      "route": "/compute",
+      "status": "native-pattern",
+      "guide": "wasm/README.md"
+    },
+    {
+      "name": "multi-tenant",
+      "project": "multi-tenant/project.json",
+      "source": "multi-tenant/main.rs",
+      "route": "/tenants/acme/accounts/main",
+      "status": "runnable",
+      "guide": "multi-tenant/README.md"
+    },
+    {
+      "name": "transactional-outbox",
+      "project": "transactional-outbox/project.json",
+      "source": "transactional-outbox/main.rs",
+      "route": "/outbox/demo",
+      "status": "runnable",
+      "guide": "transactional-outbox/README.md"
+    },
+    {
+      "name": "durable-agent",
+      "project": "durable-agent/project.json",
+      "source": "durable-agent/main.rs",
+      "route": "/agents/demo",
+      "status": "runnable",
+      "guide": "durable-agent/README.md"
+    },
+    {
+      "name": "pi",
+      "project": "pi/project.json",
+      "source": "durable-agent/main.rs",
+      "route": "/agents/demo",
+      "status": "native-pattern",
+      "guide": "pi/README.md"
+    },
+    {
+      "name": "opencode",
+      "project": "opencode/project.json",
+      "source": "durable-agent/main.rs",
+      "route": "/agents/demo",
+      "status": "native-pattern",
+      "guide": "opencode/README.md"
+    },
+    {
+      "name": "team-services",
+      "project": "team-services/project.json",
+      "source": "team-services/main.rs",
+      "route": "/counters/alpha",
+      "status": "runnable",
+      "guide": "team-services/README.md"
+    },
+    {
+      "name": "container",
+      "project": "native-container-project.json",
+      "source": "native_container.rs",
+      "route": "/sandboxes/alice/hello",
+      "status": "requires-container-engine",
+      "guide": "container/README.md"
+    },
+    {
+      "name": "sandbox",
+      "project": "native-container-project.json",
+      "source": "native_container.rs",
+      "route": "/sandboxes/alice/exec",
+      "status": "requires-container-engine",
+      "guide": "sandbox/README.md"
+    },
+    {
+      "name": "embedded-node",
+      "binary": "cellar-example-embedded",
+      "source": "embedded-node/main.rs",
+      "route": "/counters/alpha",
+      "status": "runnable",
+      "guide": "embedded-node/README.md"
+    },
+    {
+      "name": "distributed-fleet",
+      "binary": "cellar-perf-cells",
+      "source": "../tools/perf/cells.rs",
+      "guide": "distributed-fleet/README.md",
+      "status": "requires-container-engine"
+    },
+    {
+      "name": "native-counter",
+      "project": "native-counter-project.json",
+      "source": "native_counter.rs",
+      "guide": "native-counter/README.md",
+      "route": "/counters/alpha",
+      "status": "runnable"
+    },
+    {
+      "name": "native-websocket",
+      "project": "native-websocket/project.json",
+      "source": "native_websocket.rs",
+      "guide": "native-websocket/README.md",
+      "route": "/bind/cell",
+      "status": "runnable"
+    }
+  ]
+}

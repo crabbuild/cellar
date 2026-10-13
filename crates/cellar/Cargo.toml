@@ -34,6 +34,18 @@ name = "cellar-native-container"
 path = "../../examples/native_container.rs"
 
 [[bin]]
+name = "cellar-native-examples"
+path = "../../examples/native_examples.rs"
+
+[[bin]]
+name = "cellar-example-embedded"
+path = "../../examples/embedded-node/main.rs"
+
+[[bin]]
+name = "cellar-example-container-peer"
+path = "../../examples/native-container/server.rs"
+
+[[bin]]
 name = "cellar-perf-cells"
 path = "../../tools/perf/cells.rs"
 

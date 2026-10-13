@@ -263,6 +263,27 @@ of the Rust application execution format. Use the optional preview renderer in
 `tools/docs/render.py` only when generating PNG previews; it requires an existing
 `agent-browser` installation and is not an application or CI dependency.
 
+`cellar-native-examples` compiles the focused modules under `examples/` into
+registered applications. Each recipe has a project config; `examples/catalog.json`
+records sources, routes and prerequisites. Runtime smoke suites use private
+temporary project state:
+
+```sh
+cargo build -p cellar --bin cellar --bin cellar-native-examples \
+  --bin cellar-example-embedded --locked
+python3 examples/focused_smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" --with-cron
+python3 examples/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar"
+python3 examples/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --project examples/team-services/project.json --suite team
+python3 examples/platform_smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --embedded "$CARGO_TARGET_DIR/debug/cellar-example-embedded"
+```
+
+`cellar-example-embedded` runs `sdk::Node` with local SQLite and checks returned
+drain phases. `cellar-example-container-peer` validates the dependency-free Rust
+peer built inside the example container. Native pattern equivalents do not imply
+third-party SDK compatibility; keep gaps in `examples/ROADMAP.md` explicit.
+
 ## Change discipline
 
 - Read the changed module, its callers, adjacent implementations, and relevant
