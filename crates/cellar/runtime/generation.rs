@@ -236,7 +236,13 @@ impl DeploymentGraph {
             // trigger that never fires and says nothing is the failure the
             // whole feature is built to avoid. Deploy the script as a node's
             // own deployment to run its crons.
-            if !loaded.crons.is_empty() {
+            if !loaded.crons.is_empty()
+                || loaded
+                    .options
+                    .workflow_bindings
+                    .iter()
+                    .any(|binding| !binding.settings.schedules.is_empty())
+            {
                 tracing::warn!(
                     script = %target,
                     crons = %loaded.crons.join(", "),
@@ -752,7 +758,13 @@ impl Generation {
             }
             // Cron is runtime-supplied, not a manifest class. Its alarm calls
             // the primary script's scheduled handler with that script's bindings.
-            if !config.crons.is_empty() {
+            if is_primary
+                && (!config.crons.is_empty()
+                    || config
+                        .workflow_bindings
+                        .iter()
+                        .any(|binding| !binding.settings.schedules.is_empty()))
+            {
                 cell_configs.insert(cellar_logic::cron::RESERVED_CLASS.to_string(), config);
             }
         }

@@ -14,9 +14,9 @@ durable wakes, replication, recovery, and fleet shutdown.
 
 Applications implement contracts from `cellar::sdk` and compile into native
 executables with their application factories embedded. The `cellar` CLI builds,
-develops, publishes, installs, and operates those applications. `cellar-native`
-is a CLI alias. A generic CLI binary cannot serve an application whose factories
-were not compiled into it.
+develops, publishes, installs, and operates those applications. `cellar` is the
+single CLI executable. A generic CLI binary cannot serve an application whose
+factories were not compiled into it.
 
 Event delivery is under implementation; track the complete remaining scope in
 `plans/outbox-implementation-status.md`. Native `streams` declarations and
@@ -46,8 +46,16 @@ before release.
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
 supplies listeners, executors, clients, authentication, and any fleet services.
+Axum hosts use `Node::start_external` with `ExternalNodeServices` and mount
+`cellar_axum::CellarService` on their already-bound public listener. Application
+handlers and body producers retain SDK event authority; only the node driver
+polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
+Queue leases and actor settlement share the host's captured operation deadline.
+Lower-level library hosts pin a 15-second default on first use; configure actor
+policy before constructing generations to choose another budget. CLI startup
+captures its environment override before any generation can sample that budget.
 SDK HTTP uses `NodeConfig::http` and an optional `NodeServices::http_client`
 builder factory. Lower-level hosts configure HTTP through `HostServices` before
 the first fetch. Keep required redirect behavior and invocation subrequest
@@ -96,6 +104,7 @@ crates/
     observability/        Telemetry export and OTLP encoding
     platform/             Machine and process-memory adapters
     tests/                Native SDK and host integration tests
+  cellar-axum/            Axum handlers, external ingress service, shared builder, OpenAPI
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
   cellar-native/          Owned values, structured clone, crypto, and web primitives
@@ -108,8 +117,7 @@ tools/                    Formatting, dependency checks, documentation, and flee
 Cellar groups its implementation into component directories next to
 `Cargo.toml`; `lib.rs` declares the existing Rust module names. The logic and
 native crates retain flat crate roots, and `cellar-ltx` uses `src/`. Cargo
-declares the CLI entry points as
-`crates/cellar/cli/main.rs` and `crates/cellar/cli/native_main.rs`.
+declares the CLI entry point as `crates/cellar/cli/main.rs`.
 
 CLI files retain their existing Rust module paths through `#[path]` declarations
 in `crates/cellar/lib.rs`. For example, `cellar::native_deploy` is implemented in
@@ -135,6 +143,15 @@ SQLite alarm records stay with `storage/sqlite/`; fleet wake discovery and
 response gates live under `fleet/wake/`. KV large-value and Queue policy/batching
 helpers sit beside their built-in cells under `application/kv/` and
 `application/queue/`, retaining their original crate-root module names.
+
+Workflow batch/configuration, compensation, history, and byte-stream adapters
+live under `application/workflow/`. Their journals and chunks share the owning
+instance's SQLite state and output gate. Workflow subscriptions and stream
+readers retain their opening invocation; continuation reads do not consume a
+new subrequest slot. Native workflow packages retain the `workflows-v1` feature
+while Cellar is in internal development.
+Use `native_workflow`, `native_workflow_cell`, `native_cron`, and
+`native_artifacts` when changing these contracts.
 
 The layout preserves three mixed modules for later focused refactors:
 `node/mod.rs` combines shared node composition with process startup;
@@ -260,6 +277,21 @@ without writing source files; CI runs it before tests. The tool lives under
 Run `cargo test -p cellar-xtask --locked` when changing formatter behavior.
 Plain `cargo fmt --all` remains available for rustfmt alone.
 
+For Axum adapter changes also run both feature modes and the shared example:
+
+```sh
+cargo test -p cellar-axum --no-default-features --locked
+cargo test -p cellar-axum --all-features --locked
+cargo test -p cellar-axum-counter --all-features --locked
+cargo check -p cellar-axum-counter --no-default-features --bins --locked
+```
+
+Read `crates/cellar-axum/README.md` for middleware, body and WebSocket lifetime
+constraints. Cellar WebSocket handlers use `CellWebSocketUpgrade`; ambient
+Axum upgrade tasks do not carry SDK authority. Each acknowledging body chunk
+uses the existing output gate. OpenAPI is an optional immutable declaration
+owned by the same application generation; export must not start a node.
+
 Choose additional existing integration tests for the changed bindings, host
 behavior, or storage paths. The full SDK CI gates are:
 
@@ -300,7 +332,9 @@ Keep image tags and compiled target caches private to the
 checkout. Run the harness proof guards with
 `python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
 
-The native dev supervisor retains project state under `.cellar/native-dev`.
+The dev supervisor retains project state under `.cellar/<project-hash>` beside
+the configuration, keyed by its canonical path. It does not migrate earlier
+development-state layouts.
 `--clean` intentionally resets that project's local state. Container examples
 require Docker or Podman. See `examples/README.md` for application packaging and
 other runnable examples.

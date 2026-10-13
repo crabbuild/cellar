@@ -1,6 +1,6 @@
 # CLI reference and operator boundaries
 
-`cellar` and `cellar-native` are CLI aliases. A compiled application executable
+`cellar` is the single CLI executable. A compiled application executable
 starts a node with its registered factories. The generic CLI builds, develops,
 publishes, installs and invokes operator tools.
 
@@ -18,8 +18,10 @@ cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE]
 ```
 
 `dev --clean` intentionally resets the selected project's local state. The
-project stores state under its `.cellar/native-dev` directory, with paths
-resolved relative to the project file. Use the checked-in counter project for
+project stores state under `.cellar/<project-hash>` beside its configuration;
+the hash identifies the canonical project path. Earlier development-state
+layouts are left untouched and are not automatically migrated. Project paths
+resolve relative to the project file. Use the checked-in counter project for
 the full native configuration shape. Build's default project profile is release;
 the counter project explicitly chooses dev.
 

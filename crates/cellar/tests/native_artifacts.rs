@@ -358,6 +358,50 @@ fn native_queue_configuration_installs_its_reserved_class_and_consumer() -> Resu
     Ok(())
 }
 
+#[test]
+fn native_workflow_defaults_schedules_and_existing_feature_are_validated() -> Result<()> {
+    let configuration = json!({
+        "script_name":"reports", "application_version":"v1",
+        "bindings":[{
+            "type":"workflow", "name":"REPORTS", "workflow_name":"reports", "class_name":"Report",
+            "default_retention":{"success_retention":"7 days","error_retention":"30 days"},
+            "schedules":["0 9 * * *"]
+        }]
+    });
+    let artifact = cellar::protocol::NativeArtifact {
+        target: current_target().into(),
+        sha256: "a".repeat(64),
+        bytes: 10,
+    };
+    let config: ApplicationConfig = serde_json::from_value(configuration.clone())?;
+    let manifest = config.manifest(vec![artifact.clone()])?;
+    for feature in [
+        cellar::protocol::FEATURE_WORKFLOWS_V1,
+        cellar::protocol::FEATURE_CRON_V1,
+    ] {
+        assert!(manifest.required_features.iter().any(|f| f == feature));
+    }
+    assert_eq!(
+        manifest
+            .required_features
+            .iter()
+            .filter(|feature| feature.starts_with("workflows-"))
+            .collect::<Vec<_>>(),
+        vec![cellar::protocol::FEATURE_WORKFLOWS_V1],
+    );
+    for (field, value) in [
+        ("schedules", json!(["invalid cron"])),
+        ("default_retention", json!({"success_retention":-1})),
+        ("default_retention", json!({"success_retention":"tomorrow"})),
+    ] {
+        let mut invalid = configuration.clone();
+        invalid["bindings"][0][field] = value;
+        let invalid: ApplicationConfig = serde_json::from_value(invalid)?;
+        assert!(invalid.manifest(vec![artifact.clone()]).is_err());
+    }
+    Ok(())
+}
+
 async fn staged_assets_preserve_shared_protocol_and_refuse_incomplete_publication() -> Result<()> {
     use cellar::protocol::AssetIndex;
     use http_body_util::BodyExt;

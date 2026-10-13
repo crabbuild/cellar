@@ -148,6 +148,7 @@ impl ApplicationConfig {
                     "queue"
                 }
                 "workflow" => {
+                    crate::application::workflow::BindingSettings::from_binding(binding)?;
                     classes.push(crate::deploy::workflow_class(&self.script_name));
                     anyhow::ensure!(
                         binding
@@ -265,7 +266,15 @@ impl ApplicationConfig {
                 .required_features
                 .push(crate::protocol::FEATURE_QUEUES_V1.into());
         }
-        if !self.crons.is_empty() {
+        if !self.crons.is_empty()
+            || self.bindings.iter().any(|binding| {
+                binding["type"] == "workflow"
+                    && binding
+                        .get("schedules")
+                        .and_then(serde_json::Value::as_array)
+                        .is_some_and(|schedules| !schedules.is_empty())
+            })
+        {
             manifest
                 .required_features
                 .push(crate::protocol::FEATURE_CRON_V1.into());

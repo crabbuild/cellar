@@ -47,7 +47,7 @@ The [cookbook counter](../counter/README.md) adds transactions and native RPC.
 ## Stop and cleanup
 
 Press Ctrl-C and let the host stop. State is in
-`examples/native-counter/.cellar/native-dev`.
+`examples/native-counter/.cellar`.
 Add `--clean` on the next start to reset this project. Stop before another host
 uses port 9876, or select another `--port` and adjust the URLs. The
 [catalog](../README.md) covers packaging and deployment.

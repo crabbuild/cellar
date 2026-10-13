@@ -727,7 +727,21 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
             if built_assets.is_some() {
                 features.push(FEATURE_ASSETS_V1.to_string());
             }
-            if !project.crons.is_empty() {
+            if !project.crons.is_empty()
+                || project
+                    .metadata
+                    .get("bindings")
+                    .and_then(Value::as_array)
+                    .is_some_and(|bindings| {
+                        bindings.iter().any(|binding| {
+                            binding["type"] == "workflow"
+                                && binding
+                                    .get("schedules")
+                                    .and_then(Value::as_array)
+                                    .is_some_and(|schedules| !schedules.is_empty())
+                        })
+                    })
+            {
                 features.push(FEATURE_CRON_V1.to_string());
             }
             if !container_specs.is_empty() {
@@ -1729,10 +1743,7 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
     };
     let mut workflow_names = BTreeSet::new();
     for workflow in workflows {
-        // Any key cellar does not model stops the deploy, per the loud-gap
-        // rule: an unread knob (`schedules` is the notable one) must be a
-        // refusal, never a workflow that silently lacks the behavior it
-        // declares.
+        // Refuse configuration that the workflow runtime does not model.
         let unsupported = workflow
             .as_object()
             .map(|object| {
@@ -1741,7 +1752,12 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
                     .filter(|key| {
                         !matches!(
                             key.as_str(),
-                            "name" | "binding" | "class_name" | "script_name"
+                            "name"
+                                | "binding"
+                                | "class_name"
+                                | "script_name"
+                                | "default_retention"
+                                | "schedules"
                         )
                     })
                     .cloned()
@@ -1751,8 +1767,8 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
         if !unsupported.is_empty() {
             bail!(
                 "`cellar deploy` does not support these workflow keys: {}.\n\
-                 cellar models `name`, `binding`, `class_name`, and `script_name`; \
-                 remove the rest (`schedules` included).",
+                 cellar models workflow identity, retention defaults and schedules; \
+                 remove the unsupported keys.",
                 unsupported.join(", ")
             );
         }
@@ -1795,11 +1811,11 @@ fn read_project(path: &Path, root: &Path, overrides: &VarOverrides) -> anyhow::R
                 );
             }
         }
+        crate::application::workflow::BindingSettings::from_binding(workflow)?;
         bindings.push(json!({
-            "type": "workflow",
-            "name": binding,
-            "workflow_name": workflow_name,
-            "class_name": class_name,
+            "type": "workflow", "name": binding, "workflow_name": workflow_name, "class_name": class_name,
+            "default_retention": workflow.get("default_retention").cloned().unwrap_or(json!({})),
+            "schedules": workflow.get("schedules").cloned().unwrap_or(json!([])),
         }));
     }
     if !workflows.is_empty() {

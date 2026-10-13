@@ -32,6 +32,13 @@ standalone embedded Node. See the [example suite](examples/README.md) for
 runnable projects and the [application-builder roadmap](examples/ROADMAP.md)
 for remaining reference applications and distributed validation criteria.
 
+[cellar-axum](crates/cellar-axum/README.md) runs Axum handlers inside the same
+SDK invocations and mounts an embedded Cellar runtime in an Axum-owned server.
+Its shared application builder supports cells, middleware, streams, WebSockets
+and optional OpenAPI 3.1 generation/export. The
+[two-host counter](examples/axum-counter/README.md) includes both runnable hosts
+and a generated client.
+
 Library hosts call `sdk::Node::start` with `NodeConfig`, `NodeServices`, a
 `DeploymentGraph` and `CompiledApplications`. The application supplies bound
 listeners, host and core executors, HTTP clients, peer authentication and a
@@ -160,7 +167,8 @@ For example, `cellar::daemon` is implemented in `node/mod.rs`,
 `durability/log/mod.rs`. Transport registries retain their originating domain
 and event authority. The other crates keep their existing boundaries:
 `cellar-logic` owns decisions, `cellar-ltx` owns SQLite/LTX mechanisms, and
-`cellar-native` owns engine-independent primitives. See [AGENTS.md](AGENTS.md)
+`cellar-native` owns engine-independent primitives. `cellar-axum` composes Axum
+with the SDK and owns no cell state or fleet policy. See [AGENTS.md](AGENTS.md)
 for module ownership and contribution guidance.
 
 ## Build and run
@@ -173,14 +181,14 @@ cargo build -p cellar --bin cellar --locked
 
 The example serves `http://127.0.0.1:9876/counters/NAME`; POST increments its
 persistent counter. `dev` builds the Rust application, watches its project,
-and keeps durable state in `.cellar/native-dev`. Use `--no-watch` for a single
+and keeps durable state in `.cellar/<project-hash>` beside the configuration.
+Use `--no-watch` for a single
 build, `--logs` for node logs, and `--clean` to reset the project's local state.
 
 `cellar build PROJECT.json --output DIRECTORY` produces a verified application
 package. `cellar deploy DIRECTORY --bucket NAME` publishes it; `cellar install`
 downloads and verifies the executable. Run that compiled application executable
-with your node's bucket, listeners, and peer settings. The existing
-`cellar-native` executable is an alias for the same CLI.
+with your node's bucket, listeners, and peer settings. `cellar` is the single CLI.
 
 Rust application code is compiled into its host executable. Source JavaScript,
 Node.js modules, and the previous JavaScript-based Python/Wasm wrappers are no

@@ -1,11 +1,46 @@
 //! Native Workflow bindings and the retained instance journal/RPC protocol.
+//!
+//! Handlers receive a [`Step`] for named durable work. Rust reserves `do`, so
+//! Cloudflare's `step.do` is spelled `step.run`; use `run_with` for configuration.
+//! Sleeps accept duration strings, numeric milliseconds, or `std::time::Duration`.
+//!
+//! ```no_run
+//! use cellar::sdk::{
+//!     clone::StructuredValue,
+//!     workflow::{Event, Retries, Step, StepConfig, WaitOptions},
+//!     Context,
+//! };
+//!
+//! async fn report(_: Context, event: Event, step: Step) -> anyhow::Result<StructuredValue> {
+//!     let config = StepConfig::default()
+//!         .retries(Retries::new(3, "5 seconds"))
+//!         .timeout("1 minute");
+//!     let prepared = step.run_with("prepare", config, move |_| async move {
+//!         Ok(event.payload)
+//!     }).await?;
+//!     step.sleep("delay", "1 minute").await?;
+//!     step.wait_for_event("approval", WaitOptions::new("approve").timeout("1 hour")).await?;
+//!     step.run("publish", move |_| async move { Ok(prepared) }).await
+//! }
+//! ```
 
+mod batch;
 mod cell;
+mod configuration;
+mod history;
 mod replay;
+mod rollback;
+mod stream;
+pub use batch::{BatchCreateError, BatchCreateOptions, BatchCreateResult};
 pub(crate) use cell::create_cell;
+pub use configuration::{BindingSettings, CronSchedule};
+pub use history::{InstanceEvent, InstanceEventType, SubscribeOptions, Subscription};
 pub use replay::{
-    Attempt, Backoff, Delay, Event, Retries, StepConfig, StepFailure, StepName, Steps,
+    Attempt, Backoff, Delay, Event, Retries, Step, StepConfig, StepFailure, StepName, Steps,
+    WaitOptions,
 };
+pub use rollback::{RollbackContext, RollbackOptions};
+pub use stream::{StepSelector, StreamOutput};
 
 use super::{decode_rpc_result, encode_rpc, Context};
 use anyhow::{anyhow, ensure, Result};
@@ -25,7 +60,8 @@ fn error(message: impl std::fmt::Display) -> anyhow::Error {
 
 /// The same numeric-millisecond and textual duration forms used by Workflows.
 /// Fractional milliseconds remain intact until the host installs an alarm.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(untagged)]
 pub enum Duration {
     Milliseconds(f64),
     Text(String),
@@ -40,6 +76,18 @@ impl From<std::time::Duration> for Duration {
 impl From<&str> for Duration {
     fn from(value: &str) -> Self {
         Self::Text(value.into())
+    }
+}
+
+impl From<String> for Duration {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<f64> for Duration {
+    fn from(milliseconds: f64) -> Self {
+        Self::Milliseconds(milliseconds)
     }
 }
 
@@ -89,9 +137,21 @@ impl Duration {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Retention {
+    #[serde(
+        default,
+        rename = "success_retention",
+        alias = "successRetention",
+        alias = "success"
+    )]
     pub success: Option<Duration>,
+    #[serde(
+        default,
+        rename = "error_retention",
+        alias = "errorRetention",
+        alias = "error"
+    )]
     pub error: Option<Duration>,
 }
 
@@ -213,6 +273,7 @@ pub enum State {
     Complete,
     Errored,
     Terminated,
+    Unknown,
 }
 
 #[derive(Clone, Debug)]
@@ -322,6 +383,7 @@ fn set(graph: &mut StructuredValue, name: &str, value: &StructuredValue) -> Resu
 pub struct Workflow {
     script: Arc<str>,
     name: Arc<str>,
+    pub(crate) settings: BindingSettings,
 }
 
 #[derive(Clone, Debug)]
@@ -335,7 +397,13 @@ impl Workflow {
         Self {
             script: Arc::from(script),
             name: Arc::from(name),
+            settings: BindingSettings::default(),
         }
+    }
+
+    pub(crate) fn with_settings(mut self, settings: BindingSettings) -> Self {
+        self.settings = settings;
+        self
     }
 
     pub fn name(&self) -> &str {
@@ -349,7 +417,15 @@ impl Workflow {
         }
     }
 
-    fn options(&self, options: CreateOptions) -> Result<(Instance, StructuredValue)> {
+    fn options(&self, mut options: CreateOptions) -> Result<(Instance, StructuredValue)> {
+        options.retention.success = options
+            .retention
+            .success
+            .or_else(|| self.settings.default_retention.success.clone());
+        options.retention.error = options
+            .retention
+            .error
+            .or_else(|| self.settings.default_retention.error.clone());
         let id = options
             .id
             .map(Ok)
@@ -511,16 +587,41 @@ impl Instance {
         method: &str,
         argument: Option<StructuredValue>,
     ) -> Result<StructuredValue> {
+        self.call_internal(context, method, argument, false).await
+    }
+
+    async fn resource_call(
+        &self,
+        context: &Context,
+        method: &str,
+        argument: Option<StructuredValue>,
+    ) -> Result<StructuredValue> {
+        self.call_internal(context, method, argument, true).await
+    }
+
+    async fn call_internal(
+        &self,
+        context: &Context,
+        method: &str,
+        argument: Option<StructuredValue>,
+        continuation: bool,
+    ) -> Result<StructuredValue> {
         context.check_turn()?;
         let arguments = StructuredValue::array(argument)?;
-        let reply = context
-            .rpc_cell(
+        let name = Some(format!("{}/{}", self.workflow.name, self.id));
+        let args = encode_rpc(&arguments)?;
+        let reply = if continuation {
+            crate::native_worker::rpc_cell_resource(
+                context,
                 self.scope(),
-                Some(format!("{}/{}", self.workflow.name, self.id)),
+                name,
                 method.into(),
-                encode_rpc(&arguments)?,
+                args,
             )
-            .await?;
+        } else {
+            context.rpc_cell(self.scope(), name, method.into(), args)
+        }
+        .await?;
         decode_rpc_result(&reply)
     }
 
@@ -598,8 +699,14 @@ impl Instance {
         context: &Context,
         options: TerminateOptions,
     ) -> Result<()> {
-        ensure!(!options.rollback,"WORKFLOW_ERROR: terminate rollback is not implemented in cellar; step rollback handlers are not implemented");
-        self.call(context, "__wfTerminate", None).await?;
+        self.call(
+            context,
+            "__wfTerminate",
+            Some(StructuredValue::from_json(
+                json!({"rollback":options.rollback}),
+            )?),
+        )
+        .await?;
         Ok(())
     }
 

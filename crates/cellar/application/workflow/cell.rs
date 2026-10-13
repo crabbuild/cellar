@@ -86,15 +86,15 @@ pub(super) fn prefix(generation: &str) -> String {
 }
 
 fn clear(storage: &Storage) -> Result<()> {
-    for (key, _) in list(storage, "__wf.")? {
-        storage.delete(&key)?;
-    }
+    // The reserved instance owns this KV scope. Delete in storage rather than
+    // materializing every retained stream chunk into the invocation's heap.
+    storage.system_delete_range("__wf.", "__wf/")?;
     storage.delete_alarm()
 }
 
 pub(super) fn finish_retention(meta: &mut StructuredValue, storage: &Storage) -> Result<()> {
     let retention = property(meta, "retention")?;
-    let field = if text(meta, "status")? == "complete" {
+    let field = if matches!(text(meta, "status")?.as_str(), "complete" | "terminated") {
         "successMs"
     } else {
         "errorMs"
@@ -138,7 +138,9 @@ pub(super) fn settle(
         if terminal(&meta)? || text(&meta, "generation")? != generation {
             return Ok(false);
         }
+        let before = meta.clone();
         mutate(&mut meta, transaction)?;
+        super::history::transition(transaction, &before, &mut meta)?;
         transaction.put_clone(META, &meta)?;
         Ok(true)
     })
@@ -149,6 +151,7 @@ pub(super) struct InstanceCell {
     pub(super) application: Arc<dyn Application>,
     pub(super) classes: HashMap<String, String>,
     pub(super) drive: Mutex<DriveState>,
+    pub(super) changed: Arc<tokio::sync::Notify>,
 }
 
 #[derive(Default)]
@@ -168,10 +171,29 @@ pub(crate) fn create_cell(
         application,
         classes,
         drive: Mutex::new(DriveState::default()),
+        changed: Arc::new(tokio::sync::Notify::new()),
     }))
 }
 
 impl InstanceCell {
+    async fn history(&self, argument: &StructuredValue) -> Result<StructuredValue> {
+        let timeout = crate::asyncrt::sleep(std::time::Duration::from_secs(10));
+        tokio::pin!(timeout);
+        loop {
+            let changed = self.changed.notified();
+            let reply = super::history::page(&self.storage, argument)?;
+            if property(&reply, "done")?.is_some_and(|v| v.root == CloneValue::Boolean(true))
+                || number(&reply, "count")? > 0.0
+            {
+                return Ok(reply);
+            }
+            crate::asyncrt::select! {
+                _ = changed => {},
+                _ = &mut timeout => return Ok(reply),
+            }
+        }
+    }
+
     fn control(
         &self,
         context: &Context,
@@ -184,6 +206,20 @@ impl InstanceCell {
                 if let Some(params) = property(&argument, "params")? {
                     check_value(&params, "the workflow params")?;
                 }
+                if let Some(retention) = property(&argument, "retention")? {
+                    for field in ["successMs", "errorMs"] {
+                        let ms = number(&retention, field)?;
+                        ensure!(
+                            ms.is_finite()
+                                && ms >= 0.0
+                                && ms < i64::MAX.saturating_sub(now()) as f64
+                                && limits()
+                                    .max_retention_ms
+                                    .is_none_or(|maximum| ms <= maximum as f64),
+                            "WORKFLOW_ERROR: retention exceeds the host limit or timestamp range"
+                        );
+                    }
+                }
                 storage.transaction_sync(|transaction| {
                     if let Some(mut meta)=read(transaction,META)? {
                         if !expire(transaction,&mut meta)? {
@@ -194,7 +230,8 @@ impl InstanceCell {
                         }
                     }
                     let mut meta=data(json!({"workflowName":text(&argument,"workflowName")?,"instanceId":text(&argument,"instanceId")?,"generation":cellar_native::crypto::random_uuid()?,"createdMs":now(),"status":"queued"}))?;
-                    for key in ["params","retention","locationHint"] {if let Some(value)=property(&argument,key)? {set(&mut meta,key,&value)?;}}
+                    for key in ["params","retention","locationHint","schedule"] {if let Some(value)=property(&argument,key)? {set(&mut meta,key,&value)?;}}
+                    super::history::append(transaction,&mut meta,InstanceEventType::WorkflowQueued,data(json!({}))?)?;
                     transaction.put_clone(META,&meta)?;
                     transaction.set_alarm(now())?;
                     data(json!({"id":text(&argument,"instanceId")?,"created":true}))
@@ -213,8 +250,11 @@ impl InstanceCell {
                         })
                     })?
                     .ok_or_else(|| error("instance does not exist"))?;
-                let mut status = data(json!({"status":text(&meta,"status")?,"rollback":null}))?;
-                for key in ["error", "output"] {
+                let status_name = text(&meta, "status")?;
+                let mut status = data(
+                    json!({"status":if status_name == "rollingBack" {"running"} else {status_name.as_str()},"rollback":null}),
+                )?;
+                for key in ["error", "output", "rollback"] {
                     if let Some(value) = property(&meta, key)? {
                         set(&mut status, key, &value)?;
                     }
@@ -246,13 +286,14 @@ impl InstanceCell {
             "__wfPause" | "__wfResume" | "__wfTerminate" => {
                 storage.transaction_sync(|transaction| {
                     let mut meta = required(transaction)?;
+                    let before = meta.clone();
                     let status = text(&meta, "status")?;
                     match method {
                         "__wfPause" => {
                             if terminal(&meta)? || matches!(status.as_str(), "paused" | "waitingForPause") {
                                 return Ok(());
                             }
-                            if status == "running" {
+                            if matches!(status.as_str(), "running" | "rollingBack") {
                                 put_field(&mut meta, "status", json!("waitingForPause"))?;
                                 transaction.set_alarm(now())?;
                             } else {
@@ -263,7 +304,8 @@ impl InstanceCell {
                         }
                         "__wfResume" => {
                             if status == "waitingForPause" {
-                                put_field(&mut meta, "status", json!("running"))?;
+                                let resumed_status = if property(&meta,"rollbackTarget")?.is_some() {"rollingBack"} else {"running"};
+                                put_field(&mut meta, "status", json!(resumed_status))?;
                                 transaction.set_alarm(now())?;
                             } else {
                                 ensure!(status == "paused", "WORKFLOW_ERROR: cannot resume an instance with status {status:?}");
@@ -273,8 +315,8 @@ impl InstanceCell {
                                         _ => Err(error("invalid paused timestamp")),
                                     }).transpose()?.unwrap_or(now() as f64);
                                 let offset = (now() as f64 - paused).max(0.0);
-                                let ledger = format!("{}step.", prefix(&text(&meta, "generation")?));
-                                for (key, mut record) in list(transaction, &ledger)? {
+                                let ledger = prefix(&text(&meta, "generation")?);
+                                for (key, mut record) in list(transaction, &ledger)?.into_iter().filter(|(key,_)| key.starts_with(&format!("{ledger}step.")) || key.starts_with(&format!("{ledger}rollback."))) {
                                     match text(&record, "status")?.as_str() {
                                         "retrying" => {
                                             let at = number(&record, "nextAt")?;
@@ -295,10 +337,19 @@ impl InstanceCell {
                         }
                         _ => {
                             ensure!(!terminal(&meta)?, "WORKFLOW_ERROR: cannot terminate an instance with status {status:?}");
-                            put_field(&mut meta, "status", json!("terminated"))?;
-                            finish_retention(&mut meta, transaction)?;
+                            if property(&argument,"rollback")?.is_some_and(|v| v.root == CloneValue::Boolean(true)) {
+                                put_field(&mut meta,"status",json!("rollingBack"))?;
+                                put_field(&mut meta,"rollbackTarget",json!("terminated"))?;
+                                put_field(&mut meta,"rollbackError",json!({"name":"WorkflowTerminated","message":"Workflow terminated"}))?;
+                                transaction.set_alarm(now())?;
+                            } else {
+                                put_field(&mut meta, "status", json!("terminated"))?;
+                                remove(&mut meta,"rollbackTarget")?;
+                                finish_retention(&mut meta, transaction)?;
+                            }
                         }
                     }
+                    super::history::transition(transaction,&before,&mut meta)?;
                     transaction.put_clone(META, &meta)
                 })?;
                 Ok(StructuredValue::undefined())
@@ -382,9 +433,24 @@ impl InstanceCell {
                     }
                     put_field(&mut meta, "generation", json!(generation))?;
                     put_field(&mut meta, "status", json!("queued"))?;
-                    for key in ["pausedMs", "output", "error"] {
+                    for key in [
+                        "pausedMs",
+                        "output",
+                        "error",
+                        "rollback",
+                        "rollbackTarget",
+                        "rollbackError",
+                        "rollbackStarted",
+                        "started",
+                    ] {
                         remove(&mut meta, key)?;
                     }
+                    super::history::append(
+                        transaction,
+                        &mut meta,
+                        InstanceEventType::WorkflowQueued,
+                        data(json!({}))?,
+                    )?;
                     transaction.put_clone(META, &meta)?;
                     transaction.set_alarm(now())
                 })?;
@@ -428,6 +494,10 @@ impl InstanceCell {
                     Ok(())
                 })?;
                 Ok(StructuredValue::undefined())
+            }
+            "__wfHistory" => super::history::page(storage, &argument),
+            "__wfStreamOpen" | "__wfStreamRead" => {
+                super::stream::control(storage, method, &argument)
             }
             _ => Err(error(format!("unknown instance method {method}"))),
         }
@@ -474,7 +544,10 @@ impl Cell for InstanceCell {
         Box::pin(async move {
             match invocation {
                 Invocation::Alarm { .. } => {
-                    super::replay::alarm(self, context).await?;
+                    let changed = self.changed.clone();
+                    let result = super::replay::alarm(self, context).await;
+                    changed.notify_waiters();
+                    result?;
                     Ok(Output::Done)
                 }
                 Invocation::CellRpc { method, args } => {
@@ -505,7 +578,18 @@ impl Cell for InstanceCell {
                         },
                         _ => return Err(error("invalid instance arguments")),
                     };
-                    match self.control(&context, &method, argument) {
+                    let result = if method == "__wfHistory" {
+                        self.history(&argument).await
+                    } else {
+                        self.control(&context, &method, argument)
+                    };
+                    if !matches!(
+                        method.as_str(),
+                        "__wfHistory" | "__wfStatus" | "__wfStreamRead" | "__wfStreamOpen"
+                    ) {
+                        self.changed.notify_waiters();
+                    }
+                    match result {
                         Ok(value) => Ok(Output::Rpc(match args {
                             RpcData::Structured(_) => encode_rpc(&value)?,
                             RpcData::Json(_) => {

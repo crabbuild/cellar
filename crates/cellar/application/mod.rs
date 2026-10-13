@@ -124,6 +124,15 @@ pub trait Cell: Send + Sync + 'static {
 pub trait Application: Send + Sync + 'static {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output>;
 
+    /// Validate compiled application requirements against this deployment before
+    /// it becomes active. Implementations must not perform I/O or create cells.
+    fn validate_configuration(
+        &self,
+        _options: &crate::engine_api::WorkerConfigOptions,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     fn supports_cell(&self, class: &str) -> bool;
 
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>>;
@@ -137,7 +146,7 @@ pub trait Application: Send + Sync + 'static {
         class: String,
         _context: Context,
         _event: workflow::Event,
-        _steps: workflow::Steps,
+        _steps: workflow::Step,
     ) -> HandlerFuture<cellar_native::clone::StructuredValue> {
         Box::pin(async move { Err(anyhow!("no native workflow handler for {class}")) })
     }
@@ -157,7 +166,7 @@ type WorkflowHandler = Arc<
     dyn Fn(
             Context,
             workflow::Event,
-            workflow::Steps,
+            workflow::Step,
         ) -> HandlerFuture<cellar_native::clone::StructuredValue>
         + Send
         + Sync,
@@ -239,7 +248,7 @@ impl Registry {
         handler: impl Fn(
                 Context,
                 workflow::Event,
-                workflow::Steps,
+                workflow::Step,
             ) -> HandlerFuture<cellar_native::clone::StructuredValue>
             + Send
             + Sync
@@ -266,7 +275,7 @@ impl Application for Registry {
         class: String,
         context: Context,
         event: workflow::Event,
-        steps: workflow::Steps,
+        steps: workflow::Step,
     ) -> HandlerFuture<cellar_native::clone::StructuredValue> {
         match self.workflows.get(&class) {
             Some(handler) => handler(context, event, steps),

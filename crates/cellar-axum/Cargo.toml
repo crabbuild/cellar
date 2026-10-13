@@ -1,0 +1,43 @@
+[package]
+name = "cellar-axum"
+version = "0.6.2"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+repository = "https://github.com/crabbuild/cellar"
+description = "Axum application and HTTP hosting adapters for durable Cellar cells"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = []
+openapi = ["dep:utoipa", "dep:utoipa-axum", "dep:serde_json"]
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+bytes.workspace = true
+cellar.workspace = true
+cellar-native.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+tower.workspace = true
+utoipa = { workspace = true, optional = true }
+utoipa-axum = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+fastwebsockets.workspace = true
+object_store.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["full"] }
+reqwest = { workspace = true, features = ["json", "stream"] }
+
+[lints.clippy]
+disallowed_macros = "forbid"

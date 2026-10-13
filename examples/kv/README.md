@@ -53,7 +53,7 @@ without DELETE. Complete the initial reads within 60 seconds of writing.
 ## Stop, restart and cleanup
 
 Press Ctrl-C in terminal 1 and let the host stop. Local state lives in
-`examples/kv/.cellar/native-dev`. Restart with the same command without `--clean` to
+`examples/kv/.cellar`. Restart with the same command without `--clean` to
 retain it; add `--clean` on the next start to reset this example. Stop before running
 another example on port 9876, or choose another `--port` and change the request URLs.
 JSON field order is not significant.

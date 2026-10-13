@@ -27,6 +27,7 @@ use tokio_util::time::{delay_queue, DelayQueue};
 
 mod config;
 mod effects;
+pub(crate) use config::capture_operation_deadline_from_environment;
 pub use config::ActorOptions;
 mod local_request;
 mod production;
@@ -47,7 +48,8 @@ const HANDOFF_ALARM_COVERAGE_MS: u64 = 5_000;
 
 /// The shell's deadline for one actor operation. Queue leases include this
 /// exact budget for their settlement call, so the actor and broker share the
-/// host-owned policy. The CLI resolves its fallback before serving.
+/// host-owned policy. Library defaults are 15 seconds; the CLI captures its
+/// environment override before building generations.
 #[doc(hidden)]
 pub fn operation_deadline_ms() -> anyhow::Result<u64> {
     crate::asyncrt::services().operation_deadline_ms()

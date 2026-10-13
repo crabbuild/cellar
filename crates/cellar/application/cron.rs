@@ -44,14 +44,25 @@ struct Schedule {
     expressions: Vec<String>,
     parsed: Vec<policy::Cron>,
     positions: Vec<usize>,
+    workflow_targets: Vec<Option<super::workflow::Workflow>>,
     state: Mutex<State>,
 }
 
 pub(crate) fn create_cell(
     context: &Context,
     application: Arc<dyn Application>,
-    expressions: Vec<String>,
+    mut expressions: Vec<String>,
 ) -> Result<Arc<dyn Cell>> {
+    let mut workflow_targets = vec![None; expressions.len()];
+    let mut bindings = context.workflow_bindings.iter().collect::<Vec<_>>();
+    bindings.sort_by(|left, right| left.0.cmp(right.0));
+    for (_, workflow) in bindings {
+        workflow.settings.validate()?;
+        for expression in &workflow.settings.schedules {
+            expressions.push(expression.clone());
+            workflow_targets.push(Some(workflow.clone()));
+        }
+    }
     let mut parsed = Vec::new();
     let mut positions = Vec::new();
     // Match the existing op: an invalid control-plane entry must neither
@@ -68,6 +79,7 @@ pub(crate) fn create_cell(
         expressions,
         parsed,
         positions,
+        workflow_targets,
         state: Mutex::new(State::default()),
     }))
 }
@@ -142,6 +154,22 @@ impl Schedule {
         };
         let mut failed = Vec::new();
         for index in due {
+            if let Some(workflow) = &self.workflow_targets[index] {
+                if let Err(error) = workflow
+                    .create_scheduled(
+                        context,
+                        super::workflow::CronSchedule {
+                            cron: self.expressions[index].clone(),
+                            scheduled_ms: occurrence,
+                        },
+                    )
+                    .await
+                {
+                    tracing::error!(cron=%self.expressions[index],%error,"scheduled workflow creation failed");
+                    failed.push(index);
+                }
+                continue;
+            }
             let controller = Scheduled {
                 scheduled_ms: occurrence,
                 cron: self.expressions[index].clone(),

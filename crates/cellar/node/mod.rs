@@ -38,7 +38,7 @@ use cellar_logic::{RequestError, Route, WebSocketKind};
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full, Limited, StreamBody};
-use hyper::body::{Body as _, Bytes, Frame, Incoming};
+use hyper::body::{Bytes, Frame, Incoming};
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Request, Response, StatusCode};
@@ -53,8 +53,11 @@ mod driver;
 #[cfg(not(cellar_internal_tests))]
 mod embedded;
 mod event_resources;
+mod ingress;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
+#[cfg(not(cellar_internal_tests))]
+pub use ingress::{IngressBody, IngressHandle, IngressResponse};
 mod native;
 use native::Backend;
 pub use native::{CompiledApplications, NativeDaemon};
@@ -1635,11 +1638,15 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let _ = reply.send(result);
 }
 
-async fn request_payload(
-    request: Request<Incoming>,
+async fn request_payload<B>(
+    request: Request<B>,
     trust_forwarded_headers: bool,
     max_body_bytes: usize,
-) -> Result<(String, String, Vec<u8>, Vec<(String, String)>), Box<HttpReply>> {
+) -> Result<(String, String, Vec<u8>, Vec<(String, String)>), Box<HttpReply>>
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let (parts, body) = request.into_parts();
     let body = collect_limited_body(body, max_body_bytes)
         .await
@@ -1691,7 +1698,11 @@ enum BodyReadError {
     Invalid(String),
 }
 
-async fn collect_limited_body(body: Incoming, limit: usize) -> Result<Bytes, BodyReadError> {
+async fn collect_limited_body<B>(body: B, limit: usize) -> Result<Bytes, BodyReadError>
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     if body.size_hint().lower() > limit as u64 {
         return Err(BodyReadError::TooLarge);
     }
@@ -1782,8 +1793,8 @@ fn internal_do_worker_error(error: anyhow::Error) -> HttpReply {
 /// Divide an ingress request into its metadata and a body that the Worker
 /// can read. The function streams the body if one copy of the body costs
 /// more than the operations that read it in parts.
-async fn ingress_payload(
-    request: Request<Incoming>,
+async fn ingress_payload<B>(
+    request: Request<B>,
     trust_forwarded_headers: bool,
     max_body_bytes: usize,
 ) -> Result<
@@ -1794,7 +1805,11 @@ async fn ingress_payload(
         Vec<(String, String)>,
     ),
     Box<HttpReply>,
-> {
+>
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let declared = request
         .headers()
         .get(hyper::header::CONTENT_LENGTH)
@@ -1829,19 +1844,23 @@ async fn ingress_payload(
     Ok((url, method, body, headers))
 }
 
-type IngressPayloadParts = (
+type IngressPayloadParts<B> = (
     String,
     String,
     crate::engine_api::RequestBody,
     Vec<(String, String)>,
-    Option<Incoming>,
+    Option<B>,
 );
 
-fn ingress_payload_parts(
-    request: Request<Incoming>,
+fn ingress_payload_parts<B>(
+    request: Request<B>,
     trust_forwarded_headers: bool,
     max_body_bytes: usize,
-) -> Result<IngressPayloadParts, String> {
+) -> Result<IngressPayloadParts<B>, String>
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let (parts, body) = request.into_parts();
     let headers: Vec<(String, String)> = parts
         .headers
@@ -2460,11 +2479,15 @@ mod peer_tunnel;
 mod websocket;
 use websocket::{handle_websocket, outbound_websocket_task, reply_without_upgrade};
 
-async fn handle_ingress(
-    request: Request<Incoming>,
+async fn handle_ingress<B>(
+    request: Request<B>,
     app: AppHandle,
     connection: ConnectionWorkerRequests,
-) -> HttpReply {
+) -> HttpReply
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     if matches!(*request.method(), hyper::Method::GET | hyper::Method::HEAD) {
         // One snapshot for the asset decision and the Worker it may fall
         // into, so a deployment adopted mid-request cannot serve the new
@@ -2909,13 +2932,16 @@ async fn internal_log(request: Request<Incoming>, app: AppHandle, path: String) 
     }
 }
 
-async fn handle_public(
-    request: Request<Incoming>,
+async fn handle_public<B>(
+    request: Request<B>,
     app: AppHandle,
     connection: ConnectionWorkerRequests,
-) -> Result<HttpReply, Infallible> {
+) -> Result<HttpReply, Infallible>
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let path = request.uri().path().to_string();
-    let draining = app.is_draining();
     let _public_admission = if path == "/.well-known/cellar/health" {
         None
     } else {
@@ -2936,6 +2962,22 @@ async fn handle_public(
         };
         Some(admission)
     };
+    let result = handle_admitted_public(request, app, connection).await;
+    drop(_public_admission);
+    result
+}
+
+async fn handle_admitted_public<B>(
+    request: Request<B>,
+    app: AppHandle,
+    connection: ConnectionWorkerRequests,
+) -> Result<HttpReply, Infallible>
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
+    let path = request.uri().path().to_string();
+    let draining = app.is_draining();
     if path != "/.well-known/cellar/health"
         && app.runtime.is_some()
         && fastwebsockets::upgrade::is_upgrade_request(&request)
@@ -3780,6 +3822,10 @@ async fn async_main(
         "host runtime initialized"
     );
     crate::startup::raise_file_limit();
+    // Queue generations sample this budget before the actor is constructed.
+    // Capture the CLI override now; library hosts use explicit actor policy
+    // or deterministic defaults without reading process environment.
+    let operation_deadline_ms = crate::actor::capture_operation_deadline_from_environment()?;
     let max_resident = crate::env_vars::optional("CELLAR_MAX_RESIDENT_CELLS")?
         // cellar has no resident ceiling unless the operator configures one.
         // The clean-sheet prototype originally defaulted to eight, which
@@ -4138,6 +4184,7 @@ async fn async_main(
                             environment: binding.trim().to_string(),
                             workflow: name.trim().to_string(),
                             class: class.trim().to_string(),
+                            settings: Default::default(),
                         })
                     })
                     .filter(|binding| {
@@ -4411,7 +4458,7 @@ async fn async_main(
             DEFAULT_MAX_OUTBOUND_WEBSOCKETS,
         )?,
         max_request_body_bytes,
-        operation_deadline_ms: crate::actor::operation_deadline_ms()?,
+        operation_deadline_ms,
         follower: follower.clone(),
     };
 
@@ -4892,7 +4939,8 @@ async fn async_main(
     let outcome = driver::run(
         driver::PreparedDriver {
             app,
-            listener,
+            listener: Some(listener),
+            external_ingress: None,
             internal_listener,
             channels,
             fence_rx,

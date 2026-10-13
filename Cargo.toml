@@ -3,7 +3,7 @@
 # decisions; `crates/cellar` is only an effect executor and adapter host.
 [workspace]
 resolver = "2"
-members = ["crates/*", "tools/xtask"]
+members = ["crates/*", "examples/axum-counter", "tools/xtask"]
 
 # Size-tuned: fat LTO prunes unused dependency code, panic=abort drops
 # unwind tables. opt-level "s" (not "z") — measure RPS before trading further.
@@ -40,9 +40,11 @@ cbc = { version = "0.1", features = ["alloc"] }
 ctr = "0.9"
 anyhow = "1"
 async-trait = "0.1"
-axum = { version = "0.7", features = ["multipart"] }
+axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.22"
 bytes = "1"
+cellar = { path = "crates/cellar", version = "0.6.2" }
+cellar-axum = { path = "crates/cellar-axum", version = "0.6.2" }
 cellar-logic = { path = "crates/cellar-logic" }
 cellar-ltx = { path = "crates/cellar-ltx" }
 cellar-native = { path = "crates/cellar-native" }
@@ -58,7 +60,7 @@ encoding_rs = "0.8"
 # without upstream calling that a break, and a caret range would take it. Deno
 # Land maintains fastwebsockets, so cellar carries that risk knowingly; the
 # version is exact to keep the upgrade a decision rather than a surprise.
-fastwebsockets = { version = "=0.8.1", default-features = false, features = ["upgrade", "with_axum", "unstable-split"] }
+fastwebsockets = { version = "=0.8.1", default-features = false, features = ["upgrade", "unstable-split"] }
 flate2 = "1"
 futures-util = "0.3"
 getrandom = "0.3"
@@ -70,7 +72,13 @@ hex = "0.4"
 hkdf = "0.12"
 hmac = "0.12"
 pbkdf2 = "0.12"
+http = "1"
+http-body = "1"
 http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+utoipa = { version = "6", default-features = false, features = ["macros", "axum_extras"] }
+utoipa-axum = "0.3"
+utoipa-swagger-ui = { version = "10.0.1", default-features = false, features = ["axum", "vendored"] }
 # hyper also accepts h2 releases before 0.4.18, which retain the remotely
 # triggerable resource-exhaustion advisory. Keep a direct floor here because a
 # lockfile-only update does not preserve that security boundary when resolved.

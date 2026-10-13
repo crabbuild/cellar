@@ -111,7 +111,7 @@ impl NodeConfig {
         }
     }
 
-    fn validate(&self, services: &NodeServices) -> anyhow::Result<()> {
+    fn validate(&self, services: &StartupServices) -> anyhow::Result<()> {
         self.actor.validate_policy()?;
         anyhow::ensure!(
             self.actor.core.peer_protocol == crate::peer_auth::PROTOCOL_VERSION,
@@ -139,8 +139,12 @@ impl NodeConfig {
             "node request body limit must be positive and at most {DEFAULT_MAX_REQUEST_BODY_BYTES}"
         );
         anyhow::ensure!(
-            services.listener.local_addr()? != services.internal_listener.local_addr()?,
+            services.public_address != services.internal_listener.local_addr()?,
             "public and internal node listeners must be distinct"
+        );
+        anyhow::ensure!(
+            services.public_address.port() != 0,
+            "public address must be bound"
         );
         anyhow::ensure!(
             self.startup.recovery_attempts > 0,
@@ -257,6 +261,83 @@ pub struct NodeServices {
     pub metrics: Option<Arc<MetricsSampler>>,
 }
 
+/// Services for a node whose public HTTP transport is owned by the application.
+/// Bind the public listener first and supply its address. The private peer
+/// listener remains owned by Cellar. `ingress_capacity` bounds accepted calls,
+/// including queued requests and responses whose bodies are still open.
+pub struct ExternalNodeServices {
+    /// Optional application-owned configuration for SDK HTTP egress.
+    pub http_client: Option<crate::http_policy::HttpClientFactory>,
+    pub host_executor: tokio::runtime::Handle,
+    pub core_executor: tokio::runtime::Handle,
+    pub public_address: std::net::SocketAddr,
+    pub ingress_capacity: usize,
+    pub internal_listener: tokio::net::TcpListener,
+    pub peer_http: reqwest::Client,
+    pub peer_auth: Arc<PeerAuth>,
+    pub probe_signer: Arc<PeerProbeSigner>,
+    pub fleet: Option<NodeFleet>,
+    pub containers: Option<crate::container::EngineOptions>,
+    pub metrics: Option<Arc<MetricsSampler>>,
+}
+
+struct StartupServices {
+    http_client: Option<crate::http_policy::HttpClientFactory>,
+    host_executor: tokio::runtime::Handle,
+    core_executor: tokio::runtime::Handle,
+    public_address: std::net::SocketAddr,
+    listener: Option<tokio::net::TcpListener>,
+    external_ingress: Option<mpsc::UnboundedReceiver<super::ingress::IngressCall>>,
+    internal_listener: tokio::net::TcpListener,
+    peer_http: reqwest::Client,
+    peer_auth: Arc<PeerAuth>,
+    probe_signer: Arc<PeerProbeSigner>,
+    fleet: Option<NodeFleet>,
+    containers: Option<crate::container::EngineOptions>,
+    metrics: Option<Arc<MetricsSampler>>,
+}
+
+impl StartupServices {
+    fn native(services: NodeServices) -> anyhow::Result<Self> {
+        Ok(Self {
+            http_client: services.http_client,
+            public_address: services.listener.local_addr()?,
+            listener: Some(services.listener),
+            external_ingress: None,
+            host_executor: services.host_executor,
+            core_executor: services.core_executor,
+            internal_listener: services.internal_listener,
+            peer_http: services.peer_http,
+            peer_auth: services.peer_auth,
+            probe_signer: services.probe_signer,
+            fleet: services.fleet,
+            containers: services.containers,
+            metrics: services.metrics,
+        })
+    }
+
+    fn external(
+        services: ExternalNodeServices,
+        receiver: mpsc::UnboundedReceiver<super::ingress::IngressCall>,
+    ) -> Self {
+        Self {
+            http_client: services.http_client,
+            public_address: services.public_address,
+            listener: None,
+            external_ingress: Some(receiver),
+            host_executor: services.host_executor,
+            core_executor: services.core_executor,
+            internal_listener: services.internal_listener,
+            peer_http: services.peer_http,
+            peer_auth: services.peer_auth,
+            probe_signer: services.probe_signer,
+            fleet: services.fleet,
+            containers: services.containers,
+            metrics: services.metrics,
+        }
+    }
+}
+
 /// Published only after recovery and node authority have been established.
 #[derive(Clone, Debug)]
 pub struct NodeInfo {
@@ -324,8 +405,56 @@ impl Node {
     /// The factory serves authenticated follower recovery before installing a
     /// replacement lease. A failed recovery cannot overwrite its predecessor.
     pub async fn start(
-        mut config: NodeConfig,
+        config: NodeConfig,
         services: NodeServices,
+        graph: DeploymentGraph,
+        applications: CompiledApplications,
+    ) -> anyhow::Result<Self> {
+        Self::start_with_services(
+            config,
+            StartupServices::native(services)?,
+            graph,
+            applications,
+        )
+        .await
+    }
+
+    /// Start the same production engine without a Cellar-owned public listener.
+    /// The returned ingress handle is ready only after recovery and startup.
+    /// Keep the caller's executors and public transport alive until node shutdown
+    /// has joined; close public admission before waiting for server drain.
+    pub async fn start_external(
+        config: NodeConfig,
+        services: ExternalNodeServices,
+        graph: DeploymentGraph,
+        applications: CompiledApplications,
+    ) -> anyhow::Result<(Self, super::IngressHandle)> {
+        anyhow::ensure!(
+            services.ingress_capacity > 0
+                && services.ingress_capacity <= tokio::sync::Semaphore::MAX_PERMITS,
+            "ingress capacity must be positive and within the semaphore limit"
+        );
+        let capacity = services.ingress_capacity;
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let node = Self::start_with_services(
+            config,
+            StartupServices::external(services, receiver),
+            graph,
+            applications,
+        )
+        .await?;
+        let ingress = super::IngressHandle::new(
+            node.app.clone(),
+            Arc::downgrade(&node.domain),
+            sender,
+            capacity,
+        );
+        Ok((node, ingress))
+    }
+
+    async fn start_with_services(
+        mut config: NodeConfig,
+        services: StartupServices,
         graph: DeploymentGraph,
         applications: CompiledApplications,
     ) -> anyhow::Result<Self> {
@@ -582,13 +711,15 @@ fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
 async fn prepare(
     domain: &ExecutionDomain,
     config: NodeConfig,
-    services: NodeServices,
+    services: StartupServices,
     graph: DeploymentGraph,
     applications: CompiledApplications,
 ) -> anyhow::Result<(driver::PreparedDriver, NodeInfo)> {
-    let NodeServices {
+    let StartupServices {
         core_executor,
+        public_address,
         listener,
+        external_ingress,
         internal_listener,
         peer_http,
         peer_auth,
@@ -825,7 +956,7 @@ async fn prepare(
     let info = NodeInfo {
         node: node.clone(),
         advertise: app.advertise.clone(),
-        public_address: listener.local_addr()?,
+        public_address,
         internal_address: internal_listener.local_addr()?,
         lease_generation: config.actor.generation.clone(),
         data_dir: config.data_dir.clone(),
@@ -833,6 +964,7 @@ async fn prepare(
     let prepared = driver::PreparedDriver {
         app,
         listener,
+        external_ingress,
         internal_listener,
         channels,
         fence_rx,

@@ -37,6 +37,15 @@ jobs:
           cargo test --workspace --all-features --lib --tests --locked
           cargo test --workspace --all-features --doc --locked
           cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: Test Axum feature modes and generated contract
+        run: |
+          cargo test -p cellar-axum --no-default-features --locked
+          cargo check -p cellar-axum-counter --no-default-features --bins --locked
+          cargo run -p cellar-axum-counter --bin export-openapi --locked -- "$RUNNER_TEMP/counter-openapi.json"
+          diff examples/axum-counter/openapi.json "$RUNNER_TEMP/counter-openapi.json"
+          python3 examples/axum-counter/generate_client.py "$RUNNER_TEMP/counter-openapi.json" "$RUNNER_TEMP/counter-client.rs"
+          rustfmt --edition 2021 "$RUNNER_TEMP/counter-client.rs"
+          diff examples/axum-counter/generated_client.rs "$RUNNER_TEMP/counter-client.rs"
       - name: Build a Rust application package
         run: |
           cargo run -p cellar --bin cellar --locked -- \

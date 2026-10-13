@@ -270,7 +270,8 @@ async fn host_with_fence_input(
             };
             let prepared = PreparedDriver {
                 app,
-                listener,
+                listener: Some(listener),
+                external_ingress: None,
                 internal_listener,
                 channels: Channels::install(websocket_rx),
                 fence_rx,

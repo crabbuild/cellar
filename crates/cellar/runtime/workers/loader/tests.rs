@@ -73,24 +73,12 @@ fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
 
 struct DropProbe {
     drops: Arc<AtomicUsize>,
-    loaders: Weak<Mutex<LoadedWorkers>>,
-    facets: Weak<Mutex<HashMap<(String, u64), RootFacets>>>,
+    assert_unlocked: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Drop for DropProbe {
     fn drop(&mut self) {
-        assert!(
-            self.loaders
-                .upgrade()
-                .is_none_or(|registry| registry.try_lock().is_ok()),
-            "worker dropped under loader registry lock"
-        );
-        assert!(
-            self.facets
-                .upgrade()
-                .is_none_or(|registry| registry.try_lock().is_ok()),
-            "worker dropped under root facet lock"
-        );
+        (self.assert_unlocked)();
         self.drops.fetch_add(1, Ordering::SeqCst);
     }
 }
@@ -120,12 +108,27 @@ fn config(application: Arc<dyn Application>) -> Arc<WorkerConfig> {
 }
 
 fn probed_config(drops: Arc<AtomicUsize>) -> Arc<WorkerConfig> {
-    // A final drop can run in a foreign domain or outside a domain entirely.
-    // Probe the registries that own the worker, not the ambient host's locks.
+    // A slot can be released outside its owner's domain. Check the captured
+    // registries, not an unrelated ambient host used by a parallel test.
+    // Weak references avoid keeping registry -> worker -> probe cycles alive.
+    let loader = Arc::downgrade(&loader_registry());
+    let facets = Arc::downgrade(&root_facets());
     let probe = DropProbe {
         drops,
-        loaders: Arc::downgrade(&loader_registry()),
-        facets: Arc::downgrade(&root_facets()),
+        assert_unlocked: Box::new(move || {
+            if let Some(loader) = loader.upgrade() {
+                assert!(
+                    loader.try_lock().is_ok(),
+                    "worker dropped under loader registry lock"
+                );
+            }
+            if let Some(facets) = facets.upgrade() {
+                assert!(
+                    facets.try_lock().is_ok(),
+                    "worker dropped under root facet lock"
+                );
+            }
+        }),
     };
     config(Arc::new(Registry::new(move |_, _| {
         let _ = &probe;

@@ -41,6 +41,7 @@ impl CellLimits {
             events: cellar_logic::event_stream::Limits::unrestricted(),
             workflow: WorkflowLimits {
                 max_value_bytes: usize::MAX,
+                max_stream_bytes: usize::MAX,
                 max_batch_size: usize::MAX,
                 max_id_bytes: usize::MAX,
                 max_step_name_units: usize::MAX,
@@ -68,6 +69,7 @@ impl CellLimits {
                 self.blob.max_multipart_backlog_bytes,
             ),
             ("workflow.max_value_bytes", self.workflow.max_value_bytes),
+            ("workflow.max_stream_bytes", self.workflow.max_stream_bytes),
             ("workflow.max_batch_size", self.workflow.max_batch_size),
             ("workflow.max_id_bytes", self.workflow.max_id_bytes),
             (
@@ -230,6 +232,8 @@ impl Default for BlobLimits {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WorkflowLimits {
     pub max_value_bytes: usize,
+    /// Aggregate persisted stream chunks, including captures awaiting retry cleanup.
+    pub max_stream_bytes: usize,
     pub max_batch_size: usize,
     pub max_id_bytes: usize,
     pub max_step_name_units: usize,
@@ -246,6 +250,7 @@ impl Default for WorkflowLimits {
     fn default() -> Self {
         Self {
             max_value_bytes: 1 << 20,
+            max_stream_bytes: 1 << 30,
             max_batch_size: 100,
             max_id_bytes: 100,
             max_step_name_units: 256,

@@ -1,8 +1,7 @@
 //! Binding preflight through native application turns, without engine startup.
-//! The native Workflow replay driver is still in the migration inventory.
 
 use anyhow::Result;
-use cellar::application::workflow::{CreateOptions, Duration, Retention};
+use cellar::application::workflow::{BatchCreateOptions, CreateOptions, Duration, Retention};
 use cellar::application::{Context, Invocation, Output, Registry};
 use cellar::engine_api::{
     Compat, HttpResponse, RuntimeOptions, WorkerConfigOptions, WorkflowBinding,
@@ -99,6 +98,28 @@ async fn preflight(context: Context, _: Invocation) -> Result<Output> {
             .starts_with("WORKFLOW_ERROR:"));
     }
     assert!(workflow.create_batch(&context, Vec::new()).await.is_err());
+    for count in [0, 101, usize::MAX] {
+        assert!(workflow
+            .create_batch_with(&context, BatchCreateOptions::count(count))
+            .await
+            .is_err());
+    }
+    assert!(workflow
+        .create_batch_with(
+            &context,
+            BatchCreateOptions::instances(vec![
+                CreateOptions {
+                    id: Some("valid-modern".into()),
+                    ..Default::default()
+                },
+                CreateOptions {
+                    id: Some("bad/name".into()),
+                    ..Default::default()
+                },
+            ])
+        )
+        .await
+        .is_err());
     assert!(workflow
         .create_batch(&context, vec![CreateOptions::default(); 101])
         .await
@@ -170,6 +191,7 @@ async fn native_workflow_preflight_refuses_bad_batches_before_any_cell_call() ->
                 environment: "WF".into(),
                 workflow: "orders".into(),
                 class: "Orders".into(),
+                settings: Default::default(),
             }],
             vars: Vec::new(),
             node: "test".into(),

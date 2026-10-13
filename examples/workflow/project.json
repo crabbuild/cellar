@@ -12,7 +12,11 @@
         "type": "workflow",
         "name": "REPORTS",
         "workflow_name": "reports",
-        "class_name": "Report"
+        "class_name": "Report",
+        "default_retention": {
+          "success_retention": "7 days",
+          "error_retention": "30 days"
+        }
       },
       {
         "type": "blob_bucket",
