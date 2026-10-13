@@ -219,7 +219,7 @@ this does not constitute a released deployed primitive yet.
 | Stream append/read and deduplication | Persisted destination schema, built-in factory, atomic producer watermark, bounded read API; duplicate acceptance after payload expiry; stream/catalog and source/inbox schema migrations; feature/format capability | Wider fault and adversarial qualification |
 | Durable outbox delivery | Real destination integration, generation-fenced cleanup, blocked permanent errors, adaptive batch limits, host/lane reservations | Cancellation/routing/fairness qualification and operational controls |
 | Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling | Complete deadline/error/race matrix and production lifecycle/crash qualification |
-| Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; existing output/wake protocols reused | Actual node/follower/owner-loss, source/destination/consumer crash and response-loss qualification |
+| Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects | Runnable consumer example and complete proof/crash qualification |
 | Operational controls | Source retry/seal and pending-reset protection; subscription status/change/audit APIs; private stream describe | Owner-routed CLI/API, pagination, diagnostics, metrics, explicit destructive operations |
@@ -492,3 +492,14 @@ business state intact. A native worker regression retains an unavailable
 application alarm through eight attempts without consuming its abandonment
 budget and closes rejected non-source activations. These checks qualify those
 paths, not the complete crash, follower-proof or cancellation matrix.
+
+Public `Cursor::decode` and `Receipt::decode` now retain `InvalidCursor` and
+`StaleReceipt` across malformed base64, JSON, protocol integers and identities.
+They do not expose supplied token bytes in diagnostics. The token regression
+corpus also preserves valid positions above binary64 precision through i64::MAX.
+This closes that SDK boundary; deadline, RPC-reply and overflow classification
+still require their own qualification.
+All three token regressions and the existing integrated native stream test pass
+after this change; final-source workspace/all-target/all-feature Clippy with
+warnings denied also passes. The 347-test workspace result above applies to the
+preceding recovery milestone.

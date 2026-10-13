@@ -33,9 +33,11 @@ impl Cursor {
         let encoded = encoded
             .strip_prefix("v1.")
             .ok_or_else(|| error(ErrorCode::InvalidCursor, "unsupported cursor format"))?;
-        let cursor: Self = serde_json::from_slice(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded)?,
-        )?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| error(ErrorCode::InvalidCursor, "invalid cursor encoding"))?;
+        let cursor: Self = serde_json::from_slice(&bytes)
+            .map_err(|_| error(ErrorCode::InvalidCursor, "invalid cursor fields"))?;
         cursor.validate()?;
         Ok(cursor)
     }

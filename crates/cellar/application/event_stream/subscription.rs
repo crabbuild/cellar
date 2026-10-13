@@ -41,16 +41,19 @@ impl Receipt {
         let encoded = encoded
             .strip_prefix("v1.")
             .ok_or_else(|| error(ErrorCode::StaleReceipt, "unsupported receipt format"))?;
-        let receipt: Self = serde_json::from_slice(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(encoded)?,
-        )?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded)
+            .map_err(|_| error(ErrorCode::StaleReceipt, "invalid receipt encoding"))?;
+        let receipt: Self = serde_json::from_slice(&bytes)
+            .map_err(|_| error(ErrorCode::StaleReceipt, "invalid receipt fields"))?;
         receipt.validate()?;
         Ok(receipt)
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
         for value in [&self.resource, &self.subscription, &self.incarnation] {
-            super::store::validate_id(value)?;
+            super::store::validate_id(value)
+                .map_err(|_| error(ErrorCode::StaleReceipt, "invalid receipt identity"))?;
         }
         if self.partition != 0
             || self.name.is_empty()
