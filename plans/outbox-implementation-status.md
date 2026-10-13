@@ -422,3 +422,18 @@ the final source, including the external Cargo rebuild/restart regression and
 both public Node event tests with the tunnel refusal. The separate doctest and
 final Clippy commands also completed successfully. These tests still do not run the actual previous binary,
 inject every crash boundary, or qualify the complete release matrix.
+
+The draft-PR follow-up merges main through `6a8e252`, preserving optional
+listeners and external ingress behind event resource activation. The Axum
+counter explicitly supplies empty event metadata; the fleet upgrade CLI test
+now follows main's single `cellar` executable after removal of its CLI alias.
+The workspace/all-feature library and integration command passes 341 tests,
+including the development build/restart regression, both public Node event
+regressions, external ingress and the new Axum suites. The final bulk retry
+fencing adjustment also passes all 14 focused event policy/source/stream tests.
+All 11 workspace doctests pass in the separate cache. Final-source Clippy with
+warnings denied, formatting across 400 Rust files, documentation (35 documents,
+6 flows, 362 references), whitespace and native dependency inspection (401
+packages; no JavaScript engine) pass. GitHub CI did not start: its check
+annotation reports failed account payments or a spending-limit restriction.
+This does not change the outstanding event release qualification gates.
