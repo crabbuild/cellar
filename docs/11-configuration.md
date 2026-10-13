@@ -55,7 +55,7 @@ use different limits. Fleet owners should agree on limits for shared resources.
 | SQL | Restricted SQLite connection; 100,000 materialized rows; 32-MiB result budget | SQLite's native compiled ceilings; removes materialized row/byte budgets |
 | Blob | 1,000-entry list pages; 256-MiB multipart backlog | Removes the page/backlog ceilings; object size already depends on the backend |
 | Queue | 128,000-byte messages; 256,000-byte sends; 100-message batches; 60-second batch timeout; 100 retries; 250 concurrent batches; one-day delay; four-day retention; 100-entry operator batches | Removes byte caps and age-based expiry; expands batches, delays and consumer settings to their numeric ranges |
-| Workflow | 1-MiB values; 100-instance batches; 100-byte IDs/event types; 256-unit step names; 30-day retention maximum; one-year sleeps/event waits; 10,000 retries | Removes size/name/batch/duration ceilings; permits up to `u32::MAX` step retries |
+| Workflow | 1-MiB values; 1-GiB aggregate captured streams per instance; 100-instance batches; 100-byte IDs/event types; 256-unit step names; 30-day retention maximum; one-year sleeps/event waits; 10,000 retries | Removes size/name/batch/duration ceilings; permits up to `u32::MAX` step retries |
 | Cron / alarms | No trigger-count quota; cron uses minute resolution and one durable alarm multiplexes deadlines | No additional quota to remove; scheduling and retry semantics continue to apply |
 
 Unrestricted does not mean infinite capacity. Structured values/RPC retain the
@@ -68,8 +68,9 @@ validate the default Queue ceilings; embedded hosts can use
 `validate_queue_manifest_with_limits` with their explicit policy when validating
 their own manifests.
 
-Omitted KV/Blob page sizes still default to 1,000, and omitted Workflow retention
-still defaults to 30 days; request a larger page or longer retention explicitly.
+Omitted KV/Blob page sizes still default to 1,000. Workflow retention inherits
+its binding's `default_retention`, falling back to 30 days; request a larger
+page or longer retention explicitly.
 KV's 1-MiB inline threshold still routes larger values to object storage. Internal
 sweep/grouping sizes and upload part sizes bound individual maintenance turns;
 they do not cap total stored data. Request admission, response deadlines,

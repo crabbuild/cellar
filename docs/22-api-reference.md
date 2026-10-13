@@ -15,7 +15,11 @@ identify their implementation at the documented source baseline.
 | SQL binding | `sql::Database`, prepared statements, sessions, batch, migrate, migrations, dump | [SQL](../crates/cellar/application/sql.rs) |
 | KV binding | `kv::Namespace`; reads/metadata, put text/bytes/stream, delete/list | [KV](../crates/cellar/application/kv.rs) |
 | Queue | `queue::Producer`, `SendOptions`, `Body`, `Event`, `Message`; send/batch, ack/retry | [Queue](../crates/cellar/application/queue.rs) |
-| Workflow | `workflow::Workflow`, `Instance`, `Event`, `Steps`, options/status types | [Workflow](../crates/cellar/application/workflow.rs) |
+| Workflow | `workflow::Workflow`, `Instance`, `Event`, `Step`; `run`/`run_with`, `WaitOptions`, options/status types | [Workflow](../crates/cellar/application/workflow.rs) |
+| Workflow batches and defaults | `BatchCreateOptions`, `BatchCreateResult`, `BatchCreateError`, `BindingSettings`, `CronSchedule` | [batches](../crates/cellar/application/workflow/batch.rs), [configuration](../crates/cellar/application/workflow/configuration.rs) |
+| Workflow compensation | `run_with_rollback`, `RollbackOptions`, `RollbackContext`, `TerminateOptions` | [rollback](../crates/cellar/application/workflow/rollback.rs) |
+| Workflow byte outputs | `run_stream`, `run_stream_with`, `run_stream_with_rollback`, `StreamOutput`, `StepSelector`, `Instance::step_stream` | [streams](../crates/cellar/application/workflow/stream.rs) |
+| Workflow observations | `Instance::subscribe`, `SubscribeOptions`, `Subscription`, `InstanceEvent`, `InstanceEventType` | [history](../crates/cellar/application/workflow/history.rs) |
 | Cron | `cron::Scheduled`, `no_retry` | [cron](../crates/cellar/application/cron.rs) |
 | Services / egress | `service::Fetcher`, `Context::service`, outbound `fetch`, structured RPC and signals | [services](../crates/cellar/application/service.rs) |
 | HTTP values | `http::Response`, URL and outbound request/body helpers | [HTTP](../crates/cellar/application/http.rs) |

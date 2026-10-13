@@ -111,6 +111,15 @@ response gates live under `fleet/wake/`. KV large-value and Queue policy/batchin
 helpers sit beside their built-in cells under `application/kv/` and
 `application/queue/`, retaining their original crate-root module names.
 
+Workflow batch/configuration, compensation, history, and byte-stream adapters
+live under `application/workflow/`. Their journals and chunks share the owning
+instance's SQLite state and output gate. Workflow subscriptions and stream
+readers retain their opening invocation; continuation reads do not consume a
+new subrequest slot. Native workflow packages retain the `workflows-v1` feature
+while Cellar is in internal development.
+Use `native_workflow`, `native_workflow_cell`, `native_cron`, and
+`native_artifacts` when changing these contracts.
+
 The layout preserves three mixed modules for later focused refactors:
 `node/mod.rs` combines shared node composition with process startup;
 `node/managed.rs` combines managed services with connection/credential commands;

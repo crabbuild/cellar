@@ -204,14 +204,20 @@ impl NativeWorker {
             .as_ref()
             .map(|env| -> Result<_> { Ok(Arc::new(cellar_native::clone::decode(&env.bytes)?)) })
             .transpose()?;
+        for binding in &config.workflow_bindings {
+            binding.settings.validate()?;
+        }
         validate_application_classes(
             application.as_ref(),
             &config.script_name,
-            config
-                .do_classes
-                .iter()
-                .map(String::as_str)
-                .chain((!config.crons.is_empty()).then_some(cellar_logic::cron::RESERVED_CLASS)),
+            config.do_classes.iter().map(String::as_str).chain(
+                (!config.crons.is_empty()
+                    || config
+                        .workflow_bindings
+                        .iter()
+                        .any(|binding| !binding.settings.schedules.is_empty()))
+                .then_some(cellar_logic::cron::RESERVED_CLASS),
+            ),
             config
                 .workflow_bindings
                 .iter()
@@ -231,7 +237,8 @@ impl NativeWorker {
                         crate::application::workflow::Workflow::new(
                             &config.script_name,
                             &binding.workflow,
-                        ),
+                        )
+                        .with_settings(binding.settings.clone()),
                     )
                 })
                 .collect(),
@@ -1600,6 +1607,21 @@ pub(crate) fn rpc_cell(
         .check_turn()
         .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
     {
+        return Box::pin(async move { Err(error) });
+    }
+    rpc_cell_resource(context, scope, name, method, args)
+}
+
+/// Continue an already-admitted workflow reader. Opening the resource is charged;
+/// data chunks retain ordinary cancellation, routing and output gates.
+pub(crate) fn rpc_cell_resource(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+) -> HandlerFuture<RpcData> {
+    if let Err(error) = context.check_turn() {
         return Box::pin(async move { Err(error) });
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);

@@ -154,6 +154,21 @@ impl Storage {
         crate::storage::system_sql(self.scope()?, query, bindings)
     }
 
+    /// Built-in maintenance can remove a key range without reading its values.
+    pub(crate) fn system_delete_range(&self, start: &str, end: &str) -> Result<()> {
+        let scope = self.scope()?;
+        crate::storage::system_sql(
+            scope,
+            "DELETE FROM __sys_cell_kv WHERE scope=?1 AND k>=?2 AND k<?3",
+            &[
+                SqlValue::Text(scope.into()),
+                SqlValue::Text(start.into()),
+                SqlValue::Text(end.into()),
+            ],
+        )?;
+        Ok(())
+    }
+
     pub(crate) fn system_sql_schema(&self, ddl: &str) -> Result<()> {
         crate::storage::system_sql_schema(self.scope()?, ddl)
     }

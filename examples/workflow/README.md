@@ -4,12 +4,28 @@ Checkpoint a multi-step job and publish a repeatable external effect.
 
 ## How it works
 
-POST starts a named report. The workflow journals prepare-report, sleeps durably, then
-writes a Blob under a stable instance-derived key. GET observes status and output. The
+POST starts a named report. The workflow journals prepare-report, captures its
+rendered bytes in a durable stream, sleeps durably, then writes a Blob under a
+stable instance-derived key. GET observes status and output. The
 same external effect can be retried if a crash precedes its step checkpoint: stable keys
 make this overwrite repeatable. Step names and semantics are persisted contracts;
-version workflow classes when changing them. Rollback handlers are currently
-unsupported.
+version workflow classes when changing them. Registered `RollbackOptions`
+provide durable compensation when a workflow fails or termination requests it;
+compensation effects also need receiver-side idempotency.
+
+The handler receives a `Step` and uses `step.run("prepare-report", callback)`,
+`step.run_stream("render-report", callback)`, `step.sleep("delivery-delay", 100.0)`
+and `step.run("publish-report", callback)`. The saved `StreamOutput` becomes a
+fresh readable stream on replay and feeds `Blob::put_stream`.
+Durations can also be strings such as `"1 minute"`. Configured steps use
+`run_with` with `StepConfig`; event waits use `wait_for_event` with a type string
+or `WaitOptions::new("approve").timeout("1 hour")`.
+
+The binding supports batch creation, retention defaults, cron schedules and
+cursor-based instance event subscriptions. See the [async work guide](../../docs/08-asynchronous-work.md)
+for their Rust signatures and lifecycle contracts.
+This project's defaults retain successful or terminated reports for seven days
+and errored reports for thirty days.
 
 Read the [Rust source](main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by

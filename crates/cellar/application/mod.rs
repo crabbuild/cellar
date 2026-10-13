@@ -135,7 +135,7 @@ pub trait Application: Send + Sync + 'static {
         class: String,
         _context: Context,
         _event: workflow::Event,
-        _steps: workflow::Steps,
+        _steps: workflow::Step,
     ) -> HandlerFuture<cellar_native::clone::StructuredValue> {
         Box::pin(async move { Err(anyhow!("no native workflow handler for {class}")) })
     }
@@ -155,7 +155,7 @@ type WorkflowHandler = Arc<
     dyn Fn(
             Context,
             workflow::Event,
-            workflow::Steps,
+            workflow::Step,
         ) -> HandlerFuture<cellar_native::clone::StructuredValue>
         + Send
         + Sync,
@@ -237,7 +237,7 @@ impl Registry {
         handler: impl Fn(
                 Context,
                 workflow::Event,
-                workflow::Steps,
+                workflow::Step,
             ) -> HandlerFuture<cellar_native::clone::StructuredValue>
             + Send
             + Sync
@@ -264,7 +264,7 @@ impl Application for Registry {
         class: String,
         context: Context,
         event: workflow::Event,
-        steps: workflow::Steps,
+        steps: workflow::Step,
     ) -> HandlerFuture<cellar_native::clone::StructuredValue> {
         match self.workflows.get(&class) {
             Some(handler) => handler(context, event, steps),

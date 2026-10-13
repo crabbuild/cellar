@@ -434,7 +434,7 @@ async fn lifted_bindings_persist_large_values_batches_and_pages() -> Result<()> 
         let registry = Registry::new(|context, event| Box::pin(data(context, event)))
             .workflow("Flow", |_, event, steps| Box::pin(async move {
                 if event.instance_id == "x".repeat(120) {
-                    let output = steps.do_with_config("s".repeat(400), workflow::StepConfig {
+                    let output = steps.run_with("s".repeat(400), workflow::StepConfig {
                         retries: Some(workflow::Retries {
                             limit: 10001.0,
                             delay: workflow::Delay::Fixed(workflow::Duration::from("1 second")),
@@ -444,7 +444,7 @@ async fn lifted_bindings_persist_large_values_batches_and_pages() -> Result<()> 
                     }, |_| async { StructuredValue::from_json(json!("x".repeat(2_300_000))) }).await?;
                     return Ok(output);
                 }
-                steps.sleep("long-sleep", workflow::Duration::from("2 years")).await?;
+                steps.sleep("long-sleep", "2 years").await?;
                 Ok(StructuredValue::undefined())
             }))?;
         let wf_class = cellar::deploy::workflow_class(SCRIPT);
@@ -452,7 +452,7 @@ async fn lifted_bindings_persist_large_values_batches_and_pages() -> Result<()> 
         graph.primary.options.kv_bindings = vec![("KV".into(), ID.into())];
         graph.primary.options.blob_bindings = vec![("B".into(), "lifted-objects".into())];
         graph.primary.options.queue_bindings = vec![QueueBinding { environment: "Q".into(), queue: QUEUE.into(), delivery_delay: 0 }];
-        graph.primary.options.workflow_bindings = vec![WorkflowBinding { environment: "WF".into(), workflow: "flow".into(), class: "Flow".into() }];
+        graph.primary.options.workflow_bindings = vec![WorkflowBinding { environment: "WF".into(), workflow: "flow".into(), class: "Flow".into(), settings: Default::default() }];
         graph.primary.crons = vec!["* * * * *".into(); 128];
         let generation = Generation::build_native(1, graph, fixture::generation_options(),
             HashMap::from([(SCRIPT.into(), Arc::new(registry) as Arc<dyn cellar::sdk::Application>)]))?;
