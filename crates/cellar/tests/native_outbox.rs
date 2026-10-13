@@ -1,11 +1,13 @@
 //! Source SDK transactions through native application turns. The fixture
 //! checks persisted emission; fleet dispatch/proof qualification is separate.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cellar::application::event_stream::{
     Binding, DeliveryError, Envelope, ErrorCode, Event, Resource,
 };
-use cellar::application::{Cell, Context, HandlerFuture, Invocation, Output, Registry};
+use cellar::application::{
+    Cell, Context, HandlerFuture, Invocation, OutboxOptions, Output, Registry,
+};
 use cellar::engine_api::{Compat, HttpResponse, RuntimeFetch, RuntimeOptions, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
 use cellar::generation::{DeploymentGraph, Generation, GenerationOptions};
@@ -124,6 +126,9 @@ impl Cell for Order {
                 ErrorCode::EventFamilyMismatch
             );
             if request.url.ends_with("/checks") {
+                let empty = db.outbox(&OutboxOptions::default())?;
+                assert!(empty.incarnation.is_none() && empty.lanes.is_empty());
+                assert_eq!((empty.pending_rows, empty.pending_bytes), (0, 0));
                 assert_eq!(
                     code(&db.emit(&orders, event()).unwrap_err()),
                     ErrorCode::TransactionRequired
@@ -200,6 +205,145 @@ impl Cell for Order {
                 assert_eq!(db.get_json("confirmed")?, Some(true.into()));
                 assert!(db.delete_all().is_err());
                 assert_eq!(db.get_json("confirmed")?, Some(true.into()));
+            } else if request.url.ends_with("/inspect") {
+                let before = db.outbox(&OutboxOptions::default())?;
+                assert_eq!(before.pending_rows, 2);
+                assert_eq!(before.lanes.len(), 1);
+                assert_eq!(before.lanes[0].pending_rows, 2);
+                assert!(before.pending_bytes > 0 && before.next.is_none());
+                assert_eq!(before.lanes[0].revision.next_sequence, 3);
+                let wire = serde_json::to_value(&before)?;
+                assert_eq!(wire["pending_rows"], "2");
+                assert!(wire["lanes"][0].get("envelope").is_none());
+                assert_eq!(
+                    code(
+                        &db.outbox(&OutboxOptions {
+                            limit: 0,
+                            cursor: None
+                        })
+                        .unwrap_err()
+                    ),
+                    ErrorCode::InvalidRequest
+                );
+                assert_eq!(
+                    code(
+                        &db.outbox(&OutboxOptions {
+                            limit: 101,
+                            cursor: None
+                        })
+                        .unwrap_err()
+                    ),
+                    ErrorCode::InvalidRequest
+                );
+                assert_eq!(
+                    code(
+                        &db.outbox(&OutboxOptions {
+                            limit: 1,
+                            cursor: Some("x".repeat(1025))
+                        })
+                        .unwrap_err()
+                    ),
+                    ErrorCode::InvalidCursor
+                );
+                let other = context.stream::<OrderEvent>("OTHER")?;
+                let rolled_back: Result<()> = db.tx(|tx| {
+                    tx.emit(&other, event())?;
+                    let first = tx.outbox(&OutboxOptions {
+                        limit: 1,
+                        cursor: None,
+                    })?;
+                    assert_eq!(first.pending_rows, 3);
+                    assert_eq!(first.lanes.len(), 1);
+                    let next = first.next.context("second lane continuation")?;
+                    let second = tx.outbox(&OutboxOptions {
+                        limit: 1,
+                        cursor: Some(next.clone()),
+                    })?;
+                    assert_eq!(second.lanes.len(), 1);
+                    assert!(second.next.is_none());
+                    assert_ne!(first.lanes[0].revision.lane, second.lanes[0].revision.lane);
+                    assert_eq!(
+                        first.lanes[0].pending_rows + second.lanes[0].pending_rows,
+                        3
+                    );
+                    let bytes = base64::Engine::decode(
+                        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                        next.strip_prefix("v1.").unwrap(),
+                    )?;
+                    let mut cursor: (String, String, String) = serde_json::from_slice(&bytes)?;
+                    cursor.1 = "ffffffffffffffffffffffffffffffff".into();
+                    let forged = format!(
+                        "v1.{}",
+                        base64::Engine::encode(
+                            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                            serde_json::to_vec(&cursor)?
+                        )
+                    );
+                    assert_eq!(
+                        code(
+                            &tx.outbox(&OutboxOptions {
+                                limit: 1,
+                                cursor: Some(forged)
+                            })
+                            .unwrap_err()
+                        ),
+                        ErrorCode::InvalidCursor
+                    );
+                    assert!(tx.retry_outbox_lane(&before.lanes[0].revision)?);
+                    assert_eq!(
+                        code(&tx.retry_outbox_lane(&before.lanes[0].revision).unwrap_err()),
+                        ErrorCode::ConfigConflict
+                    );
+                    Err(anyhow!("rollback inspected retry"))
+                });
+                assert!(rolled_back.is_err());
+                let after = db.outbox(&OutboxOptions::default())?;
+                assert_eq!(after.pending_rows, before.pending_rows);
+                assert_eq!(after.pending_bytes, before.pending_bytes);
+                assert_eq!(
+                    after.lanes[0].revision.dispatch_generation,
+                    before.lanes[0].revision.dispatch_generation
+                );
+                let mut stale = before.lanes[0].revision.clone();
+                stale.incarnation = "ffffffffffffffffffffffffffffffff".into();
+                assert_eq!(
+                    code(&db.retry_outbox_lane(&stale).unwrap_err()),
+                    ErrorCode::ConfigConflict
+                );
+                stale = before.lanes[0].revision.clone();
+                stale.source = "Order:another".into();
+                assert_eq!(
+                    code(&db.retry_outbox_lane(&stale).unwrap_err()),
+                    ErrorCode::InvalidRequest
+                );
+                assert!(db.retry_outbox_lane(&before.lanes[0].revision)?);
+                assert_eq!(
+                    code(&db.retry_outbox_lane(&before.lanes[0].revision).unwrap_err()),
+                    ErrorCode::ConfigConflict
+                );
+                let after = db.outbox(&OutboxOptions::default())?;
+                assert_eq!(
+                    (after.pending_rows, after.pending_bytes),
+                    (before.pending_rows, before.pending_bytes)
+                );
+                assert_eq!(
+                    after.lanes[0].revision.dispatch_generation,
+                    before.lanes[0].revision.dispatch_generation + 1
+                );
+                db.retry_outbox()?;
+                assert_eq!(
+                    code(&db.retry_outbox_lane(&after.lanes[0].revision).unwrap_err()),
+                    ErrorCode::ConfigConflict
+                );
+                let retried = db.outbox(&OutboxOptions::default())?;
+                assert_eq!(
+                    retried.lanes[0].revision.dispatch_generation,
+                    after.lanes[0].revision.dispatch_generation + 1
+                );
+                assert_eq!(
+                    (retried.pending_rows, retried.pending_bytes),
+                    (before.pending_rows, before.pending_bytes)
+                );
             } else {
                 return Err(anyhow!("unknown source operation"));
             }
@@ -231,7 +375,11 @@ fn bindings() -> Vec<Binding> {
     let mut wrong = orders.clone();
     wrong.environment = "WRONG_FAMILY".into();
     wrong.resource.family = "shipments".into();
-    vec![orders, readonly, wrong]
+    let mut other = orders.clone();
+    other.environment = "OTHER".into();
+    other.resource.id = "00000000000000000000000000000002".into();
+    other.resource.name = "other-orders".into();
+    vec![orders, readonly, wrong, other]
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -310,7 +458,9 @@ async fn sdk_emission_obeys_transaction_authority_and_bound_publication_grants()
         .await?;
     runtime.start_cell(SCOPE.into(), 1, true).await?;
     runtime.publish_cell(SCOPE, 1)?;
-    for path in ["checks", "commit", "encoding", "rollback", "nested"] {
+    for path in [
+        "checks", "commit", "encoding", "rollback", "nested", "inspect",
+    ] {
         let result = runtime
             .fetch_cell(
                 SCOPE.into(),

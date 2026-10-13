@@ -329,6 +329,18 @@ impl Cell for Producer {
                         .configure(&context, &desired, "00000000000000000000000000000015")
                         .await?,
                 )?
+            } else if request.url.ends_with("/inspect-settled") {
+                let db = context.storage()?;
+                let page = db.outbox(&cellar::sdk::OutboxOptions::default())?;
+                let revision = page.lanes[0].revision.clone();
+                assert!(!db.retry_outbox_lane(&revision)?);
+                assert_eq!(
+                    db.outbox(&cellar::sdk::OutboxOptions::default())?.lanes[0]
+                        .revision
+                        .dispatch_generation,
+                    revision.dispatch_generation
+                );
+                serde_json::to_value(page)?
             } else if request.url.ends_with("/seal") {
                 let result = context
                     .storage()?
@@ -1188,6 +1200,10 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     assert_eq!(fetch(&runtime, "seal").await?["state"], "pending");
     fire(&runtime, SOURCE, 11).await?;
     assert_eq!(fetch(&runtime, "seal").await?["state"], "accepted");
+    let settled = fetch(&runtime, "inspect-settled").await?;
+    assert_eq!(settled["pending_rows"], "0");
+    assert_eq!(settled["lanes"][0]["status"], "sealed");
+    assert_eq!(settled["lanes"][0]["seal_state"], "accepted");
     let seal_packet = sealing_request.lock().unwrap().take().unwrap();
     assert_eq!(replay(&runtime, &seal_packet).await?["ok"]["terminal"], "5");
     assert_eq!(

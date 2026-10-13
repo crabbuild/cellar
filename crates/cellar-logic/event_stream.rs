@@ -397,3 +397,36 @@ pub fn deletion_frontier(
     }
     Ok(through)
 }
+
+/// Source revision captured by an operator before requesting a lane retry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProducerRevision {
+    pub generation: i64,
+    pub next_sequence: i64,
+    pub settled_through: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RetryRefusal {
+    Stale,
+    Exhausted,
+}
+
+/// Invalidate a prior dispatch response when re-arming a pending obligation.
+pub fn retry_producer(
+    expected: ProducerRevision,
+    current: ProducerRevision,
+    pending: bool,
+) -> Result<Option<i64>, RetryRefusal> {
+    if expected != current {
+        return Err(RetryRefusal::Stale);
+    }
+    if !pending {
+        return Ok(None);
+    }
+    next_dispatch_generation(current.generation).map(Some)
+}
+
+pub fn next_dispatch_generation(current: i64) -> Result<i64, RetryRefusal> {
+    current.checked_add(1).ok_or(RetryRefusal::Exhausted)
+}

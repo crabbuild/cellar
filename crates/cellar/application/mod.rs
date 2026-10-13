@@ -31,7 +31,7 @@ pub mod storage;
 pub mod streams;
 pub mod websocket;
 pub mod workflow;
-pub use storage::{ListOptions, Storage};
+pub use storage::{ListOptions, OutboxLane, OutboxOptions, OutboxPage, OutboxRevision, Storage};
 
 pub type HandlerFuture<T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>;
 pub type SqlResult = (Vec<String>, Vec<Vec<serde_json::Value>>, u64);

@@ -9,6 +9,21 @@ turns together; that local evidence does not satisfy the fleet/release gates.
 ## Current code
 
 - `Storage::tx` delegates to the existing synchronous savepoint machinery.
+- `Storage::outbox(&OutboxOptions)` exposes bounded source diagnostics through
+  the owning activation: total backlog, per-lane rows/bytes, destination identity,
+  retry deadline/attempts, retained error and seal state. Pages contain at most
+  100 lanes and never copy event bodies or full bindings. Continuations bind the
+  source scope and incarnation; pages observe current state rather than a frozen
+  snapshot. Empty inspection creates no source/schema/wake state.
+- `Storage::retry_outbox_lane(&OutboxRevision)` requires the observed source
+  incarnation, dispatch generation, next sequence and settled watermark. The
+  pure core rejects a changed revision or exhausted generation. A successful
+  retry advances the generation to fence an older in-flight reply and commits
+  wake work atomically, without changing event bytes or skipping sequences.
+  The existing bulk SDK retry now advances pending-lane generations too and
+  refuses exhaustion before changing any lane.
+  This is the application SDK foundation; the authenticated fleet operator
+  ingress and CLI remain to be implemented.
 - `Context::stream`, typed `Event`/`Stream` handles, resolved resource identities,
   binding publication permissions, domain ownership, and fallible envelope
   decoding are present. `WorkerConfigOptions::stream_bindings` is propagated
@@ -210,14 +225,22 @@ It retains the full existing shutdown assertion and explicitly verifies that a
 failed unsupported startup releases its directory for immediate reuse. Friendly
 name-only resource configuration remains separate from resolved UUID bindings.
 
-Add owner-routed source inspection and stream/subscription listings, then
-operator CLI routing, pagination, diagnostics and bounded metrics. Subscription
+Expose the source inspection and guarded retry SDK through authenticated
+framework operator ingress, and add stream/subscription listings and CLI
+routing. Source diagnostic pagination is implemented; fleet operator routing
+and bounded exported metrics remain. Subscription
 administration, producer sealing and stream retirement are implemented, but
 operator integration and production proof/failure coverage remain part of the
 full goal. Audited whole-source destruction is still absent. It must verify
 terminal retirement of every pending destination and fence the captured source
 incarnation before discarding obligations; never add a sequence-skipping API as
 a substitute for that protocol.
+
+Source operator ingress needs distinct host-minted framework authority carried
+through the existing owner RPC/tunnel path. Intercept it in framework execution;
+an application method name or HTTP header alone must not authorize source
+administration. Retain ordinary ownership, output and discovery gates and add
+durable administrative operation receipts before exposing retry in the CLI.
 
 Exercise the implemented schema and compatibility contracts under real fleet
 faults and previous executables. The logical peer/fleet/native revisions are now
@@ -247,8 +270,9 @@ from a local passing delivery test.
 ## Verification and environment
 
 The checkout is `codex/outbox-design`, based on
-`c35c1b257a5804d367a2aeffe65b8a3ba5c1aa3a`. The implementation is being
-submitted as a draft PR at the user's request. Operator tooling, examples and
+`c35c1b257a5804d367a2aeffe65b8a3ba5c1aa3a`, with main through `6a8e252`
+merged to preserve the Axum/external-ingress and workflow additions. The
+implementation is submitted as draft PR #27 at the user's request. Operator tooling, examples and
 production event failure qualification remain part of the active goal. Do not
 discard the original design or documentation edits.
 

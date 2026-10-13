@@ -38,6 +38,11 @@ impl Storage {
     /// Retry this cell's pending delivery after repairing an unavailable or
     /// revoked destination. Event bytes and identities remain unchanged.
     pub fn retry_outbox(&self) -> Result<()> {
+        let scope = self.scope()?;
+        anyhow::ensure!(
+            crate::storage::facet_opening(scope).is_none(),
+            "facets cannot retry durable source lanes"
+        );
         let present = self.system_sql(
             "SELECT name FROM sqlite_schema WHERE type='table' AND name='__sys_outbox_lanes'",
             &[],
@@ -47,6 +52,13 @@ impl Storage {
         }
         self.ensure_outbox_schema()?;
         self.tx(|tx| {
+            let generations=tx.system_sql("SELECT max(dispatch_generation) AS generation FROM __sys_outbox_lanes AS l WHERE EXISTS(SELECT 1 FROM __sys_outbox WHERE lane=l.lane) OR EXISTS(SELECT 1 FROM __sys_outbox_seals WHERE lane=l.lane AND state!='accepted')",&[])?;
+            if let Some(SqlValue::Integer(generation)) = generations.first().and_then(|row|row.get("generation")) {
+                cellar_logic::event_stream::next_dispatch_generation(*generation).map_err(|_|DeliveryError::new(ErrorCode::OperationLimit,"outbox dispatch generation exhausted"))?;
+            }
+            // Re-arming work invalidates replies from a dispatch that began
+            // before this retry, including the unconditional SDK retry path.
+            tx.system_sql("UPDATE __sys_outbox_lanes AS l SET dispatch_generation=dispatch_generation+1 WHERE EXISTS(SELECT 1 FROM __sys_outbox WHERE lane=l.lane) OR EXISTS(SELECT 1 FROM __sys_outbox_seals WHERE lane=l.lane AND state!='accepted')",&[])?;
             tx.system_sql("UPDATE __sys_outbox_lanes SET status='pending',retry_at_ms=?,attempts=0 WHERE status!='sealed'",
                 &[crate::asyncrt::wall_ms().into()])?;
             let rows=tx.system_sql("SELECT 1 AS pending FROM __sys_outbox LIMIT 1",&[])?;

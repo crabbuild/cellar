@@ -43,6 +43,12 @@ immutable CAS receipt while preserving cell/log/wake objects. Ordinary startup
 never performs that upgrade. Keep the remaining qualification gates explicit
 before release.
 
+Source diagnostics use `Storage::outbox` under the owning activation, with
+bounded metadata pages and source-incarnation continuations. Lane retry requires
+the captured producer revision and advances its dispatch generation to fence
+old replies; the dependency-free core owns that decision. Authenticated fleet
+operator ingress/CLI integration and exported event metrics remain unfinished.
+
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
 supplies listeners, executors, clients, authentication, and any fleet services.

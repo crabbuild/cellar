@@ -6,10 +6,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 mod cursor;
 mod inbox;
 mod outbox;
+mod outbox_inspection;
 mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
 pub use cursor::{KvCursor, SqlCursor, SqlRow};
 pub use inbox::Inbox;
+pub use outbox_inspection::{OutboxLane, OutboxOptions, OutboxPage, OutboxRevision};
 pub(crate) use transaction::Current as TransactionCurrent;
 use transaction::Transaction;
 

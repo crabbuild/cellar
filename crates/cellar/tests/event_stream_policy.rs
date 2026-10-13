@@ -347,3 +347,43 @@ fn event_identity_survives_structured_rpc_above_binary64_integer_precision() -> 
     assert!(serde_json::from_value::<Envelope>(invalid).is_err());
     Ok(())
 }
+
+#[test]
+fn guarded_retry_fences_inflight_completion_and_refuses_stale_revision() {
+    use cellar_logic::event_stream::{retry_producer, ProducerRevision, RetryRefusal};
+    let current = ProducerRevision {
+        generation: 7,
+        next_sequence: 11,
+        settled_through: 8,
+    };
+    assert_eq!(retry_producer(current, current, true), Ok(Some(8)));
+    assert_eq!(retry_producer(current, current, false), Ok(None));
+    for stale in [
+        ProducerRevision {
+            generation: 6,
+            ..current
+        },
+        ProducerRevision {
+            next_sequence: 10,
+            ..current
+        },
+        ProducerRevision {
+            settled_through: 7,
+            ..current
+        },
+    ] {
+        assert_eq!(
+            retry_producer(stale, current, true),
+            Err(RetryRefusal::Stale)
+        );
+    }
+    let exhausted = ProducerRevision {
+        generation: i64::MAX,
+        ..current
+    };
+    assert_eq!(
+        retry_producer(exhausted, exhausted, true),
+        Err(RetryRefusal::Exhausted)
+    );
+    assert_eq!(retry_producer(exhausted, exhausted, false), Ok(None));
+}
