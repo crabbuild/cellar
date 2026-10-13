@@ -33,6 +33,12 @@ the first fetch. Keep required redirect behavior and invocation subrequest
 accounting in Cellar; factories choose DNS, TLS, proxies, credentials and pools.
 Library HTTP defaults ignore ambient proxies. Domain closure drops cached pools
 and prevents their reconstruction.
+Asset loading receives an explicit `AssetCache` with directory, cleanup target,
+file-size policy and optional caller filesystem. Generations, cohosted scripts
+and CLI reloads retain that capability. Asset streams, fallback refreshes and
+maintenance belong to their serving execution domain; closure joins begun
+blocking file work. CLI cache options are captured once under the node data
+folder unless an explicit environment override chooses another directory.
 
 The workspace must remain free of JavaScript engines, including with all
 features enabled. Source JavaScript, Node.js modules, and the former Python/Wasm
@@ -186,6 +192,11 @@ existing identity, default-policy, and explicit environment adapters.
    Domain closure can race a task's current poll. Production actor selectors
    use `try_start`/`try_step` and fallible effect admission; cancellation must
    not become an invariant panic or a fabricated completion event.
+   Reserve tracked work before releasing the task registry lock to dispatch
+   it to an executor. Executor rejection can synchronously destroy work;
+   never dispatch while holding that lock. Rejected async/blocking captures
+   retain their original domain, and a racing close must retain cancellation
+   and join coverage until every reserved task has released its resources.
    Preserve the core's typed fencing reason in `FenceReport` and
    `NodeOutcome::Fenced`. A closed reporting channel is a supervision failure,
    never evidence of an authority loss.

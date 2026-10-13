@@ -52,6 +52,27 @@ subrequest accounting. Lower-level hosts call `HostServices::configure_http`
 before their first fetch. HTTP configuration stays fixed across generations;
 closing the domain releases cached pools and prevents reconstruction.
 
+Build a bucket-backed graph with an explicit `AssetCache`:
+
+```rust
+use cellar::sdk::{AssetCache, AssetCacheOptions, DeploymentGraph};
+
+async fn deployment(bucket: &cellar::bucket::Bucket, node: String,
+    directory: std::path::PathBuf) -> anyhow::Result<DeploymentGraph>
+{
+    let cache = AssetCache::new(AssetCacheOptions::new(directory))?;
+    DeploymentGraph::load(bucket, node, &cache).await
+}
+```
+
+`AssetCache::with_filesystem` accepts a caller-owned `FileSystem`. Its exclusive
+creation operation must be atomic; cache recency updates are best effort. Each
+resolver retains the cache for its generation and fallback indexes. Clone the
+capability to share its download coordination and cleanup target deliberately.
+Choose separate directories to isolate hosts. File reads are bounded to 64 KiB
+chunks and retain the serving host when another runtime polls the body. Closing
+that host rejects later reads and joins file operations already running.
+
 ## Fleet services and startup safety
 
 `NodeFleet` takes ordinary and lease buckets, `ReplicaStorage`,

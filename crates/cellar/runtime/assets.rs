@@ -1,9 +1,9 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-// Asset download and cache maintenance execute outside the Actor execution
-// domain.
-#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+#[path = "assets/cache.rs"]
+mod cache;
+pub use cache::{AssetCache, AssetCacheOptions};
 
 use crate::bucket::Bucket;
 use crate::engine_api::HttpResponse;
@@ -17,16 +17,9 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::Response;
 use futures_util::StreamExt;
 use percent_encoding::percent_decode_str;
-use rand::RngCore;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::sync::Mutex;
-use tokio_util::io::ReaderStream;
-
-const DEFAULT_ASSET_CACHE_BYTES: u64 = 512 * 1024 * 1024;
 
 /// Both application adapters send the same generation-scoped resolver call.
 /// Send at the call boundary, retaining the existing ordering of asset calls.
@@ -122,12 +115,18 @@ struct AssetResolverInner {
     asset_only: bool,
     fallback: Option<FallbackSource>,
     fallback_state: std::sync::Mutex<FallbackState>,
-    cache_root: PathBuf,
-    cache_max_bytes: u64,
-    download_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
-    cleanup_lock: Mutex<()>,
+    cache: AssetCache,
     header_rules: Vec<HeaderRule>,
     redirect_rules: Vec<RedirectRule>,
+}
+
+// Reset admission on cancellation, failed dispatch, and normal completion.
+struct FallbackRefresh(Arc<AssetResolverInner>);
+
+impl Drop for FallbackRefresh {
+    fn drop(&mut self) {
+        self.0.fallback_state.lock().unwrap().refreshing = false;
+    }
 }
 
 enum Route {
@@ -172,12 +171,14 @@ struct RedirectRule {
 }
 
 impl AssetResolver {
+    /// Load a verified index using the caller's captured cache and file policy.
     pub async fn load(
         bucket: &Bucket,
         prefix: &str,
         reference: &AssetManifestRef,
         asset_only: bool,
         fallback: Option<FallbackSource>,
+        cache: &AssetCache,
     ) -> anyhow::Result<Self> {
         if reference.index != "assets.json" {
             return Err(anyhow!("unsupported asset index name: {}", reference.index));
@@ -195,16 +196,9 @@ impl AssetResolver {
             return Err(anyhow!("asset index checksum mismatch"));
         }
         let index: AssetIndex = serde_json::from_slice(&bytes).context("decode asset index")?;
-        validate_index(&index, reference)?;
+        validate_index(&index, reference, cache.options().max_file_bytes)?;
         let header_rules = parse_header_rules(index.config.headers.as_deref().unwrap_or(""))?;
         let redirect_rules = parse_redirect_rules(index.config.redirects.as_deref().unwrap_or(""))?;
-        let cache_root = std::env::var_os("CELLAR_ASSET_CACHE_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("cellar").join("asset-cache"));
-        std::fs::create_dir_all(&cache_root)
-            .with_context(|| format!("create asset cache directory {}", cache_root.display()))?;
-        let cache_max_bytes =
-            crate::env_vars::with_default("CELLAR_ASSET_CACHE_BYTES", DEFAULT_ASSET_CACHE_BYTES)?;
         Ok(Self {
             inner: Arc::new(AssetResolverInner {
                 bucket: bucket.clone(),
@@ -212,10 +206,7 @@ impl AssetResolver {
                 asset_only,
                 fallback,
                 fallback_state: std::sync::Mutex::new(FallbackState::default()),
-                cache_root,
-                cache_max_bytes,
-                download_locks: Mutex::new(HashMap::new()),
-                cleanup_lock: Mutex::new(()),
+                cache: cache.clone(),
                 header_rules,
                 redirect_rules,
             }),
@@ -410,14 +401,12 @@ impl AssetResolver {
                 let body = if head {
                     Body::empty()
                 } else {
-                    let mut file = self.open_asset(&resolved_path, &entry).await?;
-                    if start > 0 {
-                        file.seek(std::io::SeekFrom::Start(start))
-                            .await
-                            .context("seek asset cache file")?;
-                    }
-                    let stream = ReaderStream::new(file.take(content_length))
-                        .map(|result| result.map_err(std::io::Error::other));
+                    let file = self
+                        .inner
+                        .cache
+                        .open(&self.inner.bucket, &resolved_path, &entry)
+                        .await?;
+                    let stream = cache::file_stream(file, start, content_length)?;
                     Body::from_stream(stream)
                 };
                 let mut response = builder.body(body)?;
@@ -553,19 +542,24 @@ impl AssetResolver {
             let mut state = self.inner.fallback_state.lock().unwrap();
             let due = !state.refreshing
                 && state.checked.is_none_or(|at| {
-                    at.elapsed() >= std::time::Duration::from_millis(FALLBACK_CHECK_MS)
+                    crate::asyncrt::instant().saturating_duration_since(at)
+                        >= std::time::Duration::from_millis(FALLBACK_CHECK_MS)
                 });
             if due {
                 state.refreshing = true;
-                state.checked = Some(std::time::Instant::now());
+                state.checked = Some(crate::asyncrt::instant());
             }
             (state.index.clone(), due)
         };
         if refresh_due {
             let resolver = self.clone();
-            crate::asyncrt::op_handle().spawn(async move {
+            let refresh = FallbackRefresh(self.inner.clone());
+            if let Ok(task) = crate::asyncrt::try_spawn(async move {
+                let _refresh = refresh;
                 resolver.refresh_fallback().await;
-            });
+            }) {
+                task.detach();
+            }
         }
         let index = snapshot?;
         match route(&index, path, false) {
@@ -585,7 +579,6 @@ impl AssetResolver {
         let adopted = self.inner.fallback_state.lock().unwrap().prefix.clone();
         let outcome = self.adopt_newer_index(source, adopted.as_deref()).await;
         let mut state = self.inner.fallback_state.lock().unwrap();
-        state.refreshing = false;
         match outcome {
             Ok(Adoption::Newer { prefix, index }) => {
                 state.prefix = Some(prefix);
@@ -649,7 +642,11 @@ impl AssetResolver {
             return Err(anyhow!("fallback asset index checksum mismatch"));
         }
         let index: AssetIndex = serde_json::from_slice(&bytes).context("decode asset index")?;
-        validate_index(&index, &reference)?;
+        validate_index(
+            &index,
+            &reference,
+            self.inner.cache.options().max_file_bytes,
+        )?;
         Ok(Adoption::Newer {
             prefix: pointer.prefix,
             index: Box::new(index),
@@ -680,121 +677,6 @@ impl AssetResolver {
                 .compatibility_date
                 .as_deref()
                 .is_some_and(|date| date >= "2025-04-01")
-    }
-
-    async fn open_asset(
-        &self,
-        resolved_path: &str,
-        entry: &AssetEntry,
-    ) -> anyhow::Result<tokio::fs::File> {
-        let cache_path = cache_path(&self.inner.cache_root, &entry.sha256)?;
-        if let Some(file) = valid_cached_file(&cache_path, entry.bytes).await? {
-            touch_cache_file(cache_path.clone());
-            return Ok(file);
-        }
-
-        let lock = {
-            let mut locks = self.inner.download_locks.lock().await;
-            locks
-                .entry(entry.sha256.clone())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
-        };
-        let _guard = lock.lock().await;
-        if let Some(file) = valid_cached_file(&cache_path, entry.bytes).await? {
-            touch_cache_file(cache_path.clone());
-            return Ok(file);
-        }
-
-        let parent = cache_path
-            .parent()
-            .context("asset cache path has no parent")?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .with_context(|| format!("create asset cache shard {}", parent.display()))?;
-        let mut random = rand::rngs::OsRng;
-        let temporary = parent.join(format!(".{}.{}.tmp", std::process::id(), random.next_u64()));
-        let key = asset_blob_key(&entry.sha256)
-            .ok_or_else(|| anyhow!("invalid asset digest for {resolved_path}"))?;
-        let (body, _) = self
-            .inner
-            .bucket
-            .get(&key)
-            .await
-            .with_context(|| format!("read asset {resolved_path}"))?
-            .with_context(|| {
-                format!(
-                    "asset {resolved_path} missing from {}://{}/{key}",
-                    self.inner.bucket.scheme(),
-                    self.inner.bucket.name
-                )
-            })?;
-        if body.len() as u64 != entry.bytes {
-            return Err(anyhow!("asset {resolved_path} has the wrong bucket size"));
-        }
-        let mut file = tokio::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temporary)
-            .await
-            .with_context(|| format!("create asset cache file {}", temporary.display()))?;
-        let write = async {
-            file.write_all(&body).await?;
-            file.sync_all().await?;
-            anyhow::Ok(())
-        }
-        .await;
-        if let Err(error) = write {
-            drop(file);
-            let _ = tokio::fs::remove_file(&temporary).await;
-            return Err(error);
-        }
-        drop(file);
-        let actual = format!("{:x}", Sha256::digest(&body));
-        if actual != entry.sha256 {
-            let _ = tokio::fs::remove_file(&temporary).await;
-            return Err(anyhow!(
-                "asset {resolved_path} checksum mismatch: expected {}, got {actual}",
-                entry.sha256
-            ));
-        }
-        if valid_cached_file(&cache_path, entry.bytes).await?.is_some() {
-            let _ = tokio::fs::remove_file(&temporary).await;
-        } else {
-            tokio::fs::rename(&temporary, &cache_path)
-                .await
-                .with_context(|| {
-                    format!(
-                        "publish asset cache file {} -> {}",
-                        temporary.display(),
-                        cache_path.display()
-                    )
-                })?;
-        }
-        let file = tokio::fs::File::open(&cache_path)
-            .await
-            .with_context(|| format!("open asset cache file {}", cache_path.display()))?;
-        touch_cache_file(cache_path);
-        let resolver = self.clone();
-        tokio::spawn(async move {
-            if let Err(error) = resolver.cleanup_cache().await {
-                tracing::warn!(
-                    event = "asset_cache_cleanup_failed",
-                    %error,
-                    "could not enforce the local asset cache bound"
-                );
-            }
-        });
-        Ok(file)
-    }
-
-    async fn cleanup_cache(&self) -> anyhow::Result<()> {
-        let _guard = self.inner.cleanup_lock.lock().await;
-        let root = self.inner.cache_root.clone();
-        let limit = self.inner.cache_max_bytes;
-        tokio::task::spawn_blocking(move || cleanup_cache_files(&root, limit))
-            .await
-            .context("join asset cache cleanup")?
     }
 }
 
@@ -1257,100 +1139,11 @@ fn requested_range(headers: &HeaderMap, bytes: u64, etag: &str) -> RequestedRang
     RequestedRange::Partial { start, end }
 }
 
-fn cache_path(root: &Path, sha256: &str) -> anyhow::Result<PathBuf> {
-    asset_blob_key(sha256)
-        .context("invalid asset cache digest")
-        .map(|_| root.join(&sha256[..2]).join(sha256))
-}
-
-async fn valid_cached_file(
-    path: &Path,
-    expected_bytes: u64,
-) -> anyhow::Result<Option<tokio::fs::File>> {
-    match tokio::fs::File::open(path).await {
-        Ok(file) => {
-            let metadata = file
-                .metadata()
-                .await
-                .with_context(|| format!("stat asset cache file {}", path.display()))?;
-            if metadata.len() == expected_bytes {
-                Ok(Some(file))
-            } else {
-                drop(file);
-                let _ = tokio::fs::remove_file(path).await;
-                Ok(None)
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => {
-            Err(error).with_context(|| format!("open asset cache file {}", path.display()))
-        }
-    }
-}
-
-fn touch_cache_file(path: PathBuf) {
-    tokio::task::spawn_blocking(move || {
-        let times = std::fs::FileTimes::new().set_modified(std::time::SystemTime::now());
-        let _ = std::fs::File::options()
-            .write(true)
-            .open(path)
-            .and_then(|file| file.set_times(times));
-    });
-}
-
-fn cleanup_cache_files(root: &Path, limit: u64) -> anyhow::Result<()> {
-    let mut files = Vec::new();
-    let mut total = 0_u64;
-    for shard in
-        std::fs::read_dir(root).with_context(|| format!("scan asset cache {}", root.display()))?
-    {
-        let shard = shard?;
-        if !shard.file_type()?.is_dir() {
-            continue;
-        }
-        for entry in std::fs::read_dir(shard.path())? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let name = name.to_string_lossy();
-            if name.len() != 64
-                || !name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-            {
-                continue;
-            }
-            let metadata = entry.metadata()?;
-            if !metadata.is_file() {
-                continue;
-            }
-            total = total.saturating_add(metadata.len());
-            files.push((
-                metadata.modified().unwrap_or(std::time::UNIX_EPOCH),
-                metadata.len(),
-                entry.path(),
-            ));
-        }
-    }
-    if total <= limit {
-        return Ok(());
-    }
-    files.sort_by_key(|(modified, _, _)| *modified);
-    for (_, bytes, path) in files {
-        if total <= limit {
-            break;
-        }
-        if std::fs::remove_file(&path).is_ok() {
-            total = total.saturating_sub(bytes);
-        }
-    }
-    Ok(())
-}
-
 /// Report the same size-policy mismatch in the builder, managed agent, and serving node.
 pub(crate) fn validate_asset_file_size(path: &str, bytes: u64, limit: u64) -> anyhow::Result<()> {
     if bytes > limit {
         return Err(anyhow!(
-            "asset {path:?} size ({bytes} bytes) exceeds CELLAR_MAX_ASSET_FILE_BYTES ({limit} bytes)"
+            "asset {path:?} size ({bytes} bytes) exceeds the asset file limit ({limit} bytes)"
         ));
     }
     Ok(())
@@ -1365,8 +1158,8 @@ pub(crate) fn validate_directives(config: &crate::protocol::AssetConfig) -> anyh
 pub(crate) fn validate_index(
     index: &AssetIndex,
     reference: &AssetManifestRef,
+    max_file_bytes: u64,
 ) -> anyhow::Result<()> {
-    let max_file_bytes = crate::env_vars::max_asset_file_bytes()?;
     if index.schema_version != 1 {
         return Err(anyhow!(
             "unsupported asset index schema: {}",

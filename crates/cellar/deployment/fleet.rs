@@ -652,8 +652,9 @@ pub const CURRENT_POINTER_KEY: &str = "deploy/current.json";
 pub async fn load_current_worker(
     bucket: &Bucket,
     node: String,
+    cache: &crate::assets::AssetCache,
 ) -> anyhow::Result<LoadedDeployment> {
-    load_worker_from_pointer(bucket, CURRENT_POINTER_KEY, node).await
+    load_worker_from_pointer(bucket, CURRENT_POINTER_KEY, node, cache).await
 }
 
 /// Block until the fleet-wide pointer exists, so a self-hosted node that
@@ -697,8 +698,15 @@ pub async fn load_named_worker(
     bucket: &Bucket,
     script: &str,
     node: String,
+    cache: &crate::assets::AssetCache,
 ) -> anyhow::Result<LoadedDeployment> {
-    load_worker_from_pointer(bucket, &format!("deploy/{script}/current.json"), node).await
+    load_worker_from_pointer(
+        bucket,
+        &format!("deploy/{script}/current.json"),
+        node,
+        cache,
+    )
+    .await
 }
 
 pub async fn load_queue_consumer_attachment(
@@ -721,6 +729,7 @@ pub async fn load_queue_consumer_worker(
     queue: &str,
     consumer: &crate::protocol::QueueConsumerDeployment,
     node: String,
+    cache: &crate::assets::AssetCache,
 ) -> anyhow::Result<LoadedDeployment> {
     let pointer = DeployPointer {
         script_name: Some(consumer.script_name.clone()),
@@ -729,7 +738,7 @@ pub async fn load_queue_consumer_worker(
         rollout: Rollout { percent: 100 },
     };
     let pointer_key = format!("deploy/{}/current.json", consumer.script_name);
-    let loaded = load_worker_at_pointer(bucket, pointer, &pointer_key, node).await?;
+    let loaded = load_worker_at_pointer(bucket, pointer, &pointer_key, node, cache).await?;
     anyhow::ensure!(
         loaded
             .options
@@ -747,10 +756,11 @@ async fn load_worker_from_pointer(
     bucket: &Bucket,
     pointer_key: &str,
     node: String,
+    cache: &crate::assets::AssetCache,
 ) -> anyhow::Result<LoadedDeployment> {
     let pointer: DeployPointer = serde_json::from_str(&get_string(bucket, pointer_key).await?)
         .with_context(|| format!("decode {pointer_key}"))?;
-    load_worker_at_pointer(bucket, pointer, pointer_key, node).await
+    load_worker_at_pointer(bucket, pointer, pointer_key, node, cache).await
 }
 
 async fn load_worker_at_pointer(
@@ -758,6 +768,7 @@ async fn load_worker_at_pointer(
     pointer: DeployPointer,
     pointer_key: &str,
     node: String,
+    cache: &crate::assets::AssetCache,
 ) -> anyhow::Result<LoadedDeployment> {
     let manifest: Manifest = serde_json::from_str(
         &get_string(bucket, &format!("{}/manifest.json", pointer.prefix)).await?,
@@ -921,6 +932,7 @@ async fn load_worker_at_pointer(
                     pointer_key: pointer_key.to_string(),
                     boot_prefix: pointer.prefix.clone(),
                 }),
+                cache,
             )
             .await?,
         ),
