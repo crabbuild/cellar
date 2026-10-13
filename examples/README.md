@@ -9,7 +9,7 @@ The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
 
 The catalog borrows application patterns from the
-[original celld examples](https://github.com/denoland/celld/tree/90b43017241f81189453d326d05948f388b34652/examples).
+[upstream examples](https://github.com/denoland/celld/tree/90b43017241f81189453d326d05948f388b34652/examples).
 These are new Rust implementations. The pinned revision and every project's
 source, route and prerequisites are in [catalog.json](catalog.json).
 Every recipe has a README with purpose, code flow, prerequisites, end-to-end
@@ -63,17 +63,17 @@ its configuration. Ctrl-C requests a graceful stop. `--no-watch` builds once;
 Fleet deployments still need deliberate bucket and resource names; local dev
 isolation is not a deployment tenancy policy.
 
-## celld patterns in native Rust
+## Cellar primitives in native Rust
 
-| Upstream example | Rust recipe | Working behavior and limits |
+| Primitive or pattern | Rust recipe | Working behavior and limits |
 | --- | --- | --- |
 | hello | [hello](hello/README.md) | Stateless HTTP and health response |
 | webapi | [webapi](webapi/README.md) | Owned URLs, headers and SHA-256 |
 | static-assets | [static-assets](static-assets/README.md) | Packaged website and explicit asset binding |
 | counter | [counter](counter/README.md) | Durable named counter and atomic increments |
 | vectordb | [vectordb](vectordb/README.md) | Per-cell sqlite-vec index and nearest-color query |
-| d1 | [sql](sql/README.md) | Native SQL binding, parameterized inserts and guestbook |
-| r2 | [blob](blob/README.md) | Native Blob binding, writes, streamed reads and deletion |
+| SQL | [sql](sql/README.md) | Native SQL binding, parameterized inserts and guestbook |
+| Blob | [blob](blob/README.md) | Native Blob binding, writes, streamed reads and deletion |
 | kv | [kv](kv/README.md) | Bytes, TTL, metadata and bounded listing with cursor |
 | queues | [queues](queues/README.md) | Producer, consumer, retries, DLQ and deduplicated effects |
 | async | [async](async/README.md) | Event-owned timer, background storage and sync |

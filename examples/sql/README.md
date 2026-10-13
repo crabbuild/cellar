@@ -44,8 +44,8 @@ curl -sS -i -X POST -d 'not JSON' http://127.0.0.1:9876/sql
 Both successful responses have `success:true` and `results:[{"id":1,"message":"hello
 Rust"}]`, plus execution metadata under `meta`. Metadata varies. Malformed JSON returns
 HTTP 400. Another valid message gets a new id and appears first. Stop and restart
-without `--clean`, then GET `/sql` to verify the table and messages survive. No D1
-credential is needed for the local native binding.
+without `--clean`, then GET `/sql` to verify the table and messages survive. The
+local SQL binding uses SQLite and requires no external storage credentials.
 
 ## Stop, restart and cleanup
 

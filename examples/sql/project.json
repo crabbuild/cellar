@@ -4,14 +4,14 @@
   "binary": "cellar-native-examples",
   "profile": "dev",
   "primary": {
-    "script_name": "native-d1",
+    "script_name": "native-sql",
     "application_version": "v1",
     "cells": [],
     "bindings": [
       {
         "type": "sql",
         "name": "DB",
-        "database_id": "native-d1-example-guestbook"
+        "database_id": "native-sql-example-guestbook"
       }
     ]
   }
