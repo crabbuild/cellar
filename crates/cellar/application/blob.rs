@@ -15,6 +15,7 @@ pub use store::{Conditional, HttpMeta as HttpMetadata, Range};
 fn js_space(character: char) -> bool {
     matches!(character as u32, 0x9..=0xd | 0x20 | 0xa0 | 0x1680 | 0x2000..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x3000 | 0xfeff)
 }
+
 impl Conditional {
     fn present(&self) -> bool {
         self.etag_matches.is_some()
@@ -22,6 +23,7 @@ impl Conditional {
             || self.uploaded_before.is_some()
             || self.uploaded_after.is_some()
     }
+
     pub fn from_headers(headers: &[(String, String)]) -> Option<Self> {
         let value = |name: &str| {
             headers
@@ -52,6 +54,7 @@ impl Conditional {
         conditional.present().then_some(conditional)
     }
 }
+
 impl Range {
     pub fn from_header(header: &str) -> Result<Self> {
         let body = header
@@ -100,6 +103,7 @@ pub enum Algorithm {
     Sha384,
     Sha512,
 }
+
 impl Algorithm {
     fn name(self) -> &'static str {
         match self {
@@ -111,11 +115,13 @@ impl Algorithm {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub enum Checksum {
     Hex(String),
     Bytes(Vec<u8>),
 }
+
 impl Checksum {
     fn hex(&self) -> String {
         match self {
@@ -124,11 +130,13 @@ impl Checksum {
         }
     }
 }
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum StorageClass {
     Standard,
     InfrequentAccess,
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct WriteOptions {
     pub http_metadata: HttpMetadata,
@@ -137,30 +145,36 @@ pub struct WriteOptions {
     pub only_if: Option<Conditional>,
     pub checksums: BTreeMap<Algorithm, Checksum>,
 }
+
 impl WriteOptions {
     fn conditional(&self) -> Option<&Conditional> {
         self.only_if
             .as_ref()
             .filter(|condition| condition.present())
     }
+
     fn wire(&self) -> serde_json::Value {
         serde_json::json!({
             "http":self.http_metadata, "custom":self.custom_metadata, "storageClass":self.storage_class,
             "onlyIf":self.conditional(), "verify":self.checksums.iter().map(|(algorithm,value)|(algorithm.name(),value.hex())).collect::<BTreeMap<_,_>>(),
         })
     }
+
     fn request(&self) -> Result<store::PutRequest> {
         Ok(serde_json::from_value(self.wire())?)
     }
+
     fn json(&self) -> Result<String> {
         Ok(serde_json::to_string(&self.wire())?)
     }
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct GetOptions {
     pub range: Option<Range>,
     pub only_if: Option<Conditional>,
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct ListOptions {
     pub prefix: String,
@@ -171,11 +185,13 @@ pub struct ListOptions {
     pub include_http_metadata: bool,
     pub include_custom_metadata: bool,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct ObjectRange {
     pub offset: u64,
     pub length: u64,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Object {
     pub key: String,
@@ -190,6 +206,7 @@ pub struct Object {
     pub storage_class: String,
     pub range: Option<ObjectRange>,
 }
+
 impl Object {
     fn from_record(value: serde_json::Value) -> Result<Self> {
         #[derive(Deserialize)]
@@ -229,12 +246,14 @@ impl Object {
             range: record.range,
         })
     }
+
     pub fn checksum(&self, algorithm: Algorithm) -> Option<Vec<u8>> {
         let hex = self.checksums.get(algorithm.name())?;
         (0..hex.len() / 2)
             .map(|index| u8::from_str_radix(hex.get(index * 2..index * 2 + 2)?, 16).ok())
             .collect()
     }
+
     pub fn write_http_metadata(&self, headers: &mut Vec<(String, String)>) {
         let http = &self.http_metadata;
         let mut fields = vec![
@@ -260,20 +279,24 @@ impl Object {
         }
     }
 }
+
 pub enum GetResult {
     Missing,
     Unmet(Object),
     Body(ObjectBody),
 }
+
 pub struct ObjectBody {
     pub object: Object,
     body: Option<HttpChunkStream>,
     used: bool,
 }
+
 impl ObjectBody {
     pub fn body_used(&self) -> bool {
         self.used
     }
+
     pub async fn next(&mut self, context: &Context) -> Result<Option<Vec<u8>>> {
         context.check_turn()?;
         self.used = true;
@@ -287,6 +310,7 @@ impl ObjectBody {
         }
         result
     }
+
     pub async fn bytes(&mut self, context: &Context) -> Result<Vec<u8>> {
         context.check_turn()?;
         ensure!(!self.used, "Blob body was already consumed");
@@ -296,6 +320,7 @@ impl ObjectBody {
         }
         Ok(bytes)
     }
+
     pub async fn text(&mut self, context: &Context) -> Result<String> {
         let bytes = self.bytes(context).await?;
         let mut decoder = cellar_native::encoding::TextDecoder::new(
@@ -304,18 +329,21 @@ impl ObjectBody {
         )?;
         Ok(decoder.decode(&bytes, false)?)
     }
+
     pub async fn json(
         &mut self,
         context: &Context,
     ) -> Result<cellar_native::clone::StructuredValue> {
         cellar_native::json::parse_utf8(&self.text(context).await?)
     }
+
     pub fn cancel(&mut self, context: &Context) -> Result<()> {
         context.check_turn()?;
         self.used = true;
         self.body = None;
         Ok(())
     }
+
     pub fn into_response(
         mut self,
         context: &Context,
@@ -336,6 +364,7 @@ impl ObjectBody {
         })
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct Page {
     pub objects: Vec<Object>,
@@ -343,11 +372,13 @@ pub struct Page {
     pub cursor: Option<String>,
     pub delimited_prefixes: Vec<String>,
 }
+
 #[derive(Clone, Debug)]
 pub struct Bucket {
     binding: Arc<str>,
     name: Arc<str>,
 }
+
 impl Bucket {
     pub(crate) fn new(binding: &str, name: &str) -> Self {
         Self {
@@ -355,9 +386,11 @@ impl Bucket {
             name: name.into(),
         }
     }
+
     pub fn name(&self) -> &str {
         &self.name
     }
+
     fn key(&self, method: &str, key: &str) -> Result<()> {
         ensure!(
             !key.is_empty() && key.len() <= 1024,
@@ -367,6 +400,7 @@ impl Bucket {
         );
         Ok(())
     }
+
     pub async fn head(&self, context: &Context, key: &str) -> Result<Option<Object>> {
         context.check_turn()?;
         self.key("head", key)?;
@@ -376,6 +410,7 @@ impl Bucket {
             .map(|meta| Object::from_record(store::object_json(key, &meta, None)))
             .transpose()
     }
+
     pub async fn get(
         &self,
         context: &Context,
@@ -410,6 +445,7 @@ impl Bucket {
             },
         )
     }
+
     pub async fn put(
         &self,
         context: &Context,
@@ -427,6 +463,7 @@ impl Bucket {
                 .map_err(anyhow::Error::msg)?,
         )
     }
+
     pub async fn put_stream<S>(
         &self,
         context: &Context,
@@ -460,6 +497,7 @@ impl Bucket {
         cleanup.0 = None;
         stored(result)
     }
+
     pub async fn delete(&self, context: &Context, keys: &[String]) -> Result<()> {
         context.check_turn()?;
         ensure!(keys.len() <= 1000, "Blob delete accepts at most 1000 keys");
@@ -471,12 +509,14 @@ impl Bucket {
             .await
             .map_err(anyhow::Error::msg)
     }
+
     pub async fn list(&self, context: &Context, options: ListOptions) -> Result<Page> {
         context.check_turn()?;
         let request = serde_json::to_string(
             &serde_json::json!({"prefix":options.prefix,"cursor":options.cursor,"startAfter":options.start_after,
             "limit":options.limit,"delimiter":options.delimiter,"include":options.include_http_metadata||options.include_custom_metadata}),
         )?;
+
         #[derive(Deserialize)]
         struct Listing {
             objects: Vec<serde_json::Value>,
@@ -512,6 +552,7 @@ impl Bucket {
             delimited_prefixes: listing.prefixes,
         })
     }
+
     pub async fn create_multipart(
         &self,
         context: &Context,
@@ -537,6 +578,7 @@ impl Bucket {
         let _ = handle.host.set(Ok(id.parse::<u64>()?));
         Ok(handle)
     }
+
     pub fn resume_multipart(&self, key: &str, id: &str) -> Result<Multipart> {
         self.key("resumeMultipartUpload", key)?;
         Ok(Multipart {
@@ -547,6 +589,7 @@ impl Bucket {
         })
     }
 }
+
 fn stored(result: String) -> Result<Option<Object>> {
     let result: serde_json::Value = serde_json::from_str(&result)?;
     if result["stored"] == true {
@@ -555,7 +598,9 @@ fn stored(result: String) -> Result<Option<Object>> {
         Ok(None)
     }
 }
+
 struct StreamCleanup(Option<u64>);
+
 impl Drop for StreamCleanup {
     fn drop(&mut self) {
         if let Some(id) = self.0.take() {
@@ -565,11 +610,13 @@ impl Drop for StreamCleanup {
         }
     }
 }
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct UploadedPart {
     pub part_number: u32,
     pub etag: String,
 }
+
 #[derive(Clone)]
 pub struct Multipart {
     bucket: Bucket,
@@ -577,13 +624,16 @@ pub struct Multipart {
     id: Arc<str>,
     host: Arc<tokio::sync::OnceCell<std::result::Result<u64, String>>>,
 }
+
 impl Multipart {
     pub fn key(&self) -> &str {
         &self.key
     }
+
     pub fn upload_id(&self) -> &str {
         &self.id
     }
+
     async fn id(&self, context: &Context) -> Result<u64> {
         context.check_turn()?;
         self.host
@@ -601,6 +651,7 @@ impl Multipart {
             .clone()
             .map_err(anyhow::Error::msg)
     }
+
     pub async fn upload_part(
         &self,
         context: &Context,
@@ -617,6 +668,7 @@ impl Multipart {
             etag: String::new(),
         })
     }
+
     pub async fn complete(&self, context: &Context, parts: &[UploadedPart]) -> Result<Object> {
         let id = self.id(context).await?;
         crate::native_worker::blob_gate(context).await?;
@@ -625,6 +677,7 @@ impl Multipart {
             .map_err(anyhow::Error::msg)?;
         Object::from_record(serde_json::from_str(&result)?)
     }
+
     pub async fn abort(&self, context: &Context) -> Result<()> {
         let id = self.id(context).await?;
         if multipart::is_open(id) {

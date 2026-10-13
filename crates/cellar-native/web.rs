@@ -34,37 +34,45 @@ pub struct Error {
     name: &'static str,
     message: Vec<u16>,
 }
+
 impl Error {
     pub fn name(&self) -> &'static str {
         self.name
     }
+
     pub fn message_utf16(&self) -> &[u16] {
         &self.message
     }
+
     pub(crate) fn type_error(message: impl AsRef<str>) -> Self {
         Self::type_error_utf16(message.as_ref().encode_utf16().collect())
     }
+
     pub(crate) fn type_error_utf16(message: Vec<u16>) -> Self {
         Self {
             name: "TypeError",
             message,
         }
     }
+
     pub(crate) fn uri_error() -> Self {
         Self {
             name: "URIError",
             message: "URI malformed".encode_utf16().collect(),
         }
     }
+
     pub(crate) fn generic_error(message: impl AsRef<str>) -> Self {
         Self::generic_error_utf16(message.as_ref().encode_utf16().collect())
     }
+
     pub(crate) fn generic_error_utf16(message: Vec<u16>) -> Self {
         Self {
             name: "Error",
             message,
         }
     }
+
     pub(crate) fn range_error(message: impl AsRef<str>) -> Self {
         Self {
             name: "RangeError",
@@ -72,9 +80,11 @@ impl Error {
         }
     }
 }
+
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&String::from_utf16_lossy(&self.message))
     }
 }
+
 impl std::error::Error for Error {}

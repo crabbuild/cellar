@@ -240,6 +240,7 @@ pub struct Port {
     owner: Container,
     port: u16,
 }
+
 impl Port {
     fn address(&self, context: &Context) -> Result<String> {
         self.owner.check(context)?;
@@ -248,6 +249,7 @@ impl Port {
             .address(self.port)
             .map_err(anyhow::Error::msg)
     }
+
     fn url(&self, context: &Context, original: &str) -> Result<String> {
         let mut url = url::Url::parse(original)?;
         anyhow::ensure!(
@@ -262,6 +264,7 @@ impl Port {
             .map_err(|_| anyhow!("invalid container port"))?;
         Ok(url.into())
     }
+
     pub fn connect(
         &self,
         context: &Context,
@@ -269,6 +272,7 @@ impl Port {
     ) -> Result<sockets::Socket> {
         context.connect_direct(self.address(context)?.try_into()?, options)
     }
+
     /// Wait until the port accepts a connection, with a bounded readiness wait.
     pub fn wait_ready(&self, context: &Context, timeout: Duration) -> HandlerFuture<()> {
         if let Err(error) = self.owner.check(context) {
@@ -292,6 +296,7 @@ impl Port {
             .await?
         })
     }
+
     /// Redirects are returned to the caller so a port capability cannot follow
     /// a redirect to an unrelated destination. Bodies retain event ownership.
     pub fn fetch(
@@ -334,6 +339,7 @@ impl Port {
             head.into_http().map_err(anyhow::Error::msg)
         })
     }
+
     pub fn upgrade_websocket(
         &self,
         context: &Context,
@@ -354,6 +360,7 @@ pub struct Exec {
     run: u64,
     process: Arc<host::ExecProcess>,
 }
+
 impl Drop for Exec {
     fn drop(&mut self) {
         self.owner.cell.forget_process(self.process.id);
@@ -366,6 +373,7 @@ pub struct ExecOutput {
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
+
 impl Exec {
     fn check(&self, context: &Context) -> Result<()> {
         self.owner.check(context)?;
@@ -375,18 +383,22 @@ impl Exec {
         );
         Ok(())
     }
+
     pub async fn read_stdout(&self, context: &Context) -> Result<Vec<u8>> {
         self.read(context, 1).await
     }
+
     pub async fn read_stderr(&self, context: &Context) -> Result<Vec<u8>> {
         self.read(context, 2).await
     }
+
     async fn read(&self, context: &Context, channel: u8) -> Result<Vec<u8>> {
         self.check(context)?;
         let bytes = self.process.read(channel).await;
         self.check(context)?;
         Ok(bytes.to_vec())
     }
+
     pub async fn write(&self, context: &Context, bytes: impl AsRef<[u8]>) -> Result<()> {
         self.check(context)?;
         let process = self.process.clone();
@@ -402,6 +414,7 @@ impl Exec {
             })
             .await
     }
+
     pub async fn close_stdin(&self, context: &Context) -> Result<()> {
         self.check(context)?;
         let process = self.process.clone();
@@ -417,12 +430,14 @@ impl Exec {
             })
             .await
     }
+
     pub async fn wait(&self, context: &Context) -> Result<i64> {
         self.check(context)?;
         let code = self.process.wait().await?;
         self.check(context)?;
         Ok(code)
     }
+
     pub async fn kill(&self, context: &Context, signal: u32) -> Result<()> {
         self.check(context)?;
         let process = self.process.clone();
@@ -438,6 +453,7 @@ impl Exec {
             })
             .await
     }
+
     /// Drain stdout and stderr concurrently with a combined byte limit.
     pub async fn output(self, context: &Context, max_bytes: usize) -> Result<ExecOutput> {
         use std::sync::atomic::{AtomicUsize, Ordering};

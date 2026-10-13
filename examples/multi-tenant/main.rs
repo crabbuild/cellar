@@ -38,7 +38,9 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
             .await?,
     ))
 }
+
 pub struct Account;
+
 impl Cell for Account {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -50,7 +52,7 @@ impl Cell for Account {
             if request.method == "GET" {
                 return support::json(
                     &context,
-                    json!({"balance":storage.get_json("balance")?.unwrap_or(json!(0))}),
+                    json!({ "balance": storage.get_json("balance")?.unwrap_or(json!(0)) }),
                 );
             }
             let value = support::payload(&context, request).await?;
@@ -81,7 +83,11 @@ impl Cell for Account {
                 if balance < 0 {
                     return Err(support::reject(409, "insufficient balance"));
                 }
-                let receipt = json!({"id":operation,"delta":delta,"balance":balance});
+                let receipt = json!({
+                    "id": operation,
+                    "delta": delta,
+                    "balance": balance,
+                });
                 tx.put_json("balance", &json!(balance))?;
                 tx.put_json(&receipt_key, &receipt)?;
                 Ok(receipt)

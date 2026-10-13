@@ -24,8 +24,10 @@ jobs:
       - uses: actions/checkout@v6
       - name: Install Rust
         run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
           rustup default "$RUST_VERSION"
+      - name: Check Rust formatting
+        run: cargo format --check
       - name: Verify the workspace has no JavaScript engine
         run: python3 tools/check_native_dependencies.py
       - name: Verify documentation integrity

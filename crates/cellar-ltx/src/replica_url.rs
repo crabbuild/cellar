@@ -360,24 +360,31 @@ pub fn is_tigris_endpoint(endpoint: &str) -> bool {
     let host = extract_endpoint_host(endpoint);
     host == "fly.storage.tigris.dev" || host == "t3.storage.dev"
 }
+
 pub fn is_hetzner_endpoint(endpoint: &str) -> bool {
     host_has_suffix(endpoint, ".your-objectstorage.com")
 }
+
 pub fn is_digitalocean_endpoint(endpoint: &str) -> bool {
     host_has_suffix(endpoint, ".digitaloceanspaces.com")
 }
+
 pub fn is_backblaze_endpoint(endpoint: &str) -> bool {
     host_has_suffix(endpoint, ".backblazeb2.com")
 }
+
 pub fn is_filebase_endpoint(endpoint: &str) -> bool {
     extract_endpoint_host(endpoint) == "s3.filebase.com"
 }
+
 pub fn is_scaleway_endpoint(endpoint: &str) -> bool {
     host_has_suffix(endpoint, ".scw.cloud")
 }
+
 pub fn is_cloudflare_blob_endpoint(endpoint: &str) -> bool {
     host_has_suffix(endpoint, ".r2.cloudflarestorage.com")
 }
+
 pub fn is_supabase_endpoint(endpoint: &str) -> bool {
     host_has_suffix(endpoint, ".supabase.co")
 }
@@ -389,6 +396,7 @@ pub fn is_minio_endpoint(endpoint: &str) -> bool {
     if host.is_empty() || !host.contains(':') {
         return false;
     }
+
     const KNOWN: [&str; 9] = [
         ".amazonaws.com",
         ".digitaloceanspaces.com",

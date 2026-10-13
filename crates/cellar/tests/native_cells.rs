@@ -17,8 +17,10 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{mpsc, Notify};
+
 const SCRIPT: &str = "native-cells";
 const ALPHA: &str = "customer:α";
+
 fn request(path: &str) -> Request {
     Request {
         url: format!("http://entity/{path}"),
@@ -28,6 +30,7 @@ fn request(path: &str) -> Request {
         entrypoint: None,
     }
 }
+
 fn output(text: &str) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -39,6 +42,7 @@ fn output(text: &str) -> Output {
         observed_position: None,
     })
 }
+
 fn graph() -> StructuredValue {
     StructuredValue {
         root: Value::Reference(0),
@@ -60,6 +64,7 @@ fn graph() -> StructuredValue {
         ],
     }
 }
+
 #[derive(Default)]
 struct Signals {
     stub: Mutex<Option<Stub>>,
@@ -74,11 +79,14 @@ struct Signals {
     background_resume: Notify,
     background_done: Notify,
 }
+
 struct Pending(Arc<Signals>);
+
 struct ReplyWake {
     runtime: Arc<RuntimeManager>,
     invoked: AtomicBool,
 }
+
 impl futures_util::task::ArcWake for ReplyWake {
     fn wake_by_ref(wake: &Arc<Self>) {
         let (_, guard) = wake
@@ -88,13 +96,16 @@ impl futures_util::task::ArcWake for ReplyWake {
         wake.invoked.store(true, Ordering::SeqCst);
     }
 }
+
 impl Drop for Pending {
     fn drop(&mut self) {
         self.0.pending_drops.fetch_add(1, Ordering::SeqCst);
         self.0.dropped.notify_one();
     }
 }
+
 struct Account(Arc<Signals>);
+
 impl Cell for Account {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -201,12 +212,15 @@ impl Cell for Account {
         })
     }
 }
+
 struct Coordinator(Arc<Signals>);
+
 impl Coordinator {
     fn stub(&self) -> Stub {
         self.0.stub.lock().unwrap().clone().unwrap()
     }
 }
+
 impl Cell for Coordinator {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -483,6 +497,7 @@ impl Cell for Coordinator {
         })
     }
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -501,6 +516,7 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
         )
         .await
 }
+
 async fn own(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -518,6 +534,7 @@ async fn own(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.publish_cell(scope, 1)?;
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_business_namespaces_identity_streams_rpc_gates_retirement_and_cancellation(
 ) -> Result<()> {
@@ -525,6 +542,7 @@ async fn native_business_namespaces_identity_streams_rpc_gates_retirement_and_ca
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let coordinator = signals.clone();

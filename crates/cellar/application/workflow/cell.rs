@@ -6,12 +6,15 @@ use crate::engine_api::RpcData;
 use std::sync::Mutex;
 
 pub(super) const META: &str = "__wf.meta";
+
 pub(super) fn now() -> i64 {
     crate::ownership_store::now_ms() as i64
 }
+
 pub(super) fn data(value: serde_json::Value) -> Result<StructuredValue> {
     StructuredValue::from_json(value)
 }
+
 pub(super) fn text(value: &StructuredValue, key: &str) -> Result<String> {
     match property(value, key)?.map(|value| value.root) {
         Some(CloneValue::String(value)) => {
@@ -20,12 +23,14 @@ pub(super) fn text(value: &StructuredValue, key: &str) -> Result<String> {
         _ => Err(error(format!("missing {key}"))),
     }
 }
+
 pub(super) fn number(value: &StructuredValue, key: &str) -> Result<f64> {
     match property(value, key)?.map(|value| value.root) {
         Some(CloneValue::Number(value)) => Ok(value),
         _ => Err(error(format!("invalid {key}"))),
     }
 }
+
 pub(super) fn put_field(
     value: &mut StructuredValue,
     key: &str,
@@ -33,6 +38,7 @@ pub(super) fn put_field(
 ) -> Result<()> {
     set(value, key, &data(field)?)
 }
+
 pub(super) fn put_number(value: &mut StructuredValue, key: &str, number: f64) -> Result<()> {
     set(
         value,
@@ -43,13 +49,16 @@ pub(super) fn put_number(value: &mut StructuredValue, key: &str, number: f64) ->
         },
     )
 }
+
 pub(super) fn remove(value: &mut StructuredValue, key: &str) -> Result<()> {
     value.remove_property(&key.encode_utf16().collect::<Vec<_>>())?;
     Ok(())
 }
+
 pub(super) fn read(storage: &Storage, key: &str) -> Result<Option<StructuredValue>> {
     Ok(storage.get_clone(key)?.map(|value| value.value))
 }
+
 pub(super) fn list(storage: &Storage, prefix: &str) -> Result<Vec<(String, StructuredValue)>> {
     Ok(storage
         .list_clone(&ListOptions {
@@ -60,24 +69,29 @@ pub(super) fn list(storage: &Storage, prefix: &str) -> Result<Vec<(String, Struc
         .map(|(key, value)| (key, value.value))
         .collect())
 }
+
 pub(super) fn required(storage: &Storage) -> Result<StructuredValue> {
     read(storage, META)?.ok_or_else(|| error("instance does not exist"))
 }
+
 pub(super) fn terminal(meta: &StructuredValue) -> Result<bool> {
     Ok(matches!(
         text(meta, "status")?.as_str(),
         "complete" | "errored" | "terminated"
     ))
 }
+
 pub(super) fn prefix(generation: &str) -> String {
     format!("__wf.{generation}.")
 }
+
 fn clear(storage: &Storage) -> Result<()> {
     for (key, _) in list(storage, "__wf.")? {
         storage.delete(&key)?;
     }
     storage.delete_alarm()
 }
+
 pub(super) fn finish_retention(meta: &mut StructuredValue, storage: &Storage) -> Result<()> {
     let retention = property(meta, "retention")?;
     let field = if text(meta, "status")? == "complete" {
@@ -96,6 +110,7 @@ pub(super) fn finish_retention(meta: &mut StructuredValue, storage: &Storage) ->
     put_number(meta, "expiresMs", expires)?;
     storage.set_alarm(expires as i64)
 }
+
 fn expire(storage: &Storage, meta: &mut StructuredValue) -> Result<bool> {
     if !terminal(meta)? {
         return Ok(false);
@@ -110,6 +125,7 @@ fn expire(storage: &Storage, meta: &mut StructuredValue) -> Result<bool> {
     clear(storage)?;
     Ok(true)
 }
+
 pub(super) fn settle(
     storage: &Storage,
     generation: &str,
@@ -134,12 +150,14 @@ pub(super) struct InstanceCell {
     pub(super) classes: HashMap<String, String>,
     pub(super) drive: Mutex<DriveState>,
 }
+
 #[derive(Default)]
 pub(super) struct DriveState {
     pub(super) active: bool,
     pub(super) nudge: Option<i64>,
     pub(super) waiters: Vec<tokio::sync::oneshot::Sender<()>>,
 }
+
 pub(crate) fn create_cell(
     context: &Context,
     application: Arc<dyn Application>,
@@ -152,6 +170,7 @@ pub(crate) fn create_cell(
         drive: Mutex::new(DriveState::default()),
     }))
 }
+
 impl InstanceCell {
     fn control(
         &self,
@@ -413,6 +432,7 @@ impl InstanceCell {
             _ => Err(error(format!("unknown instance method {method}"))),
         }
     }
+
     pub(super) fn prepare_alarm(&self) -> Result<Option<StructuredValue>> {
         let Some(mut meta) = read(&self.storage, META)? else {
             self.storage.delete_alarm()?;
@@ -448,6 +468,7 @@ impl InstanceCell {
         }
     }
 }
+
 impl Cell for InstanceCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {

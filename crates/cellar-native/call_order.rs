@@ -16,8 +16,10 @@ struct PlaceState {
     waiters: BTreeMap<u64, Waker>,
     next: u64,
 }
+
 #[derive(Default)]
 struct Place(Mutex<PlaceState>);
+
 impl Place {
     fn finish(&self, forward: Option<Arc<Self>>) {
         let wake = {
@@ -32,6 +34,7 @@ impl Place {
         }
     }
 }
+
 impl Drop for Place {
     fn drop(&mut self) {
         // Long runs of abandoned calls form a chain of completed forwards.
@@ -47,21 +50,26 @@ impl Drop for Place {
         }
     }
 }
+
 #[derive(Clone, Default)]
 pub struct CallChains(Arc<Mutex<HashMap<String, Chain>>>);
+
 struct Chain {
     tail: Arc<Place>,
     live: usize,
 }
+
 impl CallChains {
     pub fn enter(&self, cell: &str) -> CallOrder {
         self.enter_inner(cell, None)
     }
+
     /// Keep the originating host event alive exactly as long as its order
     /// token. The primitive need not know the event's runtime or engine type.
     pub fn enter_with_owner(&self, cell: &str, owner: Arc<dyn Any + Send + Sync>) -> CallOrder {
         self.enter_inner(cell, Some(owner))
     }
+
     fn enter_inner(&self, cell: &str, owner: Option<Arc<dyn Any + Send + Sync>>) -> CallOrder {
         let release = Arc::new(Place::default());
         let ahead = {
@@ -95,10 +103,12 @@ impl CallChains {
             _owner: owner,
         }
     }
+
     pub fn pending_cells(&self) -> usize {
         self.0.lock().unwrap().len()
     }
 }
+
 pub struct CallOrder {
     chains: CallChains,
     cell: String,
@@ -107,6 +117,7 @@ pub struct CallOrder {
     delivered: bool,
     _owner: Option<Arc<dyn Any + Send + Sync>>,
 }
+
 impl CallOrder {
     pub fn wait(&mut self) -> CallWait<'_> {
         CallWait {
@@ -114,10 +125,12 @@ impl CallOrder {
             registration: None,
         }
     }
+
     pub fn delivered(&mut self) {
         self.delivered = true;
     }
 }
+
 impl Drop for CallOrder {
     fn drop(&mut self) {
         let Some(release) = self.release.take() else {
@@ -146,10 +159,12 @@ impl Drop for CallOrder {
         release.finish(forward);
     }
 }
+
 pub struct CallWait<'a> {
     order: &'a mut CallOrder,
     registration: Option<(Arc<Place>, u64)>,
 }
+
 impl CallWait<'_> {
     fn unregister(&mut self) {
         if let Some((place, id)) = self.registration.take() {
@@ -158,8 +173,10 @@ impl CallWait<'_> {
         }
     }
 }
+
 impl Future for CallWait<'_> {
     type Output = ();
+
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
         let this = self.get_mut();
         // Completed forwarding chains can be long. Yield bounded work while
@@ -202,6 +219,7 @@ impl Future for CallWait<'_> {
         Poll::Pending
     }
 }
+
 impl Drop for CallWait<'_> {
     fn drop(&mut self) {
         self.unregister();

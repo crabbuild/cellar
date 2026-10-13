@@ -37,6 +37,7 @@ pub struct SocketAddress {
     pub hostname: String,
     pub port: u16,
 }
+
 impl SocketAddress {
     pub fn new(hostname: impl Into<String>, port: u16) -> Result<Self> {
         let address = Self {
@@ -46,6 +47,7 @@ impl SocketAddress {
         address.validate()?;
         Ok(address)
     }
+
     fn validate(&self) -> Result<()> {
         anyhow::ensure!(
             !self.hostname.is_empty(),
@@ -54,6 +56,7 @@ impl SocketAddress {
         validate_joined(&format!("{}:{}", self.hostname, self.port))
     }
 }
+
 fn validate_joined(address: &str) -> Result<()> {
     anyhow::ensure!(
         !address.is_empty()
@@ -65,8 +68,10 @@ fn validate_joined(address: &str) -> Result<()> {
     );
     Ok(())
 }
+
 impl TryFrom<&str> for SocketAddress {
     type Error = anyhow::Error;
+
     fn try_from(address: &str) -> Result<Self> {
         let parsed = url::Url::parse(&format!("fake://{address}"))
             .map_err(|_| anyhow!("Specified address could not be parsed."))?;
@@ -84,12 +89,15 @@ impl TryFrom<&str> for SocketAddress {
         })
     }
 }
+
 impl TryFrom<String> for SocketAddress {
     type Error = anyhow::Error;
+
     fn try_from(address: String) -> Result<Self> {
         Self::try_from(address.as_str())
     }
 }
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SecureTransport {
     #[default]
@@ -97,16 +105,19 @@ pub enum SecureTransport {
     On,
     StartTls,
 }
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct SocketOptions {
     pub secure_transport: SecureTransport,
     pub allow_half_open: bool,
 }
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SocketInfo {
     pub remote_address: Option<String>,
     pub local_address: Option<String>,
 }
+
 type Opening = Shared<BoxFuture<'static, std::result::Result<host::SocketInfo, String>>>;
 
 #[derive(Default)]
@@ -120,6 +131,7 @@ struct Flags {
     read_error: Option<String>,
     write_error: Option<String>,
 }
+
 struct State {
     service: Arc<host::TcpService>,
     id: u64,
@@ -134,6 +146,7 @@ struct State {
     read_tail: Mutex<Option<Shared<BoxFuture<'static, ()>>>>,
     write_tail: Mutex<Option<Shared<BoxFuture<'static, ()>>>>,
 }
+
 impl State {
     fn end_read(&self, error: Option<String>) {
         {
@@ -145,6 +158,7 @@ impl State {
         }
         self.read_end.cancel();
     }
+
     fn check(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
         anyhow::ensure!(
@@ -156,31 +170,38 @@ impl State {
         Ok(())
     }
 }
+
 impl Drop for State {
     fn drop(&mut self) {
         host::free_in(&self.service, self.id);
     }
 }
+
 #[derive(Clone)]
 pub struct Socket {
     state: Arc<State>,
     pub readable: Readable,
     pub writable: Writable,
 }
+
 #[derive(Clone)]
 pub struct Readable(Arc<State>);
+
 #[derive(Clone)]
 pub struct Writable(Arc<State>);
+
 struct ReadLease {
     state: Weak<State>,
     released: CancellationToken,
     released_once: AtomicBool,
 }
+
 impl Drop for ReadLease {
     fn drop(&mut self) {
         self.release();
     }
 }
+
 impl ReadLease {
     fn release(&self) {
         if self.released_once.swap(true, Ordering::AcqRel) {
@@ -192,25 +213,31 @@ impl ReadLease {
         self.released.cancel();
     }
 }
+
 pub struct Reader {
     state: Arc<State>,
     lease: Arc<ReadLease>,
 }
+
 impl Drop for Reader {
     fn drop(&mut self) {
         self.lease.release();
     }
 }
+
 pub struct Writer {
     state: Arc<State>,
     released: AtomicBool,
 }
+
 impl Drop for Writer {
     fn drop(&mut self) {
         self.release_lock();
     }
 }
+
 struct Done(Option<oneshot::Sender<()>>);
+
 impl Drop for Done {
     fn drop(&mut self) {
         if let Some(done) = self.0.take() {
@@ -222,6 +249,7 @@ impl Drop for Done {
 fn ready<T: Send + 'static>(error: anyhow::Error) -> HandlerFuture<T> {
     Box::pin(async move { Err(error) })
 }
+
 /// Operations are driven by the original event without retaining residency.
 /// The answer retains its handle, and abandoning the event drops pending I/O.
 fn schedule<T: Send + 'static>(
@@ -250,6 +278,7 @@ fn schedule<T: Send + 'static>(
         result
     })
 }
+
 fn socket(
     context: &Context,
     id: u64,
@@ -298,6 +327,7 @@ fn socket(
         state,
     }
 }
+
 impl Context {
     /// Open an event-owned socket through the configured outbound authority.
     /// The opening begins without an explicit `opened` wait; no reads run ahead
@@ -351,10 +381,12 @@ impl Context {
         Ok(socket(self, id, address, options, lifetime, opening))
     }
 }
+
 impl Socket {
     pub fn secure_transport(&self) -> SecureTransport {
         self.state.options.secure_transport
     }
+
     /// Observe the opening result without borrowing transport authority.
     /// The result remains available after the original event retires.
     pub fn opened(&self) -> HandlerFuture<SocketInfo> {
@@ -367,11 +399,13 @@ impl Socket {
             })
         })
     }
+
     /// A completion value, with no transport authority or event retention.
     pub fn closed(&self) -> HandlerFuture<()> {
         let lifetime = self.state.lifetime.clone();
         Box::pin(async move { lifetime.closed().await.map_err(anyhow::Error::msg) })
     }
+
     pub fn close(&self, context: &Context) -> HandlerFuture<()> {
         if let Err(error) = self.state.check(context) {
             return ready(error);
@@ -385,6 +419,7 @@ impl Socket {
             result.map_err(anyhow::Error::msg)
         })
     }
+
     /// Consume plaintext access once. The upgraded socket is a new handle;
     /// queued/pending plaintext operations are interrupted by the shared host.
     pub fn start_tls(
@@ -439,6 +474,7 @@ impl Socket {
         ))
     }
 }
+
 impl Readable {
     pub fn get_reader(&self) -> Result<Reader> {
         let mut flags = self.0.flags.lock().unwrap();
@@ -454,15 +490,18 @@ impl Readable {
         })
     }
 }
+
 impl Reader {
     pub fn release_lock(&self) {
         self.lease.release();
     }
+
     /// Accept an ordered read of at most 16 KiB. Empty bytes indicate EOF.
     /// Multiple reads may be queued and their answers awaited in any order.
     pub fn read(&self, context: &Context) -> HandlerFuture<Vec<u8>> {
         self.read_limit(context, 16 * 1024)
     }
+
     fn read_limit(&self, context: &Context, limit: usize) -> HandlerFuture<Vec<u8>> {
         let prepared = (|| -> Result<_> {
             self.state.check(context)?;
@@ -546,12 +585,14 @@ impl Reader {
             }
         })
     }
+
     /// Copy at most 16 KiB into caller storage; an empty buffer does not signal EOF.
     pub async fn read_into(&self, context: &Context, buffer: &mut [u8]) -> Result<usize> {
         let bytes = self.read_limit(context, buffer.len()).await?;
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
     }
+
     pub fn closed(&self) -> HandlerFuture<()> {
         let state = self.state.clone();
         let lease = self.lease.clone();
@@ -567,6 +608,7 @@ impl Reader {
         })
     }
 }
+
 impl Writable {
     pub fn get_writer(&self) -> Result<Writer> {
         let mut flags = self.0.flags.lock().unwrap();
@@ -578,12 +620,14 @@ impl Writable {
         })
     }
 }
+
 impl Writer {
     pub fn release_lock(&self) {
         if !self.released.swap(true, Ordering::AcqRel) {
             self.state.flags.lock().unwrap().writer = false;
         }
     }
+
     fn enqueue(&self, context: &Context, bytes: Option<Vec<u8>>) -> HandlerFuture<()> {
         let prepared = (|| -> Result<_> {
             self.state.check(context)?;
@@ -655,14 +699,17 @@ impl Writer {
             result
         })
     }
+
     /// Writes are accepted and ordered at call time, even when their answers
     /// are awaited in a different order or a writer lock is released.
     pub fn write(&self, context: &Context, bytes: impl Into<Vec<u8>>) -> HandlerFuture<()> {
         self.enqueue(context, Some(bytes.into()))
     }
+
     pub fn close(&self, context: &Context) -> HandlerFuture<()> {
         self.enqueue(context, None)
     }
+
     pub fn closed(&self) -> HandlerFuture<()> {
         let state = self.state.clone();
         Box::pin(async move {

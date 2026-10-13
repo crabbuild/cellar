@@ -317,6 +317,7 @@ pub struct RpcReplyGuard {
     request_id: crate::engine_api::RequestId,
     owner: Arc<()>,
 }
+
 impl Drop for RpcReplyGuard {
     fn drop(&mut self) {
         let removed = {
@@ -685,6 +686,7 @@ pub struct RuntimeManager {
 /// The engine-neutral half, so a method of either reads as the manager's own.
 impl std::ops::Deref for RuntimeManager {
     type Target = crate::cell_runtime::CellRuntime;
+
     fn deref(&self) -> &crate::cell_runtime::CellRuntime {
         &self.core
     }
@@ -734,6 +736,7 @@ struct RpcCancellationGuard {
     lifetime: Arc<RequestCancellationLifetime>,
     completed: bool,
 }
+
 impl RpcCancellationGuard {
     fn complete(&mut self) {
         self.requests
@@ -743,6 +746,7 @@ impl RpcCancellationGuard {
         self.completed = true;
     }
 }
+
 impl Drop for RpcCancellationGuard {
     fn drop(&mut self) {
         if !self.completed {

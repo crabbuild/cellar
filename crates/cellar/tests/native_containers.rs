@@ -40,7 +40,9 @@ struct Probe {
     context: Mutex<Option<Context>>,
     exec: Mutex<Option<Exec>>,
 }
+
 struct Root(Arc<Probe>);
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -214,6 +216,7 @@ struct Engine {
     http_port: u16,
     tcp_port: u16,
 }
+
 impl Engine {
     async fn answer(
         self: Arc<Self>,
@@ -418,6 +421,7 @@ impl Engine {
             .header("content-type", "application/json")
             .body(Full::new(Bytes::from(serde_json::to_vec(&value)?)))?)
     }
+
     fn app_creates(&self) -> usize {
         self.calls
             .lock()
@@ -444,6 +448,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<Value> {
     let response = runtime
         .fetch_cell(
@@ -478,6 +483,7 @@ fn native_containers_preserve_ownership_proofs_exec_streams_and_ports() -> Resul
         Ok(())
     })
 }
+
 async fn run() -> Result<()> {
     let directory = tempfile::Builder::new()
         .prefix("cellar-container-")

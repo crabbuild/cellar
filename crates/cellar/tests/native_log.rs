@@ -99,6 +99,7 @@ struct Transport {
     appends: AtomicUsize,
     streams: AtomicUsize,
 }
+
 impl LogTransport for Transport {
     fn post<'a>(
         &'a self,
@@ -141,6 +142,7 @@ impl LogTransport for Transport {
                 .await?
         })
     }
+
     fn open_stream<'a>(
         &'a self,
         node: &'a str,
@@ -160,6 +162,7 @@ impl LogTransport for Transport {
         })
     }
 }
+
 struct Pair {
     domain: ExecutionDomain,
     replica: Replication,
@@ -169,6 +172,7 @@ struct Pair {
     bucket: Arc<Bucket>,
     session: String,
 }
+
 async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> Result<Pair> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let follower_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
@@ -278,6 +282,7 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         session,
     })
 }
+
 async fn write(pair: &Pair, value: i64, fresh: bool) -> Result<()> {
     pair.domain
         .run(async {

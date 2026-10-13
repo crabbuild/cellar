@@ -3,7 +3,7 @@
 # decisions; `crates/cellar` is only an effect executor and adapter host.
 [workspace]
 resolver = "2"
-members = ["crates/*"]
+members = ["crates/*", "tools/xtask"]
 
 # Size-tuned: fat LTO prunes unused dependency code, panic=abort drops
 # unwind tables. opt-level "s" (not "z") — measure RPS before trading further.
@@ -117,6 +117,9 @@ crc = "3"
 crc-fast = { version = "1.10", default-features = false, features = ["std"] }
 percent-encoding = "2"
 proptest = "1"
+# Syntax parsing belongs to repository formatting tooling, not the cell runtime.
+proc-macro2 = "1"
+syn = "2"
 rand = "0.8"
 regex = "1"
 # Execute URLPattern's retained ECMAScript component expressions in Rust.

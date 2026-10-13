@@ -3,19 +3,23 @@ use std::{
     collections::BTreeMap,
     sync::{Arc, Mutex},
 };
+
 type Pair = (String, Vec<u16>);
+
 #[derive(Clone, Debug)]
 struct Entry {
     name: String,
     lower: String,
     value: Vec<u16>,
 }
+
 #[derive(Default, Debug)]
 struct State {
     list: Vec<Entry>,
     pairs: Option<Arc<Vec<Pair>>>,
     immutable: bool,
 }
+
 impl State {
     fn check_mutable(&self) -> Result<(), Error> {
         if self.immutable {
@@ -24,6 +28,7 @@ impl State {
             Ok(())
         }
     }
+
     fn push(&mut self, mut name: String, value: Vec<u16>) {
         let lower = name.to_ascii_lowercase();
         if let Some(entry) = self.list.iter().find(|entry| entry.lower == lower) {
@@ -32,6 +37,7 @@ impl State {
         self.list.push(Entry { name, lower, value });
         self.pairs = None;
     }
+
     fn pairs(&mut self) -> Arc<Vec<Pair>> {
         if let Some(pairs) = &self.pairs {
             return pairs.clone();
@@ -58,6 +64,7 @@ impl State {
         pairs
     }
 }
+
 fn name(value: &[u16]) -> Result<String, Error> {
     if value.is_empty()
         || value.iter().any(|value| {
@@ -72,6 +79,7 @@ fn name(value: &[u16]) -> Result<String, Error> {
     // Validated token characters are ASCII. The spelling remains on the wire.
     Ok(value.iter().map(|value| *value as u8 as char).collect())
 }
+
 fn value(value: &[u16]) -> Result<Vec<u16>, Error> {
     let start = value
         .iter()
@@ -88,14 +96,17 @@ fn value(value: &[u16]) -> Result<Vec<u16>, Error> {
     }
     Ok(value.to_vec())
 }
+
 /// A shared, live header list with a verbatim wire view and a sorted iteration
 /// view. `Clone` is an alias; `copy_list` and `from_headers` are independent.
 #[derive(Clone, Default, Debug)]
 pub struct Headers(Arc<Mutex<State>>);
+
 impl Headers {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn from_pairs<N: AsRef<str>, V: AsRef<str>>(
         pairs: impl IntoIterator<Item = (N, V)>,
     ) -> Result<Self, Error> {
@@ -105,6 +116,7 @@ impl Headers {
         }
         Ok(headers)
     }
+
     pub fn from_pairs_utf16(
         pairs: impl IntoIterator<Item = (Vec<u16>, Vec<u16>)>,
     ) -> Result<Self, Error> {
@@ -114,6 +126,7 @@ impl Headers {
         }
         Ok(headers)
     }
+
     /// The ordinary Headers constructor reads the source's iteration view.
     pub fn from_headers(source: &Self) -> Self {
         Self::from_pairs_utf16(
@@ -123,6 +136,7 @@ impl Headers {
         )
         .expect("validated header list")
     }
+
     /// Request copying reads the raw list, preserving spelling and repeats.
     pub fn copy_list(&self) -> Self {
         let state = self.0.lock().unwrap();
@@ -131,18 +145,22 @@ impl Headers {
             ..Default::default()
         })))
     }
+
     pub fn freeze(&self) {
         self.0.lock().unwrap().immutable = true;
     }
+
     pub fn is_immutable(&self) -> bool {
         self.0.lock().unwrap().immutable
     }
+
     pub fn append(&self, name: &str, value: &str) -> Result<(), Error> {
         self.append_utf16(
             &name.encode_utf16().collect::<Vec<_>>(),
             &value.encode_utf16().collect::<Vec<_>>(),
         )
     }
+
     pub fn append_utf16(&self, raw_name: &[u16], raw_value: &[u16]) -> Result<(), Error> {
         let mut state = self.0.lock().unwrap();
         state.check_mutable()?;
@@ -151,12 +169,14 @@ impl Headers {
         state.push(name, value);
         Ok(())
     }
+
     pub fn set(&self, name: &str, value: &str) -> Result<(), Error> {
         self.set_utf16(
             &name.encode_utf16().collect::<Vec<_>>(),
             &value.encode_utf16().collect::<Vec<_>>(),
         )
     }
+
     pub fn set_utf16(&self, raw_name: &[u16], raw_value: &[u16]) -> Result<(), Error> {
         let mut state = self.0.lock().unwrap();
         state.check_mutable()?;
@@ -182,11 +202,13 @@ impl Headers {
         }
         Ok(())
     }
+
     pub fn get(&self, name: &str) -> Result<Option<String>, Error> {
         Ok(self
             .get_utf16(&name.encode_utf16().collect::<Vec<_>>())?
             .map(|value| String::from_utf16_lossy(&value)))
     }
+
     pub fn get_utf16(&self, raw_name: &[u16]) -> Result<Option<Vec<u16>>, Error> {
         let lower = name(raw_name)?.to_ascii_lowercase();
         let state = self.0.lock().unwrap();
@@ -201,9 +223,11 @@ impl Headers {
         }
         Ok(value)
     }
+
     pub fn has(&self, name: &str) -> Result<bool, Error> {
         self.has_utf16(&name.encode_utf16().collect::<Vec<_>>())
     }
+
     pub fn has_utf16(&self, raw_name: &[u16]) -> Result<bool, Error> {
         let lower = name(raw_name)?.to_ascii_lowercase();
         Ok(self
@@ -214,9 +238,11 @@ impl Headers {
             .iter()
             .any(|entry| entry.lower == lower))
     }
+
     pub fn delete(&self, name: &str) -> Result<(), Error> {
         self.delete_utf16(&name.encode_utf16().collect::<Vec<_>>())
     }
+
     pub fn delete_utf16(&self, raw_name: &[u16]) -> Result<(), Error> {
         let mut state = self.0.lock().unwrap();
         state.check_mutable()?;
@@ -225,12 +251,14 @@ impl Headers {
         state.pairs = None;
         Ok(())
     }
+
     pub fn get_set_cookie(&self) -> Vec<String> {
         self.get_set_cookie_utf16()
             .iter()
             .map(|value| String::from_utf16_lossy(value))
             .collect()
     }
+
     pub fn get_set_cookie_utf16(&self) -> Vec<Vec<u16>> {
         self.0
             .lock()
@@ -241,6 +269,7 @@ impl Headers {
             .map(|entry| entry.value.clone())
             .collect()
     }
+
     pub fn wire_utf16(&self) -> Vec<Pair> {
         self.0
             .lock()
@@ -250,6 +279,7 @@ impl Headers {
             .map(|entry| (entry.name.clone(), entry.value.clone()))
             .collect()
     }
+
     /// An explicit UTF-8 projection of the raw list, with replacement for
     /// unpaired surrogates. Use the transport-specific conversions at boundaries.
     pub fn wire(&self) -> Vec<(String, String)> {
@@ -258,6 +288,7 @@ impl Headers {
             .map(|(name, value)| (name, String::from_utf16_lossy(&value)))
             .collect()
     }
+
     /// Request transport cannot represent an unpaired UTF-16 surrogate.
     /// Refuse it rather than silently changing a forwarded header's value.
     pub fn request_wire(&self) -> Result<Vec<(String, String)>, Error> {
@@ -273,6 +304,7 @@ impl Headers {
             })
             .collect()
     }
+
     /// The retained response serializer uses the iteration view. Its JSON
     /// bridge falls back to an empty list if any value is not representable.
     pub fn response_wire(&self) -> Vec<(String, String)> {
@@ -289,26 +321,32 @@ impl Headers {
             .collect::<Option<Vec<_>>>()
             .unwrap_or_default()
     }
+
     pub fn entries_utf16(&self) -> HeaderEntriesUtf16 {
         HeaderEntriesUtf16 {
             headers: self.clone(),
             index: 0,
         }
     }
+
     pub fn entries(&self) -> HeaderEntries {
         HeaderEntries(self.entries_utf16())
     }
+
     pub fn keys(&self) -> impl Iterator<Item = String> {
         self.entries().map(|(name, _)| name)
     }
+
     pub fn values(&self) -> impl Iterator<Item = String> {
         self.entries().map(|(_, value)| value)
     }
+
     pub fn for_each(&self, mut callback: impl FnMut(String, String, &Self)) {
         for (name, value) in self.entries() {
             callback(value, name, self);
         }
     }
+
     pub fn try_for_each_utf16<E>(
         &self,
         mut callback: impl FnMut(Vec<u16>, String, &Self) -> Result<(), E>,
@@ -319,12 +357,15 @@ impl Headers {
         Ok(())
     }
 }
+
 pub struct HeaderEntriesUtf16 {
     headers: Headers,
     index: usize,
 }
+
 impl Iterator for HeaderEntriesUtf16 {
     type Item = Pair;
+
     fn next(&mut self) -> Option<Pair> {
         let pair = self
             .headers
@@ -340,9 +381,12 @@ impl Iterator for HeaderEntriesUtf16 {
         pair
     }
 }
+
 pub struct HeaderEntries(HeaderEntriesUtf16);
+
 impl Iterator for HeaderEntries {
     type Item = (String, String);
+
     fn next(&mut self) -> Option<Self::Item> {
         self.0
             .next()

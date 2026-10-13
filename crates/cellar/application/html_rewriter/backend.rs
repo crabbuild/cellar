@@ -579,6 +579,7 @@ pub(crate) fn create(config: RewriterConfig) -> Result<u64, String> {
 pub(crate) fn write(id: u64, bytes: Vec<u8>) -> Result<(), String> {
     send_input(id, Input::Chunk(bytes, None))
 }
+
 pub(crate) fn write_ready(
     id: u64,
     bytes: Vec<u8>,
@@ -587,6 +588,7 @@ pub(crate) fn write_ready(
     send_input(id, Input::Chunk(bytes, Some(reply)))?;
     Ok(receive)
 }
+
 fn send_input(id: u64, input: Input) -> Result<(), String> {
     let registry = registry().lock().unwrap();
     let rewriter = registry.get(&id).ok_or("HTMLRewriter is gone")?;
@@ -595,6 +597,7 @@ fn send_input(id: u64, input: Input) -> Result<(), String> {
         .send(input)
         .map_err(|_| "HTMLRewriter thread exited".into())
 }
+
 pub(crate) fn end(id: u64) -> Result<(), String> {
     send_input(id, Input::End)
 }
@@ -632,6 +635,7 @@ pub(crate) fn command(id: u64, cmd: String) -> Result<Option<String>, String> {
         .map(Some)
         .map_err(|_| "HTMLRewriter command timed out".into())
 }
+
 pub(crate) fn event(id: u64) -> impl std::future::Future<Output = Result<String, String>> + Send {
     let receiver = registry()
         .lock()
@@ -647,6 +651,7 @@ pub(crate) fn event(id: u64) -> impl std::future::Future<Output = Result<String,
             .unwrap_or_else(|| serde_json::json!({"kind":"closed"}).to_string()))
     }
 }
+
 pub(crate) fn take(id: u64) -> Vec<u8> {
     registry()
         .lock()
@@ -655,6 +660,7 @@ pub(crate) fn take(id: u64) -> Vec<u8> {
         .map(|rewriter| rewriter.output.lock().unwrap().drain(..).collect())
         .unwrap_or_default()
 }
+
 pub(crate) fn free(id: u64) {
     registry().lock().unwrap().remove(&id);
 }
@@ -662,6 +668,7 @@ pub(crate) fn free(id: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn free_exits_threads_waiting_on_input_or_live_token_commands() {
         for parked in [false, true] {

@@ -1,7 +1,9 @@
 use crate::support;
 use cellar::sdk::{Cell, Context, HandlerFuture, Invocation, Output};
 use std::{sync::Arc, time::Duration};
+
 pub struct Background;
+
 impl Cell for Background {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -31,7 +33,9 @@ impl Cell for Background {
             }
             support::json(
                 &context,
-                serde_json::json!({"completed":storage.get_json("completed")?.unwrap_or(serde_json::json!(0))}),
+                serde_json::json!({
+                    "completed": storage.get_json("completed")?.unwrap_or(serde_json::json!(0)),
+                }),
             )
         })
     }

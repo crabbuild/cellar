@@ -18,35 +18,42 @@ pub enum UrlPatternInput {
     String(String),
     Init(UrlPatternInit),
 }
+
 impl Default for UrlPatternInput {
     fn default() -> Self {
         Self::Init(UrlPatternInit::default())
     }
 }
+
 impl From<&str> for UrlPatternInput {
     fn from(value: &str) -> Self {
         Self::String(value.into())
     }
 }
+
 impl From<String> for UrlPatternInput {
     fn from(value: String) -> Self {
         Self::String(value)
     }
 }
+
 impl From<UrlPatternInit> for UrlPatternInput {
     fn from(value: UrlPatternInit) -> Self {
         Self::Init(value)
     }
 }
+
 impl From<&UrlPatternInput> for UrlPatternInput {
     fn from(value: &UrlPatternInput) -> Self {
         value.clone()
     }
 }
+
 impl UrlPatternInput {
     pub fn from_utf16(value: &[u16]) -> Self {
         Self::String(String::from_utf16_lossy(value))
     }
+
     fn into_quirks(self) -> quirks::StringOrInit {
         match self {
             Self::String(value) => quirks::StringOrInit::String(value),
@@ -68,6 +75,7 @@ pub struct UrlPatternInitUtf16 {
     pub hash: Option<Vec<u16>>,
     pub base_url: Option<Vec<u16>>,
 }
+
 impl From<UrlPatternInitUtf16> for UrlPatternInput {
     fn from(value: UrlPatternInitUtf16) -> Self {
         let usv = |value: Option<Vec<u16>>| value.map(|value| String::from_utf16_lossy(&value));
@@ -126,6 +134,7 @@ struct PatternData {
     regexps: [regress::Regex; 8],
     has_regexp_groups: bool,
 }
+
 fn component_error(key: &str, expression: &str, flags: &str, error: regress::Error) -> Error {
     // These diagnostics can reach the compiler after the retained Rust parser
     // accepts syntax (such as verbose groups or Rust-specific escape codes)
@@ -140,9 +149,11 @@ fn component_error(key: &str, expression: &str, flags: &str, error: regress::Err
         "Invalid {key} pattern: Invalid regular expression: /{expression}/{flags}: {reason}"
     ))
 }
+
 /// Immutable compiled patterns can be shared across workers and activations.
 #[derive(Clone, Debug)]
 pub struct UrlPattern(Arc<PatternData>);
+
 impl UrlPattern {
     pub fn new(
         input: impl Into<UrlPatternInput>,
@@ -175,6 +186,7 @@ impl UrlPattern {
             has_regexp_groups: parsed.has_regexp_groups,
         })))
     }
+
     pub fn new_utf16(
         input: impl Into<UrlPatternInput>,
         base_url: Option<&[u16]>,
@@ -183,33 +195,43 @@ impl UrlPattern {
         let base = base_url.map(String::from_utf16_lossy);
         Self::new(input, base.as_deref(), options)
     }
+
     pub fn protocol(&self) -> &str {
         &self.0.components[0].pattern_string
     }
+
     pub fn username(&self) -> &str {
         &self.0.components[1].pattern_string
     }
+
     pub fn password(&self) -> &str {
         &self.0.components[2].pattern_string
     }
+
     pub fn hostname(&self) -> &str {
         &self.0.components[3].pattern_string
     }
+
     pub fn port(&self) -> &str {
         &self.0.components[4].pattern_string
     }
+
     pub fn pathname(&self) -> &str {
         &self.0.components[5].pattern_string
     }
+
     pub fn search(&self) -> &str {
         &self.0.components[6].pattern_string
     }
+
     pub fn hash(&self) -> &str {
         &self.0.components[7].pattern_string
     }
+
     pub fn has_regexp_groups(&self) -> bool {
         self.0.has_regexp_groups
     }
+
     pub fn test(
         &self,
         input: impl Into<UrlPatternInput>,
@@ -225,6 +247,7 @@ impl UrlPattern {
             .zip(values)
             .all(|(regexp, value)| regexp.find(&value).is_some()))
     }
+
     pub fn test_utf16(
         &self,
         input: impl Into<UrlPatternInput>,
@@ -233,6 +256,7 @@ impl UrlPattern {
         let base = base_url.map(String::from_utf16_lossy);
         self.test(input, base.as_deref())
     }
+
     pub fn exec(
         &self,
         input: impl Into<UrlPatternInput>,
@@ -283,6 +307,7 @@ impl UrlPattern {
             hash,
         }))
     }
+
     pub fn exec_utf16(
         &self,
         input: impl Into<UrlPatternInput>,
@@ -305,6 +330,7 @@ pub struct UrlPatternResult {
     pub search: UrlPatternComponentResult,
     pub hash: UrlPatternComponentResult,
 }
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct UrlPatternComponentResult {
     pub input: String,
@@ -312,6 +338,7 @@ pub struct UrlPatternComponentResult {
     #[serde(serialize_with = "serialize_groups")]
     pub groups: BTreeMap<String, Option<String>>,
 }
+
 fn serialize_groups<S: Serializer>(
     groups: &BTreeMap<String, Option<String>>,
     serializer: S,

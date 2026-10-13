@@ -50,10 +50,12 @@ pub(crate) struct HostChannels {
 pub(crate) struct HostSlot<T> {
     select: fn(&HostChannels) -> &OnceLock<T>,
 }
+
 impl<T: Clone> HostSlot<T> {
     const fn new(select: fn(&HostChannels) -> &OnceLock<T>) -> Self {
         Self { select }
     }
+
     pub(crate) fn get(&self) -> Option<T> {
         let services = crate::asyncrt::services();
         if !services.accepts_work() {
@@ -61,6 +63,7 @@ impl<T: Clone> HostSlot<T> {
         }
         (self.select)(services.channels()).get().cloned()
     }
+
     fn set(&self, value: T) -> Result<(), T> {
         let services = crate::asyncrt::services();
         if !services.accepts_work() {
@@ -90,11 +93,14 @@ pub struct DoCallReq {
     pub order: Option<CallOrder>,
     pub parent: Option<crate::telemetry::TraceContext>,
 }
+
 pub(crate) static DO_CALL_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<DoCallReq>> =
     HostSlot::new(|channels| &channels.do_call);
+
 pub fn set_do_call_tx(tx: tokio::sync::mpsc::UnboundedSender<DoCallReq>) {
     let _ = DO_CALL_TX.set(tx);
 }
+
 /// Ingress and application subrequests resolve ownership through one queue.
 #[must_use]
 pub fn submit_do_call(call: DoCallReq) -> bool {
@@ -104,12 +110,14 @@ pub fn submit_do_call(call: DoCallReq) -> bool {
 fn call_cancels() -> Arc<Mutex<HashMap<RequestId, tokio::sync::oneshot::Sender<()>>>> {
     crate::asyncrt::services().channels().cancels.clone()
 }
+
 /// A registration owns its exact process-wide request identity. Drop sends
 /// cancellation; a completed reply disarms it and removes the registry entry.
 pub struct CallCancelGuard {
     id: Option<RequestId>,
     cancels: Arc<Mutex<HashMap<RequestId, tokio::sync::oneshot::Sender<()>>>>,
 }
+
 pub fn begin_call_cancellation() -> (
     RequestId,
     tokio::sync::oneshot::Receiver<()>,
@@ -132,12 +140,14 @@ pub fn begin_call_cancellation() -> (
         },
     )
 }
+
 /// Abort by the shared opaque token used by HTTP, service and fetch adapters.
 /// Waking receivers and dropping their wakers never runs under the registry lock.
 pub fn cancel_call(id: RequestId) -> bool {
     let sender = call_cancels().lock().unwrap().remove(&id);
     sender.is_some_and(|sender| sender.send(()).is_ok())
 }
+
 impl CallCancelGuard {
     pub fn disarm(&mut self) {
         if let Some(id) = self.id.take() {
@@ -146,6 +156,7 @@ impl CallCancelGuard {
         }
     }
 }
+
 impl Drop for CallCancelGuard {
     fn drop(&mut self) {
         if let Some(id) = self.id.take() {
@@ -176,6 +187,7 @@ pub struct GateReq {
     pub ticket: crate::actor::GateTicket,
     pub reply: tokio::sync::oneshot::Sender<Result<(), cellar_logic::RequestError>>,
 }
+
 pub(crate) static GATE_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<GateReq>> =
     HostSlot::new(|channels| &channels.gate);
 
@@ -206,11 +218,14 @@ pub enum FacetReq {
         reply: tokio::sync::oneshot::Sender<Result<()>>,
     },
 }
+
 pub(crate) static FACET_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<FacetReq>> =
     HostSlot::new(|channels| &channels.facet);
+
 pub fn set_facet_tx(tx: tokio::sync::mpsc::UnboundedSender<FacetReq>) {
     let _ = FACET_TX.set(tx);
 }
+
 pub fn set_gate_tx(tx: tokio::sync::mpsc::UnboundedSender<GateReq>) {
     let _ = GATE_TX.set(tx);
 }
@@ -239,6 +254,7 @@ pub struct SvcCallReq {
     pub headers: Vec<(String, String)>,
     pub reply: tokio::sync::oneshot::Sender<Result<HttpResponse>>,
 }
+
 pub(crate) static SVC_CALL_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<SvcCallReq>> =
     HostSlot::new(|channels| &channels.service_call);
 
@@ -254,6 +270,7 @@ pub struct AssetCallReq {
     pub headers: Vec<(String, String)>,
     pub reply: tokio::sync::oneshot::Sender<Result<HttpResponse>>,
 }
+
 pub(crate) static ASSET_CALL_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<AssetCallReq>> =
     HostSlot::new(|channels| &channels.asset_call);
 
@@ -271,6 +288,7 @@ pub struct SvcRpcReq {
     pub operation: crate::WorkerRpcOperation,
     pub reply: tokio::sync::oneshot::Sender<Result<Vec<u8>>>,
 }
+
 pub(crate) static SVC_RPC_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<SvcRpcReq>> =
     HostSlot::new(|channels| &channels.service_rpc);
 
@@ -293,6 +311,7 @@ pub struct QueueDispatchReq {
     pub leases: Vec<QueueLeaseRef>,
     pub batch: QueueBatch,
 }
+
 pub(crate) static QUEUE_DISPATCH_TX: HostSlot<
     tokio::sync::mpsc::UnboundedSender<QueueDispatchReq>,
 > = HostSlot::new(|channels| &channels.queue_dispatch);
@@ -316,12 +335,15 @@ pub(crate) fn kv_blob_store() -> std::result::Result<crate::bucket::Bucket, Stri
 pub fn set_svc_rpc_tx(tx: tokio::sync::mpsc::UnboundedSender<SvcRpcReq>) {
     let _ = SVC_RPC_TX.set(tx);
 }
+
 pub fn set_svc_call_tx(tx: tokio::sync::mpsc::UnboundedSender<SvcCallReq>) {
     let _ = SVC_CALL_TX.set(tx);
 }
+
 pub fn set_queue_dispatch_tx(tx: tokio::sync::mpsc::UnboundedSender<QueueDispatchReq>) {
     let _ = QUEUE_DISPATCH_TX.set(tx);
 }
+
 pub fn set_asset_call_tx(tx: tokio::sync::mpsc::UnboundedSender<AssetCallReq>) {
     let _ = ASSET_CALL_TX.set(tx);
 }
@@ -339,14 +361,17 @@ pub struct RpcCallReq {
     pub args: RpcData,
     pub reply: tokio::sync::oneshot::Sender<Result<RpcData>>,
 }
+
 pub(crate) static RPC_CALL_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<RpcCallReq>> =
     HostSlot::new(|channels| &channels.rpc_call);
+
 pub fn set_rpc_call_tx(tx: tokio::sync::mpsc::UnboundedSender<RpcCallReq>) {
     let _ = RPC_CALL_TX.set(tx);
 }
 
 static OUTBOUND_WS_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<OutboundWsReq>> =
     HostSlot::new(|channels| &channels.outbound_ws);
+
 pub fn set_outbound_ws_tx(tx: tokio::sync::mpsc::UnboundedSender<OutboundWsReq>) {
     let _ = OUTBOUND_WS_TX.set(tx);
 }
@@ -422,6 +447,7 @@ pub(crate) fn outbound_ws_tx() -> Option<tokio::sync::mpsc::UnboundedSender<Outb
     }
     OUTBOUND_WS_TX.get()
 }
+
 /// The fleet bucket, once a node has opened one. Installed beside the
 /// wake-entry gate at startup; absent for a bucketless run.
 pub(crate) static BLOB_STORE: HostSlot<Bucket> = HostSlot::new(|channels| &channels.blob);

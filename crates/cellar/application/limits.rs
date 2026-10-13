@@ -121,6 +121,7 @@ pub struct KvLimits {
     pub max_list_limit: usize,
     pub min_expiration_ttl_ms: i64,
 }
+
 impl Default for KvLimits {
     fn default() -> Self {
         use cellar_logic::kv;
@@ -143,6 +144,7 @@ pub struct SqlLimits {
     pub max_rows: usize,
     pub max_result_bytes: usize,
 }
+
 impl Default for SqlLimits {
     fn default() -> Self {
         Self {
@@ -166,6 +168,7 @@ pub struct SqliteLimits {
     pub max_bind_parameters: i32,
     pub max_trigger_depth: i32,
 }
+
 impl Default for SqliteLimits {
     fn default() -> Self {
         Self {
@@ -182,6 +185,7 @@ impl Default for SqliteLimits {
         }
     }
 }
+
 impl SqliteLimits {
     pub(crate) fn categories(self) -> [(i32, i32); 10] {
         use rusqlite::ffi::*;
@@ -210,6 +214,7 @@ pub struct BlobLimits {
     /// Bytes of multipart parts waiting for earlier parts of one upload.
     pub max_multipart_backlog_bytes: usize,
 }
+
 impl Default for BlobLimits {
     fn default() -> Self {
         Self {
@@ -233,6 +238,7 @@ pub struct WorkflowLimits {
     pub max_sleep_ms: Option<u64>,
     pub max_retries: u32,
 }
+
 impl Default for WorkflowLimits {
     fn default() -> Self {
         Self {

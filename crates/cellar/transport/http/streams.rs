@@ -36,6 +36,7 @@ pub(crate) const HTTP_STREAM_REGISTRATION_CLOSED: &str = "the HTTP stream servic
 pub(crate) const HTTP_TEE_BRANCH_CAPACITY: usize = 16;
 const RESPONSE_STREAM_CONSUMER_CANCELED: &str = "response stream consumer canceled";
 const RESPONSE_STREAM_CLOSE_IN_PROGRESS: &str = "response stream close is already in progress";
+
 pub(crate) enum HttpStreamSource {
     Response(reqwest::Response),
     Receiver(tokio::sync::mpsc::Receiver<Result<Vec<u8>, String>>),

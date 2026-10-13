@@ -75,7 +75,9 @@ pub trait LogTransport: Send + Sync + 'static {
 /// -writable serves: a reqwest upgrade in production, a `tokio::io::duplex`
 /// in the twins.
 pub trait LogStreamDuplex: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
+
 impl<T> LogStreamDuplex for T where T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + Unpin {}
+
 pub type LogStreamIo = Box<dyn LogStreamDuplex>;
 
 /// One stream frame: a little-endian length prefix and the payload.
@@ -1039,8 +1041,10 @@ pub struct TailReq {
 enum TailFormat {
     Ranged,
 }
+
 impl TryFrom<u8> for TailFormat {
     type Error = &'static str;
+
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         if value == 2 {
             Ok(Self::Ranged)
@@ -1049,6 +1053,7 @@ impl TryFrom<u8> for TailFormat {
         }
     }
 }
+
 impl From<TailFormat> for u8 {
     fn from(_: TailFormat) -> Self {
         2
@@ -1063,6 +1068,7 @@ pub struct TailWireReq {
     pub request: TailReq,
     tail_format: TailFormat,
 }
+
 impl TailWireReq {
     pub fn ranged(request: TailReq) -> Self {
         Self {
@@ -1070,6 +1076,7 @@ impl TailWireReq {
             tail_format: TailFormat::Ranged,
         }
     }
+
     pub fn encode_response(&self, response: &TailResp) -> anyhow::Result<Vec<u8>> {
         Ok(encode_tail_resp(response))
     }
@@ -3392,6 +3399,7 @@ async fn stream_lane(
         }
 
         let responses = &mut conn.as_mut().expect("connected").responses;
+
         enum LaneEvent {
             Job(Option<LaneJob>),
             Response(Option<Vec<u8>>),
@@ -4779,6 +4787,7 @@ impl NodeLogManager {
         if gathered.is_empty() {
             return Ok(0);
         }
+
         type CellRows = Vec<(u64, Vec<u8>)>;
         let mut groups: BTreeMap<(String, u64), CellRows> = BTreeMap::new();
         for ((cell, cell_epoch, txid), bytes) in gathered {
@@ -5919,6 +5928,7 @@ impl NodeLogManager {
     ) -> anyhow::Result<BTreeMap<(String, u64, u64), Vec<u8>>> {
         let prefix = format!("log/{}/bundle/", self.session);
         let mut uncovered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
+
         // The index first, GETs only for the misses, and those
         // concurrently: the first cut GET every retained bundle serially
         // and blew systemd's stop budget — the graceful close timed out
@@ -6647,6 +6657,7 @@ impl NodeLogManager {
     /// the key scopes recovery's gather and the eventual GC sweep.
     pub(crate) async fn put_bundle(&self, entries: Vec<cellar_ltx::bundle::BundleEntry>) -> bool {
         struct FlushGuard<'a>(&'a std::sync::atomic::AtomicBool);
+
         impl Drop for FlushGuard<'_> {
             fn drop(&mut self) {
                 self.0.store(false, Ordering::SeqCst);

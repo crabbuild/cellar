@@ -5,7 +5,9 @@ use cellar::sdk::{
     Cell, Context, HandlerFuture, Invocation, Output,
 };
 use std::sync::Arc;
+
 pub struct Supervisor;
+
 impl Cell for Supervisor {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {

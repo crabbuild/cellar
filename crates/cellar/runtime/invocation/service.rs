@@ -31,6 +31,7 @@ pub async fn dispatch_fetch(runtime: Option<&crate::runtime::RuntimeManager>, ca
     }
     let _ = call.reply.send(response);
 }
+
 #[doc(hidden)]
 pub async fn dispatch_rpc(runtime: Option<&crate::runtime::RuntimeManager>, call: SvcRpcReq) {
     let response = match runtime {
@@ -62,6 +63,7 @@ pub(crate) async fn fetch(
         .map_err(|error| format!("service dropped: {error}"))?
         .map_err(|error| error.to_string())
 }
+
 pub(crate) async fn rpc(
     gate: EgressGate,
     mut request: SvcRpcReq,

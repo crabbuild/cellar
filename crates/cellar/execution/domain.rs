@@ -256,6 +256,7 @@ struct TaskRegistration {
     owner: Weak<ProductionDomainOwner>,
     id: u64,
 }
+
 impl Drop for TaskRegistration {
     fn drop(&mut self) {
         if let Some(owner) = self.owner.upgrade() {
@@ -266,11 +267,13 @@ impl Drop for TaskRegistration {
 }
 
 struct DomainScope(Option<Arc<ProductionDomain>>);
+
 impl DomainScope {
     fn enter(domain: Arc<ProductionDomain>) -> Self {
         Self(CURRENT_DOMAIN.with(|slot| slot.replace(Some(domain))))
     }
 }
+
 impl Drop for DomainScope {
     fn drop(&mut self) {
         CURRENT_DOMAIN.with(|slot| slot.replace(self.0.take()));
@@ -284,6 +287,7 @@ struct ScopedFuture<F> {
     future: Option<Pin<Box<F>>>,
     registration: Option<TaskRegistration>,
 }
+
 impl<F> ScopedFuture<F> {
     fn new(domain: Arc<ProductionDomain>, future: F) -> Self {
         Self {
@@ -293,14 +297,17 @@ impl<F> ScopedFuture<F> {
         }
     }
 }
+
 impl<F: Future> Future for ScopedFuture<F> {
     type Output = F::Output;
+
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         let _scope = DomainScope::enter(this.domain.clone());
         this.future.as_mut().unwrap().as_mut().poll(context)
     }
 }
+
 impl<F> Drop for ScopedFuture<F> {
     fn drop(&mut self) {
         let _scope = DomainScope::enter(self.domain.clone());
@@ -327,6 +334,7 @@ impl<F> Drop for ScopedFuture<F> {
 pub struct ExecutionDomain {
     inner: Arc<ProductionDomain>,
 }
+
 impl ExecutionDomain {
     pub fn new(handle: tokio::runtime::Handle) -> Self {
         Self {
@@ -416,6 +424,7 @@ impl ExecutionDomain {
         }
     }
 }
+
 impl Drop for ExecutionDomain {
     fn drop(&mut self) {
         self.close();
@@ -547,6 +556,7 @@ impl<T> TaskHandle<T> {
     pub fn abort(&self) {
         self.inner.abort();
     }
+
     /// Detach the task from its join handle.
     pub fn detach(self) {}
 }

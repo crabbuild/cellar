@@ -9,10 +9,12 @@ struct Signals {
     entered: mpsc::UnboundedSender<()>,
     release: Semaphore,
 }
+
 struct Root {
     label: &'static str,
     signals: Arc<Signals>,
 }
+
 fn output(text: impl ToString) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -24,6 +26,7 @@ fn output(text: impl ToString) -> Output {
         observed_position: None,
     })
 }
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, ctx: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -54,7 +57,9 @@ impl Cell for Root {
         })
     }
 }
+
 struct Leaf(&'static str);
+
 impl Cell for Leaf {
     fn invoke(self: Arc<Self>, ctx: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -65,6 +70,7 @@ impl Cell for Leaf {
         })
     }
 }
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(fleet::LoadedDeployment {
         native: None,
@@ -97,6 +103,7 @@ fn graph() -> DeploymentGraph {
         container_images: vec![],
     })
 }
+
 struct Host {
     domain: ExecutionDomain,
     app: AppHandle,
@@ -108,6 +115,7 @@ struct Host {
     signals: Arc<Signals>,
     entered: mpsc::UnboundedReceiver<()>,
 }
+
 async fn host(label: &'static str, data_dir: &std::path::Path) -> anyhow::Result<Host> {
     host_with_policy(
         label,
@@ -120,6 +128,7 @@ async fn host(label: &'static str, data_dir: &std::path::Path) -> anyhow::Result
     )
     .await
 }
+
 async fn host_with_policy(
     label: &'static str,
     data_dir: &std::path::Path,
@@ -127,6 +136,7 @@ async fn host_with_policy(
 ) -> anyhow::Result<Host> {
     host_with_fence_input(label, data_dir, shutdown, false).await
 }
+
 async fn host_with_fence_input(
     label: &'static str,
     data_dir: &std::path::Path,
@@ -317,11 +327,13 @@ async fn host_with_fence_input(
         entered: received,
     })
 }
+
 fn client() -> anyhow::Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?)
 }
+
 async fn call(client: &reqwest::Client, host: &Host, path: &str) -> anyhow::Result<String> {
     let response = client.post(format!("{}{path}", host.origin)).send().await?;
     anyhow::ensure!(
@@ -331,6 +343,7 @@ async fn call(client: &reqwest::Client, host: &Host, path: &str) -> anyhow::Resu
     );
     Ok(response.text().await?)
 }
+
 async fn stopped(
     task: TaskHandle<anyhow::Result<NodeOutcome>>,
     mode: ShutdownMode,

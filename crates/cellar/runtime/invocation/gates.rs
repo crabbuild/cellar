@@ -556,6 +556,7 @@ pub(crate) fn gate_engagement(cell: Option<&str>, context: &Arc<IoContext>) -> G
     let Some(id) = context.continuation_id() else {
         return GateEngagement::None;
     };
+
     fn of(gate: &CellGate, id: u64) -> GateEngagement {
         if !gate.gate.is_open() && gate.holder == Some(id) {
             GateEngagement::Holds

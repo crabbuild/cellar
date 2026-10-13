@@ -134,6 +134,7 @@ impl WebSocket {
             state.protocol = protocol.into();
         }
     }
+
     fn cache(&self, context: &Context) {
         if let Some(activation) = &context.io.native_activation {
             let registry = ws::ws_registry();
@@ -176,6 +177,7 @@ impl WebSocket {
             socket.state.lock().unwrap().closed = true;
         }
     }
+
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -710,6 +712,7 @@ struct OpeningState {
     state: Arc<Mutex<SocketState>>,
     completed: bool,
 }
+
 impl Drop for OpeningState {
     fn drop(&mut self) {
         if !self.completed {

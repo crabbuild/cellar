@@ -1,5 +1,6 @@
 //! Typed finite HTTP bodies and their inferred Content-Type.
 use super::{Blob, Error, File, FormData, SearchParams};
+
 #[derive(Clone, Debug)]
 pub enum BodyInit {
     Null,
@@ -10,10 +11,12 @@ pub enum BodyInit {
     FormData(FormData),
     SearchParams(SearchParams),
 }
+
 impl BodyInit {
     pub fn text(value: &str) -> Self {
         Self::Text(value.encode_utf16().collect())
     }
+
     pub fn encode(&self) -> Result<EncodedBody, Error> {
         let (bytes, kind) = match self {
             Self::Null => {
@@ -41,6 +44,7 @@ impl BodyInit {
         })
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct EncodedBody {
     pub bytes: Option<Vec<u8>>,

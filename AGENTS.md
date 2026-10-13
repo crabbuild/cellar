@@ -70,7 +70,7 @@ crates/
   cellar-native/          Owned values, structured clone, crypto, and web primitives
 examples/                 Compiled Rust applications and project configurations
 docs/                     Builder/team guides, evidence, decisions, and SVG explorer
-tools/                    Dependency checks, documentation, and fleet performance tooling
+tools/                    Formatting, dependency checks, documentation, and fleet tooling
 .github/workflows/        SDK checks and release builds
 ```
 
@@ -210,12 +210,19 @@ by the current checkout's identifier:
 
 ```sh
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-<checkout-name>"
-cargo fmt --all -- --check
+cargo format --check
 python3 tools/check_native_dependencies.py
 python3 tools/docs/check.py
 cargo check --workspace --all-targets --all-features --locked
 cargo test -p cellar --test native_cli --test native_artifacts --locked
 ```
+
+`cargo format` (alias for `cargo xtask fmt`) applies stable rustfmt plus the
+repository's declaration spacing. `cargo format --check` checks the same result
+without writing source files; CI runs it before tests. The tool lives under
+`tools/xtask` and covers tracked and unignored new Rust files, including examples.
+Run `cargo test -p cellar-xtask --locked` when changing formatter behavior.
+Plain `cargo fmt --all` remains available for rustfmt alone.
 
 Choose additional existing integration tests for the changed bindings, host
 behavior, or storage paths. The full SDK CI gates are:
@@ -304,6 +311,11 @@ third-party SDK compatibility; keep gaps in `examples/ROADMAP.md` explicit.
 - Follow surrounding Rust style. Propagate recoverable failures with `Result`
   and useful context; do not introduce input-triggered panics. Avoid blocking
   the actor or holding synchronous locks across `.await`.
+- Separate import blocks, types, implementations, and functions (including
+  methods) with a blank line. Keep documentation and attributes attached to
+  their declaration. Expand dense configuration, closures, and macro payloads
+  into readable lines. Use `cargo format` to apply standard layout and declaration
+  spacing together.
 - Use `asyncrt::select!` for fair polling. A biased select needs a reason tied
   to lifecycle ordering. Never bypass the forbidden macros in `clippy.toml`.
 - Tests should exercise behavior and regressions. Do not weaken checks, alter

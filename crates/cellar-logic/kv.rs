@@ -234,6 +234,7 @@ pub const SHARDS: u32 = 1;
 /// `kv_units::shard_of_is_pinned` holds the vectors that say so.
 pub fn shard_of(key: &str, shards: u32) -> u32 {
     debug_assert!(shards > 0, "a namespace has at least one shard");
+
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     let mut hash = OFFSET;

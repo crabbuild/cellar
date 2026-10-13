@@ -168,6 +168,7 @@ pub(crate) fn bind(
 }
 
 struct PendingTarget(Option<HttpResponseWebSocket>);
+
 impl Drop for PendingTarget {
     fn drop(&mut self) {
         if let Some(target) = self.0.take() {
@@ -207,6 +208,7 @@ pub(crate) fn discard_target(target: HttpResponseWebSocket) {
     ws_close(target.id, 1006, "upgrade owner was dropped");
     ws_unregister(target.id);
 }
+
 impl Drop for PendingOpen {
     fn drop(&mut self) {
         if !self.completed {

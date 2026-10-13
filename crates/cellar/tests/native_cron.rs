@@ -22,6 +22,7 @@ const SINK: &str = "CronSink:test";
 const FAIL: &str = "0 0 1 1 *";
 const DECLINE: &str = "0 0 1 JAN *";
 const SUCCESS: &str = "0 0 1 jan *";
+
 #[derive(Default)]
 struct Signals {
     calls: Mutex<Vec<(String, i64)>>,
@@ -36,13 +37,17 @@ struct Signals {
     nested_finished: AtomicBool,
     dropped: AtomicBool,
 }
+
 struct DropFlag(Arc<Signals>);
+
 impl Drop for DropFlag {
     fn drop(&mut self) {
         self.0.dropped.store(true, Ordering::SeqCst);
     }
 }
+
 struct Sink(Storage);
+
 impl Cell for Sink {
     fn invoke(self: Arc<Self>, _: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -64,6 +69,7 @@ impl Cell for Sink {
         })
     }
 }
+
 async fn note(context: &Context, value: Value) -> Result<()> {
     context
         .rpc_cell(
@@ -75,6 +81,7 @@ async fn note(context: &Context, value: Value) -> Result<()> {
         .await?;
     Ok(())
 }
+
 async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>) -> Result<Output> {
     let Invocation::Scheduled(controller) = invocation else {
         return Err(anyhow!("expected scheduled event"));
@@ -147,6 +154,7 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
     }
     Ok(Output::Done)
 }
+
 fn graph(expressions: Vec<String>) -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -179,6 +187,7 @@ fn graph(expressions: Vec<String>) -> DeploymentGraph {
         container_images: Vec::new(),
     })
 }
+
 fn generation(id: u64, expressions: Vec<String>, signals: Arc<Signals>) -> Result<Generation> {
     let registry = Registry::new(move |context, invocation| {
         Box::pin(worker(context, invocation, signals.clone()))
@@ -199,6 +208,7 @@ fn generation(id: u64, expressions: Vec<String>, signals: Arc<Signals>) -> Resul
         )]),
     )
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -215,6 +225,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 async fn arm(runtime: &RuntimeManager, scope: &str) -> Result<HttpResponse> {
     let reply = runtime
         .fetch_cell(
@@ -235,6 +246,7 @@ async fn arm(runtime: &RuntimeManager, scope: &str) -> Result<HttpResponse> {
     assert_eq!(reply.status, 204);
     Ok(reply)
 }
+
 async fn seed(
     runtime: &RuntimeManager,
     data: &std::path::Path,
@@ -256,6 +268,7 @@ async fn native_cron_preserves_occurrences_retries_drains_and_activation_lifetim
     cellar::asyncrt::timeout(Duration::from_secs(45), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let expressions = vec![

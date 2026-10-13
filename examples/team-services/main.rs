@@ -2,6 +2,7 @@ use crate::{counter, support};
 use anyhow::Result;
 use cellar::sdk::{Application, Invocation, Output, Registry};
 use std::sync::Arc;
+
 pub fn api() -> Result<Arc<dyn Application>> {
     Ok(Arc::new(Registry::new(|context, event| {
         Box::pin(async move {
@@ -14,6 +15,7 @@ pub fn api() -> Result<Arc<dyn Application>> {
         })
     })))
 }
+
 pub fn ledger() -> Result<Arc<dyn Application>> {
     Ok(Arc::new(
         Registry::new(|context, event| {

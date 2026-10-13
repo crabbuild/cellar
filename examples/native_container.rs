@@ -1,4 +1,5 @@
 //! One Rust HTTP process per business cell, controlled by the Rust SDK.
+
 use anyhow::{bail, Result};
 use cellar::sdk::{
     containers::{ExecOptions, StartOptions},
@@ -11,6 +12,7 @@ use std::sync::Arc;
 struct Sandbox {
     startup: tokio::sync::Mutex<()>,
 }
+
 impl Cell for Sandbox {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -46,10 +48,14 @@ impl Cell for Sandbox {
                     .await?
                     .output(&context, 4096)
                     .await?;
-                return Ok(Output::Http(Response::from_json(&serde_json::json!({
-                    "exit_code":output.exit_code,"stdout":String::from_utf8_lossy(&output.stdout),
-                    "stderr":String::from_utf8_lossy(&output.stderr),
-                }))?.into_http(&context)?));
+                return Ok(Output::Http(
+                    Response::from_json(&serde_json::json!({
+                        "exit_code": output.exit_code,
+                        "stdout": String::from_utf8_lossy(&output.stdout),
+                        "stderr": String::from_utf8_lossy(&output.stderr),
+                    }))?
+                    .into_http(&context)?,
+                ));
             }
             let response = container
                 .port(&context, 8080)?
@@ -68,6 +74,7 @@ impl Cell for Sandbox {
         })
     }
 }
+
 fn application() -> Result<Arc<dyn Application>> {
     Ok(Arc::new(
         Registry::new(|context, event| {
@@ -101,6 +108,7 @@ fn application() -> Result<Arc<dyn Application>> {
         .cell("Sandbox", |_, _| Ok(Arc::new(Sandbox::default())))?,
     ))
 }
+
 fn main() -> Result<()> {
     Host::fleet()
         .register("native-container", "v1", application)?

@@ -4,6 +4,7 @@ use cellar::sdk::{
     blob::{GetOptions, GetResult, WriteOptions},
     Context, Output, Request,
 };
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     let url = url::Url::parse(&request.url)?;
     let key = support::name(url.path().strip_prefix("/blobs/").unwrap_or_default())?;
@@ -15,7 +16,7 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
             let object = bucket
                 .put(context, key, bytes, WriteOptions::default())
                 .await?;
-            support::json(context, serde_json::json!({"object":object}))
+            support::json(context, serde_json::json!({ "object": object }))
         }
         "DELETE" => {
             bucket.delete(context, &[key.to_string()]).await?;

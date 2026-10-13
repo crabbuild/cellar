@@ -30,19 +30,23 @@ pub enum Duration {
     Milliseconds(f64),
     Text(String),
 }
+
 impl From<std::time::Duration> for Duration {
     fn from(duration: std::time::Duration) -> Self {
         Self::Milliseconds(duration.as_secs_f64() * 1000.0)
     }
 }
+
 impl From<&str> for Duration {
     fn from(value: &str) -> Self {
         Self::Text(value.into())
     }
 }
+
 fn duration_space(character: char) -> bool {
     matches!(character as u32, 0x9..=0xd | 0x20 | 0xa0 | 0x1680 | 0x2000..=0x200a | 0x2028 | 0x2029 | 0x202f | 0x205f | 0x3000 | 0xfeff)
 }
+
 impl Duration {
     pub fn milliseconds(&self) -> Result<f64> {
         match self {
@@ -90,6 +94,7 @@ pub struct Retention {
     pub success: Option<Duration>,
     pub error: Option<Duration>,
 }
+
 impl Retention {
     fn wire(&self) -> Result<serde_json::Value> {
         let normalize = |duration: &Option<Duration>| -> Result<f64> {
@@ -112,6 +117,7 @@ impl Retention {
         Ok(json!({"successMs":normalize(&self.success)?,"errorMs":normalize(&self.error)?}))
     }
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct CreateOptions {
     pub id: Option<String>,
@@ -127,6 +133,7 @@ pub enum StepKind {
     Sleep,
     WaitForEvent,
 }
+
 impl StepKind {
     fn wire(self) -> &'static str {
         match self {
@@ -136,12 +143,14 @@ impl StepKind {
         }
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct RestartFrom {
     pub name: Vec<u16>,
     pub count: u64,
     pub kind: StepKind,
 }
+
 impl RestartFrom {
     pub fn new(name: &str) -> Self {
         Self {
@@ -151,28 +160,34 @@ impl RestartFrom {
         }
     }
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct RestartOptions {
     pub from: Option<RestartFrom>,
 }
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TerminateOptions {
     pub rollback: bool,
 }
+
 #[derive(Clone, Debug)]
 pub struct SendEvent {
     pub event_type: String,
     pub payload: Option<StructuredValue>,
 }
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ErrorRecord {
     pub name: Vec<u16>,
     pub message: Vec<u16>,
 }
+
 impl ErrorRecord {
     pub fn message_lossy(&self) -> String {
         String::from_utf16_lossy(&self.message)
     }
+
     fn from_value(value: StructuredValue) -> Result<Self> {
         let text = |name: &str| -> Result<Vec<u16>> {
             match property(&value, name)?.map(|value| value.root) {
@@ -186,6 +201,7 @@ impl ErrorRecord {
         })
     }
 }
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum State {
@@ -198,6 +214,7 @@ pub enum State {
     Errored,
     Terminated,
 }
+
 #[derive(Clone, Debug)]
 pub struct Status {
     pub state: State,
@@ -205,16 +222,19 @@ pub struct Status {
     pub error: Option<ErrorRecord>,
     pub rollback: Option<StructuredValue>,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct Deleted {
     pub id: String,
 }
+
 #[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DeleteError {
     pub id: String,
     pub code: u32,
     pub message: String,
 }
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DeleteBatchResult {
     pub deleted: Vec<Deleted>,
@@ -229,9 +249,11 @@ fn name_valid(name: &str, max: usize) -> bool {
             .is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
         && bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
+
 fn limits() -> crate::application::limits::WorkflowLimits {
     crate::application::limits::current().workflow
 }
+
 fn check_event_type(name: &str) -> Result<()> {
     ensure!(
         name_valid(name, limits().max_event_type_bytes),
@@ -239,6 +261,7 @@ fn check_event_type(name: &str) -> Result<()> {
     );
     Ok(())
 }
+
 fn check_horizon(ms: f64, what: &str) -> Result<()> {
     ensure!(
         ms.is_finite()
@@ -251,10 +274,12 @@ fn check_horizon(ms: f64, what: &str) -> Result<()> {
     );
     Ok(())
 }
+
 fn check_id(id: &str) -> Result<()> {
     ensure!(name_valid(id, limits().max_id_bytes), "WORKFLOW_ERROR: invalid instance id {id:?}: use at most {} letters, digits, hyphens, or underscores, not starting with a hyphen", limits().max_id_bytes);
     Ok(())
 }
+
 pub(crate) fn check_step_name(name: &[u16]) -> Result<()> {
     ensure!(
         name.len() <= limits().max_step_name_units && !name.iter().any(|unit| *unit <= 0x1f),
@@ -263,6 +288,7 @@ pub(crate) fn check_step_name(name: &[u16]) -> Result<()> {
     );
     Ok(())
 }
+
 fn check_value(value: &StructuredValue, what: &str) -> Result<()> {
     let bytes = cellar_native::clone::encode(value).map_err(|cause| {
         error(format!(
@@ -271,6 +297,7 @@ fn check_value(value: &StructuredValue, what: &str) -> Result<()> {
     })?;
     check_encoded(&bytes, what)
 }
+
 fn check_encoded(bytes: &[u8], what: &str) -> Result<()> {
     ensure!(
         bytes.len() <= limits().max_value_bytes,
@@ -280,11 +307,13 @@ fn check_encoded(bytes: &[u8], what: &str) -> Result<()> {
     );
     Ok(())
 }
+
 fn property(graph: &StructuredValue, name: &str) -> Result<Option<StructuredValue>> {
     Ok(graph
         .property(&name.encode_utf16().collect::<Vec<_>>())?
         .filter(|graph| !matches!(graph.root, CloneValue::Undefined)))
 }
+
 fn set(graph: &mut StructuredValue, name: &str, value: &StructuredValue) -> Result<()> {
     graph.set_property(name.encode_utf16().collect(), value)
 }
@@ -294,11 +323,13 @@ pub struct Workflow {
     script: Arc<str>,
     name: Arc<str>,
 }
+
 #[derive(Clone, Debug)]
 pub struct Instance {
     workflow: Workflow,
     id: Arc<str>,
 }
+
 impl Workflow {
     pub(crate) fn new(script: &str, name: &str) -> Self {
         Self {
@@ -306,15 +337,18 @@ impl Workflow {
             name: Arc::from(name),
         }
     }
+
     pub fn name(&self) -> &str {
         &self.name
     }
+
     fn instance(&self, id: String) -> Instance {
         Instance {
             workflow: self.clone(),
             id: Arc::from(id),
         }
     }
+
     fn options(&self, options: CreateOptions) -> Result<(Instance, StructuredValue)> {
         let id = options
             .id
@@ -346,6 +380,7 @@ impl Workflow {
         }
         Ok((self.instance(id), data))
     }
+
     pub async fn create(&self, context: &Context, mut options: CreateOptions) -> Result<Instance> {
         let params = options.params.take();
         let (instance, mut data) = self.options(options)?;
@@ -361,6 +396,7 @@ impl Workflow {
         instance.call(context, "__wfCreate", Some(data)).await?;
         Ok(instance)
     }
+
     pub async fn create_batch(
         &self,
         context: &Context,
@@ -407,12 +443,14 @@ impl Workflow {
         }
         Ok(created)
     }
+
     pub async fn get(&self, context: &Context, id: &str) -> Result<Instance> {
         check_id(id)?;
         let instance = self.instance(id.into());
         instance.status(context).await?;
         Ok(instance)
     }
+
     pub async fn delete_batch(
         &self,
         context: &Context,
@@ -457,13 +495,16 @@ impl Workflow {
         Ok(output)
     }
 }
+
 impl Instance {
     pub fn id(&self) -> &str {
         &self.id
     }
+
     pub fn scope(&self) -> String {
         crate::engine_api::workflow_cell_scope(&self.workflow.script, &self.workflow.name, &self.id)
     }
+
     async fn call(
         &self,
         context: &Context,
@@ -482,6 +523,7 @@ impl Instance {
             .await?;
         decode_rpc_result(&reply)
     }
+
     pub async fn status(&self, context: &Context) -> Result<Status> {
         let reply = self.call(context, "__wfStatus", None).await?;
         let state = serde_json::from_value(
@@ -500,6 +542,7 @@ impl Instance {
             rollback,
         })
     }
+
     pub async fn send_event(&self, context: &Context, event: SendEvent) -> Result<()> {
         check_event_type(&event.event_type)?;
         let mut data = StructuredValue::from_json(json!({"type":event.event_type}))?;
@@ -510,14 +553,17 @@ impl Instance {
         self.call(context, "__wfSendEvent", Some(data)).await?;
         Ok(())
     }
+
     pub async fn pause(&self, context: &Context) -> Result<()> {
         self.call(context, "__wfPause", None).await?;
         Ok(())
     }
+
     pub async fn resume(&self, context: &Context) -> Result<()> {
         self.call(context, "__wfResume", None).await?;
         Ok(())
     }
+
     pub async fn restart(&self, context: &Context, options: RestartOptions) -> Result<()> {
         let mut data = StructuredValue::from_json(json!({}))?;
         if let Some(from) = options.from {
@@ -541,10 +587,12 @@ impl Instance {
         self.call(context, "__wfRestart", Some(data)).await?;
         Ok(())
     }
+
     pub async fn terminate(&self, context: &Context) -> Result<()> {
         self.terminate_with_options(context, TerminateOptions::default())
             .await
     }
+
     pub async fn terminate_with_options(
         &self,
         context: &Context,
@@ -554,6 +602,7 @@ impl Instance {
         self.call(context, "__wfTerminate", None).await?;
         Ok(())
     }
+
     pub async fn delete(&self, context: &Context) -> Result<()> {
         match self.call(context, "__wfDelete", None).await {
             Ok(_) => Ok(()),

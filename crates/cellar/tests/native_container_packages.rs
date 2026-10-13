@@ -36,7 +36,9 @@ elif a[0] not in ('tag','pull'): sys.exit(12)
         std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755))?;
         let previous = std::env::var_os("CELLAR_DOCKER");
         std::env::set_var("CELLAR_DOCKER", &cli);
+
         struct Restore(Option<std::ffi::OsString>);
+
         impl Drop for Restore { fn drop(&mut self) { match self.0.take() { Some(value) => std::env::set_var("CELLAR_DOCKER", value), None => std::env::remove_var("CELLAR_DOCKER") } } }
         let _restore = Restore(previous);
         let executable = directory.path().join("application");

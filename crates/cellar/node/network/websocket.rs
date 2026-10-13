@@ -383,6 +383,7 @@ struct OutboundRegistration {
     id: u64,
     cell: Option<(AppHandle, String)>,
 }
+
 impl Drop for OutboundRegistration {
     fn drop(&mut self) {
         crate::ws_registry::ws_unregister(self.id);

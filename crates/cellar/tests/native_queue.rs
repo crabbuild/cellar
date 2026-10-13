@@ -27,11 +27,13 @@ use std::time::Duration;
 const Q: &str = "native-main";
 const DLQ: &str = "native-dead";
 const GROUP: &str = "native-group";
+
 #[derive(Default)]
 struct Signals {
     mode: AtomicUsize,
     event: Mutex<Option<Event>>,
 }
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -83,6 +85,7 @@ fn graph() -> DeploymentGraph {
         container_images: Vec::new(),
     })
 }
+
 fn response(value: Value) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -94,6 +97,7 @@ fn response(value: Value) -> Output {
         observed_position: None,
     })
 }
+
 fn cycle() -> StructuredValue {
     StructuredValue {
         root: CloneValue::Reference(0),
@@ -103,6 +107,7 @@ fn cycle() -> StructuredValue {
         ])],
     }
 }
+
 async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>) -> Result<Output> {
     match invocation {
         Invocation::Queue(batch) => {
@@ -264,9 +269,11 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
         _ => Err(anyhow!("unexpected native Queue event")),
     }
 }
+
 fn scope(queue: &str) -> String {
     cellar::engine_api::queue_cell_scope(queue)
 }
+
 fn request(path: &str, body: Vec<u8>) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://cell/{path}"),
@@ -278,6 +285,7 @@ fn request(path: &str, body: Vec<u8>) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn operator(runtime: &RuntimeManager, queue: &str, body: Value) -> Result<Value> {
     let response = runtime
         .fetch_cell(
@@ -295,6 +303,7 @@ async fn operator(runtime: &RuntimeManager, queue: &str, body: Value) -> Result<
     );
     Ok(serde_json::from_slice::<Value>(&response.body)?["result"].clone())
 }
+
 async fn open(runtime: &RuntimeManager, queue: &str) -> Result<()> {
     let scope = scope(queue);
     runtime
@@ -312,6 +321,7 @@ async fn open(runtime: &RuntimeManager, queue: &str) -> Result<()> {
     runtime.start_cell(scope.clone(), 1, true).await?;
     runtime.publish_cell(&scope, 1)
 }
+
 async fn fire(runtime: &RuntimeManager, queue: &str, op: u64) -> Result<()> {
     let scope = scope(queue);
     let deadline = runtime
@@ -325,10 +335,12 @@ async fn fire(runtime: &RuntimeManager, queue: &str, op: u64) -> Result<()> {
     runtime.fire_alarm(op, scope, deadline).await?;
     Ok(())
 }
+
 fn ensure_short(ms: i64) -> Result<()> {
     anyhow::ensure!(ms < 3000, "unexpected distant Queue deadline {ms}");
     Ok(())
 }
+
 async fn call_worker(runtime: &RuntimeManager, path: &str) -> Result<Value> {
     let response = runtime
         .fetch_worker(
@@ -340,9 +352,11 @@ async fn call_worker(runtime: &RuntimeManager, path: &str) -> Result<Value> {
         .await?;
     Ok(serde_json::from_slice(&response.body)?)
 }
+
 fn settlement(call: &QueueDispatchReq, result: cellar::engine_api::QueueDispatchResult) -> Value {
     json!({"leaseId":call.lease_id,"leases":call.leases,"outcome":if result.outcome==QueueOutcome::Ok{"ok"}else{"exception"},"ackAll":result.ack_all,"retryBatch":{"retry":result.retry_batch.retry,"delaySeconds":result.retry_batch.delay_seconds},"explicitAcks":result.explicit_acks,"retryMessages":result.retry_messages.into_iter().map(|retry|json!({"msgId":retry.msg_id,"delaySeconds":retry.delay_seconds})).collect::<Vec<_>>()})
 }
+
 async fn settle(runtime: &RuntimeManager, queue: &str, body: Value) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -353,9 +367,11 @@ async fn settle(runtime: &RuntimeManager, queue: &str, body: Value) -> Result<Ht
         )
         .await
 }
+
 fn database(directory: &std::path::Path, queue: &str) -> std::path::PathBuf {
     directory.join(scope(queue)).join("ltx/e1/db.sqlite")
 }
+
 fn dummy() -> QueueBatch {
     QueueBatch {
         queue: Q.into(),
@@ -380,6 +396,7 @@ async fn native_queue_preserves_grouping_leases_settlement_and_transfers() -> Re
     cellar::asyncrt::timeout(Duration::from_secs(45), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let captured = signals.clone();

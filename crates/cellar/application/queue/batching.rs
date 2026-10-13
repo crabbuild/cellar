@@ -34,6 +34,7 @@ thread_local! {
 #[cfg(all(test, cellar_internal_tests))]
 pub(crate) fn with_timing_for_test<T>(timing: Timing, build: impl FnOnce() -> T) -> T {
     struct Reset(Option<Timing>);
+
     impl Drop for Reset {
         fn drop(&mut self) {
             OVERRIDE.set(self.0);

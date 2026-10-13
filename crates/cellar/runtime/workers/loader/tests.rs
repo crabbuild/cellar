@@ -72,6 +72,7 @@ fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
 }
 
 struct DropProbe(Arc<AtomicUsize>);
+
 impl Drop for DropProbe {
     fn drop(&mut self) {
         assert!(
@@ -116,18 +117,22 @@ fn probed_config(drops: Arc<AtomicUsize>) -> Arc<WorkerConfig> {
         Box::pin(async { Ok(Output::Done) })
     })))
 }
+
 fn slot(drops: Arc<AtomicUsize>) -> Arc<crate::pool::Slot> {
     crate::pool::Slot::loaded_worker(Worker::load_config(probed_config(drops)).unwrap())
 }
 
 struct PanicConstructor;
+
 impl Application for PanicConstructor {
     fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async { Ok(Output::Done) })
     }
+
     fn supports_cell(&self, _: &str) -> bool {
         panic!("native startup panic");
     }
+
     fn create_cell(&self, _: Context, _: &CellIdentity) -> anyhow::Result<Arc<dyn Cell>> {
         unreachable!()
     }

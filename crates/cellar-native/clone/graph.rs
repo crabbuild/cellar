@@ -162,6 +162,7 @@ impl StructuredValue {
             _ => bail!("structured value is not a plain object"),
         }
     }
+
     fn properties_mut(&mut self) -> Result<&mut Properties> {
         let Value::Reference(id) = self.root else {
             bail!("structured value is not a plain object")

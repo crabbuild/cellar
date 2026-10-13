@@ -1,4 +1,5 @@
 //! Native Rust cookbook. See examples/README.md for commands and guarantees.
+
 use anyhow::Result;
 use cellar::sdk::{Application, Context, Host, Invocation, Output, Registry};
 use std::sync::Arc;
@@ -57,7 +58,7 @@ async fn dispatch(context: Context, invocation: Invocation) -> Result<Output> {
         Invocation::Scheduled(event) => {
             // Occurrences can retry: the sink deduplicates by cron + scheduled time.
             let args = cellar::engine_api::RpcData::Json(
-                serde_json::json!({"key":format!("{}:{}", event.cron, event.scheduled_ms)})
+                serde_json::json!({ "key": format!("{}:{}", event.cron, event.scheduled_ms) })
                     .to_string(),
             );
             context
@@ -121,7 +122,7 @@ fn application() -> Result<Arc<dyn Application>> {
                         support::json_status(
                             &context,
                             status,
-                            serde_json::json!({"error":error.to_string()}),
+                            serde_json::json!({ "error": error.to_string() }),
                         )
                     }
                     result => result,

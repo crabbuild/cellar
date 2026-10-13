@@ -46,9 +46,11 @@ impl SqlCursor {
     pub fn column_names(&self) -> &[String] {
         &self.columns
     }
+
     pub fn rows_read(&self) -> u64 {
         self.rows_read
     }
+
     pub fn rows_written(&self) -> u64 {
         self.rows_written
     }
@@ -87,6 +89,7 @@ impl SqlCursor {
     pub fn to_array(mut self) -> Result<Vec<SqlRow>> {
         self.by_ref().collect()
     }
+
     pub fn to_raw_array(mut self) -> Result<Vec<Vec<SqlValue>>> {
         let mut rows = Vec::new();
         while let Some(row) = self.next_raw()? {
@@ -119,6 +122,7 @@ impl SqlCursor {
 
 impl Iterator for SqlCursor {
     type Item = Result<SqlRow>;
+
     fn next(&mut self) -> Option<Self::Item> {
         match self.next_raw() {
             Ok(Some(row)) => Some(Ok(self.columns.iter().cloned().zip(row).collect())),
@@ -161,6 +165,7 @@ impl KvCursor {
 
 impl Iterator for KvCursor {
     type Item = Result<(String, crate::storage::StoredValue)>;
+
     fn next(&mut self) -> Option<Self::Item> {
         let id = self.id?;
         if let Err(error) = self.storage.scope() {

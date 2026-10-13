@@ -24,6 +24,7 @@ async fn exchange(client: &Client, node: &Node, path: &str, greeting: &str) -> R
     );
     Ok(())
 }
+
 async fn closed_state(client: &Client, node: &Node, code: u16) -> Result<()> {
     tokio::time::timeout(Duration::from_secs(15), async {
         loop {
@@ -50,11 +51,13 @@ async fn closed_state(client: &Client, node: &Node, code: u16) -> Result<()> {
     })??;
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bound_local_cell_worker_and_cross_node_upgrades() -> Result<()> {
     tokio::time::timeout(Duration::from_secs(120), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let root = tempfile::tempdir()?;
     let executable = root.path().join("native-bound");

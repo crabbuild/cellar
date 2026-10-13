@@ -8,6 +8,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Semaphore};
 
 struct Server(tokio::task::JoinHandle<()>);
+
 impl Drop for Server {
     fn drop(&mut self) {
         self.0.abort();

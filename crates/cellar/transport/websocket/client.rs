@@ -82,6 +82,7 @@ pub struct Connection {
 }
 
 struct HandshakeDriver(tokio::task::JoinHandle<()>);
+
 impl Drop for HandshakeDriver {
     fn drop(&mut self) {
         // Until hyper hands us the upgraded transport, this task owns the
@@ -230,6 +231,7 @@ async fn connect_with_tls(
 }
 
 trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
+
 impl<S: AsyncRead + AsyncWrite + Send + Unpin> Stream for S {}
 
 #[cfg(test)]

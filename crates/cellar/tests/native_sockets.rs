@@ -25,13 +25,16 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     sync::{mpsc, Notify},
 };
+
 const SCOPE: &str = "SocketCell:one";
+
 #[derive(Debug, PartialEq)]
 enum PeerEvent {
     Accepted,
     Bytes(Vec<u8>),
     Closed,
 }
+
 struct Probe {
     echo: String,
     half: String,
@@ -45,6 +48,7 @@ struct Probe {
     pending_read: Notify,
     echo_accepts: AtomicUsize,
 }
+
 fn output(value: Value) -> Result<Output> {
     Ok(Output::Http(HttpResponse {
         status: 200,
@@ -56,6 +60,7 @@ fn output(value: Value) -> Result<Output> {
         observed_position: None,
     }))
 }
+
 async fn bytes(reader: &Reader, context: &Context) -> Result<Vec<u8>> {
     let mut output = Vec::new();
     let mut buffer = [0; 1];
@@ -70,7 +75,9 @@ async fn bytes(reader: &Reader, context: &Context) -> Result<Vec<u8>> {
     reader.closed().await?;
     Ok(output)
 }
+
 struct Root(Arc<Probe>);
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -355,6 +362,7 @@ impl Cell for Root {
         })
     }
 }
+
 fn request(path: &str) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("https://socket{path}"),
@@ -366,6 +374,7 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<Value> {
     eprintln!("socket scenario {path}");
     let response = cellar::asyncrt::timeout(
@@ -378,6 +387,7 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<Value> {
     assert_eq!(response.status, 200);
     Ok(serde_json::from_slice(&response.body)?)
 }
+
 async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime
         .restore_cell(
@@ -394,6 +404,7 @@ async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime.start_cell(SCOPE.into(), 1, true).await?;
     runtime.publish_cell(SCOPE, 1)
 }
+
 async fn next(events: &mut mpsc::UnboundedReceiver<PeerEvent>) -> PeerEvent {
     let event = events.recv().await.unwrap();
     match &event {
@@ -402,6 +413,7 @@ async fn next(events: &mut mpsc::UnboundedReceiver<PeerEvent>) -> PeerEvent {
     }
     event
 }
+
 async fn until_closed(events: &mut mpsc::UnboundedReceiver<PeerEvent>) -> Vec<u8> {
     let mut bytes = Vec::new();
     loop {

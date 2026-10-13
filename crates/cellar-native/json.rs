@@ -10,9 +10,11 @@ use std::collections::{BTreeMap, HashMap};
 pub fn parse(text: &[u16]) -> Result<StructuredValue> {
     parse_with_limits(text, Limits::default())
 }
+
 pub fn parse_utf8(text: &str) -> Result<StructuredValue> {
     parse(&text.encode_utf16().collect::<Vec<_>>())
 }
+
 pub fn parse_with_limits(text: &[u16], limits: Limits) -> Result<StructuredValue> {
     ensure!(
         text.len() <= limits.bytes / 2,
@@ -41,6 +43,7 @@ struct Parser<'a> {
     remaining: usize,
     objects: Vec<Object>,
 }
+
 impl Parser<'_> {
     fn space(&mut self) {
         while self
@@ -51,6 +54,7 @@ impl Parser<'_> {
             self.at += 1;
         }
     }
+
     fn take(&mut self, unit: u16) -> bool {
         if self.text.get(self.at) == Some(&unit) {
             self.at += 1;
@@ -59,6 +63,7 @@ impl Parser<'_> {
             false
         }
     }
+
     fn expect(&mut self, unit: u16) -> Result<()> {
         ensure!(
             self.take(unit),
@@ -67,12 +72,14 @@ impl Parser<'_> {
         );
         Ok(())
     }
+
     fn literal(&mut self, text: &str) -> Result<()> {
         for unit in text.bytes() {
             self.expect(u16::from(unit))?;
         }
         Ok(())
     }
+
     fn string(&mut self) -> Result<Vec<u16>> {
         self.expect(34)?;
         let mut output = Vec::new();
@@ -123,6 +130,7 @@ impl Parser<'_> {
             }
         }
     }
+
     fn digit(&mut self) -> bool {
         if self
             .text
@@ -135,6 +143,7 @@ impl Parser<'_> {
             false
         }
     }
+
     fn number(&mut self) -> Result<Value> {
         let start = self.at;
         self.take(45);
@@ -161,6 +170,7 @@ impl Parser<'_> {
         let text = String::from_utf16(&self.text[start..self.at])?;
         Ok(Value::Number(text.parse::<f64>()?))
     }
+
     fn value(&mut self, depth: usize) -> Result<Value> {
         ensure!(
             depth <= self.limits.depth && self.remaining > 0,
@@ -249,6 +259,7 @@ impl Parser<'_> {
 pub fn stringify(graph: &StructuredValue) -> Result<Option<String>> {
     stringify_with_limits(graph, Limits::default())
 }
+
 pub fn stringify_with_limits(graph: &StructuredValue, limits: Limits) -> Result<Option<String>> {
     if matches!(graph.root, Value::Undefined) {
         return Ok(None);
@@ -267,6 +278,7 @@ pub fn stringify_with_limits(graph: &StructuredValue, limits: Limits) -> Result<
     writer.value(&graph.root, 0)?;
     Ok(Some(writer.output))
 }
+
 struct Writer<'a> {
     graph: &'a StructuredValue,
     limits: Limits,
@@ -274,6 +286,7 @@ struct Writer<'a> {
     active: Vec<bool>,
     output: String,
 }
+
 fn index(key: &[u16]) -> Option<u32> {
     if key.is_empty() || (key[0] == 48 && key.len() != 1) {
         return None;
@@ -287,6 +300,7 @@ fn index(key: &[u16]) -> Option<u32> {
     }
     (value != u32::MAX).then_some(value)
 }
+
 fn key(value: &Value, limit: usize) -> Result<Vec<u16>> {
     match value {
         Value::String(value) => {
@@ -300,6 +314,7 @@ fn key(value: &Value, limit: usize) -> Result<Vec<u16>> {
         _ => bail!("invalid JSON property key"),
     }
 }
+
 fn date(milliseconds: f64) -> Option<String> {
     if !milliseconds.is_finite() || milliseconds.abs() > 8_640_000_000_000_000.0 {
         return None;
@@ -332,6 +347,7 @@ fn date(milliseconds: f64) -> Option<String> {
         time % 1000
     ))
 }
+
 impl Writer<'_> {
     fn push(&mut self, text: &str) -> Result<()> {
         ensure!(
@@ -341,6 +357,7 @@ impl Writer<'_> {
         self.output.push_str(text);
         Ok(())
     }
+
     fn string(&mut self, units: &[u16]) -> Result<()> {
         self.push("\"")?;
         for scalar in char::decode_utf16(units.iter().copied()) {
@@ -359,6 +376,7 @@ impl Writer<'_> {
         }
         self.push("\"")
     }
+
     fn array(&mut self, length: usize, get: impl Fn(usize) -> Value, depth: usize) -> Result<()> {
         ensure!(
             length <= self.remaining
@@ -382,6 +400,7 @@ impl Writer<'_> {
         }
         self.push("]")
     }
+
     fn object(&mut self, properties: &Properties, depth: usize) -> Result<()> {
         ensure!(
             properties.len() <= self.remaining,
@@ -425,6 +444,7 @@ impl Writer<'_> {
         }
         self.push("}")
     }
+
     fn view(
         &mut self,
         buffer: u32,
@@ -504,6 +524,7 @@ impl Writer<'_> {
         }
         self.push("}")
     }
+
     fn value(&mut self, value: &Value, depth: usize) -> Result<()> {
         ensure!(
             depth <= self.limits.depth && self.remaining > 0,

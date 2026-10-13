@@ -1,6 +1,7 @@
 use crate::support;
 use anyhow::Result;
 use cellar::sdk::{Context, Output, Request};
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     support::method(&request, &["GET", "POST"])?;
     let database = context.sql("DB")?;

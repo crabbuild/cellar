@@ -4,6 +4,7 @@ use std::{
     pin::Pin,
     task::{Context, Waker},
 };
+
 #[tokio::test]
 async fn cancelled_wait_hands_its_predecessor_to_the_next_call() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
@@ -28,6 +29,7 @@ async fn cancelled_wait_hands_its_predecessor_to_the_next_call() -> Result<()> {
     last.delivered();
     Ok(())
 }
+
 #[test]
 fn host_cancellation_tokens_retain_encoding_disarm_and_drop_cleanup() {
     use cellar::host_channels::{begin_call_cancellation, cancel_call};
@@ -64,6 +66,7 @@ fn host_cancellation_tokens_retain_encoding_disarm_and_drop_cleanup() {
         ));
     }
 }
+
 #[test]
 fn cancel_and_disarm_notify_reentrant_receivers_outside_the_registry_lock() {
     use cellar::host_channels::{begin_call_cancellation, cancel_call};
@@ -71,10 +74,12 @@ fn cancel_and_disarm_notify_reentrant_receivers_outside_the_registry_lock() {
         atomic::{AtomicUsize, Ordering},
         Arc,
     };
+
     struct Reentrant {
         missing: cellar::engine_api::RequestId,
         calls: Arc<AtomicUsize>,
     }
+
     impl std::task::Wake for Reentrant {
         fn wake(self: Arc<Self>) {
             assert!(!cancel_call(self.missing));

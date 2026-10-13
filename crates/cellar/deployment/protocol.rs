@@ -81,6 +81,7 @@ pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
 ];
 
 pub const FEATURE_NATIVE_V1: &str = "native-v1";
+
 // Protocol 2 requires Cellar namespaces and the protected system schema.
 pub const NATIVE_HOST_PROTOCOL: u32 = 2;
 

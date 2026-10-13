@@ -25,6 +25,7 @@ pub struct NodeStartupPolicy {
     pub recovery_retry_backoff: Duration,
     pub authority_timeout: Duration,
 }
+
 impl Default for NodeStartupPolicy {
     fn default() -> Self {
         Self {
@@ -49,6 +50,7 @@ pub struct NodeMaintenancePolicy {
     pub local_cache_prune_period: Duration,
     pub local_cache_max_bytes: Option<u64>,
 }
+
 impl Default for NodeMaintenancePolicy {
     fn default() -> Self {
         Self {
@@ -81,6 +83,7 @@ pub struct NodeConfig {
     pub max_request_body_bytes: usize,
     pub generation_max_age: Duration,
 }
+
 impl NodeConfig {
     pub fn new(
         identity: ActorIdentity,
@@ -204,6 +207,7 @@ fn duration_ms(name: &str, duration: Duration) -> anyhow::Result<u64> {
         .try_into()
         .with_context(|| format!("{name} exceeds the millisecond clock range"))
 }
+
 fn validate_duration(name: &str, duration: Duration) -> anyhow::Result<()> {
     anyhow::ensure!(
         !duration.is_zero() && duration.as_millis() > 0,
@@ -275,6 +279,7 @@ pub struct Node {
 }
 
 struct CloseOnDrop(Option<Arc<ExecutionDomain>>);
+
 impl Drop for CloseOnDrop {
     fn drop(&mut self) {
         if let Some(domain) = &self.0 {
@@ -284,6 +289,7 @@ impl Drop for CloseOnDrop {
 }
 
 struct NodeDirectory(std::fs::File);
+
 impl NodeDirectory {
     fn acquire(path: &std::path::Path) -> anyhow::Result<(Self, PathBuf)> {
         std::fs::create_dir_all(path)?;
@@ -299,6 +305,7 @@ impl NodeDirectory {
         Ok((Self(file), path))
     }
 }
+
 impl Drop for NodeDirectory {
     fn drop(&mut self) {
         let _ = self.0.unlock();
@@ -423,9 +430,11 @@ impl Node {
     pub fn info(&self) -> &NodeInfo {
         &self.info
     }
+
     pub fn services(&self) -> Arc<HostServices> {
         self.domain.services()
     }
+
     pub fn is_closed(&self) -> bool {
         self.domain.is_closed()
     }
@@ -531,11 +540,13 @@ impl Node {
         result
     }
 }
+
 impl Drop for Node {
     fn drop(&mut self) {
         self.domain.close();
     }
 }
+
 fn panic_message(panic: Box<dyn std::any::Any + Send>) -> String {
     panic
         .downcast_ref::<String>()

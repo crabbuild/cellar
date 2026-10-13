@@ -47,6 +47,7 @@ fn workflow_durations_keep_existing_units_fractions_and_whitespace() {
         assert!(Duration::Milliseconds(number).milliseconds().is_err());
     }
 }
+
 async fn preflight(context: Context, _: Invocation) -> Result<Output> {
     let workflow = context.workflow("WF")?;
     assert_eq!(workflow.name(), "orders");

@@ -8,15 +8,18 @@ use futures_util::TryStreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 type Reply = std::result::Result<Value, String>;
+
 struct GroupData {
     entries: Vec<Encoded>,
     calls: Vec<tokio::sync::oneshot::Sender<Reply>>,
     bytes: usize,
 }
+
 struct Group {
     data: Mutex<Option<GroupData>>,
     flush: tokio::sync::watch::Sender<bool>,
 }
+
 struct Broker {
     storage: Storage,
     queue: String,
@@ -45,33 +48,39 @@ fn text(row: &SqlRow, key: &str) -> Result<String> {
         _ => Err(error(format!("invalid stored {key}"))),
     }
 }
+
 fn number(row: &SqlRow, key: &str) -> Result<i64> {
     match row.get(key) {
         Some(SqlValue::Integer(value)) => Ok(*value),
         _ => Err(error(format!("invalid stored {key}"))),
     }
 }
+
 fn optional_number(row: &SqlRow, key: &str) -> Result<Option<i64>> {
     match row.get(key) {
         Some(SqlValue::Null) => Ok(None),
         _ => number(row, key).map(Some),
     }
 }
+
 fn optional_text(row: &SqlRow, key: &str) -> Result<Option<String>> {
     match row.get(key) {
         Some(SqlValue::Null) => Ok(None),
         _ => text(row, key).map(Some),
     }
 }
+
 fn blob(row: &SqlRow, key: &str) -> Result<Vec<u8>> {
     match row.get(key) {
         Some(SqlValue::Blob(value)) => Ok(value.clone()),
         _ => Err(error(format!("invalid stored {key}"))),
     }
 }
+
 fn sql_text(value: Option<String>) -> SqlValue {
     value.map(SqlValue::Text).unwrap_or(SqlValue::Null)
 }
+
 fn uuid(version: u8, time: Option<(u64, u16)>) -> Result<String> {
     let mut bytes = [0; 16];
     cellar_native::crypto::random_values(&mut bytes)?;
@@ -95,6 +104,7 @@ fn uuid(version: u8, time: Option<(u64, u16)>) -> Result<String> {
         &hex[20..]
     ))
 }
+
 fn message_id(at: i64) -> Result<String> {
     static LAST: Mutex<(u64, u16)> = Mutex::new((0, 0));
     let mut last = LAST.lock().unwrap();
@@ -115,9 +125,11 @@ impl Broker {
             .retention_ms
             .map_or(i64::MIN, |ms| at.saturating_sub(ms))
     }
+
     fn exec(&self, query: &str, params: &[SqlValue]) -> Result<Vec<SqlRow>> {
         self.storage.system_sql(query, params)
     }
+
     fn open(&self) -> Result<()> {
         if !self.ready.load(Ordering::Acquire) {
             self.storage.system_sql_schema(include_str!("schema.sql"))?;
@@ -125,6 +137,7 @@ impl Broker {
         }
         Ok(())
     }
+
     fn meta(&self, key: &str) -> Result<Option<String>> {
         self.open()?;
         self.exec(
@@ -135,6 +148,7 @@ impl Broker {
         .map(|row| text(row, "value"))
         .transpose()
     }
+
     fn set_meta(&self, key: &str, value: Option<String>) -> Result<()> {
         self.open()?;
         match value {
@@ -147,12 +161,15 @@ impl Broker {
         }
         Ok(())
     }
+
     fn paused(&self) -> Result<bool> {
         Ok(self.meta("paused")?.as_deref() == Some("1"))
     }
+
     fn consumer(&self) -> Option<Consumer> {
         self.config.consumers.get(&self.queue).cloned()
     }
+
     fn metrics(&self, at: i64, waiting: bool) -> Result<Value> {
         self.open()?;
         let cutoff = self.retention_cutoff(at);
@@ -182,6 +199,7 @@ impl Broker {
         };
         Ok(json!({"backlogCount":count,"backlogBytes":bytes,"oldestMessageTimestamp":oldest}))
     }
+
     async fn rearm(&self, context: &Context, at: i64, wait: bool) -> Result<()> {
         self.open()?;
         let paused = self.paused()?;
@@ -336,6 +354,7 @@ impl Broker {
         }
         Ok(receive)
     }
+
     async fn flush(self: &Arc<Self>, context: &Context, group: Arc<Group>) {
         let Some(data) = group.data.lock().unwrap().take() else {
             return;
@@ -371,9 +390,11 @@ impl Broker {
         let receipts=self.storage.transaction_sync(|_| {let rows=self.exec("SELECT transfer_id FROM __sys_queue_transfer_receipts WHERE expires_at<=? ORDER BY expires_at,transfer_id LIMIT ?",&[at.into(),(remaining as i64).into()])?;for row in &rows {self.exec("DELETE FROM __sys_queue_transfer_receipts WHERE transfer_id=?",&[text(row,"transfer_id")?.into()])?;}Ok(rows.len())})?;
         Ok(messages + receipts)
     }
+
     fn candidates(&self, at: i64, limit: usize) -> Result<Vec<SqlRow>> {
         self.exec("SELECT seq,id,body,content_type,size,enqueued_at,visible_at,attempts,lease_id,lease_generation,leased_until,purge_on_settle FROM __sys_queue_messages WHERE dlq_target IS NULL AND ((purge_on_settle=1 AND (lease_id IS NULL OR leased_until<=?)) OR (purge_on_settle=0 AND visible_at<=? AND (lease_id IS NULL OR leased_until<=?))) ORDER BY visible_at,seq LIMIT ?",&[at.into(),at.into(),at.into(),(limit as i64).into()])
     }
+
     fn lease_batch(&self, at: i64, consumer: &Consumer) -> Result<Option<Value>> {
         let active=number(&self.exec("SELECT COUNT(DISTINCT lease_id) AS count FROM __sys_queue_messages WHERE lease_id IS NOT NULL AND leased_until>?",&[at.into()])?.remove(0),"count")? as usize;
         if !policy::can_install_lease(
@@ -518,6 +539,7 @@ impl Broker {
         self.rearm(context, at, false).await?;
         self.metrics(at, false)
     }
+
     async fn drive_dlq(&self, context: &Context, limit: usize) -> Result<usize> {
         self.open()?;
         let pending=self.exec("SELECT seq,id,body,content_type,size,dlq_target,dlq_transfer_id,transfer_kind FROM __sys_queue_messages WHERE dlq_target IS NOT NULL AND enqueued_at>? ORDER BY seq LIMIT ?",&[self.retention_cutoff(now()).into(),(limit as i64).into()])?;
@@ -550,6 +572,7 @@ impl Broker {
         }
         Ok(pending.len())
     }
+
     async fn alarm(&self, context: &Context) -> Result<()> {
         let at = now();
         if let Err(error) = self.drive_dlq(context, 100).await {
@@ -629,6 +652,7 @@ impl Broker {
             .collect::<Result<Vec<_>>>()?;
         Ok(policy::settlement_matches(&current, &submitted).then_some(rows))
     }
+
     async fn settle(&self, context: &Context, body: &Value) -> Result<bool> {
         self.open()?;
         let Some(rows) = self.matching(body)? else {
@@ -673,6 +697,7 @@ impl Broker {
         self.rearm(context, now(), false).await?;
         Ok(true)
     }
+
     async fn purge(&self, context: &Context) -> Result<Value> {
         self.open()?;
         let at = now();
@@ -685,6 +710,7 @@ impl Broker {
         self.rearm(context, at, false).await?;
         Ok(json!({"deleted":deleted,"leased":leased,"metrics":self.metrics(at,false)?}))
     }
+
     fn peek(&self, limit: i64) -> Result<Value> {
         self.open()?;
         let at = now();
@@ -694,6 +720,7 @@ impl Broker {
         }).collect::<Result<Vec<_>>>()?;
         Ok(json!({"messages":messages}))
     }
+
     async fn redrive(&self, context: &Context, limit: i64) -> Result<Value> {
         self.drive_dlq(context, 100).await?;
         let at = now();
@@ -704,6 +731,7 @@ impl Broker {
         self.rearm(context, now(), false).await?;
         Ok(json!({"redriven":rows.len(),"metrics":self.metrics(now(),false)?}))
     }
+
     async fn rpc(
         self: &Arc<Self>,
         context: &Context,
@@ -740,6 +768,7 @@ impl Broker {
             RpcData::Structured(_) => encode_rpc(&StructuredValue::from_json(result)?),
         }
     }
+
     async fn fetch(&self, context: &Context, request: crate::application::Request) -> HttpResponse {
         if request.method != "POST" {
             return http(404, b"Queue route not found".to_vec(), false);
@@ -835,6 +864,7 @@ impl Broker {
         }
     }
 }
+
 fn http(status: u16, body: Vec<u8>, json: bool) -> HttpResponse {
     HttpResponse {
         status,
@@ -850,6 +880,7 @@ fn http(status: u16, body: Vec<u8>, json: bool) -> HttpResponse {
         observed_position: None,
     }
 }
+
 impl Cell for Broker {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
