@@ -900,14 +900,27 @@ async fn load_worker_at_pointer(
         })
         .collect();
     let workflow_bindings = bindings(&manifest, "workflow")
-        .filter_map(|binding| {
-            Some(crate::engine_api::WorkflowBinding {
-                environment: binding.get("name")?.as_str()?.to_string(),
-                workflow: binding.get("workflow_name")?.as_str()?.to_string(),
-                class: binding.get("class_name")?.as_str()?.to_string(),
+        .map(|binding| -> anyhow::Result<_> {
+            Ok(crate::engine_api::WorkflowBinding {
+                environment: binding
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("workflow binding has no name"))?
+                    .to_owned(),
+                workflow: binding
+                    .get("workflow_name")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("workflow binding has no workflow_name"))?
+                    .to_owned(),
+                class: binding
+                    .get("class_name")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("workflow binding has no class_name"))?
+                    .to_owned(),
+                settings: crate::application::workflow::BindingSettings::from_binding(binding)?,
             })
         })
-        .collect();
+        .collect::<anyhow::Result<Vec<_>>>()?;
     // The `worker_loaders` key of the deployed config. Every entry becomes a
     // binding of its own, because each loader caches the Workers it loaded.
     let loader_bindings = bindings(&manifest, "worker_loader")

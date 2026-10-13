@@ -282,6 +282,7 @@ pub struct WorkflowBinding {
     pub environment: String,
     pub workflow: String,
     pub class: String,
+    pub settings: crate::application::workflow::BindingSettings,
 }
 
 /// One Queue producer binding in a Worker environment.

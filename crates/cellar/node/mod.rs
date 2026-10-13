@@ -4137,6 +4137,7 @@ async fn async_main(
                             environment: binding.trim().to_string(),
                             workflow: name.trim().to_string(),
                             class: class.trim().to_string(),
+                            settings: Default::default(),
                         })
                     })
                     .filter(|binding| {

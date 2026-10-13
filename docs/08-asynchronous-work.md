@@ -53,6 +53,99 @@ Capture nondeterministic decisions through the durable step mechanism rather
 than recomputing them on replay. An external step may run and lose its response;
 use stable receiver-side keys.
 
+The workflow handler receives `workflow::Step`. Use `step.run(name, callback)`
+for a recorded step, or `step.run_with(name, config, callback)` to set retries
+and a timeout. Rust reserves `do`, so `run` is the equivalent of Cloudflare's
+`step.do`. Duration strings can be passed directly to `sleep` and configuration
+builders:
+
+```rust
+let config = StepConfig::default()
+    .retries(Retries::new(3, "5 seconds"))
+    .timeout("1 minute");
+let result = step.run_with("prepare", config, move |_| async move {
+    Ok(params)
+}).await?;
+step.sleep("delay", "1 minute").await?;
+let approval = step.wait_for_event(
+    "approval",
+    WaitOptions::new("approve").timeout("1 hour"),
+).await?;
+```
+
+Import `StepConfig`, `Retries` and `WaitOptions` from `cellar::sdk::workflow`;
+`params` in this fragment is a `StructuredValue`. Passing just an event-type
+string to `wait_for_event` uses the default 24-hour timeout. The previous
+three-argument call is now `wait_for_event_with_timeout(name, type, timeout)`.
+`Steps`, `do_step` and `do_with_config` remain compatibility names. These API
+changes preserve journal step kinds, occurrence counts and replay behavior.
+
+`Workflow::create_batch_with` accepts `BatchCreateOptions::Count` with shared
+parameters or `BatchCreateOptions::Instances` with per-instance options. It
+returns `BatchCreateResult { created, errors }`; each error identifies its input
+index and instance ID. Duplicate input IDs use code `10415`, and existing
+instances use `10405`. Invalid options fail preflight before any instance is
+created. The existing `create_batch(Vec<CreateOptions>)` remains available.
+
+Register compensation with `step.run_with_rollback(name, config, callback,
+RollbackOptions::new(handler).config(rollback_config))`. The handler receives
+the failed workflow's error, its step attempt context and the forward output
+when available. On an uncaught workflow error, compensations run in reverse
+step-start order. Their retries and completed checkpoints survive reactivation.
+`instance.terminate_with_options(ctx, TerminateOptions { rollback: true })`
+also requests compensation. Status remains `Running` during rollback and then
+includes a `rollback` report with outcome `complete` or `failed`. Callbacks are
+registered again by replaying the workflow code; retain the code and handler
+registrations required by active journals. Compensation calls need stable
+idempotency keys, just like forward effects.
+
+For binary results, `step.run_stream` captures a fresh, unlocked `ByteReadable`
+in bounded SQLite chunks. It returns an invocation-owned `StreamOutput` with
+`next(ctx)` and `into_readable(ctx)`. Replay opens a fresh reader over the saved
+bytes. `instance.step_stream(ctx, StepSelector::new(name))` retrieves a
+completed stream from another invocation; `count` selects repeated occurrences.
+Stream retries remove partial captures before recapturing. The host's default
+aggregate stream budget per instance is 1 GiB. `run_stream_with_rollback` exposes
+the saved stream through `RollbackContext::stream_output(ctx)`. A sensitive
+step redacts its output from history and remote stream access.
+
+`instance.subscribe(ctx, SubscribeOptions { cursor, filter })` provides ordered
+historical and live events. `next().await` returns an `InstanceEvent`, or `None`
+once the terminal history has been consumed, including when the filter excludes
+the terminal event. Cursors are exclusive event IDs and can resume from saved
+positions. `close()` ends a subscription; readers remain bound to their opening
+invocation and fail if its authority retires. The history and checkpoint are
+written in the same transaction and use the ordinary output gate.
+Pre-existing journals keep their recorded results; history begins with mutations
+made by the extended implementation, without backfilling older execution events.
+
+Native workflow binding configuration accepts `default_retention` and
+`schedules`. Per-instance retention overrides the binding default; otherwise
+the default is 30 days. Successful and terminated instances use success
+retention; errored instances use error retention. For example:
+
+```json
+{
+  "type": "workflow",
+  "name": "REPORTS",
+  "workflow_name": "reports",
+  "class_name": "Report",
+  "default_retention": { "success_retention": "7 days", "error_retention": "30 days" },
+  "schedules": ["0 9 * * *"]
+}
+```
+
+Scheduled workflows receive `Event::schedule` with the cron expression and
+`scheduled_ms`. The cron cell derives a stable instance ID from the expression
+and scheduled timestamp so a retried trigger reuses the instance. Embedded
+hosts supply the same settings through `WorkflowBinding::settings`. Each node
+runs its primary deployment's schedules. Referenced applications run theirs on
+nodes started with that deployment. Workflow packages retain `workflows-v1`
+while Cellar is in internal development. These Rust APIs follow the Workers API
+capabilities described by [Cloudflare](https://developers.cloudflare.com/workflows/build/workers-api/).
+Cloudflare's JavaScript runtime, REST service, billing and account limits are
+separate platform contracts.
+
 Cron reaches `Invocation::Scheduled` with `cron::Scheduled`; `no_retry` can
 decline retry. Use a job/time-window ID to deduplicate application jobs and
 design a catch-up policy for downtime. Avoid assuming a schedule can replace

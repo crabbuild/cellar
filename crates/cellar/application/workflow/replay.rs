@@ -14,6 +14,7 @@ pub struct Event {
     pub timestamp_ms: i64,
     pub instance_id: String,
     pub workflow_name: String,
+    pub schedule: Option<CronSchedule>,
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +35,39 @@ impl From<String> for StepName {
 impl From<Vec<u16>> for StepName {
     fn from(name: Vec<u16>) -> Self {
         Self(name)
+    }
+}
+
+/// Options for a durable external-event wait.
+#[derive(Clone, Debug)]
+pub struct WaitOptions {
+    pub event_type: String,
+    pub timeout: Option<Duration>,
+}
+
+impl WaitOptions {
+    pub fn new(event_type: impl Into<String>) -> Self {
+        Self {
+            event_type: event_type.into(),
+            timeout: None,
+        }
+    }
+
+    pub fn timeout(mut self, timeout: impl Into<Duration>) -> Self {
+        self.timeout = Some(timeout.into());
+        self
+    }
+}
+
+impl From<&str> for WaitOptions {
+    fn from(event_type: &str) -> Self {
+        Self::new(event_type)
+    }
+}
+
+impl From<String> for WaitOptions {
+    fn from(event_type: String) -> Self {
+        Self::new(event_type)
     }
 }
 
@@ -59,12 +93,40 @@ pub struct Retries {
     pub backoff: Option<Backoff>,
 }
 
+impl Retries {
+    /// Configure retries with a fixed initial delay and exponential backoff.
+    pub fn new(limit: u32, delay: impl Into<Duration>) -> Self {
+        Self {
+            limit: f64::from(limit),
+            delay: Delay::Fixed(delay.into()),
+            backoff: Some(Backoff::Exponential),
+        }
+    }
+
+    pub fn backoff(mut self, backoff: Backoff) -> Self {
+        self.backoff = Some(backoff);
+        self
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct StepConfig {
     pub retries: Option<Retries>,
     pub timeout: Option<Duration>,
     pub sensitive: bool,
     pub rollback: bool,
+}
+
+impl StepConfig {
+    pub fn retries(mut self, retries: Retries) -> Self {
+        self.retries = Some(retries);
+        self
+    }
+
+    pub fn timeout(mut self, timeout: impl Into<Duration>) -> Self {
+        self.timeout = Some(timeout.into());
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -104,7 +166,7 @@ impl std::fmt::Display for StepFailure {
 
 impl std::error::Error for StepFailure {}
 
-fn failure(error: &anyhow::Error) -> StepFailure {
+pub(super) fn failure(error: &anyhow::Error) -> StepFailure {
     let mut failure = error
         .downcast_ref::<StepFailure>()
         .cloned()
@@ -124,7 +186,7 @@ fn failure(error: &anyhow::Error) -> StepFailure {
     failure
 }
 
-fn error_value(error: &anyhow::Error) -> Result<StructuredValue> {
+pub(super) fn error_value(error: &anyhow::Error) -> Result<StructuredValue> {
     let record = failure(error).record;
     let mut value = data(json!({}))?;
     for (key, text) in [("name", record.name), ("message", record.message)] {
@@ -140,7 +202,7 @@ fn error_value(error: &anyhow::Error) -> Result<StructuredValue> {
     Ok(value)
 }
 
-fn revive(record: &StructuredValue) -> Result<anyhow::Error> {
+pub(super) fn revive(record: &StructuredValue) -> Result<anyhow::Error> {
     let record = ErrorRecord::from_value(
         property(record, "error")?.ok_or_else(|| error("missing step error"))?,
     )?;
@@ -188,7 +250,7 @@ impl<T> Future for Scoped<T> {
     }
 }
 
-fn scoped<T: Send + 'static>(
+pub(super) fn scoped<T: Send + 'static>(
     name: &[u16],
     callback: impl FnOnce() -> HandlerFuture<T>,
 ) -> HandlerFuture<T> {
@@ -224,19 +286,36 @@ struct State {
     queued: Vec<Task>,
     held: Vec<tokio::sync::oneshot::Sender<Result<StructuredValue>>>,
     storage_failure: Option<String>,
+    rollbacks: HashMap<String, Registration>,
 }
 
-struct Shared {
-    storage: Storage,
-    context: Context,
-    generation: String,
+pub(super) struct Shared {
+    pub(super) storage: Storage,
+    pub(super) context: Context,
+    pub(super) generation: String,
+    changed: Arc<tokio::sync::Notify>,
+    rollback_mode: bool,
     state: Mutex<State>,
     wake: AtomicWaker,
 }
 
+#[derive(Clone)]
+pub(super) struct Registration {
+    pub name: Vec<u16>,
+    pub count: u64,
+    pub options: RollbackOptions,
+}
+
 impl Shared {
-    fn track<T>(&self, result: Result<T>) -> Result<T> {
+    pub(super) fn registration(&self, key: &str) -> Option<Registration> {
+        self.state.lock().unwrap().rollbacks.get(key).cloned()
+    }
+
+    pub(super) fn track<T>(&self, result: Result<T>) -> Result<T> {
         if let Err(error) = &result {
+            if error.downcast_ref::<StepFailure>().is_some() {
+                return result;
+            }
             self.state
                 .lock()
                 .unwrap()
@@ -246,12 +325,27 @@ impl Shared {
         result
     }
 
-    fn get(&self, key: &str) -> Result<Option<StructuredValue>> {
+    pub(super) fn get(&self, key: &str) -> Result<Option<StructuredValue>> {
         self.track(read(&self.storage, key))
     }
 
-    fn put(&self, key: &str, value: &StructuredValue) -> Result<()> {
-        self.track(self.storage.put_clone(key, value))
+    pub(super) fn put(&self, key: &str, value: &StructuredValue) -> Result<()> {
+        let result = self.track(self.storage.transaction_sync(|transaction| {
+            let Some(mut meta) = read(transaction, META)? else {
+                return Ok(());
+            };
+            if text(&meta, "generation")? != self.generation || terminal(&meta)? {
+                return Ok(());
+            }
+            let previous = read(transaction, key)?;
+            super::history::step_change(transaction, &mut meta, key, previous.as_ref(), value)?;
+            transaction.put_clone(key, value)?;
+            transaction.put_clone(META, &meta)
+        }));
+        if result.is_ok() {
+            self.changed.notify_waiters();
+        }
+        result
     }
 
     fn kind(&self, record: Option<StructuredValue>, kind: &str) -> Result<Option<StructuredValue>> {
@@ -270,9 +364,12 @@ impl Shared {
 }
 
 #[derive(Clone)]
-pub struct Steps(Arc<Shared>);
+pub struct Step(pub(super) Arc<Shared>);
 
-impl Steps {
+/// Compatibility name for [`Step`].
+pub use self::Step as Steps;
+
+impl Step {
     fn frame(
         &self,
         name: Vec<u16>,
@@ -327,6 +424,9 @@ impl Steps {
                 {
                     return Ok(StepResult::Pause);
                 }
+                if property(&meta, "rollbackTarget")?.is_some() && !shared.rollback_mode {
+                    return Ok(StepResult::Pause);
+                }
                 body(shared.clone(), key, count, ordinal).await
             }
             .await;
@@ -362,7 +462,11 @@ impl Steps {
         })
     }
 
-    pub fn do_step<F, Fut>(
+    /// Execute a named durable step, reusing its recorded result on replay.
+    ///
+    /// Rust reserves `do`, so Cellar uses `run` for Cloudflare's `step.do`.
+    #[doc(alias = "do")]
+    pub fn run<F, Fut>(
         &self,
         name: impl Into<StepName>,
         callback: F,
@@ -371,10 +475,11 @@ impl Steps {
         F: FnOnce(Attempt) -> Fut + Send + 'static,
         Fut: Future<Output = Result<StructuredValue>> + Send + 'static,
     {
-        self.do_with_config(name, StepConfig::default(), callback)
+        self.run_with(name, StepConfig::default(), callback)
     }
 
-    pub fn do_with_config<F, Fut>(
+    /// Execute a durable step with explicit retry and timeout settings.
+    pub fn run_with<F, Fut>(
         &self,
         name: impl Into<StepName>,
         config: StepConfig,
@@ -384,32 +489,45 @@ impl Steps {
         F: FnOnce(Attempt) -> Fut + Send + 'static,
         Fut: Future<Output = Result<StructuredValue>> + Send + 'static,
     {
+        self.run_internal(name, config, callback, None, false)
+    }
+
+    pub fn run_with_rollback<F, Fut>(
+        &self,
+        name: impl Into<StepName>,
+        config: StepConfig,
+        callback: F,
+        rollback: RollbackOptions,
+    ) -> HandlerFuture<StructuredValue>
+    where
+        F: FnOnce(Attempt) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<StructuredValue>> + Send + 'static,
+    {
+        if let Err(error) = validate_config(&rollback.config) {
+            return Box::pin(async move { Err(error) });
+        }
+        self.run_internal(name, config, callback, Some(rollback), false)
+    }
+
+    pub(super) fn run_internal<F, Fut>(
+        &self,
+        name: impl Into<StepName>,
+        config: StepConfig,
+        callback: F,
+        rollback: Option<RollbackOptions>,
+        stream: bool,
+    ) -> HandlerFuture<StructuredValue>
+    where
+        F: FnOnce(Attempt) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<StructuredValue>> + Send + 'static,
+    {
         let name = name.into().0;
-        let checked = (|| {
-            check_step_name(&name)?;
-            ensure!(!config.sensitive && !config.rollback,"WORKFLOW_ERROR: sensitive output and rollback handlers are not implemented in cellar");
-            if let Some(retries) = &config.retries {
-                ensure!(
-                    retries.limit.is_finite()
-                        && (0.0..=limits().max_retries as f64).contains(&retries.limit),
-                    "WORKFLOW_ERROR: retry limit must be from zero to {}",
-                    limits().max_retries
-                );
-                if let Delay::Fixed(delay) = &retries.delay {
-                    delay.milliseconds()?;
-                }
+        if let Some(rollback) = &rollback {
+            if let Err(error) = validate_config(&rollback.config) {
+                return Box::pin(async move { Err(error) });
             }
-            let timeout = config
-                .timeout
-                .clone()
-                .unwrap_or(Duration::Milliseconds(600000.0));
-            let ms = timeout.milliseconds()?;
-            ensure!(
-                ms > 0.0 && ms.is_finite(),
-                "WORKFLOW_ERROR: step timeout must be finite and above zero"
-            );
-            Ok((timeout, ms))
-        })();
+        }
+        let checked = check_step_name(&name).and_then(|_| validate_config(&config));
         let (timeout, timeout_ms) = match checked {
             Ok(value) => value,
             Err(error) => return Box::pin(async move { Err(error) }),
@@ -417,50 +535,97 @@ impl Steps {
         self.frame(name.clone(), move |shared, key, count, ordinal| {
             Box::pin(async move {
                 let record = shared.kind(shared.get(&key)?, "do")?;
+                if let Some(options) = &rollback {
+                    shared.state.lock().unwrap().rollbacks.insert(
+                        key.clone(),
+                        Registration {
+                            name: name.clone(),
+                            count,
+                            options: options.clone(),
+                        },
+                    );
+                }
                 if let Some(record) = &record {
                     match text(record, "status")?.as_str() {
-                        "completed" => return Ok(StepResult::Value(
-                            property(record, "value")?.unwrap_or_else(StructuredValue::undefined),
-                        )),
+                        "completed" => {
+                            return Ok(StepResult::Value(
+                                property(record, "value")?
+                                    .unwrap_or_else(StructuredValue::undefined),
+                            ))
+                        }
                         "failed" => return Err(revive(record)?),
-                        "retrying" if number(record, "nextAt")? > now() as f64 => {
+                        "retrying"
+                            if !shared.rollback_mode
+                                && number(record, "nextAt")? > now() as f64 =>
+                        {
                             return Ok(StepResult::Block(number(record, "nextAt")?));
                         }
                         _ => {}
                     }
                 }
-                let attempt = record.as_ref().map(|record| number(record, "attempt"))
-                    .transpose()?.unwrap_or(0.0) as u64 + 1;
-                let ordinal = record.as_ref().map(|record| number(record, "ordinal"))
-                    .transpose()?.unwrap_or(ordinal as f64);
-                let retries = config.retries.unwrap_or(Retries {
-                    limit: 5.0,
-                    delay: Delay::Fixed(Duration::Milliseconds(10000.0)),
-                    backoff: Some(Backoff::Exponential),
-                });
+                if shared.rollback_mode {
+                    return Err(StepFailure::non_retryable("Workflow is rolling back").into());
+                }
+                let attempt = record
+                    .as_ref()
+                    .map(|record| number(record, "attempt"))
+                    .transpose()?
+                    .unwrap_or(0.0) as u64
+                    + 1;
+                let ordinal = record
+                    .as_ref()
+                    .map(|record| number(record, "ordinal"))
+                    .transpose()?
+                    .unwrap_or(ordinal as f64);
+                let retries = config.retries.clone().unwrap_or_else(default_retries);
                 let context = Attempt {
-                    name: name.clone(), count, attempt, retry_limit: retries.limit,
+                    name: name.clone(),
+                    count,
+                    attempt,
+                    retry_limit: retries.limit,
                     retry_delay: match &retries.delay {
                         Delay::Fixed(delay) => Some(delay.clone()),
                         Delay::Dynamic(_) => None,
                     },
-                    backoff: retries.backoff, timeout,
+                    backoff: retries.backoff,
+                    timeout,
                 };
                 // A selected restart can name this occurrence while its
                 // callback awaits I/O. The generation fences its final write.
-                shared.put(&key, &data(json!({
-                    "kind": "do", "status": "running", "attempt": attempt - 1, "ordinal": ordinal,
-                }))?)?;
+                let mut running = data(json!({
+                    "kind": "do",
+                    "status": "running",
+                    "attempt": attempt - 1,
+                    "lastAttempt": attempt,
+                    "ordinal": ordinal,
+                    "rollbackEligible": rollback.is_some(),
+                    "sensitive": config.sensitive,
+                    "config": config_value(&config, &context)?,
+                }))?;
+                if let Some(pending) = record
+                    .as_ref()
+                    .map(|r| property(r, "pendingStream"))
+                    .transpose()?
+                    .flatten()
+                {
+                    set(&mut running, "pendingStream", &pending)?;
+                }
+                shared.put(&key, &running)?;
                 let mut future = scoped(&name, || Box::pin(callback(context.clone())));
                 let result = match crate::asyncrt::timeout(
                     std::time::Duration::from_millis(timeout_ms.min(u64::MAX as f64) as u64),
                     &mut future,
-                ).await {
+                )
+                .await
+                {
                     Ok(result) => result,
                     Err(_) => {
                         // The timeout discards the result; the callback keeps
                         // its application I/O under the original event.
-                        shared.context.wait_until(async move { let _ = future.await; Ok(()) })?;
+                        shared.context.wait_until(async move {
+                            let _ = future.await;
+                            Ok(())
+                        })?;
                         Err(error(format!(
                             "step {:?} timed out after {timeout_ms} ms (attempt {attempt})",
                             String::from_utf16_lossy(&name),
@@ -471,44 +636,81 @@ impl Steps {
                     Ok(value) => match check_value(&value, "the step return value") {
                         Ok(()) => Ok(value),
                         Err(error) => Err(StepFailure {
-                            record: failure(&error).record, non_retryable: true,
-                        }.into()),
+                            record: failure(&error).record,
+                            non_retryable: true,
+                        }
+                        .into()),
                     },
                     Err(error) => Err(error),
                 };
                 match result {
                     Ok(value) => {
                         let mut record = data(json!({
-                            "kind": "do", "status": "completed", "ordinal": ordinal,
+                            "kind": "do",
+                            "status": "completed",
+                            "ordinal": ordinal,
+                            "lastAttempt": attempt,
+                            "rollbackEligible": rollback.is_some(),
+                            "sensitive": config.sensitive,
+                            "stream": stream,
                         }))?;
                         set(&mut record, "value", &value)?;
                         shared.put(&key, &record)?;
                         Ok(StepResult::Value(value))
                     }
                     Err(error) => {
+                        let pending = shared
+                            .get(&key)?
+                            .map(|r| property(&r, "pendingStream"))
+                            .transpose()?
+                            .flatten();
                         if failure(&error).non_retryable || attempt as f64 > retries.limit {
                             let mut record = data(json!({
-                                "kind": "do", "status": "failed", "ordinal": ordinal,
+                                "kind": "do",
+                                "status": "failed",
+                                "ordinal": ordinal,
+                                "lastAttempt": attempt,
+                                "rollbackEligible": rollback.is_some(),
                             }))?;
                             set(&mut record, "error", &error_value(&error)?)?;
+                            if let Some(pending) = &pending {
+                                set(&mut record, "pendingStream", pending)?;
+                            }
                             shared.put(&key, &record)?;
                             return Err(error);
                         }
-                        let delay = match retries.delay {
-                            Delay::Fixed(delay) => delay,
-                            Delay::Dynamic(callback) => scoped(&name, || {
-                                callback(context, failure(&error).record)
-                            }).await?,
-                        };
-                        let factor = match retries.backoff {
-                            Some(Backoff::Exponential) => 2.0_f64.powf(attempt as f64 - 1.0),
-                            Some(Backoff::Linear) => attempt as f64,
-                            _ => 1.0,
-                        };
-                        let at = now() as f64 + delay.milliseconds()? * factor;
                         let mut retrying = data(json!({
-                            "kind": "do", "status": "retrying", "attempt": attempt, "ordinal": ordinal,
+                            "kind": "do",
+                            "status": "failed",
+                            "attempt": attempt,
+                            "lastAttempt": attempt,
+                            "ordinal": ordinal,
+                            "rollbackEligible": rollback.is_some(),
                         }))?;
+                        set(&mut retrying, "error", &error_value(&error)?)?;
+                        if let Some(pending) = &pending {
+                            set(&mut retrying, "pendingStream", pending)?;
+                        }
+                        let scheduled = async {
+                            let delay = match retries.delay {
+                                Delay::Fixed(delay) => delay,
+                                Delay::Dynamic(callback) => {
+                                    scoped(&name, || callback(context, failure(&error).record))
+                                        .await?
+                                }
+                            };
+                            retry_at(&delay, retries.backoff, attempt)
+                        }
+                        .await;
+                        let at = match scheduled {
+                            Ok(at) => at,
+                            Err(error) => {
+                                set(&mut retrying, "error", &error_value(&error)?)?;
+                                shared.put(&key, &retrying)?;
+                                return Err(error);
+                            }
+                        };
+                        put_field(&mut retrying, "status", json!("retrying"))?;
                         put_number(&mut retrying, "nextAt", at)?;
                         shared.put(&key, &retrying)?;
                         Ok(StepResult::Block(at))
@@ -518,8 +720,40 @@ impl Steps {
         })
     }
 
-    pub fn sleep(&self, name: impl Into<StepName>, duration: Duration) -> HandlerFuture<()> {
-        let checked = duration.milliseconds().and_then(|ms| {
+    /// Compatibility spelling for [`Self::run`].
+    pub fn do_step<F, Fut>(
+        &self,
+        name: impl Into<StepName>,
+        callback: F,
+    ) -> HandlerFuture<StructuredValue>
+    where
+        F: FnOnce(Attempt) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<StructuredValue>> + Send + 'static,
+    {
+        self.run(name, callback)
+    }
+
+    /// Compatibility spelling for [`Self::run_with`].
+    pub fn do_with_config<F, Fut>(
+        &self,
+        name: impl Into<StepName>,
+        config: StepConfig,
+        callback: F,
+    ) -> HandlerFuture<StructuredValue>
+    where
+        F: FnOnce(Attempt) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<StructuredValue>> + Send + 'static,
+    {
+        self.run_with(name, config, callback)
+    }
+
+    /// Sleep durably using a duration string, milliseconds, or a Rust duration.
+    pub fn sleep(
+        &self,
+        name: impl Into<StepName>,
+        duration: impl Into<Duration>,
+    ) -> HandlerFuture<()> {
+        let checked = duration.into().milliseconds().and_then(|ms| {
             check_horizon(ms, "sleep")?;
             Ok(ms)
         });
@@ -557,6 +791,7 @@ impl Steps {
                 }) {
                     return Ok(StepResult::Value(StructuredValue::undefined()));
                 }
+                if shared.rollback_mode { return Err(StepFailure::non_retryable("Workflow is rolling back").into()); }
                 let (at, ordinal) = match &record {
                     Some(record) => (number(record, "deadline")?, number(record, "ordinal")?),
                     None => {
@@ -584,7 +819,21 @@ impl Steps {
         })
     }
 
+    /// Wait for an event type, optionally configuring its durable timeout.
+    ///
+    /// A string uses the default 24-hour timeout. Use [`WaitOptions`] to
+    /// specify a timeout, for example `WaitOptions::new("approve").timeout("1 hour")`.
     pub fn wait_for_event(
+        &self,
+        name: impl Into<StepName>,
+        options: impl Into<WaitOptions>,
+    ) -> HandlerFuture<StructuredValue> {
+        let options = options.into();
+        self.wait_for_event_with_timeout(name, options.event_type, options.timeout)
+    }
+
+    /// Explicit-argument form of [`Self::wait_for_event`].
+    pub fn wait_for_event_with_timeout(
         &self,
         name: impl Into<StepName>,
         event_type: String,
@@ -620,6 +869,7 @@ impl Steps {
                         _ => {}
                     }
                 }
+                if shared.rollback_mode { return Err(StepFailure::non_retryable("Workflow is rolling back").into()); }
                 if record.is_none() {
                     let new = data(json!({
                         "kind": "event", "status": "waiting", "type": event_type,
@@ -661,7 +911,11 @@ impl Steps {
                             "kind": "event", "status": "completed", "ordinal": number(&current, "ordinal")?,
                         }))?;
                         set(&mut completed, "value", &value)?;
+                        let mut meta = required(transaction)?;
+                        ensure!(text(&meta, "generation")? == shared.generation && !terminal(&meta)?, "WORKFLOW_ERROR: workflow generation retired");
+                        super::history::step_change(transaction, &mut meta, &key, Some(&current), &completed)?;
                         transaction.put_clone(&key, &completed)?;
+                        transaction.put_clone(META, &meta)?;
                         return Ok(Some(value));
                     }
                     Ok(None)
@@ -673,6 +927,72 @@ impl Steps {
             })
         })
     }
+}
+
+pub(super) fn validate_config(config: &StepConfig) -> Result<(Duration, f64)> {
+    let checked = (|| {
+        ensure!(
+            !config.rollback,
+            "WORKFLOW_ERROR: supply a RollbackOptions handler with run_with_rollback"
+        );
+        if let Some(retries) = &config.retries {
+            ensure!(
+                retries.limit.is_finite()
+                    && (0.0..=limits().max_retries as f64).contains(&retries.limit),
+                "WORKFLOW_ERROR: retry limit must be from zero to {}",
+                limits().max_retries
+            );
+            if let Delay::Fixed(delay) = &retries.delay {
+                delay.milliseconds()?;
+            }
+        }
+        let timeout = config
+            .timeout
+            .clone()
+            .unwrap_or(Duration::Milliseconds(600000.0));
+        let ms = timeout.milliseconds()?;
+        ensure!(
+            ms > 0.0 && ms.is_finite(),
+            "WORKFLOW_ERROR: step timeout must be finite and above zero"
+        );
+        Ok((timeout, ms))
+    })();
+    checked
+}
+
+pub(super) fn default_retries() -> Retries {
+    Retries::new(5, 10000.0)
+}
+
+pub(super) fn retry_at(delay: &Duration, backoff: Option<Backoff>, attempt: u64) -> Result<f64> {
+    let factor = match backoff {
+        Some(Backoff::Exponential) => 2.0_f64.powf(attempt as f64 - 1.0),
+        Some(Backoff::Linear) => attempt as f64,
+        _ => 1.0,
+    };
+    let ms = delay.milliseconds()? * factor;
+    check_horizon(ms, "retry delay")?;
+    Ok(now() as f64 + ms)
+}
+
+pub(super) fn config_value(config: &StepConfig, ctx: &Attempt) -> Result<serde_json::Value> {
+    let delay = match &ctx.retry_delay {
+        Some(delay) => serde_json::to_value(delay)?,
+        None => json!("[dynamic]"),
+    };
+    let mut value =
+        json!({"retries":{"limit":ctx.retry_limit,"delay":delay},"timeout":ctx.timeout});
+    if let Some(backoff) = ctx.backoff {
+        value["retries"]["backoff"] = json!(match backoff {
+            Backoff::Constant => "constant",
+            Backoff::Linear => "linear",
+            Backoff::Exponential => "exponential",
+        });
+    }
+    if config.sensitive {
+        value["sensitive"] = json!("output");
+    }
+    Ok(value)
 }
 
 enum Outcome {
@@ -819,25 +1139,39 @@ pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<(
         return Ok(());
     };
     let generation = text(&meta, "generation")?;
+    let rollback_mode = property(&meta, "rollbackTarget")?.is_some();
+    let shared = Arc::new(Shared {
+        storage: cell.storage.clone(),
+        context: context.clone(),
+        generation: generation.clone(),
+        changed: cell.changed.clone(),
+        rollback_mode,
+        state: Mutex::new(State::default()),
+        wake: AtomicWaker::new(),
+    });
+    if rollback_mode && super::rollback::required_steps(&cell.storage, &generation)?.is_empty() {
+        super::rollback::finish(&shared, None)?;
+        return Ok(());
+    }
     let class = cell.classes.get(&text(&meta, "workflowName")?).cloned();
     let result = if let Some(class) = class {
         if !settle(&cell.storage, &generation, |meta, _| {
-            put_field(meta, "status", json!("running"))
+            if rollback_mode {
+                put_field(meta, "status", json!("rollingBack"))
+            } else {
+                put_field(meta, "status", json!("running"))
+            }
         })? {
             return Ok(());
         }
-        let shared = Arc::new(Shared {
-            storage: cell.storage.clone(),
-            context: context.clone(),
-            generation: generation.clone(),
-            state: Mutex::new(State::default()),
-            wake: AtomicWaker::new(),
-        });
         let event = Event {
             payload: property(&meta, "params")?.unwrap_or_else(StructuredValue::undefined),
             timestamp_ms: number(&meta, "createdMs")? as i64,
             instance_id: text(&meta, "instanceId")?,
             workflow_name: text(&meta, "workflowName")?,
+            schedule: property(&meta, "schedule")?
+                .map(|s| -> Result<CronSchedule> { Ok(serde_json::from_value(s.to_json()?)?) })
+                .transpose()?,
         };
         let mut worker_context = context.clone();
         worker_context.identity = None;
@@ -846,7 +1180,7 @@ pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<(
                 class,
                 worker_context,
                 event,
-                Steps(shared.clone()),
+                Step(shared.clone()),
             )
         }))
         .unwrap_or_else(|panic| {
@@ -854,7 +1188,7 @@ pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<(
             Box::pin(async move { Err(error) })
         });
         Run {
-            shared,
+            shared: shared.clone(),
             context: context.clone(),
             handler: Some(handler),
             tasks: Vec::new(),
@@ -870,6 +1204,30 @@ pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<(
         )))
     };
     let current = read(&cell.storage, META)?;
+    let Some(current_meta) = &current else {
+        return Ok(());
+    };
+    if text(current_meta, "generation")? != generation || terminal(current_meta)? {
+        return Ok(());
+    }
+    if rollback_mode {
+        match super::rollback::drive(shared.clone()).await {
+            Ok(Some(at)) => {
+                settle(&cell.storage, &generation, |_, transaction| {
+                    transaction.set_alarm(at as i64)
+                })?;
+            }
+            Ok(None) => {}
+            Err(error) => super::rollback::finish(&shared, Some(&error))?,
+        }
+        return Ok(());
+    }
+    if property(current_meta, "rollbackTarget")?.is_some() {
+        settle(&cell.storage, &generation, |_, transaction| {
+            transaction.set_alarm(now())
+        })?;
+        return Ok(());
+    }
     if matches!(result, Outcome::Pause)
         || current.as_ref().is_some_and(|meta| {
             text(meta, "generation").is_ok_and(|current| current == generation)
@@ -918,9 +1276,16 @@ pub(super) async fn alarm(cell: Arc<InstanceCell>, context: Context) -> Result<(
         }
         Outcome::Error(error) => {
             settle(&cell.storage, &generation, |meta, transaction| {
-                put_field(meta, "status", json!("errored"))?;
                 set(meta, "error", &error_value(&error)?)?;
-                finish_retention(meta, transaction)
+                if !super::rollback::required_steps(transaction, &generation)?.is_empty() {
+                    put_field(meta, "status", json!("rollingBack"))?;
+                    put_field(meta, "rollbackTarget", json!("errored"))?;
+                    set(meta, "rollbackError", &error_value(&error)?)?;
+                    transaction.set_alarm(now())
+                } else {
+                    put_field(meta, "status", json!("errored"))?;
+                    finish_retention(meta, transaction)
+                }
             })?;
         }
         Outcome::Pause => {}
