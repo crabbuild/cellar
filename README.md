@@ -191,7 +191,11 @@ has no application factories compiled into it.
 
 ## Verification
 
+Apply Rust formatting with `cargo format`. This runs stable rustfmt and adds
+blank lines between declarations and methods. CI checks the same convention:
+
 ```sh
+cargo format --check
 python3 tools/check_native_dependencies.py
 cargo test --workspace --all-features --lib --tests --locked
 cargo test --workspace --all-features --doc --locked

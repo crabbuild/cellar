@@ -1,0 +1,3 @@
+[alias]
+xtask = "run --quiet --locked -p cellar-xtask --"
+format = "xtask fmt"
