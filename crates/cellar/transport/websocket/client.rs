@@ -278,10 +278,10 @@ mod tests {
     async fn verified_tls_and_ipv6_websocket_transport() -> anyhow::Result<()> {
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
             use rustls::pki_types::{CertificateDer, PrivateKeyDer};
-            let ca = CertificateDer::from(include_bytes!("host_tcp/fixtures/ca.der").to_vec());
+            let ca = CertificateDer::from(include_bytes!("../tcp/fixtures/ca.der").to_vec());
             let certificate =
-                CertificateDer::from(include_bytes!("host_tcp/fixtures/server.der").to_vec());
-            let key = PrivateKeyDer::try_from(include_bytes!("host_tcp/fixtures/key.der").to_vec())
+                CertificateDer::from(include_bytes!("../tcp/fixtures/server.der").to_vec());
+            let key = PrivateKeyDer::try_from(include_bytes!("../tcp/fixtures/key.der").to_vec())
                 .map_err(anyhow::Error::msg)?;
             let acceptor = tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(
                 rustls::ServerConfig::builder()

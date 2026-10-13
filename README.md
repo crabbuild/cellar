@@ -100,6 +100,38 @@ aliases and entries-only tails are rejected. Expired node leases become CAS
 tombstones after their logs are sealed, preserving recovery pointers and guarding
 against deletion of a successor generation.
 
+## Repository structure
+
+The production crate groups implementation files by component. `lib.rs`
+preserves existing Rust module paths through `#[path]` declarations, and
+`sdk.rs` remains the application-facing facade.
+
+| Folder under `crates/cellar/` | Responsibility |
+| --- | --- |
+| `cli/` | Commands, packaging, development, and environment parsing |
+| `application/` | SDK contracts, binding adapters, and built-in KV/Queue cells |
+| `actor/` | Serial decision-core driver and effect execution |
+| `execution/` | Execution domains, injected services, and task ownership |
+| `node/` | Startup, ingress, supervision, managed integration, and shutdown |
+| `runtime/` | Generations, assets, cells, compiled workers, and invocation lifetimes |
+| `transport/` | HTTP, TCP/TLS, and WebSocket adapters and owned registries |
+| `storage/` | SQLite, object-store clients, and the shared Blob backend |
+| `durability/` | Replication, node logs, recovery, and durability task ownership |
+| `fleet/` | Leases, peer authentication, handoff, and durable wake discovery |
+| `deployment/` | Shared manifests, artifact protocol, and deployment loading |
+| `containers/` | Cell-owned container service and Docker adapter |
+| `observability/` | Telemetry export and encoding |
+| `platform/` | Process memory and machine adapters |
+| `tests/` | Cargo integration-test entry points |
+
+For example, `cellar::daemon` is implemented in `node/mod.rs`,
+`cellar::storage` in `storage/sqlite/mod.rs`, and `cellar::node_log` in
+`durability/log/mod.rs`. Transport registries retain their originating domain
+and event authority. The other crates keep their existing boundaries:
+`cellar-logic` owns decisions, `cellar-ltx` owns SQLite/LTX mechanisms, and
+`cellar-native` owns engine-independent primitives. See [AGENTS.md](AGENTS.md)
+for module ownership and contribution guidance.
+
 ## Build and run
 
 ```sh
