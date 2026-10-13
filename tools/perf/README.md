@@ -79,6 +79,54 @@ complete application events, cells and dispatches, a quiesced log, closed local
 durability, and surviving caller runtimes. The final node uses Preserve and
 must also prepare a clean reload. A zero process exit alone is insufficient.
 
+## Writes in flight and ambiguous responses
+
+`cellar-perf-fault-cells` is a separate compiled SDK application for correctness
+checks during process failures. It records each operation ID, payload SHA-256
+and counter ordinal in the same storage transaction. Replaying the same ID and
+payload returns the original receipt. Reusing an ID with another payload fails.
+This is application idempotency policy; Cellar does not promise exactly-once
+request delivery. The normal counter performance workload is unchanged.
+
+Run the fault driver with an image built above:
+
+```sh
+python3 tools/perf/faults.py --image cellar-embedded-perf:my-checkout \
+  --cells 128 --concurrency 16 --max-resident 16 --max-cached-routes 8 \
+  --max-requests 128 --shutdown-ms 60000 --scenario bucket fleet
+```
+
+The host-side client journals planned operations, every attempt and every
+outcome, flushing and syncing records before it issues writes. The driver
+first acknowledges one write to every cell. It then forwards one write through
+a local proxy that consumes the complete SDK response and drops the client's
+connection. That receipt must survive even though the client never received
+an acknowledgement.
+
+Next, concurrent writes commit their local receipt and hold the handler for
+ten seconds before returning. A diagnostic marker proves that a handler is
+running after its local transaction; it is not an output-gate acknowledgement.
+The driver requires that operation to remain pending at the client and kills
+its actual owner inside the hold window. Bucket mode kills all three processes,
+discards local state and restores from RustFS. Fleet mode kills the owner and
+reads through the two survivors.
+
+Before any retry, every acknowledged operation and the response lost at the
+proxy must have the original durable receipt. Unacknowledged operations may
+be absent or present exactly once. Each cell's counter must equal its distinct
+receipts, with unique contiguous ordinals and matching payload hashes. Only
+after that check does the driver replay the issued IDs. The final counters
+must then equal the number of logical operations, including ambiguous ones,
+and remain exact after the final node's preserving reload.
+
+Required cache snapshots, captured startup policies, process kill observations,
+returned shutdown reports and stage-specific client ledgers are saved beside
+the raw receipts. The final audit rechecks those stage ledgers independently;
+replay cannot conceal a missing acknowledged operation. Failures preserve
+partial state captures and leave `completed` false. This checks process crashes
+and deliberate client response loss. Peer network partitions, sustained load
+and production-scale acceptance remain separate work.
+
 These are bounded local recovery and saturation checks. All nodes share one
 VM, disk and single RustFS server. The workload overwrites small values, uses
 closed-loop traffic and injects failures between write phases. It does not
