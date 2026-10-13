@@ -2402,9 +2402,9 @@ pub(crate) async fn dispatch_forwarded_rpc(
     }
 }
 
-#[path = "main/peer_tunnel.rs"]
+#[path = "network/peer_tunnel.rs"]
 mod peer_tunnel;
-#[path = "main/websocket.rs"]
+#[path = "network/websocket.rs"]
 mod websocket;
 use websocket::{handle_websocket, outbound_websocket_task, reply_without_upgrade};
 
@@ -3405,7 +3405,7 @@ async fn recover_with_follower_listener(
     while connections.next().await.is_some() {}
     result
 }
-#[path = "cli/daemon.rs"]
+#[path = "../cli/daemon.rs"]
 mod cli;
 use cli::{action_from_process, print_help, Action};
 
