@@ -1,0 +1,162 @@
+{
+  "cargo_manifest": "../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-examples",
+    "application_version": "v1",
+    "cells": [
+      "Counter",
+      "Alarm",
+      "Background",
+      "Vector",
+      "Room",
+      "Supervisor",
+      "Account",
+      "Outbox",
+      "Agent"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "COUNTERS",
+        "class_name": "Counter"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "ALARMS",
+        "class_name": "Alarm"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "ASYNC",
+        "class_name": "Background"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "VECTORS",
+        "class_name": "Vector"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "ROOMS",
+        "class_name": "Room"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "SUPERVISORS",
+        "class_name": "Supervisor"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "ACCOUNTS",
+        "class_name": "Account"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "OUTBOX",
+        "class_name": "Outbox"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "AGENTS",
+        "class_name": "Agent"
+      },
+      {
+        "type": "sql",
+        "name": "DB",
+        "database_id": "native-examples-example-guestbook"
+      },
+      {
+        "type": "kv",
+        "name": "KV",
+        "id": "native-examples-example-kv"
+      },
+      {
+        "type": "blob_bucket",
+        "name": "BLOBS",
+        "bucket_name": "native-examples-example-blobs"
+      },
+      {
+        "type": "queue",
+        "name": "JOBS",
+        "queue": "native-examples-example-jobs"
+      },
+      {
+        "type": "queue",
+        "name": "DEAD",
+        "queue": "native-examples-example-dead"
+      },
+      {
+        "type": "workflow",
+        "name": "REPORTS",
+        "workflow_name": "reports",
+        "class_name": "Report"
+      },
+      {
+        "type": "worker_loader",
+        "name": "WORKERS"
+      },
+      {
+        "type": "plain_text",
+        "name": "TENANT_TOKENS",
+        "text": "{\"local-acme\": \"acme\", \"local-beta\": \"beta\"}"
+      }
+    ],
+    "queue_consumers": [
+      {
+        "queue": "native-examples-example-jobs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 2,
+        "dead_letter_queue": "native-examples-example-dead",
+        "max_concurrency": 2,
+        "retry_delay": 1
+      }
+    ],
+    "crons": [
+      "* * * * *"
+    ],
+    "assets": {
+      "directory": "native-counter-assets",
+      "binding": "ASSETS",
+      "run_worker_first": [
+        "/health",
+        "/hello",
+        "/webapi",
+        "/body",
+        "/body/*",
+        "/assets-binding",
+        "/assets-binding/*",
+        "/counters/*",
+        "/router/*",
+        "/rpc/*",
+        "/cron",
+        "/alarms/*",
+        "/async/*",
+        "/sql",
+        "/kv",
+        "/kv/*",
+        "/blobs/*",
+        "/vectors/*",
+        "/queues",
+        "/queues/*",
+        "/workflows/*",
+        "/rooms/*",
+        "/wsclient",
+        "/loaded",
+        "/facets/*",
+        "/html",
+        "/compute",
+        "/tenants/*",
+        "/outbox/*",
+        "/agents/*",
+        "/wsclient/*"
+      ]
+    },
+    "compatibility_flags": [
+      "sqlite_vec"
+    ]
+  }
+}

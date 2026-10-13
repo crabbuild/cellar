@@ -1,0 +1,25 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-multi-tenant",
+    "application_version": "v1",
+    "cells": [
+      "Account"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "ACCOUNTS",
+        "class_name": "Account"
+      },
+      {
+        "type": "plain_text",
+        "name": "TENANT_TOKENS",
+        "text": "{\"local-acme\": \"acme\", \"local-beta\": \"beta\"}"
+      }
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-vectordb",
+    "application_version": "v1",
+    "cells": [
+      "Vector"
+    ],
+    "bindings": [
+      {
+        "type": "durable_object_namespace",
+        "name": "VECTORS",
+        "class_name": "Vector"
+      }
+    ],
+    "compatibility_flags": [
+      "sqlite_vec"
+    ]
+  }
+}

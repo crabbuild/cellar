@@ -37,6 +37,115 @@ pub const DEFAULT_MAX_RETRIES: u16 = 3;
 /// invalid on Cloudflare.
 pub const RETENTION_MS: Ms = 4 * 24 * 60 * 60 * 1000;
 
+/// API ceilings selected by a host; independent of lease and fencing policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub max_message_bytes: usize,
+    pub max_send_batch_bytes: usize,
+    pub max_batch_messages: u16,
+    pub max_batch_timeout_seconds: u16,
+    /// One u16 value must remain available for the final failed attempt.
+    pub max_retries: u16,
+    pub max_concurrency: u16,
+    pub max_delay_seconds: u32,
+    /// `None` disables age-based deletion of messages and transfer receipts.
+    pub retention_ms: Option<Ms>,
+    pub max_admin_batch_size: usize,
+}
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_message_bytes: MAX_MESSAGE_BYTES,
+            max_send_batch_bytes: MAX_SEND_BATCH_BYTES,
+            max_batch_messages: MAX_BATCH_MESSAGES as u16,
+            max_batch_timeout_seconds: MAX_BATCH_TIMEOUT_SECONDS,
+            max_retries: MAX_RETRIES,
+            max_concurrency: MAX_CONCURRENCY,
+            max_delay_seconds: MAX_DELAY_SECONDS,
+            retention_ms: Some(RETENTION_MS),
+            max_admin_batch_size: 100,
+        }
+    }
+}
+impl Limits {
+    pub fn unrestricted() -> Self {
+        Self {
+            max_message_bytes: usize::MAX,
+            max_send_batch_bytes: usize::MAX,
+            max_batch_messages: u16::MAX,
+            max_batch_timeout_seconds: u16::MAX,
+            max_retries: u16::MAX - 1,
+            max_concurrency: u16::MAX,
+            max_delay_seconds: u32::MAX,
+            retention_ms: None,
+            max_admin_batch_size: i64::MAX as usize,
+        }
+    }
+    pub fn validate(&self) -> Result<(), ConfigError> {
+        if self.max_message_bytes == 0
+            || self.max_send_batch_bytes == 0
+            || self.max_batch_messages == 0
+            || self.max_concurrency == 0
+            || self.max_admin_batch_size == 0
+            || self.max_admin_batch_size > i64::MAX as usize
+            || self.max_retries == u16::MAX
+            || self.retention_ms.is_some_and(|ms| ms <= 0)
+        {
+            return Err(ConfigError {
+                field: "queue limits",
+                message: "have invalid capacities, retention or retry range",
+            });
+        }
+        Ok(())
+    }
+}
+
+/// Validate configurable ceilings while preserving the persisted numeric types.
+pub fn validate_config_with_limits(
+    config: &QueueConfig,
+    limits: &Limits,
+) -> Result<(), ConfigError> {
+    limits.validate()?;
+    if *limits == Limits::default() {
+        return validate_config(config);
+    }
+    for (field, invalid) in [
+        (
+            "max_batch_size",
+            config.max_batch_size == 0 || config.max_batch_size > limits.max_batch_messages,
+        ),
+        (
+            "max_batch_timeout",
+            config.max_batch_timeout_seconds > limits.max_batch_timeout_seconds,
+        ),
+        ("max_retries", config.max_retries > limits.max_retries),
+        (
+            "max_concurrency",
+            config
+                .max_concurrency
+                .is_some_and(|n| n == 0 || n > limits.max_concurrency),
+        ),
+        (
+            "delivery_delay",
+            config.delivery_delay_seconds > limits.max_delay_seconds,
+        ),
+        (
+            "retry_delay",
+            config
+                .retry_delay_seconds
+                .is_some_and(|n| n > limits.max_delay_seconds),
+        ),
+    ] {
+        if invalid {
+            return Err(ConfigError {
+                field,
+                message: "is outside the host's Queue limits",
+            });
+        }
+    }
+    Ok(())
+}
+
 /// The Durable Object name that `getByName` hashes for a queue.
 ///
 /// The identity function is intentional. The queue name is already the

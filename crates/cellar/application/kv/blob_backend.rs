@@ -138,6 +138,7 @@ pub(crate) async fn run(
 /// delay.
 pub(crate) fn limits() -> serde_json::Value {
     use cellar_logic::kv;
+    let limits = crate::application::limits::current().kv;
     let knobs = std::env::var("CELLAR_TEST_KV").unwrap_or_default();
     let knob = |name: &str| -> Option<String> {
         knobs.split(',').map(str::trim).find_map(|entry| {
@@ -155,14 +156,14 @@ pub(crate) fn limits() -> serde_json::Value {
             .unwrap_or(default)
     };
     serde_json::json!({
-        "maxKeyBytes": kv::MAX_KEY_BYTES,
-        "maxValueBytes": kv::MAX_VALUE_BYTES,
+        "maxKeyBytes": limits.max_key_bytes,
+        "maxValueBytes": limits.max_value_bytes,
         "maxInlineValueBytes": kv::MAX_INLINE_VALUE_BYTES,
-        "maxMetadataBytes": kv::MAX_METADATA_BYTES,
-        "maxBulkKeys": kv::MAX_BULK_KEYS,
-        "maxListLimit": kv::MAX_LIST_LIMIT,
+        "maxMetadataBytes": limits.max_metadata_bytes,
+        "maxBulkKeys": limits.max_bulk_keys,
+        "maxListLimit": limits.max_list_limit,
         "sweepBatchRows": cellar_logic::sweep::BATCH_ROWS,
-        "minExpirationTtlMs": ms("min-ttl-ms", kv::MIN_EXPIRATION_TTL_MS),
+        "minExpirationTtlMs": ms("min-ttl-ms", limits.min_expiration_ttl_ms),
         "blobSweepMs": ms("blob-sweep-ms", 60_000),
         "sweepDisabled": knob("no-sweep").is_some(),
         "failAfterBlobWrite": knob("fail-after-blob").is_some(),

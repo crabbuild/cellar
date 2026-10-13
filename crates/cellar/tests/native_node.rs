@@ -734,6 +734,44 @@ fn graph() -> DeploymentGraph {
     graph
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_node_applies_lifted_limits_to_cell_storage() -> Result<()> {
+    struct WideSql;
+    impl Cell for WideSql {
+        fn invoke(self: Arc<Self>, context: Context, _: Invocation) -> HandlerFuture<Output> {
+            Box::pin(async move {
+                let sql = format!("SELECT {}", vec!["1"; 101].join(","));
+                context.storage()?.sql(&sql, &[])?;
+                Ok(response("lifted"))
+            })
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("limits-core")?;
+    let (mut config, services) = inputs("limits", directory.path(), &core, None, 0).await?;
+    config.cell_limits = CellLimits::unrestricted();
+    let applications = CompiledApplications::default().register("embedded-node", "test", || {
+        Ok(Arc::new(
+            Registry::new(|context, event| {
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    let cell = context.namespace("ACCOUNTS")?.get_by_name("wide-sql");
+                    Ok(Output::Http(cell.fetch(&context, request).await?))
+                })
+            })
+            .cell("Account", |_, _| Ok(Arc::new(WideSql)))?,
+        ))
+    })?;
+    let node = Node::start(config, services, graph(), applications).await?;
+    ready(&node).await?;
+    let result = call(&client()?, &node, reqwest::Method::GET, "/wide-sql").await;
+    stopped(node).await?;
+    assert_eq!(result?, "lifted");
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn public_node_reports_missing_and_replaced_lease_authority() -> Result<()> {
     for reason in [

@@ -72,6 +72,7 @@ pub struct NodeConfig {
     pub runtime: RuntimePolicy,
     /// SDK HTTP request deadline, including response-body reads.
     pub http: crate::http_policy::HttpPolicy,
+    pub cell_limits: crate::application::limits::CellLimits,
     pub loader: LoaderPolicy,
     pub shutdown: ShutdownPolicy,
     pub startup: NodeStartupPolicy,
@@ -96,6 +97,7 @@ impl NodeConfig {
             data_dir,
             runtime: RuntimePolicy::default(),
             http: crate::http_policy::HttpPolicy::default(),
+            cell_limits: Default::default(),
             loader: LoaderPolicy::default(),
             shutdown: ShutdownPolicy::default(),
             startup,
@@ -110,6 +112,7 @@ impl NodeConfig {
         self.actor.validate_policy()?;
         self.runtime.validate()?;
         self.http.validate()?;
+        self.cell_limits.validate()?;
         self.loader.validate()?;
         self.shutdown.validate()?;
         crate::machine::validate_node_name(&self.identity.node)?;
@@ -333,6 +336,9 @@ impl Node {
         domain
             .services()
             .configure_http(config.http, services.http_client.clone())?;
+        domain
+            .services()
+            .configure_cell_limits(config.cell_limits)?;
         domain.services().configure_loader(config.loader)?;
         domain
             .services()

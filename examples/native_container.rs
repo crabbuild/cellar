@@ -1,7 +1,7 @@
-//! One Python HTTP process per business cell, controlled by the Rust SDK.
+//! One Rust HTTP process per business cell, controlled by the Rust SDK.
 use anyhow::{bail, Result};
 use cellar::sdk::{
-    containers::StartOptions,
+    containers::{ExecOptions, StartOptions},
     http::{OutboundRequest, Redirect, Response},
     Application, Cell, Context, HandlerFuture, Host, Invocation, Output, Registry,
 };
@@ -27,6 +27,29 @@ impl Cell for Sandbox {
                         .wait_ready(&context, std::time::Duration::from_secs(20))
                         .await?;
                 }
+            }
+            if url::Url::parse(&request.url)?.path() == "/exec" {
+                if request.method != "POST" {
+                    return Ok(Output::Http(
+                        Response::new(405, "use POST", Vec::new()).into_http(&context)?,
+                    ));
+                }
+                // A fixed tool avoids exposing arbitrary shell execution at ingress.
+                let output = container
+                    .exec(
+                        &context,
+                        ExecOptions {
+                            cmd: vec!["/app/server".into(), "--tool".into()],
+                            ..Default::default()
+                        },
+                    )
+                    .await?
+                    .output(&context, 4096)
+                    .await?;
+                return Ok(Output::Http(Response::from_json(&serde_json::json!({
+                    "exit_code":output.exit_code,"stdout":String::from_utf8_lossy(&output.stdout),
+                    "stderr":String::from_utf8_lossy(&output.stderr),
+                }))?.into_http(&context)?));
             }
             let response = container
                 .port(&context, 8080)?
