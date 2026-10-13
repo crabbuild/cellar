@@ -176,6 +176,8 @@ pub mod node_lifecycle;
 pub mod node_log;
 #[path = "cli/outbox_cli.rs"]
 pub mod outbox_cli;
+#[path = "cli/stream_cli.rs"]
+pub mod stream_cli;
 
 #[path = "cli/operator_cell.rs"]
 pub(crate) mod operator_cell;

@@ -1230,6 +1230,23 @@ backoff and do not consume the abandonment budget. The pool participates in
 generation movement, retirement and joined shutdown. Reintroducing the class
 restores business execution without resetting source identity or receipts.
 
+The current stream control route is fleet-authenticated `POST /streams/SCOPE`.
+It delegates the request's resource binding and repeats durable receiver grants;
+a fleet signature cannot bypass revocation. The authority permits only stream
+describe/read, subscription status/change and operation status/audit, with an
+authenticated operator label retained in subscription receipts. Ordinary event
+packets omit this optional provenance, and earlier SDK receipts default to no
+operator. RPC forwarding, execution and response retain existing owner gates.
+
+`cellar stream` provides describe/read/status/audit and `cellar subscription`
+provides describe/pause/resume/reset/delete. Both use the same operator label for
+receipt replay/status. Reset/deletion require explicit CLI confirmation and an
+observed subscription identity. Metadata reads remove bodies and encoded
+envelopes; `--payload` opts in. Requests/binding files, expected identity files,
+read bytes and replies are bounded to 16/4/256/1024 KiB, with 100-record pages.
+Resource inventories, stream retirement CLI and exported metrics remain future
+implementation work; the full release qualification gates still apply.
+
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;
 an in-memory event bus would conceal the main failure modes.

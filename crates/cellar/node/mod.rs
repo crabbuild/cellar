@@ -55,6 +55,7 @@ mod embedded;
 mod event_resources;
 mod ingress;
 mod source_operator;
+mod stream_operator;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
@@ -3069,6 +3070,9 @@ async fn handle_internal(
         _ if path.starts_with("/outbox/") && app.runtime.is_some() => {
             source_operator::handle(&app, request).await
         }
+        _ if path.starts_with("/streams/") && app.runtime.is_some() => {
+            stream_operator::handle(&app, request).await
+        }
         _ if path.starts_with("/runtime/") && app.runtime.is_some() => {
             let scope = path
                 .strip_prefix("/runtime/")
@@ -3691,6 +3695,8 @@ async fn async_main(
         Action::Kv(arguments) => return crate::kv_cli::run(arguments).await,
         Action::Queue(arguments) => return crate::queue_cli::run(arguments).await,
         Action::Outbox(arguments) => return crate::outbox_cli::run(arguments).await,
+        Action::Stream(arguments) => return crate::stream_cli::run(arguments, false).await,
+        Action::Subscription(arguments) => return crate::stream_cli::run(arguments, true).await,
         Action::Blob(arguments) => return crate::blob_cli::run(arguments).await,
         Action::Connect(arguments) => {
             return crate::control_plane::handle_connect_command(arguments).await

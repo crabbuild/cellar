@@ -173,6 +173,7 @@ impl Cell for Broker {
                     "__streamSubscriptionStatus" => super::lifecycle_store::status(&context,&body),
                     "__streamSubscriptionChange" => {let result=super::lifecycle_store::change(&context,&body);if result.is_ok(){self.notify();}result},
                     "__streamAudit" => super::lifecycle_store::audit(&context,&body),
+                    "__streamOperationStatus" => super::lifecycle_store::operation_status(&context,&body),
                     "__streamDescribe" => {
                         let caller = store::authority(&context, Action::Administer)?;
                         let (definition, row) = store::load(&context.storage()?)?;

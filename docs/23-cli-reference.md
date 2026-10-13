@@ -50,6 +50,7 @@ select locked dependencies and reject JavaScript-engine dependency graphs.
 | `kv` | Owner-routed KV operations | [KV CLI](../crates/cellar/cli/kv_cli.rs) |
 | `queue` | Owner-routed queue operations | [Queue CLI](../crates/cellar/cli/queue_cli.rs) |
 | `outbox` | Owner-routed source inspection and audited retry (under implementation) | [Outbox CLI](../crates/cellar/cli/outbox_cli.rs) |
+| `stream`, `subscription` | Granted stream reads and guarded subscription administration (under implementation) | [Stream CLI](../crates/cellar/cli/stream_cli.rs) |
 | `blob` | Shared Blob backend operations | [Blob CLI](../crates/cellar/cli/blob_cli.rs) |
 | `diagnose` | Diagnostics through the process adapter | [CLI dispatch](../crates/cellar/cli/native_deploy/cli.rs) |
 | `connect`, `credentials`, `token`, `disconnect` | Managed connection and credential commands | [managed host](../crates/cellar/node/managed.rs) |
@@ -106,3 +107,51 @@ ingress verifies the signed method, path and body before minting source RPC
 authority. Ordinary application RPC cannot invoke that control method. Requests
 are limited to 16 KiB, revision files to 4 KiB and pages to 100 records. The CLI
 bounds source replies to 1 MiB and prints command data on stdout.
+
+## Stream and subscription controls
+
+These commands use the same fleet credentials and owner route. `BINDING.json`
+contains the deployed stream `Binding` object, including resource identity,
+principal, grant and permission flags. The signed operator request delegates
+that grant; its current durable permissions are checked by the receiver.
+A fleet signature and supplied permission flags cannot restore a revoked grant.
+
+```text
+cellar stream describe --binding BINDING.json --json [FLEET OPTIONS]
+cellar stream read --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
+cellar stream read --binding BINDING.json --cursor TOKEN --payload --json [FLEET OPTIONS]
+cellar stream audit --binding BINDING.json --after POSITION --limit 100 --json [FLEET OPTIONS]
+cellar stream status --binding BINDING.json --operation UUID --json [FLEET OPTIONS]
+cellar subscription describe NAME --binding BINDING.json --json [FLEET OPTIONS]
+cellar subscription pause NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT [FLEET OPTIONS]
+cellar subscription resume NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT [FLEET OPTIONS]
+cellar subscription reset NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --cursor TOKEN --confirm-reset [FLEET OPTIONS]
+cellar subscription delete NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --confirm-delete [--force] [FLEET OPTIONS]
+```
+
+Reads require a read grant. Describe, audit, status and subscription controls
+require an administration grant. Read defaults to event metadata, removes the
+encoded envelope, and returns a resumable `cursor`; `--payload` includes bodies.
+Read and audit pages contain at most 100 records. `--max-bytes` bounds copied
+event bytes to at most 256 KiB. History expiration returns `CursorExpired`.
+
+Save the subscription description's `identity` object to `IDENTITY.json` before
+a change. A changed resource, subscription ID or generation refuses the change.
+Reset and deletion invalidate delivery authority; receipts report any skipped
+range. Non-forced deletion refuses pending progress or an active lease. The
+last required subscription cannot be deleted. Repeat identical changes after
+an ambiguous response, or use stream status to retrieve the immutable receipt.
+Current grant authorization also applies to receipt replay. Both CLI families
+use the authenticated label `events-operator`; another operator label cannot
+reuse or retrieve a change receipt. The label is fleet-authenticated provenance,
+not an independently verified human account identity.
+
+The HTTP equivalent is `POST /streams/SCOPE` on the internal listener with
+`{"binding": BINDING, "command": COMMAND}`. The scope is derived from the exact
+stream resource identity. Command kinds are `describe`, `read`, `subscription`,
+`change`, `status`, and `audit`. A change carries the SDK `Change` shape. Signed
+method/path/body verification precedes authority minting. Operator RPC authority
+is restricted to these stream methods and cannot configure a catalog or append
+events. Requests and binding files are bounded to 16 KiB, expected identity
+files to 4 KiB and replies to 1 MiB. This surface remains under implementation;
+resource inventories, stream retirement CLI and exported metrics are outstanding.

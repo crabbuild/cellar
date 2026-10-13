@@ -73,7 +73,10 @@ impl RpcAuthority {
     pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
         self.validate()?;
         match self {
-            Self::Event(authority) => event_stream::validate_target(scope, authority),
+            Self::Event(authority) => {
+                event_stream::validate_target(scope, authority)?;
+                authority.validate_operator_target(scope, method)
+            }
             Self::Source(authority) => {
                 anyhow::ensure!(
                     authority.scope == scope && method == super::source_control::METHOD,
@@ -141,12 +144,52 @@ mod tests {
         };
         let authority = event_stream::Authority::resolution(&binding)?;
         let original = serde_json::to_value(&authority)?;
+        assert!(original.get("operator").is_none());
         let framed = RpcAuthority::from(authority);
         assert_eq!(serde_json::to_value(&framed)?, original);
         let decoded: RpcAuthority = serde_json::from_value(original)?;
         assert!(matches!(decoded, RpcAuthority::Event(_)));
         let decoded: RpcAuthority = serde_json::from_value(serde_json::to_value(source)?)?;
         assert!(matches!(decoded, RpcAuthority::Source(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn event_operator_authority_is_read_or_admin_and_stream_method_bound() -> Result<()> {
+        use event_stream::authority::Action;
+        let binding: event_stream::Binding = serde_json::from_value(serde_json::json!({
+            "environment":"EVENTS","resource":{"tenant":"tenant","application":"app","id":"00000000000000000000000000000001","name":"events","family":"events"},
+            "principal":"app","grant":"management","publish":true,"read":true,"administer":true
+        }))?;
+        assert!(
+            event_stream::Authority::operator(&binding, Action::Append, "operator".into()).is_err()
+        );
+        let scope = event_stream::cell_scope(&binding.resource)?;
+        let admin = RpcAuthority::from(event_stream::Authority::operator(
+            &binding,
+            Action::Administer,
+            "operator".into(),
+        )?);
+        assert!(admin
+            .validate_target(&scope, "__streamSubscriptionChange")
+            .is_ok());
+        assert!(admin.validate_target(&scope, "__streamAppend").is_err());
+        assert!(admin
+            .validate_target(
+                &event_stream::catalog_scope(&binding.resource)?,
+                "__catalogConfigure"
+            )
+            .is_err());
+        let read = RpcAuthority::from(event_stream::Authority::operator(
+            &binding,
+            Action::Read,
+            "operator".into(),
+        )?);
+        assert!(read.validate_target(&scope, "__streamRead").is_ok());
+        assert!(read
+            .validate_target(&scope, "__streamSubscriptionChange")
+            .is_err());
+        assert!(validate_target(None, &scope, "__streamRead").is_err());
         Ok(())
     }
 }

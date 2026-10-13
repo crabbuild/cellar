@@ -12,6 +12,8 @@ pub fn main() -> Result<()> {
                 | "kv"
                 | "queue"
                 | "outbox"
+                | "stream"
+                | "subscription"
                 | "blob"
                 | "diagnose"
                 | "connect"
@@ -57,7 +59,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
              Build compiles Rust without JavaScript-engine dependencies. Deploy publishes\n\
              verified executables, assets and configuration. Install verifies downloaded code and\n\
              writes a new executable path; use your process supervisor to activate it.\n\n\
-             cellar cell|sql|kv|queue|outbox|blob COMMAND [OPTIONS]\n\
+             cellar cell|sql|kv|queue|outbox|stream|subscription|blob COMMAND [OPTIONS]\n\
              cellar fleet upgrade --operation UUID --reason TEXT --confirm-stopped-writers [OPTIONS]\n\
              cellar diagnose|connect|credentials|token|disconnect [OPTIONS]\n\
              Run a compiled application executable to start a Cellar node."

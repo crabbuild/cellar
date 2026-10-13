@@ -1,6 +1,6 @@
 //! The shipped CLI exposes the Rust delivery workflow.
 use anyhow::{ensure, Result};
-use std::process::Command;
+use std::{io::Write, process::Command};
 
 #[test]
 fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
@@ -10,6 +10,7 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
         ensure!(help.status.success(), "help failed: {:?}", help);
         let help = String::from_utf8(help.stdout)?;
         ensure!(help.contains("cellar build PROJECT.json"));
+        ensure!(help.contains("outbox|stream|subscription|blob"));
         ensure!(help.contains("Run a compiled application executable"));
         let version = Command::new(executable).arg("--version").output()?;
         ensure!(version.status.success());
@@ -40,6 +41,24 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
             .output()?;
         ensure!(!retry.status.success());
         ensure!(String::from_utf8(retry.stderr)?.contains("requires --operation"));
+        for family in ["stream", "subscription"] {
+            let output = Command::new(executable).args([family, "--help"]).output()?;
+            ensure!(output.status.success(), "{family} help failed: {output:?}");
+            let help = String::from_utf8(output.stdout)?;
+            ensure!(
+                help.contains("--binding BINDING.json")
+                    && help.contains("--confirm-reset")
+                    && help.contains("--payload")
+            );
+        }
+        for action in ["reset", "delete"] {
+            let output = Command::new(executable)
+                .args(["subscription", action, "projection"])
+                .output()?;
+            ensure!(!output.status.success());
+            ensure!(String::from_utf8(output.stderr)?
+                .contains(&format!("{action} requires --confirm-{action}")));
+        }
         let fleet = Command::new(executable)
             .args(["fleet", "upgrade", "--help"])
             .output()?;
@@ -63,5 +82,46 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
         ensure!(String::from_utf8(unconfirmed.stderr)?
             .contains("all old writers and recovery processes are stopped"));
     }
+    Ok(())
+}
+
+#[test]
+fn stream_operator_cli_refuses_invalid_inputs_before_fleet_access() -> Result<()> {
+    let executable = env!("CARGO_BIN_EXE_cellar");
+    let directory = tempfile::tempdir()?;
+    let mut binding = tempfile::NamedTempFile::new_in(directory.path())?;
+    binding.write_all(&serde_json::to_vec(&serde_json::json!({
+            "environment":"EVENTS","resource":{"tenant":"tenant","application":"app","name":"events","id":"00000000000000000000000000000001","family":"events"},
+            "principal":"app","grant":"reader","read":true,"administer":false
+        }))?)?;
+    for (flag, value, message) in [
+        ("--limit", "101", "invalid stream read bounds"),
+        ("--max-bytes", "262145", "invalid stream read bounds"),
+        ("--cursor", "v1.%%%", "InvalidCursor"),
+    ] {
+        let output = Command::new(executable)
+            .args(["stream", "read", "--binding"])
+            .arg(binding.path())
+            .args([flag, value])
+            .output()?;
+        ensure!(!output.status.success());
+        ensure!(String::from_utf8(output.stderr)?.contains(message));
+    }
+    let output = Command::new(executable)
+        .args(["stream", "describe", "--binding"])
+        .arg(binding.path())
+        .output()?;
+    ensure!(!output.status.success());
+    ensure!(
+        String::from_utf8(output.stderr)?.contains("binding does not grant this operator action")
+    );
+    let mut oversized = tempfile::NamedTempFile::new_in(directory.path())?;
+    oversized.write_all("x".repeat((16 << 10) + 1).as_bytes())?;
+    let output = Command::new(executable)
+        .args(["stream", "read", "--binding"])
+        .arg(oversized.path())
+        .output()?;
+    ensure!(!output.status.success());
+    ensure!(String::from_utf8(output.stderr)?.contains("operator input file exceeds"));
     Ok(())
 }

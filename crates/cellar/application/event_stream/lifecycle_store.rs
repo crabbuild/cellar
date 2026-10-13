@@ -147,6 +147,8 @@ pub(crate) fn change(context: &Context, body: &Value) -> Result<Value> {
                 return Err(error(ErrorCode::Forbidden,"operation belongs to another caller"));
             }
             if store::text(prior,"digest")?!=digest {return Err(error(ErrorCode::ConfigConflict,"operation identity was reused with different arguments"));}
+            let receipt: LifecycleReceipt = serde_json::from_str(&store::text(prior,"receipt")?)?;
+            if receipt.operator != caller.operator {return Err(error(ErrorCode::Forbidden,"operation belongs to another operator"));}
             return Ok(serde_json::from_str(&store::text(prior,"receipt")?)?);
         }
         let sub=active(tx,&name)?;
@@ -182,7 +184,7 @@ pub(crate) fn change(context: &Context, body: &Value) -> Result<Value> {
             tx.system_sql("DELETE FROM __sys_stream_ack_receipts WHERE subscription=?",&[change.expected.id.clone().into()])?;
         }
         let current=SubscriptionIdentity{generation,..change.expected.clone()};
-        let receipt=LifecycleReceipt{operation:change.operation.clone(),previous:change.expected.clone(),current,action:change.action.clone(),
+        let receipt=LifecycleReceipt{operator:caller.operator.clone(),operation:change.operation.clone(),previous:change.expected.clone(),current,action:change.action.clone(),
             state:state_text(plan.state).into(),checkpoint:plan.checkpoint,skipped:plan.skipped.map(|(first,last)|OffsetRange{first,last}),reason:change.reason.clone(),at_ms:now};
         let encoded=serde_json::to_string(&receipt)?;
         tx.system_sql("INSERT INTO __sys_stream_operations(operation,digest,principal,grant_id,receipt,size,created_ms) VALUES(?,?,?,?,?,?,?)",
@@ -191,6 +193,38 @@ pub(crate) fn change(context: &Context, body: &Value) -> Result<Value> {
         store::schedule(tx,&definition)?;
         Ok(serde_json::from_str(&encoded)?)
     })
+}
+
+pub(crate) fn operation_status(context: &Context, body: &Value) -> Result<Value> {
+    let caller = store::authority(context, Action::Administer)?;
+    let db = context.storage()?;
+    let (definition, _) = store::load(&db)?;
+    store::authorize(&definition, &caller, Action::Administer, None)?;
+    let operation = body["operation"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "operation identity missing"))?;
+    store::validate_id(operation)?;
+    let rows = db.system_sql(
+        "SELECT principal,grant_id,receipt FROM __sys_stream_operations WHERE operation=?",
+        &[operation.into()],
+    )?;
+    let row = rows.first().ok_or_else(|| {
+        error(
+            ErrorCode::OperationUnknown,
+            "subscription operation is unknown",
+        )
+    })?;
+    let receipt: LifecycleReceipt = serde_json::from_str(&store::text(row, "receipt")?)?;
+    if store::text(row, "principal")? != caller.principal
+        || store::text(row, "grant_id")? != caller.grant
+        || receipt.operator != caller.operator
+    {
+        return Err(error(
+            ErrorCode::Forbidden,
+            "operation belongs to another caller",
+        ));
+    }
+    Ok(serde_json::to_value(receipt)?)
 }
 
 pub(crate) fn audit(context: &Context, body: &Value) -> Result<Value> {

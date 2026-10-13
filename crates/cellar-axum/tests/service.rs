@@ -64,7 +64,15 @@ async fn outer_middleware_can_reject_before_admission_and_closed_clones_return_5
                 .body(Body::empty())?,
         )
         .await?;
-    ensure!(response.status() == 200 && calls.load(Ordering::SeqCst) == 1);
+    let status = response.status();
+    let admitted_calls = calls.load(Ordering::SeqCst);
+    if status != 200 || admitted_calls != 1 {
+        let body = axum::body::to_bytes(response.into_body(), 4096).await?;
+        anyhow::bail!(
+            "admitted service response {status}, calls={admitted_calls}, body={}",
+            String::from_utf8_lossy(&body)
+        );
+    }
     drop(response);
     host.stop().await?;
     let response = service

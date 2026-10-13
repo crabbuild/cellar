@@ -114,6 +114,8 @@ pub struct OffsetRange {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LifecycleReceipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
     pub operation: String,
     pub previous: SubscriptionIdentity,
     pub current: SubscriptionIdentity,

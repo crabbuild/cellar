@@ -89,7 +89,10 @@ impl Cell for Counter {
             let path = url::Url::parse(&request.url)?.path().to_owned();
             let db = context.storage()?;
             let events = context.stream::<Changed>("EVENTS")?;
-            let body = if path == "/revoke-publish" || path == "/restore-publish" {
+            let body = if path == "/revoke-publish"
+                || path == "/restore-publish"
+                || path == "/revoke-admin"
+            {
                 let revision = if path == "/revoke-publish" { 2 } else { 3 };
                 let mut desired = graph(revision, false).primary.event_streams[0].clone();
                 if revision == 2 {
@@ -99,6 +102,18 @@ impl Cell for Counter {
                         .find(|grant| grant.id == "application")
                         .unwrap()
                         .publish = false;
+                }
+                if path == "/revoke-admin" {
+                    desired.revision = 4;
+                    desired
+                        .grants
+                        .iter_mut()
+                        .find(|grant| grant.id == "management")
+                        .unwrap()
+                        .administer = false;
+                    let mut replacement = Grant::from_binding(&binding(true));
+                    replacement.id = "replacement".into();
+                    desired.grants.push(replacement);
                 }
                 let admin = context.stream::<Changed>("ADMIN_EVENTS")?;
                 admin
@@ -472,6 +487,275 @@ async fn operator(
         response.text().await?
     );
     Ok(response.json().await?)
+}
+
+fn stream_scope() -> Result<String> {
+    let resource = resource();
+    let name = serde_json::to_string(&(resource.tenant, resource.application, resource.id, 0u32))?;
+    let id = cellar_native::cell_id::for_name("cells:v1:event-stream:__EventStream", &name);
+    Ok(format!(
+        "__EventStream:{}",
+        cellar_native::cell_id::encode_hex(&id)
+    ))
+}
+
+async fn stream_operator(
+    client: &reqwest::Client,
+    node: &Node,
+    binding: &Binding,
+    command: serde_json::Value,
+    caller: &str,
+) -> Result<serde_json::Value> {
+    let path = format!("/streams/{}", stream_scope()?);
+    let body = serde_json::to_vec(&serde_json::json!({"binding":binding,"command":command}))?;
+    let auth = PeerAuth::new([11; 32], caller)?;
+    let request = auth.sign(
+        client
+            .post(format!("http://{}{path}", node.info().internal_address))
+            .body(body.clone()),
+        "POST",
+        &path,
+        &body,
+        &node.info().node,
+    )?;
+    let response = request.send().await?;
+    ensure!(
+        response.status() == 200,
+        "stream operator response {}: {}",
+        response.status(),
+        response.text().await?
+    );
+    Ok(response.json().await?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn stream_operator_routes_controls_preserves_receipts_and_checks_revocation() -> Result<()> {
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("stream-operator-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "stream-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    let path = format!("/streams/{}", stream_scope()?);
+    ensure!(
+        client
+            .post(format!("http://{}{path}", owner.info().internal_address))
+            .json(&json!({}))
+            .send()
+            .await?
+            .status()
+            == 401
+    );
+    ensure!(
+        client
+            .post(format!("http://{}{path}", owner.info().internal_address))
+            .body("x".repeat((16 << 10) + 1))
+            .send()
+            .await?
+            .status()
+            == 413
+    );
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if call(&client, &owner, reqwest::Method::GET, "/events").await? == "1" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    let (config, services) = inputs(
+        "stream-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let admin = binding(true);
+    let reader = binding(false);
+    let described = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        json!({"kind":"describe"}),
+        "streams",
+    )
+    .await?;
+    ensure!(described["result"]["rows"] == "1");
+    let read = json!({"kind":"read","cursor":null,"limit":1,"max_bytes":4096,"payload":false});
+    let page = stream_operator(&client, &entrance, &reader, read.clone(), "streams").await?;
+    ensure!(page["result"]["records"][0]["event"]["payload"].is_null());
+    ensure!(
+        page["result"]["records"][0]["envelope"].is_null(),
+        "encoded envelope leaked payload"
+    );
+    let mut include = read.clone();
+    include["payload"] = true.into();
+    ensure!(
+        stream_operator(&client, &entrance, &reader, include, "streams").await?["result"]
+            ["records"][0]["event"]["payload"]["value"]
+            == 1
+    );
+    let mut resumed = read;
+    resumed["cursor"] = page["result"]["cursor"].clone();
+    ensure!(
+        stream_operator(&client, &entrance, &reader, resumed, "streams").await?["result"]
+            ["records"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    let mut forged = reader.clone();
+    forged.administer = true;
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &forged,
+            json!({"kind":"describe"}),
+            "streams"
+        )
+        .await?["error"]["code"]
+            == "Forbidden"
+    );
+    let status = json!({"kind":"subscription","name":"projection"});
+    let original = stream_operator(&client, &entrance, &admin, status.clone(), "subscriptions")
+        .await?["result"]["identity"]
+        .clone();
+    let pause = json!({"kind":"change","change":{"operation":"00000000000000000000000000000070","expected":original,"action":{"kind":"pause"},"reason":"operator test pause"}});
+    let paused =
+        stream_operator(&client, &entrance, &admin, pause.clone(), "subscriptions").await?;
+    ensure!(
+        paused["result"]["state"] == "paused" && paused["result"]["operator"] == "subscriptions"
+    );
+    ensure!(
+        stream_operator(&client, &entrance, &admin, pause.clone(), "subscriptions").await?
+            == paused
+    );
+    ensure!(
+        stream_operator(&client, &entrance, &admin, pause.clone(), "other-operator").await?
+            ["error"]["code"]
+            == "Forbidden"
+    );
+    let mut conflict = pause.clone();
+    conflict["change"]["reason"] = "other intent".into();
+    ensure!(
+        stream_operator(&client, &entrance, &admin, conflict, "subscriptions").await?["error"]
+            ["code"]
+            == "ConfigConflict"
+    );
+    let reset = json!({"kind":"change","change":{"operation":"00000000000000000000000000000071","expected":original,"action":{"kind":"reset","cursor":{"resource":resource().id,"partition":0,"next":"2"}},"reason":"explicit test skip"}});
+    let reset = stream_operator(&client, &entrance, &admin, reset, "subscriptions").await?;
+    ensure!(reset["result"]["checkpoint"] == "1" && reset["result"]["skipped"]["first"] == "1");
+    let mut stale = pause.clone();
+    stale["change"]["operation"] = "00000000000000000000000000000072".into();
+    ensure!(
+        stream_operator(&client, &entrance, &admin, stale, "subscriptions").await?["error"]["code"]
+            == "SubscriptionReset"
+    );
+    let resume = json!({"kind":"change","change":{"operation":"00000000000000000000000000000072","expected":reset["result"]["current"],"action":{"kind":"resume"},"reason":"resume after reset"}});
+    let resumed = stream_operator(&client, &entrance, &admin, resume, "subscriptions").await?;
+    ensure!(resumed["result"]["state"] == "active");
+    let audit = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        json!({"kind":"audit","after":"0","limit":1}),
+        "streams",
+    )
+    .await?;
+    ensure!(
+        audit["result"]["records"].as_array().unwrap().len() == 1
+            && audit["result"]["has_more"] == true
+    );
+    let next = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        json!({"kind":"audit","after":audit["result"]["next"],"limit":1}),
+        "streams",
+    )
+    .await?;
+    ensure!(
+        next["result"]["records"][0]["receipt"]["operation"] == "00000000000000000000000000000071"
+    );
+    let operation = json!({"kind":"status","operation":"00000000000000000000000000000070"});
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            operation.clone(),
+            "subscriptions"
+        )
+        .await?
+            == paused
+    );
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            json!({"kind":"status","operation":"00000000000000000000000000000099"}),
+            "subscriptions"
+        )
+        .await?["error"]["code"]
+            == "OperationUnknown"
+    );
+    stopped(owner).await?;
+    ensure!(stream_operator(&client, &entrance, &admin, pause, "subscriptions").await? == paused);
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            operation.clone(),
+            "subscriptions"
+        )
+        .await?
+            == paused
+    );
+    let deletion = json!({"kind":"change","change":{"operation":"00000000000000000000000000000073","expected":resumed["result"]["current"],"action":{"kind":"delete","force":false},"reason":"explicit test deletion"}});
+    let deleted = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        deletion.clone(),
+        "subscriptions",
+    )
+    .await?;
+    ensure!(deleted["result"]["state"] == "deleted");
+    ensure!(
+        stream_operator(&client, &entrance, &admin, deletion, "subscriptions").await? == deleted
+    );
+    ensure!(
+        stream_operator(&client, &entrance, &admin, status, "subscriptions").await?["error"]
+            ["code"]
+            == "SubscriptionReset"
+    );
+    ensure!(call(&client, &entrance, reqwest::Method::POST, "/revoke-admin").await? == "active");
+    ensure!(
+        stream_operator(&client, &entrance, &admin, operation, "subscriptions").await?["error"]
+            ["code"]
+            == "Forbidden"
+    );
+    stopped(entrance).await?;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

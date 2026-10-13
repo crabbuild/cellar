@@ -44,6 +44,8 @@ pub(crate) enum Action {
     Kv(Vec<String>),
     Queue(Vec<String>),
     Outbox(Vec<String>),
+    Stream(Vec<String>),
+    Subscription(Vec<String>),
     Blob(Vec<String>),
     Connect(Vec<String>),
     Credentials(Vec<String>),
@@ -88,6 +90,8 @@ pub(crate) fn action_from_process_with_application(
             "kv" => return Ok(Action::Kv(arguments)),
             "queue" => return Ok(Action::Queue(arguments)),
             "outbox" => return Ok(Action::Outbox(arguments)),
+            "stream" => return Ok(Action::Stream(arguments)),
+            "subscription" => return Ok(Action::Subscription(arguments)),
             "blob" => return Ok(Action::Blob(arguments)),
             "connect" => return Ok(Action::Connect(arguments)),
             "credentials" => return Ok(Action::Credentials(arguments)),
@@ -286,6 +290,8 @@ USAGE:
   cellar sql execute DATABASE --command SQL [PROJECT] --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar kv get|put|delete|list|info NAMESPACE --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar queue info|peek|purge|pause|resume|redrive QUEUE --bucket [s3://|gs://|az://]NAME[/PREFIX]
+  cellar stream describe|read|status|audit --binding BINDING.json [FLEET OPTIONS]
+  cellar subscription describe|pause|resume|reset|delete NAME --binding BINDING.json [FLEET OPTIONS]
   cellar blob get|head|put|delete|list BUCKET [KEY] --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar diagnose --bucket [s3://|gs://|az://]NAME[/PREFIX] [OPTIONS] [--peer NODE_ID]...
 

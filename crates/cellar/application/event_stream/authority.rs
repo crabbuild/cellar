@@ -27,6 +27,8 @@ pub struct Authority {
     pub(crate) resource: Resource,
     pub(crate) source: Option<String>,
     pub(crate) action: Action,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) operator: Option<String>,
 }
 
 impl Authority {
@@ -43,6 +45,7 @@ impl Authority {
             resource: definition.resource.clone(),
             source: None,
             action: Action::Configure,
+            operator: None,
         };
         authority.validate()?;
         Ok(authority)
@@ -56,6 +59,7 @@ impl Authority {
             resource: binding.resource.clone(),
             source: None,
             action: Action::Resolve,
+            operator: None,
         };
         authority.validate()?;
         Ok(authority)
@@ -79,6 +83,7 @@ impl Authority {
             resource: persisted.resource.clone(),
             source: Some(source),
             action: Action::Append,
+            operator: None,
         };
         authority.validate()?;
         Ok(authority)
@@ -115,11 +120,67 @@ impl Authority {
             resource: binding.resource.clone(),
             source,
             action,
+            operator: None,
         })
+    }
+
+    pub(crate) fn operator(binding: &Binding, action: Action, operator: String) -> Result<Self> {
+        binding.validate()?;
+        anyhow::ensure!(
+            matches!(action, Action::Read) && binding.read
+                || matches!(action, Action::Administer) && binding.administer,
+            "binding does not grant this operator action"
+        );
+        let authority = Self {
+            principal: binding.principal.clone(),
+            grant: binding.grant.clone(),
+            resource: binding.resource.clone(),
+            source: None,
+            action,
+            operator: Some(operator),
+        };
+        authority.validate()?;
+        Ok(authority)
+    }
+
+    pub(crate) fn validate_operator_target(&self, scope: &str, method: &str) -> Result<()> {
+        if self.operator.is_none() {
+            return Ok(());
+        }
+        anyhow::ensure!(
+            scope == super::cell_scope(&self.resource)?,
+            "operator target is not its stream"
+        );
+        let permitted = match self.action {
+            Action::Read => method == "__streamRead",
+            Action::Administer => matches!(
+                method,
+                "__streamDescribe"
+                    | "__streamSubscriptionStatus"
+                    | "__streamSubscriptionChange"
+                    | "__streamAudit"
+                    | "__streamOperationStatus"
+            ),
+            _ => false,
+        };
+        anyhow::ensure!(
+            permitted,
+            "operator authority does not grant this RPC method"
+        );
+        Ok(())
     }
 
     pub(crate) fn validate(&self) -> Result<()> {
         self.resource.validate()?;
+        anyhow::ensure!(
+            self.operator.as_ref().is_none_or(|operator| {
+                !operator.is_empty()
+                    && operator.len() <= 256
+                    && self.source.is_none()
+                    && matches!(self.action, Action::Read | Action::Administer)
+            }),
+            "invalid event operator authority"
+        );
         anyhow::ensure!(
             !self.principal.is_empty()
                 && self.principal.len() <= 256

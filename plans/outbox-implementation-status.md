@@ -222,7 +222,7 @@ this does not constitute a released deployed primitive yet.
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects | Runnable consumer example and complete proof/crash qualification |
-| Operational controls | Source retry/seal and pending-reset protection; subscription status/change/audit APIs; private stream describe | Owner-routed CLI/API, pagination, diagnostics, metrics, explicit destructive operations |
+| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete, immutable operation status/audit, metadata reads and payload opt-in | Resource inventories, stream retirement CLI, exported metrics, source destruction and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer 6/native 3/fleet 3 and explicit audited format-2 upgrade; source/inbox migrations and incompatible source-policy refusal | Actual prior executable and full cutover fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design and this requirement audit | Runnable stream-backed application, implemented API guide and catalog/smoke integration |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
@@ -503,3 +503,41 @@ All three token regressions and the existing integrated native stream test pass
 after this change; final-source workspace/all-target/all-feature Clippy with
 warnings denied also passes. The 347-test workspace result above applies to the
 preceding recovery milestone.
+
+Stream and subscription operator controls now delegate a supplied resource
+binding through signed `/streams/` ingress and repeat current receiver grant
+checks. RPC provenance limits operators to the stream control methods and cannot
+authorize configuration or append. `cellar stream` exposes describe/read/status/
+audit; `cellar subscription` exposes describe/pause/resume/reset/delete. Both
+families use the same authenticated operator label for immutable receipt status
+and replay. SDK event packets omit that optional field and SDK receipts without
+it remain readable. Subscription operation receipts persist operator identity
+inside their existing JSON field; no SQLite layout change is required.
+
+Requests/binding files, expected identity files, read bytes and replies are
+bounded to 16/4/256/1024 KiB; pages stop at 100 records. Metadata reads remove both
+payload and its encoded envelope; payload display requires opt-in. Destructive
+CLI changes require confirmation flags and the observed subscription identity.
+An actual two-node regression passes signed forwarding, grant-claim refusal,
+metadata/payload/continuation reads, pause/reset/resume/delete, stale identity,
+immutable replay/conflict/operator guards, audit pagination, typed unknown status,
+owner handoff recovery and revocation even for an existing receipt. The test
+replays received replies; it does not inject actual network response loss.
+Resource inventories, stream retirement CLI, exported metrics and the full
+control-message fault/capacity matrix remain outstanding.
+
+Read projection also rejects malformed page shapes and a response naming another
+resource before issuing a resume cursor. Its regression reproduced a mutable
+JSON-indexing panic before the fix. The first broader workspace run failed an
+Axum service response assertion; the enhanced diagnostic assertion preserves
+the same response/handler requirements. An isolated rerun and twelve concurrent
+repeatability runs pass, but the original cause remains unproven. The final
+workspace gate is rerun with Clippy scheduled afterward to avoid adding compiler
+load during short-lease host tests.
+
+That final runtime source passes all 354 workspace/all-feature library and
+integration tests, including the Axum service assertion and the full 21-test
+public Node suite, plus all 11 doctests. The two shipped CLI tests pass again
+after replacing ambient fixture writes with owned temporary files. Final-source
+all-target/all-feature Clippy with warnings denied passes. The earlier service
+failure remains recorded above; passing reruns do not establish its cause.
