@@ -5,6 +5,13 @@ use Cellar SQLite state and its existing ownership and durability machinery.
 Run these commands from the repository root. On the development machine, set
 `CARGO_TARGET_DIR` to your checkout's mounted-workspace target first.
 
+With the default `openapi` feature, open `/docs` for Swagger UI and use **Try it
+out** to read or increment a named counter. `/api` redirects to the same UI.
+The UI loads the application's `/openapi.json`; its browser assets are embedded
+in the binary, so no CDN or external schema validator is needed. Both hosts
+serve these routes from the shared application definition. Disabling `openapi`
+also removes the UI and its dependency.
+
 Native Cellar HTTP and application package workflow:
 
 ```sh

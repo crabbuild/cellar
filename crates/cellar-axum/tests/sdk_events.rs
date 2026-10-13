@@ -147,6 +147,7 @@ async fn rpc_queue_and_workflow_delegate_through_the_existing_sdk_on_both_hosts(
                         environment: "WF".into(),
                         workflow: "orders".into(),
                         class: "Orders".into(),
+                        settings: Default::default(),
                     });
             },
         )

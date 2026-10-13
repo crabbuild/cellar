@@ -78,6 +78,7 @@ http-body-util = "0.1"
 tower = { version = "0.5", features = ["util"] }
 utoipa = { version = "6", default-features = false, features = ["macros", "axum_extras"] }
 utoipa-axum = "0.3"
+utoipa-swagger-ui = { version = "10.0.1", default-features = false, features = ["axum", "vendored"] }
 # hyper also accepts h2 releases before 0.4.18, which retain the remotely
 # triggerable resource-exhaustion advisory. Keep a direct floor here because a
 # lockfile-only update does not preserve that security boundary when resolved.
