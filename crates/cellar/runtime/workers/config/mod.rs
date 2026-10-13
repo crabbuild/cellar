@@ -87,6 +87,8 @@ pub struct WorkerConfig {
     /// [[kv]].
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<QueueBinding>,
+    pub(crate) stream_bindings: Vec<crate::application::event_stream::Binding>,
+    pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
     pub(crate) queue_consumers: Vec<QueueConsumerRegistration>,
     /// This script declared a consumer in its own manifest. The deployment-
     /// wide catalog later replaces `queue_consumers` in every isolate, so the
@@ -166,6 +168,7 @@ impl WorkerConfig {
             sql_bindings,
             kv_bindings,
             queue_bindings,
+            stream_bindings,
             queue_consumers,
             workflow_bindings,
             vars,
@@ -186,6 +189,9 @@ impl WorkerConfig {
             })
             .collect();
         Self {
+            event_readiness: Arc::new(crate::application::event_stream::readiness::Readiness::new(
+                true,
+            )),
             native_application: None,
             src,
             main_module_name: ENTRY_MODULE_NAME.to_string(),
@@ -197,6 +203,7 @@ impl WorkerConfig {
             sql_bindings,
             kv_bindings,
             queue_bindings,
+            stream_bindings,
             queue_consumers,
             declares_queue_consumer,
             workflow_bindings,

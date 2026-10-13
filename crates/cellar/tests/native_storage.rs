@@ -378,8 +378,10 @@ impl Cell for Store {
 
 fn deployment(script: &str, classes: Vec<String>, delete_alarm: bool) -> LoadedDeployment {
     LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: script.into(),
             do_classes: classes,

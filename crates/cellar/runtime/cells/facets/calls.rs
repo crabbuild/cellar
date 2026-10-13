@@ -71,6 +71,7 @@ impl LoadedFacet {
         let (reply, receive) = tokio::sync::oneshot::channel();
         let request_id = cancellation.as_ref().map(|lifetime| lifetime.request_id());
         let job = CellJob::Rpc {
+            authority: None,
             request_id,
             scope: self.scope.clone(),
             name: None,

@@ -862,6 +862,15 @@ pub(crate) async fn receive_service_fetch_response_for_test(
     receive_service_response(response, lifetime, Some(cancel)).await
 }
 
+pub(crate) struct RpcInvocation {
+    pub cell: String,
+    pub name: Option<String>,
+    pub method: String,
+    pub args: crate::engine_api::RpcData,
+    pub request_id: Option<crate::engine_api::RequestId>,
+    pub authority: Option<crate::application::event_stream::Authority>,
+}
+
 impl RuntimeManager {
     pub(crate) fn host_services(&self) -> &Arc<crate::host_services::HostServices> {
         &self.host_services
@@ -2048,8 +2057,68 @@ impl RuntimeManager {
         method: String,
         args: crate::engine_api::RpcData,
         request_id: Option<crate::engine_api::RequestId>,
+        cancel: Option<tokio::sync::oneshot::Receiver<()>>,
+    ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
+        self.rpc_invocation(
+            RpcInvocation {
+                cell,
+                name,
+                method,
+                args,
+                request_id,
+                authority: None,
+            },
+            cancel,
+        )
+        .await
+    }
+
+    pub(crate) async fn rpc_with_authority(
+        &self,
+        invocation: RpcInvocation,
+    ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
+        self.rpc_invocation(invocation, None).await
+    }
+
+    /// Execute an opaque request produced by this host's binding adapter.
+    /// The embedding host still owns receiver proof and reply publication.
+    pub async fn rpc_from_host(
+        &self,
+        call: &mut crate::host_channels::RpcCallReq,
+    ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
+        self.rpc_invocation(
+            RpcInvocation {
+                cell: call.scope.clone(),
+                name: call.name.clone(),
+                method: call.method.clone(),
+                args: call.args.clone(),
+                request_id: call.request_id,
+                authority: call.authority.clone(),
+            },
+            call.cancel.take(),
+        )
+        .await
+    }
+
+    async fn rpc_invocation(
+        &self,
+        invocation: RpcInvocation,
         mut cancel: Option<tokio::sync::oneshot::Receiver<()>>,
     ) -> anyhow::Result<crate::engine_api::RpcOutcome> {
+        let RpcInvocation {
+            cell,
+            name,
+            method,
+            args,
+            request_id,
+            authority,
+        } = invocation;
+        if crate::application::event_stream::is_event_scope(&cell) {
+            let authority = authority
+                .as_ref()
+                .context("event RPC requires host authority")?;
+            crate::application::event_stream::validate_target(&cell, authority)?;
+        }
         if cancel
             .as_mut()
             .is_some_and(|cancel| cancel.try_recv().is_ok())
@@ -2082,6 +2151,7 @@ impl RuntimeManager {
         });
         let (reply, receive) = tokio::sync::oneshot::channel();
         let job = CellJob::Rpc {
+            authority,
             request_id,
             scope: cell.clone(),
             name,

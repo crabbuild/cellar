@@ -1,7 +1,8 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-//! Alarm installation identity, committed atomically with the alarm row.
+//! Wake installation identity, committed atomically with alarms and internal
+//! work. The application alarm remains independent of the effective deadline.
 use cellar_logic::wake::{AlarmSnapshot, AlarmSource, PublicationId};
 use rusqlite::{params, Connection, OptionalExtension as _};
 
@@ -38,31 +39,61 @@ pub(crate) fn initialize(c: &Connection, scope: &str, epoch: u64) -> anyhow::Res
     let result = (|| -> anyhow::Result<()> {
         c.execute(
             "INSERT INTO __sys_cell_wake(scope,epoch,sequence,at_ms)
-             VALUES(?1,?2,0,(SELECT at_ms FROM __sys_cell_alarm WHERE scope=?1))
+             VALUES(?1,?2,0,(SELECT min(at_ms) FROM (
+                 SELECT at_ms FROM __sys_cell_alarm WHERE scope=?1
+                 UNION ALL SELECT at_ms FROM __sys_work WHERE scope=?1
+             )))
              ON CONFLICT(scope) DO UPDATE SET epoch=excluded.epoch
                WHERE excluded.epoch>__sys_cell_wake.epoch",
             params![scope, epoch],
         )?;
         // Triggers also cover handler consumption, retry, and transaction
         // rollback. Callback bookkeeping cannot make identity atomic with SQL.
+        // Replace the previous alarm-only projection once. Work tombstones
+        // preserve generations and all changes advance publication identity,
+        // even when a different reason keeps the same effective deadline.
         c.execute_batch(
-            "CREATE TRIGGER IF NOT EXISTS __sys_cell_wake_insert AFTER INSERT ON __sys_cell_alarm BEGIN
-               UPDATE __sys_cell_wake SET sequence=sequence+1,at_ms=NEW.at_ms WHERE scope=NEW.scope;
-             END;
-             CREATE TRIGGER IF NOT EXISTS __sys_cell_wake_update AFTER UPDATE OF at_ms,generation ON __sys_cell_alarm BEGIN
-               UPDATE __sys_cell_wake SET sequence=sequence+1,at_ms=NEW.at_ms WHERE scope=NEW.scope;
-             END;
-             CREATE TRIGGER IF NOT EXISTS __sys_cell_wake_delete AFTER DELETE ON __sys_cell_alarm BEGIN
-               UPDATE __sys_cell_wake SET sequence=sequence+1,at_ms=NULL WHERE scope=OLD.scope;
-             END;",
+            "DROP TRIGGER IF EXISTS __sys_cell_wake_insert;
+             DROP TRIGGER IF EXISTS __sys_cell_wake_update;
+             DROP TRIGGER IF EXISTS __sys_cell_wake_delete;",
         )?;
+        for (table, prefix, update_columns) in [
+            ("__sys_cell_alarm", "alarm", "at_ms,generation"),
+            ("__sys_work", "work", "at_ms,generation"),
+        ] {
+            for (event, source) in [("insert", "NEW"), ("update", "NEW"), ("delete", "OLD")] {
+                let operation = if event == "update" {
+                    format!("UPDATE OF {update_columns}")
+                } else {
+                    event.to_uppercase()
+                };
+                c.execute_batch(&format!(
+                    "CREATE TRIGGER IF NOT EXISTS __sys_wake_{prefix}_{event}
+                     AFTER {operation} ON {table} BEGIN
+                       UPDATE __sys_cell_wake SET sequence=sequence+1,
+                         at_ms=(SELECT min(at_ms) FROM (
+                           SELECT at_ms FROM __sys_cell_alarm WHERE scope={source}.scope
+                           UNION ALL
+                           SELECT at_ms FROM __sys_work WHERE scope={source}.scope
+                         ))
+                       WHERE scope={source}.scope;
+                     END;"
+                ))?;
+            }
+        }
         let consistent: bool = c.query_row(
-            "SELECT at_ms IS (SELECT at_ms FROM __sys_cell_alarm WHERE scope=?1)
+            "SELECT at_ms IS (SELECT min(at_ms) FROM (
+               SELECT at_ms FROM __sys_cell_alarm WHERE scope=?1
+               UNION ALL SELECT at_ms FROM __sys_work WHERE scope=?1
+             ))
              FROM __sys_cell_wake WHERE scope=?1",
             [scope],
             |row| row.get(0),
         )?;
-        anyhow::ensure!(consistent, "alarm and wake installation disagree");
+        anyhow::ensure!(
+            consistent,
+            "durable deadlines and wake installation disagree"
+        );
         Ok(())
     })();
     if result.is_err() {

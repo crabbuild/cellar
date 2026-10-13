@@ -94,6 +94,7 @@ fn config(observed: Arc<Observed>) -> Result<Arc<WorkerConfig>> {
     )?;
     Ok(Arc::new(
         WorkerConfig::new(WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "this is deliberately not JavaScript".into(),
             script_name: "native-facet-conformance".into(),
             do_classes: Vec::new(),

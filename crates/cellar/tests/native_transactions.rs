@@ -128,7 +128,7 @@ impl Cell for Store {
                             write(&transaction, "commit", 1)?;
                             pause(&signals).await;
                             assert_eq!(root.get_json("value")?, Some(1.into()));
-                            let inner = root.transaction_sync(|inner| {
+                            let inner = root.tx(|inner| {
                                 write(inner, "sync-child", 2)?;
                                 Ok(inner.clone())
                             })?;
@@ -469,7 +469,7 @@ impl Cell for Store {
                     Ok(response("foreign refused"))
                 }
                 "/sync-boundary" => {
-                    storage.transaction_sync(|transaction| {
+                    storage.tx(|transaction| {
                         let future = transaction.transaction(&context, |_| async { Ok(()) });
                         assert!(futures_util::FutureExt::now_or_never(future)
                             .unwrap()
@@ -517,8 +517,10 @@ async fn waiting(task: &mut cellar::asyncrt::TaskHandle<Result<HttpResponse>>, l
 
 fn deployment() -> LoadedDeployment {
     LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "native-transactions".into(),
             do_classes: vec!["Store".into()],

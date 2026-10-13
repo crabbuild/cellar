@@ -113,6 +113,11 @@ impl NodeConfig {
 
     fn validate(&self, services: &NodeServices) -> anyhow::Result<()> {
         self.actor.validate_policy()?;
+        anyhow::ensure!(
+            self.actor.core.peer_protocol == crate::peer_auth::PROTOCOL_VERSION,
+            "node actor policy must advertise the current peer protocol {}",
+            crate::peer_auth::PROTOCOL_VERSION
+        );
         self.runtime.validate()?;
         self.http.validate()?;
         self.cell_limits.validate()?;
@@ -413,6 +418,16 @@ impl Node {
                 }
             }
         };
+        let generation = app
+            .runtime
+            .as_ref()
+            .expect("embedded node has a runtime")
+            .generation();
+        if let Err(error) = generation.event_readiness.wait().await {
+            domain.close();
+            let _ = supervisor.await;
+            return Err(error.context("node event resource activation failed"));
+        }
         // Transfer domain ownership to the handle; do not close it when the
         // successful startup guard is retired.
         startup_guard.0 = None;
@@ -443,7 +458,13 @@ impl Node {
         Ok(self
             .domain
             .run(async {
-                self.app.fleet_ready() && !self.app.is_draining() && self.app.healthy().await
+                self.app
+                    .runtime
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.generation().event_readiness.check().is_ok())
+                    && self.app.fleet_ready()
+                    && !self.app.is_draining()
+                    && self.app.healthy().await
             })
             .await?)
     }
@@ -477,6 +498,9 @@ impl Node {
                     )
                 })
                 .await??;
+                event_resources::activate(app.clone(), &generation).await?;
+                // The candidate is retained through activation and moved only
+                // after its catalog and binding proofs pass.
                 let adopted = runtime.adopt(generation);
                 app.tx.send(Message::GenerationChanged {
                     generation: adopted.id(),
@@ -637,6 +661,7 @@ async fn prepare(
         Backend::Native(Arc::new(applications)).build(FIRST_GENERATION, graph, generation_options)
     })
     .await??;
+    generation.begin_event_activation();
     let runtime = RuntimeManager::start(
         generation,
         RuntimeOptions {

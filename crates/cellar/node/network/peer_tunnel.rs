@@ -39,7 +39,7 @@ use super::*;
 use crate::engine_api::HttpChunkStream;
 
 pub(crate) const TUNNEL_PROTOCOL: &str = "cellar-tunnel";
-pub(crate) const TUNNEL_VERSION: &str = "5";
+pub(crate) const TUNNEL_VERSION: &str = peer_auth::PROTOCOL_VERSION_TEXT;
 pub(crate) const VERSION_HEADER: &str = "x-cells-tunnel-version";
 pub(crate) const KIND_HEADER: &str = "x-cells-tunnel-kind";
 pub(crate) const SCOPE_HEADER: &str = "x-cells-scope";
@@ -579,6 +579,7 @@ pub(crate) async fn fetch(
 }
 
 pub(crate) const METHOD_HEADER: &str = "x-cells-rpc-method";
+const AUTHORITY_HEADER: &str = "x-cellar-event-authority";
 
 /// One inner request, one RPC: the method name rides a header, the
 /// arguments ride the body, and the content type says which encoding the
@@ -587,6 +588,34 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
     let service = service_fn(move |inner: Request<Incoming>| {
         let app = app.clone();
         async move {
+            let authority = match inner.headers().get(AUTHORITY_HEADER) {
+                None => None,
+                Some(header) => {
+                    use base64::Engine;
+                    let decoded =
+                        (|| -> anyhow::Result<crate::application::event_stream::Authority> {
+                            anyhow::ensure!(
+                                header.as_bytes().len() <= 16_384,
+                                "event authority header is too large"
+                            );
+                            let bytes = base64::engine::general_purpose::STANDARD
+                                .decode(header.as_bytes())?;
+                            let authority: crate::application::event_stream::Authority =
+                                serde_json::from_slice(&bytes)?;
+                            authority.validate()?;
+                            Ok(authority)
+                        })();
+                    match decoded {
+                        Ok(authority) => Some(authority),
+                        Err(_) => {
+                            return Ok::<_, Infallible>(peer_response(response(
+                                StatusCode::BAD_REQUEST,
+                                "invalid event RPC authority",
+                            )))
+                        }
+                    }
+                }
+            };
             let Some(scope) = inner
                 .headers()
                 .get(SCOPE_HEADER)
@@ -641,7 +670,8 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     }
                 }
             };
-            let reply = dispatch_forwarded_rpc(app, scope, name, method, args, request_id).await;
+            let reply =
+                dispatch_forwarded_rpc(app, scope, name, method, args, request_id, authority).await;
             Ok(reply)
         }
     });
@@ -658,6 +688,7 @@ pub(crate) async fn rpc(
     method: &str,
     args: &crate::engine_api::RpcData,
     request_id: Option<crate::engine_api::RequestId>,
+    authority: Option<&crate::application::event_stream::Authority>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let (content_type, payload) = match args {
         crate::engine_api::RpcData::Json(json) => ("application/json", Bytes::from(json.clone())),
@@ -677,6 +708,15 @@ pub(crate) async fn rpc(
                 .header(hyper::header::CONTENT_TYPE, content_type);
             if let Some(name) = name {
                 inner = inner.header(NAME_HEADER, name);
+            }
+            if let Some(authority) = authority {
+                use base64::Engine;
+                authority.validate()?;
+                inner = inner.header(
+                    AUTHORITY_HEADER,
+                    base64::engine::general_purpose::STANDARD
+                        .encode(serde_json::to_vec(authority)?),
+                );
             }
             if let Some(request_id) = request_id {
                 inner = inner.header(

@@ -412,8 +412,10 @@ impl Cell for Root {
 
 fn deployment(script: &str) -> LoadedDeployment {
     LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "this is not JavaScript".into(),
             script_name: script.into(),
             do_classes: if script == "native-egress" {

@@ -4,6 +4,10 @@ Choose the mechanism from its durability and coordination needs. The SDK has
 alarms, durable wake infrastructure, Queue, Workflow and cron. Application teams
 still define business delivery guarantees, deduplication and external effects.
 
+The proposed [transactional outbox and durable event delivery design](../plans/002-outbox-streams-subscriptions.md)
+specifies framework-managed emission, streams, and resumable subscriptions.
+Those APIs are not part of the implemented mechanisms documented below.
+
 ![Interactive asynchronous delivery](diagrams/async-flow.svg)
 
 | Mechanism | Use it for | Correctness boundary |

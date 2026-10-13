@@ -232,9 +232,24 @@ where
         policy.local_cache_prune_period,
     );
     local_cache_prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let generation = app.runtime.as_ref().map(|runtime| runtime.generation());
+    let mut resources_ready = generation.as_ref().is_none_or(|generation| {
+        generation.event_streams().is_empty() && generation.event_bindings().is_empty()
+    });
+    let activation_app = app.clone();
+    let mut activation = std::pin::pin!(async move {
+        if let Some(generation) = generation {
+            event_resources::activate(activation_app, &generation).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    });
     let shutdown_mode = loop {
         crate::asyncrt::select! {
-            connection = listener.accept() => {
+            activated = &mut activation, if !resources_ready => {
+                activated?;
+                resources_ready = true;
+            }
+            connection = listener.accept(), if resources_ready => {
                 let (stream, _) = connection?;
                 connections.push(serve_http_connection(
                     stream,

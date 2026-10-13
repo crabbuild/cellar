@@ -39,11 +39,13 @@ impl Cell for Counter {
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         script_name: "embedded-example".into(),
         version: "v1".into(),
         prefix: "embedded-example/v1".into(),
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "embedded-example".into(),
             do_classes: vec!["Counter".into()],

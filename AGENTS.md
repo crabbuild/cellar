@@ -18,6 +18,31 @@ develops, publishes, installs, and operates those applications. `cellar-native`
 is a CLI alias. A generic CLI binary cannot serve an application whose factories
 were not compiled into it.
 
+Event delivery is under implementation; track the complete remaining scope in
+`plans/outbox-implementation-status.md`. Native `streams` declarations and
+`stream_bindings` are validated in `deployment/event_resources.rs` and require
+`event-delivery-v1`. `LoadedDeployment::event_streams` and
+`Generation::event_streams` carry desired configuration, not activation proof.
+Node startup and adoption reconcile them through `node/event_resources.rs`,
+verify current catalog revision/digest and independently resolve every binding
+before event admission. Failed adoption preserves the serving generation, but
+does not roll back resource changes already committed. Deployed event bindings
+require a bucket-backed node or fleet with replication and durable wake discovery;
+SQLite-only embedded nodes reject activation until a local recovery inventory
+is implemented and qualified.
+Outbox dispatch uses immutable stored principal/grant identity after source
+proof; current application bindings govern new emission, and receivers repeat
+authorization against durable resource grants. Outbox and inbox schemas have
+version-1 markers; activation rejects unsupported markers, inconsistent retained
+accounting and outbox events exceeding the captured host policy. Known unmarked
+layouts migrate transactionally without resetting identities, receipts or work.
+Fleet admission requires wake format 3, peer protocol 6 and native host protocol
+3. `cellar fleet upgrade` explicitly upgrades only a stopped Cellar format-2
+fleet, requires operator confirmation and no live node lease, and records an
+immutable CAS receipt while preserving cell/log/wake objects. Ordinary startup
+never performs that upgrade. Keep the remaining qualification gates explicit
+before release.
+
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
 supplies listeners, executors, clients, authentication, and any fleet services.

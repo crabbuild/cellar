@@ -9,6 +9,12 @@ use sha2::Digest;
 use sha2::Sha256;
 use std::collections::BTreeMap;
 
+#[path = "event_resources.rs"]
+mod event_resources;
+pub use event_resources::{
+    event_resources_from_manifest, validate_event_resources, EventResources,
+};
+
 /// `deploy/<script>/<version>/manifest.json` — the normalized thing cellar reads
 /// to know what to run. The script name is deployment identity, not a fleet
 /// selector: one fleet has one current application.
@@ -66,6 +72,7 @@ pub struct Manifest {
 /// partially and fail (or misbehave) at worker load instead.
 pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
     FEATURE_NATIVE_V1,
+    FEATURE_EVENT_DELIVERY_V1,
     FEATURE_ASSETS_V1,
     FEATURE_CONTAINERS_V1,
     FEATURE_CONTAINER_IMAGES_V1,
@@ -81,9 +88,11 @@ pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
 ];
 
 pub const FEATURE_NATIVE_V1: &str = "native-v1";
+pub const FEATURE_EVENT_DELIVERY_V1: &str = "event-delivery-v1";
 
-// Protocol 2 requires Cellar namespaces and the protected system schema.
-pub const NATIVE_HOST_PROTOCOL: u32 = 2;
+// Protocol 3 requires generalized durable work and the versioned event schemas.
+// Older executables must be rebuilt before the coordinated fleet cutover.
+pub const NATIVE_HOST_PROTOCOL: u32 = 3;
 
 /// Native executable declarations; this is a host protocol version, not a
 /// dynamic Rust ABI. Application factories are linked into the executable.

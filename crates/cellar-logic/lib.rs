@@ -16,6 +16,7 @@ pub mod cron;
 pub mod drain;
 pub mod durability;
 pub mod epoch_gc;
+pub mod event_stream;
 pub mod format;
 pub mod gate;
 pub mod http;
@@ -32,8 +33,10 @@ pub mod restore;
 pub mod routing;
 pub mod schedule;
 pub mod sqlite;
+pub mod subscription_lifecycle;
 pub mod sweep;
 pub mod wake;
+pub mod work;
 
 mod types;
 pub use types::*;

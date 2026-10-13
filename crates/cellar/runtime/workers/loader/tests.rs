@@ -71,25 +71,34 @@ fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
         .all(|id| !loader_registry().lock().unwrap().contains_key(id)));
 }
 
-struct DropProbe(Arc<AtomicUsize>);
+struct DropProbe {
+    drops: Arc<AtomicUsize>,
+    loaders: Weak<Mutex<LoadedWorkers>>,
+    facets: Weak<Mutex<HashMap<(String, u64), RootFacets>>>,
+}
 
 impl Drop for DropProbe {
     fn drop(&mut self) {
         assert!(
-            loader_registry().try_lock().is_ok(),
+            self.loaders
+                .upgrade()
+                .is_none_or(|registry| registry.try_lock().is_ok()),
             "worker dropped under loader registry lock"
         );
         assert!(
-            root_facets().try_lock().is_ok(),
+            self.facets
+                .upgrade()
+                .is_none_or(|registry| registry.try_lock().is_ok()),
             "worker dropped under root facet lock"
         );
-        self.0.fetch_add(1, Ordering::SeqCst);
+        self.drops.fetch_add(1, Ordering::SeqCst);
     }
 }
 
 fn config(application: Arc<dyn Application>) -> Arc<WorkerConfig> {
     Arc::new(
         WorkerConfig::new(WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "not a JavaScript module!".into(),
             script_name: "loaded-native".into(),
             do_classes: Vec::new(),
@@ -111,7 +120,13 @@ fn config(application: Arc<dyn Application>) -> Arc<WorkerConfig> {
 }
 
 fn probed_config(drops: Arc<AtomicUsize>) -> Arc<WorkerConfig> {
-    let probe = DropProbe(drops);
+    // A final drop can run in a foreign domain or outside a domain entirely.
+    // Probe the registries that own the worker, not the ambient host's locks.
+    let probe = DropProbe {
+        drops,
+        loaders: Arc::downgrade(&loader_registry()),
+        facets: Arc::downgrade(&root_facets()),
+    };
     config(Arc::new(Registry::new(move |_, _| {
         let _ = &probe;
         Box::pin(async { Ok(Output::Done) })
@@ -454,8 +469,17 @@ async fn facet_claims_root_retirement_and_pins_keep_their_host_when_identities_c
         .unwrap();
     second.shutdown().await;
     drop(second_pending);
-    drop(first_slot);
-    drop(second_slot);
+    let foreign = ExecutionDomain::new(tokio::runtime::Handle::current());
+    foreign
+        .run(async {
+            let unrelated = loader_registry();
+            let _held = unrelated.lock().unwrap();
+            drop(first_slot);
+            drop(second_slot);
+        })
+        .await
+        .unwrap();
+    foreign.shutdown().await;
     assert!(second_roots.lock().unwrap().is_empty());
     assert_eq!(drops.load(Ordering::SeqCst), 2);
 }

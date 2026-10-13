@@ -223,6 +223,7 @@ pub use crate::replica_storage::{
 };
 pub use crate::replication_options::{CompactionConfig, ReplicationOptions};
 pub use crate::runtime_policy::RuntimePolicy;
+pub use cellar_logic::event_stream::Limits as EventLimits;
 pub use cellar_logic::queue::Limits as QueueLimits;
 pub use cellar_ltx::TimestampMetadataKey as ReplicaTimestampMetadataKey;
 pub use cellar_ltx::{

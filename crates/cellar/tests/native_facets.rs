@@ -257,8 +257,10 @@ impl Cell for Leaf {
 
 fn deployment() -> LoadedDeployment {
     LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "this is not JavaScript".into(),
             script_name: "native-facets".into(),
             do_classes: vec!["Supervisor".into()],

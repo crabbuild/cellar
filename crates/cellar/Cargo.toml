@@ -83,6 +83,7 @@ getrandom.workspace = true
 glob.workspace = true
 lol_html.workspace = true
 hmac.workspace = true
+hex.workspace = true
 http-body-util.workspace = true
 httpdate.workspace = true
 hyper.workspace = true

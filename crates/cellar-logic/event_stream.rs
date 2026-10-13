@@ -1,0 +1,399 @@
+//! Event delivery decisions. SQLite adapters supply durable facts and apply
+//! each returned plan in a single transaction; clocks and transport stay out
+//! of this module.
+
+pub const RESERVED_CLASS: &str = "__EventStream";
+/// Base64 envelopes may use two bytes per character in the retained codec.
+/// Leave room below its 64 MiB ceiling for framing and grant metadata.
+pub const MAX_PROTOCOL_BATCH_BYTES: usize = 16 << 20;
+pub const MAX_PROTOCOL_BATCH_RECORDS: usize = 10_000;
+
+pub fn retry_delay_ms(attempt: u32, random: u64) -> i64 {
+    let cap = 100u64.saturating_mul(1u64 << attempt.min(10)).min(60_000);
+    (random % (cap + 1)) as i64
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Failure {
+    InvalidSequence,
+    SequenceGap { expected: i64 },
+    InvalidCursor,
+    CursorExpired { earliest: i64 },
+    SubscriptionReset,
+    StaleReceipt,
+    LeaseExpired,
+    InvalidLease,
+    DeadlineOverflow,
+    InvalidLimits,
+    SubscriptionPaused,
+    LastRequiredSubscription,
+    PendingDelivery,
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SequenceGap { expected } => {
+                write!(formatter, "event sequence gap; expected {expected}")
+            }
+            Self::CursorExpired { earliest } => write!(
+                formatter,
+                "event cursor expired; earliest offset is {earliest}"
+            ),
+            Self::InvalidSequence => formatter.write_str("invalid event sequence"),
+            Self::InvalidCursor => formatter.write_str("invalid event cursor"),
+            Self::SubscriptionReset => formatter.write_str("subscription incarnation changed"),
+            Self::StaleReceipt => formatter.write_str("stale delivery receipt"),
+            Self::LeaseExpired => formatter.write_str("delivery lease expired"),
+            Self::InvalidLease => formatter.write_str("invalid delivery lease"),
+            Self::DeadlineOverflow => formatter.write_str("delivery deadline overflow"),
+            Self::InvalidLimits => formatter.write_str("invalid event delivery limits"),
+            Self::SubscriptionPaused => formatter.write_str("subscription is paused"),
+            Self::LastRequiredSubscription => {
+                formatter.write_str("cannot delete the last required subscription")
+            }
+            Self::PendingDelivery => {
+                formatter.write_str("subscription still has unprocessed events")
+            }
+        }
+    }
+}
+
+impl std::error::Error for Failure {}
+
+/// Host API limits; resource retention and durable capacity remain separate
+/// stream configuration. Counts leave room for signed SQLite identity fields.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Limits {
+    pub max_event_bytes: usize,
+    pub max_key_bytes: usize,
+    pub max_family_bytes: usize,
+    pub max_outbox_rows: usize,
+    pub max_outbox_bytes: usize,
+    pub max_source_lanes: usize,
+    pub max_producer_lanes: usize,
+    pub max_subscriptions: usize,
+    pub max_subscription_tombstones: usize,
+    pub max_operation_receipts: usize,
+    pub max_batch_records: usize,
+    pub max_batch_bytes: usize,
+    pub max_waiters: usize,
+    pub max_host_waiters: usize,
+    pub max_dispatch_concurrency: usize,
+    pub max_inbox_receipts: usize,
+    pub max_poll_ms: i64,
+    pub lease_ms: i64,
+    pub max_lease_lifetime_ms: i64,
+    pub max_retry_delay_ms: i64,
+    pub sweep_rows: usize,
+    pub sweep_bytes: usize,
+}
+
+impl Default for Limits {
+    fn default() -> Self {
+        Self {
+            max_event_bytes: 256 << 10,
+            max_key_bytes: 1024,
+            max_family_bytes: 128,
+            max_outbox_rows: 10_000,
+            max_outbox_bytes: 128 << 20,
+            max_source_lanes: 128,
+            max_producer_lanes: 100_000,
+            max_subscriptions: 128,
+            max_subscription_tombstones: 100_000,
+            max_operation_receipts: 100_000,
+            max_batch_records: 100,
+            max_batch_bytes: 1 << 20,
+            max_waiters: 1024,
+            max_host_waiters: 4096,
+            max_dispatch_concurrency: 32,
+            max_inbox_receipts: 100_000,
+            max_poll_ms: 30_000,
+            lease_ms: 30_000,
+            max_lease_lifetime_ms: 300_000,
+            max_retry_delay_ms: 300_000,
+            sweep_rows: 1000,
+            sweep_bytes: 4 << 20,
+        }
+    }
+}
+
+impl Limits {
+    pub fn event_bytes(self) -> usize {
+        self.max_event_bytes.min(MAX_PROTOCOL_BATCH_BYTES)
+    }
+
+    pub fn batch_bytes(self) -> usize {
+        self.max_batch_bytes.min(MAX_PROTOCOL_BATCH_BYTES)
+    }
+
+    pub fn batch_records(self) -> usize {
+        self.max_batch_records.min(MAX_PROTOCOL_BATCH_RECORDS)
+    }
+
+    pub fn unrestricted() -> Self {
+        let capacity = i64::MAX as usize;
+        Self {
+            max_event_bytes: capacity,
+            max_key_bytes: capacity,
+            max_family_bytes: capacity,
+            max_outbox_rows: capacity,
+            max_outbox_bytes: capacity,
+            max_source_lanes: capacity,
+            max_producer_lanes: capacity,
+            max_subscriptions: capacity,
+            max_subscription_tombstones: capacity,
+            max_operation_receipts: capacity,
+            max_batch_records: capacity,
+            max_batch_bytes: capacity,
+            max_waiters: capacity,
+            max_host_waiters: capacity,
+            max_dispatch_concurrency: capacity,
+            max_inbox_receipts: capacity,
+            max_poll_ms: i64::MAX,
+            lease_ms: 30_000,
+            max_lease_lifetime_ms: i64::MAX,
+            max_retry_delay_ms: i64::MAX,
+            sweep_rows: capacity,
+            sweep_bytes: capacity,
+        }
+    }
+
+    pub fn validate(self) -> Result<(), Failure> {
+        let capacities = [
+            self.max_event_bytes,
+            self.max_key_bytes,
+            self.max_family_bytes,
+            self.max_outbox_rows,
+            self.max_outbox_bytes,
+            self.max_source_lanes,
+            self.max_producer_lanes,
+            self.max_subscriptions,
+            self.max_subscription_tombstones,
+            self.max_operation_receipts,
+            self.max_batch_records,
+            self.max_batch_bytes,
+            self.max_waiters,
+            self.max_host_waiters,
+            self.max_dispatch_concurrency,
+            self.max_inbox_receipts,
+            self.sweep_rows,
+            self.sweep_bytes,
+        ];
+        if capacities
+            .into_iter()
+            .any(|value| value == 0 || value > i64::MAX as usize)
+            || self.max_event_bytes > self.max_batch_bytes
+            || self.max_event_bytes > self.max_outbox_bytes
+            || self.max_poll_ms <= 0
+            || self.lease_ms <= 0
+            || self.max_lease_lifetime_ms < self.lease_ms
+            || self.max_retry_delay_ms < 0
+        {
+            return Err(Failure::InvalidLimits);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Append {
+    pub skip: usize,
+    pub accepted_through: i64,
+}
+
+/// An ordered lane can retry a prefix without retaining an event-ID window.
+/// Returning a gap never authorizes partial acceptance of the request.
+pub fn append(accepted_through: i64, sequences: &[i64]) -> Result<Append, Failure> {
+    if accepted_through < 0 || sequences.is_empty() {
+        return Err(Failure::InvalidSequence);
+    }
+    let mut previous: Option<i64> = None;
+    let mut skip = 0;
+    let mut high = accepted_through;
+    for &sequence in sequences {
+        if sequence <= 0 || previous.is_some_and(|prior| prior.checked_add(1) != Some(sequence)) {
+            return Err(Failure::InvalidSequence);
+        }
+        previous = Some(sequence);
+        if sequence <= accepted_through {
+            skip += 1;
+        } else {
+            let expected = high.checked_add(1).ok_or(Failure::InvalidSequence)?;
+            if sequence != expected {
+                return Err(Failure::SequenceGap { expected });
+            }
+            high = sequence;
+        }
+    }
+    Ok(Append {
+        skip,
+        accepted_through: high,
+    })
+}
+
+pub fn source_seal(next_sequence: i64, settled_through: i64, pending: i64) -> Result<i64, Failure> {
+    if pending < 0 || next_sequence <= 0 || settled_through < 0 {
+        return Err(Failure::InvalidSequence);
+    }
+    if pending != 0 {
+        return Err(Failure::PendingDelivery);
+    }
+    let terminal = next_sequence - 1;
+    if terminal != settled_through {
+        return Err(Failure::InvalidSequence);
+    }
+    Ok(terminal)
+}
+
+pub fn destination_seal(accepted_through: i64, terminal: i64) -> Result<(), Failure> {
+    if terminal < 0 || accepted_through != terminal {
+        return Err(Failure::InvalidSequence);
+    }
+    Ok(())
+}
+
+/// Local retirement conditions complement the operator's external quiescence
+/// procedure. No stream-local facts can discover uncontacted source outboxes.
+pub fn retire(
+    force: bool,
+    unsealed_producers: i64,
+    lagging_subscriptions: i64,
+    live_leases: i64,
+) -> Result<(), Failure> {
+    if unsealed_producers < 0 || lagging_subscriptions < 0 || live_leases < 0 {
+        return Err(Failure::InvalidLimits);
+    }
+    if !force && (unsealed_producers != 0 || lagging_subscriptions != 0 || live_leases != 0) {
+        return Err(Failure::PendingDelivery);
+    }
+    Ok(())
+}
+
+pub fn cursor(earliest: i64, next: i64, requested: i64) -> Result<(), Failure> {
+    if earliest <= 0 || next < earliest || requested > next || requested <= 0 {
+        return Err(Failure::InvalidCursor);
+    }
+    if requested < earliest {
+        return Err(Failure::CursorExpired { earliest });
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Receipt {
+    pub subscription: [u8; 16],
+    pub incarnation: [u8; 16],
+    pub generation: i64,
+    pub token: [u8; 32],
+    pub first: i64,
+    pub last: i64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Lease {
+    pub receipt: Receipt,
+    pub issued_at_ms: i64,
+    pub expires_at_ms: i64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Acknowledgment {
+    Advance { through: i64 },
+    AlreadyAcknowledged,
+    Obsolete,
+}
+
+/// Repeated acknowledgment survives a lost response, but an old or forged
+/// receipt cannot advance current progress. Authentication precedes this
+/// decision in the adapter.
+pub fn acknowledge(
+    subscription: [u8; 16],
+    incarnation: [u8; 16],
+    checkpoint: i64,
+    lease: Option<&Lease>,
+    last_ack: Option<&Receipt>,
+    receipt: &Receipt,
+    now_ms: i64,
+) -> Result<Acknowledgment, Failure> {
+    if receipt.subscription != subscription || receipt.incarnation != incarnation {
+        return Err(Failure::SubscriptionReset);
+    }
+    if checkpoint < 0
+        || receipt.first <= 0
+        || receipt.last < receipt.first
+        || receipt.generation <= 0
+    {
+        return Err(Failure::StaleReceipt);
+    }
+    if last_ack == Some(receipt) {
+        return Ok(Acknowledgment::AlreadyAcknowledged);
+    }
+    if receipt.last <= checkpoint {
+        return Ok(Acknowledgment::Obsolete);
+    }
+    let lease = lease.ok_or(Failure::StaleReceipt)?;
+    if &lease.receipt != receipt || checkpoint.checked_add(1) != Some(receipt.first) {
+        return Err(Failure::StaleReceipt);
+    }
+    if now_ms >= lease.expires_at_ms {
+        return Err(Failure::LeaseExpired);
+    }
+    Ok(Acknowledgment::Advance {
+        through: receipt.last,
+    })
+}
+
+/// Extension requests contain an absolute target so transport retries cannot
+/// repeatedly add time. A stale lease cannot be resurrected by extension.
+pub fn extend(
+    lease: &Lease,
+    receipt: &Receipt,
+    now_ms: i64,
+    requested_expiry_ms: i64,
+    max_lifetime_ms: i64,
+) -> Result<i64, Failure> {
+    if &lease.receipt != receipt {
+        return Err(Failure::StaleReceipt);
+    }
+    if now_ms >= lease.expires_at_ms {
+        return Err(Failure::LeaseExpired);
+    }
+    if lease.issued_at_ms < 0 || max_lifetime_ms <= 0 || requested_expiry_ms < 0 {
+        return Err(Failure::InvalidLease);
+    }
+    let bound = lease
+        .issued_at_ms
+        .checked_add(max_lifetime_ms)
+        .ok_or(Failure::DeadlineOverflow)?;
+    if requested_expiry_ms > bound {
+        return Err(Failure::InvalidLease);
+    }
+    Ok(lease.expires_at_ms.max(requested_expiry_ms))
+}
+
+/// The age/byte sweep proposes a prefix. Required checkpoints and live leases
+/// restrict that prefix; they never invent acknowledgment of missing history.
+pub fn deletion_frontier(
+    candidate: i64,
+    required_checkpoints: impl IntoIterator<Item = i64>,
+    live_batch_starts: impl IntoIterator<Item = i64>,
+) -> Result<i64, Failure> {
+    if candidate < 0 {
+        return Err(Failure::InvalidCursor);
+    }
+    let mut through = candidate;
+    for checkpoint in required_checkpoints {
+        if checkpoint < 0 {
+            return Err(Failure::InvalidCursor);
+        }
+        through = through.min(checkpoint);
+    }
+    for first in live_batch_starts {
+        if first <= 0 {
+            return Err(Failure::InvalidLease);
+        }
+        through = through.min(first - 1);
+    }
+    Ok(through)
+}

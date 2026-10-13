@@ -21,8 +21,10 @@ const IDENTITY: &str = "native-test/database";
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "native-sql".into(),
             do_classes: vec![cellar::deploy::SQL_CLASS.into(), "Caller".into()],

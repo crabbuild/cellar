@@ -73,8 +73,10 @@ impl Cell for Leaf {
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(fleet::LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "driver".into(),
             do_classes: vec!["Root".into()],

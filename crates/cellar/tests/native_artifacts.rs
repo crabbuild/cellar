@@ -11,6 +11,26 @@ use cellar::protocol::{validate_execution_manifest, FEATURE_NATIVE_V1};
 use serde_json::json;
 use std::collections::BTreeMap;
 
+#[test]
+fn native_event_host_protocol_refuses_previous_executables() -> Result<()> {
+    let mut native = cellar::protocol::NativeDeployment {
+        host_protocol: 2,
+        application_version: "test".into(),
+        artifacts: vec![cellar::protocol::NativeArtifact {
+            target: current_target().into(),
+            sha256: "a".repeat(64),
+            bytes: 1,
+        }],
+    };
+    assert!(
+        native.validate().is_err(),
+        "protocol-2 executable admitted to an event-enabled host"
+    );
+    native.host_protocol = cellar::protocol::NATIVE_HOST_PROTOCOL;
+    native.validate()?;
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_artifact_publication_install_and_source_refusal() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
@@ -137,6 +157,162 @@ async fn native_artifact_publication_install_and_source_refusal() -> Result<()> 
     // Host channels have one process-wide runtime. Exercise both publication
     // fixtures under that runtime instead of installing competing test handles.
     staged_assets_preserve_shared_protocol_and_refuse_incomplete_publication().await?;
+    event_resources_survive_native_publication_and_generation_loading().await?;
+    Ok(())
+}
+
+fn event_config() -> Result<ApplicationConfig> {
+    let resource = json!({"tenant":"tenant","application":"accounts","id":"00000000000000000000000000000001","name":"orders","family":"orders"});
+    serde_json::from_value(json!({
+        "script_name":"accounts","application_version":"events-v1","cells":["Account"],
+        "streams":[{"resource":resource,"revision":1,"retention":"bounded","max_bytes":1048576,"max_records":1000,"max_age_ms":86400000,
+            "grants":[{"id":"orders-owner","principal":"accounts","publish":true,"read":true,"administer":true,"subscriptions":["fulfillment"]}],
+            "subscriptions":[{"name":"fulfillment","start":{"kind":"earliest"},"required":false}]}],
+        "stream_bindings":[{"environment":"ORDERS","resource":resource,"principal":"accounts","grant":"orders-owner",
+            "publish":true,"read":true,"subscriptions":["fulfillment"],"administer":false}]
+    })).map_err(Into::into)
+}
+
+#[test]
+fn native_event_configuration_refuses_unmarked_or_inconsistent_authority() -> Result<()> {
+    use cellar::protocol::{event_resources_from_manifest, FEATURE_EVENT_DELIVERY_V1};
+    let config = event_config()?;
+    let artifact = cellar::protocol::NativeArtifact {
+        target: current_target().into(),
+        sha256: "a".repeat(64),
+        bytes: 10,
+    };
+    let manifest = config.manifest(vec![artifact.clone()])?;
+    assert!(manifest
+        .required_features
+        .iter()
+        .any(|feature| feature == FEATURE_EVENT_DELIVERY_V1));
+    let limits = cellar::sdk::EventLimits::default();
+    let resources = event_resources_from_manifest(&manifest, &limits)?;
+    assert_eq!(resources.definitions.len(), 1);
+    assert_eq!(resources.bindings[0].environment, "ORDERS");
+    for class in [
+        cellar::deploy::EVENT_STREAM_CLASS,
+        cellar::deploy::EVENT_CATALOG_CLASS,
+    ] {
+        assert!(manifest.do_classes.iter().any(|declared| declared == class));
+        assert!(manifest
+            .sqlite_classes
+            .iter()
+            .any(|declared| declared == class));
+    }
+    let mut altered = manifest.clone();
+    altered
+        .required_features
+        .retain(|feature| feature != FEATURE_EVENT_DELIVERY_V1);
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered
+        .sqlite_classes
+        .retain(|class| class != cellar::deploy::EVENT_CATALOG_CLASS);
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered.raw_metadata["stream_bindings"][0]["principal"] = json!("another-application");
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered.raw_metadata["stream_bindings"][0]["resource"]["tenant"] = json!("another-tenant");
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered.raw_metadata["stream_bindings"][0]["grant"] = json!("invented-grant");
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered.raw_metadata["stream_bindings"][0]["subscriptions"] = json!(["ungranted-subscription"]);
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered.raw_metadata["stream_bindings"] = json!({});
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    altered = manifest.clone();
+    altered.raw_metadata["streams"][0]["grants"][0]["administer"] = json!(false);
+    assert!(event_resources_from_manifest(&altered, &limits).is_err());
+    let mut config = config;
+    config
+        .bindings
+        .push(json!({"type":"plain_text","name":"ORDERS","text":"collision"}));
+    assert!(config.manifest(vec![artifact]).is_err());
+    let mut lower = limits;
+    lower.max_subscriptions = 1;
+    altered = manifest;
+    altered.raw_metadata["streams"][0]["subscriptions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"name":"audit","start":{"kind":"latest"},"required":false}));
+    assert!(event_resources_from_manifest(&altered, &lower).is_err());
+    Ok(())
+}
+
+async fn event_resources_survive_native_publication_and_generation_loading() -> Result<()> {
+    struct Account;
+
+    impl cellar::sdk::Cell for Account {
+        fn invoke(
+            self: std::sync::Arc<Self>,
+            _: cellar::sdk::Context,
+            _: cellar::sdk::Invocation,
+        ) -> cellar::sdk::HandlerFuture<cellar::sdk::Output> {
+            Box::pin(async { Ok(cellar::sdk::Output::Done) })
+        }
+    }
+    let directory = tempfile::tempdir()?;
+    let executable = directory.path().join("events-application");
+    std::fs::write(&executable, b"event deployment executable fixture")?;
+    let artifact = executable_identity(&executable, current_target())?;
+    let config = event_config()?;
+    let package = Package {
+        primary: config.manifest(vec![artifact.clone()])?,
+        cohosted: Vec::new(),
+    };
+    let bucket = Bucket::open_dev(&directory.path().join("events.sqlite"))?;
+    package
+        .publish(
+            &bucket,
+            &BTreeMap::from([(artifact.sha256.clone(), executable)]),
+        )
+        .await?;
+    let cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(
+        directory.path().join("cache"),
+    ))?;
+    let graph = DeploymentGraph::load(&bucket, "test".into(), &cache).await?;
+    assert_eq!(graph.primary.event_streams, config.streams);
+    assert_eq!(graph.primary.options.stream_bindings.len(), 1);
+    assert_eq!(
+        graph.primary.options.stream_bindings[0].principal,
+        "accounts"
+    );
+    let application = std::sync::Arc::new(
+        cellar::sdk::Registry::new(|_, _| Box::pin(async { Ok(cellar::sdk::Output::Done) }))
+            .cell("Account", |_, _| Ok(std::sync::Arc::new(Account)))?,
+    ) as std::sync::Arc<dyn cellar::sdk::Application>;
+    let applications = std::collections::HashMap::from([("accounts".into(), application)]);
+    let generation = Generation::build_native(
+        1,
+        graph,
+        GenerationOptions {
+            node: "test".into(),
+            region: "test".into(),
+        },
+        applications.clone(),
+    )?;
+    assert_eq!(
+        generation.event_streams()[0],
+        ("accounts".into(), config.streams[0].clone())
+    );
+    let mut graph = DeploymentGraph::load(&bucket, "test".into(), &cache).await?;
+    graph.primary.options.stream_bindings[0].principal = "another-application".into();
+    assert!(Generation::build_native(
+        2,
+        graph,
+        GenerationOptions {
+            node: "test".into(),
+            region: "test".into()
+        },
+        applications
+    )
+    .is_err());
     Ok(())
 }
 

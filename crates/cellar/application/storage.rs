@@ -4,9 +4,12 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
 mod cursor;
+mod inbox;
+mod outbox;
 mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
 pub use cursor::{KvCursor, SqlCursor, SqlRow};
+pub use inbox::Inbox;
 pub(crate) use transaction::Current as TransactionCurrent;
 use transaction::Transaction;
 
@@ -150,6 +153,54 @@ impl StoredClone {
 }
 
 impl Storage {
+    pub(crate) fn clear_current_work(&self, reason: cellar_logic::work::Reason) -> Result<()> {
+        if let Some(installation) = crate::storage::work::current(self.scope()?, reason)? {
+            self.clear_work(installation)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn schedule_work(
+        &self,
+        reason: cellar_logic::work::Reason,
+        at_ms: i64,
+    ) -> Result<()> {
+        let scope = self.scope()?;
+        if let Some(effective) = crate::storage::work::set(scope, reason, at_ms)? {
+            if effective >= 0 {
+                crate::host_gates::spawn_arm_gate(
+                    scope,
+                    effective,
+                    crate::host_io::installed_context(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_work(
+        &self,
+        installation: cellar_logic::work::Installation,
+    ) -> Result<bool> {
+        let scope = self.scope()?;
+        let (cleared, effective) = crate::storage::work::clear(scope, installation)?;
+        if let Some(effective) = effective.filter(|deadline| *deadline >= 0) {
+            crate::host_gates::spawn_arm_gate(
+                scope,
+                effective,
+                crate::host_io::installed_context(),
+            );
+        }
+        Ok(cleared)
+    }
+
+    pub(crate) fn work_installation(
+        &self,
+        reason: cellar_logic::work::Reason,
+    ) -> Result<Option<cellar_logic::work::Installation>> {
+        crate::storage::work::installation(self.scope()?, reason)
+    }
+
     pub(crate) fn system_sql(&self, query: &str, bindings: &[SqlValue]) -> Result<Vec<SqlRow>> {
         crate::storage::system_sql(self.scope()?, query, bindings)
     }
@@ -337,7 +388,9 @@ impl Storage {
 
     /// The compatibility flag chooses whether deleteAll also removes alarms.
     pub fn delete_all(&self) -> Result<()> {
-        crate::storage::delete_all_with_alarm(self.scope()?, self.0.delete_all_deletes_alarm)
+        let scope = self.scope()?;
+        crate::storage::delete_all_with_alarm(scope, self.0.delete_all_deletes_alarm)?;
+        crate::native_worker::refresh_wake_gate(scope)
     }
 
     pub fn sync(&self) -> HandlerFuture<()> {
@@ -374,6 +427,8 @@ impl Storage {
     }
 
     pub fn delete_alarm(&self) -> Result<()> {
-        crate::storage::delete_alarm(self.scope()?)
+        let scope = self.scope()?;
+        crate::storage::delete_alarm(scope)?;
+        crate::native_worker::refresh_wake_gate(scope)
     }
 }

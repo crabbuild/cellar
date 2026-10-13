@@ -32,8 +32,10 @@ fn scope() -> String {
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "native-kv".into(),
             do_classes: vec![cellar::deploy::KV_CLASS.into(), "Caller".into()],

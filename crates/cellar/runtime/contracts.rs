@@ -87,6 +87,7 @@ pub fn parse_request_id(value: &str) -> Option<RequestId> {
 /// An RPC payload crossing the host boundary. Structured payloads retain the
 /// existing clone wire format; legacy callers may use a JSON envelope.
 /// `__dispatchRpc` answers in the flavor it was asked in.
+#[derive(Clone)]
 pub enum RpcData {
     Json(String),
     Structured(bytes::Bytes),
@@ -301,6 +302,7 @@ pub struct WorkerConfigOptions {
     pub sql_bindings: Vec<(String, String)>,
     pub kv_bindings: Vec<(String, String)>,
     pub queue_bindings: Vec<QueueBinding>,
+    pub stream_bindings: Vec<crate::application::event_stream::Binding>,
     pub queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
     pub workflow_bindings: Vec<WorkflowBinding>,
     pub vars: Vec<(String, String)>,
@@ -444,6 +446,8 @@ pub(crate) const KV_NAMESPACE_KEY: &str = "cells:v1:kv:__KvNamespace";
 /// durable resource identity, so a producer and a consumer in different
 /// scripts must derive the same cell id.
 pub(crate) const QUEUE_NAMESPACE_KEY: &str = "cells:v1:queue:__Queue";
+pub(crate) const EVENT_STREAM_NAMESPACE_KEY: &str = "cells:v1:event-stream:__EventStream";
+pub(crate) const EVENT_CATALOG_NAMESPACE_KEY: &str = "cells:v1:event-catalog:__EventCatalog";
 
 /// A shared reserved class addresses one set of cells for the whole fleet; every
 /// other class, reserved or not, is scoped to the script that exports it.
@@ -458,6 +462,8 @@ fn shared_namespace_key(class_name: &str) -> Option<&'static str> {
         crate::deploy::SQL_CLASS => Some(SQL_NAMESPACE_KEY),
         crate::deploy::KV_CLASS => Some(KV_NAMESPACE_KEY),
         crate::deploy::QUEUE_CLASS => Some(QUEUE_NAMESPACE_KEY),
+        crate::deploy::EVENT_STREAM_CLASS => Some(EVENT_STREAM_NAMESPACE_KEY),
+        crate::deploy::EVENT_CATALOG_CLASS => Some(EVENT_CATALOG_NAMESPACE_KEY),
         _ => {
             debug_assert!(
                 !crate::deploy::is_shared_reserved_class(class_name),

@@ -85,8 +85,10 @@ pub fn graph(
     classes: Vec<String>,
 ) -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: source.into(),
             script_name: script.into(),
             do_classes: classes,

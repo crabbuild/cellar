@@ -67,6 +67,7 @@ pub enum CellJob {
         order: Option<CallOrder>,
     },
     Rpc {
+        authority: Option<crate::application::event_stream::Authority>,
         request_id: Option<RequestId>,
         scope: String,
         name: Option<String>,

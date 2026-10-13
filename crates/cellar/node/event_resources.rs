@@ -1,0 +1,169 @@
+//! Resource activation uses the ordinary owner route and proof gates. This
+//! module does not mutate another cell's SQLite or publish a provisional bind.
+
+use super::{AppHandle, Generation, RpcCallReq};
+use crate::application::event_stream::{self, authority::Authority, DeliveryError};
+use anyhow::{Context, Result};
+use base64::Engine;
+use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
+
+struct Pending(Option<Arc<event_stream::readiness::Readiness>>);
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        // A cancelled activation cannot leave readiness observers pending
+        // indefinitely. The owner domain still joins its begun RPC work.
+        if let Some(readiness) = &self.0 {
+            readiness.finish(Err("event resource activation cancelled".into()));
+        }
+    }
+}
+
+pub(super) async fn activate(app: AppHandle, generation: &Generation) -> Result<()> {
+    generation.begin_event_activation();
+    if generation.event_streams().is_empty() && generation.event_bindings().is_empty() {
+        return Ok(());
+    }
+    let mut pending = Pending(Some(generation.event_readiness.clone()));
+    let result = crate::asyncrt::timeout(
+        std::time::Duration::from_millis(app.operation_deadline_ms),
+        activate_inner(&app, generation),
+    )
+    .await
+    .context("event resource activation deadline elapsed")
+    .and_then(|result| result);
+    pending.0.take();
+    generation.event_readiness.finish(
+        result
+            .as_ref()
+            .map(|_| ())
+            .map_err(|error| error.to_string()),
+    );
+    result
+}
+
+async fn rpc(
+    app: &AppHandle,
+    authority: Authority,
+    scope: String,
+    name: String,
+    method: &str,
+    args: Value,
+) -> Result<Value> {
+    let (reply, receiver) = tokio::sync::oneshot::channel();
+    let request = RpcCallReq {
+        authority: Some(authority),
+        request_id: Some(crate::engine_api::next_request_id()),
+        cancel: None,
+        scope,
+        name: Some(name),
+        method: method.into(),
+        args: crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(
+            args,
+        )?)?,
+        reply,
+    };
+    let (_, result) =
+        futures_util::future::join(super::dispatch_rpc_call(app.clone(), request), receiver).await;
+    let value = crate::application::decode_rpc_result(
+        &result.context("resource activation response channel closed")??,
+    )?
+    .to_json()?;
+    if let Some(error) = value.get("error") {
+        return Err(serde_json::from_value::<DeliveryError>(error.clone())?.into());
+    }
+    value
+        .get("ok")
+        .cloned()
+        .context("invalid resource activation response")
+}
+
+async fn activate_inner(app: &AppHandle, generation: &Generation) -> Result<()> {
+    // Event admission needs both data proof and recoverable wake discovery.
+    // A local-only runtime has no inventory that can rediscover an untouched
+    // source after restart, and cannot hand off an armed internal deadline.
+    // Reject that host before configuration rather than acknowledge obligations
+    // that only happen to progress while the current process remains resident.
+    let runtime = app
+        .runtime
+        .as_ref()
+        .context("event activation requires a cell runtime")?;
+    anyhow::ensure!(runtime.replication().is_some() && runtime.wake.is_some(),
+        "event deployment requires replicated SQLite and durable wake discovery; configure a single-node bucket or fleet");
+    for (script, definition) in generation.event_streams() {
+        let bytes = event_stream::encoding::json(definition, event_stream::MAX_DEFINITION_BYTES)?;
+        let digest = hex::encode(Sha256::digest(&bytes));
+        let mut identity = Sha256::new();
+        identity.update(b"cellar-event-deployment-operation-v1\0");
+        identity.update(u32::try_from(script.len())?.to_be_bytes());
+        identity.update(script.as_bytes());
+        identity.update(&bytes);
+        let operation = hex::encode(&identity.finalize()[..16]);
+        let authority = Authority::deployment(script, definition)?;
+        let configured = rpc(app, authority.clone(), event_stream::catalog_scope(&definition.resource)?, event_stream::catalog_name(&definition.resource)?,
+            "__catalogConfigure", json!([{"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}])).await?;
+        anyhow::ensure!(
+            configured["state"].as_str() == Some("active"),
+            "event resource configuration is pending: {}",
+            configured["last_error"]
+        );
+        // A repeated operation returns history. Check the catalog's current
+        // revision/digest and lifecycle before accepting deployment readiness.
+        let current = rpc(
+            app,
+            authority,
+            event_stream::catalog_scope(&definition.resource)?,
+            event_stream::catalog_name(&definition.resource)?,
+            "__catalogStatus",
+            json!([{}]),
+        )
+        .await?;
+        anyhow::ensure!(
+            current["state"].as_str() == Some("active")
+                && current["resource"].as_str() == Some(definition.resource.id.as_str())
+                && current["accepted_revision"].as_str()
+                    == Some(definition.revision.to_string().as_str())
+                && current["accepted_digest"].as_str() == Some(digest.as_str()),
+            "event resource does not match the current deployment definition"
+        );
+    }
+    for binding in generation.event_bindings() {
+        let authority = Authority::resolution(binding)?;
+        // Retirement intent closes new binding adoption before delegated
+        // partition closure finishes. Check both authorities; partition-only
+        // resolution could accept a still-active partition during retirement.
+        let catalog = rpc(
+            app,
+            authority.clone(),
+            event_stream::catalog_scope(&binding.resource)?,
+            event_stream::catalog_name(&binding.resource)?,
+            "__catalogResolve",
+            json!([{}]),
+        )
+        .await?;
+        let resource: event_stream::Resource = serde_json::from_value(catalog["resource"].clone())?;
+        anyhow::ensure!(
+            catalog["state"].as_str() == Some("active") && resource == binding.resource,
+            "catalog binding identity differs from the deployment"
+        );
+        let encoded = event_stream::encoding::json(binding, 64 << 10)?;
+        let resolved = rpc(
+            app,
+            authority,
+            event_stream::cell_scope(&binding.resource)?,
+            event_stream::cell_name(&binding.resource)?,
+            "__streamResolve",
+            json!([{"binding":base64::engine::general_purpose::STANDARD.encode(encoded)}]),
+        )
+        .await?;
+        let resource: event_stream::Resource =
+            serde_json::from_value(resolved["resource"].clone())?;
+        anyhow::ensure!(
+            resolved["state"].as_str() == Some("active") && resource == binding.resource,
+            "resolved event binding identity differs from the deployment"
+        );
+    }
+    Ok(())
+}

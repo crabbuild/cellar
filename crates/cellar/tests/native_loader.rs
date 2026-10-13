@@ -660,8 +660,10 @@ impl Cell for Parent {
 
 fn deployment() -> LoadedDeployment {
     LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "this is not JavaScript".into(),
             script_name: "native-loader".into(),
             do_classes: vec!["Root".into()],

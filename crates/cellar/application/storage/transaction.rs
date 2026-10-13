@@ -324,6 +324,12 @@ where
 }
 
 impl Storage {
+    /// Atomically commit synchronous work in this cell. A local commit is
+    /// followed by the event's normal discovery and durability output gates.
+    pub fn tx<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {
+        self.transaction_sync(callback)
+    }
+
     /// Hold the host input gate through an asynchronous transaction. Ordinary
     /// callback errors and panics roll back without resetting the cell. Root
     /// transactions reserve slots in call order; nested children finish before

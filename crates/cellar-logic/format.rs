@@ -19,6 +19,29 @@ use crate::CapacityPeer;
 ///   cannot restore the cell.
 pub const BUCKET_FORMAT: u16 = 2;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CutoverRefusal {
+    ConfirmationRequired,
+    LiveLease,
+}
+
+/// An offline protocol cutover requires the operator to stop writers, and
+/// cannot proceed while any scanned lease can still authorize one. This is
+/// admission for the coordinated procedure, not a distributed fencing proof.
+pub fn coordinated_cutover(
+    confirmed_stopped: bool,
+    latest_expiry: Option<u64>,
+    now_ms: u64,
+) -> Result<(), CutoverRefusal> {
+    if !confirmed_stopped {
+        return Err(CutoverRefusal::ConfirmationRequired);
+    }
+    if latest_expiry.is_some_and(|expiry| expiry > now_ms) {
+        return Err(CutoverRefusal::LiveLease);
+    }
+    Ok(())
+}
+
 /// The format a lease without the field reads: the releases before the
 /// field existed all read format 1.
 const FIELDLESS_FORMAT: u16 = 1;

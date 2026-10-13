@@ -14,6 +14,7 @@ pub mod cells;
 pub(crate) mod concurrency;
 pub mod containers;
 pub mod cron;
+pub mod event_stream;
 pub mod events;
 pub mod facets;
 pub mod html_rewriter;
@@ -21,6 +22,7 @@ pub mod http;
 pub mod kv;
 pub mod limits;
 pub mod loader;
+pub(crate) mod outbox;
 pub mod queue;
 pub mod service;
 pub mod sockets;
@@ -329,6 +331,7 @@ impl EventState {
 }
 
 pub(crate) struct Activation {
+    pub(crate) worker_config: Arc<crate::worker_config::WorkerConfig>,
     pub scope: String,
     pub epoch: u64,
     pub delete_all_deletes_alarm: bool,
@@ -338,6 +341,7 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
+    pub(crate) event_authority: Option<event_stream::Authority>,
     pub(crate) io: Arc<crate::host_io::IoContext>,
     pub(crate) state: Arc<EventState>,
     pub(crate) identity: Option<CellIdentity>,

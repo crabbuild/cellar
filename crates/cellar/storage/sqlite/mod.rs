@@ -16,7 +16,11 @@ use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+mod event_schema;
+pub(crate) mod inbox;
+pub(crate) mod outbox;
 pub(crate) mod wake_record;
+pub(crate) mod work;
 
 /// Read the alarm and its identity before releasing the source's SQLite lock.
 pub(crate) fn alarm_snapshot(scope: &str) -> anyhow::Result<cellar_logic::wake::AlarmSnapshot> {
@@ -26,7 +30,8 @@ pub(crate) fn alarm_snapshot(scope: &str) -> anyhow::Result<cellar_logic::wake::
             .is_some_and(|cell| cell.replicated_wake)
     }) {
         return Ok(cellar_logic::wake::AlarmSnapshot::without_wake(
-            alarm_state(scope).map(|(at_ms, _)| at_ms),
+            with(scope, |connection| work::effective(connection, scope))
+                .context("wake snapshot has no open cell")??,
         ));
     }
     with(scope, |c| {
@@ -378,6 +383,12 @@ impl Drop for SqlCursor {
 
 #[doc(hidden)]
 pub fn schema(c: &Connection) -> anyhow::Result<()> {
+    // Refuse unsupported event state before creating tables or changing any
+    // wake projection. The epoch's activation cannot reinterpret that state.
+    outbox::check_schema(c)?;
+    inbox::check_schema(c)?;
+    event_schema::check_version(c, "__sys_stream_schema", &[1, 2, 3])?;
+    event_schema::check_version(c, "__sys_event_catalog_schema", &[1, 2])?;
     // Fresh schemas can skip the WAL-header fsync. Existing Cellar databases
     // use the normal durability setting for schema maintenance.
     let empty = c.query_row("PRAGMA page_count", [], |row| row.get::<_, u64>(0))? == 0;
@@ -403,6 +414,9 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
          (scope TEXT PRIMARY KEY, actor_name TEXT)",
             [],
         )?;
+        c.execute_batch(work::SCHEMA)?;
+        outbox::restore_schema(c)?;
+        inbox::restore_schema(c)?;
         transaction.commit()?;
         Ok(())
     })();
@@ -4198,6 +4212,22 @@ pub fn get_actor_name(scope: &str) -> anyhow::Result<Option<String>> {
 /// which form the public JS deleteAll() operation selects.
 pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<()> {
     let result = with_application_storage_write(scope, |c| -> anyhow::Result<()> {
+        let has_outbox: bool = c.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='table' AND name='__sys_outbox')",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_outbox {
+            let pending: bool = c.query_row(
+                "SELECT EXISTS(SELECT 1 FROM __sys_outbox LIMIT 1)",
+                [],
+                |row| row.get(0),
+            )?;
+            anyhow::ensure!(
+                !pending,
+                "PendingDelivery: cannot clear business state with pending outbox events"
+            );
+        }
         let mut statement = c.prepare(
             "SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%'",
         )?;
@@ -4211,8 +4241,19 @@ pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<
                 for table in tables {
                     if matches!(
                         table.as_str(),
-                        "__sys_cell_metadata" | "__sys_cell_wake" | "__sys_cell_alarm"
+                        "__sys_cell_metadata"
+                            | "__sys_cell_wake"
+                            | "__sys_cell_alarm"
+                            | "__sys_work"
                     ) {
+                        continue;
+                    }
+                    if table == "__sys_event_source"
+                        || table.starts_with("__sys_outbox")
+                        || table.starts_with("__sys_inbox")
+                        || table.starts_with("__sys_stream")
+                        || table.starts_with("__sys_event_catalog")
+                    {
                         continue;
                     }
                     // The ltx replicator owns its control tables. Dropping
@@ -4314,24 +4355,21 @@ fn publish_alarm(scope: &str) -> Option<i64> {
     // commit or rollback.
     let state = with(scope, |connection| {
         if connection.is_autocommit() {
-            Ok(connection
-                .query_row(
-                    "SELECT at_ms FROM __sys_cell_alarm WHERE scope=?1",
-                    [scope],
-                    |row| row.get::<_, i64>(0),
-                )
-                .ok()
-                .unwrap_or(-1))
+            Some(work::effective(connection, scope).map(|deadline| deadline.unwrap_or(-1)))
         } else {
-            Err(())
+            None
         }
     });
     let at_ms = match state {
-        Some(Ok(at_ms)) => at_ms,
-        Some(Err(())) => {
+        Some(Some(Ok(at_ms))) => at_ms,
+        Some(None) => {
             alarm_dirty(|dirty| {
                 dirty.borrow_mut().insert(scope.to_string());
             });
+            return None;
+        }
+        Some(Some(Err(error))) => {
+            tracing::warn!(%scope, %error, "committed wake deadline could not be read");
             return None;
         }
         None => return None,
@@ -4410,7 +4448,7 @@ pub fn persisted_alarm(
         )
         .ok()?,
     };
-    connection
+    let application = connection
         .query_row(
             "SELECT at_ms,generation,retry,counted_retry FROM __sys_cell_alarm WHERE scope=?1",
             [scope],
@@ -4423,7 +4461,22 @@ pub fn persisted_alarm(
                 ))
             },
         )
-        .ok()
+        .ok();
+    // Existing databases may predate internal work. An absent table means
+    // only the application alarm can contribute to this restore hint.
+    let internal = connection
+        .query_row(
+            "SELECT at_ms,generation FROM __sys_work
+             WHERE scope=?1 AND at_ms IS NOT NULL ORDER BY at_ms,reason LIMIT 1",
+            [scope],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, 0, 0)),
+        )
+        .ok();
+    match (application, internal) {
+        (Some(alarm), Some(work)) => Some(if alarm.0 <= work.0 { alarm } else { work }),
+        (Some(alarm), None) => Some(alarm),
+        (None, work) => work,
+    }
 }
 
 /// Enter an alarm handler. Until the handler changes the alarm, `getAlarm()`
@@ -4600,6 +4653,16 @@ mod system_schema_tests {
         .unwrap();
         replication.sync()?;
         let before = alarm_snapshot(scope)?;
+        system_sql_schema(
+            scope,
+            include_str!("../../application/event_stream/schema.sql"),
+        )?;
+        system_sql_schema(
+            scope,
+            include_str!("../../application/event_stream/catalog.sql"),
+        )?;
+        system_sql(scope,"INSERT INTO __sys_stream_producers(lane,source,incarnation,principal,grant_id,accepted_through,sealed) VALUES('preserved-lane','Producer:source','incarnation','principal','grant',7,1)",&[])?;
+        system_sql(scope,"INSERT INTO __sys_event_catalog(id,name,lifecycle,operation,digest,operation_authority,retry_at_ms) VALUES('retired-id','retired','deleted','delete-operation','digest','{}',0)",&[])?;
         delete_all_with_alarm(scope, false)?;
         assert_eq!(
             alarm_snapshot(scope)?.source().map(|source| source.id),
@@ -4610,6 +4673,24 @@ mod system_schema_tests {
         replication.close()?;
         open_at_epoch(scope, path.to_str().unwrap(), 1, true, None, false)?;
         assert_eq!(get_alarm(scope), Some(100));
+        let producer=system_sql(scope,"SELECT accepted_through,sealed FROM __sys_stream_producers WHERE lane='preserved-lane'",&[])?.remove(0);
+        assert_eq!(
+            producer.get("accepted_through"),
+            Some(&cellar_native::sql::Value::Integer(7))
+        );
+        assert_eq!(
+            producer.get("sealed"),
+            Some(&cellar_native::sql::Value::Integer(1))
+        );
+        assert_eq!(
+            system_sql(
+                scope,
+                "SELECT id FROM __sys_event_catalog WHERE lifecycle='deleted'",
+                &[]
+            )?
+            .len(),
+            1
+        );
         let connection = Connection::open(&path)?;
         let mut statement = connection.prepare("SELECT name FROM sqlite_schema WHERE type IN ('table','index','trigger') AND name NOT LIKE 'sqlite_%'")?;
         let names = statement

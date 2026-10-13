@@ -36,6 +36,9 @@ pub fn main() -> Result<()> {
 pub async fn run(arguments: Vec<String>) -> Result<()> {
     let mut arguments = arguments.into_iter();
     let command = arguments.next().unwrap_or_else(|| "help".into());
+    if command == "fleet" {
+        return super::fleet_format::run(arguments.collect()).await;
+    }
     if matches!(command.as_str(), "--version" | "-V") {
         crate::cli_output::Output::new(crate::cli_output::Format::Text)
             .line(format_args!("cellar {}", env!("CARGO_PKG_VERSION")))?;
@@ -54,6 +57,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
              verified executables, assets and configuration. Install verifies downloaded code and\n\
              writes a new executable path; use your process supervisor to activate it.\n\n\
              cellar cell|sql|kv|queue|blob COMMAND [OPTIONS]\n\
+             cellar fleet upgrade --operation UUID --reason TEXT --confirm-stopped-writers [OPTIONS]\n\
              cellar diagnose|connect|credentials|token|disconnect [OPTIONS]\n\
              Run a compiled application executable to start a Cellar node."
         ))?;

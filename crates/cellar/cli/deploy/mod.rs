@@ -87,9 +87,18 @@ pub const KV_CLASS: &str = cellar_logic::kv::RESERVED_CLASS;
 
 /// The Durable Object class every Queue broker runs as.
 pub const QUEUE_CLASS: &str = cellar_logic::queue::RESERVED_CLASS;
+pub const EVENT_STREAM_CLASS: &str = cellar_logic::event_stream::RESERVED_CLASS;
+pub const EVENT_CATALOG_CLASS: &str = "__EventCatalog";
 
 /// Every runtime-supplied Durable Object class.
-pub const RESERVED_CLASSES: &[&str] = &[SQL_CLASS, WORKFLOW_CLASS, KV_CLASS, QUEUE_CLASS];
+pub const RESERVED_CLASSES: &[&str] = &[
+    SQL_CLASS,
+    WORKFLOW_CLASS,
+    KV_CLASS,
+    QUEUE_CLASS,
+    EVENT_STREAM_CLASS,
+    EVENT_CATALOG_CLASS,
+];
 
 /// The Durable Object class a script's workflow instances run as.
 ///
@@ -124,7 +133,11 @@ pub fn workflow_class(script_name: &str) -> String {
 /// both is correct rather than merely tolerated. A workflow class carries its
 /// script, so it is never shared and a collision there is a real one.
 pub fn is_shared_reserved_class(class: &str) -> bool {
-    class == SQL_CLASS || class == KV_CLASS || class == QUEUE_CLASS
+    class == SQL_CLASS
+        || class == KV_CLASS
+        || class == QUEUE_CLASS
+        || class == EVENT_STREAM_CLASS
+        || class == EVENT_CATALOG_CLASS
 }
 
 /// Whether a class name is a script-scoped workflow class.

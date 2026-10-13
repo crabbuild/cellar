@@ -91,6 +91,7 @@ pub struct HostServices {
     runtime_policy: OnceLock<crate::runtime_policy::RuntimePolicy>,
     http: OnceLock<crate::http_policy::HttpService>,
     cell_limits: OnceLock<crate::application::limits::CellLimits>,
+    events: Arc<crate::application::event_stream::service::Service>,
     wake_entry: crate::wake_entry::WakeEntryService,
     websockets: crate::ws_registry::WebSocketService,
     http_streams: Arc<crate::http_streams::HttpStreamService>,
@@ -118,6 +119,7 @@ impl HostServices {
             runtime_policy: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -146,6 +148,7 @@ impl HostServices {
             runtime_policy: OnceLock::new(),
             http: OnceLock::new(),
             cell_limits: OnceLock::new(),
+            events: Arc::new(crate::application::event_stream::service::Service::default()),
             wake_entry: crate::wake_entry::WakeEntryService::default(),
             websockets: crate::ws_registry::WebSocketService::default(),
             http_streams: Arc::new(crate::http_streams::HttpStreamService::default()),
@@ -171,6 +174,10 @@ impl HostServices {
 
     pub(crate) fn gates(&self) -> Arc<crate::host_gates::GateService> {
         self.gates.clone()
+    }
+
+    pub(crate) fn events(&self) -> Arc<crate::application::event_stream::service::Service> {
+        self.events.clone()
     }
 
     pub(crate) fn tcp(&self) -> Arc<crate::host_tcp::TcpService> {
@@ -626,6 +633,7 @@ mod runtime_policy_tests {
     #[tokio::test]
     async fn queue_lease_uses_its_own_host_runtime_and_settlement_policy() -> anyhow::Result<()> {
         let config = WorkerConfig::new(WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "queue-policy".into(),
             do_classes: Vec::new(),

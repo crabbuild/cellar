@@ -52,6 +52,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 mod driver;
 #[cfg(not(cellar_internal_tests))]
 mod embedded;
+mod event_resources;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 mod native;
@@ -888,6 +889,9 @@ async fn adopt_deployment(
         Ok(Err(error)) => return failed(format!("{error:#}")),
         Err(error) => return failed(format!("generation build panicked: {error}")),
     };
+    if let Err(error) = event_resources::activate(app.clone(), &generation).await {
+        return failed(format!("{error:#}"));
+    }
     let adopted = runtime.adopt(generation);
     // Tell the core, so resident cells move to the new generation at their
     // safe points. The reserved cells move at once, ahead of the cron arm
@@ -1439,6 +1443,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
 
 async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let RpcCallReq {
+        authority,
         request_id,
         mut cancel,
         scope,
@@ -1449,6 +1454,12 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     } = call;
     let request_id = Some(request_id.unwrap_or_else(crate::engine_api::next_request_id));
     let result = async {
+        if crate::application::event_stream::is_event_scope(&scope) {
+            let authority = authority
+                .as_ref()
+                .context("event RPC requires a host capability")?;
+            crate::application::event_stream::validate_target(&scope, authority)?;
+        }
         anyhow::ensure!(
             cellar_logic::cell::valid_cell_scope(&scope),
             "cell scope is malformed or exceeds the fleet storage limit"
@@ -1476,7 +1487,14 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                                 app.runtime
                                     .as_ref()
                                     .context("no cell runtime")?
-                                    .rpc(scope, name, method, args, local_request_id)
+                                    .rpc_with_authority(crate::runtime::RpcInvocation {
+                                        cell: scope,
+                                        name,
+                                        method,
+                                        args,
+                                        request_id: local_request_id,
+                                        authority,
+                                    })
                                     .await
                             })
                             .await;
@@ -1523,8 +1541,15 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     addr: &addr,
                     node: &node,
                 };
-                let sending =
-                    peer_tunnel::rpc(&peer, &scope, name.as_deref(), &method, &args, request_id);
+                let sending = peer_tunnel::rpc(
+                    &peer,
+                    &scope,
+                    name.as_deref(),
+                    &method,
+                    &args,
+                    request_id,
+                    authority.as_ref(),
+                );
                 let response = match cancel.as_mut() {
                     Some(cancel) => crate::asyncrt::select_biased! {
                         "an RPC cancellation wins an undelivered remote response";
@@ -2326,7 +2351,18 @@ pub(crate) async fn dispatch_forwarded_rpc(
     rpc_method: String,
     args: crate::engine_api::RpcData,
     request_id: Option<crate::engine_api::RequestId>,
+    authority: Option<crate::application::event_stream::Authority>,
 ) -> HttpReply {
+    if crate::application::event_stream::is_event_scope(&scope)
+        && authority.as_ref().is_none_or(|authority| {
+            crate::application::event_stream::validate_target(&scope, authority).is_err()
+        })
+    {
+        return peer_response(response(
+            StatusCode::FORBIDDEN,
+            "event RPC requires valid host authority",
+        ));
+    }
     let Some(runtime) = &app.runtime else {
         return peer_response(response(StatusCode::SERVICE_UNAVAILABLE, "no cell runtime"));
     };
@@ -2347,7 +2383,14 @@ pub(crate) async fn dispatch_forwarded_rpc(
                     ));
                 };
                 let completed = local
-                    .run(runtime.rpc(scope, name, rpc_method, args, local_request_id))
+                    .run(runtime.rpc_with_authority(crate::runtime::RpcInvocation {
+                        cell: scope,
+                        name,
+                        method: rpc_method,
+                        args,
+                        request_id: local_request_id,
+                        authority,
+                    }))
                     .await;
                 match completed.result {
                     Ok(outcome) => Ok(outcome.data),
@@ -4118,6 +4161,7 @@ async fn async_main(
                 .map(str::to_string)
                 .collect();
             let options = WorkerConfigOptions {
+                stream_bindings: Vec::new(),
                 src: source,
                 script_name,
                 do_classes,
@@ -4170,6 +4214,7 @@ async fn async_main(
             let generation = backend.build(
                 FIRST_GENERATION,
                 DeploymentGraph::single(fleet::LoadedDeployment {
+                    event_streams: Vec::new(),
                     native: None,
                     options,
                     script_name,
@@ -4244,6 +4289,9 @@ async fn async_main(
             };
             (None, ownership, peer_key, None, None)
         };
+    if let Some(runtime) = &runtime {
+        runtime.generation().begin_event_activation();
+    }
     if let Some(config) = &telemetry_config {
         let sink_bucket = match &config.sink {
             crate::telemetry::SinkChoice::Bucket => {
