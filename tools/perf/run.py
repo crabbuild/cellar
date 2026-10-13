@@ -124,8 +124,9 @@ def create_bucket(endpoint, name, access, secret):
 
 
 class Harness:
-    def __init__(self, args):
+    def __init__(self, args, node_binary="cellar-perf-cells"):
         self.args = args
+        self.node_binary = node_binary
         self.tag = "cellar-perf-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
         self.output = pathlib.Path(args.output or f".cellar/perf/{self.tag}").resolve()
         self.output.mkdir(parents=True, exist_ok=False)
@@ -244,7 +245,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
                 "-e", f"CELLAR_PERF_MAX_CACHED_ROUTES={self.args.max_cached_routes}",
                 "-e", f"CELLAR_PERF_MAX_REQUESTS={self.args.max_requests}",
                 "-e", f"CELLAR_PERF_SHUTDOWN_MS={self.args.shutdown_ms}", "-e", f"CELLAR_PERF_DURABILITY={durability}",
-                self.args.image, "--bucket", bucket, "--endpoint", "http://rustfs:9000", "--region", "us-east-1",
+                "--entrypoint", self.node_binary, self.args.image, "--bucket", bucket, "--endpoint", "http://rustfs:9000", "--region", "us-east-1",
                 "--listen", "0.0.0.0:8080", "--internal-listen", "0.0.0.0:8081", "--advertise", f"node{i + 1}:8081")
 
     def snapshot(self, scenario, count, label, exclude=None, only=None):
@@ -420,7 +421,7 @@ def main():
         "arguments": vars(args), "node_limits": {"cpus": 1, "memory_bytes": 2147483648, "disk_image_bytes": 5368709120},
         "load_generator_limits": {"cpus": 2, "cpu_set": [0, 6], "memory_bytes": 2147483648},
         "rustfs_limits": {"cpus": 2, "cpu_set": [4, 5], "memory_bytes": 4294967296},
-        "source_sha256": {name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() for name in ("tools/perf/cells.rs", "tools/perf/embedded.rs", "tools/perf/load.rs", "tools/perf/run.py", "tools/perf/analyze.py", "tools/perf/Dockerfile", "Cargo.toml", "Cargo.lock")},
+        "source_sha256": {name: hashlib.sha256(pathlib.Path(name).read_bytes()).hexdigest() for name in ("tools/perf/cells.rs", "tools/perf/deployment.rs", "tools/perf/embedded.rs", "tools/perf/load.rs", "tools/perf/run.py", "tools/perf/analyze.py", "tools/perf/Dockerfile", "Cargo.toml", "Cargo.lock")},
         "execution": "sdk::Node with caller-owned host/core runtimes, listeners, authenticated peer clients and object-store clients",
         "docker": json.loads(command("docker", "info", "--format", "{{json .}}")),
         "image": image["Id"],

@@ -79,8 +79,92 @@ complete application events, cells and dispatches, a quiesced log, closed local
 durability, and surviving caller runtimes. The final node uses Preserve and
 must also prepare a clean reload. A zero process exit alone is insufficient.
 
-These are bounded local recovery and saturation checks. All nodes share one
-VM, disk and single RustFS server. The workload overwrites small values, uses
+## Writes in flight and ambiguous responses
+
+The [128-cell fault report](results/2026-10-13-embedded-inflight-128.md) records
+both completed scenarios, including the receipt checks before any replay.
+The [128-cell isolation report](results/2026-10-13-embedded-isolation-128.md)
+records the owner's typed lease-expiry fence, survivor verification before
+replay, and exact reconciliation and preserving reload.
+The [peer-partition report](results/2026-10-13-embedded-peer-partition-128.md)
+records retained ownership and renewed bucket authority while peer paths fail,
+including receipt verification before replay and after the final reload.
+
+`cellar-perf-fault-cells` is a separate compiled SDK application for correctness
+checks during process failures. It records each operation ID, payload SHA-256
+and counter ordinal in the same storage transaction. Replaying the same ID and
+payload returns the original receipt. Reusing an ID with another payload fails.
+This is application idempotency policy; Cellar does not promise exactly-once
+request delivery. The normal counter performance workload is unchanged.
+
+Run the fault driver with an image built above:
+
+```sh
+python3 tools/perf/faults.py --image cellar-embedded-perf:my-checkout \
+  --cells 128 --concurrency 16 --max-resident 16 --max-cached-routes 8 \
+  --max-requests 128 --shutdown-ms 60000 --scenario bucket fleet
+```
+
+The host-side client journals planned operations, every attempt and every
+outcome, flushing and syncing records before it issues writes. The driver
+first acknowledges one write to every cell. It then forwards one write through
+a local proxy that consumes the complete SDK response and drops the client's
+connection. That receipt must survive even though the client never received
+an acknowledgement.
+
+Next, concurrent writes commit their local receipt and hold the handler for
+ten seconds before returning. A diagnostic marker proves that a handler is
+running after its local transaction; it is not an output-gate acknowledgement.
+The driver requires that operation to remain pending at the client and kills
+its actual owner inside the hold window. Bucket mode kills all three processes,
+discards local state and restores from RustFS. Fleet mode kills the owner and
+reads through the two survivors.
+
+Before any retry, every acknowledged operation and the response lost at the
+proxy must have the original durable receipt. Unacknowledged operations may
+be absent or present exactly once. Each cell's counter must equal its distinct
+receipts, with unique contiguous ordinals and matching payload hashes. Only
+after that check does the driver replay the issued IDs. The final counters
+must then equal the number of logical operations, including ambiguous ones,
+and remain exact after the final node's preserving reload.
+
+Required cache snapshots, captured startup policies, process kill observations,
+returned shutdown reports and stage-specific client ledgers are saved beside
+the raw receipts. The final audit rechecks those stage ledgers independently;
+replay cannot conceal a missing acknowledged operation. Failures preserve
+partial state captures and leave `completed` false. This checks process crashes
+and deliberate client response loss.
+
+Use `--scenario isolation` for a network-failure check on the same native SDK
+path. The driver holds accepted handlers for thirty seconds and disconnects
+the actual owner from its sole private network while its client operation is
+pending. That cuts peer, bucket and public network access. The SDK must close
+and join its owned work, report either its expired-lease fence or a distinct
+replication failure, and leave both caller executors usable. The application
+chooses a failing process exit after receiving that outcome; a process exit
+alone proves neither fencing nor graceful drain.
+
+The two survivors verify all acknowledged receipts before replay. The failed
+node then restarts on the original network and recovers its predecessor before
+acquiring a replacement lease. Reconciliation and the final preserving reload
+retain the original operation receipts. This tests full node isolation.
+Sustained load and production-scale acceptance remain separate work.
+
+Use `--scenario peer-partition` to block traffic between the actual owner and
+its two peers while retaining bucket and public access. The driver installs a
+private filter chain inside only that owner's container network namespace,
+using Colima's `nsenter` and `iptables`; it removes the chain before healing.
+TCP probes must confirm both directions are blocked, all three bucket paths
+remain reachable, and the other two peers can still reach each other. The
+owner accepts new writes for at least two lease lifetimes. Bucket lease reads
+and cell reads must retain the process generation and cell epoch while the
+lease renews. The test checks receipts during the partition, then heals and
+checks every acknowledged receipt before replay. Reconciliation and final
+preserving reload remain exact. This checks one owner separated from two
+peers; it does not cover arbitrary network topologies or a sustained load SLO.
+
+The counter performance runs are bounded local recovery and saturation checks.
+All nodes share one VM, disk and single RustFS server. That workload overwrites small values, uses
 closed-loop traffic and injects failures between write phases. It does not
 measure production network partitions, sustained independent arrivals,
 unbounded data growth, hot-cell skew or long soaks. Fleet acknowledgement may

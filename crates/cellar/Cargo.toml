@@ -41,6 +41,10 @@ path = "../../tools/perf/cells.rs"
 name = "cellar-perf-load"
 path = "../../tools/perf/load.rs"
 
+[[bin]]
+name = "cellar-perf-fault-cells"
+path = "../../tools/perf/fault_cells.rs"
+
 [lints.rust.unexpected_cfgs]
 level = "warn"
 check-cfg = ["cfg(cellar_internal_tests)", "cfg(cellar_proxy_internals)"]

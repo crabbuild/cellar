@@ -235,7 +235,17 @@ curl http://127.0.0.1:9876/counters/alpha
 
 `tools/perf/README.md` describes isolated Docker/Colima validation of the
 embedded `sdk::Node` path, actual RustFS recovery, rolling handoffs and returned
-shutdown proofs. Keep image tags and compiled target caches private to the
+shutdown proofs. Its separate `faults.py` driver exercises process failures
+during writes with an application receipt ledger. Verify acknowledged receipts
+before replaying ambiguous requests; otherwise retry can hide lost writes.
+The driver's final audit rechecks saved ledgers from each verification stage.
+Its isolation scenario disconnects a node from peers and its bucket; distinguish
+the SDK's typed lease-expiry fence from a replication failure, and require joined
+owned work with both caller executors alive before restarting that directory.
+The peer-partition scenario changes only the owner's private network namespace:
+peer paths fail in both directions, bucket paths and other peers stay reachable,
+and the owner renews its lease without changing generation or cell epoch.
+Keep image tags and compiled target caches private to the
 checkout. Run the harness proof guards with
 `python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
 

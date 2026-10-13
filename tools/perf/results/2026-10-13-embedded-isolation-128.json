@@ -1,0 +1,438 @@
+{
+  "started_utc": "2026-10-13T00:32:33.108144+00:00",
+  "revision": "a13adb6e528c4a288bb26b1661c1db3aa592c5b8",
+  "dirty": false,
+  "arguments": {
+    "image": "cellar-embedded-perf:a13adb6",
+    "rustfs_image": "rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+    "cells": 128,
+    "concurrency": 16,
+    "max_resident": 16,
+    "max_cached_routes": 8,
+    "max_requests": 128,
+    "shutdown_ms": 60000,
+    "port": 39800,
+    "output": ".cellar/perf/isolation-128-a13adb6",
+    "scenario": [
+      "isolation"
+    ]
+  },
+  "image": "sha256:c98e6dc595473e887ac24981cd168ecf15fcd9109683861f01887b1c4adb4587",
+  "image_labels": {
+    "org.opencontainers.image.revision": "a13adb6e528c4a288bb26b1661c1db3aa592c5b8"
+  },
+  "source_sha256": {
+    "tools/perf/fault_cells.rs": "adbaa85527228219e07dcc20b53bb16cc1fa79be73f6df058ea3303a64518425",
+    "tools/perf/faults.py": "6e0da0f0094fcdeb4a9ce9a71b245e427038ce27a948fe0d098b884aac60add4",
+    "tools/perf/deployment.rs": "6280b29974147d1b67e4123da7eeb335edacea946c7f740e424f0b4905c028a5",
+    "tools/perf/embedded.rs": "2191b2bad3281bb19bcc6c8668449a78cce9e3bd732f5e147d5ccf42637a3894",
+    "tools/perf/run.py": "3c2621104fdc689eda6110bc80d1511b007dabc661dab0137aa97ad9db1c619c",
+    "tools/perf/Dockerfile": "b15ade6bf1ebc312a7219dfc1b6421a943390736130d6cd92e2bb8264303bd0c",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc",
+    "crates/cellar/Cargo.toml": "73af4d2a8eaec38f29952738781b379d7a227074af6d8171994d2d67ac086f35"
+  },
+  "execution": "sdk::Node on caller-owned executors; host-side fsynced operation journal and receipt verifier",
+  "limitations": [
+    "Local single-server RustFS and shared Colima infrastructure.",
+    "Application implements operation idempotency; Cellar does not promise exactly-once delivery.",
+    "Isolated nodes lose peer, bucket and public network connectivity; selective peer-only partitions are not covered.",
+    "Correctness checks, not a throughput measurement or production fleet certification."
+  ],
+  "completed": true,
+  "verifications": [
+    {
+      "scenario": "inflight-isolation",
+      "label": "before-fault",
+      "final": true,
+      "cells": 128,
+      "issued": 128,
+      "client_acknowledged": 128,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 128
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "before-replay",
+      "final": false,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 128,
+      "ambiguous_present": 11,
+      "ambiguous_absent": 6,
+      "writes": 139
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "reconciled",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "preserve-reload",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    }
+  ],
+  "faults": [
+    {
+      "scenario": "inflight-isolation",
+      "marker": {
+        "event": "fault_write_applied",
+        "hold_ms": 30000,
+        "inserted": true,
+        "node": "node1",
+        "operation_id": "43ff2430d20e453c-burst-0000",
+        "client_pending": [
+          "43ff2430d20e453c-burst-0005",
+          "43ff2430d20e453c-burst-0007",
+          "43ff2430d20e453c-burst-0012",
+          "43ff2430d20e453c-burst-0004",
+          "43ff2430d20e453c-burst-0003",
+          "43ff2430d20e453c-burst-0002",
+          "43ff2430d20e453c-burst-0000",
+          "43ff2430d20e453c-burst-0014",
+          "43ff2430d20e453c-burst-0008",
+          "43ff2430d20e453c-burst-0013",
+          "43ff2430d20e453c-burst-0009",
+          "43ff2430d20e453c-burst-0015",
+          "43ff2430d20e453c-burst-0001",
+          "43ff2430d20e453c-burst-0011",
+          "43ff2430d20e453c-burst-0010",
+          "43ff2430d20e453c-burst-0006"
+        ],
+        "owner_index": 0
+      },
+      "burst_to_disconnect_started_s": 0.037334666994865984,
+      "isolation": {
+        "node": 1,
+        "networks_before": 1,
+        "networks_after": 0,
+        "burst_to_disconnected_s": 0.233207291981671,
+        "exit_code": 1,
+        "proof": {
+          "caller_executors_alive": true,
+          "event": "embedded_node_stopped",
+          "fence_code": 3,
+          "outcome": "fenced",
+          "reason": "node_lease_expired"
+        },
+        "outcome_after_disconnect_s": 8.94715266599087
+      }
+    }
+  ],
+  "shutdown_outcomes": [
+    {
+      "label": "inflight-isolation-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-isolation-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-isolation-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-isolation-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "node_policies": [
+    {
+      "scenario": "inflight-isolation",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-isolation",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-isolation",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-isolation",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-isolation",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    }
+  ],
+  "routing_cache_snapshots": [
+    {
+      "scenario": "inflight-isolation",
+      "label": "warm",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "warm",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "warm",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "recovered",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "recovered",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "reconciled",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "reconciled",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-isolation",
+      "label": "preserve-reload",
+      "node": 3,
+      "cached_routes": 8
+    }
+  ],
+  "failures": [],
+  "audit": {
+    "completed": true,
+    "scenarios": [
+      "isolation"
+    ],
+    "verified_stages": 4
+  },
+  "harness_exit_code": 0,
+  "private_resources_removed": true,
+  "raw_archive": {
+    "name": "cellar-embedded-isolation-128-raw.tar.gz",
+    "bytes": 207081,
+    "sha256": "b97f166f908c2788c95bf7cf6ec7edef80cc697ec9398646b3aa589d2baf91b4"
+  },
+  "node_snapshots": [
+    {
+      "file": "inflight-isolation-preserve-reload-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-reconciled-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-reconciled-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-recovered-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-recovered-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-warm-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-warm-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-isolation-warm-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    }
+  ],
+  "node_resource_limits": {
+    "isolation": [
+      {
+        "node": 1,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "1",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 2,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "2",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 3,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "3",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      }
+    ]
+  }
+}
