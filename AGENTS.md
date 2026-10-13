@@ -188,6 +188,11 @@ existing identity, default-policy, and explicit environment adapters.
    Domain closure can race a task's current poll. Production actor selectors
    use `try_start`/`try_step` and fallible effect admission; cancellation must
    not become an invariant panic or a fabricated completion event.
+   Reserve tracked work before releasing the task registry lock to dispatch
+   it to an executor. Executor rejection can synchronously destroy work;
+   never dispatch while holding that lock. Rejected async/blocking captures
+   retain their original domain, and a racing close must retain cancellation
+   and join coverage until every reserved task has released its resources.
    Preserve the core's typed fencing reason in `FenceReport` and
    `NodeOutcome::Fenced`. A closed reporting channel is a supervision failure,
    never evidence of an authority loss.

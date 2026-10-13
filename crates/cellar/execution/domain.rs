@@ -114,8 +114,9 @@ impl ProductionDomainOwner {
     }
 
     fn close(&self) {
-        // Installation and closure share the same lock, so a racing spawn is
-        // either registered for cancellation or refused before it starts.
+        // Admission and closure share the same lock. Reservations whose
+        // executor submission is still pending attach and cancel their handle
+        // after closure; shutdown keeps waiting for their registration.
         let tasks = {
             let tasks = self.tasks.lock().unwrap();
             if self.closed.swap(true, Ordering::AcqRel) {
@@ -142,9 +143,9 @@ impl ProductionDomainOwner {
     // Entered roots belong to the caller's task. Wake them through the close
     // notice instead of aborting the surrounding application's task, and join
     // their scoped destructors just as we join spawned work.
-    fn register_root(self: &Arc<Self>) -> Result<TaskRegistration, DomainClosed> {
+    fn register_task(self: &Arc<Self>, cleanup: bool) -> Result<TaskRegistration, DomainClosed> {
         let mut tasks = self.tasks.lock().unwrap();
-        if self.closed.load(Ordering::Acquire) {
+        if !cleanup && self.closed.load(Ordering::Acquire) {
             return Err(DomainClosed);
         }
         let id = self.next_task.fetch_add(1, Ordering::Relaxed);
@@ -152,13 +153,29 @@ impl ProductionDomainOwner {
             id,
             TrackedTask {
                 abort: None,
-                cleanup: false,
+                cleanup,
             },
         );
         Ok(TaskRegistration {
             owner: Arc::downgrade(self),
             id,
         })
+    }
+
+    // Tokio may drop rejected work synchronously (including on an executor
+    // that has shut down). Dispatch must never hold the registry mutex: that
+    // work's registration destructor removes its reservation from this map.
+    fn publish_task(&self, id: u64, abort: tokio::task::AbortHandle, cleanup: bool) {
+        let cancel = {
+            let mut tasks = self.tasks.lock().unwrap();
+            if let Some(task) = tasks.get_mut(&id) {
+                task.abort = Some(abort.clone());
+            }
+            !cleanup && self.closed.load(Ordering::Acquire)
+        };
+        if cancel {
+            abort.abort();
+        }
     }
 
     fn spawn<T, F>(self: &Arc<Self>, future: F) -> Result<TaskHandle<T>, DomainClosed>
@@ -185,29 +202,23 @@ impl ProductionDomainOwner {
             .get()
             .and_then(Weak::upgrade)
             .ok_or(DomainClosed)?;
-        let mut tasks = self.tasks.lock().unwrap();
-        if !cleanup && self.closed.load(Ordering::Acquire) {
-            drop(tasks);
-            let _scope = DomainScope::enter(domain);
-            drop(future);
-            return Err(DomainClosed);
-        }
-        let id = self.next_task.fetch_add(1, Ordering::Relaxed);
-        let registration = TaskRegistration {
-            owner: Arc::downgrade(self),
-            id,
+        let registration = match self.register_task(cleanup) {
+            Ok(registration) => registration,
+            Err(error) => {
+                let _scope = DomainScope::enter(domain);
+                drop(future);
+                return Err(error);
+            }
         };
+        let id = registration.id;
         let mut future = ScopedFuture::new(domain, future);
+        future.skip_when_closed = !cleanup;
         future.registration = Some(registration);
         let inner = executor.spawn(future);
-        tasks.insert(
-            id,
-            TrackedTask {
-                abort: Some(inner.abort_handle()),
-                cleanup,
-            },
-        );
-        Ok(TaskHandle { inner })
+        self.publish_task(id, inner.abort_handle(), cleanup);
+        Ok(TaskHandle {
+            inner: TaskInner::Async(inner),
+        })
     }
 
     fn blocking<T, F>(self: &Arc<Self>, operation: F) -> Result<TaskHandle<T>, DomainClosed>
@@ -220,35 +231,38 @@ impl ProductionDomainOwner {
             .get()
             .and_then(Weak::upgrade)
             .ok_or(DomainClosed)?;
-        let mut tasks = self.tasks.lock().unwrap();
-        if self.closed.load(Ordering::Acquire) {
-            drop(tasks);
-            let _scope = DomainScope::enter(domain);
-            drop(operation);
-            return Err(DomainClosed);
-        }
-        let id = self.next_task.fetch_add(1, Ordering::Relaxed);
-        let registration = TaskRegistration {
-            owner: Arc::downgrade(self),
-            id,
+        let registration = match self.register_task(false) {
+            Ok(registration) => registration,
+            Err(error) => {
+                let _scope = DomainScope::enter(domain);
+                drop(operation);
+                return Err(error);
+            }
+        };
+        let id = registration.id;
+        let mut work = ScopedBlocking {
+            domain,
+            operation: Some(operation),
+            registration: Some(registration),
         };
         let inner = self.handle.spawn_blocking(move || {
-            let _registration = registration;
-            let _scope = DomainScope::enter(domain.clone());
-            assert!(
-                !domain.owner.closed.load(Ordering::Acquire),
-                "execution domain is closed"
-            );
-            operation()
+            let _scope = DomainScope::enter(work.domain.clone());
+            // Serialize the beginning of work with closure. Work which began
+            // first may finish and is joined; a queued operation returns an
+            // admission error instead of panicking or running after closure.
+            let admitted = {
+                let _tasks = work.domain.owner.tasks.lock().unwrap();
+                !work.domain.owner.closed.load(Ordering::Acquire)
+            };
+            if !admitted {
+                return Err(DomainClosed);
+            }
+            Ok(work.operation.take().unwrap()())
         });
-        tasks.insert(
-            id,
-            TrackedTask {
-                abort: Some(inner.abort_handle()),
-                cleanup: false,
-            },
-        );
-        Ok(TaskHandle { inner })
+        self.publish_task(id, inner.abort_handle(), false);
+        Ok(TaskHandle {
+            inner: TaskInner::Blocking(inner),
+        })
     }
 }
 
@@ -277,12 +291,28 @@ impl Drop for DomainScope {
     }
 }
 
+// An executor can reject a blocking closure before its first instruction.
+// Its captures and registration must still be destroyed under their owner.
+struct ScopedBlocking<F> {
+    domain: Arc<ProductionDomain>,
+    operation: Option<F>,
+    registration: Option<TaskRegistration>,
+}
+impl<F> Drop for ScopedBlocking<F> {
+    fn drop(&mut self) {
+        let _scope = DomainScope::enter(self.domain.clone());
+        drop(self.operation.take());
+        drop(self.registration.take());
+    }
+}
+
 // Install authority for each poll and for cancellation cleanup, rather than
 // tying it to a worker thread or whichever host happens to run there first.
 struct ScopedFuture<F> {
     domain: Arc<ProductionDomain>,
     future: Option<Pin<Box<F>>>,
     registration: Option<TaskRegistration>,
+    skip_when_closed: bool,
 }
 impl<F> ScopedFuture<F> {
     fn new(domain: Arc<ProductionDomain>, future: F) -> Self {
@@ -290,6 +320,7 @@ impl<F> ScopedFuture<F> {
             domain,
             future: Some(Box::pin(future)),
             registration: None,
+            skip_when_closed: false,
         }
     }
 }
@@ -297,6 +328,11 @@ impl<F: Future> Future for ScopedFuture<F> {
     type Output = F::Output;
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
+        if this.skip_when_closed && this.domain.owner.closed.load(Ordering::Acquire) {
+            // A dispatcher still publishing the abort handle will cancel this
+            // reservation. Never enter the user's future after admission closes.
+            return Poll::Pending;
+        }
         let _scope = DomainScope::enter(this.domain.clone());
         this.future.as_mut().unwrap().as_mut().poll(context)
     }
@@ -345,7 +381,7 @@ impl ExecutionDomain {
     /// Poll host work in this domain, returning authority loss if it closes.
     pub async fn run<F: Future>(&self, future: F) -> Result<F::Output, DomainClosed> {
         let mut scoped = ScopedFuture::new(self.inner.clone(), future);
-        scoped.registration = Some(self.inner.owner.register_root()?);
+        scoped.registration = Some(self.inner.owner.register_task(false)?);
         let mut future = Box::pin(scoped);
         let mut closed = Box::pin(self.inner.owner.closed_notice.notified());
         poll_fn(|context| {
@@ -531,7 +567,7 @@ impl DomainToken {
     }
 }
 
-/// A normalized task panic returned by a typed task handle.
+/// A normalized task failure, including cancellation and closed admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TaskPanic {
     pub message: String,
@@ -547,7 +583,12 @@ impl std::error::Error for TaskPanic {}
 
 /// A typed join handle for one production task.
 pub struct TaskHandle<T> {
-    inner: tokio::task::JoinHandle<T>,
+    inner: TaskInner<T>,
+}
+
+enum TaskInner<T> {
+    Async(tokio::task::JoinHandle<T>),
+    Blocking(tokio::task::JoinHandle<Result<T, DomainClosed>>),
 }
 
 impl<T> Unpin for TaskHandle<T> {}
@@ -555,7 +596,10 @@ impl<T> Unpin for TaskHandle<T> {}
 impl<T> TaskHandle<T> {
     /// Cancel a host task and release its owned resources at its next poll.
     pub fn abort(&self) {
-        self.inner.abort();
+        match &self.inner {
+            TaskInner::Async(inner) => inner.abort(),
+            TaskInner::Blocking(inner) => inner.abort(),
+        }
     }
     /// Detach the task from its join handle.
     pub fn detach(self) {}
@@ -565,13 +609,22 @@ impl<T> Future for TaskHandle<T> {
     type Output = Result<T, TaskPanic>;
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.get_mut().inner)
-            .poll(context)
-            .map(|result| {
+        match &mut self.get_mut().inner {
+            TaskInner::Async(inner) => Pin::new(inner).poll(context).map(|result| {
                 result.map_err(|error| TaskPanic {
                     message: error.to_string(),
                 })
-            })
+            }),
+            TaskInner::Blocking(inner) => Pin::new(inner).poll(context).map(|result| {
+                result
+                    .map_err(|error| TaskPanic {
+                        message: error.to_string(),
+                    })?
+                    .map_err(|error| TaskPanic {
+                        message: error.to_string(),
+                    })
+            }),
+        }
     }
 }
 
@@ -625,11 +678,14 @@ where
 {
     match installed_domain() {
         Some(domain) => {
-            domain
+            let task = domain
                 .owner
                 .spawn(future)
-                .expect("execution domain is closed")
-                .inner
+                .expect("execution domain is closed");
+            let TaskInner::Async(inner) = task.inner else {
+                unreachable!("async dispatch returns an async task handle");
+            };
+            inner
         }
         None => handle.spawn(future),
     }
