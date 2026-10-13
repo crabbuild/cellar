@@ -34,7 +34,7 @@ mod outbox;
 mod queues;
 #[path = "team-services/main.rs"]
 mod services;
-#[path = "d1/main.rs"]
+#[path = "sql/main.rs"]
 mod sql;
 #[path = "support/mod.rs"]
 mod support;

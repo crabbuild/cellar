@@ -78,12 +78,12 @@
       "guide": "body/README.md"
     },
     {
-      "name": "d1",
-      "project": "d1/project.json",
-      "source": "d1/main.rs",
+      "name": "sql",
+      "project": "sql/project.json",
+      "source": "sql/main.rs",
       "route": "/sql",
       "status": "runnable",
-      "guide": "d1/README.md"
+      "guide": "sql/README.md"
     },
     {
       "name": "kv",
