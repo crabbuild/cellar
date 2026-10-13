@@ -5,8 +5,8 @@ application-version headers independently of the combined cookbook.
 
 ## How it works
 
-[native_counter.rs](../native_counter.rs) registers Counter factories for v1
-and v2. The [project](../native-counter-project.json) selects v1, declares the
+[main.rs](main.rs) registers Counter factories for v1
+and v2. The [project](project.json) selects v1, declares the
 counter namespace and packages the existing counter website. Each named cell
 stores its count in SQLite. HTTP responses include `x-native-version` and
 `x-native-instance`, identifying the application version and runtime instance.
@@ -19,7 +19,7 @@ directory. In terminal 1:
 
 ```sh
 cargo run -p cellar --bin cellar --locked -- \
-  dev examples/native-counter-project.json --no-watch --clean
+  dev examples/native-counter/project.json --no-watch --clean
 ```
 
 Wait for `ready`. The clean start resets this project's tutorial state. In
@@ -46,7 +46,8 @@ The [cookbook counter](../counter/README.md) adds transactions and native RPC.
 
 ## Stop and cleanup
 
-Press Ctrl-C and let the host stop. State is in `examples/.cellar/native-dev`.
+Press Ctrl-C and let the host stop. State is in
+`examples/native-counter/.cellar/native-dev`.
 Add `--clean` on the next start to reset this project. Stop before another host
 uses port 9876, or select another `--port` and adjust the URLs. The
 [catalog](../README.md) covers packaging and deployment.

@@ -119,7 +119,7 @@
       "* * * * *"
     ],
     "assets": {
-      "directory": "native-counter-assets",
+      "directory": "native-counter/assets",
       "binding": "ASSETS",
       "run_worker_first": [
         "/health",

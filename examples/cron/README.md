@@ -8,9 +8,9 @@ A real minute cron invokes the compiled application. The handler routes to a cou
 cell and deduplicates by expression plus scheduled timestamp. GET /cron observes
 completed occurrences. No HTTP request fabricates a cron event.
 
-Read the [Rust source](../native_examples.rs) and [project configuration](project.json). The
+Read the [Rust source](../main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by
-[native_examples.rs](../native_examples.rs), rather than a standalone `rustc` input.
+[main.rs](../main.rs), rather than a standalone `rustc` input.
 
 ## Run end to end
 

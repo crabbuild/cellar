@@ -1,5 +1,5 @@
 {
-  "cargo_manifest": "../Cargo.toml",
+  "cargo_manifest": "../../Cargo.toml",
   "package": "cellar",
   "binary": "cellar-native-counter",
   "profile": "dev",
@@ -9,7 +9,7 @@
     "cells": ["Counter"],
     "bindings": [{"type": "durable_object_namespace", "name": "COUNTERS", "class_name": "Counter"}],
     "assets": {
-      "directory": "native-counter-assets",
+      "directory": "assets",
       "binding": "ASSETS",
       "run_worker_first": ["/counters/*", "/assets-binding/*"]
     }

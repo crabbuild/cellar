@@ -160,7 +160,7 @@ for module ownership and contribution guidance.
 ```sh
 cargo build -p cellar --bin cellar --locked
 ./target/debug/cellar --help
-./target/debug/cellar dev examples/native-counter-project.json
+./target/debug/cellar dev examples/native-counter/project.json
 ```
 
 The example serves `http://127.0.0.1:9876/counters/NAME`; POST increments its

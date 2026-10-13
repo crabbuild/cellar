@@ -76,9 +76,10 @@ def embedded(binary):
 def containers(cellar):
     with tempfile.TemporaryDirectory(prefix="cellar-container-example-") as temporary:
         root = Path(temporary)
-        project = private_project(EXAMPLES / "native-container-project.json", root)
+        project = private_project(EXAMPLES / "native-container/project.json", root)
         # Exercise the documented Dockerfile path, including native image/fence staging.
-        shutil.copytree(EXAMPLES / "native-container", root / "native-container")
+        for name in ("Dockerfile", "server.rs"):
+            shutil.copyfile(EXAMPLES / "native-container" / name, root / name)
         host = Host(cellar, project, root)
         try:
             origin = host.ready()

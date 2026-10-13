@@ -23,7 +23,7 @@ temporally different external framework documentation.
 | Artifact/project/CLI contracts | [builder](../crates/cellar/cli/native_deploy/build.rs), [packaging](../crates/cellar/cli/native_deploy/mod.rs), [CLI](../crates/cellar/cli/native_deploy/cli.rs), [protocol](../crates/cellar/deployment/protocol.rs) |
 | Health and telemetry behavior | [node ingress](../crates/cellar/node/mod.rs), [telemetry](../crates/cellar/observability/telemetry.rs), [host metrics](../crates/cellar/execution/services.rs) |
 | Toolchain and CI commands | [crate manifest](../crates/cellar/Cargo.toml), [workspace dependencies](../Cargo.toml), [SDK CI](../.github/workflows/native-sdk.yml) |
-| Runnable examples and embedding | [examples](../examples/README.md), [counter](../examples/native_counter.rs), [measuring host](../tools/perf/embedded.rs) |
+| Runnable examples and embedding | [examples](../examples/README.md), [counter](../examples/native-counter/main.rs), [measuring host](../tools/perf/embedded.rs) |
 
 ## Retained validation reports
 

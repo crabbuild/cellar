@@ -246,7 +246,7 @@ Exercise user-facing changes through the CLI or a compiled application when
 practical. The local counter smoke test is:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- dev examples/native-counter-project.json
+cargo run -p cellar --bin cellar --locked -- dev examples/native-counter/project.json
 # In another terminal:
 curl -X POST http://127.0.0.1:9876/counters/alpha
 curl http://127.0.0.1:9876/counters/alpha
@@ -282,10 +282,12 @@ of the Rust application execution format. Use the optional preview renderer in
 `tools/docs/render.py` only when generating PNG previews; it requires an existing
 `agent-browser` installation and is not an application or CI dependency.
 
-`cellar-native-examples` compiles the focused modules under `examples/` into
-registered applications. Each recipe has a project config; `examples/catalog.json`
-records sources, routes and prerequisites. Runtime smoke suites use private
-temporary project state:
+`cellar-native-examples` uses `examples/main.rs` to compile the focused modules
+into registered applications; `examples/project.json` configures the combined
+cookbook. Standalone native hosts keep `main.rs`, `project.json`, and their assets
+in their recipe directories. Each recipe has a project config;
+`examples/catalog.json` records sources, routes and prerequisites. Runtime smoke
+suites use private temporary project state:
 
 ```sh
 cargo build -p cellar --bin cellar --bin cellar-native-examples \
