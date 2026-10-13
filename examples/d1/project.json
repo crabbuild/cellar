@@ -1,0 +1,18 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-d1",
+    "application_version": "v1",
+    "cells": [],
+    "bindings": [
+      {
+        "type": "sql",
+        "name": "DB",
+        "database_id": "native-d1-example-guestbook"
+      }
+    ]
+  }
+}

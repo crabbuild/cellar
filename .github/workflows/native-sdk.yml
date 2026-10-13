@@ -40,3 +40,13 @@ jobs:
           cargo run -p cellar --bin cellar --locked -- \
             build examples/native-counter-project.json \
             --output "$RUNNER_TEMP/native-counter-package"
+      - name: Exercise native Rust examples
+        run: |
+          cargo build -p cellar --bin cellar --bin cellar-native-examples \
+            --bin cellar-example-embedded --locked
+          python3 examples/focused_smoke.py --cellar target/debug/cellar --with-cron
+          python3 examples/smoke.py --cellar target/debug/cellar
+          python3 examples/smoke.py --cellar target/debug/cellar \
+            --project examples/team-services/project.json --suite team
+          python3 examples/platform_smoke.py --cellar target/debug/cellar \
+            --embedded target/debug/cellar-example-embedded --with-containers

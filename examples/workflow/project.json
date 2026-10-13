@@ -1,0 +1,24 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-workflow",
+    "application_version": "v1",
+    "cells": [],
+    "bindings": [
+      {
+        "type": "workflow",
+        "name": "REPORTS",
+        "workflow_name": "reports",
+        "class_name": "Report"
+      },
+      {
+        "type": "blob_bucket",
+        "name": "BLOBS",
+        "bucket_name": "native-workflow-example-blobs"
+      }
+    ]
+  }
+}

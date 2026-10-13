@@ -1,0 +1,15 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-websocket",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-websocket-client",
+    "application_version": "test",
+    "cells": ["Peer", "EchoRoom"],
+    "bindings": [
+      {"type": "durable_object_namespace", "name": "PEERS", "class_name": "Peer"},
+      {"type": "durable_object_namespace", "name": "ROOMS", "class_name": "EchoRoom"}
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar",
+  "binary": "cellar-native-examples",
+  "profile": "dev",
+  "primary": {
+    "script_name": "native-queues",
+    "application_version": "v1",
+    "cells": [
+      "Counter"
+    ],
+    "bindings": [
+      {
+        "type": "queue",
+        "name": "JOBS",
+        "queue": "native-queues-example-jobs"
+      },
+      {
+        "type": "queue",
+        "name": "DEAD",
+        "queue": "native-queues-example-dead"
+      },
+      {
+        "type": "durable_object_namespace",
+        "name": "COUNTERS",
+        "class_name": "Counter"
+      }
+    ],
+    "queue_consumers": [
+      {
+        "queue": "native-queues-example-jobs",
+        "max_batch_size": 10,
+        "max_batch_timeout": 1,
+        "max_retries": 2,
+        "dead_letter_queue": "native-queues-example-dead",
+        "max_concurrency": 2,
+        "retry_delay": 1
+      }
+    ]
+  }
+}
