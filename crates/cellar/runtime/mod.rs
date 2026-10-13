@@ -864,6 +864,7 @@ pub(crate) async fn receive_service_fetch_response_for_test(
 
 pub(crate) mod rpc_authority;
 pub(crate) mod source_control;
+pub(crate) mod source_recovery;
 #[doc(hidden)]
 pub use rpc_authority::{RpcAuthority, SourceAuthority};
 
@@ -1407,9 +1408,16 @@ impl RuntimeManager {
             .map(|(class, _)| class)
             .ok_or_else(|| anyhow!("cell scope has no class: {cell}"))?;
         let generation = self.generation();
-        let config = generation
-            .cell_config(class)
-            .ok_or_else(|| anyhow!("no Worker exports Durable Object class {class}"))?;
+        let configured = generation.cell_config(class);
+        let config = match cellar_logic::work::materialization(configured.is_some(), fresh) {
+            cellar_logic::work::Materialization::Application => configured.expect("deployed class"),
+            cellar_logic::work::Materialization::InspectRetainedSource => {
+                generation.source_recovery.clone()
+            }
+            cellar_logic::work::Materialization::Reject => {
+                return Err(anyhow!("no Worker exports Durable Object class {class}"))
+            }
+        };
         // The object's `running` is read synchronously, so the engine
         // answers it here, before the object exists. A container a previous
         // activation on this node left running is adopted by name.
@@ -1426,9 +1434,13 @@ impl RuntimeManager {
             fresh,
         };
 
-        let isolates = generation
-            .cell_isolates(&config.script_name)
-            .ok_or_else(|| anyhow!("no cell isolates for script {}", config.script_name))?;
+        let isolates = if config.source_recovery {
+            generation.source_recovery_pool.clone()
+        } else {
+            generation
+                .cell_isolates(&config.script_name)
+                .ok_or_else(|| anyhow!("no cell isolates for script {}", config.script_name))?
+        };
         // Building a worker can block and captures its host services, so it
         // runs on the domain's blocking executor. The pool builds before
         // taking its lock; neither construction nor placement holds Tokio's

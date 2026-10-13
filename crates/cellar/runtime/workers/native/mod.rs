@@ -325,6 +325,16 @@ impl NativeWorker {
                 authority.vfs,
                 self.config.compat.sqlite_vec,
             )?;
+            if self.config.source_recovery {
+                let present = storage::outbox::retained_source(scope);
+                if !matches!(present, Ok(true)) {
+                    storage::close(scope);
+                    present?;
+                    return Err(anyhow!(
+                        "removed class has no retained source identity: {scope}"
+                    ));
+                }
+            }
             self.activations.insert(
                 scope.to_string(),
                 Arc::new(Activation {
@@ -657,6 +667,11 @@ impl NativeWorker {
                         }
                     }));
                 }
+                if self.config.source_recovery {
+                    return Ok(Box::pin(async {
+                        Err(crate::runtime::source_recovery::unavailable())
+                    }));
+                }
                 match &context.identity {
                     Some(identity) => {
                         let cell = match self.instances.entry(identity.scope.clone()) {
@@ -827,9 +842,13 @@ impl NativeWorker {
                         return (None, Vec::new());
                     }
                 };
-                if let Some(installation) = internal
-                    .filter(|work| application_alarm.is_none_or(|alarm| work.at_ms < alarm.0))
-                {
+                if let Some(installation) = internal.filter(|work| {
+                    cellar_logic::work::internal_first(
+                        self.config.source_recovery,
+                        work.at_ms,
+                        application_alarm.map(|alarm| alarm.0),
+                    )
+                }) {
                     work = Some(installation);
                     (
                         Invocation::Alarm {
@@ -839,7 +858,10 @@ impl NativeWorker {
                     )
                 } else if let Some((scheduled_ms, _retry)) = application_alarm {
                     storage::begin_alarm_handler(&scope, scheduled_ms);
-                    alarm = Some(AlarmClaim { now_ms });
+                    alarm = Some(AlarmClaim {
+                        now_ms,
+                        counts_against_limit: !self.config.source_recovery,
+                    });
                     (Invocation::Alarm { scheduled_ms }, Answer::Alarm(reply))
                 } else {
                     let _ = reply.send(Ok((

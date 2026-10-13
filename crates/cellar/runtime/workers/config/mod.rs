@@ -60,6 +60,7 @@ pub(crate) struct LoaderEnv {
 }
 
 pub struct WorkerConfig {
+    pub(crate) source_recovery: bool,
     pub(crate) native_application: Option<Arc<dyn crate::application::Application>>,
     // The origin link is weak: a loaded worker cannot keep its own loader
     // registry entry alive merely by retaining its configuration.
@@ -192,6 +193,7 @@ impl WorkerConfig {
             event_readiness: Arc::new(crate::application::event_stream::readiness::Readiness::new(
                 true,
             )),
+            source_recovery: false,
             native_application: None,
             src,
             main_module_name: ENTRY_MODULE_NAME.to_string(),

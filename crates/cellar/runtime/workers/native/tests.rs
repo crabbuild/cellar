@@ -497,3 +497,114 @@ async fn sdk_context_refuses_another_domain_and_effects_after_its_owner_closes()
     second.shutdown().await;
     Ok(())
 }
+
+#[tokio::test]
+async fn source_recovery_retains_unavailable_application_alarms_without_consuming_retry_budget(
+) -> Result<()> {
+    let domain = crate::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let scope = "Removed:source";
+            let directory = tempfile::tempdir()?;
+            let path = directory.path().join("cell.sqlite");
+            {
+                let c = rusqlite::Connection::open(&path)?;
+                crate::storage::schema(&c)?;
+                c.execute_batch(include_str!("../../../storage/sqlite/outbox.sql"))?;
+                c.execute(
+                    "INSERT INTO __sys_event_source VALUES(1,?1,1)",
+                    ["0".repeat(32)],
+                )?;
+            }
+            let mut worker =
+                NativeWorker::new(crate::runtime::source_recovery::configuration(1, "test"))?;
+            let ordinary = directory.path().join("ordinary.sqlite");
+            {
+                let c = rusqlite::Connection::open(&ordinary)?;
+                crate::storage::schema(&c)?;
+            }
+            assert!(worker
+                .own_cell(
+                    "Removed:ordinary",
+                    Some(CellStorage {
+                        path: ordinary.to_str().unwrap(),
+                        epoch: 1,
+                        replicated_wake: false,
+                        vfs: None
+                    })
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("no retained source identity"));
+            {
+                let _installed = worker.cells.install();
+                assert!(
+                    storage::activation_epoch("Removed:ordinary").is_none(),
+                    "rejected recovery left a resident connection"
+                );
+            }
+            worker.own_cell(
+                scope,
+                Some(CellStorage {
+                    path: path.to_str().unwrap(),
+                    epoch: 1,
+                    replicated_wake: false,
+                    vfs: None,
+                }),
+            )?;
+            {
+                let _installed = worker.cells.install();
+                storage::set_alarm(scope, 0)?;
+            }
+            for _ in 0..8 {
+                {
+                    let _installed = worker.cells.install();
+                    // Keep the same generation; advance only its test deadline so
+                    // each invocation is due without eight real backoff waits.
+                    storage::system_sql(
+                        scope,
+                        "UPDATE __sys_cell_alarm SET at_ms=0 WHERE scope=?",
+                        &[scope.into()],
+                    )?;
+                }
+                let (reply, mut receive) = oneshot::channel();
+                let (entry, _ops) = worker.begin_cell(
+                    CellJob::Alarm {
+                        request_id: Some(crate::engine_api::next_request_id()),
+                        scope: scope.into(),
+                        scheduled_ms: 0,
+                        claim: AlarmDispatch::Due,
+                        reply,
+                    },
+                    None,
+                );
+                if let Some(mut entry) = entry {
+                    entry.settle_alarm(false, true);
+                }
+                let _ = receive.try_recv();
+            }
+            {
+                let _installed = worker.cells.install();
+                let row = storage::system_sql(
+                    scope,
+                    "SELECT retry,counted_retry FROM __sys_cell_alarm WHERE scope=?",
+                    &[scope.into()],
+                )?
+                .remove(0);
+                assert_eq!(
+                    row.get("retry"),
+                    Some(&crate::application::storage::SqlValue::Integer(8))
+                );
+                assert_eq!(
+                    row.get("counted_retry"),
+                    Some(&crate::application::storage::SqlValue::Integer(0))
+                );
+                assert!(storage::get_alarm(scope).is_some());
+            }
+            worker.own_cell(scope, None)?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
+}

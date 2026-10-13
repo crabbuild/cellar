@@ -570,6 +570,7 @@ pub(crate) struct AlarmClaim {
     /// The instant the dispatch was judged due against, so the outcome is
     /// recorded against the same one.
     pub(crate) now_ms: i64,
+    pub(crate) counts_against_limit: bool,
 }
 
 pub struct InFlight {
@@ -752,7 +753,7 @@ impl InFlight {
                 scope,
                 false,
                 claim.now_ms,
-                counts_against_limit,
+                counts_against_limit && claim.counts_against_limit,
             );
         }
     }

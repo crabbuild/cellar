@@ -53,6 +53,14 @@ receipts and bounded audit pages live in an independent version-1 source
 control schema and survive business reset. Stream/subscription operator
 integration and exported event metrics remain unfinished.
 
+Cold source recovery can use a separate framework-only worker pool when its
+application class is absent. It accepts only restored epochs with retained
+source identity, repeats schema/host-limit validation and preserves the actor's
+restore, VFS, ownership and proof path. It has no application bindings or
+handlers. Internal work and source controls execute before rejecting business
+calls; unavailable application alarms back off without consuming abandonment
+budget. The pool participates in generation retirement, census and shutdown.
+
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
 supplies listeners, executors, clients, authentication, and any fleet services.

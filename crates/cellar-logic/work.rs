@@ -43,3 +43,25 @@ pub fn effective_deadline(
 ) -> Option<i64> {
     application_alarm.into_iter().chain(internal).min()
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Materialization {
+    Application,
+    InspectRetainedSource,
+    Reject,
+}
+
+/// Removing application code does not erase a retained delivery obligation.
+/// Unknown fresh scopes cannot use the recovery executor to create new state.
+pub fn materialization(class_deployed: bool, fresh: bool) -> Materialization {
+    match (class_deployed, fresh) {
+        (true, _) => Materialization::Application,
+        (false, false) => Materialization::InspectRetainedSource,
+        (false, true) => Materialization::Reject,
+    }
+}
+
+/// A source recovery executor has no application callback to prefer or consume.
+pub fn internal_first(recovery_only: bool, internal_ms: i64, application_ms: Option<i64>) -> bool {
+    recovery_only || application_ms.is_none_or(|at| internal_ms < at)
+}

@@ -308,6 +308,8 @@ pub struct Generation {
     pub(crate) script_name: String,
     pub(crate) stateless: crate::runtime::StatelessRuntime,
     pub(crate) services: HashMap<String, crate::runtime::StatelessRuntime>,
+    pub(crate) source_recovery: Arc<WorkerConfig>,
+    pub(crate) source_recovery_pool: Arc<crate::pool::Pool>,
     pub(crate) cell_configs: HashMap<String, Arc<WorkerConfig>>,
     /// The isolates a Worker script's cells live in — the same `Pool` the
     /// stateless path admits into, because an isolate is an isolate. Cells
@@ -431,6 +433,7 @@ impl Generation {
         for pool in self.cell_isolates.values() {
             pool.retire_all();
         }
+        self.source_recovery_pool.retire_all();
     }
 
     /// Whether every isolate of this generation has been freed, so the
@@ -440,6 +443,7 @@ impl Generation {
             .values()
             .all(|service| service.isolates.is_drained())
             && self.cell_isolates.values().all(|pool| pool.is_drained())
+            && self.source_recovery_pool.is_drained()
     }
 
     /// One maintenance pass over the cell pools: retire and free every empty
@@ -449,11 +453,13 @@ impl Generation {
         for pool in self.cell_isolates.values() {
             pool.reap_empty();
         }
+        self.source_recovery_pool.reap_empty();
     }
 
     /// The isolates this generation holds right now, for `/state`.
     pub(crate) fn isolate_census(&self) -> IsolateCensus {
         IsolateCensus {
+            source_recovery: self.source_recovery_pool.census(),
             stateless: self.stateless.isolates.census(),
             services: self
                 .services
@@ -473,6 +479,7 @@ impl Generation {
 /// `/state` reports them.
 #[derive(Debug, serde::Serialize)]
 pub struct IsolateCensus {
+    pub source_recovery: crate::engine_api::PoolCensus,
     /// The pool that serves the primary script's stateless handlers.
     pub stateless: crate::pool::PoolCensus,
     /// The pools of the named services, by service name.
@@ -778,7 +785,11 @@ impl Generation {
                 )
             })
             .collect();
+        let source_recovery = crate::runtime::source_recovery::configuration(id, &node);
+        let source_recovery_pool = crate::runtime::cell_pool(source_recovery.clone());
         Ok(Generation {
+            source_recovery,
+            source_recovery_pool,
             event_streams,
             event_bindings,
             event_readiness,

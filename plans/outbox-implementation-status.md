@@ -253,15 +253,16 @@ Retain the source operator's separate host-minted authority and owner RPC/tunnel
 path when extending controls. Source retirement/destruction still needs its
 own audited lifecycle protocol, rather than a raw delete or generation skip.
 Qualify source operator cancellation, real response truncation and stale-owner
-routing beyond the current two-node handoff test. Inspect activation behavior
-when a source's application class is removed; constructor bypass on a retained
-class alone does not qualify orphan-source recovery.
-Current cold activation still requires `Generation::cell_config(class)` in
-`RuntimeManager::start_cell_native`; an absent class returns "no Worker exports
-Durable Object class" before source framework work can run. Independent recovery
-and inspection of those source obligations requires an explicit materialization
-contract or a qualified class-retirement gate. Do not silently claim that the
-constructor-bypass test proves that case.
+routing beyond the current two-node handoff test. Cold activation now has a
+separate framework recovery pool for restored sources whose class is absent.
+The core rejects unknown fresh scopes; admission then checks retained source
+identity under the restored owner epoch and closes non-source connections.
+This executor has no application bindings or callbacks and can dispatch stored
+obligations and source controls. Business calls remain unavailable. Internal
+work has priority over unavailable application alarms; those alarms back off
+without using the abandonment budget. Re-registering the class returns business
+execution to the application through ordinary generation movement. Wider crash,
+follower and cancellation qualification remains required.
 
 Exercise the implemented schema and compatibility contracts under real fleet
 faults and previous executables. The logical peer/fleet/native revisions are now
@@ -479,5 +480,15 @@ leaves metadata/wake deadlines unchanged and exact replay remains available.
 Schema tests retain receipts across activation and refuse corrupt accounting;
 wire tests preserve the original event authority JSON shape. Treating a received
 reply as lost exercises idempotent replay, not actual network truncation. The
-complete production event failure matrix and orphan-class materialization
-remain unqualified.
+complete production event failure matrix and wider orphan-source failure qualification
+remain outstanding.
+
+The removed-class recovery milestone passes 347 workspace/all-feature library
+and integration tests, 110 focused tests and all 11 workspace doctests.
+All-target/all-feature Clippy with warnings denied passes. A bucket-backed
+public Node regression removes the source class, recovers its pending delivery
+and operator receipt without application code, and reintroduces the class with
+business state intact. A native worker regression retains an unavailable
+application alarm through eight attempts without consuming its abandonment
+budget and closes rejected non-source activations. These checks qualify those
+paths, not the complete crash, follower-proof or cancellation matrix.

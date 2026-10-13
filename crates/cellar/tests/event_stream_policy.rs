@@ -387,3 +387,17 @@ fn guarded_retry_fences_inflight_completion_and_refuses_stale_revision() {
     );
     assert_eq!(retry_producer(exhausted, exhausted, false), Ok(None));
 }
+
+#[test]
+fn recovery_preserves_source_work_without_admitting_new_unknown_cells() {
+    use cellar_logic::work::{internal_first, materialization, Materialization};
+    assert_eq!(
+        materialization(false, false),
+        Materialization::InspectRetainedSource
+    );
+    assert_eq!(materialization(false, true), Materialization::Reject);
+    assert_eq!(materialization(true, false), Materialization::Application);
+    assert!(internal_first(true, 200, Some(100)));
+    assert!(internal_first(true, 100, Some(100)));
+    assert!(!internal_first(false, 200, Some(100)));
+}

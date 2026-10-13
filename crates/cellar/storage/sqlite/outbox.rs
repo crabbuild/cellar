@@ -398,6 +398,22 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
     Ok(result)
 }
 
+/// Called only after the owner has restored and opened this exact source epoch.
+pub(crate) fn retained_source(scope: &str) -> anyhow::Result<bool> {
+    with(scope, |connection| {
+        if !check_schema(connection)? {
+            return Ok(false);
+        }
+        let exists = connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM __sys_event_source WHERE singleton=1)",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(exists)
+    })
+    .ok_or_else(|| anyhow::anyhow!("source recovery storage is not resident"))?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

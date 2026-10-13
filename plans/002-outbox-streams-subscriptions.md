@@ -1220,6 +1220,16 @@ limit and 10,000 records; no automatic receipt expiry or row abandonment is
 introduced. Request, RPC, receipt and CLI reply budgets are 16 KiB, 64 KiB,
 4 KiB and 1 MiB respectively. Diagnostic/audit pages contain at most 100 records.
 
+For restored sources whose application class has been removed, the runtime uses
+a separate framework recovery executor. It verifies retained source identity
+after normal ownership recovery and schema validation, rejects unknown fresh
+cells and non-source images, and executes delivery and source controls without
+application bindings or handlers. Business calls remain unavailable. Due
+internal work takes priority; application alarms are retained with bounded
+backoff and do not consume the abandonment budget. The pool participates in
+generation movement, retirement and joined shutdown. Reintroducing the class
+restores business execution without resetting source identity or receipts.
+
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;
 an in-memory event bus would conceal the main failure modes.

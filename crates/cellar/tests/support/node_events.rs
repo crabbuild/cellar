@@ -706,3 +706,180 @@ async fn source_operator_routes_to_owner_replays_receipts_and_recovers_handoff()
     stopped(entrance).await?;
     Ok(())
 }
+
+fn recovery_graph() -> DeploymentGraph {
+    let mut deployment = graph(3, false);
+    deployment.primary.event_streams.clear();
+    deployment.primary.options.do_classes.clear();
+    deployment.primary.options.bindings.clear();
+    deployment.primary.options.stream_bindings[0].publish = false;
+    deployment
+}
+
+fn recovery_applications() -> Result<CompiledApplications> {
+    CompiledApplications::default().register("embedded-node", "test", || {
+        Ok(Arc::new(Registry::new(|context, invocation| {
+            Box::pin(async move {
+                let Invocation::Fetch(request) = invocation else {
+                    anyhow::bail!("reader only serves HTTP");
+                };
+                let path = url::Url::parse(&request.url)?.path().to_owned();
+                let body = if path == "/restore-publish" {
+                    context
+                        .stream::<Changed>("ADMIN_EVENTS")?
+                        .configure(
+                            &context,
+                            &graph(3, false).primary.event_streams[0],
+                            "00000000000000000000000000000089",
+                        )
+                        .await?
+                        .state
+                } else if path == "/events" {
+                    context
+                        .stream::<Changed>("EVENTS")?
+                        .read(&context, None, ReadOptions::default())
+                        .await?
+                        .records
+                        .len()
+                        .to_string()
+                } else {
+                    "reader".into()
+                };
+                Ok(super::response(body))
+            })
+        })))
+    })
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn removed_source_class_recovers_delivery_and_control_without_application_code() -> Result<()>
+{
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("removed-source-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "source-before-removal",
+        &directory.path().join("before"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(1, false), applications("original")?).await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/revoke-publish").await? == "active");
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "original:1");
+    let scope = format!(
+        "Account:{}",
+        cellar_native::cell_id::encode_hex(&cellar_native::cell_id::for_name(
+            "cells:v1:13:embedded-node:Account",
+            "events"
+        ))
+    );
+    let before = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let state = operator(
+                &client,
+                &owner,
+                &scope,
+                &serde_json::json!({"op":"inspect"}),
+                "outbox",
+            )
+            .await?;
+            if state["result"]["lanes"][0]["status"] == "blocked" {
+                return Ok::<_, anyhow::Error>(state);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    stopped(owner).await?;
+    // This executable registers no Account class or cell factory at all.
+    let (config, services) = inputs(
+        "source-after-removal",
+        &directory.path().join("after"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut node =
+        Node::start(config, services, recovery_graph(), recovery_applications()?).await?;
+    super::ready(&node).await?;
+    let state = operator(
+        &client,
+        &node,
+        &scope,
+        &serde_json::json!({"op":"inspect"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        state["result"]["incarnation"] == before["result"]["incarnation"]
+            && state["result"]["pending_rows"] == "1",
+        "removed source identity/backlog changed"
+    );
+    let denied = client
+        .get(format!(
+            "http://{}/do/{scope}",
+            node.info().internal_address
+        ))
+        .send()
+        .await?;
+    ensure!(
+        !denied.status().is_success()
+            && denied
+                .text()
+                .await?
+                .contains("source application class is not deployed"),
+        "recovery executor served business code"
+    );
+    let fresh = client
+        .get(format!(
+            "http://{}/do/Account:never-created",
+            node.info().internal_address
+        ))
+        .send()
+        .await?;
+    ensure!(
+        !fresh.status().is_success(),
+        "unknown fresh class was admitted as a source"
+    );
+    ensure!(call(&client, &node, reqwest::Method::POST, "/restore-publish").await? == "active");
+    let retry = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000060","reason":"recover retained producer after removing application code","expected":state["result"]["lanes"][0]["revision"]}});
+    let receipt = operator(&client, &node, &scope, &retry, "outbox").await?;
+    ensure!(receipt["result"]["rearmed"] == true);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let state = operator(
+                &client,
+                &node,
+                &scope,
+                &serde_json::json!({"op":"inspect"}),
+                "outbox",
+            )
+            .await?;
+            if state["result"]["pending_rows"] == "0" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(call(&client, &node, reqwest::Method::GET, "/events").await? == "1");
+    ensure!(operator(&client, &node, &scope, &retry, "outbox").await? == receipt);
+    let mut restored = graph(3, false);
+    restored.primary.event_streams.clear();
+    node.adopt(restored, applications("restored")?).await?;
+    ensure!(
+        call(&client, &node, reqwest::Method::GET, "/read").await? == "restored:1",
+        "restored application could not resume business state"
+    );
+    ensure!(
+        operator(&client, &node, &scope, &retry, "outbox").await? == receipt,
+        "restoring the class changed the source receipt"
+    );
+    stopped(node).await?;
+    Ok(())
+}
