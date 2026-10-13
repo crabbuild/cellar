@@ -51,7 +51,7 @@ inspect/retry/status/audit uses fleet-HMAC ingress, a distinct source RPC
 capability and the original owner/output/discovery gates. Retry operation
 receipts and bounded audit pages live in an independent version-1 source
 control schema and survive business reset. `cellar stream` describe/read/status/
-audit and `cellar subscription` describe/pause/resume/reset/delete use signed
+audit and `cellar subscription` list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited
 to stream control methods, with optional provenance omitted from ordinary event
 packets. Subscription receipts retain the operator label and enforce it during
@@ -62,7 +62,11 @@ the matching catalog retirement and partition preflight/closure methods.
 Catalog schema 3 and stream schema 4 add nullable operator provenance, preserving
 legacy SDK receipts. Current markers require those columns before base schema
 mutation. Terminal retirement receipts retain the affected payload range after
-bounded cleanup. Resource inventories and exported event metrics remain unfinished.
+bounded cleanup. Subscription inventory uses a bounded primary-key range and includes retained
+deleted incarnations without lease tokens or payloads. Its `subs1` cursor is
+bound to the stream UUID; every page checks current administration authority.
+Pages are live observations, not a snapshot. Catalog stream/source inventories
+and exported event metrics remain unfinished.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained

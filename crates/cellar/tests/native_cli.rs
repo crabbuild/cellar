@@ -132,6 +132,19 @@ fn stream_operator_cli_refuses_invalid_inputs_before_fleet_access() -> Result<()
     ensure!(
         String::from_utf8(output.stderr)?.contains("binding does not grant this operator action")
     );
+    for (flag, value, message) in [
+        ("--limit", "101", "invalid subscription list bounds"),
+        ("--limit", "0", "invalid subscription list bounds"),
+        ("--cursor", "subs1.%%%", "InvalidCursor"),
+    ] {
+        let output = Command::new(executable)
+            .args(["subscription", "list", "--binding"])
+            .arg(binding.path())
+            .args([flag, value])
+            .output()?;
+        ensure!(!output.status.success());
+        ensure!(String::from_utf8(output.stderr)?.contains(message));
+    }
     let mut oversized = tempfile::NamedTempFile::new_in(directory.path())?;
     oversized.write_all("x".repeat((16 << 10) + 1).as_bytes())?;
     let output = Command::new(executable)

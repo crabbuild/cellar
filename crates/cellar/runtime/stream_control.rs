@@ -2,6 +2,7 @@
 
 use crate::application::event_stream::{
     self as events, authority::Action, Binding, Change, Cursor, Retirement,
+    SubscriptionListOptions, SubscriptionPage,
 };
 use anyhow::Result;
 use base64::Engine;
@@ -31,6 +32,10 @@ pub(crate) enum Command {
     },
     Subscription {
         name: String,
+    },
+    Subscriptions {
+        cursor: Option<String>,
+        limit: usize,
     },
     Change {
         change: Change,
@@ -81,6 +86,18 @@ impl Request {
         self.binding.validate()?;
         let (action, method, body) = match &self.command {
             Command::Describe => (Action::Administer, "__streamDescribe", json!({})),
+            Command::Subscriptions { cursor, limit } => {
+                SubscriptionListOptions {
+                    cursor: cursor.clone(),
+                    max_records: *limit,
+                }
+                .validate(&self.binding.resource.id)?;
+                (
+                    Action::Administer,
+                    "__streamSubscriptions",
+                    json!({"cursor":cursor,"max_records":limit}),
+                )
+            }
             Command::Read {
                 cursor,
                 limit,
@@ -184,6 +201,18 @@ impl Request {
     }
 
     pub(crate) fn project(&self, mut reply: Value) -> Result<Value> {
+        if let Command::Subscriptions { cursor, limit } = &self.command {
+            if let Some(page) = reply.get("ok") {
+                let page: SubscriptionPage = serde_json::from_value(page.clone())?;
+                page.validate(
+                    &self.binding.resource.id,
+                    &SubscriptionListOptions {
+                        cursor: cursor.clone(),
+                        max_records: *limit,
+                    },
+                )?;
+            }
+        }
         if let Command::Read { payload, .. } = self.command {
             if let Some(page) = reply.get_mut("ok") {
                 let page = page
@@ -258,6 +287,28 @@ mod tests {
         ] {
             assert!(request.project(json!({"ok":page})).is_err());
         }
+        Ok(())
+    }
+
+    #[test]
+    fn subscription_projection_rejects_foreign_and_unordered_inventory() -> Result<()> {
+        let request: Request = serde_json::from_value(json!({
+            "binding":{"environment":"ADMIN","resource":{"tenant":"tenant","application":"app","name":"events","family":"events","id":"00000000000000000000000000000001"},"principal":"app","grant":"management","administer":true},
+            "command":{"kind":"subscriptions","cursor":null,"limit":2}
+        }))?;
+        let record = json!({"identity":{"resource":request.binding.resource.id,"name":"projection","id":"00000000000000000000000000000002","generation":"00000000000000000000000000000003"},"state":"active","required":false,"checkpoint":"0","earliest":"1","end":"1","retry_at_ms":"0","lease":null});
+        let page = json!({"resource":request.binding.resource.id,"records":[record.clone()],"cursor":null});
+        request.project(json!({"ok":page.clone()}))?;
+        for invalid in [
+            json!({"resource":"00000000000000000000000000000004","records":[],"cursor":null}),
+            json!({"resource":request.binding.resource.id,"records":[record.clone(),record],"cursor":null}),
+            json!({"resource":request.binding.resource.id,"records":[],"cursor":"subs1.%%%"}),
+        ] {
+            assert!(request.project(json!({"ok":invalid})).is_err());
+        }
+        let mut foreign = page;
+        foreign["records"][0]["identity"]["resource"] = json!("00000000000000000000000000000004");
+        assert!(request.project(json!({"ok":foreign})).is_err());
         Ok(())
     }
 }

@@ -89,7 +89,29 @@ impl Cell for Counter {
             let path = url::Url::parse(&request.url)?.path().to_owned();
             let db = context.storage()?;
             let events = context.stream::<Changed>("EVENTS")?;
-            let body = if path == "/revoke-publish"
+            let body = if path == "/subscription-inventory" {
+                serde_json::to_string(
+                    &context
+                        .stream::<Changed>("ADMIN_EVENTS")?
+                        .subscriptions(&context, SubscriptionListOptions::default())
+                        .await?,
+                )?
+            } else if path == "/hold-projection" {
+                let batch = events
+                    .subscription("projection")?
+                    .next(
+                        &context,
+                        BatchOptions {
+                            wait_ms: 0,
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+                format!(
+                    "leased:{}",
+                    batch.map(|batch| batch.records.len()).unwrap_or(0)
+                )
+            } else if path == "/revoke-publish"
                 || path == "/restore-publish"
                 || path == "/revoke-admin"
             {
@@ -1007,6 +1029,161 @@ async fn stream_operator_routes_controls_preserves_receipts_and_checks_revocatio
     ensure!(
         stream_operator(&client, &entrance, &admin, operation, "subscriptions").await?["error"]
             ["code"]
+            == "Forbidden"
+    );
+    stopped(entrance).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscription_inventory_pages_tombstones_and_recovers_owner_handoff() -> Result<()> {
+    use serde_json::{json, Value};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("subscription-inventory-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "inventory-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let mut declarations = graph(1, false);
+    for name in ["audit", "mail"] {
+        declarations.primary.event_streams[0]
+            .subscriptions
+            .push(SubscriptionDefinition {
+                name: name.into(),
+                start: Start::Earliest,
+                required: false,
+            });
+    }
+    let owner = Node::start(config, services, declarations, applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if call(&client, &owner, reqwest::Method::GET, "/events").await? == "1" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(call(&client, &owner, reqwest::Method::GET, "/hold-projection").await? == "leased:1");
+    let sdk: SubscriptionPage = serde_json::from_str(
+        &call(
+            &client,
+            &owner,
+            reqwest::Method::GET,
+            "/subscription-inventory",
+        )
+        .await?,
+    )?;
+    ensure!(sdk.records.len() == 3 && sdk.cursor.is_none());
+    let leased = sdk
+        .records
+        .iter()
+        .find(|record| record.identity.name == "projection")
+        .unwrap();
+    ensure!(leased
+        .lease
+        .as_ref()
+        .is_some_and(|lease| lease.first == 1 && lease.last == 1));
+    let (config, services) = inputs(
+        "inventory-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let admin = binding(true);
+    let command = json!({"kind":"subscriptions","cursor":null,"limit":1});
+    let first = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        command.clone(),
+        "events-operator",
+    )
+    .await?;
+    let mut records = first["result"]["records"].as_array().unwrap().clone();
+    ensure!(records.len() == 1);
+    let saved_cursor = first["result"]["cursor"].clone();
+    ensure!(saved_cursor.is_string());
+    stopped(owner).await?;
+    let mut cursor = saved_cursor.clone();
+    for _ in 0..3 {
+        let page = stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            json!({"kind":"subscriptions","cursor":cursor,"limit":1}),
+            "events-operator",
+        )
+        .await?;
+        let rows = page["result"]["records"].as_array().unwrap();
+        ensure!(rows.len() <= 1);
+        records.extend(rows.iter().cloned());
+        cursor = page["result"]["cursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    ensure!(cursor.is_null() && records.len() == 3);
+    let ids: Vec<_> = records
+        .iter()
+        .map(|record| record["identity"]["id"].as_str().unwrap())
+        .collect();
+    ensure!(ids.windows(2).all(|pair| pair[0] < pair[1]));
+    ensure!(
+        ids == sdk
+            .records
+            .iter()
+            .map(|record| record.identity.id.as_str())
+            .collect::<Vec<_>>()
+    );
+    let encoded = serde_json::to_string(&records)?;
+    ensure!(
+        !encoded.contains("token") && !encoded.contains("payload") && !encoded.contains("envelope")
+    );
+    for (index, record) in records.iter().enumerate() {
+        let receipt = stream_operator(&client,&entrance,&admin,json!({"kind":"change","change":{"operation":format!("{:032x}",160+index),"expected":record["identity"],"action":{"kind":"delete","force":true},"reason":"inventory tombstone inspection"}}),"events-operator").await?;
+        ensure!(receipt["result"]["state"] == "deleted");
+    }
+    let tombstones = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        json!({"kind":"subscriptions","cursor":null,"limit":100}),
+        "events-operator",
+    )
+    .await?;
+    let rows = tombstones["result"]["records"].as_array().unwrap();
+    ensure!(
+        rows.len() == 3
+            && rows
+                .iter()
+                .all(|row| row["state"] == "deleted" && row["lease"].is_null())
+    );
+    ensure!(tombstones["result"]["cursor"] == Value::Null);
+    ensure!(call(&client, &entrance, reqwest::Method::POST, "/revoke-admin").await? == "active");
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            json!({"kind":"subscriptions","cursor":saved_cursor,"limit":1}),
+            "events-operator"
+        )
+        .await?["error"]["code"]
             == "Forbidden"
     );
     stopped(entrance).await?;

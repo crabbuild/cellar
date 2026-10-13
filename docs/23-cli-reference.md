@@ -122,6 +122,8 @@ cellar stream read --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
 cellar stream read --binding BINDING.json --cursor TOKEN --payload --json [FLEET OPTIONS]
 cellar stream audit --binding BINDING.json --after POSITION --limit 100 --json [FLEET OPTIONS]
 cellar stream status --binding BINDING.json --operation UUID --json [FLEET OPTIONS]
+cellar subscription list --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
+cellar subscription list --binding BINDING.json --cursor TOKEN --json [FLEET OPTIONS]
 cellar subscription describe NAME --binding BINDING.json --json [FLEET OPTIONS]
 cellar subscription pause NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT [FLEET OPTIONS]
 cellar subscription resume NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT [FLEET OPTIONS]
@@ -132,8 +134,17 @@ cellar subscription delete NAME --binding BINDING.json --expected IDENTITY.json 
 Reads require a read grant. Describe, audit, status and subscription controls
 require an administration grant. Read defaults to event metadata, removes the
 encoded envelope, and returns a resumable `cursor`; `--payload` includes bodies.
-Read and audit pages contain at most 100 records. `--max-bytes` bounds copied
-event bytes to at most 256 KiB. History expiration returns `CursorExpired`.
+Read, audit and subscription inventory pages contain at most 100 records.
+`--max-bytes` bounds copied event bytes to at most 256 KiB. History expiration returns `CursorExpired`.
+
+Subscription inventory includes every retained incarnation, including deleted
+records, ordered by subscription UUID. It returns identity/generation, lifecycle,
+checkpoint, retry deadline and lease range/expiry; it excludes lease tokens and
+event payloads. Its opaque `cursor` belongs to the exact stream UUID and differs
+from the stream-read cursor. Pages are live observations rather than a snapshot:
+new lower UUIDs require a fresh traversal. The receiver checks the current
+administration grant on every page, including continuation after owner handoff.
+The SDK equivalent is `stream.subscriptions(&context, SubscriptionListOptions)`.
 
 Save the subscription description's `identity` object to `IDENTITY.json` before
 a change. A changed resource, subscription ID or generation refuses the change.
@@ -149,7 +160,8 @@ not an independently verified human account identity.
 The HTTP equivalent is `POST /streams/SCOPE` on the internal listener with
 `{"binding": BINDING, "command": COMMAND}`. The scope is derived from the exact
 stream resource identity. Command kinds are `describe`, `read`, `subscription`,
-`change`, `status`, and `audit`. A change carries the SDK `Change` shape. Signed
+`subscriptions`, `change`, `status`, and `audit`. Inventory uses `cursor` (null for the first
+page) and `limit`. A change carries the SDK `Change` shape. Signed
 method/path/body verification precedes authority minting. Operator RPC authority
 is restricted to these stream methods and cannot configure a catalog or append
 events. Requests and binding files are bounded to 16 KiB, expected identity

@@ -243,9 +243,10 @@ It retains the full existing shutdown assertion and explicitly verifies that a
 failed unsupported startup releases its directory for immediate reuse. Friendly
 name-only resource configuration remains separate from resolved UUID bindings.
 
-Add stream/subscription listings and CLI routing, exported bounded metrics and
-remaining source inventory/lifecycle controls. Source inspection, guarded
-retry, operation status and audit now have authenticated owner-routed HTTP/CLI
+Add catalog stream listings, exported bounded metrics and remaining source
+inventory/lifecycle controls. Subscription listing is implemented in the current
+work below; catalog-wide authority remains a separate contract. Source
+inspection, guarded retry, operation status and audit now have authenticated owner-routed HTTP/CLI
 entry points. Subscription
 administration, producer sealing and stream retirement are implemented, but
 operator integration and production proof/failure coverage remain part of the
@@ -610,8 +611,44 @@ The all-feature executable build and actual smoke pass; all-target/all-feature
 workspace check and Clippy with warnings denied pass. Formatting, native
 dependency inspection (401 reachable packages, no JavaScript engine), catalog
 source/guide existence, documentation integrity (35 documents, 6 flows, 370 local
-references) and whitespace checks pass. The default-feature executable check
-and required CLI/artifact/catalog regressions are running separately and are
-not claimed complete here. Resource inventories and bounded exported metrics are the
-next operational priorities, alongside the still-open source destruction and
+references) and whitespace checks pass. The default-feature executable check,
+all eight required CLI/artifact regressions and the cookbook catalog regression
+also pass. Resource inventories and bounded exported metrics are the next
+operational priorities, alongside the still-open source destruction and
 full lifecycle/fault/capacity matrix.
+
+
+Subscription inventory is wired through the SDK's `Stream::subscriptions`,
+`cellar subscription list` and signed `subscriptions` commands on the existing
+owner route. The current durable administration grant is checked on each page.
+A primary-key range reads at most 101 metadata rows for a 100-record page, even
+with unrestricted host limits. Deleted incarnations remain visible while
+retained; no lease token, payload or envelope is returned. The `subs1` cursor
+is capped at 256 bytes, bound to the stream UUID and distinct from event-read
+cursors. Receiver and client/operator acceptance validate identity, ordering,
+page bounds and exact continuation position. Pages are live observations, not a
+fleet census or snapshot. No persisted layout or wire authority fields change.
+
+Focused validation passes: both cursor/error and malformed-response corpora,
+all eight CLI/artifact regressions and an actual two-node pagination/lease/
+tombstone/handoff/revocation test. All-target/all-feature workspace check passes.
+The final broader workspace run passes all 361 library/integration tests,
+including all 23 public Node tests and the Axum forwarding assertion.
+All-target/all-feature Clippy with warnings denied, all 11 doctests and formatting
+(413 Rust files) pass. The rebuilt default-feature stream example passes its
+actual delivery/inbox/ack/preserving-restart smoke with complete shutdown
+reports. Documentation integrity (35 documents, 6 flows, 370 local references),
+native dependency inspection (401 packages, no JavaScript engine) and whitespace
+checks pass. These checks are not the full production release qualification. Catalog
+stream/source inventories, exported metrics, whole-source destruction and the
+complete lifecycle/fault/capacity matrix remain open.
+
+
+The first broader subscription-inventory gate passed all 23 public Node tests
+but failed the Axum forwarding test during startup: node authority was not
+established before its startup deadline. Two isolated runs of the exact same
+`errors-f316316f0fc88d26` binary and four repeatability runs (two at a time) pass
+without code, lease, startup-deadline or drain-policy changes. The cause remains
+unproven. The local reload/replication diagnostic appears in successful runs as
+well and is not evidence of the cause. The full workspace gate is rerun before
+compiler/doc/example gates; the original failure remains part of the evidence.

@@ -171,6 +171,7 @@ impl Cell for Broker {
                     "__streamRetry" => { let result=subscription_store::retry(&context,&body); if result.is_ok() {self.notify();} result },
                     "__streamExtend" => subscription_store::extend(&context,&body),
                     "__streamSubscriptionStatus" => super::lifecycle_store::status(&context,&body),
+                    "__streamSubscriptions" => super::inventory::list(&context,&body),
                     "__streamSubscriptionChange" => {let result=super::lifecycle_store::change(&context,&body);if result.is_ok(){self.notify();}result},
                     "__streamAudit" => super::lifecycle_store::audit(&context,&body),
                     "__streamOperationStatus" => super::lifecycle_store::operation_status(&context,&body),

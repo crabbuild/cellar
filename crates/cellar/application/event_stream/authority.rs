@@ -156,6 +156,7 @@ impl Authority {
                     && matches!(
                         method,
                         "__streamDescribe"
+                            | "__streamSubscriptions"
                             | "__streamSubscriptionStatus"
                             | "__streamSubscriptionChange"
                             | "__streamAudit"

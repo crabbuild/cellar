@@ -15,6 +15,7 @@ mod config;
 pub(crate) mod decimal;
 pub(crate) mod encoding;
 mod error;
+mod inventory;
 mod lifecycle;
 mod lifecycle_store;
 mod producer;
@@ -32,6 +33,7 @@ pub use config::{
     Definition, Grant, Retention, Start, SubscriptionDefinition, MAX_DEFINITION_BYTES,
 };
 pub use error::{DeliveryError, ErrorCode};
+pub use inventory::{SubscriptionListOptions, SubscriptionPage};
 pub use lifecycle::{
     AuditPage, AuditRecord, Change, ChangeAction, LeaseSummary, LifecycleReceipt, OffsetRange,
     SubscriptionIdentity, SubscriptionStatus,

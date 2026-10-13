@@ -20,6 +20,7 @@ cellar stream audit --binding BINDING.json [--after POSITION] [--limit N]
 cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --procedure TEXT --confirm-retire
 cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --force --data-loss TEXT --confirm-retire
 cellar stream retirement-status --binding BINDING.json --operation UUID
+cellar subscription list --binding BINDING.json [--cursor TOKEN] [--limit N]
 cellar subscription describe NAME --binding BINDING.json
 cellar subscription pause|resume NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT
 cellar subscription reset NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --cursor TOKEN --confirm-reset
@@ -29,6 +30,8 @@ The binding file uses the deployed stream Binding shape. The receiver checks
 its current principal/grant independently of these supplied permissions.
 Read returns metadata; --payload explicitly includes event bodies. Pages contain
 at most 100 records and reads copy at most 256 KiB of retained event bytes.
+Subscription lists include retained deleted incarnations, ordered by UUID.
+Their stream-scoped cursor observes live pages, not a stable snapshot.
 Save describe's identity object before a subscription change. Reset/delete
 require explicit destructive intent. Exact change replay requires the same
 identity, arguments, operation and operator label. Use stream status or audit
@@ -77,7 +80,7 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
     anyhow::ensure!(
         change
             || if subscription {
-                verb == "describe"
+                matches!(verb.as_str(), "describe" | "list")
             } else {
                 matches!(
                     verb.as_str(),
@@ -86,7 +89,7 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
             },
         "unknown stream/subscription command {verb}"
     );
-    let name = if subscription {
+    let name = if subscription && verb != "list" {
         Some(args.next().context("subscription name required")?)
     } else {
         None
@@ -166,10 +169,17 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
             }
             "--procedure" if !subscription && verb == "retire" => procedure = Some(value(&flag)?),
             "--data-loss" if !subscription && verb == "retire" => data_loss = Some(value(&flag)?),
-            "--cursor" if (!subscription && verb == "read") || (change && verb == "reset") => {
+            "--cursor"
+                if (!subscription && verb == "read")
+                    || (subscription && verb == "list")
+                    || (change && verb == "reset") =>
+            {
                 cursor = Some(value(&flag)?)
             }
-            "--limit" if !subscription && matches!(verb.as_str(), "read" | "audit") => {
+            "--limit"
+                if (!subscription && matches!(verb.as_str(), "read" | "audit"))
+                    || (subscription && verb == "list") =>
+            {
                 limit = value(&flag)?.parse().context("invalid --limit")?
             }
             "--max-bytes" if !subscription && verb == "read" => {
@@ -208,6 +218,8 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
                 reason: reason.context("change requires --reason")?,
             },
         }
+    } else if subscription && verb == "list" {
+        Command::Subscriptions { cursor, limit }
     } else if let Some(name) = name {
         Command::Subscription { name }
     } else {
