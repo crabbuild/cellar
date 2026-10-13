@@ -63,7 +63,8 @@ impl Channels {
 
 pub(super) struct PreparedDriver {
     pub app: AppHandle,
-    pub listener: tokio::net::TcpListener,
+    pub listener: Option<tokio::net::TcpListener>,
+    pub external_ingress: Option<mpsc::UnboundedReceiver<super::ingress::IngressCall>>,
     pub internal_listener: tokio::net::TcpListener,
     pub channels: Channels,
     pub fence_rx: mpsc::UnboundedReceiver<FenceReport>,
@@ -131,6 +132,7 @@ where
     let PreparedDriver {
         app,
         listener,
+        mut external_ingress,
         internal_listener,
         channels,
         mut fence_rx,
@@ -197,6 +199,7 @@ where
     let connection_grace =
         CONNECTION_DRAIN_GRACE.min(std::time::Duration::from_millis(drain_ms / 4));
     let mut connections: FuturesUnordered<ConnectionFuture> = FuturesUnordered::new();
+    let mut ingress_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
     let mut do_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
     let mut gate_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
     let mut service_calls: FuturesUnordered<DoCallFuture> = FuturesUnordered::new();
@@ -208,7 +211,11 @@ where
     // creates must not expose an empty interval to the shutdown barrier.
     macro_rules! pending_dispatches {
         () => {
-            do_calls.len()
+            ingress_calls.len()
+                + external_ingress
+                    .as_ref()
+                    .map_or(0, |receiver| receiver.len())
+                + do_calls.len()
                 + gate_calls.len()
                 + service_calls.len()
                 + queue_calls.len()
@@ -234,7 +241,12 @@ where
     local_cache_prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let shutdown_mode = loop {
         crate::asyncrt::select! {
-            connection = listener.accept() => {
+            connection = async {
+                match &listener {
+                    Some(listener) => listener.accept().await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 let (stream, _) = connection?;
                 connections.push(serve_http_connection(
                     stream,
@@ -256,6 +268,13 @@ where
                     connection_grace,
                 ));
             }
+            call = receive_ingress(&mut external_ingress), if external_ingress.is_some() => {
+                match call {
+                    Some(call) => ingress_calls.push(Box::pin(call.dispatch(app.clone()))),
+                    None => external_ingress = None,
+                }
+            }
+            Some(()) = ingress_calls.next(), if !ingress_calls.is_empty() => {}
             Some(()) = connections.next(), if !connections.is_empty() => {}
             call = do_call_rx.recv() => {
                 let Some(call) = call else {
@@ -447,12 +466,14 @@ where
     );
     #[cfg(all(test, cellar_internal_tests))]
     {
-        spawn_shutdown_acceptor(
-            listener,
-            HttpSurface::Public,
-            shutdown_connection_tx.clone(),
-            shutdown_accept_failure_test_active,
-        );
+        if let Some(listener) = listener {
+            spawn_shutdown_acceptor(
+                listener,
+                HttpSurface::Public,
+                shutdown_connection_tx.clone(),
+                shutdown_accept_failure_test_active,
+            );
+        }
         spawn_shutdown_acceptor(
             internal_listener,
             HttpSurface::Internal,
@@ -462,11 +483,13 @@ where
     }
     #[cfg(not(all(test, cellar_internal_tests)))]
     {
-        spawn_shutdown_acceptor(
-            listener,
-            HttpSurface::Public,
-            shutdown_connection_tx.clone(),
-        );
+        if let Some(listener) = listener {
+            spawn_shutdown_acceptor(
+                listener,
+                HttpSurface::Public,
+                shutdown_connection_tx.clone(),
+            );
+        }
         spawn_shutdown_acceptor(
             internal_listener,
             HttpSurface::Internal,
@@ -634,6 +657,13 @@ where
                     let _ = connection.received.send(());
                 }
                 Some(_) = drain_connections.next(), if !drain_connections.is_empty() => {}
+                call = receive_ingress(&mut external_ingress), if external_ingress.is_some() => {
+                    match call {
+                        Some(call) => ingress_calls.push(Box::pin(call.dispatch(app.clone()))),
+                        None => external_ingress = None,
+                    }
+                }
+                Some(()) = ingress_calls.next(), if !ingress_calls.is_empty() => {}
                 Some(_) = connections.next(), if !connections.is_empty() => {}
                 call = do_call_rx.recv() => {
                     let Some(call) = call else {
@@ -859,6 +889,13 @@ where
                     let _ = connection.received.send(());
                 }
                 Some(_) = drain_connections.next(), if !drain_connections.is_empty() => {}
+                call = receive_ingress(&mut external_ingress), if external_ingress.is_some() => {
+                    match call {
+                        Some(call) => ingress_calls.push(Box::pin(call.dispatch(app.clone()))),
+                        None => external_ingress = None,
+                    }
+                }
+                Some(()) = ingress_calls.next(), if !ingress_calls.is_empty() => {}
                 Some(_) = connections.next(), if !connections.is_empty() => {}
                 call = do_call_rx.recv() => {
                     let Some(call) = call else {
@@ -1191,3 +1228,12 @@ where
 
 #[cfg(all(test, not(cellar_internal_tests)))]
 mod tests;
+
+async fn receive_ingress(
+    receiver: &mut Option<mpsc::UnboundedReceiver<super::ingress::IngressCall>>,
+) -> Option<super::ingress::IngressCall> {
+    match receiver {
+        Some(receiver) => receiver.recv().await,
+        None => std::future::pending().await,
+    }
+}

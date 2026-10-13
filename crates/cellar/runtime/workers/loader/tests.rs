@@ -71,19 +71,15 @@ fn concurrent_admission_shares_principal_limits_and_reserves_host_capacity() {
         .all(|id| !loader_registry().lock().unwrap().contains_key(id)));
 }
 
-struct DropProbe(Arc<AtomicUsize>);
+struct DropProbe {
+    drops: Arc<AtomicUsize>,
+    assert_unlocked: Box<dyn Fn() + Send + Sync>,
+}
 
 impl Drop for DropProbe {
     fn drop(&mut self) {
-        assert!(
-            loader_registry().try_lock().is_ok(),
-            "worker dropped under loader registry lock"
-        );
-        assert!(
-            root_facets().try_lock().is_ok(),
-            "worker dropped under root facet lock"
-        );
-        self.0.fetch_add(1, Ordering::SeqCst);
+        (self.assert_unlocked)();
+        self.drops.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -111,7 +107,28 @@ fn config(application: Arc<dyn Application>) -> Arc<WorkerConfig> {
 }
 
 fn probed_config(drops: Arc<AtomicUsize>) -> Arc<WorkerConfig> {
-    let probe = DropProbe(drops);
+    // A slot can be released outside its owner's domain. Check the captured
+    // registries, not an unrelated ambient host used by a parallel test.
+    // Weak references avoid keeping registry -> worker -> probe cycles alive.
+    let loader = Arc::downgrade(&loader_registry());
+    let facets = Arc::downgrade(&root_facets());
+    let probe = DropProbe {
+        drops,
+        assert_unlocked: Box::new(move || {
+            if let Some(loader) = loader.upgrade() {
+                assert!(
+                    loader.try_lock().is_ok(),
+                    "worker dropped under loader registry lock"
+                );
+            }
+            if let Some(facets) = facets.upgrade() {
+                assert!(
+                    facets.try_lock().is_ok(),
+                    "worker dropped under root facet lock"
+                );
+            }
+        }),
+    };
     config(Arc::new(Registry::new(move |_, _| {
         let _ = &probe;
         Box::pin(async { Ok(Output::Done) })

@@ -111,6 +111,22 @@ impl Drop for ProducerGuard {
 }
 
 impl Context {
+    /// Publish a response chunk only after proving the writes it can reveal.
+    /// Use this in an owned producer registered with `wait_until_byte_stream`;
+    /// keeping a producer alive alone does not prove its post-response writes.
+    pub async fn write_stream_chunk(&self, writer: &ByteWriter, bytes: Vec<u8>) -> Result<()> {
+        self.check_turn()?;
+        let gate =
+            crate::host_gates::egress_gate_request(&self.io, cellar_logic::Channel::Response);
+        crate::host_gates::await_egress_gate(gate)
+            .await
+            .map_err(anyhow::Error::msg)?;
+        self.check_turn()?;
+        writer.write(bytes).await?;
+        self.check_turn()?;
+        Ok(())
+    }
+
     /// Retain producer work in this invocation. Retirement and shutdown drop
     /// it and fail both stream endpoints, including an unwakeable producer.
     pub fn wait_until_byte_stream(

@@ -256,6 +256,14 @@ impl CompiledApplications {
                         deployment.script_name, deployment.version
                     )
                 })?;
+                application
+                    .validate_configuration(&deployment.options)
+                    .with_context(|| {
+                        format!(
+                            "validate compiled application {} configuration",
+                            deployment.script_name
+                        )
+                    })?;
                 Ok((deployment.script_name.clone(), application))
             })
             .collect()

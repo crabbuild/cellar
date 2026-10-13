@@ -1,0 +1,43 @@
+[package]
+name = "cellar-axum-counter"
+version = "0.6.2"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "cellar-host"
+path = "cellar_host.rs"
+
+[[bin]]
+name = "axum-host"
+path = "axum_host.rs"
+
+[[bin]]
+name = "export-openapi"
+path = "export_openapi.rs"
+required-features = ["openapi"]
+
+[features]
+default = ["openapi"]
+openapi = ["cellar-axum/openapi"]
+
+[dependencies]
+anyhow.workspace = true
+axum.workspace = true
+cellar.workspace = true
+cellar-axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+tokio = { workspace = true, features = ["full"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints.clippy]
+disallowed_macros = "forbid"

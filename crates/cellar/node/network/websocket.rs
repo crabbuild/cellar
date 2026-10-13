@@ -1260,7 +1260,11 @@ fn forwards_worker_websocket_header(name: &str) -> bool {
     )
 }
 
-pub(crate) async fn handle_websocket(mut request: Request<Incoming>, app: AppHandle) -> HttpReply {
+pub(crate) async fn handle_websocket<B>(mut request: Request<B>, app: AppHandle) -> HttpReply
+where
+    B: hyper::body::Body<Data = Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     let started = Instant::now();
     let cancellation = crate::runtime::RequestCancellationLifetime::stateless();
     let request_id = cancellation.request_id();
