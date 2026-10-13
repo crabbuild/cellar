@@ -17,6 +17,7 @@ fn native_packages_stage_verify_and_publish_application_and_fence_images() -> Re
     runtime.block_on(async {
         cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
         let directory = tempfile::tempdir()?;
+        let asset_cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(directory.path().join("asset-cache")))?;
         let cli = directory.path().join("engine.py");
         std::fs::write(&cli, r#"#!/usr/bin/env python3
 import sys, pathlib
@@ -86,7 +87,7 @@ elif a[0] not in ('tag','pull'): sys.exit(12)
             let bytes = bucket.get(&archive.key()?).await?.unwrap().0;
             archive.verify(&bytes)?;
         }
-        let loaded = cellar::fleet::load_named_worker(&bucket, "sandbox", "node".into()).await?;
+        let loaded = cellar::fleet::load_named_worker(&bucket, "sandbox", "node".into(), &asset_cache).await?;
         assert_eq!(loaded.container_images, package.primary.container_images);
         let pointer = bucket.get("deploy/current.json").await?.unwrap().0;
         package.publish_staged(&bucket, &staged).await?;

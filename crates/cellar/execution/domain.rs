@@ -493,6 +493,16 @@ impl DomainToken {
         Ok(self.owner()?.started_at.elapsed().as_millis() as u64)
     }
 
+    /// Admit file work through the stream's original owner, even when its
+    /// consumer polls from another application runtime.
+    pub(crate) fn blocking<T, F>(&self, operation: F) -> Result<TaskHandle<T>, DomainClosed>
+    where
+        T: Send + 'static,
+        F: FnOnce() -> T + Send + 'static,
+    {
+        self.owner()?.blocking(operation)
+    }
+
     pub(crate) fn sleep_until(&self, deadline_ms: u64) -> Result<Sleep, DomainClosed> {
         let owner = self.owner()?;
         let now_ms = owner.started_at.elapsed().as_millis() as u64;

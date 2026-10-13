@@ -450,20 +450,21 @@ async fn native_assets_and_cache_preserve_routing_generations_bodies_and_retirem
 }
 async fn run() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    std::env::set_var(
-        "CELLAR_ASSET_CACHE_DIR",
+    let asset_cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(
         directory.path().join("asset-cache"),
-    );
+    ))?;
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("bucket.sqlite"))?;
-    let first = fixture::resolver(&bucket, "first", b"version-one", "404-page").await?;
+    let first =
+        fixture::resolver(&bucket, "first", b"version-one", "404-page", &asset_cache).await?;
     assert!(first.should_run_worker_first("/api/read"));
     assert!(!first.should_run_worker_first("/api/static/one"));
     let ordinary = first
         .ingress_response("/unknown", None, false, &axum::http::HeaderMap::new())
         .await?;
     assert!(ordinary.is_none());
-    let second = fixture::resolver(&bucket, "second", b"version-two", "404-page").await?;
-    let peer = fixture::resolver(&bucket, "peer", b"peer-assets", "404-page").await?;
+    let second =
+        fixture::resolver(&bucket, "second", b"version-two", "404-page", &asset_cache).await?;
+    let peer = fixture::resolver(&bucket, "peer", b"peer-assets", "404-page", &asset_cache).await?;
     let signals = Arc::new(Signals::default());
     let runtime = RuntimeManager::start(
         generation(1, first, peer.clone(), signals.clone())?,

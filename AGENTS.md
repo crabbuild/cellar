@@ -29,6 +29,12 @@ the first fetch. Keep required redirect behavior and invocation subrequest
 accounting in Cellar; factories choose DNS, TLS, proxies, credentials and pools.
 Library HTTP defaults ignore ambient proxies. Domain closure drops cached pools
 and prevents their reconstruction.
+Asset loading receives an explicit `AssetCache` with directory, cleanup target,
+file-size policy and optional caller filesystem. Generations, cohosted scripts
+and CLI reloads retain that capability. Asset streams, fallback refreshes and
+maintenance belong to their serving execution domain; closure joins begun
+blocking file work. CLI cache options are captured once under the node data
+folder unless an explicit environment override chooses another directory.
 
 The workspace must remain free of JavaScript engines, including with all
 features enabled. Source JavaScript, Node.js modules, and the former Python/Wasm

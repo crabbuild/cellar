@@ -1,5 +1,5 @@
 use anyhow::Result;
-use cellar::assets::AssetResolver;
+use cellar::assets::{AssetCache, AssetResolver};
 use cellar::bucket::Bucket;
 use cellar::engine_api::{Compat, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
@@ -14,6 +14,7 @@ pub async fn resolver(
     prefix: &str,
     version: &[u8],
     not_found: &str,
+    cache: &AssetCache,
 ) -> Result<AssetResolver> {
     let mut index = AssetIndex {
         schema_version: 1,
@@ -74,7 +75,7 @@ pub async fn resolver(
         total_bytes: index.entries.values().map(|entry| entry.bytes).sum(),
     };
     bucket.put(&format!("{prefix}/assets.json"), bytes).await?;
-    AssetResolver::load(bucket, prefix, &reference, false, None).await
+    AssetResolver::load(bucket, prefix, &reference, false, None, cache).await
 }
 pub fn graph(
     script: &str,

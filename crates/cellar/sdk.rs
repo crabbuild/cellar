@@ -104,6 +104,23 @@
 //! [`HttpPolicy::from_env`] explicitly reads `CELLAR_FETCH_TIMEOUT_S` for CLI
 //! startup; the CLI also explicitly selects reqwest's system-proxy configuration.
 //!
+//! Asset deployment loading takes an explicit [`AssetCache`]. Select its
+//! directory, cleanup target and serving file limit once; clones deliberately
+//! share that cache across generations or nodes. There is no inferred directory
+//! or environment lookup. [`AssetCache::with_filesystem`] also accepts a caller's
+//! [`FileSystem`]; it must support atomic exclusive creation for publication.
+//! File reads, refreshes and maintenance retain the serving execution domain.
+//! Shutdown joins begun blocking reads even when another host consumes a body.
+//!
+//! ```no_run
+//! use cellar::sdk::{AssetCache, AssetCacheOptions, DeploymentGraph};
+//! async fn deployment(bucket: &cellar::bucket::Bucket, node: String,
+//!     directory: std::path::PathBuf) -> anyhow::Result<DeploymentGraph> {
+//!     let cache = AssetCache::new(AssetCacheOptions::new(directory))?;
+//!     DeploymentGraph::load(bucket, node, &cache).await
+//! }
+//! ```
+//!
 //! Replication uses the application's storage client and explicit policy.
 //! Start it inside the domain that will own its tasks and cell databases.
 //!
@@ -170,6 +187,7 @@ pub use crate::application::limits::{
     BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
 };
 pub use crate::application::*;
+pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]
 pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
 pub use crate::container::EngineOptions as ContainerEngineOptions;
@@ -207,6 +225,9 @@ pub use crate::replication_options::{CompactionConfig, ReplicationOptions};
 pub use crate::runtime_policy::RuntimePolicy;
 pub use cellar_logic::queue::Limits as QueueLimits;
 pub use cellar_ltx::TimestampMetadataKey as ReplicaTimestampMetadataKey;
+pub use cellar_ltx::{
+    DirectFileSystem, FileSystem, HostDirEntry, HostFile, HostFileIo, HostMetadata,
+};
 pub use cellar_native as primitives;
 pub use cellar_native::{clone, compression, crypto, encoding, json, rpc, web};
 

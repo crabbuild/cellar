@@ -58,6 +58,14 @@ request deadline includes reading the response body. Library defaults use a
 cached pools and prevents reconstruction. The CLI explicitly selects system
 proxies and captures `CELLAR_FETCH_TIMEOUT_S` at startup.
 
+Bucket-backed deployment loading takes an explicit `AssetCache`: select its
+directory, cleanup target, per-file serving limit and optional caller filesystem.
+Resolvers retain it across generations and fallback refreshes. Cloning the cache
+shares download coordination deliberately; separate directories isolate hosts.
+Streams, cache maintenance and refreshes retain their serving execution domain,
+and shutdown joins begun blocking file work. The CLI captures its cache options
+once at startup, defaulting to `asset-cache` under that node's data directory.
+
 `ActorPolicy::max_cached_routes` bounds idle, unowned routing history separately
 from resident cells. Least recently used records are reclaimed; zero disables
 the cache. Ownership, alarms, queued requests and unfinished work retain their

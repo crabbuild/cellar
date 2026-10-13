@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "support/html.rs"]
 mod fixture;
+#[path = "support/node_assets.rs"]
+mod node_assets;
 #[path = "support/node_http.rs"]
 mod node_http;
 use anyhow::{ensure, Context as _, Result};

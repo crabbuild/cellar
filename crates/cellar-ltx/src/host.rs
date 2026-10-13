@@ -89,6 +89,15 @@ pub trait FileSystem: Send + Sync {
     fn read_dir(&self, path: &Path) -> io::Result<Vec<HostDirEntry>>;
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata>;
     fn create(&self, path: &Path) -> io::Result<HostFile>;
+    /// Create a file without replacing an existing path. Cache publication
+    /// requires this atomic contract; an existence check followed by create
+    /// cannot implement it safely.
+    fn create_new(&self, _path: &Path) -> io::Result<HostFile> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "exclusive creation is unsupported",
+        ))
+    }
     fn open(&self, path: &Path) -> io::Result<HostFile>;
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
     fn sync_all(&self, path: &Path) -> io::Result<()>;
@@ -96,6 +105,13 @@ pub trait FileSystem: Send + Sync {
     fn remove_file(&self, path: &Path) -> io::Result<()>;
     fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+    /// Best-effort cache recency, in the caller's wall-clock time.
+    fn set_modified_unix_millis(&self, _path: &Path, _millis: i64) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "modification time is unsupported",
+        ))
+    }
 }
 
 /// The telemetry-only microsecond clock for the capture ledger
@@ -197,6 +213,32 @@ impl FileSystem for DirectFileSystem {
         Ok(HostFile::from_io(DirectFile {
             file: std::fs::File::open(path)?,
         }))
+    }
+
+    fn create_new(&self, path: &Path) -> io::Result<HostFile> {
+        Ok(HostFile::from_io(DirectFile {
+            file: std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(path)?,
+        }))
+    }
+
+    fn set_modified_unix_millis(&self, path: &Path, millis: i64) -> io::Result<()> {
+        let millis = u64::try_from(millis)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "negative file timestamp"))?;
+        let modified = UNIX_EPOCH
+            .checked_add(Duration::from_millis(millis))
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "file timestamp exceeds host clock",
+                )
+            })?;
+        std::fs::File::options()
+            .write(true)
+            .open(path)?
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
     }
 
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()> {
