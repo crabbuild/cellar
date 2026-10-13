@@ -2,8 +2,9 @@
 
 Use `sdk::Node` when your application owns the process, runtime, listeners,
 configuration and supervision. The CLI `sdk::Host` runner is the simpler process
-adapter. Library defaults do not inspect the environment, bind ports, install
-signals or exit the process.
+adapter. Node configuration and runtime, loader and HTTP policy defaults do not
+inspect the environment. The library receives bound listeners and leaves
+process signals and exit handling to the caller.
 
 ![Node recovery and startup](diagrams/recovery-flow.svg)
 
@@ -12,13 +13,14 @@ signals or exit the process.
 1. Own and keep alive the host and core executors. Bind distinct public and
    internal listeners, and select a unique data directory for each node.
 2. Build an `ActorIdentity` and `ActorOptions`, then `NodeConfig`. Select actor,
-   runtime, cell API limits, loader, startup, maintenance and shutdown policies
-   explicitly. `config.cell_limits = CellLimits::unrestricted()` lifts the
-   inherited API ceilings for trusted native applications; see
+   runtime, HTTP, cell API limits, loader, startup, maintenance and shutdown
+   policies explicitly. `config.cell_limits = CellLimits::unrestricted()` lifts
+   the inherited API ceilings for trusted native applications; see
    [configuration](11-configuration.md) for backend and protocol ceilings.
 3. Supply `NodeServices`: executor handles, listeners, peer HTTP client,
    `PeerAuth`, `PeerProbeSigner`, optional `NodeFleet`, container engine and
-   metrics sampler. Node and peer-auth identity must agree.
+   metrics sampler, and optional SDK HTTP client factory. Node and peer-auth
+   identity must agree.
 4. Provide a `DeploymentGraph` and `CompiledApplications` whose factories match
    the graph. Configure policy before generations are built.
 5. Await `Node::start`, then supervise with `run_until` and inspect the outcome.
@@ -40,6 +42,15 @@ async fn serve(config: NodeConfig, services: NodeServices,
     node.run_until(stop).await
 }
 ```
+
+`NodeConfig::http` sets the SDK request deadline, including response-body reads.
+`NodeServices::http_client` optionally supplies an `HttpClientFactory` for TLS,
+DNS, credentials, proxies and connection-pool settings. Set it to `None` for
+library defaults: 120 seconds and no ambient proxy configuration. Cellar applies
+each redirect mode's policy after the factory callback and retains invocation
+subrequest accounting. Lower-level hosts call `HostServices::configure_http`
+before their first fetch. HTTP configuration stays fixed across generations;
+closing the domain releases cached pools and prevents reconstruction.
 
 ## Fleet services and startup safety
 

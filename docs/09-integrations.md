@@ -47,6 +47,14 @@ combined failure and retention behavior for your workload.
 
 ## Outbound behavior
 
+Embedded hosts configure SDK HTTP with `NodeConfig::http` and
+`NodeServices::http_client`. An optional `HttpClientFactory` supplies DNS, TLS,
+credentials, proxies and pool settings; library defaults ignore ambient
+proxies. The request deadline includes reading the response body. Cellar
+preserves redirect modes and worker subrequest budgets across factory clients.
+See [HTTP policy](../crates/cellar/transport/http/policy.rs) and the
+[two-host regression](../crates/cellar/tests/support/node_http.rs).
+
 Use the framework path for egress tied to a state mutation so it retains gate
 and event authority. Raw network operations in application code can bypass
 those lifecycle protections. External destinations still need authentication,

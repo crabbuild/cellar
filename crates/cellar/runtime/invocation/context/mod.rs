@@ -410,7 +410,7 @@ pub struct IoContext {
     /// A request-scoped client counts redirects against this request. A weak
     /// capture avoids a client/context cycle, and one client retains the
     /// connection pool across all fetches in the invocation.
-    redirect_client: OnceLock<reqwest::Client>,
+    redirect_client: OnceLock<Result<reqwest::Client, String>>,
     cpu_limit_nanos: Option<u64>,
     cpu_used_nanos: AtomicU64,
     cpu_turn: Mutex<Option<CpuTurnStart>>,
@@ -513,12 +513,13 @@ impl IoContext {
             .and_then(|limit| u32::try_from(limit / 1_000_000).ok())
     }
 
-    pub(crate) fn redirect_counting_client(self: &Arc<Self>) -> reqwest::Client {
+    pub(crate) fn redirect_counting_client(self: &Arc<Self>) -> Result<reqwest::Client, String> {
         self.redirect_client
             .get_or_init(|| {
                 let context = Arc::downgrade(self);
-                reqwest::Client::builder()
-                    .redirect(reqwest::redirect::Policy::custom(move |attempt| {
+                self.host_services()
+                    .http()
+                    .build(reqwest::redirect::Policy::custom(move |attempt| {
                         if attempt.previous().len() >= 10 {
                             return attempt.error("too many redirects");
                         }
@@ -529,8 +530,6 @@ impl IoContext {
                         }
                         attempt.follow()
                     }))
-                    .build()
-                    .expect("build the redirect-counting HTTP client")
             })
             .clone()
     }

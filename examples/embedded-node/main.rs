@@ -103,6 +103,7 @@ fn main() -> Result<()> {
         let mut key = [0;32];
         getrandom::fill(&mut key)?;
         let services = NodeServices {
+            http_client: None,
             host_executor:host.handle().clone(),core_executor:core.handle().clone(),listener,internal_listener,
             peer_http:reqwest::Client::builder().connect_timeout(Duration::from_secs(5)).build()?,
             peer_auth:Arc::new(PeerAuth::new(key,"embedded-example")?),probe_signer:signer,
