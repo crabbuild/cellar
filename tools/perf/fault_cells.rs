@@ -121,7 +121,8 @@ impl Cell for Entity {
                         .transpose()?
                         .unwrap_or_default();
                     serde_json::json!({"writes": state.writes, "receipts": state.receipts,
-                                      "node": self.node.as_ref()})
+                                      "node": self.node.as_ref(),
+                                      "epoch": context.identity().ok_or_else(|| anyhow::anyhow!("missing cell identity"))?.epoch})
                 }
                 _ => anyhow::bail!("expected GET or POST"),
             };

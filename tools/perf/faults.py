@@ -89,7 +89,7 @@ def validate_snapshot(operations, state, final=False):
 
 class Ledger:
     """The measuring client owns this fsynced operation and outcome journal."""
-    def __init__(self, path, cells, burst):
+    def __init__(self, path, cells, burst, burst_cell=None):
         self.path = path
         self.lock = threading.Lock()
         self.pending = set()
@@ -100,7 +100,8 @@ class Ledger:
             for i in range(count):
                 operation_id = f"{nonce}-{phase}-{i:04}"
                 payload = (hashlib.sha256(operation_id.encode()).hexdigest() * 16)
-                self.operations.append({"operation_id": operation_id, "cell": i % cells,
+                cell = burst_cell if phase == "burst" and burst_cell is not None else i % cells
+                self.operations.append({"operation_id": operation_id, "cell": cell,
                     "phase": phase, "payload": payload, "sha256": hashlib.sha256(payload.encode()).hexdigest(),
                     "attempts": 0, "ack": None, "upstream_ack": None, "observed": None})
         self.stream = path.with_suffix(".jsonl").open("x")
@@ -132,6 +133,7 @@ class Ledger:
                         raise RuntimeError("retry changed original operation receipt")
                 self._append("ack", operation_id=key, receipt=receipt, node=value["node"])
                 operation["ack"] = receipt
+                operation["ack_node"] = value["node"]
             return True
         except urllib.error.HTTPError as error:
             if error.code not in (408, 429, 500, 502, 503, 504):
@@ -295,6 +297,9 @@ class FaultHarness(Harness):
         return value
 
     def scenario(self, kind):
+        if kind == "peer-partition":
+            from peer_partition import scenario
+            return scenario(self)
         durability = "bucket" if kind == "bucket" else "fleet"
         scenario = f"inflight-{kind}"
         self.start_nodes(scenario, 3, durability)
@@ -421,6 +426,10 @@ def audit_run(root):
     verify_image_sources(metadata)
     args = metadata["arguments"]
     for kind in args["scenario"]:
+        if kind == "peer-partition":
+            from peer_partition import audit
+            audit(root, args, results)
+            continue
         durability = "bucket" if kind == "bucket" else "fleet"
         scenario = f"inflight-{kind}"
         for label, final in (("before-fault", True), ("before-replay", False), ("reconciled", True), ("preserve-reload", True)):
@@ -497,15 +506,19 @@ def main():
     parser.add_argument("--shutdown-ms", type=int, default=60_000)
     parser.add_argument("--port", type=int, default=39700)
     parser.add_argument("--output")
-    parser.add_argument("--scenario", choices=("bucket", "fleet", "isolation"), nargs="+", default=["bucket", "fleet"])
+    parser.add_argument("--scenario", choices=("bucket", "fleet", "isolation", "peer-partition"), nargs="+", default=["bucket", "fleet"])
     args = parser.parse_args()
     if (min(args.cells, args.concurrency, args.max_resident, args.max_requests, args.shutdown_ms) <= 0
             or args.concurrency > args.cells or args.max_cached_routes < 0):
         parser.error("invalid workload or node limits")
+    if "peer-partition" in args.scenario and args.concurrency < 2:
+        parser.error("peer-partition requires an accepted operation and a new write after partition")
     harness = FaultHarness(args)
     image = json.loads(command("docker", "image", "inspect", args.image))[0]
     sources = ("tools/perf/fault_cells.rs", "tools/perf/faults.py", "tools/perf/deployment.rs",
                "tools/perf/embedded.rs", "tools/perf/run.py", "tools/perf/Dockerfile", "Cargo.toml", "Cargo.lock", "crates/cellar/Cargo.toml")
+    if "peer-partition" in args.scenario:
+        sources += ("tools/perf/peer_partition.py",)
     metadata = {"started_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 "revision": command("git", "rev-parse", "HEAD"), "dirty": bool(command("git", "status", "--porcelain")),
                 "arguments": vars(args), "image": image["Id"], "image_labels": image["Config"].get("Labels"),
@@ -513,7 +526,7 @@ def main():
                 "execution": "sdk::Node on caller-owned executors; host-side fsynced operation journal and receipt verifier",
                 "limitations": ["Local single-server RustFS and shared Colima infrastructure.",
                                 "Application implements operation idempotency; Cellar does not promise exactly-once delivery.",
-                                "Isolated nodes lose peer, bucket and public network connectivity; selective peer-only partitions are not covered.",
+                                "Full isolation cuts peer, bucket and public connectivity; peer-partition cuts one owner's traffic to its two peers.",
                                 "Correctness checks, not a throughput measurement or production fleet certification."]}
     (harness.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     verify_image_sources(metadata)

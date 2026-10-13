@@ -144,9 +144,21 @@ alone proves neither fencing nor graceful drain.
 The two survivors verify all acknowledged receipts before replay. The failed
 node then restarts on the original network and recovers its predecessor before
 acquiring a replacement lease. Reconciliation and the final preserving reload
-retain the original operation receipts. This tests full node isolation;
-selective peer-only partitions, sustained load and production-scale acceptance
-remain separate work.
+retain the original operation receipts. This tests full node isolation.
+Sustained load and production-scale acceptance remain separate work.
+
+Use `--scenario peer-partition` to block traffic between the actual owner and
+its two peers while retaining bucket and public access. The driver installs a
+private filter chain inside only that owner's container network namespace,
+using Colima's `nsenter` and `iptables`; it removes the chain before healing.
+TCP probes must confirm both directions are blocked, all three bucket paths
+remain reachable, and the other two peers can still reach each other. The
+owner accepts new writes for at least two lease lifetimes. Bucket lease reads
+and cell reads must retain the process generation and cell epoch while the
+lease renews. The test checks receipts during the partition, then heals and
+checks every acknowledged receipt before replay. Reconciliation and final
+preserving reload remain exact. This checks one owner separated from two
+peers; it does not cover arbitrary network topologies or a sustained load SLO.
 
 The counter performance runs are bounded local recovery and saturation checks.
 All nodes share one VM, disk and single RustFS server. That workload overwrites small values, uses
