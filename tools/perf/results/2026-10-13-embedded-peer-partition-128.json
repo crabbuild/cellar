@@ -1,0 +1,668 @@
+{
+  "started_utc": "2026-10-13T00:44:02.362581+00:00",
+  "revision": "8b755089d66820c89018c36bf00a14def3c7801f",
+  "dirty": false,
+  "arguments": {
+    "image": "cellar-embedded-perf:8b75508",
+    "rustfs_image": "rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+    "cells": 128,
+    "concurrency": 16,
+    "max_resident": 16,
+    "max_cached_routes": 8,
+    "max_requests": 128,
+    "shutdown_ms": 60000,
+    "port": 39900,
+    "output": ".cellar/perf/peer-partition-128-8b75508",
+    "scenario": [
+      "peer-partition"
+    ]
+  },
+  "image": "sha256:da2bf5c1b860f4b4b6fb2f6b7b716195548abe9152998d3377933071536c9650",
+  "image_labels": {
+    "org.opencontainers.image.revision": "8b755089d66820c89018c36bf00a14def3c7801f"
+  },
+  "source_sha256": {
+    "tools/perf/fault_cells.rs": "319ac5663271d3b1ff3d34bb753c5ed67504ec3ea2aa4a983219dbe9d3063591",
+    "tools/perf/faults.py": "352421f386a16f2c30dca78e6076280e92b4ecbee1a873b5f90f81c89f536500",
+    "tools/perf/deployment.rs": "6280b29974147d1b67e4123da7eeb335edacea946c7f740e424f0b4905c028a5",
+    "tools/perf/embedded.rs": "2191b2bad3281bb19bcc6c8668449a78cce9e3bd732f5e147d5ccf42637a3894",
+    "tools/perf/run.py": "3c2621104fdc689eda6110bc80d1511b007dabc661dab0137aa97ad9db1c619c",
+    "tools/perf/Dockerfile": "b15ade6bf1ebc312a7219dfc1b6421a943390736130d6cd92e2bb8264303bd0c",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc",
+    "crates/cellar/Cargo.toml": "73af4d2a8eaec38f29952738781b379d7a227074af6d8171994d2d67ac086f35",
+    "tools/perf/peer_partition.py": "9bd29d9481d5b3fde75c1b0384d0cceeb031921dba25591b50a9d4c21bb4b776"
+  },
+  "execution": "sdk::Node on caller-owned executors; host-side fsynced operation journal and receipt verifier",
+  "limitations": [
+    "Local single-server RustFS and shared Colima infrastructure.",
+    "Application implements operation idempotency; Cellar does not promise exactly-once delivery.",
+    "Full isolation cuts peer, bucket and public connectivity; peer-partition cuts one owner's traffic to its two peers.",
+    "Correctness checks, not a throughput measurement or production fleet certification."
+  ],
+  "completed": true,
+  "verifications": [
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "before-fault",
+      "final": true,
+      "cells": 128,
+      "issued": 128,
+      "client_acknowledged": 128,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 128
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "before-replay",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 144,
+      "ambiguous_present": 1,
+      "ambiguous_absent": 0,
+      "writes": 145
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "reconciled",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "preserve-reload",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    }
+  ],
+  "faults": [
+    {
+      "scenario": "inflight-peer-partition",
+      "partition": {
+        "owner": 1,
+        "before": {
+          "connectivity": {
+            "peer_paths": [
+              {
+                "source": 1,
+                "target": 2,
+                "connected": true
+              },
+              {
+                "source": 1,
+                "target": 3,
+                "connected": true
+              },
+              {
+                "source": 2,
+                "target": 1,
+                "connected": true
+              },
+              {
+                "source": 3,
+                "target": 1,
+                "connected": true
+              }
+            ],
+            "bucket_paths": [
+              {
+                "node": 1,
+                "connected": true
+              },
+              {
+                "node": 2,
+                "connected": true
+              },
+              {
+                "node": 3,
+                "connected": true
+              }
+            ],
+            "unaffected_peer_paths": [
+              {
+                "source": 2,
+                "target": 3,
+                "connected": true
+              },
+              {
+                "source": 3,
+                "target": 2,
+                "connected": true
+              }
+            ]
+          },
+          "authority": {
+            "observed_ms": 1791852257299,
+            "node": "node1",
+            "epoch": 3,
+            "generation": "aca5a12819fe29a682eb89a92ba35848baa9d6be60052e673271846dfe0973ae",
+            "expires_ms": 1791852265562,
+            "lease_node": "node1"
+          }
+        },
+        "marker": {
+          "event": "fault_write_applied",
+          "hold_ms": 10000,
+          "inserted": true,
+          "node": "node1",
+          "operation_id": "4329b388b540be72-burst-0000",
+          "client_pending": true
+        },
+        "burst_to_partition_s": 1.78478470799746,
+        "controlled_ack": true,
+        "controlled_ack_node": "node1",
+        "peer_reads": [
+          {
+            "node": 2,
+            "failed": true,
+            "error_type": "TimeoutError"
+          },
+          {
+            "node": 3,
+            "failed": true,
+            "error_type": "TimeoutError"
+          }
+        ],
+        "during": {
+          "connectivity": {
+            "peer_paths": [
+              {
+                "source": 1,
+                "target": 2,
+                "connected": false
+              },
+              {
+                "source": 1,
+                "target": 3,
+                "connected": false
+              },
+              {
+                "source": 2,
+                "target": 1,
+                "connected": false
+              },
+              {
+                "source": 3,
+                "target": 1,
+                "connected": false
+              }
+            ],
+            "bucket_paths": [
+              {
+                "node": 1,
+                "connected": true
+              },
+              {
+                "node": 2,
+                "connected": true
+              },
+              {
+                "node": 3,
+                "connected": true
+              }
+            ],
+            "unaffected_peer_paths": [
+              {
+                "source": 2,
+                "target": 3,
+                "connected": true
+              },
+              {
+                "source": 3,
+                "target": 2,
+                "connected": true
+              }
+            ]
+          },
+          "authority": {
+            "observed_ms": 1791852290533,
+            "node": "node1",
+            "epoch": 3,
+            "generation": "aca5a12819fe29a682eb89a92ba35848baa9d6be60052e673271846dfe0973ae",
+            "expires_ms": 1791852298918,
+            "lease_node": "node1"
+          },
+          "final_connectivity": {
+            "peer_paths": [
+              {
+                "source": 1,
+                "target": 2,
+                "connected": false
+              },
+              {
+                "source": 1,
+                "target": 3,
+                "connected": false
+              },
+              {
+                "source": 2,
+                "target": 1,
+                "connected": false
+              },
+              {
+                "source": 3,
+                "target": 1,
+                "connected": false
+              }
+            ],
+            "bucket_paths": [
+              {
+                "node": 1,
+                "connected": true
+              },
+              {
+                "node": 2,
+                "connected": true
+              },
+              {
+                "node": 3,
+                "connected": true
+              }
+            ],
+            "unaffected_peer_paths": [
+              {
+                "source": 2,
+                "target": 3,
+                "connected": true
+              },
+              {
+                "source": 3,
+                "target": 2,
+                "connected": true
+              }
+            ]
+          }
+        },
+        "partition_s": 35.87618891696911,
+        "after": {
+          "connectivity": {
+            "peer_paths": [
+              {
+                "source": 1,
+                "target": 2,
+                "connected": true
+              },
+              {
+                "source": 1,
+                "target": 3,
+                "connected": true
+              },
+              {
+                "source": 2,
+                "target": 1,
+                "connected": true
+              },
+              {
+                "source": 3,
+                "target": 1,
+                "connected": true
+              }
+            ],
+            "bucket_paths": [
+              {
+                "node": 1,
+                "connected": true
+              },
+              {
+                "node": 2,
+                "connected": true
+              },
+              {
+                "node": 3,
+                "connected": true
+              }
+            ],
+            "unaffected_peer_paths": [
+              {
+                "source": 2,
+                "target": 3,
+                "connected": true
+              },
+              {
+                "source": 3,
+                "target": 2,
+                "connected": true
+              }
+            ]
+          },
+          "authority": {
+            "observed_ms": 1791852296520,
+            "node": "node1",
+            "epoch": 3,
+            "generation": "aca5a12819fe29a682eb89a92ba35848baa9d6be60052e673271846dfe0973ae",
+            "expires_ms": 1791852305587,
+            "lease_node": "node1"
+          }
+        }
+      }
+    }
+  ],
+  "shutdown_outcomes": [
+    {
+      "label": "inflight-peer-partition-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-peer-partition-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-peer-partition-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-peer-partition-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "node_policies": [
+    {
+      "scenario": "inflight-peer-partition",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "lease_ttl_ms": 10000,
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    }
+  ],
+  "routing_cache_snapshots": [
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "warm",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "warm",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "warm",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "partitioned",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "partitioned",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "partitioned",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "healed",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "healed",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "healed",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-peer-partition",
+      "label": "preserve-reload",
+      "node": 3,
+      "cached_routes": 8
+    }
+  ],
+  "failures": [],
+  "audit": {
+    "completed": true,
+    "scenarios": [
+      "peer-partition"
+    ],
+    "verified_stages": 4
+  },
+  "harness_exit_code": 0,
+  "private_resources_removed": true,
+  "raw_archive": {
+    "name": "cellar-embedded-peer-partition-128-raw.tar.gz",
+    "bytes": 213595,
+    "sha256": "e325cbc400b695f9fb1865163426a9c0377bf57d5b0f56447c07df2450d5dc2a"
+  },
+  "node_snapshots": [
+    {
+      "file": "inflight-peer-partition-healed-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-healed-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-healed-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-partitioned-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-partitioned-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-partitioned-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-preserve-reload-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-warm-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-warm-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-peer-partition-warm-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    }
+  ],
+  "node_resource_limits": {
+    "peer_partition": [
+      {
+        "node": 1,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "1",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 2,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "2",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 3,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "3",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      }
+    ]
+  }
+}

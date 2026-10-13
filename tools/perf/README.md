@@ -86,6 +86,9 @@ both completed scenarios, including the receipt checks before any replay.
 The [128-cell isolation report](results/2026-10-13-embedded-isolation-128.md)
 records the owner's typed lease-expiry fence, survivor verification before
 replay, and exact reconciliation and preserving reload.
+The [peer-partition report](results/2026-10-13-embedded-peer-partition-128.md)
+records retained ownership and renewed bucket authority while peer paths fail,
+including receipt verification before replay and after the final reload.
 
 `cellar-perf-fault-cells` is a separate compiled SDK application for correctness
 checks during process failures. It records each operation ID, payload SHA-256
