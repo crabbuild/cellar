@@ -23,11 +23,29 @@ import time
 import urllib.error
 import urllib.request
 
-from run import Harness, command, event_report, logs, validate_node_limits, validate_routing_cache, validate_shutdown
+from run import Harness, command, event_report, logs, shutdown_proof, validate_node_limits, validate_routing_cache, validate_shutdown
 
 
 class JournalError(RuntimeError):
     pass
+
+
+def validate_isolation(value):
+    """A component failure is distinct from an observed authority loss."""
+    proof = value.get("proof") or {}
+    if (type(value.get("exit_code")) is not int or value["exit_code"] != 1
+            or proof.get("caller_executors_alive") is not True
+            or type(value.get("networks_before")) is not int or value["networks_before"] != 1
+            or type(value.get("networks_after")) is not int or value["networks_after"] != 0):
+        raise RuntimeError("missing network-isolation and owned-work join evidence")
+    if proof.get("outcome") == "fenced":
+        if type(proof.get("fence_code")) is not int or proof["fence_code"] != 3 or proof.get("reason") != "node_lease_expired":
+            raise RuntimeError("isolated node did not report its actual expired-lease fence")
+    elif proof.get("outcome") == "replication_failed":
+        if proof.get("error_present") is not True or "reason" in proof or "fence_code" in proof:
+            raise RuntimeError("replication failure fabricated an authority loss")
+    else:
+        raise RuntimeError("isolation caused an unexpected or unreported SDK outcome")
 
 
 def validate_reply(operation, value):
@@ -252,8 +270,33 @@ class FaultHarness(Harness):
         return {"node": i + 1, "exit_code": state["ExitCode"], "finished_at": state["FinishedAt"],
                 "elapsed_s": time.monotonic() - started}
 
-    def scenario(self, durability):
-        scenario = f"inflight-{durability}"
+    def isolate(self, i, scenario, burst_started):
+        before = json.loads(command("docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", self.nodes[i]))
+        if set(before) != {self.network}:
+            raise RuntimeError("isolation requires the node's sole private network")
+        command("docker", "network", "disconnect", "--force", self.network, self.nodes[i], timeout=10)
+        after = json.loads(command("docker", "inspect", "--format", "{{json .NetworkSettings.Networks}}", self.nodes[i]))
+        detached = time.monotonic()
+        disconnect_window = detached - burst_started
+        if disconnect_window >= 30:
+            raise RuntimeError("node was not detached inside the accepted handler's hold window")
+        value = {"node": i + 1, "networks_before": len(before), "networks_after": len(after),
+                 "burst_to_disconnected_s": disconnect_window}
+        evidence = self.output / f"{scenario}-isolation.json"
+        evidence.write_text(json.dumps(value, indent=2) + "\n")
+        self.phase = f"{scenario}-waiting-for-sdk-outcome"
+        exit_code = int(command("docker", "wait", self.nodes[i], timeout=120))
+        text = logs(self.nodes[i])
+        (self.output / f"{scenario}-isolated-node{i + 1}.log").write_text(text)
+        value.update(exit_code=exit_code, proof=shutdown_proof(text), outcome_after_disconnect_s=time.monotonic() - detached)
+        evidence.write_text(json.dumps(value, indent=2) + "\n")
+        validate_isolation(value)
+        command("docker", "rm", self.nodes[i])
+        return value
+
+    def scenario(self, kind):
+        durability = "bucket" if kind == "bucket" else "fleet"
+        scenario = f"inflight-{kind}"
         self.start_nodes(scenario, 3, durability)
         ledger = Ledger(self.output / f"{scenario}-operations.json", self.args.cells, self.args.concurrency)
         try:
@@ -271,8 +314,9 @@ class FaultHarness(Harness):
             burst = [op for op in ledger.operations if op["phase"] == "burst"]
             self.phase = f"{scenario}-inflight"
             burst_started = time.monotonic()
+            hold_ms = 30_000 if kind == "isolation" else 10_000
             with concurrent.futures.ThreadPoolExecutor(self.args.concurrency) as pool:
-                futures = [pool.submit(ledger.attempt, op, self.url(op["cell"] % 3, op["cell"]), 10_000) for op in burst]
+                futures = [pool.submit(ledger.attempt, op, self.url(op["cell"] % 3, op["cell"]), hold_ms) for op in burst]
                 marker = None
                 while time.monotonic() - burst_started < 5:
                     for i in range(3):
@@ -283,7 +327,7 @@ class FaultHarness(Harness):
                             with ledger.lock:
                                 pending = list(ledger.pending)
                             if (value.get("event") == "fault_write_applied" and value.get("inserted") is True
-                                    and value.get("operation_id") in pending and value.get("hold_ms") == 10_000
+                                    and value.get("operation_id") in pending and value.get("hold_ms") == hold_ms
                                     and value.get("node") == f"node{i + 1}"):
                                 marker = dict(value, client_pending=pending, owner_index=i)
                                 break
@@ -295,12 +339,19 @@ class FaultHarness(Harness):
                 if not marker:
                     raise RuntimeError("no accepted in-flight write observed; failure was not injected")
                 owner = marker["owner_index"]
-                killed = [owner] + ([i for i in range(3) if i != owner] if durability == "bucket" else [])
-                stops = [self.crash(i, scenario) for i in killed]
-                elapsed = time.monotonic() - burst_started
-                if elapsed >= 10:
-                    raise RuntimeError("process fault was not completed inside the handler hold window")
-                fault = dict(scenario=scenario, marker=marker, kills=stops, burst_to_kill_s=elapsed)
+                if kind == "isolation":
+                    # Detachment starts while the accepted handler is held.
+                    # Its SDK outcome can return later after owned work joins.
+                    fault = dict(scenario=scenario, marker=marker, burst_to_disconnect_started_s=time.monotonic() - burst_started)
+                    (self.output / f"{scenario}-fault.json").write_text(json.dumps(fault, indent=2) + "\n")
+                    fault["isolation"] = self.isolate(owner, scenario, burst_started)
+                else:
+                    killed = [owner] + ([i for i in range(3) if i != owner] if durability == "bucket" else [])
+                    stops = [self.crash(i, scenario) for i in killed]
+                    elapsed = time.monotonic() - burst_started
+                    if elapsed >= 10:
+                        raise RuntimeError("process fault was not completed inside the handler hold window")
+                    fault = dict(scenario=scenario, marker=marker, kills=stops, burst_to_kill_s=elapsed)
                 self.faults.append(fault)
                 (self.output / f"{scenario}-fault.json").write_text(json.dumps(fault, indent=2) + "\n")
                 for future in futures:
@@ -308,7 +359,7 @@ class FaultHarness(Harness):
             ledger.save()
             held = next(op for op in burst if op["operation_id"] == marker["operation_id"])
             if held["ack"] is not None:
-                raise RuntimeError("controlled in-flight operation received an acknowledgement before its owner died")
+                raise RuntimeError("controlled operation received an acknowledgement before owner failure")
             if durability == "bucket":
                 self.clear_disks()
                 for i in range(3):
@@ -369,8 +420,9 @@ def audit_run(root):
         raise RuntimeError("fault run did not complete")
     verify_image_sources(metadata)
     args = metadata["arguments"]
-    for durability in args["scenario"]:
-        scenario = f"inflight-{durability}"
+    for kind in args["scenario"]:
+        durability = "bucket" if kind == "bucket" else "fleet"
+        scenario = f"inflight-{kind}"
         for label, final in (("before-fault", True), ("before-replay", False), ("reconciled", True), ("preserve-reload", True)):
             operations = json.loads((root / f"{scenario}-{label}-operations.json").read_text())
             report = json.loads((root / f"{scenario}-{label}.json").read_text())
@@ -392,11 +444,21 @@ def audit_run(root):
                 raise RuntimeError("preserving reload was not served by the final node")
         fault = json.loads((root / f"{scenario}-fault.json").read_text())
         marker = fault["marker"]
-        if (not 0 <= fault["burst_to_kill_s"] < 10 or marker["inserted"] is not True
-                or marker["hold_ms"] != 10_000 or marker["operation_id"] not in marker["client_pending"]):
+        hold_ms = 30_000 if kind == "isolation" else 10_000
+        if (marker["inserted"] is not True or marker["hold_ms"] != hold_ms
+                or marker["operation_id"] not in marker["client_pending"]):
             raise RuntimeError("no proved process failure during an accepted write")
-        if len(fault["kills"]) != (3 if durability == "bucket" else 1) or any(k["exit_code"] != 137 for k in fault["kills"]):
-            raise RuntimeError("missing controlled process kills")
+        if kind == "isolation":
+            if not 0 <= fault["burst_to_disconnect_started_s"] < 5:
+                raise RuntimeError("isolation did not start inside the accepted handler's hold window")
+            if not 0 <= fault["isolation"]["burst_to_disconnected_s"] < 30:
+                raise RuntimeError("network detachment was not observed inside the handler hold window")
+            validate_isolation(fault["isolation"])
+        else:
+            if (not 0 <= fault["burst_to_kill_s"] < 10
+                    or len(fault["kills"]) != (3 if durability == "bucket" else 1)
+                    or any(k["exit_code"] != 137 for k in fault["kills"])):
+                raise RuntimeError("missing controlled process kills")
         pre = json.loads((root / f"{scenario}-before-replay-operations.json").read_text())
         held = next(op for op in pre if op["operation_id"] == marker["operation_id"])
         dropped = next(op for op in pre if op["phase"] == "lost-response")
@@ -435,7 +497,7 @@ def main():
     parser.add_argument("--shutdown-ms", type=int, default=60_000)
     parser.add_argument("--port", type=int, default=39700)
     parser.add_argument("--output")
-    parser.add_argument("--scenario", choices=("bucket", "fleet"), nargs="+", default=["bucket", "fleet"])
+    parser.add_argument("--scenario", choices=("bucket", "fleet", "isolation"), nargs="+", default=["bucket", "fleet"])
     args = parser.parse_args()
     if (min(args.cells, args.concurrency, args.max_resident, args.max_requests, args.shutdown_ms) <= 0
             or args.concurrency > args.cells or args.max_cached_routes < 0):
@@ -451,7 +513,8 @@ def main():
                 "execution": "sdk::Node on caller-owned executors; host-side fsynced operation journal and receipt verifier",
                 "limitations": ["Local single-server RustFS and shared Colima infrastructure.",
                                 "Application implements operation idempotency; Cellar does not promise exactly-once delivery.",
-                                "Process crashes and deliberate client response loss, not a peer network partition or throughput measurement."]}
+                                "Isolated nodes lose peer, bucket and public network connectivity; selective peer-only partitions are not covered.",
+                                "Correctness checks, not a throughput measurement or production fleet certification."]}
     (harness.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
     verify_image_sources(metadata)
     completed = False

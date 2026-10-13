@@ -10,9 +10,9 @@ use base64::Engine;
 use cellar::bucket::{Bucket, StorageBackend};
 use cellar::sdk::{
     ActorIdentity, ActorOptions, ActorPolicy, Application, CompiledApplications, DeploymentGraph,
-    LogOptions, Node, NodeConfig, NodeFleet, NodeOutcome, NodeServices, OwnershipOnEvict, PeerAuth,
-    PeerProbeSigner, ReplicaStorage, ReplicaStorageOptions, ReplicationOptions, ShutdownMode,
-    ShutdownPolicy,
+    FenceReason, LogOptions, Node, NodeConfig, NodeFleet, NodeOutcome, NodeServices,
+    OwnershipOnEvict, PeerAuth, PeerProbeSigner, ReplicaStorage, ReplicaStorageOptions,
+    ReplicationOptions, ShutdownMode, ShutdownPolicy,
 };
 use object_store::aws::{AmazonS3Builder, S3ConditionalPut};
 use object_store::RetryConfig;
@@ -69,6 +69,35 @@ where
 
 fn report(value: serde_json::Value) -> Result<()> {
     cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!("{value}"))
+}
+
+fn failed_outcome(outcome: &NodeOutcome, executors_alive: bool) -> serde_json::Value {
+    let mut value = serde_json::json!({
+        "event": "embedded_node_stopped", "caller_executors_alive": executors_alive,
+    });
+    match outcome {
+        NodeOutcome::Fenced { code, reason } => {
+            value["outcome"] = "fenced".into();
+            value["fence_code"] = (*code).into();
+            value["reason"] = match reason {
+                FenceReason::NodeLeaseExpired => "node_lease_expired",
+                FenceReason::NodeLeaseMissing => "node_lease_missing",
+                FenceReason::NodeLeaseMismatch => "node_lease_mismatch",
+            }
+            .into();
+        }
+        NodeOutcome::CoreFailed { error } => {
+            value["outcome"] = "core_failed".into();
+            value["error_present"] = (!error.is_empty()).into();
+        }
+        NodeOutcome::ReplicationFailed { error } => {
+            value["outcome"] = "replication_failed".into();
+            value["error_present"] = (!error.is_empty()).into();
+        }
+        NodeOutcome::Cancelled => value["outcome"] = "cancelled".into(),
+        NodeOutcome::Stopped(_) => value["outcome"] = "stopped".into(),
+    }
+    value
 }
 
 pub(super) fn run(
@@ -226,6 +255,7 @@ pub(super) fn run(
             "event": "embedded_node_started", "executors": "caller_owned",
             "max_resident": resident, "max_cached_routes": cached_routes,
             "max_requests": requests,
+            "lease_ttl_ms": 10_000,
         }))?;
         let outcome = node.run_until(async {
             #[cfg(unix)]
@@ -242,7 +272,7 @@ pub(super) fn run(
                 && core.handle().spawn(async { true }).await?)
         }).await??;
         let NodeOutcome::Stopped(stopped) = outcome else {
-            report(serde_json::json!({"event": "embedded_node_stopped", "outcome": format!("{outcome:?}"), "caller_executors_alive": executors_alive}))?;
+            report(failed_outcome(&outcome, executors_alive))?;
             anyhow::bail!("embedded node failed: {outcome:?}");
         };
         report(serde_json::json!({
@@ -263,4 +293,41 @@ pub(super) fn run(
         ensure!(executors_alive, "node stopped a caller-owned executor");
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn typed_fencing_report_preserves_exact_reason_and_code() {
+        for (reason, text) in [
+            (FenceReason::NodeLeaseExpired, "node_lease_expired"),
+            (FenceReason::NodeLeaseMissing, "node_lease_missing"),
+            (FenceReason::NodeLeaseMismatch, "node_lease_mismatch"),
+        ] {
+            let value = failed_outcome(&NodeOutcome::Fenced { code: 3, reason }, true);
+            assert_eq!(value["outcome"], "fenced");
+            assert_eq!(value["reason"], text);
+            assert_eq!(value["fence_code"], 3);
+            assert_eq!(value["caller_executors_alive"], true);
+        }
+    }
+
+    #[test]
+    fn component_failure_never_fabricates_authority_loss() {
+        for outcome in [
+            NodeOutcome::CoreFailed {
+                error: "core stopped".into(),
+            },
+            NodeOutcome::ReplicationFailed {
+                error: "replication stopped".into(),
+            },
+        ] {
+            let value = failed_outcome(&outcome, true);
+            assert!(value.get("reason").is_none());
+            assert!(value.get("fence_code").is_none());
+            assert_eq!(value["error_present"], true);
+        }
+    }
 }

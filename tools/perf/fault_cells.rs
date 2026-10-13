@@ -88,7 +88,7 @@ impl Cell for Entity {
                 "POST" => {
                     let body = request.into_body_reader(&context)?.bytes(&context).await?;
                     let write: Write = serde_json::from_slice(&body)?;
-                    ensure!(write.hold_ms <= 10_000, "hold exceeds fixture budget");
+                    ensure!(write.hold_ms <= 30_000, "hold exceeds fixture budget");
                     let (receipt, inserted) = storage.transaction_sync(|transaction| {
                         let mut state = transaction
                             .get_json("state")?

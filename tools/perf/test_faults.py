@@ -10,7 +10,7 @@ import threading
 import unittest
 from unittest import mock
 
-from faults import Ledger, LostResponse, audit_run, validate_reply, validate_snapshot
+from faults import Ledger, LostResponse, audit_run, validate_isolation, validate_reply, validate_snapshot
 
 
 def operation(key="op1", ack=False, upstream=False):
@@ -152,6 +152,48 @@ class ResponseLossTests(unittest.TestCase):
             backend.shutdown()
             backend.server_close()
             thread.join(timeout=5)
+
+
+class IsolationProofTests(unittest.TestCase):
+    def value(self):
+        return {"exit_code": 1, "networks_before": 1, "networks_after": 0,
+                "proof": {"outcome": "fenced", "reason": "node_lease_expired",
+                          "fence_code": 3, "caller_executors_alive": True}}
+
+    def test_authority_loss_and_replication_failure_remain_distinct(self):
+        value = self.value()
+        validate_isolation(value)
+        value["proof"] = {"outcome": "replication_failed", "error_present": True, "caller_executors_alive": True}
+        validate_isolation(value)
+        value["proof"]["fence_code"] = 3
+        with self.assertRaises(RuntimeError):
+            validate_isolation(value)
+
+    def test_wrong_or_missing_fence_reason_cannot_be_inferred_from_exit_code(self):
+        for reason in (None, "node_lease_missing", "node_lease_mismatch"):
+            value = self.value()
+            value["proof"]["reason"] = reason
+            with self.subTest(reason=reason), self.assertRaises(RuntimeError):
+                validate_isolation(value)
+
+    def test_stopped_cancelled_and_core_panics_are_not_isolation_proofs(self):
+        for outcome in ("stopped", "cancelled", "core_failed"):
+            value = self.value()
+            value["proof"]["outcome"] = outcome
+            with self.subTest(outcome=outcome), self.assertRaises(RuntimeError):
+                validate_isolation(value)
+
+    def test_outcome_requires_actual_detachment_and_surviving_caller_executors(self):
+        for field, invalid in (("exit_code", 0), ("exit_code", 137), ("exit_code", True),
+                               ("networks_before", True), ("networks_after", 1)):
+            value = self.value()
+            value[field] = invalid
+            with self.subTest(field=field, invalid=invalid), self.assertRaises(RuntimeError):
+                validate_isolation(value)
+        value = self.value()
+        value["proof"]["caller_executors_alive"] = False
+        with self.assertRaises(RuntimeError):
+            validate_isolation(value)
 
 
 if __name__ == "__main__":

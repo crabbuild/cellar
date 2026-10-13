@@ -127,8 +127,23 @@ returned shutdown reports and stage-specific client ledgers are saved beside
 the raw receipts. The final audit rechecks those stage ledgers independently;
 replay cannot conceal a missing acknowledged operation. Failures preserve
 partial state captures and leave `completed` false. This checks process crashes
-and deliberate client response loss. Peer network partitions, sustained load
-and production-scale acceptance remain separate work.
+and deliberate client response loss.
+
+Use `--scenario isolation` for a network-failure check on the same native SDK
+path. The driver holds accepted handlers for thirty seconds and disconnects
+the actual owner from its sole private network while its client operation is
+pending. That cuts peer, bucket and public network access. The SDK must close
+and join its owned work, report either its expired-lease fence or a distinct
+replication failure, and leave both caller executors usable. The application
+chooses a failing process exit after receiving that outcome; a process exit
+alone proves neither fencing nor graceful drain.
+
+The two survivors verify all acknowledged receipts before replay. The failed
+node then restarts on the original network and recovers its predecessor before
+acquiring a replacement lease. Reconciliation and the final preserving reload
+retain the original operation receipts. This tests full node isolation;
+selective peer-only partitions, sustained load and production-scale acceptance
+remain separate work.
 
 The counter performance runs are bounded local recovery and saturation checks.
 All nodes share one VM, disk and single RustFS server. That workload overwrites small values, uses

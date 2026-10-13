@@ -237,6 +237,9 @@ shutdown proofs. Its separate `faults.py` driver exercises process failures
 during writes with an application receipt ledger. Verify acknowledged receipts
 before replaying ambiguous requests; otherwise retry can hide lost writes.
 The driver's final audit rechecks saved ledgers from each verification stage.
+Its isolation scenario disconnects a node from peers and its bucket; distinguish
+the SDK's typed lease-expiry fence from a replication failure, and require joined
+owned work with both caller executors alive before restarting that directory.
 Keep image tags and compiled target caches private to the
 checkout. Run the harness proof guards with
 `python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
