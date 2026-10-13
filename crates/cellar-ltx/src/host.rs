@@ -38,8 +38,11 @@ pub struct HostDirEntry {
 /// The operations on one open injected file.
 pub trait HostFileIo: Send {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
+
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>>;
+
     fn sync_all(&mut self) -> io::Result<()>;
+
     /// The file's current length, from the open handle (an `fstat`, not a
     /// path walk).
     fn file_len(&mut self) -> io::Result<u64>;
@@ -85,10 +88,15 @@ pub trait FileSystem: Send + Sync {
             "the filesystem does not support scratch files",
         ))
     }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
+
     fn read_dir(&self, path: &Path) -> io::Result<Vec<HostDirEntry>>;
+
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata>;
+
     fn create(&self, path: &Path) -> io::Result<HostFile>;
+
     /// Create a file without replacing an existing path. Cache publication
     /// requires this atomic contract; an existence check followed by create
     /// cannot implement it safely.
@@ -98,13 +106,21 @@ pub trait FileSystem: Send + Sync {
             "exclusive creation is unsupported",
         ))
     }
+
     fn open(&self, path: &Path) -> io::Result<HostFile>;
+
     fn write(&self, path: &Path, bytes: &[u8]) -> io::Result<()>;
+
     fn sync_all(&self, path: &Path) -> io::Result<()>;
+
     fn rename(&self, from: &Path, to: &Path) -> io::Result<()>;
+
     fn remove_file(&self, path: &Path) -> io::Result<()>;
+
     fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
+
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
+
     /// Best-effort cache recency, in the caller's wall-clock time.
     fn set_modified_unix_millis(&self, _path: &Path, _millis: i64) -> io::Result<()> {
         Err(io::Error::new(
@@ -122,6 +138,7 @@ pub trait FileSystem: Send + Sync {
 #[allow(clippy::disallowed_methods)]
 pub(crate) fn telemetry_us() -> u64 {
     use std::sync::OnceLock;
+
     static EPOCH: OnceLock<std::time::Instant> = OnceLock::new();
     EPOCH
         .get_or_init(std::time::Instant::now)
@@ -169,6 +186,7 @@ impl FileSystem for DirectFileSystem {
         };
         Ok(HostFile::from_io(DirectFile { file }))
     }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         std::fs::read(path)
     }

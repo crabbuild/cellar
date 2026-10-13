@@ -5,7 +5,9 @@ use cellar::sdk::{
     Cell, Context, HandlerFuture, Invocation, Output, Request,
 };
 use std::sync::Arc;
+
 pub struct Room;
+
 impl Cell for Room {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -16,7 +18,9 @@ impl Cell for Room {
                     if url.path().ends_with("/state") {
                         return support::json(
                             &context,
-                            serde_json::json!({"messages":context.storage()?.get_json("messages")?.unwrap_or(serde_json::json!(0))}),
+                            serde_json::json!({
+                                "messages": context.storage()?.get_json("messages")?.unwrap_or(serde_json::json!(0)),
+                            }),
                         );
                     }
                     if !request.headers.iter().any(|(k, v)| {
@@ -55,6 +59,7 @@ impl Cell for Room {
         })
     }
 }
+
 pub async fn client(context: &Context, outbound: bool) -> Result<Output> {
     // Consume a cell upgrade locally; the same handle also accepts outbound upgrades.
     let request = Request {
@@ -82,7 +87,7 @@ pub async fn client(context: &Context, outbound: bool) -> Result<Output> {
         match socket.next(context).await? {
             SocketEvent::Text(text) => {
                 socket.close(context, 1000, "done")?;
-                return support::json(context, serde_json::json!({"echo":text}));
+                return support::json(context, serde_json::json!({ "echo": text }));
             }
             SocketEvent::Close(..) => bail!("peer closed before echo"),
             _ => {}

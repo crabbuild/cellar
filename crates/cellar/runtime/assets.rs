@@ -122,6 +122,7 @@ struct AssetResolverInner {
 
 // Reset admission on cancellation, failed dispatch, and normal completion.
 struct FallbackRefresh(Arc<AssetResolverInner>);
+
 impl Drop for FallbackRefresh {
     fn drop(&mut self) {
         self.0.fallback_state.lock().unwrap().refreshing = false;

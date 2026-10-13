@@ -52,6 +52,7 @@ pub struct Limits {
     pub retention_ms: Option<Ms>,
     pub max_admin_batch_size: usize,
 }
+
 impl Default for Limits {
     fn default() -> Self {
         Self {
@@ -67,6 +68,7 @@ impl Default for Limits {
         }
     }
 }
+
 impl Limits {
     pub fn unrestricted() -> Self {
         Self {
@@ -81,6 +83,7 @@ impl Limits {
             max_admin_batch_size: i64::MAX as usize,
         }
     }
+
     pub fn validate(&self) -> Result<(), ConfigError> {
         if self.max_message_bytes == 0
             || self.max_send_batch_bytes == 0

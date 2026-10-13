@@ -26,26 +26,34 @@ pub struct Worker {
 /// Dropping the backend must release its original cells and all private state.
 pub(crate) trait WorkerBackend: Any + Send {
     fn heap_bytes(&self) -> Option<HeapBytes>;
+
     fn turn_begin(
         &mut self,
         job: crate::WorkerJob,
         trace: Option<crate::telemetry::TraceContext>,
     ) -> (Option<InFlight>, Vec<Op>);
+
     fn turn_cancel(&mut self, entry: &mut InFlight) -> Vec<Op>;
+
     fn turn_cancel_for_shutdown(&mut self, entry: &mut InFlight) -> Vec<Op>;
+
     fn turn_retire_input_gates(&mut self, entry: &InFlight);
+
     fn turn_abandon_input_gates(&mut self, entry: &InFlight);
+
     fn turn_deliver(
         &mut self,
         entry: &mut InFlight,
         op: u64,
         res: Result<crate::asyncrt::OpOut, String>,
     ) -> Vec<Op>;
+
     fn own_cell(
         &mut self,
         cell: &str,
         storage: Option<CellStorage<'_>>,
     ) -> Result<cellar_logic::wake::AlarmSnapshot>;
+
     fn own_embedded_cell(
         &mut self,
         cell: &str,
@@ -55,22 +63,30 @@ pub(crate) trait WorkerBackend: Any + Send {
         props_sc: Vec<u8>,
         file: (std::path::PathBuf, bool),
     ) -> Result<u64>;
+
     fn close_facet_tree(
         &mut self,
         cell: &str,
         root: &str,
         facet_path: &[String],
     ) -> (Vec<String>, Result<()>);
+
     fn settle_heap(&mut self);
+
     fn take_alarm_moves(&mut self) -> Vec<(String, cellar_logic::wake::AlarmSnapshot)>;
+
     fn set_id_name(&mut self, scope: &str, name: &str) -> Result<()>;
+
     fn turn_begin_cell(
         &mut self,
         job: CellJob,
         trace: Option<crate::telemetry::TraceContext>,
     ) -> (Option<InFlight>, Vec<Op>);
+
     fn turn_poll(&mut self, entry: &mut InFlight) -> Vec<Op>;
+
     fn turn_cancel_pending_events(&mut self, entry: &mut InFlight) -> Vec<Op>;
+
     fn turn_finish_alarm(&mut self, entry: &mut InFlight) -> Result<Option<u64>>;
 }
 
@@ -102,6 +118,7 @@ impl Worker {
     pub fn heap_bytes(&self) -> Option<HeapBytes> {
         self.backend.heap_bytes()
     }
+
     pub fn turn_begin(
         &mut self,
         job: crate::WorkerJob,
@@ -109,18 +126,23 @@ impl Worker {
     ) -> (Option<InFlight>, Vec<Op>) {
         self.backend.turn_begin(job, trace)
     }
+
     pub fn turn_cancel(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.backend.turn_cancel(entry)
     }
+
     pub fn turn_cancel_for_shutdown(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.backend.turn_cancel_for_shutdown(entry)
     }
+
     pub(crate) fn turn_retire_input_gates(&mut self, entry: &InFlight) {
         self.backend.turn_retire_input_gates(entry)
     }
+
     pub(crate) fn turn_abandon_input_gates(&mut self, entry: &InFlight) {
         self.backend.turn_abandon_input_gates(entry)
     }
+
     pub fn turn_deliver(
         &mut self,
         entry: &mut InFlight,
@@ -129,6 +151,7 @@ impl Worker {
     ) -> Vec<Op> {
         self.backend.turn_deliver(entry, op, res)
     }
+
     pub fn own_cell(
         &mut self,
         cell: &str,
@@ -136,9 +159,11 @@ impl Worker {
     ) -> Result<cellar_logic::wake::AlarmSnapshot> {
         self.backend.own_cell(cell, storage)
     }
+
     pub(crate) fn settle_heap(&mut self) {
         self.backend.settle_heap()
     }
+
     pub(crate) fn own_embedded_cell(
         &mut self,
         cell: &str,
@@ -151,6 +176,7 @@ impl Worker {
         self.backend
             .own_embedded_cell(cell, parent, name, id_sc, props_sc, file)
     }
+
     pub(crate) fn close_facet_tree(
         &mut self,
         cell: &str,
@@ -159,12 +185,15 @@ impl Worker {
     ) -> (Vec<String>, Result<()>) {
         self.backend.close_facet_tree(cell, root, facet_path)
     }
+
     pub fn take_alarm_moves(&mut self) -> Vec<(String, cellar_logic::wake::AlarmSnapshot)> {
         self.backend.take_alarm_moves()
     }
+
     pub fn set_id_name(&mut self, scope: &str, name: &str) -> Result<()> {
         self.backend.set_id_name(scope, name)
     }
+
     pub fn turn_begin_cell(
         &mut self,
         job: CellJob,
@@ -172,12 +201,15 @@ impl Worker {
     ) -> (Option<InFlight>, Vec<Op>) {
         self.backend.turn_begin_cell(job, trace)
     }
+
     pub fn turn_poll(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.backend.turn_poll(entry)
     }
+
     pub(crate) fn turn_cancel_pending_events(&mut self, entry: &mut InFlight) -> Vec<Op> {
         self.backend.turn_cancel_pending_events(entry)
     }
+
     pub fn turn_finish_alarm(&mut self, entry: &mut InFlight) -> Result<Option<u64>> {
         self.backend.turn_finish_alarm(entry)
     }

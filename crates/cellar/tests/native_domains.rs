@@ -120,6 +120,7 @@ struct Cleanup {
     services: Arc<cellar::host_services::HostServices>,
     done: Arc<AtomicBool>,
 }
+
 impl Drop for Cleanup {
     fn drop(&mut self) {
         assert!(Arc::ptr_eq(&asyncrt::services(), &self.services));
@@ -416,13 +417,16 @@ struct PendingCleanup {
     release: std::sync::mpsc::Receiver<()>,
     done: Arc<AtomicBool>,
 }
+
 impl std::future::Future for PendingCleanup {
     type Output = ();
+
     fn poll(self: std::pin::Pin<&mut Self>, _: &mut std::task::Context<'_>) -> std::task::Poll<()> {
         self.started.notify_one();
         std::task::Poll::Pending
     }
 }
+
 impl Drop for PendingCleanup {
     fn drop(&mut self) {
         self.dropping.notify_one();
@@ -502,16 +506,20 @@ struct CellSignals {
     release: Notify,
     dropped: AtomicBool,
 }
+
 struct HoldCleanup(Arc<CellSignals>);
+
 impl Drop for HoldCleanup {
     fn drop(&mut self) {
         self.0.dropped.store(true, Ordering::Release);
     }
 }
+
 struct Account {
     storage: cellar::sdk::Storage,
     signals: Arc<CellSignals>,
 }
+
 fn cell_response(value: serde_json::Value) -> cellar::sdk::Output {
     cellar::sdk::Output::Http(HttpResponse {
         status: 200,
@@ -523,6 +531,7 @@ fn cell_response(value: serde_json::Value) -> cellar::sdk::Output {
         observed_position: None,
     })
 }
+
 impl cellar::sdk::Cell for Account {
     fn invoke(
         self: Arc<Self>,
@@ -568,6 +577,7 @@ impl cellar::sdk::Cell for Account {
         })
     }
 }
+
 async fn cell_application(
     domain: &ExecutionDomain,
     path: &std::path::Path,
@@ -626,6 +636,7 @@ async fn cell_application(
         })
         .await?
 }
+
 async fn account_fetch(
     runtime: cellar::runtime::RuntimeManager,
     path: &str,
@@ -752,6 +763,7 @@ struct ResourceProbe {
     started: Notify,
     release: Notify,
 }
+
 fn domain_response(bytes: impl Into<Vec<u8>>) -> cellar::sdk::Output {
     cellar::sdk::Output::Http(HttpResponse {
         status: 200,
@@ -763,6 +775,7 @@ fn domain_response(bytes: impl Into<Vec<u8>>) -> cellar::sdk::Output {
         observed_position: None,
     })
 }
+
 async fn resource_application(
     domain: &ExecutionDomain,
     path: &std::path::Path,
@@ -891,6 +904,7 @@ async fn resource_application(
         })
         .await?
 }
+
 async fn resource_fetch(
     runtime: cellar::runtime::RuntimeManager,
     path: &str,
@@ -1124,16 +1138,19 @@ struct FacetDomainProbe {
     scopes: std::sync::Mutex<Vec<String>>,
     retired: std::sync::atomic::AtomicUsize,
 }
+
 struct FacetCounter {
     storage: cellar::sdk::Storage,
     label: &'static str,
     probe: Arc<FacetDomainProbe>,
 }
+
 impl Drop for FacetCounter {
     fn drop(&mut self) {
         self.probe.retired.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 impl cellar::sdk::Cell for FacetCounter {
     fn invoke(
         self: Arc<Self>,
@@ -1155,11 +1172,13 @@ impl cellar::sdk::Cell for FacetCounter {
         })
     }
 }
+
 struct FacetParent {
     facets: cellar::sdk::facets::Facets,
     label: &'static str,
     probe: Arc<FacetDomainProbe>,
 }
+
 impl cellar::sdk::Cell for FacetParent {
     fn invoke(
         self: Arc<Self>,
@@ -1226,6 +1245,7 @@ impl cellar::sdk::Cell for FacetParent {
         })
     }
 }
+
 async fn facet_application(
     domain: &ExecutionDomain,
     path: &std::path::Path,

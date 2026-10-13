@@ -121,11 +121,15 @@ pub trait Cell: Send + Sync + 'static {
 
 pub trait Application: Send + Sync + 'static {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output>;
+
     fn supports_cell(&self, class: &str) -> bool;
+
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>>;
+
     fn supports_workflow(&self, _class: &str) -> bool {
         false
     }
+
     fn run_workflow(
         self: Arc<Self>,
         class: String,
@@ -226,6 +230,7 @@ impl Registry {
         self.cells.insert(class, Arc::new(factory));
         Ok(self)
     }
+
     pub fn workflow(
         mut self,
         class: impl Into<String>,
@@ -253,6 +258,7 @@ impl Application for Registry {
     fn supports_workflow(&self, class: &str) -> bool {
         self.workflows.contains_key(class)
     }
+
     fn run_workflow(
         self: Arc<Self>,
         class: String,
@@ -265,6 +271,7 @@ impl Application for Registry {
             None => Box::pin(async move { Err(anyhow!("no native workflow handler for {class}")) }),
         }
     }
+
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         let name = match &invocation {
             Invocation::Fetch(request) => {
@@ -288,9 +295,11 @@ impl Application for Registry {
         };
         handler(context, invocation)
     }
+
     fn supports_cell(&self, class: &str) -> bool {
         self.cells.contains_key(class)
     }
+
     fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
         self.cells
             .get(&identity.class)
@@ -367,15 +376,18 @@ impl Context {
             .map(|(_, fetcher)| fetcher.clone())
             .ok_or_else(|| anyhow!("no assets binding named {name}"))
     }
+
     pub fn caches(&self) -> cache::CacheStorage {
         cache::CacheStorage::new()
     }
+
     pub fn blob(&self, name: &str) -> Result<blob::Bucket> {
         self.blob_bindings
             .get(name)
             .cloned()
             .ok_or_else(|| anyhow!("no Blob binding named {name}"))
     }
+
     pub fn workflow(&self, name: &str) -> Result<workflow::Workflow> {
         self.workflow_bindings
             .get(name)
@@ -386,9 +398,11 @@ impl Context {
     pub fn identity(&self) -> Option<&CellIdentity> {
         self.identity.as_ref()
     }
+
     pub fn facet(&self) -> Option<&FacetContext> {
         self.facet.as_deref()
     }
+
     pub fn var(&self, name: &str) -> Option<&str> {
         self.vars.get(name).map(String::as_str)
     }

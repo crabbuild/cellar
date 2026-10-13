@@ -31,9 +31,11 @@ fn graph() -> StructuredValue {
         ],
     }
 }
+
 fn reason() -> StructuredValue {
     graph()
 }
+
 fn request(path: &str) -> Request {
     Request {
         url: format!("http://native-facet/{path}"),
@@ -43,6 +45,7 @@ fn request(path: &str) -> Request {
         entrypoint: None,
     }
 }
+
 fn response(text: &str) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -54,6 +57,7 @@ fn response(text: &str) -> Output {
         observed_position: None,
     })
 }
+
 #[derive(Default)]
 struct Signals {
     callbacks: AtomicUsize,
@@ -67,26 +71,33 @@ struct Signals {
     dropped: Notify,
     pending_drops: AtomicUsize,
 }
+
 #[derive(Debug)]
 struct StartupFailure(u32);
+
 impl std::fmt::Display for StartupFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "startup failure {}", self.0)
     }
 }
+
 impl std::error::Error for StartupFailure {}
+
 struct Pending(Arc<Signals>);
+
 impl Drop for Pending {
     fn drop(&mut self) {
         self.0.pending_drops.fetch_add(1, Ordering::SeqCst);
         self.0.dropped.notify_one();
     }
 }
+
 struct Supervisor {
     facets: Facets,
     class: Class,
     signals: Arc<Signals>,
 }
+
 impl Supervisor {
     fn child(&self, context: &Context) -> Result<Facet> {
         let class = self.class.clone();
@@ -100,6 +111,7 @@ impl Supervisor {
         })
     }
 }
+
 impl Cell for Supervisor {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -198,11 +210,13 @@ impl Cell for Supervisor {
         })
     }
 }
+
 struct Leaf {
     class: Class,
     facets: Facets,
     signals: Arc<Signals>,
 }
+
 impl Cell for Leaf {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -240,6 +254,7 @@ impl Cell for Leaf {
         })
     }
 }
+
 fn deployment() -> LoadedDeployment {
     LoadedDeployment {
         native: None,
@@ -272,6 +287,7 @@ fn deployment() -> LoadedDeployment {
         container_images: Vec::new(),
     }
 }
+
 async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -290,6 +306,7 @@ async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<HttpR
         )
         .await
 }
+
 fn facet_files(path: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in cellar::asyncrt::fs().read_dir(path)? {
@@ -318,6 +335,7 @@ async fn public_native_facets_preserve_lazy_startup_persistence_barriers_and_ret
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let supervisor_signals = signals.clone();

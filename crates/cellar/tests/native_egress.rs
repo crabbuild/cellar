@@ -18,6 +18,7 @@ use std::time::Duration;
 use std::{future::Future, pin::Pin, task::Poll};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Notify};
+
 fn response(text: &str) -> Output {
     Output::Http(HttpResponse {
         status: 200,
@@ -29,6 +30,7 @@ fn response(text: &str) -> Output {
         observed_position: None,
     })
 }
+
 fn request(path: &str) -> Request {
     Request {
         url: format!("http://service/{path}"),
@@ -38,12 +40,14 @@ fn request(path: &str) -> Request {
         entrypoint: None,
     }
 }
+
 fn props() -> StructuredValue {
     StructuredValue {
         root: Value::Number(7.0),
         objects: Vec::new(),
     }
 }
+
 #[derive(Default)]
 struct Signals {
     origin: String,
@@ -59,20 +63,26 @@ struct Signals {
     background_release: Notify,
     background_finished: Notify,
 }
+
 struct PendingService(Arc<Signals>);
+
 impl Future for PendingService {
     type Output = Result<Output>;
+
     fn poll(self: Pin<&mut Self>, _: &mut std::task::Context<'_>) -> Poll<Self::Output> {
         self.0.service_pending.notify_one();
         Poll::Pending
     }
 }
+
 impl Drop for PendingService {
     fn drop(&mut self) {
         self.0.service_dropped.notify_one();
     }
 }
+
 struct Root(Arc<Signals>);
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -440,6 +450,7 @@ fn deployment(script: &str) -> LoadedDeployment {
         container_images: Vec::new(),
     }
 }
+
 async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -490,6 +501,7 @@ fn embedded_http_does_not_read_process_environment() -> Result<()> {
     );
     Ok(())
 }
+
 async fn run() -> Result<Arc<Signals>> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let signals = Arc::new(Signals {
@@ -973,6 +985,7 @@ async fn http_configuration_is_pinned_to_its_host_and_rejects_invalid_deadlines(
 #[test]
 fn command_line_http_policy_resolves_environment_once() -> Result<()> {
     use cellar::sdk::{ExecutionDomain, HttpPolicy};
+
     const CHILD: &str = "CELLAR_HTTP_POLICY_ADAPTER_CHILD";
     if std::env::var(CHILD).as_deref() == Ok("1") {
         let policy = HttpPolicy::from_env()?;

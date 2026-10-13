@@ -28,6 +28,7 @@ use tokio::sync::Notify;
 const SCRIPT: &str = "native-assets-cache";
 const PEER: &str = "native-assets-peer";
 const SCOPE: &str = "Source:one";
+
 #[derive(Default)]
 struct Signals {
     calls: Mutex<Vec<(u64, String, String, String)>>,
@@ -38,14 +39,17 @@ struct Signals {
     descriptor: Mutex<Option<Fetcher>>,
     old_context: Mutex<Option<Context>>,
 }
+
 struct Producer {
     chunks: VecDeque<std::result::Result<Vec<u8>, String>>,
     pulls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
     pending: Option<Arc<Signals>>,
 }
+
 impl Stream for Producer {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(mut self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         self.pulls.fetch_add(1, Ordering::SeqCst);
         if let Some(chunk) = self.chunks.pop_front() {
@@ -59,6 +63,7 @@ impl Stream for Producer {
         }
     }
 }
+
 impl Drop for Producer {
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::SeqCst);
@@ -67,6 +72,7 @@ impl Drop for Producer {
         }
     }
 }
+
 fn producer(
     chunks: VecDeque<std::result::Result<Vec<u8>, String>>,
     pending: Option<Arc<Signals>>,
@@ -84,7 +90,9 @@ fn producer(
         dropped,
     )
 }
+
 struct Source(Storage, Arc<Signals>);
+
 impl Cell for Source {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -99,6 +107,7 @@ impl Cell for Source {
         })
     }
 }
+
 fn request(url: &str, method: &str, headers: Vec<(String, String)>) -> Request {
     Request {
         url: url.into(),
@@ -108,6 +117,7 @@ fn request(url: &str, method: &str, headers: Vec<(String, String)>) -> Request {
         entrypoint: None,
     }
 }
+
 async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>) -> Result<Output> {
     let Invocation::Fetch(mut incoming) = invocation else {
         return Err(anyhow!("expected fetch"));
@@ -191,6 +201,7 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
         Response::new(200, b"checked".to_vec(), Vec::new()).into_http(&context)?,
     ))
 }
+
 async fn cache_checks(context: &Context) -> Result<()> {
     let storage = context.caches();
     assert!(storage.open("").is_ok());
@@ -335,6 +346,7 @@ async fn cache_checks(context: &Context) -> Result<()> {
     }
     Ok(())
 }
+
 fn generation(
     id: u64,
     resolver: cellar::assets::AssetResolver,
@@ -386,6 +398,7 @@ fn generation(
         ]),
     )
 }
+
 fn fetch(path: &str, method: &str, headers: Vec<(String, String)>) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://worker{path}"),
@@ -397,6 +410,7 @@ fn fetch(path: &str, method: &str, headers: Vec<(String, String)>) -> RuntimeFet
         parent: None,
     }
 }
+
 async fn call(
     runtime: &RuntimeManager,
     path: &str,
@@ -407,6 +421,7 @@ async fn call(
         .fetch_cell(SCOPE.into(), None, fetch(path, method, headers), None)
         .await
 }
+
 async fn bytes(mut response: HttpResponse) -> Result<(u16, Vec<(String, String)>, Vec<u8>)> {
     if let Some(stream) = response.stream.take() {
         response.body = stream
@@ -419,12 +434,14 @@ async fn bytes(mut response: HttpResponse) -> Result<(u16, Vec<(String, String)>
     }
     Ok((response.status, response.headers, response.body))
 }
+
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
     headers
         .iter()
         .find(|(key, _)| key.eq_ignore_ascii_case(name))
         .map(|(_, value)| value.as_str())
 }
+
 async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime
         .restore_cell(
@@ -441,6 +458,7 @@ async fn open(runtime: &RuntimeManager) -> Result<()> {
     runtime.start_cell(SCOPE.into(), 1, true).await?;
     runtime.publish_cell(SCOPE, 1)
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn native_assets_and_cache_preserve_routing_generations_bodies_and_retirement() -> Result<()>
 {
@@ -448,6 +466,7 @@ async fn native_assets_and_cache_preserve_routing_generations_bodies_and_retirem
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let asset_cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(

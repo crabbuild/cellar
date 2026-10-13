@@ -184,7 +184,9 @@ fn set_binary(
 /// representation without allocating one JSON object per byte.
 pub(super) fn json_get(graph: &StructuredValue) -> Result<String> {
     use serde::ser::{Error, SerializeMap, SerializeSeq};
+
     struct Indices(Vec<u8>);
+
     impl serde::Serialize for Indices {
         fn serialize<S: serde::Serializer>(
             &self,
@@ -197,7 +199,9 @@ pub(super) fn json_get(graph: &StructuredValue) -> Result<String> {
             map.end()
         }
     }
+
     struct Row<'a>(&'a StructuredValue, &'a Value);
+
     impl serde::Serialize for Row<'_> {
         fn serialize<S: serde::Serializer>(
             &self,
@@ -233,7 +237,9 @@ pub(super) fn json_get(graph: &StructuredValue) -> Result<String> {
             map.end()
         }
     }
+
     struct Rows<'a>(&'a StructuredValue, Vec<Value>);
+
     impl serde::Serialize for Rows<'_> {
         fn serialize<S: serde::Serializer>(
             &self,

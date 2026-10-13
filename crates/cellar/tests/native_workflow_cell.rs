@@ -23,6 +23,7 @@ use tokio::sync::Notify;
 
 const SCRIPT: &str = "native-workflow-cell";
 const SINK: &str = "Sink:effects";
+
 #[derive(Default)]
 struct Signals {
     first: AtomicUsize,
@@ -42,13 +43,17 @@ struct Signals {
     hung_dropped: AtomicBool,
     gates: Mutex<Vec<(String, cellar::actor::GateTicket)>>,
 }
+
 struct Dropped(Arc<Signals>);
+
 impl Drop for Dropped {
     fn drop(&mut self) {
         self.0.hung_dropped.store(true, Ordering::SeqCst);
     }
 }
+
 struct Sink(Storage);
+
 impl Cell for Sink {
     fn invoke(self: Arc<Self>, _: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -69,6 +74,7 @@ impl Cell for Sink {
         })
     }
 }
+
 async fn note(context: &Context, value: &str) -> Result<()> {
     context
         .rpc_cell(
@@ -80,6 +86,7 @@ async fn note(context: &Context, value: &str) -> Result<()> {
         .await?;
     Ok(())
 }
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -116,12 +123,14 @@ fn graph() -> DeploymentGraph {
         container_images: Vec::new(),
     })
 }
+
 fn field(value: &StructuredValue, key: &str) -> StructuredValue {
     value
         .property(&key.encode_utf16().collect::<Vec<_>>())
         .unwrap()
         .unwrap()
 }
+
 fn complex() -> StructuredValue {
     StructuredValue {
         root: CloneValue::Reference(0),
@@ -132,6 +141,7 @@ fn complex() -> StructuredValue {
         ])],
     }
 }
+
 fn check_complex(value: &StructuredValue) {
     assert_eq!(field(value, "self").root, value.root);
     assert_eq!(field(value, "lone").root, CloneValue::String(vec![0xd800]));
@@ -140,6 +150,7 @@ fn check_complex(value: &StructuredValue) {
     };
     assert_eq!(value.to_bits(), (-0.0_f64).to_bits());
 }
+
 fn retry_config(limit: f64) -> StepConfig {
     StepConfig {
         retries: Some(Retries {
@@ -150,6 +161,7 @@ fn retry_config(limit: f64) -> StepConfig {
         ..Default::default()
     }
 }
+
 async fn workflow(
     context: Context,
     event: Event,
@@ -316,6 +328,7 @@ async fn workflow(
         _ => Err(anyhow!("unknown workflow")),
     }
 }
+
 async fn worker(context: Context, invocation: Invocation) -> Result<Output> {
     let Invocation::Fetch(request) = invocation else {
         return Err(anyhow!("expected fetch"));
@@ -411,6 +424,7 @@ async fn worker(context: Context, invocation: Invocation) -> Result<Output> {
         observed_position: None,
     }))
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -427,9 +441,11 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 fn scope(id: &str) -> String {
     cellar::engine_api::workflow_cell_scope(SCRIPT, "orders", id)
 }
+
 async fn call(runtime: &RuntimeManager, action: &str, id: &str) -> Result<Value> {
     let reply = runtime
         .fetch_worker(
@@ -442,6 +458,7 @@ async fn call(runtime: &RuntimeManager, action: &str, id: &str) -> Result<Value>
     assert_eq!(reply.status, 200);
     Ok(serde_json::from_slice(&reply.body)?)
 }
+
 async fn state(runtime: &RuntimeManager, id: &str, expected: State) -> Result<()> {
     assert_eq!(
         call(runtime, "status", id).await?["state"],
@@ -449,6 +466,7 @@ async fn state(runtime: &RuntimeManager, id: &str, expected: State) -> Result<()
     );
     Ok(())
 }
+
 async fn fire(runtime: &RuntimeManager, id: &str, op: u64) -> Result<()> {
     let scope = scope(id);
     let at = runtime
@@ -461,12 +479,14 @@ async fn fire(runtime: &RuntimeManager, id: &str, op: u64) -> Result<()> {
     runtime.fire_alarm(op, scope, at).await?;
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_workflow_journals_controls_retries_and_cancellation() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let handler_signals = signals.clone();

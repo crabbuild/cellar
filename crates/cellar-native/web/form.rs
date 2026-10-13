@@ -2,32 +2,41 @@
 use super::{Blob, Error, File, SearchParams};
 use regex::Regex;
 use std::sync::{Arc, Mutex, OnceLock};
+
 type Entry = (Vec<u16>, FormValue);
+
 #[derive(Clone, Debug)]
 pub enum FormValue {
     Text(Vec<u16>),
     File(File),
 }
+
 impl FormValue {
     pub fn text(value: &str) -> Self {
         Self::Text(value.encode_utf16().collect())
     }
 }
+
 #[derive(Clone, Debug, Default)]
 pub struct FormData(Arc<Mutex<Vec<Entry>>>);
+
 impl FormData {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn append(&self, name: &str, value: FormValue) {
         self.append_utf16(&units(name), value);
     }
+
     pub fn append_utf16(&self, name: &[u16], value: FormValue) {
         self.0.lock().unwrap().push((name.to_vec(), value));
     }
+
     pub fn append_blob(&self, name: &str, blob: &Blob, filename: Option<&str>) {
         self.append_blob_utf16(&units(name), blob, filename.map(units).as_deref());
     }
+
     pub fn append_blob_utf16(&self, name: &[u16], blob: &Blob, filename: Option<&[u16]>) {
         self.append_utf16(
             name,
@@ -38,15 +47,19 @@ impl FormData {
             )),
         );
     }
+
     pub fn append_file(&self, name: &str, file: &File, filename: Option<&str>) {
         self.append_file_utf16(&units(name), file, filename.map(units).as_deref());
     }
+
     pub fn append_file_utf16(&self, name: &[u16], file: &File, filename: Option<&[u16]>) {
         self.append_utf16(name, FormValue::File(rename(file, filename)));
     }
+
     pub fn set(&self, name: &str, value: FormValue) {
         self.set_utf16(&units(name), value);
     }
+
     pub fn set_utf16(&self, name: &[u16], value: FormValue) {
         let mut entries = self.0.lock().unwrap();
         let mut first = true;
@@ -65,6 +78,7 @@ impl FormData {
             entries.push((name.to_vec(), value));
         }
     }
+
     pub fn set_blob(&self, name: &str, blob: &Blob, filename: Option<&str>) {
         self.set(
             name,
@@ -75,15 +89,18 @@ impl FormData {
             )),
         );
     }
+
     pub fn set_file(&self, name: &str, file: &File, filename: Option<&str>) {
         self.set(
             name,
             FormValue::File(rename(file, filename.map(units).as_deref())),
         );
     }
+
     pub fn get(&self, name: &str) -> Option<FormValue> {
         self.get_utf16(&units(name))
     }
+
     pub fn get_utf16(&self, name: &[u16]) -> Option<FormValue> {
         self.0
             .lock()
@@ -92,9 +109,11 @@ impl FormData {
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.clone())
     }
+
     pub fn get_all(&self, name: &str) -> Vec<FormValue> {
         self.get_all_utf16(&units(name))
     }
+
     pub fn get_all_utf16(&self, name: &[u16]) -> Vec<FormValue> {
         self.0
             .lock()
@@ -104,35 +123,44 @@ impl FormData {
             .map(|(_, value)| value.clone())
             .collect()
     }
+
     pub fn has(&self, name: &str) -> bool {
         self.has_utf16(&units(name))
     }
+
     pub fn has_utf16(&self, name: &[u16]) -> bool {
         self.0.lock().unwrap().iter().any(|(key, _)| key == name)
     }
+
     pub fn delete(&self, name: &str) {
         self.delete_utf16(&units(name));
     }
+
     pub fn delete_utf16(&self, name: &[u16]) {
         self.0.lock().unwrap().retain(|(key, _)| key != name);
     }
+
     pub fn entries(&self) -> FormEntries {
         FormEntries {
             form: self.clone(),
             index: 0,
         }
     }
+
     pub fn keys(&self) -> impl Iterator<Item = Vec<u16>> {
         self.entries().map(|(key, _)| key)
     }
+
     pub fn values(&self) -> impl Iterator<Item = FormValue> {
         self.entries().map(|(_, value)| value)
     }
+
     pub fn for_each(&self, mut callback: impl FnMut(FormValue, Vec<u16>, &Self)) {
         for (key, value) in self.entries() {
             callback(value, key, self);
         }
     }
+
     pub fn try_for_each<E>(
         &self,
         mut callback: impl FnMut(FormValue, Vec<u16>, &Self) -> Result<(), E>,
@@ -142,14 +170,17 @@ impl FormData {
         }
         Ok(())
     }
+
     pub fn copy(&self) -> Self {
         Self(Arc::new(Mutex::new(self.0.lock().unwrap().clone())))
     }
+
     pub fn encode(&self) -> Result<MultipartBody, Error> {
         let mut random = [0u8; 16];
         getrandom::fill(&mut random).map_err(|error| Error::generic_error(error.to_string()))?;
         self.encode_with_random(random)
     }
+
     /// Supply the boundary's random bytes for deterministic protocol checks.
     pub fn encode_with_random(&self, random: [u8; 16]) -> Result<MultipartBody, Error> {
         let mut boundary = String::from("----cellarFormBoundary");
@@ -190,9 +221,11 @@ impl FormData {
             boundary,
         })
     }
+
     pub fn parse(bytes: &[u8], content_type: &str) -> Result<Self, Error> {
         Self::parse_utf16(bytes, &units(content_type))
     }
+
     pub fn parse_utf16(bytes: &[u8], content_type: &[u16]) -> Result<Self, Error> {
         let ct = String::from_utf16_lossy(content_type);
         let patterns = patterns();
@@ -238,17 +271,21 @@ impl FormData {
         parse_multipart(bytes, format!("--{boundary}").as_bytes())
     }
 }
+
 fn rename(file: &File, filename: Option<&[u16]>) -> File {
     filename
         .map(|name| File::from_blob_utf16(file.blob().clone(), name, Some(file.last_modified())))
         .unwrap_or_else(|| file.clone())
 }
+
 pub struct FormEntries {
     form: FormData,
     index: usize,
 }
+
 impl Iterator for FormEntries {
     type Item = Entry;
+
     fn next(&mut self) -> Option<Entry> {
         let entry = self.form.0.lock().unwrap().get(self.index).cloned();
         if entry.is_some() {
@@ -257,24 +294,30 @@ impl Iterator for FormEntries {
         entry
     }
 }
+
 #[derive(Clone, Debug)]
 pub struct MultipartBody {
     pub bytes: Vec<u8>,
     pub content_type: String,
     pub boundary: String,
 }
+
 fn units(value: &str) -> Vec<u16> {
     value.encode_utf16().collect()
 }
+
 fn decode(bytes: &[u8]) -> Result<String, Error> {
     super::blob::decode_text(bytes).map_err(|error| Error::generic_error(error.to_string()))
 }
+
 fn whitespace(unit: u32) -> bool {
     matches!(unit,9..=13|32|0xa0|0x1680|0x2000..=0x200a|0x2028|0x2029|0x202f|0x205f|0x3000|0xfeff)
 }
+
 fn trim(value: &str) -> &str {
     value.trim_matches(|c: char| whitespace(c as u32))
 }
+
 fn trim_utf16(value: &[u16]) -> &[u16] {
     let start = value
         .iter()
@@ -287,6 +330,7 @@ fn trim_utf16(value: &[u16]) -> &[u16] {
         .unwrap_or(start);
     &value[start..end]
 }
+
 fn mime_escape(value: &[u16]) -> Result<String, Error> {
     if value.last() == Some(&92) {
         return Err(Error::type_error(
@@ -304,6 +348,7 @@ fn mime_escape(value: &[u16]) -> Result<String, Error> {
     }
     Ok(String::from_utf16_lossy(&escaped))
 }
+
 struct Patterns {
     urlencoded: Regex,
     charset: Regex,
@@ -312,6 +357,7 @@ struct Patterns {
     name: Regex,
     filename: Regex,
 }
+
 fn patterns() -> &'static Patterns {
     static PATTERNS: OnceLock<Patterns> = OnceLock::new();
     PATTERNS.get_or_init(||{
@@ -326,6 +372,7 @@ fn patterns() -> &'static Patterns {
         }
     })
 }
+
 fn delimiter(bytes: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     if from > bytes.len() {
         return None;
@@ -338,6 +385,7 @@ fn delimiter(bytes: &[u8], needle: &[u8], from: usize) -> Option<usize> {
             (window == needle && (at == 0 || bytes[at - 1] == 10)).then_some(at)
         })
 }
+
 fn line_break(bytes: &[u8], at: usize) -> usize {
     if bytes.get(at) == Some(&13) && bytes.get(at + 1) == Some(&10) {
         2
@@ -347,6 +395,7 @@ fn line_break(bytes: &[u8], at: usize) -> usize {
         0
     }
 }
+
 fn parameter(pattern: &Regex, disposition: &str) -> Result<Option<String>, Error> {
     let Some(capture) = pattern.captures(disposition) else {
         return Ok(None);
@@ -375,6 +424,7 @@ fn parameter(pattern: &Regex, disposition: &str) -> Result<Option<String>, Error
     }
     Ok(Some(result))
 }
+
 fn parse_multipart(bytes: &[u8], needle: &[u8]) -> Result<FormData, Error> {
     let form = FormData::new();
     let mut cursor = delimiter(bytes, needle, 0).ok_or_else(|| {

@@ -17,6 +17,7 @@ pub struct Scheduled {
     pub cron: String,
     no_retry: Arc<AtomicBool>,
 }
+
 impl Scheduled {
     /// Decline retry if this handler fails. Late calls only change this
     /// controller's flag; they cannot settle or change another occurrence.
@@ -30,11 +31,13 @@ struct Owed {
     indices: Vec<usize>,
     armed_for: i64,
 }
+
 #[derive(Default)]
 struct State {
     retry: i64,
     owed: Option<Owed>,
 }
+
 struct Schedule {
     storage: Storage,
     application: Arc<dyn Application>,
@@ -68,9 +71,11 @@ pub(crate) fn create_cell(
         state: Mutex::new(State::default()),
     }))
 }
+
 fn now() -> i64 {
     crate::ownership_store::now_ms() as i64
 }
+
 impl Schedule {
     fn arm(&self, occurrence: Option<i64>, failed: Vec<usize>, retried: bool) -> Result<()> {
         let mut state = self.state.lock().unwrap();
@@ -96,6 +101,7 @@ impl Schedule {
             None => self.storage.delete_alarm(),
         }
     }
+
     fn fetch(&self) -> Result<Output> {
         if self.state.lock().unwrap().owed.is_none() {
             let armed = self.storage.get_alarm()?;
@@ -115,6 +121,7 @@ impl Schedule {
             observed_position: None,
         }))
     }
+
     async fn alarm(&self, context: &Context, fired: i64) -> Result<()> {
         let (occurrence, due, retried) = {
             let state = self.state.lock().unwrap();
@@ -147,6 +154,7 @@ impl Schedule {
         self.arm(Some(occurrence), failed, retried)
     }
 }
+
 impl Cell for Schedule {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -173,6 +181,7 @@ struct ScheduledRun {
     background: Vec<HandlerFuture<()>>,
     retry: bool,
 }
+
 impl ScheduledRun {
     fn new(parent: &Context, application: Arc<dyn Application>, controller: Scheduled) -> Self {
         let mut context = parent.clone();
@@ -199,8 +208,10 @@ impl ScheduledRun {
         }
     }
 }
+
 impl Future for ScheduledRun {
     type Output = bool;
+
     fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<bool> {
         let this = self.get_mut();
         if let Some(handler) = &mut this.handler {
@@ -246,6 +257,7 @@ impl Future for ScheduledRun {
         }
     }
 }
+
 impl Drop for ScheduledRun {
     fn drop(&mut self) {
         self.context.state.retired.store(true, Ordering::Release);

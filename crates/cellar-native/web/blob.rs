@@ -10,6 +10,7 @@ pub struct BlobOptions {
     /// Any supplied endings value retains the existing unsupported-option error.
     pub endings: Option<Vec<u16>>,
 }
+
 impl BlobOptions {
     pub fn new(media_type: &str) -> Self {
         Self {
@@ -18,6 +19,7 @@ impl BlobOptions {
         }
     }
 }
+
 pub enum BlobPart<'a> {
     Bytes(&'a [u8]),
     Text(&'a str),
@@ -25,15 +27,19 @@ pub enum BlobPart<'a> {
     Blob(&'a Blob),
     File(&'a File),
 }
+
 #[derive(Debug)]
 struct Data {
     bytes: Vec<u8>,
     media_type: String,
 }
+
 #[derive(Clone, Debug)]
 pub struct Blob(Arc<Data>);
+
 impl Blob {
     pub const SIZE_LIMIT: usize = 134_217_728;
+
     pub fn new<'a>(
         parts: impl IntoIterator<Item = BlobPart<'a>>,
         options: BlobOptions,
@@ -74,35 +80,45 @@ impl Blob {
             media_type: media_type(&options.media_type),
         })))
     }
+
     pub fn from_bytes(bytes: &[u8], media_type: &str) -> Result<Self, Error> {
         Self::new([BlobPart::Bytes(bytes)], BlobOptions::new(media_type))
     }
+
     pub fn size(&self) -> usize {
         self.0.bytes.len()
     }
+
     pub fn content_type(&self) -> &str {
         &self.0.media_type
     }
+
     pub fn as_bytes(&self) -> &[u8] {
         &self.0.bytes
     }
+
     pub fn bytes(&self) -> Vec<u8> {
         self.0.bytes.clone()
     }
+
     pub fn array_buffer(&self) -> Vec<u8> {
         self.bytes()
     }
+
     pub fn text(&self) -> Result<String, crate::encoding::DecodeError> {
         decode_text(self.as_bytes())
     }
+
     pub fn stream(&self) -> BlobStream {
         BlobStream {
             chunk: (!self.as_bytes().is_empty()).then(|| self.bytes()),
         }
     }
+
     pub fn slice(&self, start: Option<f64>, end: Option<f64>, media_type: &str) -> Self {
         self.slice_utf16(start, end, &media_type.encode_utf16().collect::<Vec<_>>())
     }
+
     pub fn slice_utf16(&self, start: Option<f64>, end: Option<f64>, kind: &[u16]) -> Self {
         let size = self.size() as f64;
         let norm = |value: f64| {
@@ -135,6 +151,7 @@ impl Blob {
         }))
     }
 }
+
 fn media_type(value: &[u16]) -> String {
     if value.iter().any(|unit| !(32..=126).contains(unit)) {
         String::new()
@@ -145,18 +162,23 @@ fn media_type(value: &[u16]) -> String {
             .collect()
     }
 }
+
 pub(super) fn decode_text(bytes: &[u8]) -> Result<String, crate::encoding::DecodeError> {
     TextDecoder::new("utf-8", DecoderOptions::default())?.decode(bytes, false)
 }
+
 pub struct BlobStream {
     chunk: Option<Vec<u8>>,
 }
+
 impl Iterator for BlobStream {
     type Item = Vec<u8>;
+
     fn next(&mut self) -> Option<Self::Item> {
         self.chunk.take()
     }
 }
+
 impl std::iter::FusedIterator for BlobStream {}
 
 #[derive(Clone, Debug, Default)]
@@ -164,14 +186,17 @@ pub struct FileOptions {
     pub blob: BlobOptions,
     pub last_modified: Option<f64>,
 }
+
 #[derive(Debug)]
 struct FileData {
     blob: Blob,
     name: Vec<u16>,
     last_modified: f64,
 }
+
 #[derive(Clone, Debug)]
 pub struct File(Arc<FileData>);
+
 impl File {
     pub fn new<'a>(
         parts: impl IntoIterator<Item = BlobPart<'a>>,
@@ -180,6 +205,7 @@ impl File {
     ) -> Result<Self, Error> {
         Self::new_utf16(parts, &name.encode_utf16().collect::<Vec<_>>(), options)
     }
+
     pub fn new_utf16<'a>(
         parts: impl IntoIterator<Item = BlobPart<'a>>,
         name: &[u16],
@@ -191,6 +217,7 @@ impl File {
             options.last_modified,
         ))
     }
+
     pub fn from_blob(blob: Blob, name: &str, last_modified: Option<f64>) -> Self {
         Self::from_blob_utf16(
             blob,
@@ -198,6 +225,7 @@ impl File {
             last_modified,
         )
     }
+
     pub fn from_blob_utf16(blob: Blob, name: &[u16], last_modified: Option<f64>) -> Self {
         let value = last_modified.unwrap_or_else(super::clock::now_ms);
         Self(Arc::new(FileData {
@@ -210,39 +238,51 @@ impl File {
             },
         }))
     }
+
     pub fn blob(&self) -> &Blob {
         &self.0.blob
     }
+
     pub fn name_utf16(&self) -> &[u16] {
         &self.0.name
     }
+
     pub fn name(&self) -> String {
         String::from_utf16_lossy(self.name_utf16())
     }
+
     pub fn last_modified(&self) -> f64 {
         self.0.last_modified
     }
+
     pub fn size(&self) -> usize {
         self.blob().size()
     }
+
     pub fn content_type(&self) -> &str {
         self.blob().content_type()
     }
+
     pub fn bytes(&self) -> Vec<u8> {
         self.blob().bytes()
     }
+
     pub fn array_buffer(&self) -> Vec<u8> {
         self.blob().array_buffer()
     }
+
     pub fn text(&self) -> Result<String, crate::encoding::DecodeError> {
         self.blob().text()
     }
+
     pub fn stream(&self) -> BlobStream {
         self.blob().stream()
     }
+
     pub fn slice(&self, start: Option<f64>, end: Option<f64>, kind: &str) -> Blob {
         self.blob().slice(start, end, kind)
     }
+
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }

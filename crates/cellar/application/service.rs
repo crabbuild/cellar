@@ -23,6 +23,7 @@ pub struct Fetcher {
     host: std::sync::Weak<crate::host_services::HostServices>,
     props_limit: usize,
 }
+
 impl Fetcher {
     pub(crate) fn from_route(
         generation: crate::generation::GenerationId,
@@ -44,6 +45,7 @@ impl Fetcher {
                 }),
         }
     }
+
     /// Charge the copied route fields before allocating their copies.
     pub(crate) fn route(&self, remaining: &mut usize) -> Result<LoaderEnvRoute> {
         let bytes = self
@@ -65,6 +67,7 @@ impl Fetcher {
                 .unwrap_or_default(),
         })
     }
+
     pub(crate) fn broker(&self) -> OutboundBroker {
         OutboundBroker {
             generation: self.generation,
@@ -72,6 +75,7 @@ impl Fetcher {
             entrypoint: self.entrypoint.clone(),
         }
     }
+
     pub(crate) fn check_context(&self, context: &Context) -> Result<()> {
         context.check_turn()?;
         anyhow::ensure!(
@@ -97,6 +101,7 @@ impl Fetcher {
             ..self.clone()
         })
     }
+
     pub fn fetch(&self, context: &Context, mut request: Request) -> HandlerFuture<HttpResponse> {
         if let Err(error) = self.check_context(context) {
             return Box::pin(async move { Err(error) });
@@ -124,6 +129,7 @@ impl Fetcher {
             Err(error) => Box::pin(async move { Err(error) }),
         }
     }
+
     pub(crate) fn fetch_prepared(
         &self,
         context: &Context,
@@ -167,6 +173,7 @@ impl Fetcher {
             result
         })
     }
+
     pub fn rpc(
         &self,
         context: &Context,
@@ -212,6 +219,7 @@ impl Fetcher {
             Ok(bytes)
         })
     }
+
     /// Abort an unfinished service or loaded-worker RPC without invalidating
     /// this reusable handle. The original abort reason reaches the caller.
     pub fn rpc_with_signal(
@@ -230,6 +238,7 @@ impl Fetcher {
             }
         })
     }
+
     pub fn fetch_with_signal(
         &self,
         context: &Context,
@@ -247,6 +256,7 @@ impl Fetcher {
         })
     }
 }
+
 pub(super) fn body_guard(
     context: &Context,
     body: Option<&RequestBody>,
@@ -259,6 +269,7 @@ pub(super) fn body_guard(
         None => Ok(RequestBodyGuard(None)),
     }
 }
+
 impl Context {
     pub fn service(&self, name: &str) -> Result<Fetcher> {
         self.check_turn()?;
@@ -282,6 +293,7 @@ impl Context {
                 }),
         })
     }
+
     pub fn exported_entrypoint(&self, name: impl Into<String>) -> Result<Fetcher> {
         self.check_turn()?;
         let loaded = match self.worker_config.origin {
@@ -302,6 +314,7 @@ impl Context {
             }),
         })
     }
+
     pub fn environment_fetcher(&self, value: &Value) -> Result<Fetcher> {
         self.check_turn()?;
         let Value::Reference(index) = value else {
@@ -345,6 +358,7 @@ impl Context {
             self.io.host_services(),
         ))
     }
+
     /// Perform SDK outbound HTTP through this worker's configured authority.
     /// This policy does not sandbox arbitrary Rust network access.
     pub fn fetch(&self, mut request: super::http::OutboundRequest) -> HandlerFuture<HttpResponse> {
@@ -429,6 +443,7 @@ impl Context {
             result
         })
     }
+
     pub fn fetch_with_signal(
         &self,
         request: super::http::OutboundRequest,

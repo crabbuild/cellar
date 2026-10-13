@@ -270,6 +270,7 @@ struct TaskRegistration {
     owner: Weak<ProductionDomainOwner>,
     id: u64,
 }
+
 impl Drop for TaskRegistration {
     fn drop(&mut self) {
         if let Some(owner) = self.owner.upgrade() {
@@ -280,11 +281,13 @@ impl Drop for TaskRegistration {
 }
 
 struct DomainScope(Option<Arc<ProductionDomain>>);
+
 impl DomainScope {
     fn enter(domain: Arc<ProductionDomain>) -> Self {
         Self(CURRENT_DOMAIN.with(|slot| slot.replace(Some(domain))))
     }
 }
+
 impl Drop for DomainScope {
     fn drop(&mut self) {
         CURRENT_DOMAIN.with(|slot| slot.replace(self.0.take()));
@@ -298,6 +301,7 @@ struct ScopedBlocking<F> {
     operation: Option<F>,
     registration: Option<TaskRegistration>,
 }
+
 impl<F> Drop for ScopedBlocking<F> {
     fn drop(&mut self) {
         let _scope = DomainScope::enter(self.domain.clone());
@@ -314,6 +318,7 @@ struct ScopedFuture<F> {
     registration: Option<TaskRegistration>,
     skip_when_closed: bool,
 }
+
 impl<F> ScopedFuture<F> {
     fn new(domain: Arc<ProductionDomain>, future: F) -> Self {
         Self {
@@ -324,8 +329,10 @@ impl<F> ScopedFuture<F> {
         }
     }
 }
+
 impl<F: Future> Future for ScopedFuture<F> {
     type Output = F::Output;
+
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let this = self.get_mut();
         if this.skip_when_closed && this.domain.owner.closed.load(Ordering::Acquire) {
@@ -337,6 +344,7 @@ impl<F: Future> Future for ScopedFuture<F> {
         this.future.as_mut().unwrap().as_mut().poll(context)
     }
 }
+
 impl<F> Drop for ScopedFuture<F> {
     fn drop(&mut self) {
         let _scope = DomainScope::enter(self.domain.clone());
@@ -363,6 +371,7 @@ impl<F> Drop for ScopedFuture<F> {
 pub struct ExecutionDomain {
     inner: Arc<ProductionDomain>,
 }
+
 impl ExecutionDomain {
     pub fn new(handle: tokio::runtime::Handle) -> Self {
         Self {
@@ -452,6 +461,7 @@ impl ExecutionDomain {
         }
     }
 }
+
 impl Drop for ExecutionDomain {
     fn drop(&mut self) {
         self.close();
@@ -601,6 +611,7 @@ impl<T> TaskHandle<T> {
             TaskInner::Blocking(inner) => inner.abort(),
         }
     }
+
     /// Detach the task from its join handle.
     pub fn detach(self) {}
 }

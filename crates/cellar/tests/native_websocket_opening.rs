@@ -20,12 +20,15 @@ use std::{
     time::Duration,
 };
 use tokio::sync::mpsc;
+
 const SCOPE: &str = "Probe:one";
+
 #[derive(Default)]
 struct Probe {
     socket: Mutex<Option<WebSocket>>,
     old: Mutex<Option<Context>>,
 }
+
 fn output(value: Value) -> Result<Output> {
     Ok(Output::Http(HttpResponse {
         status: 200,
@@ -37,7 +40,9 @@ fn output(value: Value) -> Result<Output> {
         observed_position: None,
     }))
 }
+
 struct Root(Arc<Probe>);
+
 impl Cell for Root {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -132,6 +137,7 @@ impl Cell for Root {
         })
     }
 }
+
 fn request(path: &str) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://probe{path}"),
@@ -143,6 +149,7 @@ fn request(path: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<Value> {
     Ok(serde_json::from_slice(
         &runtime
@@ -151,12 +158,14 @@ async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<Value
             .body,
     )?)
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_opening_owns_its_gate_and_cancellation() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(45), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let probe = Arc::new(Probe::default());
     let state = probe.clone();

@@ -258,6 +258,7 @@ pub trait Shipper: Send + Sync + 'static {
 
     /// A degraded shipper refuses instantly; the ship loop skips capture.
     fn active(&self) -> bool;
+
     /// The log epoch this shipper writes. Sequences restart at zero each
     /// epoch, so the ship loop's truncation ledger must reset with it — a
     /// stale covered watermark from the previous epoch would tell fresh
@@ -939,6 +940,7 @@ struct Cell {
     #[cfg(all(test, cellar_internal_tests))]
     fleet_capture_receipts: Mutex<Vec<LtxFleetCaptureReceiptForWorld>>,
 }
+
 type CellHandle = Arc<Cell>;
 
 /// The successor still needs a per-cell fold, but epoch replacement needs
@@ -4701,6 +4703,7 @@ async fn bundle_loop(
         if work.is_empty() {
             continue;
         }
+
         type Credits = Vec<(CellHandle, u64, u64)>;
         let (entries, credits): (Vec<cellar_ltx::bundle::BundleEntry>, Credits) =
             asyncrt::blocking(move || {
@@ -4813,6 +4816,7 @@ async fn ship_loop(
     let mut current: Option<Arc<dyn Shipper>> = None;
     let mut current_epoch = None;
     let mut last_submit = asyncrt::mono_ms();
+
     const CAPTURE_WORKERS: usize = 8;
     // The loop's own time ledger: idle (nothing to do), stall (admission
     // or depth closed, waiting on a round), apply, scan, capture wall,
@@ -4996,6 +5000,7 @@ async fn ship_loop(
         for (index, item) in work.into_iter().enumerate() {
             chunks[index % workers].push(item);
         }
+
         type Credits = Vec<(CellHandle, u64, u64)>;
         let spawned = asyncrt::mono_us();
         let captures = futures_util::future::join_all(chunks.into_iter().map(|chunk| {

@@ -5,6 +5,7 @@ use cellar::sdk::{
     queue::{self, Body, SendOptions},
     Context, Output, Request,
 };
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     support::method(&request, &["GET", "POST"])?;
     let producer = context.queue("JOBS")?;
@@ -18,7 +19,11 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
         let metrics = queue.metrics(context).await?;
         return support::json(
             context,
-            serde_json::json!({"backlog_count":metrics.backlog_count,"backlog_bytes":metrics.backlog_bytes,"oldest_message_timestamp_ms":metrics.oldest_message_timestamp_ms}),
+            serde_json::json!({
+                "backlog_count": metrics.backlog_count,
+                "backlog_bytes": metrics.backlog_bytes,
+                "oldest_message_timestamp_ms": metrics.oldest_message_timestamp_ms,
+            }),
         );
     }
     let body = support::payload(context, request).await?;
@@ -26,8 +31,9 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     producer
         .send(context, Body::Json(body), SendOptions::default())
         .await?;
-    support::json_status(context, 202, serde_json::json!({"accepted":true}))
+    support::json_status(context, 202, serde_json::json!({ "accepted": true }))
 }
+
 pub async fn consume(context: Context, incoming: QueueBatch) -> Result<Output> {
     queue::dispatch(incoming, move |event| async move {
         for message in event.messages() {
@@ -50,7 +56,7 @@ pub async fn consume(context: Context, incoming: QueueBatch) -> Result<Output> {
                 .rpc(
                     &context,
                     "increment_once",
-                    RpcData::Json(serde_json::json!({"key":key}).to_string()),
+                    RpcData::Json(serde_json::json!({ "key": key }).to_string()),
                 )
                 .await?;
             message.ack()?;

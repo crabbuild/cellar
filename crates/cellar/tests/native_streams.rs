@@ -26,8 +26,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+
 const SOURCE: &str = "Source:one";
 const PEER: &str = "Peer:one";
+
 #[derive(Default)]
 struct Probe {
     hold: AtomicBool,
@@ -44,26 +46,33 @@ struct Probe {
     old: Mutex<Option<Context>>,
     readable: Mutex<Option<ByteReadable>>,
 }
+
 struct Never(Arc<Probe>);
+
 impl Future for Never {
     type Output = Result<()>;
+
     fn poll(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Self::Output> {
         self.0.retiring.notify_one();
         Poll::Pending
     }
 }
+
 impl Drop for Never {
     fn drop(&mut self) {
         self.0.retired.store(true, Ordering::SeqCst);
         self.0.retirement_done.notify_one();
     }
 }
+
 struct Source(Arc<Probe>, Storage);
+
 fn output(context: &Context, value: Json) -> Result<Output> {
     Ok(Output::Http(
         Response::new(200, serde_json::to_vec(&value)?, Vec::new()).into_http(context)?,
     ))
 }
+
 impl Cell for Source {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -170,7 +179,9 @@ impl Cell for Source {
         })
     }
 }
+
 struct Peer;
+
 impl Cell for Peer {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -189,6 +200,7 @@ impl Cell for Peer {
         })
     }
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -205,6 +217,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
     runtime
         .fetch_cell(
@@ -223,6 +236,7 @@ async fn call(runtime: &RuntimeManager, path: &str) -> Result<HttpResponse> {
         )
         .await
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn native_shared_streams_retain_proofs_backpressure_body_cleanup_and_retirement() -> Result<()>
 {
@@ -230,6 +244,7 @@ async fn native_shared_streams_retain_proofs_backpressure_body_cleanup_and_retir
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let probe = Arc::new(Probe::default());
     let p = probe.clone();

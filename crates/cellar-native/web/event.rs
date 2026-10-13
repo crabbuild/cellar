@@ -11,6 +11,7 @@ pub struct EventInit {
     pub cancelable: bool,
     pub composed: bool,
 }
+
 struct EventData {
     kind: Vec<u16>,
     init: EventInit,
@@ -23,16 +24,20 @@ struct EventData {
     trusted: bool,
     custom_detail: Option<Arc<Mutex<SharedEventValue>>>,
 }
+
 #[derive(Clone)]
 pub struct Event(Arc<Mutex<EventData>>);
+
 impl Event {
     pub const NONE: u16 = 0;
     pub const CAPTURING_PHASE: u16 = 1;
     pub const AT_TARGET: u16 = 2;
     pub const BUBBLING_PHASE: u16 = 3;
+
     pub fn new(kind: &str, init: EventInit) -> Self {
         Self::new_utf16(&kind.encode_utf16().collect::<Vec<_>>(), init)
     }
+
     pub fn new_utf16(kind: &[u16], init: EventInit) -> Self {
         Self(Arc::new(Mutex::new(EventData {
             kind: kind.to_vec(),
@@ -47,83 +52,106 @@ impl Event {
             custom_detail: None,
         })))
     }
+
     pub fn event_type_utf16(&self) -> Vec<u16> {
         self.0.lock().unwrap().kind.clone()
     }
+
     pub fn event_type(&self) -> String {
         String::from_utf16_lossy(&self.event_type_utf16())
     }
+
     pub fn bubbles(&self) -> bool {
         self.0.lock().unwrap().init.bubbles
     }
+
     pub fn cancelable(&self) -> bool {
         self.0.lock().unwrap().init.cancelable
     }
+
     pub fn composed(&self) -> bool {
         self.0.lock().unwrap().init.composed
     }
+
     pub fn default_prevented(&self) -> bool {
         self.0.lock().unwrap().prevented
     }
+
     pub fn event_phase(&self) -> u16 {
         self.0.lock().unwrap().phase
     }
+
     pub fn target(&self) -> Option<EventTarget> {
         self.0.lock().unwrap().target.clone()
     }
+
     pub fn current_target(&self) -> Option<EventTarget> {
         self.target()
     }
+
     pub fn composed_path(&self) -> Vec<EventTarget> {
         self.target().into_iter().collect()
     }
+
     pub fn is_trusted(&self) -> bool {
         self.0.lock().unwrap().trusted
     }
+
     pub fn time_stamp(&self) -> f64 {
         0.0
     }
+
     pub fn return_value(&self) -> bool {
         !self.default_prevented()
     }
+
     pub fn cancel_bubble(&self) -> bool {
         self.0.lock().unwrap().stop
     }
+
     pub fn set_cancel_bubble(&self, value: bool) {
         if value {
             self.stop_propagation();
         }
     }
+
     pub fn prevent_default(&self) {
         let mut s = self.0.lock().unwrap();
         if s.init.cancelable {
             s.prevented = true;
         }
     }
+
     pub fn stop_propagation(&self) {
         self.0.lock().unwrap().stop = true;
     }
+
     pub fn stop_immediate_propagation(&self) {
         let mut s = self.0.lock().unwrap();
         s.stop = true;
         s.immediate = true;
     }
+
     pub fn is_dispatching(&self) -> bool {
         self.0.lock().unwrap().dispatching
     }
+
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
+
     pub fn as_custom_event(&self) -> Option<CustomEvent> {
         Some(CustomEvent {
             event: self.clone(),
             detail: self.0.lock().unwrap().custom_detail.clone()?,
         })
     }
+
     /// For events delivered by a host, rather than constructed by a handler.
     pub fn trust(&self) {
         self.0.lock().unwrap().trusted = true;
     }
+
     fn begin(&self, target: EventTarget) -> Result<(), EventDispatchError> {
         let mut state = self.0.lock().unwrap();
         if state.dispatching {
@@ -141,15 +169,18 @@ impl Event {
         state.immediate = false;
         Ok(())
     }
+
     fn end(&self) {
         let mut s = self.0.lock().unwrap();
         s.dispatching = false;
         s.phase = Self::NONE;
     }
+
     fn stopped_immediately(&self) -> bool {
         self.0.lock().unwrap().immediate
     }
 }
+
 impl std::fmt::Debug for Event {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Event")
@@ -164,12 +195,15 @@ impl std::fmt::Debug for Event {
 pub trait EventListener: Send + Sync + 'static {
     fn handle_event(&self, event: &Event) -> Result<(), EventDispatchError>;
 }
+
 type Callback = dyn Fn(&EventTarget, &Event) -> Result<(), EventDispatchError> + Send + Sync;
+
 #[derive(Clone)]
 pub enum Listener {
     Function(Arc<Callback>),
     Object(Arc<dyn EventListener>),
 }
+
 impl Listener {
     pub fn new(
         callback: impl Fn(&EventTarget, &Event) -> Result<(), EventDispatchError>
@@ -179,6 +213,7 @@ impl Listener {
     ) -> Self {
         Self::Function(Arc::new(callback))
     }
+
     pub fn ptr_eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Function(a), Self::Function(b)) => Arc::ptr_eq(a, b),
@@ -186,12 +221,14 @@ impl Listener {
             _ => false,
         }
     }
+
     fn invoke(&self, target: &EventTarget, event: &Event) -> Result<(), EventDispatchError> {
         match self {
             Self::Function(f) => f(target, event),
             Self::Object(o) => o.handle_event(event),
         }
     }
+
     fn downgrade(&self) -> WeakListener {
         match self {
             Self::Function(f) => WeakListener::Function(Arc::downgrade(f)),
@@ -199,10 +236,12 @@ impl Listener {
         }
     }
 }
+
 enum WeakListener {
     Function(Weak<Callback>),
     Object(Weak<dyn EventListener>),
 }
+
 impl WeakListener {
     fn upgrade(&self) -> Option<Listener> {
         match self {
@@ -211,6 +250,7 @@ impl WeakListener {
         }
     }
 }
+
 #[derive(Clone, Default)]
 pub struct ListenerOptions {
     pub once: bool,
@@ -218,11 +258,13 @@ pub struct ListenerOptions {
     pub passive: bool,
     pub signal: Option<AbortSignal>,
 }
+
 #[derive(Clone, Debug)]
 pub enum EventDispatchError {
     Type(Error),
     Thrown(AbortReason),
 }
+
 impl std::fmt::Display for EventDispatchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -231,7 +273,9 @@ impl std::fmt::Display for EventDispatchError {
         }
     }
 }
+
 impl std::error::Error for EventDispatchError {}
+
 impl From<Error> for EventDispatchError {
     fn from(value: Error) -> Self {
         Self::Type(value)
@@ -243,25 +287,31 @@ struct Entry {
     once: bool,
     handler: bool,
 }
+
 #[derive(Default)]
 struct TargetState {
     listeners: HashMap<Vec<u16>, Vec<Arc<Entry>>>,
     fallback: HashMap<Vec<u16>, Listener>,
 }
+
 #[derive(Clone, Default)]
 pub struct EventTarget(Arc<Mutex<TargetState>>);
+
 impl std::fmt::Debug for EventTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EventTarget").finish_non_exhaustive()
     }
 }
+
 impl EventTarget {
     pub fn new() -> Self {
         Self::default()
     }
+
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }
+
     pub fn add_event_listener(
         &self,
         kind: &str,
@@ -270,6 +320,7 @@ impl EventTarget {
     ) -> Result<(), Error> {
         self.add_event_listener_utf16(&kind.encode_utf16().collect::<Vec<_>>(), listener, options)
     }
+
     pub fn add_event_listener_utf16(
         &self,
         kind: &[u16],
@@ -333,6 +384,7 @@ impl EventTarget {
         }
         Ok(())
     }
+
     pub fn remove_event_listener(
         &self,
         kind: &str,
@@ -345,6 +397,7 @@ impl EventTarget {
             capture,
         )
     }
+
     pub fn remove_event_listener_utf16(
         &self,
         kind: &[u16],
@@ -370,11 +423,13 @@ impl EventTarget {
         drop(removed);
         Ok(())
     }
+
     /// An IDL event handler occupies one list position. Replacement changes
     /// the shared entry that an in-progress dispatch snapshot also observes.
     pub fn set_event_handler(&self, kind: &str, listener: Option<Listener>) {
         self.set_event_handler_utf16(&kind.encode_utf16().collect::<Vec<_>>(), listener)
     }
+
     pub fn set_event_handler_utf16(&self, kind: &[u16], listener: Option<Listener>) {
         let mut replaced = None;
         let mut removed = None;
@@ -406,9 +461,11 @@ impl EventTarget {
         drop(replaced);
         drop(removed);
     }
+
     pub fn event_handler(&self, kind: &str) -> Option<Listener> {
         self.event_handler_utf16(&kind.encode_utf16().collect::<Vec<_>>())
     }
+
     pub fn event_handler_utf16(&self, kind: &[u16]) -> Option<Listener> {
         self.0
             .lock()
@@ -419,6 +476,7 @@ impl EventTarget {
             .find(|e| e.handler)
             .map(|e| e.callback.lock().unwrap().clone())
     }
+
     /// Ordinary `on<type>` properties run after the listener snapshot unless
     /// an IDL entry already handles that event type.
     pub fn set_fallback_handler(&self, kind: &str, listener: Option<Listener>) {
@@ -431,6 +489,7 @@ impl EventTarget {
         drop(state);
         drop(old);
     }
+
     pub fn dispatch_event(&self, event: &Event) -> Result<bool, EventDispatchError> {
         event.begin(self.clone())?;
         let kind = event.event_type_utf16();
@@ -484,11 +543,14 @@ pub struct CustomEvent {
     pub event: Event,
     detail: Arc<Mutex<SharedEventValue>>,
 }
+
 pub type SharedEventValue = Arc<Mutex<crate::clone::StructuredValue>>;
+
 impl CustomEvent {
     pub fn new(kind: &str, init: EventInit, detail: Option<crate::clone::StructuredValue>) -> Self {
         Self::new_utf16(&kind.encode_utf16().collect::<Vec<_>>(), init, detail)
     }
+
     pub fn new_utf16(
         kind: &[u16],
         init: EventInit,
@@ -505,6 +567,7 @@ impl CustomEvent {
         event.0.lock().unwrap().custom_detail = Some(detail.clone());
         Self { event, detail }
     }
+
     pub fn from_shared_detail(kind: &str, init: EventInit, detail: SharedEventValue) -> Self {
         let event = Self::new(kind, init, None);
         if !matches!(detail.lock().unwrap().root, crate::clone::Value::Undefined) {
@@ -512,12 +575,15 @@ impl CustomEvent {
         }
         event
     }
+
     pub fn detail(&self) -> SharedEventValue {
         self.detail.lock().unwrap().clone()
     }
+
     pub fn set_detail(&self, value: crate::clone::StructuredValue) {
         self.set_shared_detail(Arc::new(Mutex::new(value)));
     }
+
     pub fn set_shared_detail(&self, value: SharedEventValue) {
         *self.detail.lock().unwrap() = value;
     }

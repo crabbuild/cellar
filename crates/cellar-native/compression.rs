@@ -116,6 +116,7 @@ impl Codec {
     /// Workerd's strict_compression_checks.
     fn push(&mut self, mut input: &[u8]) -> Result<Vec<u8>> {
         use std::io::Write;
+
         const ENCODER_CHUNK: usize = 32 * 1024;
         let failure = self.failure();
         let held = if self.decompress() { 0 } else { ENCODER_CHUNK };

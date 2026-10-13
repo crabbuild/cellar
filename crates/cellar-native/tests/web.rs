@@ -1,7 +1,9 @@
 use cellar_native::web::{Headers, SearchParams, Url};
+
 fn units(value: &str) -> Vec<u16> {
     value.encode_utf16().collect()
 }
+
 #[test]
 fn headers_retain_wire_shape_cookie_splitting_and_copy_rules() {
     let h = Headers::from_pairs([
@@ -50,6 +52,7 @@ fn headers_retain_wire_shape_cookie_splitting_and_copy_rules() {
     assert!(h.get_set_cookie().is_empty());
     assert_eq!(copied.get_set_cookie().len(), 2);
 }
+
 #[test]
 fn headers_validate_http_tokens_values_utf16_and_guard_precedence() {
     let h = Headers::new();
@@ -96,6 +99,7 @@ fn headers_validate_http_tokens_values_utf16_and_guard_precedence() {
     assert!(h.copy_list().append("mutable", "yes").is_ok());
     assert!(!Headers::from_headers(&h).is_immutable());
 }
+
 #[test]
 fn header_iteration_stays_live_after_mutation_and_even_after_done() {
     let h = Headers::from_pairs([("b", "2"), ("c", "3")]).unwrap();
@@ -129,6 +133,7 @@ fn header_iteration_stays_live_after_mutation_and_even_after_done() {
         .unwrap();
     assert_eq!(h.get("a").unwrap().as_deref(), Some("thread"));
 }
+
 #[test]
 fn url_parsing_keeps_normalization_base_rules_and_mutable_components() {
     let u = Url::new(
@@ -191,6 +196,7 @@ fn url_parsing_keeps_normalization_base_rules_and_mutable_components() {
     );
     assert_eq!(u.href_utf16(), before);
 }
+
 #[test]
 fn search_params_decode_encode_usv_strings_and_stable_utf16_sort() {
     let p =
@@ -224,6 +230,7 @@ fn search_params_decode_encode_usv_strings_and_stable_utf16_sort() {
     assert_eq!(p.get_utf16(&units("lone")).unwrap(), [0xd800]);
     assert_eq!(p.serialize().unwrap_err().name(), "URIError");
 }
+
 #[test]
 fn url_search_lists_keep_identity_iterators_and_failed_sync_state() {
     let u = Url::new("https://host/path?a=a%20b&dup=1&dup=2#fragment", None).unwrap();

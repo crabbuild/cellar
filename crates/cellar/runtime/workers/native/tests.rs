@@ -13,10 +13,12 @@ struct ReceiverWake {
     sender: Arc<WakeTurn>,
     calls: AtomicUsize,
 }
+
 impl Wake for ReceiverWake {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
+
     fn wake_by_ref(self: &Arc<Self>) {
         assert!(
             self.sender.0.try_lock().is_ok(),
@@ -53,22 +55,28 @@ struct Signals {
     handler_drops: Arc<AtomicUsize>,
     gate: Mutex<Option<ArmGateRx>>,
 }
+
 struct DropCount(Arc<AtomicUsize>);
+
 impl Drop for DropCount {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 struct HandedOperation {
     owner: Weak<IoContext>,
     drops: Arc<AtomicUsize>,
 }
+
 impl Future for HandedOperation {
     type Output = std::result::Result<asyncrt::OpOut, String>;
+
     fn poll(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Self::Output> {
         Poll::Pending
     }
 }
+
 impl Drop for HandedOperation {
     fn drop(&mut self) {
         if let Some(owner) = self.owner.upgrade() {

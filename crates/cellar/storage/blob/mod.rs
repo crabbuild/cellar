@@ -27,6 +27,7 @@ use std::time::Instant;
 
 pub(crate) mod multipart;
 pub(crate) mod streaming;
+
 pub(crate) static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
 #[allow(
@@ -42,6 +43,7 @@ pub(crate) struct UploadGuard {
     upload: Option<Box<dyn MultipartUpload>>,
     interrupted: bool,
 }
+
 impl UploadGuard {
     pub(crate) fn new(upload: Box<dyn MultipartUpload>) -> Self {
         Self {
@@ -49,15 +51,18 @@ impl UploadGuard {
             interrupted: false,
         }
     }
+
     fn disarm(&mut self) {
         self.upload.take();
     }
+
     fn closed() -> object_store::Error {
         object_store::Error::Generic {
             store: "Blob",
             source: std::io::Error::other("multipart upload is closed").into(),
         }
     }
+
     fn incomplete() -> object_store::Error {
         object_store::Error::Generic {
             store: "Blob",
@@ -67,6 +72,7 @@ impl UploadGuard {
             .into(),
         }
     }
+
     pub(crate) async fn put_part(
         &mut self,
         data: object_store::PutPayload,
@@ -85,6 +91,7 @@ impl UploadGuard {
         self.interrupted = false;
         Ok(())
     }
+
     pub(crate) async fn complete(&mut self) -> object_store::Result<object_store::PutResult> {
         if self.interrupted {
             return Err(Self::incomplete());
@@ -99,6 +106,7 @@ impl UploadGuard {
         }
         result
     }
+
     async fn abort(&mut self) -> object_store::Result<()> {
         let Some(upload) = self.upload.as_mut() else {
             return Ok(());
@@ -111,6 +119,7 @@ impl UploadGuard {
         result
     }
 }
+
 impl Drop for UploadGuard {
     fn drop(&mut self) {
         if let Some(mut upload) = self.upload.take() {
@@ -135,17 +144,20 @@ mod tests {
         PendingComplete,
         None,
     }
+
     #[derive(Debug, Default)]
     struct Calls {
         parts: AtomicUsize,
         completions: AtomicUsize,
         aborts: AtomicUsize,
     }
+
     #[derive(Debug)]
     struct FaultedUpload {
         failure: Failure,
         calls: Arc<Calls>,
     }
+
     #[async_trait::async_trait]
     impl MultipartUpload for FaultedUpload {
         fn put_part(&mut self, _: object_store::PutPayload) -> object_store::UploadPart {
@@ -159,6 +171,7 @@ mod tests {
                 }
             })
         }
+
         async fn complete(&mut self) -> object_store::Result<object_store::PutResult> {
             self.calls.completions.fetch_add(1, Ordering::Relaxed);
             if matches!(self.failure, Failure::PendingComplete) {
@@ -169,6 +182,7 @@ mod tests {
                 version: None,
             })
         }
+
         async fn abort(&mut self) -> object_store::Result<()> {
             self.calls.aborts.fetch_add(1, Ordering::Relaxed);
             Ok(())

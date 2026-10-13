@@ -536,9 +536,11 @@ fn encode_file_with_mode(
 fn u16_be(b: &[u8]) -> u16 {
     u16::from_be_bytes([b[0], b[1]])
 }
+
 fn u32_be(b: &[u8]) -> u32 {
     u32::from_be_bytes([b[0], b[1], b[2], b[3]])
 }
+
 fn u64_be(b: &[u8]) -> u64 {
     u64::from_be_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]])
 }

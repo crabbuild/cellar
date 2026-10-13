@@ -1,4 +1,5 @@
 //! Native HTML processing replaces the upstream Python wrapper.
+
 use crate::support;
 use anyhow::Result;
 use cellar::sdk::{
@@ -6,6 +7,7 @@ use cellar::sdk::{
     http::Response,
     Context, Output, Request,
 };
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     support::method(&request, &["POST"])?;
     let bytes = support::bytes(context, request).await?;

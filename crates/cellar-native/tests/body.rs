@@ -1,21 +1,25 @@
 use cellar_native::web::{
     Blob, BlobOptions, BlobPart, BodyInit, File, FileOptions, FormData, FormValue, SearchParams,
 };
+
 fn units(value: &str) -> Vec<u16> {
     value.encode_utf16().collect()
 }
+
 fn text(value: FormValue) -> Vec<u16> {
     let FormValue::Text(text) = value else {
         panic!("text required")
     };
     text
 }
+
 fn file(value: FormValue) -> File {
     let FormValue::File(file) = value else {
         panic!("file required")
     };
     file
 }
+
 #[test]
 fn blobs_snapshot_binary_views_utf16_and_retained_slice_rules() {
     let mut bytes = [9, 0, 255, 8];
@@ -85,6 +89,7 @@ fn blobs_snapshot_binary_views_utf16_and_retained_slice_rules() {
         "Blob size 142606336 exceeds limit 134217728"
     );
 }
+
 #[test]
 fn files_preserve_dom_names_timestamps_and_form_value_identity() {
     let f = File::new_utf16(
@@ -120,6 +125,7 @@ fn files_preserve_dom_names_timestamps_and_form_value_identity() {
     form.delete("same");
     assert!(file(copied.get("same").unwrap()).ptr_eq(&f));
 }
+
 #[test]
 fn form_lists_keep_order_dom_strings_and_live_iteration() {
     let form = FormData::new();
@@ -155,6 +161,7 @@ fn form_lists_keep_order_dom_strings_and_live_iteration() {
         .unwrap();
     assert_eq!(text(each.get("a").unwrap()), units("thread"));
 }
+
 #[test]
 fn multipart_encoding_preserves_binary_and_escaping_is_one_way() {
     let form = FormData::new();
@@ -192,6 +199,7 @@ fn multipart_encoding_preserves_binary_and_escaping_is_one_way() {
     form.append_blob("file", &Blob::from_bytes(b"x", "").unwrap(), Some("bad\\"));
     assert!(form.encode().is_err());
 }
+
 #[test]
 fn form_parsing_retains_framing_header_precedence_and_charset_errors() {
     let binary=[b"preamble\n--X\nContent-Disposition: form-data; filename=\"snow.bin\"; name=\"upload\"\nContent-Type: APP/BINARY\n\n".as_slice(),&[255,0,13],b"inline--X!\r\n--X\r\nContent-Disposition: form-data; name=bare\r\n\r\n\xef\xbb\xbfvalue\r\n--X--\r\nepilogue"].concat();
@@ -230,6 +238,7 @@ fn form_parsing_retains_framing_header_precedence_and_charset_errors() {
         ("--X\nContent-Disposition: form-data; filename=a\n\nbody\n--X--","multipart/form-data; boundary=X","Content-Disposition header for FormData part must have a name parameter."),
     ]{assert_eq!(FormData::parse(body.as_bytes(),ct).unwrap_err().to_string(),message);}
 }
+
 #[test]
 fn typed_bodies_infer_only_the_retained_content_types() {
     assert!(BodyInit::Null.encode().unwrap().bytes.is_none());

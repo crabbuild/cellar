@@ -77,6 +77,7 @@ pub async fn resolver(
     bucket.put(&format!("{prefix}/assets.json"), bytes).await?;
     AssetResolver::load(bucket, prefix, &reference, false, None, cache).await
 }
+
 pub fn graph(
     script: &str,
     source: &str,

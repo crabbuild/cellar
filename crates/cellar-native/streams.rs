@@ -15,18 +15,23 @@ use std::{
     },
     task::{Context, Poll, Waker},
 };
+
 type Result<T> = std::result::Result<T, AbortReason>;
+
 const READ_RELEASED: &str = "This ReadableStream reader has been released.";
 const WRITE_RELEASED: &str = "This WritableStream writer has been released.";
+
 fn type_error(message: &str) -> AbortReason {
     Error::type_error(message).into()
 }
+
 fn undefined() -> AbortReason {
     AbortReason::from_value(StructuredValue {
         root: Value::Undefined,
         objects: Vec::new(),
     })
 }
+
 fn cancel_error(reason: Option<AbortReason>) -> AbortReason {
     let Some(reason) = reason else {
         return AbortReason::error("Stream was cancelled.");
@@ -57,6 +62,7 @@ pub struct ByteView {
     length: usize,
     element_size: usize,
 }
+
 impl ByteView {
     pub fn new(buffer: Vec<u8>, offset: usize, length: usize, element_size: usize) -> Result<Self> {
         if !matches!(element_size, 1 | 2 | 4 | 8)
@@ -75,21 +81,27 @@ impl ByteView {
             element_size,
         })
     }
+
     pub fn bytes(&self) -> &[u8] {
         &self.buffer[self.offset..self.offset + self.length]
     }
+
     pub fn buffer(&self) -> &[u8] {
         &self.buffer
     }
+
     pub fn byte_offset(&self) -> usize {
         self.offset
     }
+
     pub fn byte_length(&self) -> usize {
         self.length
     }
+
     pub fn element_size(&self) -> usize {
         self.element_size
     }
+
     pub fn into_bytes(mut self) -> Vec<u8> {
         self.buffer.truncate(self.offset + self.length);
         if self.offset != 0 {
@@ -98,6 +110,7 @@ impl ByteView {
         self.buffer
     }
 }
+
 impl From<Vec<u8>> for ByteView {
     fn from(buffer: Vec<u8>) -> Self {
         let length = buffer.len();
@@ -109,6 +122,7 @@ impl From<Vec<u8>> for ByteView {
         }
     }
 }
+
 #[derive(Debug)]
 pub struct ByteRead {
     pub value: Option<ByteView>,
@@ -121,8 +135,10 @@ struct Settled {
     waiters: BTreeMap<u64, Waker>,
     next: u64,
 }
+
 #[derive(Clone, Default)]
 struct Settlement(Arc<Mutex<Settled>>);
+
 impl Settlement {
     fn future(&self) -> StreamWait {
         StreamWait {
@@ -130,6 +146,7 @@ impl Settlement {
             registration: None,
         }
     }
+
     fn complete(&self, result: Result<()>, effects: &mut Effects) {
         let mut s = self.0.lock().unwrap();
         if s.result.is_none() {
@@ -140,24 +157,29 @@ impl Settlement {
         }
     }
 }
+
 /// Repeatable shared ready/closed/abort settlement. Each poll replaces its
 /// registration; dropping a waiter releases its waker without cancelling I/O.
 pub struct StreamWait {
     completion: Settlement,
     registration: Option<u64>,
 }
+
 impl Clone for StreamWait {
     fn clone(&self) -> Self {
         self.completion.future()
     }
 }
+
 impl StreamWait {
     pub fn ptr_eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.completion.0, &other.completion.0)
     }
 }
+
 impl Future for StreamWait {
     type Output = Result<()>;
+
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let waker = cx.waker().clone();
         let completion = self.completion.clone();
@@ -185,6 +207,7 @@ impl Future for StreamWait {
         Poll::Pending
     }
 }
+
 impl Drop for StreamWait {
     fn drop(&mut self) {
         if let Some(id) = self.registration.take() {
@@ -199,7 +222,9 @@ struct ReadCompletion {
     result: Option<Result<ByteRead>>,
     waker: Option<Waker>,
 }
+
 type ReadSlot = Arc<Mutex<ReadCompletion>>;
+
 /// Dropping an unfinished Rust read removes its reservation. Already consumed
 /// BYOB bytes stay consumed, just as releasing its reader discards a descriptor.
 pub struct ByteReadFuture {
@@ -207,8 +232,10 @@ pub struct ByteReadFuture {
     pipe: Weak<Pipe>,
     id: u64,
 }
+
 impl Future for ByteReadFuture {
     type Output = Result<ByteRead>;
+
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let waker = cx.waker().clone();
         let mut s = self.slot.lock().unwrap();
@@ -221,6 +248,7 @@ impl Future for ByteReadFuture {
         Poll::Pending
     }
 }
+
 impl Drop for ByteReadFuture {
     fn drop(&mut self) {
         if let Some(pipe) = self.pipe.upgrade() {
@@ -238,11 +266,13 @@ impl Drop for ByteReadFuture {
         drop(waker);
     }
 }
+
 #[derive(Default)]
 struct Effects {
     wake: Vec<Waker>,
     buffers: Vec<ByteView>,
 }
+
 impl Effects {
     fn read(&mut self, slot: &ReadSlot, result: Result<ByteRead>) {
         let mut slot = slot.lock().unwrap();
@@ -252,11 +282,13 @@ impl Effects {
         }
     }
 }
+
 struct Write {
     view: ByteView,
     consumed: usize,
     completion: Settlement,
 }
+
 enum ReadKind {
     Default,
     Into {
@@ -265,26 +297,31 @@ enum ReadKind {
         min_fill: usize,
     },
 }
+
 struct Read {
     id: u64,
     kind: ReadKind,
     slot: ReadSlot,
 }
+
 #[derive(Clone)]
 enum Status {
     Open,
     Closed,
     Errored(AbortReason),
 }
+
 struct Writer {
     id: u64,
     ready: Settlement,
     closed: Settlement,
 }
+
 struct Reader {
     id: u64,
     closed: Settlement,
 }
+
 struct State {
     readable: Status,
     writable: Status,
@@ -302,10 +339,12 @@ struct State {
     seen: u64,
     expected: Option<u64>,
 }
+
 struct Pipe {
     state: Mutex<State>,
     controller: AbortController,
 }
+
 impl Pipe {
     fn new(expected: Option<u64>) -> Arc<Self> {
         Arc::new(Self {
@@ -329,6 +368,7 @@ impl Pipe {
             controller: AbortController::new(),
         })
     }
+
     fn change<T>(&self, f: impl FnOnce(&mut State, &mut Effects) -> T) -> T {
         let mut effects = Effects::default();
         let result = {
@@ -343,6 +383,7 @@ impl Pipe {
         result
     }
 }
+
 impl Drop for Pipe {
     fn drop(&mut self) {
         // Settlements may outlive both endpoints. Losing the last native owner
@@ -357,12 +398,14 @@ impl Drop for Pipe {
         }
     }
 }
+
 impl State {
     fn identity(&mut self) -> u64 {
         let id = self.next;
         self.next = self.next.checked_add(1).expect("stream identity exhausted");
         id
     }
+
     fn desired(&self) -> Option<f64> {
         match self.writable {
             Status::Open => Some(1.0 - self.queue.len() as f64 - f64::from(self.active.is_some())),
@@ -370,6 +413,7 @@ impl State {
             Status::Errored(_) => None,
         }
     }
+
     fn update_ready(&mut self, e: &mut Effects) {
         let bp = self.active.is_some() || !self.queue.is_empty();
         if bp != self.backpressure {
@@ -383,6 +427,7 @@ impl State {
             }
         }
     }
+
     fn close_readable(&mut self, e: &mut Effects) {
         if matches!(self.readable, Status::Open) {
             self.readable = Status::Closed;
@@ -410,6 +455,7 @@ impl State {
             e.read(&read.slot, Ok(result));
         }
     }
+
     fn error_readable(&mut self, reason: AbortReason, e: &mut Effects) {
         if !matches!(self.readable, Status::Open) {
             return;
@@ -426,6 +472,7 @@ impl State {
             e.read(&read.slot, Err(reason));
         }
     }
+
     fn error_writable(&mut self, reason: AbortReason, e: &mut Effects) {
         if !matches!(self.writable, Status::Open) {
             return;
@@ -447,6 +494,7 @@ impl State {
             writer.closed.complete(Err(reason), e);
         }
     }
+
     fn pump(&mut self, e: &mut Effects) {
         while matches!(self.writable, Status::Open) {
             if self.active.is_none() {
@@ -556,17 +604,21 @@ impl State {
 
 #[derive(Clone)]
 pub struct ByteReadable(Arc<Pipe>);
+
 #[derive(Clone)]
 pub struct ByteWritable(Arc<Pipe>);
+
 pub struct IdentityTransformStream {
     pub readable: ByteReadable,
     pub writable: ByteWritable,
 }
+
 impl Default for IdentityTransformStream {
     fn default() -> Self {
         Self::new()
     }
 }
+
 impl IdentityTransformStream {
     pub fn new() -> Self {
         let p = Pipe::new(None);
@@ -576,10 +628,12 @@ impl IdentityTransformStream {
         }
     }
 }
+
 pub struct FixedLengthStream {
     pub readable: ByteReadable,
     pub writable: ByteWritable,
 }
+
 impl FixedLengthStream {
     pub fn new(expected_length: f64) -> Result<Self> {
         let length = expected_length.trunc();
@@ -595,6 +649,7 @@ impl FixedLengthStream {
         })
     }
 }
+
 struct ReaderLease {
     pipe: Arc<Pipe>,
     id: u64,
@@ -602,6 +657,7 @@ struct ReaderLease {
     released: AtomicBool,
     closed: Settlement,
 }
+
 impl ReaderLease {
     fn release(&self) {
         if self.released.swap(true, Ordering::SeqCst) {
@@ -624,32 +680,41 @@ impl ReaderLease {
         });
     }
 }
+
 impl Drop for ReaderLease {
     fn drop(&mut self) {
         self.release();
     }
 }
+
 #[derive(Clone)]
 pub struct ByteReader(Arc<ReaderLease>);
+
 impl ByteReadable {
     pub fn locked(&self) -> bool {
         self.0.state.lock().unwrap().reader.is_some()
     }
+
     pub fn disturbed(&self) -> bool {
         self.0.state.lock().unwrap().disturbed
     }
+
     pub fn expected_length(&self) -> Option<u64> {
         self.0.state.lock().unwrap().expected
     }
+
     pub fn is_closed(&self) -> bool {
         matches!(self.0.state.lock().unwrap().readable, Status::Closed)
     }
+
     pub fn get_reader(&self) -> Result<ByteReader> {
         self.reader(false)
     }
+
     pub fn get_byob_reader(&self) -> Result<ByteReader> {
         self.reader(true)
     }
+
     fn reader(&self, byob: bool) -> Result<ByteReader> {
         self.0.change(|s, e| {
             if s.reader.is_some() {
@@ -679,9 +744,11 @@ impl ByteReadable {
             })))
         })
     }
+
     pub fn cancel(&self, reason: Option<AbortReason>) -> Result<()> {
         self.cancel_for(reason, None)
     }
+
     fn cancel_for(&self, reason: Option<AbortReason>, reader: Option<&ReaderLease>) -> Result<()> {
         let error = cancel_error(reason);
         self.0.change(|s, e| {
@@ -715,6 +782,7 @@ impl ByteReadable {
             Ok(())
         })
     }
+
     /// Fail both endpoints when a native producer is retired or dropped.
     /// Controller errors do not dispatch user abort listeners.
     pub fn error(&self, reason: AbortReason) {
@@ -724,10 +792,12 @@ impl ByteReadable {
         });
     }
 }
+
 impl ByteReader {
     pub fn release_lock(&self) {
         self.0.release();
     }
+
     pub fn closed(&self) -> StreamWait {
         if self.0.released.load(Ordering::SeqCst) {
             settled(Err(type_error(READ_RELEASED)))
@@ -735,12 +805,15 @@ impl ByteReader {
             self.0.closed.future()
         }
     }
+
     pub fn cancel(&self, reason: Option<AbortReason>) -> Result<()> {
         ByteReadable(self.0.pipe.clone()).cancel_for(reason, Some(&self.0))
     }
+
     pub fn read(&self) -> ByteReadFuture {
         self.request(ReadKind::Default, None)
     }
+
     pub fn read_into(&self, view: ByteView, min: usize) -> ByteReadFuture {
         let error = if view.length == 0 {
             Some(type_error("read() requires a non-empty ArrayBufferView"))
@@ -759,6 +832,7 @@ impl ByteReader {
             error,
         )
     }
+
     fn request(&self, kind: ReadKind, error: Option<AbortReason>) -> ByteReadFuture {
         let slot = Arc::new(Mutex::new(ReadCompletion::default()));
         let id=self.0.pipe.change(|s,e| {
@@ -778,11 +852,13 @@ impl ByteReader {
         }
     }
 }
+
 struct WriterLease {
     pipe: Arc<Pipe>,
     id: u64,
     released: AtomicBool,
 }
+
 impl WriterLease {
     fn release(&self) {
         if self.released.swap(true, Ordering::SeqCst) {
@@ -802,25 +878,31 @@ impl WriterLease {
         });
     }
 }
+
 impl Drop for WriterLease {
     fn drop(&mut self) {
         self.release();
     }
 }
+
 #[derive(Clone)]
 pub struct ByteWriter(Arc<WriterLease>);
+
 fn settled(result: Result<()>) -> StreamWait {
     let s = Settlement::default();
     s.complete(result, &mut Effects::default());
     s.future()
 }
+
 impl ByteWritable {
     pub fn locked(&self) -> bool {
         self.0.state.lock().unwrap().writer.is_some()
     }
+
     pub fn signal(&self) -> AbortSignal {
         self.0.controller.signal()
     }
+
     pub fn get_writer(&self) -> Result<ByteWriter> {
         self.0.change(|s, e| {
             if s.writer.is_some() {
@@ -852,9 +934,11 @@ impl ByteWritable {
             })))
         })
     }
+
     pub fn close(&self) -> StreamWait {
         self.close_for(None)
     }
+
     fn close_for(&self, writer: Option<&WriterLease>) -> StreamWait {
         self.0.change(|s, e| {
             if let Some(writer) = writer {
@@ -880,9 +964,11 @@ impl ByteWritable {
             future
         })
     }
+
     pub fn abort(&self, reason: Option<AbortReason>) -> StreamWait {
         self.abort_for(reason, None)
     }
+
     fn abort_for(&self, reason: Option<AbortReason>, writer: Option<&WriterLease>) -> StreamWait {
         let reason = reason.unwrap_or_else(undefined);
         let read_error = cancel_error(Some(reason.clone()));
@@ -920,19 +1006,24 @@ impl ByteWritable {
         future
     }
 }
+
 impl ByteWriter {
     pub fn release_lock(&self) {
         self.0.release();
     }
+
     pub fn desired_size(&self) -> Option<f64> {
         self.0.pipe.state.lock().unwrap().desired()
     }
+
     pub fn ready(&self) -> StreamWait {
         self.wait(false)
     }
+
     pub fn closed(&self) -> StreamWait {
         self.wait(true)
     }
+
     fn wait(&self, closed: bool) -> StreamWait {
         let s = self.0.pipe.state.lock().unwrap();
         if self.0.released.load(Ordering::SeqCst) {
@@ -945,9 +1036,11 @@ impl ByteWriter {
             writer.ready.future()
         }
     }
+
     pub fn write(&self, bytes: Vec<u8>) -> StreamWait {
         self.write_view(bytes.into())
     }
+
     pub fn write_view(&self, view: ByteView) -> StreamWait {
         if self.0.released.load(Ordering::SeqCst) {
             return settled(Err(type_error(WRITE_RELEASED)));
@@ -981,9 +1074,11 @@ impl ByteWriter {
             future
         })
     }
+
     pub fn close(&self) -> StreamWait {
         ByteWritable(self.0.pipe.clone()).close_for(Some(&self.0))
     }
+
     pub fn abort(&self, reason: Option<AbortReason>) -> StreamWait {
         ByteWritable(self.0.pipe.clone()).abort_for(reason, Some(&self.0))
     }

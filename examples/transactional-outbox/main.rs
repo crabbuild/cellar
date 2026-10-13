@@ -5,12 +5,17 @@ use cellar::sdk::{
 };
 use serde_json::json;
 use std::sync::Arc;
+
 pub struct Outbox;
+
 impl Cell for Outbox {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
             let storage = context.storage()?;
-            storage.sql("CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,payload TEXT NOT NULL,sent INTEGER NOT NULL DEFAULT 0)",&[])?;
+            storage.sql(
+                "CREATE TABLE IF NOT EXISTS orders(id TEXT PRIMARY KEY,payload TEXT NOT NULL,sent INTEGER NOT NULL DEFAULT 0)",
+                &[],
+            )?;
             match event {
                 Invocation::Fetch(request) => {
                     support::method(&request, &["GET", "POST"])?;
@@ -37,12 +42,15 @@ impl Cell for Outbox {
                         return support::json_status(
                             &context,
                             202,
-                            json!({"id":id,"accepted":true}),
+                            json!({
+                                "id": id,
+                                "accepted": true,
+                            }),
                         );
                     }
                     let (_, rows, _) =
                         storage.sql("SELECT id,sent FROM orders ORDER BY id LIMIT 100", &[])?;
-                    support::json(&context, json!({"orders":rows}))
+                    support::json(&context, json!({ "orders": rows }))
                 }
                 Invocation::Alarm { .. } => {
                     // Re-arm before egress; interrupted delivery remains discoverable.
@@ -68,7 +76,10 @@ impl Cell for Outbox {
                             .queue("JOBS")?
                             .send(
                                 &context,
-                                Body::Json(json!({"id":key,"order":payload})),
+                                Body::Json(json!({
+                                    "id": key,
+                                    "order": payload,
+                                })),
                                 SendOptions::default(),
                             )
                             .await?;

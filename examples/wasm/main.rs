@@ -1,7 +1,9 @@
 //! Compile computation directly into the native application executable.
+
 use crate::support;
 use anyhow::Result;
 use cellar::sdk::{Context, Output, Request};
+
 pub fn fetch(context: &Context, request: Request) -> Result<Output> {
     support::method(&request, &["GET"])?;
     let url = url::Url::parse(&request.url)?;
@@ -24,6 +26,10 @@ pub fn fetch(context: &Context, request: Request) -> Result<Output> {
         / f64::from(samples);
     support::json(
         context,
-        serde_json::json!({"pi":pi,"samples":samples,"execution":"native Rust"}),
+        serde_json::json!({
+            "pi": pi,
+            "samples": samples,
+            "execution": "native Rust",
+        }),
     )
 }

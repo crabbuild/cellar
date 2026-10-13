@@ -22,8 +22,10 @@ struct HttpBytes {
     pending: Option<ByteReadFuture>,
     finished: bool,
 }
+
 impl Stream for HttpBytes {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         if self.finished {
             return Poll::Ready(None);
@@ -53,6 +55,7 @@ impl Stream for HttpBytes {
         }
     }
 }
+
 impl Drop for HttpBytes {
     fn drop(&mut self) {
         if !self.finished {
@@ -62,6 +65,7 @@ impl Drop for HttpBytes {
         }
     }
 }
+
 /// Claim the shared readable once. The transport consumes it after a handler
 /// returns; it needs no cell authority. Dropping transport cancels the producer.
 pub fn http_byte_stream(readable: &ByteReadable) -> Result<HttpChunkStream> {
@@ -71,10 +75,12 @@ pub fn http_byte_stream(readable: &ByteReadable) -> Result<HttpChunkStream> {
         finished: false,
     }))
 }
+
 struct ProducerGuard {
     readable: ByteReadable,
     finished: bool,
 }
+
 impl ProducerGuard {
     fn finish(mut self, result: Result<()>) -> Result<()> {
         let result = match result {
@@ -94,6 +100,7 @@ impl ProducerGuard {
         result
     }
 }
+
 impl Drop for ProducerGuard {
     fn drop(&mut self) {
         if !self.finished {
@@ -102,6 +109,7 @@ impl Drop for ProducerGuard {
         }
     }
 }
+
 impl Context {
     /// Retain producer work in this invocation. Retirement and shutdown drop
     /// it and fail both stream endpoints, including an unwakeable producer.
@@ -121,6 +129,7 @@ impl Context {
         })
     }
 }
+
 impl Response {
     pub fn from_byte_stream(
         status: u16,
@@ -134,6 +143,7 @@ impl Response {
         ))
     }
 }
+
 impl Request {
     /// Routed stream requests retain the host body claim and advertise known
     /// lengths (or chunked transfer) using the existing service-call policy.

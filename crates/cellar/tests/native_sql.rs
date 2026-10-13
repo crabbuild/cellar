@@ -68,6 +68,7 @@ struct Caller {
     database: Database,
     storage: Storage,
 }
+
 impl Cell for Caller {
     fn invoke(self: Arc<Self>, context: Context, _: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {

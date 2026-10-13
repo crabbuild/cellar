@@ -14,6 +14,7 @@ struct DropProbe {
     released: Arc<AtomicUsize>,
     wrong_owner: Arc<AtomicBool>,
 }
+
 impl Drop for DropProbe {
     fn drop(&mut self) {
         if !Arc::ptr_eq(&self.owner, &cellar::asyncrt::services()) {

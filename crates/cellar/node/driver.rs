@@ -80,6 +80,7 @@ pub(super) struct PreparedDriver {
 }
 
 struct AdmissionFence(Arc<std::sync::atomic::AtomicBool>);
+
 impl Drop for AdmissionFence {
     fn drop(&mut self) {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);

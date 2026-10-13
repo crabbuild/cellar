@@ -1,4 +1,5 @@
 //! Only HTTP plumbing is shared; each recipe owns its business behavior.
+
 use anyhow::Result;
 use cellar::sdk::{http::Response, Context, Output, Request};
 use futures_util::StreamExt;
@@ -9,12 +10,15 @@ pub struct ClientError {
     pub status: u16,
     pub message: String,
 }
+
 impl std::fmt::Display for ClientError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.message)
     }
 }
+
 impl std::error::Error for ClientError {}
+
 pub fn reject(status: u16, message: impl Into<String>) -> anyhow::Error {
     ClientError {
         status,
@@ -22,9 +26,11 @@ pub fn reject(status: u16, message: impl Into<String>) -> anyhow::Error {
     }
     .into()
 }
+
 pub fn json(context: &Context, value: Value) -> Result<Output> {
     json_status(context, 200, value)
 }
+
 pub fn json_status(context: &Context, status: u16, value: Value) -> Result<Output> {
     Ok(Output::Http(
         Response::new(
@@ -35,11 +41,13 @@ pub fn json_status(context: &Context, status: u16, value: Value) -> Result<Outpu
         .into_http(context)?,
     ))
 }
+
 pub fn text(context: &Context, status: u16, value: &str) -> Result<Output> {
     Ok(Output::Http(
         Response::new(status, value, Vec::new()).into_http(context)?,
     ))
 }
+
 pub fn name(value: &str) -> Result<&str> {
     if value.is_empty()
         || value.len() > 128
@@ -54,12 +62,14 @@ pub fn name(value: &str) -> Result<&str> {
     }
     Ok(value)
 }
+
 pub fn method(request: &Request, allowed: &[&str]) -> Result<()> {
     if !allowed.contains(&request.method.as_str()) {
         return Err(reject(405, format!("use {}", allowed.join(" or "))));
     }
     Ok(())
 }
+
 pub async fn bytes(context: &Context, request: Request) -> Result<Vec<u8>> {
     let mut stream = context.take_body(request.body)?;
     let mut bytes = Vec::new();
@@ -72,10 +82,12 @@ pub async fn bytes(context: &Context, request: Request) -> Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+
 pub async fn payload(context: &Context, request: Request) -> Result<Value> {
     serde_json::from_slice(&bytes(context, request).await?)
         .map_err(|_| reject(400, "expected a JSON body"))
 }
+
 pub async fn route(context: &Context, request: Request, binding: &str) -> Result<Output> {
     let url = url::Url::parse(&request.url)?;
     let entity = name(url.path().split('/').nth(2).unwrap_or_default())?;
@@ -87,12 +99,14 @@ pub async fn route(context: &Context, request: Request, binding: &str) -> Result
             .await?,
     ))
 }
+
 pub fn now_ms() -> i64 {
     cellar::asyncrt::wall_ms()
 }
 
 /// Preserve user input status codes across a cell's HTTP routing boundary.
 pub struct HttpErrors<T>(pub std::sync::Arc<T>);
+
 impl<T: cellar::sdk::Cell> cellar::sdk::Cell for HttpErrors<T> {
     fn invoke(
         self: std::sync::Arc<Self>,
@@ -106,7 +120,7 @@ impl<T: cellar::sdk::Cell> cellar::sdk::Cell for HttpErrors<T> {
                     Some(client) => json_status(
                         &context,
                         client.status,
-                        serde_json::json!({"error":client.message}),
+                        serde_json::json!({ "error": client.message }),
                     ),
                     None => Err(error),
                 },
@@ -115,6 +129,7 @@ impl<T: cellar::sdk::Cell> cellar::sdk::Cell for HttpErrors<T> {
         })
     }
 }
+
 pub fn cell<T: cellar::sdk::Cell>(value: T) -> std::sync::Arc<dyn cellar::sdk::Cell> {
     std::sync::Arc::new(HttpErrors(std::sync::Arc::new(value)))
 }

@@ -166,6 +166,7 @@ pub fn random_uuid() -> Result<String> {
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
     let mut output = String::with_capacity(36);
+
     const HEX: &[u8; 16] = b"0123456789abcdef";
     for (index, byte) in bytes.iter().enumerate() {
         if [4, 6, 8, 10].contains(&index) {
@@ -313,6 +314,7 @@ macro_rules! ec_curve {
         }
     };
 }
+
 const ED25519_OID: rsa::pkcs8::ObjectIdentifier =
     rsa::pkcs8::ObjectIdentifier::new_unwrap("1.3.101.112");
 const X25519_OID: rsa::pkcs8::ObjectIdentifier =

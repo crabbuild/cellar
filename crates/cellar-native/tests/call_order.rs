@@ -8,19 +8,24 @@ use std::{
     },
     task::{Context, Poll, Wake, Waker},
 };
+
 #[derive(Default)]
 struct Count(AtomicUsize);
+
 impl Wake for Count {
     fn wake(self: Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
+
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 fn poll<F: Future + Unpin>(f: &mut F) -> Poll<F::Output> {
     Pin::new(f).poll(&mut Context::from_waker(Waker::noop()))
 }
+
 #[test]
 fn delivered_calls_release_in_order_and_callers_and_cells_are_independent() {
     let chains = CallChains::default();
@@ -43,6 +48,7 @@ fn delivered_calls_release_in_order_and_callers_and_cells_are_independent() {
     assert_eq!(chains.pending_cells(), 0);
     assert_eq!(other.pending_cells(), 0);
 }
+
 #[test]
 fn cancelled_wait_preserves_predecessor_for_the_successor_and_for_a_retry() {
     let chains = CallChains::default();
@@ -75,6 +81,7 @@ fn cancelled_wait_preserves_predecessor_for_the_successor_and_for_a_retry() {
     drop(later);
     assert_eq!(chains.pending_cells(), 0);
 }
+
 #[test]
 fn waits_replace_and_release_wakers_instead_of_retaining_cancelled_tasks() {
     let chains = CallChains::default();
@@ -97,9 +104,11 @@ fn waits_replace_and_release_wakers_instead_of_retaining_cancelled_tasks() {
     drop(a);
     assert!(poll(&mut b.wait()).is_ready());
 }
+
 #[test]
 fn opaque_event_owners_survive_until_token_drop_and_reentry_runs_outside_chain_locks() {
     struct Owner(CallChains, Arc<AtomicUsize>);
+
     impl Drop for Owner {
         fn drop(&mut self) {
             let _nested = self.0.enter("nested");
@@ -117,7 +126,9 @@ fn opaque_event_owners_survive_until_token_drop_and_reentry_runs_outside_chain_l
     assert!(weak.upgrade().is_none());
     assert_eq!(drops.load(Ordering::SeqCst), 1);
     assert_eq!(chains.pending_cells(), 0);
+
     struct Reentrant(CallChains, Arc<AtomicUsize>);
+
     impl Wake for Reentrant {
         fn wake(self: Arc<Self>) {
             let _ = self.0.pending_cells();
@@ -136,6 +147,7 @@ fn opaque_event_owners_survive_until_token_drop_and_reentry_runs_outside_chain_l
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert!(poll(&mut wait).is_ready());
 }
+
 #[test]
 fn long_failed_prefixes_yield_bounded_work_then_park_without_spinning() {
     let chains = CallChains::default();
@@ -165,6 +177,7 @@ fn long_failed_prefixes_yield_bounded_work_then_park_without_spinning() {
     drop(last);
     assert_eq!(chains.pending_cells(), 0);
 }
+
 #[test]
 fn abandoned_chains_reclaim_iteratively_on_small_host_stacks() {
     std::thread::Builder::new()

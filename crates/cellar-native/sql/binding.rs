@@ -165,6 +165,7 @@ impl std::fmt::Display for Error {
         write!(f, "{}: {}", self.family, self.message)
     }
 }
+
 impl std::error::Error for Error {}
 
 /// A bind value normalized at the public API boundary. A byte array is a
@@ -230,26 +231,31 @@ impl From<f64> for BindValue {
         )
     }
 }
+
 impl From<bool> for BindValue {
     fn from(value: bool) -> Self {
         Self((value as u8).into())
     }
 }
+
 impl From<i64> for BindValue {
     fn from(value: i64) -> Self {
         Self(value.into())
     }
 }
+
 impl From<String> for BindValue {
     fn from(value: String) -> Self {
         Self(value.into())
     }
 }
+
 impl From<&str> for BindValue {
     fn from(value: &str) -> Self {
         Self(value.into())
     }
 }
+
 impl From<Vec<u8>> for BindValue {
     fn from(value: Vec<u8>) -> Self {
         Self(value.into())

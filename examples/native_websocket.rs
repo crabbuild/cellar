@@ -15,6 +15,7 @@ use cellar::{
     fleet::LoadedDeployment,
     generation::DeploymentGraph,
 };
+
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         native: None,
@@ -69,6 +70,7 @@ fn upgrade_request() -> cellar::sdk::Request {
         entrypoint: None,
     }
 }
+
 async fn consume(
     context: &Context,
     mut response: cellar::engine_api::HttpResponse,
@@ -105,13 +107,17 @@ async fn consume(
             SocketEvent::Close(code, reason, clean) => {
                 return output(
                     context,
-                    serde_json::json!({"messages":messages,"close":[code,reason,clean]}),
+                    serde_json::json!({
+                        "messages": messages,
+                        "close": [code, reason, clean],
+                    }),
                 )
             }
             SocketEvent::Open(_) => {}
         }
     }
 }
+
 async fn worker_server(context: &Context) -> Result<Output> {
     let pair = context.websocket_pair()?;
     pair.server.accept(context)?;
@@ -138,7 +144,9 @@ async fn worker_server(context: &Context) -> Result<Output> {
         pair.client.into_response(context, Vec::new())?,
     ))
 }
+
 struct EchoRoom(String);
+
 impl Cell for EchoRoom {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -148,7 +156,7 @@ impl Cell for EchoRoom {
                     if request.url.ends_with("/state") {
                         return output(&context, storage.get_json("state")?.unwrap_or_default());
                     }
-                    storage.put_json("state", &serde_json::json!({"owner":self.0}))?;
+                    storage.put_json("state", &serde_json::json!({ "owner": self.0 }))?;
                     let pair = context.websocket_pair()?;
                     pair.server
                         .accept_hibernating(&context, vec!["room".into()])?;
@@ -166,7 +174,10 @@ impl Cell for EchoRoom {
                         Message::Binary(bytes) => {
                             storage.put_json(
                                 "state",
-                                &serde_json::json!({"owner":self.0,"received":bytes}),
+                                &serde_json::json!({
+                                    "owner": self.0,
+                                    "received": bytes,
+                                }),
                             )?;
                             socket.send_binary(&context, bytes)?;
                             socket.close(&context, 4001, "complete")?;
@@ -189,6 +200,7 @@ impl Cell for EchoRoom {
 }
 
 struct PeerCell(String);
+
 impl Cell for PeerCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -228,7 +240,10 @@ impl Cell for PeerCell {
                     socket.send_binary(&context, vec![0, 128, 255])?;
                     output(
                         &context,
-                        serde_json::json!({"connected":true,"protocol":socket.protocol()}),
+                        serde_json::json!({
+                            "connected": true,
+                            "protocol": socket.protocol(),
+                        }),
                     )
                 }
                 Invocation::WebSocketOpen { id, protocol } => {
@@ -237,7 +252,10 @@ impl Cell for PeerCell {
                     assert_eq!(socket.ready_state(), ReadyState::Open);
                     storage.put_json(
                         "state",
-                        &serde_json::json!({"protocol":protocol,"messages":[]}),
+                        &serde_json::json!({
+                            "protocol": protocol,
+                            "messages": [],
+                        }),
                     )?;
                     Ok(Output::Done)
                 }
@@ -274,59 +292,118 @@ impl Cell for PeerCell {
 
 fn application(peer: String) -> Result<Arc<dyn Application>> {
     let worker_peer = peer.clone();
-    Ok(Arc::new(Registry::new(move |context, invocation| {
-        let peer = worker_peer.clone();
-        Box::pin(async move {
-            let Invocation::Fetch(request) = invocation else { bail!("expected HTTP"); };
-            let url = url::Url::parse(&request.url)?;
-            if url.path() == "/room-state" {
-                let request = cellar::sdk::Request { url: "https://room/state".into(), headers: Vec::new(), ..upgrade_request() };
-                return Ok(Output::Http(context.namespace("ROOMS")?.get_by_name("shared").fetch(&context,request).await?));
-            }
-            if url.path() == "/service" { return worker_server(&context).await; }
-            if let Some(kind) = url.path().strip_prefix("/bind/") {
-                let response = if kind == "worker" {
-                    context.exported_entrypoint("default")?.fetch(&context,cellar::sdk::Request {url:"https://worker/service".into(),..upgrade_request()}).await?
-                } else {
-                    context.namespace("ROOMS")?.get_by_name("shared").fetch(&context,upgrade_request()).await?
+    Ok(Arc::new(
+        Registry::new(move |context, invocation| {
+            let peer = worker_peer.clone();
+            Box::pin(async move {
+                let Invocation::Fetch(request) = invocation else {
+                    bail!("expected HTTP");
                 };
-                if kind == "discard" { let mut response = response; drop(context.accept_websocket(&mut response)); return output(&context,serde_json::json!(true)); }
-                return consume(&context,response).await;
-            }
-            if let Some(name) = url.path().strip_prefix("/cells/").and_then(|path| path.split('/').next()) {
-                let cell = context.namespace("PEERS")?.get_by_name(name);
-                return Ok(Output::Http(cell.fetch(&context, request).await?));
-            }
-            if url.path() == "/decline" {
-                let headers = Headers::from_pairs([("x-session", "first"),("x-session", "second")])?;
-                return match context.upgrade_websocket(format!("{peer}/decline"), headers).await? {
-                    UpgradeResponse::Declined(response) => Ok(Output::Http(response)),
-                    UpgradeResponse::Upgraded(_) => bail!("expected a declined upgrade"),
-                };
-            }
-            if url.path() != "/echo" {
-                let result = context.connect_websocket(format!("{peer}{}",url.path()),vec!["chat.v1".into()]).await;
-                return output(&context,serde_json::json!({"error":result.err().map(|e|e.to_string())}));
-            }
-            let socket = context.connect_websocket(format!("{peer}/echo"),vec!["chat.v1".into()]).await?;
-            socket.send_text(&context,"hello 🦀")?;
-            socket.send_binary(&context,vec![0,128,255])?;
-            let mut messages = Vec::new();
-            loop {
-                match socket.next(&context).await? {
-                    SocketEvent::Open(protocol) => assert_eq!(protocol,socket.protocol()),
-                    SocketEvent::Text(text) => messages.push(serde_json::json!(text)),
-                    SocketEvent::Binary(bytes) => {
-                        messages.push(serde_json::json!(bytes));
-                        socket.close(&context,1000,"done")?;
+                let url = url::Url::parse(&request.url)?;
+                if url.path() == "/room-state" {
+                    let request = cellar::sdk::Request {
+                        url: "https://room/state".into(),
+                        headers: Vec::new(),
+                        ..upgrade_request()
+                    };
+                    return Ok(Output::Http(
+                        context
+                            .namespace("ROOMS")?
+                            .get_by_name("shared")
+                            .fetch(&context, request)
+                            .await?,
+                    ));
+                }
+                if url.path() == "/service" {
+                    return worker_server(&context).await;
+                }
+                if let Some(kind) = url.path().strip_prefix("/bind/") {
+                    let response = if kind == "worker" {
+                        context
+                            .exported_entrypoint("default")?
+                            .fetch(
+                                &context,
+                                cellar::sdk::Request {
+                                    url: "https://worker/service".into(),
+                                    ..upgrade_request()
+                                },
+                            )
+                            .await?
+                    } else {
+                        context
+                            .namespace("ROOMS")?
+                            .get_by_name("shared")
+                            .fetch(&context, upgrade_request())
+                            .await?
+                    };
+                    if kind == "discard" {
+                        let mut response = response;
+                        drop(context.accept_websocket(&mut response));
+                        return output(&context, serde_json::json!(true));
                     }
-                    SocketEvent::Close(code,_,clean) => {
-                        return output(&context,serde_json::json!({"protocol":socket.protocol(),"messages":messages,"close":[code,clean]}));
+                    return consume(&context, response).await;
+                }
+                if let Some(name) = url
+                    .path()
+                    .strip_prefix("/cells/")
+                    .and_then(|path| path.split('/').next())
+                {
+                    let cell = context.namespace("PEERS")?.get_by_name(name);
+                    return Ok(Output::Http(cell.fetch(&context, request).await?));
+                }
+                if url.path() == "/decline" {
+                    let headers =
+                        Headers::from_pairs([("x-session", "first"), ("x-session", "second")])?;
+                    return match context
+                        .upgrade_websocket(format!("{peer}/decline"), headers)
+                        .await?
+                    {
+                        UpgradeResponse::Declined(response) => Ok(Output::Http(response)),
+                        UpgradeResponse::Upgraded(_) => bail!("expected a declined upgrade"),
+                    };
+                }
+                if url.path() != "/echo" {
+                    let result = context
+                        .connect_websocket(format!("{peer}{}", url.path()), vec!["chat.v1".into()])
+                        .await;
+                    return output(
+                        &context,
+                        serde_json::json!({ "error": result.err().map(|e| e.to_string()) }),
+                    );
+                }
+                let socket = context
+                    .connect_websocket(format!("{peer}/echo"), vec!["chat.v1".into()])
+                    .await?;
+                socket.send_text(&context, "hello 🦀")?;
+                socket.send_binary(&context, vec![0, 128, 255])?;
+                let mut messages = Vec::new();
+                loop {
+                    match socket.next(&context).await? {
+                        SocketEvent::Open(protocol) => assert_eq!(protocol, socket.protocol()),
+                        SocketEvent::Text(text) => messages.push(serde_json::json!(text)),
+                        SocketEvent::Binary(bytes) => {
+                            messages.push(serde_json::json!(bytes));
+                            socket.close(&context, 1000, "done")?;
+                        }
+                        SocketEvent::Close(code, _, clean) => {
+                            return output(
+                                &context,
+                                serde_json::json!({
+                                    "protocol": socket.protocol(),
+                                    "messages": messages,
+                                    "close": [code, clean],
+                                }),
+                            );
+                        }
                     }
                 }
-            }
+            })
         })
-    }).cell("EchoRoom",|_,_|Ok(Arc::new(EchoRoom(std::env::var("CELLAR_NODE")?))))?.cell("Peer",move |_,_|Ok(Arc::new(PeerCell(peer.clone()))))?))
+        .cell("EchoRoom", |_, _| {
+            Ok(Arc::new(EchoRoom(std::env::var("CELLAR_NODE")?)))
+        })?
+        .cell("Peer", move |_, _| Ok(Arc::new(PeerCell(peer.clone()))))?,
+    ))
 }
 
 fn main() -> Result<()> {

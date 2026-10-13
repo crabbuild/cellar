@@ -23,6 +23,7 @@ const SECRET_VERSION: u8 = 1;
 const DOMAIN: &str = "cells-peer-request-v1";
 const CLOCK_WINDOW_MS: u64 = 30_000;
 const REPLAY_RETENTION_MS: u64 = CLOCK_WINDOW_MS * 2;
+
 // A nonce must be retained at least as long as its signature stays acceptable,
 // or the replay cache forgets it while a replay is still in-window. Pinned at
 // compile time (see cellar_logic::peer::replay_entry_expired).

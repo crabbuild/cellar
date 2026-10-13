@@ -24,6 +24,7 @@ pub struct Class {
     service: Option<Weak<dyn host_facets::FacetService>>,
     props_limit: usize,
 }
+
 impl Class {
     pub(crate) fn loaded(worker: super::loader::Worker, name: String) -> Self {
         let props_limit = worker.props_limit();
@@ -36,6 +37,7 @@ impl Class {
             service: None,
         }
     }
+
     pub fn with_props(&self, props: &StructuredValue) -> Result<Self> {
         // Loaded entrypoints/classes accept every clonable value. The local
         // ctx.exports specialization below retains its object-only contract.
@@ -94,6 +96,7 @@ pub struct Startup {
     /// Omission inherits the parent's identity, including its name and kind.
     pub id: Option<StructuredValue>,
 }
+
 impl Startup {
     pub fn new(class: Class) -> Self {
         Self { class, id: None }
@@ -105,6 +108,7 @@ impl Startup {
 pub struct AbortError {
     pub reason: Arc<StructuredValue>,
 }
+
 impl std::fmt::Display for AbortError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.reason.root {
@@ -113,6 +117,7 @@ impl std::fmt::Display for AbortError {
         }
     }
 }
+
 impl std::error::Error for AbortError {}
 
 /// A shared startup or lifecycle failure, with its original Rust error and
@@ -121,16 +126,19 @@ impl std::error::Error for AbortError {}
 pub struct CompletionError {
     pub cause: Arc<anyhow::Error>,
 }
+
 impl std::fmt::Display for CompletionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         std::fmt::Display::fmt(&self.cause, f)
     }
 }
+
 impl std::error::Error for CompletionError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(self.cause.as_ref().as_ref())
     }
 }
+
 fn completion_error(cause: Arc<anyhow::Error>) -> anyhow::Error {
     CompletionError { cause }.into()
 }
@@ -139,6 +147,7 @@ fn completion_error(cause: Arc<anyhow::Error>) -> anyhow::Error {
 struct Completion<T: Clone> {
     receiver: watch::Receiver<Option<std::result::Result<T, Arc<anyhow::Error>>>>,
 }
+
 impl<T: Clone> Completion<T> {
     async fn wait(mut self) -> std::result::Result<T, Arc<anyhow::Error>> {
         loop {
@@ -153,15 +162,19 @@ impl<T: Clone> Completion<T> {
         }
     }
 }
+
 type Callback = Box<dyn FnOnce(Context) -> HandlerFuture<Startup> + Send>;
+
 struct Started {
     class: Class,
     id: Vec<u8>,
 }
+
 struct Starting {
     callback: Option<Callback>,
     completion: Option<Completion<Arc<Started>>>,
 }
+
 struct Record {
     name: String,
     owner: String,
@@ -169,12 +182,14 @@ struct Record {
     starting: Mutex<Starting>,
     barrier: Option<Completion<()>>,
 }
+
 #[derive(Default)]
 struct Entries {
     running: HashMap<String, Arc<Record>>,
     barriers: HashMap<String, (u64, Completion<()>)>,
     next: u64,
 }
+
 pub(crate) struct State {
     activation: Weak<Activation>,
     slot: Weak<crate::pool::Slot>,
@@ -186,6 +201,7 @@ pub(crate) struct State {
 /// One manager per cell activation, shared by its events and constructor.
 #[derive(Clone)]
 pub struct Facets(Arc<State>);
+
 #[derive(Clone)]
 pub struct Facet {
     state: Arc<State>,
@@ -268,6 +284,7 @@ impl State {
         Ok(activation)
     }
 }
+
 fn valid_name(name: &str) -> Result<()> {
     anyhow::ensure!(
         name.len() <= 256,
@@ -275,6 +292,7 @@ fn valid_name(name: &str) -> Result<()> {
     );
     Ok(())
 }
+
 fn inherited_id(context: &Context) -> Result<StructuredValue> {
     if let Some(facet) = context.facet() {
         return Ok(facet.id.clone());
@@ -302,6 +320,7 @@ fn inherited_id(context: &Context) -> Result<StructuredValue> {
         }],
     })
 }
+
 impl Record {
     fn check(&self) -> Result<()> {
         if let Some(reason) = self.aborted.lock().unwrap().clone() {
@@ -309,6 +328,7 @@ impl Record {
         }
         Ok(())
     }
+
     fn start(&self, context: &Context) -> Result<Completion<Arc<Started>>> {
         self.check()?;
         let mut starting = self.starting.lock().unwrap();
@@ -400,6 +420,7 @@ impl Facets {
     ) -> HandlerFuture<()> {
         self.lifecycle(context, name, reason, false)
     }
+
     /// Deletes a facet and its descendants after their abort barrier. Failed
     /// deletion remains the name's barrier until an explicit successful retry.
     pub fn delete(&self, context: &Context, name: &str) -> HandlerFuture<()> {
@@ -413,6 +434,7 @@ impl Facets {
             true,
         )
     }
+
     fn lifecycle(
         &self,
         context: &Context,
@@ -547,6 +569,7 @@ impl Facet {
         self.record.check()?;
         Ok(authority)
     }
+
     pub fn fetch(&self, context: &Context, request: Request) -> HandlerFuture<HttpResponse> {
         let prepared = (|| -> Result<_> {
             self.check(context)?;
@@ -619,6 +642,7 @@ impl Facet {
             result
         })
     }
+
     pub fn rpc(
         &self,
         context: &Context,

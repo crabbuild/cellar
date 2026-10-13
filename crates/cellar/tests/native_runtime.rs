@@ -65,6 +65,7 @@ struct Signals {
 }
 
 struct DropFlag(Arc<Signals>);
+
 impl Drop for DropFlag {
     fn drop(&mut self) {
         self.0.dropped.store(true, Ordering::SeqCst);
@@ -77,13 +78,16 @@ struct TrackedBody {
     chunks: std::collections::VecDeque<Vec<u8>>,
     dropped: Arc<AtomicBool>,
 }
+
 impl Drop for TrackedBody {
     fn drop(&mut self) {
         self.dropped.store(true, Ordering::SeqCst);
     }
 }
+
 impl futures_util::Stream for TrackedBody {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         _: &mut std::task::Context<'_>,

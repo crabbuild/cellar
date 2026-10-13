@@ -12,32 +12,39 @@ use std::{
     },
     task::{Context, Poll, Wake, Waker},
 };
+
 #[derive(Default)]
 struct Counter(AtomicUsize);
+
 impl Wake for Counter {
     fn wake(self: Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
+
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 fn poll<F: Future + Unpin>(future: &mut F) -> Poll<F::Output> {
     let waker = Waker::from(Arc::new(Counter::default()));
     Pin::new(future).poll(&mut Context::from_waker(&waker))
 }
+
 fn ready<F: Future + Unpin>(mut future: F) -> F::Output {
     match poll(&mut future) {
         Poll::Ready(result) => result,
         Poll::Pending => panic!("operation did not settle"),
     }
 }
+
 fn reason(value: Value) -> AbortReason {
     AbortReason::from_value(StructuredValue {
         root: value,
         objects: Vec::new(),
     })
 }
+
 fn name(reason: &AbortReason) -> String {
     reason
         .web_error()

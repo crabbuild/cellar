@@ -33,6 +33,7 @@ pub struct Docker {
 
 /// A raw bidirectional stream the daemon hijacked for an exec or attach.
 pub trait Stream: AsyncRead + AsyncWrite + Send + Unpin {}
+
 impl<T: AsyncRead + AsyncWrite + Send + Unpin> Stream for T {}
 
 pub struct Reply {

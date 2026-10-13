@@ -5,6 +5,7 @@ use cellar::sdk::{
     workflow::{CreateOptions, Event, Steps},
     Context, Output, Request,
 };
+
 pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
     support::method(&request, &["GET", "POST"])?;
     let url = url::Url::parse(&request.url)?;
@@ -22,19 +23,26 @@ pub async fn fetch(context: &Context, request: Request) -> Result<Output> {
                 },
             )
             .await?;
-        return support::json_status(context, 202, serde_json::json!({"id":instance.id()}));
+        return support::json_status(context, 202, serde_json::json!({ "id": instance.id() }));
     }
     let status = binding.get(context, id).await?.status(context).await?;
     support::json(
         context,
-        serde_json::json!({"state":format!("{:?}",status.state),"output":status.output.map(|v| v.to_json()).transpose()?}),
+        serde_json::json!({
+            "state": format!("{:?}", status.state),
+            "output": status.output.map(|v| v.to_json()).transpose()?,
+        }),
     )
 }
+
 pub async fn run(context: Context, event: Event, steps: Steps) -> Result<StructuredValue> {
     let payload = event.payload.to_json()?;
     let prepared = steps
         .do_step("prepare-report", move |_| async move {
-            StructuredValue::from_json(serde_json::json!({"report":payload,"format":"json"}))
+            StructuredValue::from_json(serde_json::json!({
+                "report": payload,
+                "format": "json",
+            }))
         })
         .await?;
     steps
@@ -57,9 +65,10 @@ pub async fn run(context: Context, event: Event, steps: Steps) -> Result<Structu
                     Default::default(),
                 )
                 .await?;
-            StructuredValue::from_json(
-                serde_json::json!({"key":format!("report-{id}"),"report":value}),
-            )
+            StructuredValue::from_json(serde_json::json!({
+                "key": format!("report-{id}"),
+                "report": value,
+            }))
         })
         .await
 }

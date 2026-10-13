@@ -228,31 +228,37 @@ fn chain_contains_error_variant(
 /// detect it via `downcast_ref`.
 #[derive(Debug)]
 struct LTXMissingMarker;
+
 impl std::fmt::Display for LTXMissingMarker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ltx file missing")
     }
 }
+
 impl std::error::Error for LTXMissingMarker {}
 
 /// Marker wrapping `Error::LTXCorrupted`.
 #[derive(Debug)]
 struct LTXCorruptedMarker;
+
 impl std::fmt::Display for LTXCorruptedMarker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ltx file corrupted")
     }
 }
+
 impl std::error::Error for LTXCorruptedMarker {}
 
 /// Marker wrapping `Error::ChecksumMismatch`.
 #[derive(Debug)]
 struct ChecksumMismatchMarker;
+
 impl std::fmt::Display for ChecksumMismatchMarker {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("invalid replica, checksum mismatch")
     }
 }
+
 impl std::error::Error for ChecksumMismatchMarker {}
 
 // ── Public constructor ─────────────────────────────────────────────────────────
@@ -349,9 +355,11 @@ pub fn new_ltx_error(
 /// Thin wrapper so we can box an arbitrary `Error` string for the catch-all arm.
 #[derive(Debug)]
 struct OpaqueError(String);
+
 impl std::fmt::Display for OpaqueError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
 }
+
 impl std::error::Error for OpaqueError {}

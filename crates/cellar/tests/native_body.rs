@@ -24,21 +24,26 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+
 const SOURCE: &str = "Upload:one";
 const PEER: &str = "Peer:one";
+
 #[derive(Default)]
 struct Probe {
     pulls: AtomicUsize,
     dropped: AtomicBool,
     entered: Notify,
 }
+
 struct Producer {
     chunks: VecDeque<std::result::Result<Vec<u8>, String>>,
     pending: bool,
     probe: Arc<Probe>,
 }
+
 impl Stream for Producer {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(mut self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         self.probe.pulls.fetch_add(1, Ordering::SeqCst);
         if let Some(chunk) = self.chunks.pop_front() {
@@ -52,11 +57,13 @@ impl Stream for Producer {
         }
     }
 }
+
 impl Drop for Producer {
     fn drop(&mut self) {
         self.probe.dropped.store(true, Ordering::SeqCst);
     }
 }
+
 fn producer(
     chunks: VecDeque<std::result::Result<Vec<u8>, String>>,
     pending: bool,
@@ -70,6 +77,7 @@ fn producer(
     .map_err(anyhow::Error::msg)?;
     Ok((RequestBody::Stream(id), probe))
 }
+
 #[derive(Default)]
 struct Signals {
     held: AtomicBool,
@@ -79,7 +87,9 @@ struct Signals {
     saved: Mutex<Option<Context>>,
     retained: Mutex<Option<(Blob, FormData)>>,
 }
+
 struct Upload(Arc<Signals>);
+
 impl Cell for Upload {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -153,7 +163,9 @@ impl Cell for Upload {
         })
     }
 }
+
 struct Peer;
+
 impl Cell for Peer {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -196,6 +208,7 @@ impl Cell for Peer {
         })
     }
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -212,6 +225,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 fn fetch(path: &str, body: RequestBody, kind: &str) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("http://upload{path}"),
@@ -223,6 +237,7 @@ fn fetch(path: &str, body: RequestBody, kind: &str) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn call(
     runtime: &RuntimeManager,
     path: &str,
@@ -233,12 +248,14 @@ async fn call(
         .fetch_cell(SOURCE.into(), None, fetch(path, body, kind), None)
         .await
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn native_upload_bodies_retain_proofs_reads_reopen_and_source_cleanup() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let signals = Arc::new(Signals::default());
     let upload = signals.clone();

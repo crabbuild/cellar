@@ -31,6 +31,7 @@ struct Probe {
     release: Condvar,
     entered: tokio::sync::Notify,
 }
+
 impl Probe {
     fn new() -> Arc<Self> {
         Arc::new(Self {
@@ -44,26 +45,33 @@ impl Probe {
             entered: tokio::sync::Notify::new(),
         })
     }
+
     fn record(&self, path: &Path) {
         self.paths.lock().unwrap().push(path.to_owned());
     }
+
     fn unblock(&self) {
         *self.block.lock().unwrap() = false;
         self.release.notify_all();
     }
 }
+
 struct UnblockOnDrop(Arc<Probe>);
+
 impl Drop for UnblockOnDrop {
     fn drop(&mut self) {
         self.0.unblock();
     }
 }
+
 struct Filesystem(Arc<Probe>);
+
 struct File {
     file: HostFile,
     probe: Arc<Probe>,
     owner: Arc<HostServices>,
 }
+
 impl HostFileIo for File {
     fn read_exact_at(&mut self, offset: u64, len: usize) -> io::Result<Vec<u8>> {
         self.probe.reads.fetch_add(1, Ordering::SeqCst);
@@ -80,33 +88,41 @@ impl HostFileIo for File {
         drop(block);
         self.file.read_exact_at(offset, len)
     }
+
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.file.write_all(bytes)
     }
+
     fn sync_all(&mut self) -> io::Result<()> {
         self.file.sync_all()
     }
+
     fn file_len(&mut self) -> io::Result<u64> {
         self.file.file_len()
     }
 }
+
 impl FileSystem for Filesystem {
     fn read(&self, p: &Path) -> io::Result<Vec<u8>> {
         self.0.record(p);
         DirectFileSystem.read(p)
     }
+
     fn read_dir(&self, p: &Path) -> io::Result<Vec<HostDirEntry>> {
         self.0.record(p);
         DirectFileSystem.read_dir(p)
     }
+
     fn metadata(&self, p: &Path) -> io::Result<HostMetadata> {
         self.0.record(p);
         DirectFileSystem.metadata(p)
     }
+
     fn create(&self, p: &Path) -> io::Result<HostFile> {
         self.0.record(p);
         DirectFileSystem.create(p)
     }
+
     fn create_new(&self, p: &Path) -> io::Result<HostFile> {
         self.0.record(p);
         self.0.creates.fetch_add(1, Ordering::SeqCst);
@@ -120,6 +136,7 @@ impl FileSystem for Filesystem {
         drop(block);
         DirectFileSystem.create_new(p)
     }
+
     fn open(&self, p: &Path) -> io::Result<HostFile> {
         self.0.record(p);
         self.0.opens.fetch_add(1, Ordering::SeqCst);
@@ -129,31 +146,38 @@ impl FileSystem for Filesystem {
             owner: cellar::asyncrt::services(),
         }))
     }
+
     fn write(&self, p: &Path, bytes: &[u8]) -> io::Result<()> {
         self.0.record(p);
         DirectFileSystem.write(p, bytes)
     }
+
     fn sync_all(&self, p: &Path) -> io::Result<()> {
         self.0.record(p);
         DirectFileSystem.sync_all(p)
     }
+
     fn rename(&self, a: &Path, b: &Path) -> io::Result<()> {
         self.0.record(a);
         self.0.record(b);
         DirectFileSystem.rename(a, b)
     }
+
     fn remove_file(&self, p: &Path) -> io::Result<()> {
         self.0.record(p);
         DirectFileSystem.remove_file(p)
     }
+
     fn remove_dir_all(&self, p: &Path) -> io::Result<()> {
         self.0.record(p);
         DirectFileSystem.remove_dir_all(p)
     }
+
     fn create_dir_all(&self, p: &Path) -> io::Result<()> {
         self.0.record(p);
         DirectFileSystem.create_dir_all(p)
     }
+
     fn set_modified_unix_millis(&self, p: &Path, ms: i64) -> io::Result<()> {
         self.0.record(p);
         DirectFileSystem.set_modified_unix_millis(p, ms)

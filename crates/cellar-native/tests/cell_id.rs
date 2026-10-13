@@ -1,5 +1,7 @@
 use cellar_native::cell_id::{perform, Namespace};
+
 const KEY: &str = "cells:v1:4:demo:Account";
+
 #[test]
 fn stable_identity_retains_the_existing_hmac_address_format() {
     let ns = Namespace::new("Account", KEY);
@@ -20,6 +22,7 @@ fn stable_identity_retains_the_existing_hmac_address_format() {
         named.to_string()
     );
 }
+
 #[test]
 fn names_preserve_utf16_and_hash_the_original_hosts_replacement_view() {
     let ns = Namespace::new("Account", KEY);
@@ -30,6 +33,7 @@ fn names_preserve_utf16_and_hash_the_original_hosts_replacement_view() {
     assert_ne!(ns.id_from_name("é"), ns.id_from_name("e\u{301}"));
     assert_ne!(ns.id_from_name(""), ns.id_from_name("\0"));
 }
+
 #[test]
 fn authentication_rejects_forged_ids_and_foreign_namespaces() {
     let ns = Namespace::new("Account", KEY);
@@ -62,6 +66,7 @@ fn authentication_rejects_forged_ids_and_foreign_namespaces() {
     ns.accepts(&borrowed).unwrap();
     assert!(ns.id_from_string(&borrowed.to_string()).is_err());
 }
+
 #[test]
 fn unique_ids_authenticate_and_do_not_invent_a_name_or_jurisdiction() {
     let ns = Namespace::new("Account", KEY);
@@ -82,6 +87,7 @@ fn unique_ids_authenticate_and_do_not_invent_a_name_or_jurisdiction() {
         "unknown Durable Object ID operation"
     );
 }
+
 #[test]
 fn routing_name_budget_counts_utf8_bytes_without_truncating_identity() {
     let ns = Namespace::new("Account", KEY);

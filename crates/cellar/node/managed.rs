@@ -454,6 +454,7 @@ pub async fn handle_token_command(
              If this installation was disconnected, run `cellar` to re-enrol."
         ));
     }
+
     #[derive(serde::Deserialize)]
     struct DeployTokenResponse {
         token: String,

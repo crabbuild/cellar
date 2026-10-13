@@ -25,8 +25,10 @@ use std::{
     time::Duration,
 };
 use tokio::sync::Notify;
+
 const SOURCE: &str = "Source:one";
 const TARGET: &str = "Target:one";
+
 #[derive(Default)]
 struct Probe {
     controllers: Mutex<HashMap<String, AbortController>>,
@@ -46,38 +48,47 @@ struct Probe {
     gates: AtomicUsize,
     callback_errors: AtomicUsize,
 }
+
 #[derive(Default)]
 struct BodyProbe {
     polls: AtomicUsize,
     dropped: AtomicBool,
     entered: Notify,
 }
+
 struct PendingBody(Arc<BodyProbe>);
+
 impl Stream for PendingBody {
     type Item = std::result::Result<Vec<u8>, String>;
+
     fn poll_next(self: Pin<&mut Self>, _: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         self.0.polls.fetch_add(1, Ordering::SeqCst);
         self.0.entered.notify_one();
         Poll::Pending
     }
 }
+
 impl Drop for PendingBody {
     fn drop(&mut self) {
         self.0.dropped.store(true, Ordering::SeqCst);
     }
 }
+
 fn body() -> Result<(RequestBody, Arc<BodyProbe>)> {
     let probe = Arc::new(BodyProbe::default());
     let id = cellar::http_streams::register_body_stream(Box::pin(PendingBody(probe.clone())))
         .map_err(anyhow::Error::msg)?;
     Ok((RequestBody::Stream(id), probe))
 }
+
 fn output(context: &Context, report: Json) -> Result<Output> {
     Ok(Output::Http(
         Response::new(200, serde_json::to_vec(&report)?, Vec::new()).into_http(context)?,
     ))
 }
+
 struct Source(Arc<Probe>, Storage);
+
 impl Cell for Source {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -157,7 +168,9 @@ impl Cell for Source {
         })
     }
 }
+
 struct Target(Arc<Probe>, Storage);
+
 impl Cell for Target {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -221,6 +234,7 @@ impl Cell for Target {
         })
     }
 }
+
 async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime
         .restore_cell(
@@ -237,6 +251,7 @@ async fn open(runtime: &RuntimeManager, scope: &str) -> Result<()> {
     runtime.start_cell(scope.into(), 1, true).await?;
     runtime.publish_cell(scope, 1)
 }
+
 fn request(path: &str, body: RequestBody) -> RuntimeFetch {
     RuntimeFetch {
         url: format!("https://source{path}"),
@@ -248,6 +263,7 @@ fn request(path: &str, body: RequestBody) -> RuntimeFetch {
         parent: None,
     }
 }
+
 async fn call(
     runtime: &RuntimeManager,
     scope: &str,
@@ -258,6 +274,7 @@ async fn call(
         .fetch_cell(scope.into(), None, request(path, body), None)
         .await
 }
+
 async fn dropped(probe: &BodyProbe) -> Result<()> {
     cellar::asyncrt::timeout(Duration::from_secs(2), async {
         while !probe.dropped.load(Ordering::SeqCst) {
@@ -267,6 +284,7 @@ async fn dropped(probe: &BodyProbe) -> Result<()> {
     .await?;
     Ok(())
 }
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn native_abort_routes_preserve_proofs_incoming_cleanup_background_and_timer_retirement(
 ) -> Result<()> {
@@ -274,6 +292,7 @@ async fn native_abort_routes_preserve_proofs_incoming_cleanup_background_and_tim
     cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
     Ok(())
 }
+
 async fn run() -> Result<()> {
     let probe = Arc::new(Probe::default());
     let source = probe.clone();

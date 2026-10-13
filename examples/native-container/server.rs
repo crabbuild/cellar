@@ -1,4 +1,5 @@
 //! Dependency-free Rust HTTP peer for the cell-owned container example.
+
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::time::Duration;
@@ -16,6 +17,7 @@ fn json_string(value: &str) -> String {
     result.push('"');
     result
 }
+
 fn serve(mut stream: TcpStream) -> std::io::Result<()> {
     stream.set_read_timeout(Some(Duration::from_secs(5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
@@ -60,8 +62,13 @@ fn serve(mut stream: TcpStream) -> std::io::Result<()> {
     } else {
         ("405 Method Not Allowed", "{\"error\":\"use GET\"}".into())
     };
-    write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len())
+    write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
 }
+
 fn main() -> std::io::Result<()> {
     if std::env::args().any(|arg| arg == "--tool") {
         return std::io::stdout().write_all(b"{\"tool\":\"native-rust\",\"ok\":true}\n");

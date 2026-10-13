@@ -29,6 +29,7 @@ enum Cleanup {
     Sql(u64),
     Kv(u64),
 }
+
 impl Cleanup {
     fn close(self) {
         match self {
@@ -117,6 +118,7 @@ pub struct Storage(
 
 impl TryFrom<crate::storage::StoredValue> for StoredClone {
     type Error = anyhow::Error;
+
     fn try_from(value: crate::storage::StoredValue) -> Result<Self> {
         match value {
             crate::storage::StoredValue::Json(json) => Ok(Self {
@@ -224,10 +226,12 @@ impl Storage {
             self.0.resources.cleanup.lock().unwrap().push(cleanup);
         }
     }
+
     /// Read the original representation without discarding persisted clone data.
     pub fn get(&self, key: &str) -> Result<Option<crate::storage::StoredValue>> {
         crate::storage::get_stored(self.scope()?, key)
     }
+
     pub fn get_many(&self, keys: &[String]) -> Result<Vec<(String, crate::storage::StoredValue)>> {
         crate::storage::get_many_stored(self.scope()?, keys)
     }
@@ -252,6 +256,7 @@ impl Storage {
     pub fn list_cursor(&self, options: &ListOptions) -> Result<KvCursor> {
         KvCursor::new(self, options)
     }
+
     pub fn get_json(&self, key: &str) -> Result<Option<serde_json::Value>> {
         match self.get(key)? {
             Some(crate::storage::StoredValue::Json(json)) => Ok(Some(serde_json::from_str(&json)?)),
@@ -261,21 +266,25 @@ impl Storage {
             None => Ok(None),
         }
     }
+
     pub fn get_clone(&self, key: &str) -> Result<Option<StoredClone>> {
         self.get(key)?.map(StoredClone::try_from).transpose()
     }
+
     pub fn get_many_clone(&self, keys: &[String]) -> Result<Vec<(String, StoredClone)>> {
         self.get_many(keys)?
             .into_iter()
             .map(|(key, value)| Ok((key, StoredClone::try_from(value)?)))
             .collect()
     }
+
     pub fn list_clone(&self, options: &ListOptions) -> Result<Vec<(String, StoredClone)>> {
         self.list(options)?
             .into_iter()
             .map(|(key, value)| Ok((key, StoredClone::try_from(value)?)))
             .collect()
     }
+
     pub fn put_clone(
         &self,
         key: &str,
@@ -284,9 +293,11 @@ impl Storage {
         let scope = self.scope()?;
         crate::storage::put_serialized(scope, key, &cellar_native::clone::encode(value)?)
     }
+
     pub fn put_stored_clone(&self, key: &str, value: &StoredClone) -> Result<()> {
         crate::storage::put_serialized(self.scope()?, key, &value.encode()?)
     }
+
     pub fn put_many_stored_clone(&self, entries: &[(String, StoredClone)]) -> Result<()> {
         let scope = self.scope()?;
         let entries = entries
@@ -295,6 +306,7 @@ impl Storage {
             .collect::<Result<Vec<_>>>()?;
         crate::storage::put_many_serialized(scope, &entries)
     }
+
     pub fn put_many_clone(
         &self,
         entries: &[(String, cellar_native::clone::StructuredValue)],
@@ -306,15 +318,19 @@ impl Storage {
             .collect::<Result<Vec<_>>>()?;
         crate::storage::put_many_serialized(scope, &entries)
     }
+
     pub fn put_json(&self, key: &str, value: &serde_json::Value) -> Result<()> {
         crate::storage::put_json(self.scope()?, key, value)
     }
+
     pub fn put_many_json(&self, entries: &[(String, serde_json::Value)]) -> Result<()> {
         crate::storage::put_many_json(self.scope()?, entries)
     }
+
     pub fn delete(&self, key: &str) -> Result<bool> {
         crate::storage::delete(self.scope()?, key)
     }
+
     pub fn delete_many(&self, keys: &[String]) -> Result<usize> {
         crate::storage::delete_many(self.scope()?, keys)
     }
@@ -330,26 +346,33 @@ impl Storage {
             Err(error) => Box::pin(async move { Err(error) }),
         }
     }
+
     pub fn sql(&self, query: &str, bindings: &[serde_json::Value]) -> Result<SqlResult> {
         crate::storage::sql_exec(self.scope()?, query, bindings).map_err(anyhow::Error::msg)
     }
+
     pub fn sql_cursor(&self, query: &str, bindings: &[SqlValue]) -> Result<SqlCursor> {
         SqlCursor::new(self, query, bindings)
     }
+
     pub fn sql_database_size(&self) -> Result<u64> {
         crate::storage::sql_database_size(self.scope()?).map_err(anyhow::Error::msg)
     }
+
     /// Execute complete SQL statements and retain the unfinished suffix for
     /// incremental import, using SQLite's existing tokenizer.
     pub fn sql_ingest(&self, input: &str) -> Result<(String, u64, u64)> {
         crate::storage::sql_ingest(self.scope()?, input).map_err(anyhow::Error::msg)
     }
+
     pub fn get_alarm(&self) -> Result<Option<i64>> {
         Ok(crate::storage::get_alarm(self.scope()?))
     }
+
     pub fn set_alarm(&self, at_ms: i64) -> Result<()> {
         crate::native_worker::set_alarm(self.scope()?, at_ms)
     }
+
     pub fn delete_alarm(&self) -> Result<()> {
         crate::storage::delete_alarm(self.scope()?)
     }

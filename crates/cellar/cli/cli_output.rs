@@ -33,6 +33,7 @@ use std::io::Write;
 pub trait Record {
     /// The machine shape. `--json` prints this as one line.
     fn json(&self) -> serde_json::Value;
+
     /// The line a person reads.
     fn text(&self) -> Cow<'_, str>;
 }

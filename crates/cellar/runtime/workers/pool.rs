@@ -267,6 +267,7 @@ impl Slot {
 
     async fn turn_in<T>(&self, lane: TurnLane, f: impl FnOnce(&mut Worker) -> T) -> T {
         struct Counted<'a>(&'a Slot);
+
         impl Drop for Counted<'_> {
             fn drop(&mut self) {
                 self.0.turns.fetch_sub(1, Ordering::Relaxed);
@@ -498,6 +499,7 @@ impl Slot {
 
 /// A host lifetime holding a worker installed, distinct from a request.
 pub(crate) struct WorkerPin(Arc<Slot>);
+
 impl Drop for WorkerPin {
     fn drop(&mut self) {
         self.0.worker_pins.fetch_sub(1, Ordering::AcqRel);

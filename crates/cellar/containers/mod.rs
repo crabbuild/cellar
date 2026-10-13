@@ -65,6 +65,7 @@ pub struct ImageArchive {
     pub sha256: String,
     pub bytes: u64,
 }
+
 impl ImageArchive {
     pub fn validate(&self) -> anyhow::Result<()> {
         let key = self.image.strip_prefix("cellar-image:").unwrap_or_default();
@@ -79,10 +80,12 @@ impl ImageArchive {
         );
         Ok(())
     }
+
     pub fn key(&self) -> anyhow::Result<String> {
         self.validate()?;
         Ok(format!("deploy/images/{}.tar", self.sha256))
     }
+
     pub fn verify(&self, bytes: &[u8]) -> anyhow::Result<()> {
         use sha2::Digest;
         self.validate()?;
@@ -161,6 +164,7 @@ pub fn running_instances_by_class() -> std::collections::BTreeMap<String, u64> {
         engine.running_instances_by_class()
     })
 }
+
 /// Processes one container can hold. Cloudflare publishes no number; this
 /// is room for a build tool's process tree and far short of a fork bomb.
 const PIDS_LIMIT: u64 = 1024;
@@ -279,6 +283,7 @@ impl CellContainer {
             true
         });
     }
+
     pub(crate) fn forget_process(&self, id: u64) {
         self.processes
             .lock()
@@ -288,6 +293,7 @@ impl CellContainer {
             registry.remove(id);
         }
     }
+
     pub fn running(&self) -> bool {
         self.state.lock().unwrap().running
     }
@@ -1831,6 +1837,7 @@ struct ProcessRegistry {
     next: AtomicU64,
     entries: Mutex<HashMap<u64, Arc<ExecProcess>>>,
 }
+
 impl Default for ProcessRegistry {
     fn default() -> Self {
         Self {
@@ -1840,6 +1847,7 @@ impl Default for ProcessRegistry {
         }
     }
 }
+
 impl ProcessRegistry {
     fn insert(&self, process: Arc<ExecProcess>) -> anyhow::Result<()> {
         let mut entries = self.entries.lock().unwrap();
@@ -1850,12 +1858,14 @@ impl ProcessRegistry {
         entries.insert(process.id, process);
         Ok(())
     }
+
     fn remove(&self, id: u64) {
         let process = self.entries.lock().unwrap().remove(&id);
         if let Some(process) = process {
             process.close();
         }
     }
+
     fn close(&self) {
         let entries = {
             let mut entries = self.entries.lock().unwrap();
@@ -1884,6 +1894,7 @@ pub fn drop_process(id: u64) {
 }
 
 struct ExecCompletion(watch::Sender<bool>);
+
 impl Drop for ExecCompletion {
     fn drop(&mut self) {
         self.0.send_replace(true);
@@ -1894,6 +1905,7 @@ struct StdinLease<'a> {
     closed: &'a AtomicBool,
     stdin: tokio::sync::MutexGuard<'a, Option<WriteHalf>>,
 }
+
 impl Drop for StdinLease<'_> {
     fn drop(&mut self) {
         if self.closed.load(Ordering::Acquire) {
@@ -2134,6 +2146,7 @@ struct ResourceNames {
     internal_bridge: String,
     table: String,
 }
+
 impl ResourceNames {
     fn new(node: &str, data_dir: &std::path::Path, namespace: Option<&str>) -> Self {
         use base64::Engine;
@@ -2165,6 +2178,7 @@ impl ResourceNames {
             tag,
         }
     }
+
     fn fence_rules(&self) -> String {
         FENCE_RULES
             .replace("__TABLE__", &self.table)
@@ -2184,6 +2198,7 @@ fn container_name(host: &str, scope: &str) -> String {
 #[cfg(test)]
 mod exit_tests {
     use super::*;
+
     #[test]
     fn delayed_old_exit_cannot_hide_the_latest_run_completion() {
         let cell = CellContainer {

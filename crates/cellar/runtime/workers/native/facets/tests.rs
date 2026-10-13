@@ -15,21 +15,26 @@ struct Observed {
     pending: Notify,
     pending_drops: AtomicUsize,
 }
+
 struct Probe {
     scope: String,
     observed: Arc<Observed>,
 }
+
 impl Drop for Probe {
     fn drop(&mut self) {
         self.observed.drops.lock().unwrap().push(self.scope.clone());
     }
 }
+
 struct PendingProbe(Arc<Observed>);
+
 impl Drop for PendingProbe {
     fn drop(&mut self) {
         self.0.pending_drops.fetch_add(1, Ordering::SeqCst);
     }
 }
+
 impl Cell for Probe {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
@@ -117,6 +122,7 @@ async fn identity(slot: &Arc<Slot>, scope: &str) -> Result<storage::StorageIdent
     })
     .await
 }
+
 async fn start(
     slot: &Arc<Slot>,
     parent_scope: &str,
@@ -141,6 +147,7 @@ async fn start(
     .await
     .map_err(anyhow::Error::msg)
 }
+
 async fn invoke(
     slot: &Arc<Slot>,
     scope: &str,
@@ -167,6 +174,7 @@ async fn invoke(
         .await;
     Ok((entry.context("facet event did not start")?, ops, receive))
 }
+
 async fn call(slot: &Arc<Slot>, scope: &str) -> Result<Vec<u8>> {
     let (mut entry, mut ops, receive) = invoke(slot, scope, "fetch").await?;
     while !entry.finished() {

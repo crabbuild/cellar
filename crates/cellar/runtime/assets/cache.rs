@@ -60,6 +60,7 @@ struct CacheInner {
 }
 
 type DownloadLocks = Arc<Mutex<HashMap<String, DownloadSlot>>>;
+
 struct DownloadSlot {
     lock: Arc<tokio::sync::Mutex<()>>,
     users: usize,
@@ -70,6 +71,7 @@ struct Download {
     lock: Arc<tokio::sync::Mutex<()>>,
     locks: DownloadLocks,
 }
+
 impl Drop for Download {
     fn drop(&mut self) {
         let mut locks = self.locks.lock().unwrap();

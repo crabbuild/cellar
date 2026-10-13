@@ -270,6 +270,7 @@ impl std::fmt::Display for RemoteHandlerFailure {
 }
 
 impl std::error::Error for RemoteHandlerFailure {}
+
 const DURABLE_OBJECT_ROUTING_ERROR_MARKER: &str = "__CELLAR_DO_ROUTING_ERROR__:";
 
 fn owner_unreachable(scope: &str, owner: &str, source: anyhow::Error) -> anyhow::Error {
@@ -2512,6 +2513,7 @@ async fn dispatch_asset_call(app: AppHandle, call: AssetCallReq) {
 async fn dispatch_service_call(app: AppHandle, call: SvcCallReq) {
     crate::host_service::dispatch_fetch(app.runtime.as_ref(), call).await;
 }
+
 async fn dispatch_service_rpc(app: AppHandle, call: SvcRpcReq) {
     crate::host_service::dispatch_rpc(app.runtime.as_ref(), call).await;
 }

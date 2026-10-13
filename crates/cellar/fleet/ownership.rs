@@ -179,6 +179,7 @@ struct NodeLeaseWireRaw {
 
 impl TryFrom<NodeLeaseWireRaw> for NodeLeaseWire {
     type Error = anyhow::Error;
+
     fn try_from(raw: NodeLeaseWireRaw) -> anyhow::Result<Self> {
         crate::machine::validate_node_name(&raw.node)?;
         crate::machine::validate_node_name(&raw.generation)?;

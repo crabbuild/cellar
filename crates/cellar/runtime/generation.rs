@@ -463,6 +463,7 @@ pub struct IsolateCensus {
 /// current when the call lands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct GenerationTag(pub GenerationId);
+
 impl Generation {
     /// Build compiled Rust applications on the same deployment graph, pools,
     /// and class registry. Every script must be registered before any worker
@@ -692,6 +693,7 @@ impl Generation {
         })
     }
 }
+
 /// Claim one class name in a deployment's cell registry.
 ///
 /// A duplicate is an error for a user class, because `start_cell` resolves a
