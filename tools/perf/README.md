@@ -83,6 +83,9 @@ must also prepare a clean reload. A zero process exit alone is insufficient.
 
 The [128-cell fault report](results/2026-10-13-embedded-inflight-128.md) records
 both completed scenarios, including the receipt checks before any replay.
+The [128-cell isolation report](results/2026-10-13-embedded-isolation-128.md)
+records the owner's typed lease-expiry fence, survivor verification before
+replay, and exact reconciliation and preserving reload.
 
 `cellar-perf-fault-cells` is a separate compiled SDK application for correctness
 checks during process failures. It records each operation ID, payload SHA-256
