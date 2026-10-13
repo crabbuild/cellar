@@ -70,6 +70,8 @@ pub struct NodeConfig {
     pub actor: crate::actor::ActorOptions,
     pub data_dir: PathBuf,
     pub runtime: RuntimePolicy,
+    /// SDK HTTP request deadline, including response-body reads.
+    pub http: crate::http_policy::HttpPolicy,
     pub loader: LoaderPolicy,
     pub shutdown: ShutdownPolicy,
     pub startup: NodeStartupPolicy,
@@ -93,6 +95,7 @@ impl NodeConfig {
             actor,
             data_dir,
             runtime: RuntimePolicy::default(),
+            http: crate::http_policy::HttpPolicy::default(),
             loader: LoaderPolicy::default(),
             shutdown: ShutdownPolicy::default(),
             startup,
@@ -106,6 +109,7 @@ impl NodeConfig {
     fn validate(&self, services: &NodeServices) -> anyhow::Result<()> {
         self.actor.validate_policy()?;
         self.runtime.validate()?;
+        self.http.validate()?;
         self.loader.validate()?;
         self.shutdown.validate()?;
         crate::machine::validate_node_name(&self.identity.node)?;
@@ -226,6 +230,9 @@ pub struct NodeFleet {
 /// Supplied process infrastructure. Keep both executors alive through node
 /// completion. The public and internal listeners must already be bound.
 pub struct NodeServices {
+    /// Optional application-owned TLS, DNS, proxy and pool configuration for
+    /// SDK HTTP egress. Cellar installs each mode's required redirect policy.
+    pub http_client: Option<crate::http_policy::HttpClientFactory>,
     pub host_executor: tokio::runtime::Handle,
     pub core_executor: tokio::runtime::Handle,
     pub listener: tokio::net::TcpListener,
@@ -323,6 +330,9 @@ impl Node {
             .await?;
         domain.services().configure_actor(&config.actor)?;
         domain.services().configure_runtime(config.runtime)?;
+        domain
+            .services()
+            .configure_http(config.http, services.http_client.clone())?;
         domain.services().configure_loader(config.loader)?;
         domain
             .services()

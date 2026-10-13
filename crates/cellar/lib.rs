@@ -120,6 +120,8 @@ pub(crate) mod host_rpc;
 pub mod host_service;
 #[path = "execution/services.rs"]
 pub mod host_services;
+#[path = "transport/http/policy.rs"]
+pub mod http_policy;
 // Retain host interfaces while their remaining native frontends are ported.
 #[allow(dead_code)]
 #[path = "transport/tcp/mod.rs"]

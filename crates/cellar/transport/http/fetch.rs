@@ -9,20 +9,6 @@ use crate::http_streams::{
     HTTP_STREAM_REGISTRATION_CLOSED,
 };
 use std::sync::Arc;
-thread_local! {
-    // One outbound HTTP client per host thread — building it per fetch rebuilds
-    // the TLS stack every call (async-op-hazards.md).
-    static HTTP: reqwest::Client = reqwest::Client::new();
-    static HTTP_MANUAL: reqwest::Client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none()).build().unwrap();
-    // A separate policy stops an `error` request before reqwest can replay it
-    // at the destination. Inspecting the final response would be too late:
-    // the method, body, and credentials could already have left the process.
-    static HTTP_ERROR: reqwest::Client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            attempt.error("fetch redirect mode is error")
-        })).build().unwrap();
-}
 
 fn fetch_request_error(error: &reqwest::Error) -> String {
     let mut source: &(dyn std::error::Error + 'static) = error;
@@ -90,11 +76,10 @@ pub(crate) fn fetch(
     // an unused network client and its TLS stack.
     let client = match redirect {
         "follow" if context.has_subrequest_limit() => context.redirect_counting_client(),
-        "follow" => HTTP.with(|client| client.clone()),
-        "manual" => HTTP_MANUAL.with(|client| client.clone()),
-        "error" => HTTP_ERROR.with(|client| client.clone()),
+        "follow" | "manual" | "error" => context.host_services().http().client(redirect),
         _ => unreachable!("the redirect mode was validated above"),
     };
+    let fetch_timeout = context.host_services().http().policy.request_timeout;
     // The child's ids are minted before the request leaves so the
     // traceparent header carries them: whatever this fetch reaches can
     // join the trace cellar is part of.
@@ -134,14 +119,11 @@ pub(crate) fn fetch(
         await_egress_gate(gate).await.inspect_err(|error| {
             finish(false, None, Some(error.clone()));
         })?;
+        let client = client.inspect_err(|error| finish(false, None, Some(error.clone())))?;
         let m = reqwest::Method::from_bytes(method.as_bytes()).unwrap_or(reqwest::Method::GET);
         // a timeout bounds a black-hole host: the future settles (Err) instead
         // of parking run_loop forever — the hang the Drop guard can't catch.
-        let fetch_timeout = crate::env_vars::positive_or("CELLAR_FETCH_TIMEOUT_S", 120)
-            .expect("validated CELLAR_FETCH_TIMEOUT_S");
-        let mut rb = client
-            .request(m, &url)
-            .timeout(std::time::Duration::from_secs(fetch_timeout));
+        let mut rb = client.request(m, &url).timeout(fetch_timeout);
         // reqwest omits Content-Length for an empty Vec, which collapses the
         // wire representation of `Some([])` into the representation of
         // `None`. Install the zero length here unless the Worker supplied a

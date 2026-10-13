@@ -9,7 +9,8 @@
 //! bound listeners, host and core executors, peer clients and authentication,
 //! a per-node probe signer, and optional fleet, container and metrics services.
 //! Startup recovers the predecessor log before installing a replacement lease.
-//! Configuration and library defaults do not inspect process environment.
+//! Node configuration and runtime, loader and HTTP policy defaults do not
+//! inspect process environment.
 //!
 //! [`Node::run_until`] accepts the application's stop future and returns
 //! [`NodeOutcome`] after closing and joining its execution domain. Keep both
@@ -54,7 +55,8 @@
 //! Configure an execution domain before loading application generations.
 //!
 //! ```no_run
-//! use cellar::sdk::{ActorOptions, ExecutionDomain, LoaderPolicy, RuntimePolicy};
+//! use cellar::sdk::{ActorOptions, ExecutionDomain, HttpClientFactory, HttpPolicy,
+//!     LoaderPolicy, RuntimePolicy};
 //! use std::time::Duration;
 //!
 //! fn domain(handle: tokio::runtime::Handle, actor: ActorOptions)
@@ -68,6 +70,11 @@
 //!         ..Default::default()
 //!     })?;
 //!     domain.services().configure_actor(&actor)?;
+//!     domain.services().configure_http(HttpPolicy {
+//!         request_timeout: Duration::from_secs(10),
+//!     }, Some(HttpClientFactory::new(|| {
+//!         reqwest::Client::builder().no_proxy().pool_max_idle_per_host(16)
+//!     })))?;
 //!     domain.services().configure_loader(LoaderPolicy {
 //!         max_workers: 128,
 //!         max_workers_per_principal: 64,
@@ -84,6 +91,18 @@
 //! structured-value decoder's 64 MiB ceiling. Library defaults do not inspect
 //! process environment. [`LoaderPolicy::from_env`] is the explicit CLI adapter.
 //! Service handles must be used with a context from their own execution domain.
+//!
+//! Set [`NodeConfig::http`] and [`NodeServices::http_client`] for SDK HTTP egress.
+//! The factory supplies DNS, TLS, credentials, proxy and connection-pool settings;
+//! Cellar installs redirect policy to preserve manual/error modes and invocation
+//! subrequest budgets. Ordinary modes reuse separate pools per host. A worker
+//! with a redirect budget retains its own client for the invocation's accounting.
+//! [`HttpPolicy::request_timeout`] includes response-body consumption. Defaults
+//! use a 120-second deadline and ignore ambient proxies. Client construction
+//! failures return fetch errors. Policies remain fixed across generations, and
+//! domain closure releases cached pools and prevents their reconstruction.
+//! [`HttpPolicy::from_env`] explicitly reads `CELLAR_FETCH_TIMEOUT_S` for CLI
+//! startup; the CLI also explicitly selects reqwest's system-proxy configuration.
 //!
 //! Replication uses the application's storage client and explicit policy.
 //! Start it inside the domain that will own its tasks and cell databases.
@@ -159,7 +178,10 @@ pub use crate::daemon::{
     Node, NodeConfig, NodeFleet, NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
 };
 pub use crate::generation::DeploymentGraph;
-pub use crate::host_services::{ApplicationWorkSnapshot, HostMetricsSample, MetricsSampler};
+pub use crate::host_services::{
+    ApplicationWorkSnapshot, HostMetricsSample, HostServices, MetricsSampler,
+};
+pub use crate::http_policy::{HttpClientFactory, HttpPolicy};
 pub use crate::loader_policy::LoaderPolicy;
 pub use crate::log_options::{
     EvictionPolicy as LogEvictionPolicy, HedgeMode, LogOptions, LogWindowOptions,

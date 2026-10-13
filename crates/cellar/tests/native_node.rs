@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "support/html.rs"]
 mod fixture;
+#[path = "support/node_http.rs"]
+mod node_http;
 use anyhow::{ensure, Result};
 use cellar::bucket::Bucket;
 use cellar::engine_api::HttpResponse;
@@ -929,6 +931,7 @@ async fn inputs(
     config.maintenance.load_sample_period = Duration::from_millis(50);
     config.generation_max_age = Duration::ZERO;
     let services = NodeServices {
+        http_client: None,
         host_executor: tokio::runtime::Handle::current(),
         core_executor: core.handle(),
         listener,

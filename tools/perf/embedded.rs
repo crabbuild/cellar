@@ -233,6 +233,7 @@ pub(super) fn run(
             no_progress_ms: shutdown_ms.min(25_000),
         };
         let services = NodeServices {
+            http_client: None,
             host_executor: host.handle().clone(),
             core_executor: core.handle().clone(),
             listener: tokio::net::TcpListener::bind(arguments.listen).await?,

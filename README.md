@@ -35,10 +35,21 @@ an exclusive data-directory lock through completion, including cancelled startup
 `Node::adopt` installs compiled generations explicitly and leaves the current
 generation serving when a factory fails.
 
-`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, startup and maintenance policy,
-container infrastructure and metrics are captured per node. Library defaults do
-not read environment variables. The CLI resolves its environment settings at
-startup. Lower-level hosts can construct an `ExecutionDomain` directly.
+`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, `HttpPolicy`, startup and
+maintenance policy, container infrastructure and metrics are captured per node.
+These policy defaults do not read environment variables. The CLI resolves its
+environment settings at startup. Lower-level hosts can construct an
+`ExecutionDomain` directly.
+
+Configure SDK HTTP egress through `NodeConfig::http` and
+`NodeServices::http_client`. An optional `HttpClientFactory` supplies DNS, TLS,
+credentials, proxies and pool settings. Cellar installs each redirect mode's
+policy and preserves worker subrequest budgets. Ordinary modes reuse pools per
+host; a redirect-limited invocation retains its own accounting client. The
+request deadline includes reading the response body. Library defaults use a
+120-second deadline and ignore ambient proxies. Closing a domain releases its
+cached pools and prevents reconstruction. The CLI explicitly selects system
+proxies and captures `CELLAR_FETCH_TIMEOUT_S` at startup.
 
 `ActorPolicy::max_cached_routes` bounds idle, unowned routing history separately
 from resident cells. Least recently used records are reclaimed; zero disables
