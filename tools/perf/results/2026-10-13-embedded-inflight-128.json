@@ -1,0 +1,841 @@
+{
+  "started_utc": "2026-10-13T00:07:02.299720+00:00",
+  "revision": "461754c4326308f608cf187266ef2e5c8097efc8",
+  "dirty": false,
+  "arguments": {
+    "image": "cellar-embedded-perf:461754c",
+    "rustfs_image": "rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c",
+    "cells": 128,
+    "concurrency": 16,
+    "max_resident": 16,
+    "max_cached_routes": 8,
+    "max_requests": 128,
+    "shutdown_ms": 60000,
+    "port": 39700,
+    "output": ".cellar/perf/inflight-128-461754c",
+    "scenario": [
+      "bucket",
+      "fleet"
+    ]
+  },
+  "image": "sha256:b895b752caaf2b7e602f8fdaa58431a470b46c2f02d5372bdc5e453a8e4f0f4f",
+  "image_labels": {
+    "org.opencontainers.image.revision": "461754c4326308f608cf187266ef2e5c8097efc8"
+  },
+  "source_sha256": {
+    "tools/perf/fault_cells.rs": "1130c857c9fab657df52baace8d82ae054a2c23cf2707697f6a9216e041db9ed",
+    "tools/perf/faults.py": "45c5cafdb13e11ecf9d5a89a50553be261e51591967e885d2e6a5c1c61d07bd7",
+    "tools/perf/deployment.rs": "6280b29974147d1b67e4123da7eeb335edacea946c7f740e424f0b4905c028a5",
+    "tools/perf/embedded.rs": "2c56a61b6beb09fdf6af2619380963994740d3f1d3d51de2811b65d3ada6eee8",
+    "tools/perf/run.py": "3c2621104fdc689eda6110bc80d1511b007dabc661dab0137aa97ad9db1c619c",
+    "tools/perf/Dockerfile": "b15ade6bf1ebc312a7219dfc1b6421a943390736130d6cd92e2bb8264303bd0c",
+    "Cargo.toml": "0d011440081e0ea184a2e9fd937ef0c35144647bfd10d61031c921df413c9cd0",
+    "Cargo.lock": "7e6c1f6794376eaed68efd9397f77269bf11556fb475c04b8e435596208693fc",
+    "crates/cellar/Cargo.toml": "73af4d2a8eaec38f29952738781b379d7a227074af6d8171994d2d67ac086f35"
+  },
+  "execution": "sdk::Node on caller-owned executors; host-side fsynced operation journal and receipt verifier",
+  "limitations": [
+    "Local single-server RustFS and shared Colima infrastructure.",
+    "Application implements operation idempotency; Cellar does not promise exactly-once delivery.",
+    "Process crashes and deliberate client response loss, not a peer network partition or throughput measurement."
+  ],
+  "completed": true,
+  "verifications": [
+    {
+      "scenario": "inflight-bucket",
+      "label": "before-fault",
+      "final": true,
+      "cells": 128,
+      "issued": 128,
+      "client_acknowledged": 128,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 128
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "before-replay",
+      "final": false,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 128,
+      "ambiguous_present": 1,
+      "ambiguous_absent": 16,
+      "writes": 129
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "reconciled",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "preserve-reload",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "before-fault",
+      "final": true,
+      "cells": 128,
+      "issued": 128,
+      "client_acknowledged": 128,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 128
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "before-replay",
+      "final": false,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 138,
+      "ambiguous_present": 1,
+      "ambiguous_absent": 6,
+      "writes": 139
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "reconciled",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "preserve-reload",
+      "final": true,
+      "cells": 128,
+      "issued": 145,
+      "client_acknowledged": 145,
+      "ambiguous_present": 0,
+      "ambiguous_absent": 0,
+      "writes": 145
+    }
+  ],
+  "faults": [
+    {
+      "scenario": "inflight-bucket",
+      "marker": {
+        "event": "fault_write_applied",
+        "hold_ms": 10000,
+        "inserted": true,
+        "node": "node1",
+        "operation_id": "3c9af6ecded6a6b9-burst-0000",
+        "client_pending": [
+          "3c9af6ecded6a6b9-burst-0007",
+          "3c9af6ecded6a6b9-burst-0014",
+          "3c9af6ecded6a6b9-burst-0002",
+          "3c9af6ecded6a6b9-burst-0009",
+          "3c9af6ecded6a6b9-burst-0015",
+          "3c9af6ecded6a6b9-burst-0013",
+          "3c9af6ecded6a6b9-burst-0010",
+          "3c9af6ecded6a6b9-burst-0001",
+          "3c9af6ecded6a6b9-burst-0004",
+          "3c9af6ecded6a6b9-burst-0005",
+          "3c9af6ecded6a6b9-burst-0000",
+          "3c9af6ecded6a6b9-burst-0008",
+          "3c9af6ecded6a6b9-burst-0011",
+          "3c9af6ecded6a6b9-burst-0003",
+          "3c9af6ecded6a6b9-burst-0012",
+          "3c9af6ecded6a6b9-burst-0006"
+        ],
+        "owner_index": 0
+      },
+      "kills": [
+        {
+          "node": 1,
+          "exit_code": 137,
+          "finished_at": "2026-10-13T00:07:16.095757222Z",
+          "elapsed_s": 0.23329712497070432
+        },
+        {
+          "node": 2,
+          "exit_code": 137,
+          "finished_at": "2026-10-13T00:07:16.324341009Z",
+          "elapsed_s": 0.2225464580114931
+        },
+        {
+          "node": 3,
+          "exit_code": 137,
+          "finished_at": "2026-10-13T00:07:16.548167548Z",
+          "elapsed_s": 0.2193720830255188
+        }
+      ],
+      "burst_to_kill_s": 0.6976957079605199
+    },
+    {
+      "scenario": "inflight-fleet",
+      "marker": {
+        "event": "fault_write_applied",
+        "hold_ms": 10000,
+        "inserted": true,
+        "node": "node1",
+        "operation_id": "ca2324bd3cb58f3e-burst-0000",
+        "client_pending": [
+          "ca2324bd3cb58f3e-burst-0014",
+          "ca2324bd3cb58f3e-burst-0002",
+          "ca2324bd3cb58f3e-burst-0005",
+          "ca2324bd3cb58f3e-burst-0004",
+          "ca2324bd3cb58f3e-burst-0006",
+          "ca2324bd3cb58f3e-burst-0012",
+          "ca2324bd3cb58f3e-burst-0008",
+          "ca2324bd3cb58f3e-burst-0013",
+          "ca2324bd3cb58f3e-burst-0010",
+          "ca2324bd3cb58f3e-burst-0007",
+          "ca2324bd3cb58f3e-burst-0001",
+          "ca2324bd3cb58f3e-burst-0003",
+          "ca2324bd3cb58f3e-burst-0009",
+          "ca2324bd3cb58f3e-burst-0015",
+          "ca2324bd3cb58f3e-burst-0011",
+          "ca2324bd3cb58f3e-burst-0000"
+        ],
+        "owner_index": 0
+      },
+      "kills": [
+        {
+          "node": 1,
+          "exit_code": 137,
+          "finished_at": "2026-10-13T00:07:46.403104946Z",
+          "elapsed_s": 0.24671612499514595
+        }
+      ],
+      "burst_to_kill_s": 0.27077349997125566
+    }
+  ],
+  "shutdown_outcomes": [
+    {
+      "label": "inflight-bucket-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-bucket-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-bucket-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-bucket-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-fleet-drained",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-fleet-drained",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-fleet-drained",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "inflight-fleet-preserve-reloaded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "node_policies": [
+    {
+      "scenario": "inflight-bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-bucket",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-bucket",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-bucket",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-bucket",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-fleet",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-fleet",
+      "node": 2,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-fleet",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-fleet",
+      "node": 1,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    },
+    {
+      "scenario": "inflight-fleet",
+      "node": 3,
+      "proof": {
+        "event": "embedded_node_started",
+        "executors": "caller_owned",
+        "max_cached_routes": 8,
+        "max_requests": 128,
+        "max_resident": 16
+      }
+    }
+  ],
+  "routing_cache_snapshots": [
+    {
+      "scenario": "inflight-bucket",
+      "label": "warm",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "warm",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "warm",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "recovered",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "recovered",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "recovered",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "reconciled",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "reconciled",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "reconciled",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-bucket",
+      "label": "preserve-reload",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "warm",
+      "node": 1,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "warm",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "warm",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "recovered",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "recovered",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "reconciled",
+      "node": 2,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "reconciled",
+      "node": 3,
+      "cached_routes": 8
+    },
+    {
+      "scenario": "inflight-fleet",
+      "label": "preserve-reload",
+      "node": 3,
+      "cached_routes": 8
+    }
+  ],
+  "failures": [],
+  "audit": {
+    "completed": true,
+    "scenarios": [
+      "bucket",
+      "fleet"
+    ],
+    "verified_stages": 8
+  },
+  "harness_exit_code": 0,
+  "private_resources_removed": true,
+  "raw_archive": {
+    "name": "cellar-embedded-inflight-128-raw.tar.gz",
+    "bytes": 411804,
+    "sha256": "1096c55475d4005719832489f46528712556c221b5a8b58a610eba55d2b71b30"
+  },
+  "node_snapshots": [
+    {
+      "file": "inflight-bucket-preserve-reload-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-reconciled-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-reconciled-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-reconciled-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-recovered-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-recovered-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-recovered-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-warm-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-warm-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-bucket-warm-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-preserve-reload-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-reconciled-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-reconciled-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-recovered-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-recovered-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-warm-node1-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-warm-node2-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    },
+    {
+      "file": "inflight-fleet-warm-node3-state.json",
+      "cached_routes": 8,
+      "owned_cells": 16,
+      "occupied": 16,
+      "tracked_cells": 24
+    }
+  ],
+  "node_resource_limits": {
+    "bucket": [
+      {
+        "node": 1,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "1",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 2,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "2",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 3,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "3",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      }
+    ],
+    "fleet": [
+      {
+        "node": 1,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "1",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 2,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "2",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      },
+      {
+        "node": 3,
+        "host_config": {
+          "NanoCpus": 1000000000,
+          "CpusetCpus": "3",
+          "Memory": 2147483648,
+          "MemorySwap": 2147483648
+        }
+      }
+    ]
+  }
+}

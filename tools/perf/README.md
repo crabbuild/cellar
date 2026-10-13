@@ -81,6 +81,9 @@ must also prepare a clean reload. A zero process exit alone is insufficient.
 
 ## Writes in flight and ambiguous responses
 
+The [128-cell fault report](results/2026-10-13-embedded-inflight-128.md) records
+both completed scenarios, including the receipt checks before any replay.
+
 `cellar-perf-fault-cells` is a separate compiled SDK application for correctness
 checks during process failures. It records each operation ID, payload SHA-256
 and counter ordinal in the same storage transaction. Replaying the same ID and
@@ -127,8 +130,8 @@ partial state captures and leave `completed` false. This checks process crashes
 and deliberate client response loss. Peer network partitions, sustained load
 and production-scale acceptance remain separate work.
 
-These are bounded local recovery and saturation checks. All nodes share one
-VM, disk and single RustFS server. The workload overwrites small values, uses
+The counter performance runs are bounded local recovery and saturation checks.
+All nodes share one VM, disk and single RustFS server. That workload overwrites small values, uses
 closed-loop traffic and injects failures between write phases. It does not
 measure production network partitions, sustained independent arrivals,
 unbounded data growth, hot-cell skew or long soaks. Fleet acknowledgement may
