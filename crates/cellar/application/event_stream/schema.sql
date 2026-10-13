@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS __sys_stream_retirement (
     request TEXT NOT NULL,
     principal TEXT NOT NULL,
     grant_id TEXT NOT NULL,
+    operator TEXT CHECK(operator IS NULL OR (typeof(operator)='text' AND length(CAST(operator AS BLOB)) BETWEEN 1 AND 256)),
     started_ms INTEGER NOT NULL,
     finished_ms INTEGER,
     records INTEGER NOT NULL CHECK(records>=0),

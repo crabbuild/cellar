@@ -17,13 +17,15 @@ pub(crate) fn open(db: &Storage) -> Result<()> {
         .map(|row| store::number(row, "version"))
         .transpose()?
     };
-    if version.is_some_and(|version| version != 1 && version != 2) {
+    if version.is_some_and(|version| !(1..=3).contains(&version)) {
         return Err(error(
             ErrorCode::UnsupportedProtocol,
             "unsupported catalog schema",
         ));
     }
-    if version == Some(2) {
+    let operator =
+        super::schema::operator_migration(db, "__sys_event_catalog_receipts", version == Some(3))?;
+    if version == Some(3) {
         return Ok(());
     }
     let tables = db.system_sql(
@@ -46,12 +48,12 @@ pub(crate) fn open(db: &Storage) -> Result<()> {
     } else {
         schema.into()
     };
-    let ddl=format!("{ddl}
+    let ddl=format!("{operator}\n{ddl}
         INSERT INTO __sys_event_catalog_receipts(operation,resource,kind,digest,principal,grant_id,result)
             SELECT operation,id,'configure',digest,json_extract(operation_authority,'$.principal'),json_extract(operation_authority,'$.grant'),
                 CASE WHEN pending_definition IS NULL THEN json_object('state',lifecycle,'operation',operation,'resource',id,'last_error',last_error) ELSE NULL END
             FROM __sys_event_catalog WHERE pending_retirement IS NULL ON CONFLICT(operation) DO NOTHING;
         CREATE TABLE IF NOT EXISTS __sys_event_catalog_schema(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL CHECK(version>0));
-        INSERT INTO __sys_event_catalog_schema VALUES(1,2) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version;");
+        INSERT INTO __sys_event_catalog_schema VALUES(1,3) ON CONFLICT(singleton) DO UPDATE SET version=excluded.version;");
     db.system_sql_schema(&ddl)
 }

@@ -201,6 +201,11 @@ turns together; that local evidence does not satisfy the fleet/release gates.
   operation receipts. Current catalog grant checks precede configuration and
   retirement receipt disclosure, including for the original operation caller.
   Duplicate coordinated retirement rechecks receipts after its async preflight.
+  Current stream/catalog versions are 4/3: nullable operator provenance preserves
+  legacy SDK receipt ownership, and missing current-version columns fail before
+  base schema mutation. Terminal catalog receipts retain the captured payload
+  range and counters after bounded cleanup. Authenticated retirement/status CLI
+  commands enforce revision, operation, caller and explicit destructive intent.
 
 The dispatcher targets `__streamAppend` and `__streamSeal` on `__EventStream`; both event system
 cell factories and their internal maintenance handlers now exist. Configuration
@@ -222,7 +227,7 @@ this does not constitute a released deployed primitive yet.
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects | Runnable consumer example and complete proof/crash qualification |
-| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete, immutable operation status/audit, metadata reads and payload opt-in | Resource inventories, stream retirement CLI, exported metrics, source destruction and broader control qualification |
+| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, metadata reads and payload opt-in | Resource inventories, exported metrics, source destruction and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer 6/native 3/fleet 3 and explicit audited format-2 upgrade; source/inbox migrations and incompatible source-policy refusal | Actual prior executable and full cutover fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design and this requirement audit | Runnable stream-backed application, implemented API guide and catalog/smoke integration |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
@@ -541,3 +546,44 @@ public Node suite, plus all 11 doctests. The two shipped CLI tests pass again
 after replacing ambient fixture writes with owned temporary files. Final-source
 all-target/all-feature Clippy with warnings denied passes. The earlier service
 failure remains recorded above; passing reruns do not establish its cause.
+
+Stream retirement now has owner-routed `retire` and `retirement-status` commands.
+The CLI requires a revision, immutable operation, bounded reason and explicit
+confirmation, plus either an all-producer coordination attestation or a force
+data-loss acknowledgment. Operator authority permits catalog retirement/status
+and its partition preflight/closure; configuration and append remain excluded.
+Both catalog and partition receipts retain the authenticated operator label and
+reject replay by another operator. Current grant checks remain independent.
+
+Catalog schema 3 and stream schema 4 add nullable operator columns. Migrations
+preserve earlier receipts with NULL provenance; current markers missing those
+columns, or declaring another type, fail before base schema mutation. Terminal
+receipts retain captured records/bytes and the exact affected retained payload
+range after bounded cleanup. The range derives from the closure's record count
+and immutable end offset; retirement closes append and retention only removes
+prefixes. Range/counter/provenance acceptance is checked before the catalog
+records a terminal result. Older SDK status JSON remains readable.
+
+The actual two-node regression passes both coordinated and forced retirement:
+unsealed producers and undrained subscriptions refuse coordination; a source
+seal and consumer acknowledgment permit it. Force captures the unconsumed range.
+Receipts survive owner handoff and preserve replay/conflict/operator guards,
+typed unknown status, deleted-stream read refusal and historic deployment
+refusal. The logical migration test preserves old receipt fields and enforces
+new provenance bounds; it is not previous-binary fleet cutover qualification.
+The coordination procedure is an attestation, not proof of unseen producers.
+Resource inventories, exported metrics, whole-source destruction, runnable
+examples and the complete lifecycle/fault/capacity matrix remain outstanding.
+
+The first full retirement gate run reported `NodeFenced` in two native actor
+checks while doctests were compiling. The exact same actor binary passes all
+six tests after the competing compile finishes, with lease/deadline policies
+unchanged. The cause is unproven; the full workspace gate is rerun sequentially
+with Clippy scheduled after tests. No fencing or drain assertion was weakened.
+
+The final sequential retirement gate passes 358 workspace/all-feature library
+and integration tests, including all 22 public Node tests and the development
+rebuild/restart regression. All 11 doctests pass in the separate target cache;
+all-target/all-feature Clippy with warnings denied passes on final source.
+The earlier actor failures remain recorded above; passing reruns do not establish
+their cause or qualify the complete production fault/capacity matrix.

@@ -56,8 +56,13 @@ audit and `cellar subscription` describe/pause/resume/reset/delete use signed
 to stream control methods, with optional provenance omitted from ordinary event
 packets. Subscription receipts retain the operator label and enforce it during
 replay/status; old SDK receipts default to no operator. Reads exclude bodies and
-encoded envelopes unless explicitly requested. Resource inventories, stream
-retirement CLI and exported event metrics remain unfinished.
+encoded envelopes unless explicitly requested. `cellar stream retire` and
+`retirement-status` route to the catalog; operator authority also permits only
+the matching catalog retirement and partition preflight/closure methods.
+Catalog schema 3 and stream schema 4 add nullable operator provenance, preserving
+legacy SDK receipts. Current markers require those columns before base schema
+mutation. Terminal retirement receipts retain the affected payload range after
+bounded cleanup. Resource inventories and exported event metrics remain unfinished.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained

@@ -57,6 +57,10 @@ impl Retirement {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RetirementStatus {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub operator: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub affected: Option<super::OffsetRange>,
     pub resource: String,
     pub operation: String,
     pub state: String,

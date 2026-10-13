@@ -26,6 +26,19 @@ pub(crate) fn number(row: &SqlRow, key: &str) -> Result<i64> {
     }
 }
 
+pub(crate) fn operator(row: &SqlRow) -> Result<Option<String>> {
+    match row.get("operator") {
+        Some(SqlValue::Null) => Ok(None),
+        Some(SqlValue::Text(value)) if !value.is_empty() && value.len() <= 256 => {
+            Ok(Some(value.clone()))
+        }
+        _ => Err(error(
+            ErrorCode::UnsupportedProtocol,
+            "invalid stored operator provenance",
+        )),
+    }
+}
+
 pub(crate) fn uuid(label: &'static str) -> String {
     let mut bytes = [0; 16];
     crate::asyncrt::rng(label).fill_bytes(&mut bytes);

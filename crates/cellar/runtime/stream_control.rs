@@ -1,7 +1,7 @@
 //! Bounded operator commands mapped to the existing stream owner protocol.
 
 use crate::application::event_stream::{
-    self as events, authority::Action, Binding, Change, Cursor,
+    self as events, authority::Action, Binding, Change, Cursor, Retirement,
 };
 use anyhow::Result;
 use base64::Engine;
@@ -42,11 +42,36 @@ pub(crate) enum Command {
         after: String,
         limit: usize,
     },
+    Retire {
+        request: Retirement,
+    },
+    RetirementStatus {
+        operation: String,
+    },
 }
 
 impl Request {
     pub(crate) fn scope(&self) -> Result<String> {
-        events::cell_scope(&self.binding.resource)
+        if self.catalog() {
+            events::catalog_scope(&self.binding.resource)
+        } else {
+            events::cell_scope(&self.binding.resource)
+        }
+    }
+
+    fn catalog(&self) -> bool {
+        matches!(
+            self.command,
+            Command::Retire { .. } | Command::RetirementStatus { .. }
+        )
+    }
+
+    pub(crate) fn name(&self) -> Result<String> {
+        if self.catalog() {
+            events::catalog_name(&self.binding.resource)
+        } else {
+            events::cell_name(&self.binding.resource)
+        }
     }
 
     pub(crate) fn prepare(
@@ -126,6 +151,28 @@ impl Request {
                     Action::Administer,
                     "__streamAudit",
                     json!({"after":after,"max_records":limit}),
+                )
+            }
+            Command::Retire { request } => {
+                request.validate()?;
+                (
+                    Action::Administer,
+                    "__catalogRetire",
+                    json!({"request":base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(request)?)}),
+                )
+            }
+            Command::RetirementStatus { operation } => {
+                anyhow::ensure!(
+                    operation.len() == 32
+                        && operation
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+                    "invalid retirement operation identity"
+                );
+                (
+                    Action::Administer,
+                    "__catalogRetirementStatus",
+                    json!({"operation":operation}),
                 )
             }
         };

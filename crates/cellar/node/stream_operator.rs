@@ -86,9 +86,7 @@ where
         request_id: Some(crate::engine_api::next_request_id()),
         cancel: None,
         scope,
-        name: Some(crate::application::event_stream::cell_name(
-            &command.binding.resource,
-        )?),
+        name: Some(command.name()?),
         method: method.into(),
         args: crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(
             args,

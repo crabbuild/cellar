@@ -154,4 +154,39 @@ method/path/body verification precedes authority minting. Operator RPC authority
 is restricted to these stream methods and cannot configure a catalog or append
 events. Requests and binding files are bounded to 16 KiB, expected identity
 files to 4 KiB and replies to 1 MiB. This surface remains under implementation;
-resource inventories, stream retirement CLI and exported metrics are outstanding.
+resource inventories and exported metrics are outstanding.
+
+Stream retirement uses the same binding and administration grant, but routes to
+the resource's catalog scope. Save `stream describe`'s revision before starting:
+
+```text
+cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --procedure TEXT --confirm-retire [FLEET OPTIONS]
+cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --force --data-loss TEXT --confirm-retire [FLEET OPTIONS]
+cellar stream retirement-status --binding BINDING.json --operation UUID --json [FLEET OPTIONS]
+```
+
+The coordinated procedure must quiesce every producer, including sources that
+have never contacted this stream. Seal source lanes through `tx.seal` and drain
+subscriptions first. The procedure is an external attestation; the catalog's
+preflight independently checks observed producer seals, checkpoints and leases.
+Forced retirement requires a bounded textual data-loss acknowledgment and may
+leave source obligations permanently blocked. Both forms require explicit
+`--confirm-retire`, the exact resource incarnation, current revision, operation
+UUID and a bounded reason.
+
+`retiring` records recoverable intent; `deleted` confirms terminal closure and
+bounded cleanup. Query retirement status to distinguish them. Terminal results
+retain the operator label, captured records/bytes and the affected retained
+payload offset range, even after payload cleanup. An empty retained range is
+null. The terminal receipt is immutable; repeat the original retirement request
+after an ambiguous response. Another operator or changed request cannot reuse
+it. Current administration grants are checked on every replay/status request.
+An unknown operation returns `OperationUnknown`. A retired UUID cannot be revived
+by replaying historic deployment configuration.
+
+HTTP command kinds `retire` and `retirement_status` use the catalog scope derived
+from the binding resource's tenant/application. `retire` carries the SDK
+`Retirement` shape, whose nested mode is coordinated or force. Operator authority
+permits catalog retirement/status and its partition preflight/closure, while
+configuration and append remain unavailable to this capability. Catalog schema
+3 and partition schema 4 preserve legacy rows while adding nullable provenance.

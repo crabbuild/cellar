@@ -23,5 +23,6 @@ CREATE TABLE IF NOT EXISTS __sys_event_catalog_receipts (
     digest TEXT NOT NULL,
     principal TEXT NOT NULL,
     grant_id TEXT NOT NULL,
+    operator TEXT CHECK(operator IS NULL OR (typeof(operator)='text' AND length(CAST(operator AS BLOB)) BETWEEN 1 AND 256)),
     result TEXT
 ) WITHOUT ROWID;

@@ -26,6 +26,33 @@ fn present(connection: &Connection, table: &str) -> anyhow::Result<bool> {
     )?)
 }
 
+pub(super) fn retirement_operator(
+    connection: &Connection,
+    marker: &str,
+    current: i64,
+    table: &str,
+) -> anyhow::Result<()> {
+    if !present(connection, marker)? {
+        return Ok(());
+    }
+    let version: i64 = connection.query_row(
+        &format!("SELECT version FROM {marker} WHERE singleton=1"),
+        [],
+        |row| row.get(0),
+    )?;
+    if version != current {
+        return Ok(());
+    }
+    let types = connection
+        .prepare("SELECT type FROM pragma_table_info(?1) WHERE name='operator'")?
+        .query_map([table], |row| row.get::<_, String>(0))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    compatible(
+        types.len() == 1 && types[0].eq_ignore_ascii_case("TEXT"),
+        "retirement schema marker requires operator provenance",
+    )
+}
+
 fn layout(connection: &Connection, table: &str, expected: &str) -> anyhow::Result<()> {
     // Names come only from framework-owned static declarations.
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
@@ -119,6 +146,41 @@ impl Schema {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn marked_retirement_provenance_is_required_before_base_schema_changes() -> anyhow::Result<()> {
+        for (marker, version, table) in [
+            ("__sys_stream_schema", 4, "__sys_stream_retirement"),
+            (
+                "__sys_event_catalog_schema",
+                3,
+                "__sys_event_catalog_receipts",
+            ),
+        ] {
+            for column in ["", ",operator INTEGER"] {
+                let connection = Connection::open_in_memory()?;
+                connection.execute_batch(&format!("CREATE TABLE business(value TEXT);INSERT INTO business VALUES('retained');CREATE TABLE {marker}(singleton INTEGER PRIMARY KEY,version INTEGER);INSERT INTO {marker} VALUES(1,{version});CREATE TABLE {table}(operation TEXT{column});"))?;
+                let before: i64 =
+                    connection.query_row("PRAGMA schema_version", [], |row| row.get(0))?;
+                let failure = super::super::schema(&connection).unwrap_err();
+                assert_eq!(
+                    failure.downcast_ref::<DeliveryError>().unwrap().code,
+                    ErrorCode::UnsupportedProtocol
+                );
+                assert_eq!(
+                    connection
+                        .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))?,
+                    before
+                );
+                assert_eq!(
+                    connection.query_row("SELECT value FROM business", [], |row| row
+                        .get::<_, String>(0))?,
+                    "retained"
+                );
+            }
+        }
+        Ok(())
+    }
 
     #[test]
     fn future_and_missing_markers_fail_before_any_schema_mutation() -> anyhow::Result<()> {

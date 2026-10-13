@@ -1485,7 +1485,7 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     assert_eq!(
         destination.query_row("SELECT version FROM __sys_stream_schema", [], |row| row
             .get::<_, i64>(0))?,
-        3
+        4
     );
     assert_eq!(
         destination.query_row("SELECT count(*) FROM __sys_stream_operations", [], |row| {
@@ -1531,7 +1531,7 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
             [],
             |row| row.get::<_, i64>(0)
         )?,
-        2
+        3
     );
     assert_eq!(catalog.query_row("SELECT count(*) FROM __sys_event_catalog_receipts WHERE operation='00000000000000000000000000000011' AND result IS NOT NULL", [], |row| row.get::<_, i64>(0))?, 1);
     assert_eq!(

@@ -1244,8 +1244,18 @@ receipt replay/status. Reset/deletion require explicit CLI confirmation and an
 observed subscription identity. Metadata reads remove bodies and encoded
 envelopes; `--payload` opts in. Requests/binding files, expected identity files,
 read bytes and replies are bounded to 16/4/256/1024 KiB, with 100-record pages.
-Resource inventories, stream retirement CLI and exported metrics remain future
-implementation work; the full release qualification gates still apply.
+`cellar stream retire` and `retirement-status` also provide guarded catalog
+retirement. They require the current resource revision, immutable operation UUID,
+bounded reason, explicit CLI confirmation, and either an external all-producer
+coordination procedure or a force/data-loss acknowledgment. Operator provenance
+is permitted only for catalog retirement/status and the matching partition
+preflight/closure methods, never configuration or append. Catalog schema 3 and
+stream schema 4 add nullable operator identity to retirement receipts; legacy SDK
+rows retain no operator. Current markers require these columns before base schema
+mutation. Terminal results retain captured records/bytes and the exact retained
+payload range after cleanup; malformed or conflicting range/provenance echoes
+cannot finish the catalog receipt. Resource inventories and exported metrics
+remain future work; the full release qualification gates still apply.
 
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;

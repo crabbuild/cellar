@@ -147,20 +147,25 @@ impl Authority {
         if self.operator.is_none() {
             return Ok(());
         }
-        anyhow::ensure!(
-            scope == super::cell_scope(&self.resource)?,
-            "operator target is not its stream"
-        );
+        let stream = scope == super::cell_scope(&self.resource)?;
+        let catalog = scope == super::catalog_scope(&self.resource)?;
         let permitted = match self.action {
-            Action::Read => method == "__streamRead",
-            Action::Administer => matches!(
-                method,
-                "__streamDescribe"
-                    | "__streamSubscriptionStatus"
-                    | "__streamSubscriptionChange"
-                    | "__streamAudit"
-                    | "__streamOperationStatus"
-            ),
+            Action::Read => stream && method == "__streamRead",
+            Action::Administer => {
+                (stream
+                    && matches!(
+                        method,
+                        "__streamDescribe"
+                            | "__streamSubscriptionStatus"
+                            | "__streamSubscriptionChange"
+                            | "__streamAudit"
+                            | "__streamOperationStatus"
+                            | "__streamRetirementCheck"
+                            | "__streamRetire"
+                    ))
+                    || (catalog
+                        && matches!(method, "__catalogRetire" | "__catalogRetirementStatus"))
+            }
             _ => false,
         };
         anyhow::ensure!(

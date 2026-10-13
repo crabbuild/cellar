@@ -128,6 +128,10 @@ impl Cell for Counter {
                     )
                     .await?
                     .state
+            } else if path == "/seal" {
+                serde_json::to_string(
+                    &db.tx(|tx| tx.seal(&events, "00000000000000000000000000000066"))?,
+                )?
             } else if path == "/reset-source" {
                 db.delete_all()?;
                 "reset".into()
@@ -499,6 +503,246 @@ fn stream_scope() -> Result<String> {
     ))
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retirement_operator_coordinates_or_forces_and_recovers_terminal_receipts() -> Result<()> {
+    use serde_json::json;
+    for force in [false, true] {
+        let directory = tempfile::tempdir()?;
+        let core = Executor::new("retirement-operator-core")?;
+        let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let (config, services) = inputs(
+            "retirement-owner",
+            &directory.path().join("owner"),
+            &core,
+            Some(bucket.clone()),
+            0,
+        )
+        .await?;
+        let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
+        super::ready(&owner).await?;
+        let client = client()?;
+        ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if call(&client, &owner, reqwest::Method::GET, "/events").await? == "1" {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        let (config, services) = inputs(
+            "retirement-entrance",
+            &directory.path().join("entrance"),
+            &core,
+            Some(bucket),
+            0,
+        )
+        .await?;
+        let mut external = graph(1, false);
+        external.primary.event_streams.clear();
+        let mut entrance =
+            Node::start(config, services, external, applications("entrance")?).await?;
+        super::ready(&entrance).await?;
+        let admin = binding(true);
+        let operation = "00000000000000000000000000000080";
+        let coordinated = Retirement {
+            operation: operation.into(),
+            revision: 1,
+            reason: "operator retirement qualification".into(),
+            mode: RetirementMode::Coordinated {
+                procedure: "all producers quiesced including never-contacted sources".into(),
+            },
+        };
+        let command = json!({"kind":"retire","request":coordinated});
+        ensure!(
+            stream_operator(
+                &client,
+                &entrance,
+                &admin,
+                command.clone(),
+                "events-operator"
+            )
+            .await?["error"]["code"]
+                == "PendingDelivery"
+        );
+        let status = json!({"kind":"retirement_status","operation":operation});
+        ensure!(
+            stream_operator(
+                &client,
+                &entrance,
+                &admin,
+                status.clone(),
+                "events-operator"
+            )
+            .await?["error"]["code"]
+                == "OperationUnknown"
+        );
+        let mut stale = command.clone();
+        stale["request"]["revision"] = "2".into();
+        ensure!(
+            stream_operator(&client, &entrance, &admin, stale, "events-operator").await?["error"]
+                ["code"]
+                == "ConfigConflict"
+        );
+        let mut forged = binding(false);
+        forged.administer = true;
+        ensure!(
+            stream_operator(
+                &client,
+                &entrance,
+                &forged,
+                command.clone(),
+                "events-operator"
+            )
+            .await?["error"]["code"]
+                == "Forbidden"
+        );
+        let command = if force {
+            let mut forced = coordinated.clone();
+            forced.mode = RetirementMode::Force {
+                data_loss_acknowledgment: "discard history and block outstanding obligations"
+                    .into(),
+            };
+            json!({"kind":"retire","request":forced})
+        } else {
+            // Producer seal is a separate source transaction, not an outbox
+            // drain inferred from the stream's observed producer list.
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    let response = client
+                        .post(format!("http://{}/seal", owner.info().public_address))
+                        .send()
+                        .await?;
+                    if response.status() == 200 {
+                        let seal: serde_json::Value =
+                            serde_json::from_str(&response.text().await?)?;
+                        if seal["state"] == "accepted" {
+                            return Ok::<_, anyhow::Error>(());
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await??;
+            ensure!(
+                stream_operator(
+                    &client,
+                    &entrance,
+                    &admin,
+                    command.clone(),
+                    "events-operator"
+                )
+                .await?["error"]["code"]
+                    == "PendingDelivery",
+                "undrained subscription permitted retirement"
+            );
+            ensure!(call(&client, &owner, reqwest::Method::POST, "/process-ack").await? == "1");
+            command
+        };
+        let accepted = stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            command.clone(),
+            "events-operator",
+        )
+        .await?;
+        ensure!(
+            accepted["result"]["resource"] == resource().id
+                && matches!(
+                    accepted["result"]["state"].as_str(),
+                    Some("retiring" | "deleted")
+                ),
+            "retirement not accepted: {accepted}"
+        );
+        ensure!(
+            stream_operator(
+                &client,
+                &entrance,
+                &admin,
+                command.clone(),
+                "other-operator"
+            )
+            .await?["error"]["code"]
+                == "Forbidden"
+        );
+        let mut conflict = command.clone();
+        conflict["request"]["reason"] = "different intent".into();
+        ensure!(
+            stream_operator(&client, &entrance, &admin, conflict, "events-operator").await?
+                ["error"]["code"]
+                == "ConfigConflict"
+        );
+        stopped(owner).await?;
+        let terminal = tokio::time::timeout(Duration::from_secs(8), async {
+            loop {
+                let receipt = stream_operator(
+                    &client,
+                    &entrance,
+                    &admin,
+                    status.clone(),
+                    "events-operator",
+                )
+                .await?;
+                if receipt["result"]["state"] == "deleted" {
+                    return Ok::<_, anyhow::Error>(receipt);
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        ensure!(terminal["result"]["operator"] == "events-operator");
+        // Bounded retention can reclaim an acknowledged event before closure.
+        // The terminal range always corresponds to actual retained records.
+        let records: i64 = terminal["result"]["records"].as_str().unwrap().parse()?;
+        if records == 0 {
+            ensure!(terminal["result"]["affected"].is_null());
+        } else {
+            ensure!(
+                records == 1 && terminal["result"]["affected"] == json!({"first":"1","last":"1"})
+            );
+        }
+        if force {
+            ensure!(records == 1, "forced retirement lost its captured range");
+        }
+        ensure!(
+            stream_operator(
+                &client,
+                &entrance,
+                &admin,
+                command.clone(),
+                "events-operator"
+            )
+            .await?
+                == terminal
+        );
+        ensure!(
+            stream_operator(&client, &entrance, &admin, status, "other-operator").await?["error"]
+                ["code"]
+                == "Forbidden"
+        );
+        ensure!(
+            stream_operator(
+                &client,
+                &entrance,
+                &binding(false),
+                json!({"kind":"read","cursor":null,"limit":1,"max_bytes":4096,"payload":false}),
+                "events-operator"
+            )
+            .await?["error"]["code"]
+                == "DestinationDeleted"
+        );
+        // Terminal resource state cannot be revived by a historic deployment.
+        ensure!(entrance
+            .adopt(graph(1, false), applications("stale")?)
+            .await
+            .is_err());
+        stopped(entrance).await?;
+    }
+    Ok(())
+}
+
 async fn stream_operator(
     client: &reqwest::Client,
     node: &Node,
@@ -506,7 +750,18 @@ async fn stream_operator(
     command: serde_json::Value,
     caller: &str,
 ) -> Result<serde_json::Value> {
-    let path = format!("/streams/{}", stream_scope()?);
+    let scope = if matches!(
+        command["kind"].as_str(),
+        Some("retire" | "retirement_status")
+    ) {
+        let resource = resource();
+        let name = serde_json::to_string(&(resource.tenant, resource.application))?;
+        let id = cellar_native::cell_id::for_name("cells:v1:event-catalog:__EventCatalog", &name);
+        format!("__EventCatalog:{}", cellar_native::cell_id::encode_hex(&id))
+    } else {
+        stream_scope()?
+    };
+    let path = format!("/streams/{scope}");
     let body = serde_json::to_vec(&serde_json::json!({"binding":binding,"command":command}))?;
     let auth = PeerAuth::new([11; 32], caller)?;
     let request = auth.sign(

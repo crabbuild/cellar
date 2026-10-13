@@ -389,8 +389,15 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox::check_schema(c)?;
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
-    event_schema::check_version(c, "__sys_stream_schema", &[1, 2, 3])?;
-    event_schema::check_version(c, "__sys_event_catalog_schema", &[1, 2])?;
+    event_schema::check_version(c, "__sys_stream_schema", &[1, 2, 3, 4])?;
+    event_schema::check_version(c, "__sys_event_catalog_schema", &[1, 2, 3])?;
+    event_schema::retirement_operator(c, "__sys_stream_schema", 4, "__sys_stream_retirement")?;
+    event_schema::retirement_operator(
+        c,
+        "__sys_event_catalog_schema",
+        3,
+        "__sys_event_catalog_receipts",
+    )?;
     // Fresh schemas can skip the WAL-header fsync. Existing Cellar databases
     // use the normal durability setting for schema maintenance.
     let empty = c.query_row("PRAGMA page_count", [], |row| row.get::<_, u64>(0))? == 0;

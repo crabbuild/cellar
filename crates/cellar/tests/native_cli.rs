@@ -59,6 +59,23 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
             ensure!(String::from_utf8(output.stderr)?
                 .contains(&format!("{action} requires --confirm-{action}")));
         }
+        let retirement = Command::new(executable)
+            .args(["stream", "retire"])
+            .output()?;
+        ensure!(!retirement.status.success());
+        ensure!(String::from_utf8(retirement.stderr)?.contains("retire requires --confirm-retire"));
+        let forced = Command::new(executable)
+            .args(["stream", "retire", "--confirm-retire", "--force"])
+            .output()?;
+        ensure!(!forced.status.success());
+        ensure!(String::from_utf8(forced.stderr)?
+            .contains("forced retirement requires --data-loss TEXT"));
+        let coordinated = Command::new(executable)
+            .args(["stream", "retire", "--confirm-retire"])
+            .output()?;
+        ensure!(!coordinated.status.success());
+        ensure!(String::from_utf8(coordinated.stderr)?
+            .contains("coordinated retirement requires --procedure TEXT"));
         let fleet = Command::new(executable)
             .args(["fleet", "upgrade", "--help"])
             .output()?;

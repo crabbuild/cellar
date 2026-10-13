@@ -1,7 +1,9 @@
 // Bounded operator files are process-boundary inputs, not node storage effects.
 #![allow(clippy::disallowed_methods)]
 
-use crate::application::event_stream::{Change, ChangeAction, Cursor, SubscriptionIdentity};
+use crate::application::event_stream::{
+    Change, ChangeAction, Cursor, Retirement, RetirementMode, SubscriptionIdentity,
+};
 use crate::cli_options::{FleetFlags, FLEET_HELP};
 use crate::cli_output::{Format, Output, Record};
 use crate::operator_cell::{Fleet, Reachable, Subject};
@@ -15,6 +17,9 @@ const HELP: &str = "cellar stream describe --binding BINDING.json
 cellar stream read --binding BINDING.json [--cursor TOKEN] [--limit N] [--max-bytes N] [--payload]
 cellar stream status --binding BINDING.json --operation UUID
 cellar stream audit --binding BINDING.json [--after POSITION] [--limit N]
+cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --procedure TEXT --confirm-retire
+cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --force --data-loss TEXT --confirm-retire
+cellar stream retirement-status --binding BINDING.json --operation UUID
 cellar subscription describe NAME --binding BINDING.json
 cellar subscription pause|resume NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT
 cellar subscription reset NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --cursor TOKEN --confirm-reset
@@ -74,7 +79,10 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
             || if subscription {
                 verb == "describe"
             } else {
-                matches!(verb.as_str(), "describe" | "read" | "status" | "audit")
+                matches!(
+                    verb.as_str(),
+                    "describe" | "read" | "status" | "audit" | "retire" | "retirement-status"
+                )
             },
         "unknown stream/subscription command {verb}"
     );
@@ -95,6 +103,7 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
     let (mut binding, mut expected, mut operation, mut reason, mut cursor) =
         (None, None, None, None, None);
     let (mut limit, mut max_bytes, mut after) = (100usize, MAX_READ_BYTES, "0".to_owned());
+    let (mut revision, mut procedure, mut data_loss) = (None, None, None);
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--help" | "-h" => return Ok(None),
@@ -110,7 +119,7 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
                 payload = true;
                 continue;
             }
-            "--force" if change && verb == "delete" => {
+            "--force" if (change && verb == "delete") || (!subscription && verb == "retire") => {
                 force = true;
                 continue;
             }
@@ -119,6 +128,10 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
                 continue;
             }
             "--confirm-delete" if change && verb == "delete" => {
+                confirmed = true;
+                continue;
+            }
+            "--confirm-retire" if !subscription && verb == "retire" => {
                 confirmed = true;
                 continue;
             }
@@ -134,10 +147,25 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
         match flag.as_str() {
             "--binding" => binding = Some(value(&flag)?),
             "--expected" if change => expected = Some(value(&flag)?),
-            "--operation" if change || (!subscription && verb == "status") => {
+            "--operation"
+                if change
+                    || (!subscription
+                        && matches!(verb.as_str(), "status" | "retire" | "retirement-status")) =>
+            {
                 operation = Some(value(&flag)?)
             }
-            "--reason" if change => reason = Some(value(&flag)?),
+            "--reason" if change || (!subscription && verb == "retire") => {
+                reason = Some(value(&flag)?)
+            }
+            "--revision" if !subscription && verb == "retire" => {
+                revision = Some(
+                    value(&flag)?
+                        .parse::<i64>()
+                        .context("invalid retirement revision")?,
+                )
+            }
+            "--procedure" if !subscription && verb == "retire" => procedure = Some(value(&flag)?),
+            "--data-loss" if !subscription && verb == "retire" => data_loss = Some(value(&flag)?),
             "--cursor" if (!subscription && verb == "read") || (change && verb == "reset") => {
                 cursor = Some(value(&flag)?)
             }
@@ -195,6 +223,36 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
                 operation: operation.context("status requires --operation")?,
             },
             "audit" => Command::Audit { after, limit },
+            "retire" => {
+                anyhow::ensure!(confirmed, "retire requires --confirm-retire");
+                let mode = if force {
+                    anyhow::ensure!(
+                        procedure.is_none(),
+                        "forced retirement cannot attest --procedure"
+                    );
+                    RetirementMode::Force {
+                        data_loss_acknowledgment: data_loss
+                            .context("forced retirement requires --data-loss TEXT")?,
+                    }
+                } else {
+                    anyhow::ensure!(data_loss.is_none(), "--data-loss requires --force");
+                    RetirementMode::Coordinated {
+                        procedure: procedure
+                            .context("coordinated retirement requires --procedure TEXT")?,
+                    }
+                };
+                Command::Retire {
+                    request: Retirement {
+                        operation: operation.context("retire requires --operation")?,
+                        revision: revision.context("retire requires --revision")?,
+                        reason: reason.context("retire requires --reason")?,
+                        mode,
+                    },
+                }
+            }
+            "retirement-status" => Command::RetirementStatus {
+                operation: operation.context("retirement-status requires --operation")?,
+            },
             _ => unreachable!("validated command"),
         }
     };

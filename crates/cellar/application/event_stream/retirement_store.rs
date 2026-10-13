@@ -1,7 +1,7 @@
 use super::{
     authority::{Action, Authority},
     error::error,
-    store, ErrorCode, Retirement,
+    store, subscription_store, ErrorCode, Retirement,
 };
 use crate::application::storage::{SqlRow, SqlValue};
 use crate::application::{Context, Result, Storage};
@@ -82,12 +82,90 @@ pub(crate) fn check(context: &Context, body: &Value) -> Result<Value> {
     )
 }
 
-fn response(resource: &str, row: &SqlRow) -> Result<Value> {
+fn response(db: &Storage, resource: &str, row: &SqlRow) -> Result<Value> {
+    let (_, stream) = store::load_state(db)?;
+    let end = store::number(&stream, "next_offset")?;
+    let records = store::number(row, "records")?;
+    let first = end
+        .checked_sub(records)
+        .filter(|first| *first >= 1)
+        .ok_or_else(|| {
+            error(
+                ErrorCode::UnsupportedProtocol,
+                "invalid retained retirement range",
+            )
+        })?;
+    let affected = if records == 0 {
+        None
+    } else {
+        Some(super::OffsetRange {
+            first,
+            last: end - 1,
+        })
+    };
     Ok(
         json!({"resource":resource,"operation":store::text(row,"operation")?,"digest":store::text(row,"digest")?,
+        "operator":store::operator(row)?,"affected":affected,
         "state":if matches!(row.get("finished_ms"),Some(SqlValue::Integer(_))) {"deleted"}else{"retiring"},
         "records":store::number(row,"records")?.to_string(),"bytes":store::number(row,"bytes")?.to_string()}),
     )
+}
+
+pub(crate) fn acceptance(reply: &Value, operator: Option<&str>) -> Result<()> {
+    let accepted_operator = match reply.get("operator") {
+        Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.as_str()),
+        _ => {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "retirement operator acceptance is missing or invalid",
+            ))
+        }
+    };
+    if accepted_operator != operator {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "retirement operator acceptance differs",
+        ));
+    }
+    let records = subscription_store::integer(reply, "records")?;
+    let bytes = subscription_store::integer(reply, "bytes")?;
+    if records < 0
+        || bytes < 0
+        || reply["records"].as_str() != Some(records.to_string().as_str())
+        || reply["bytes"].as_str() != Some(bytes.to_string().as_str())
+    {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "invalid retirement acceptance counters",
+        ));
+    }
+    let affected: Option<super::OffsetRange> =
+        serde_json::from_value(reply.get("affected").cloned().ok_or_else(|| {
+            error(
+                ErrorCode::ConfigConflict,
+                "retirement affected range is missing",
+            )
+        })?)?;
+    let matches = match affected {
+        None => records == 0,
+        Some(range) => {
+            range.first >= 1
+                && range
+                    .last
+                    .checked_sub(range.first)
+                    .and_then(|length| length.checked_add(1))
+                    == Some(records)
+                && records > 0
+        }
+    };
+    if !matches {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "retirement affected range conflicts with captured records",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn close(context: &Context, body: &Value) -> Result<Value> {
@@ -96,19 +174,19 @@ pub(crate) fn close(context: &Context, body: &Value) -> Result<Value> {
     db.tx(|tx| {
         let previous=tx.system_sql("SELECT * FROM __sys_stream_retirement WHERE singleton=1",&[])?;
         if let Some(previous)=previous.first() {
-            if store::text(previous,"principal")?!=caller.principal || store::text(previous,"grant_id")?!=caller.grant {return Err(error(ErrorCode::Forbidden,"retirement belongs to another caller"));}
+            if store::text(previous,"principal")?!=caller.principal || store::text(previous,"grant_id")?!=caller.grant || store::operator(previous)?!=caller.operator {return Err(error(ErrorCode::Forbidden,"retirement belongs to another caller"));}
             if store::text(previous,"operation")?!=request.operation || store::text(previous,"digest")?!=digest {return Err(error(ErrorCode::ConfigConflict,"stream already has another terminal retirement"));}
-            return response(&definition.resource.id,previous);
+            return response(tx,&definition.resource.id,previous);
         }
         if store::text(&row,"lifecycle")?!="active" {return Err(error(ErrorCode::DestinationDeleted,"stream is closed"));}
         if request.revision!=definition.revision {return Err(error(ErrorCode::ConfigConflict,"retirement revision differs from the stream"));}
         let now=crate::asyncrt::wall_ms().max(store::number(&row,"logical_ms")?);
         facts(tx,request.force(),now,store::number(&row,"next_offset")?)?;
-        tx.system_sql("INSERT INTO __sys_stream_retirement(singleton,operation,digest,request,principal,grant_id,started_ms,records,bytes) VALUES(1,?,?,?,?,?,?,?,?)",
-            &[request.operation.clone().into(),digest.into(),serde_json::to_string(&request)?.into(),caller.principal.into(),caller.grant.into(),now.into(),store::number(&row,"rows")?.into(),store::number(&row,"bytes")?.into()])?;
+        tx.system_sql("INSERT INTO __sys_stream_retirement(singleton,operation,digest,request,principal,grant_id,operator,started_ms,records,bytes) VALUES(1,?,?,?,?,?,?,?,?,?)",
+            &[request.operation.clone().into(),digest.into(),serde_json::to_string(&request)?.into(),caller.principal.into(),caller.grant.into(),caller.operator.map(SqlValue::Text).unwrap_or(SqlValue::Null),now.into(),store::number(&row,"rows")?.into(),store::number(&row,"bytes")?.into()])?;
         tx.system_sql("UPDATE __sys_stream SET lifecycle='deleted',logical_ms=? WHERE singleton=1",&[now.into()])?;
         tx.schedule_work(cellar_logic::work::Reason::StreamMaintenance,now)?;
-        response(&definition.resource.id,&tx.system_sql("SELECT * FROM __sys_stream_retirement WHERE singleton=1",&[])?.remove(0))
+        response(tx,&definition.resource.id,&tx.system_sql("SELECT * FROM __sys_stream_retirement WHERE singleton=1",&[])?.remove(0))
     })
 }
 
@@ -165,4 +243,31 @@ pub(crate) fn cleanup(db: &Storage, now: i64) -> Result<()> {
         } else {tx.schedule_work(cellar_logic::work::Reason::StreamMaintenance,now.saturating_add(1000))?;}
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retirement_acceptance_preserves_exact_ranges_and_operator_identity() -> Result<()> {
+        let original = json!({"operator":"operator","records":"2","bytes":"200","affected":{"first":"9007199254740993","last":"9007199254740994"}});
+        acceptance(&original, Some("operator"))?;
+        assert!(acceptance(&original, Some("other")).is_err());
+        for (key, value) in [
+            ("records", json!("3")),
+            ("bytes", json!("-1")),
+            ("operator", json!(false)),
+            ("affected", Value::Null),
+        ] {
+            let mut invalid = original.clone();
+            invalid[key] = value;
+            assert!(acceptance(&invalid, Some("operator")).is_err());
+        }
+        acceptance(
+            &json!({"operator":null,"records":"0","bytes":"0","affected":null}),
+            None,
+        )?;
+        Ok(())
+    }
 }

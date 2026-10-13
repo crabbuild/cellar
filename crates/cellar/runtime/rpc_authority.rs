@@ -180,6 +180,13 @@ mod tests {
                 "__catalogConfigure"
             )
             .is_err());
+        assert!(admin
+            .validate_target(
+                &event_stream::catalog_scope(&binding.resource)?,
+                "__catalogRetire"
+            )
+            .is_ok());
+        assert!(admin.validate_target(&scope, "__catalogRetire").is_err());
         let read = RpcAuthority::from(event_stream::Authority::operator(
             &binding,
             Action::Read,

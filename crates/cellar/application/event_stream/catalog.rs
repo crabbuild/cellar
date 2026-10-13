@@ -87,6 +87,7 @@ fn validate_receipt(
     }
     if store::text(row, "principal")? != caller.principal
         || store::text(row, "grant_id")? != caller.grant
+        || store::operator(row)? != caller.operator
     {
         return Err(error(
             ErrorCode::Forbidden,
@@ -121,18 +122,31 @@ fn insert_receipt(
             "catalog operation history exhausted",
         ));
     }
-    db.system_sql("INSERT INTO __sys_event_catalog_receipts(operation,resource,kind,digest,principal,grant_id) VALUES(?,?,?,?,?,?)",
-        &[operation.into(),caller.resource.id.clone().into(),kind.into(),digest.into(),caller.principal.clone().into(),caller.grant.clone().into()])?;
+    db.system_sql("INSERT INTO __sys_event_catalog_receipts(operation,resource,kind,digest,principal,grant_id,operator) VALUES(?,?,?,?,?,?,?)",
+        &[operation.into(),caller.resource.id.clone().into(),kind.into(),digest.into(),caller.principal.clone().into(),caller.grant.clone().into(),caller.operator.clone().map(SqlValue::Text).unwrap_or(SqlValue::Null)])?;
     Ok(())
 }
 
-fn finish_receipt(db: &Storage, id: &str, operation: &str) -> Result<()> {
+fn finish_receipt(
+    db: &Storage,
+    id: &str,
+    operation: &str,
+    retirement: Option<&Value>,
+) -> Result<()> {
     let row = db.system_sql(
         "SELECT * FROM __sys_event_catalog WHERE id=? AND operation=?",
         &[id.into(), operation.into()],
     )?;
     if let Some(row) = row.first() {
-        let result = serde_json::to_string(&status(row)?)?;
+        let mut result = status(row)?;
+        if let Some(retirement) = retirement {
+            for key in ["operator", "affected", "records", "bytes"] {
+                if let Some(value) = retirement.get(key) {
+                    result[key] = value.clone();
+                }
+            }
+        }
+        let result = serde_json::to_string(&result)?;
         db.system_sql(
             "UPDATE __sys_event_catalog_receipts SET result=? WHERE operation=? AND result IS NULL",
             &[result.into(), operation.into()],
@@ -241,7 +255,7 @@ fn retirement_status(context: &Context, body: &Value) -> Result<Value> {
     let db = context.storage()?;
     authorize_resource(&db, &caller, Action::Administer)?;
     let prior = receipt(&db, operation)?
-        .ok_or_else(|| error(ErrorCode::NotInitialized, "retirement operation missing"))?;
+        .ok_or_else(|| error(ErrorCode::OperationUnknown, "retirement operation missing"))?;
     validate_receipt(&prior, &caller, "retire", None)?;
     operation_result(&db, &caller.resource.id, operation)
 }
@@ -351,6 +365,9 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
                 ));
             }
             if retiring {
+                let original: Authority =
+                    serde_json::from_str(&store::text(&row, "operation_authority")?)?;
+                super::retirement_store::acceptance(&reply, original.operator.as_deref())?;
                 let state = reply["state"].as_str().ok_or_else(|| {
                     error(ErrorCode::InvalidRequest, "retirement reply has no state")
                 })?;
@@ -361,7 +378,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
                     db.tx(|tx| {
                         tx.system_sql("UPDATE __sys_event_catalog SET pending_retirement=NULL,pending_authority=NULL,lifecycle='deleted',last_error=NULL WHERE id=? AND operation=?",
                             &[id.into(),operation.clone().into()])?;
-                        finish_receipt(tx,id,&operation)?;schedule(tx)
+                        finish_receipt(tx,id,&operation,Some(&reply))?;schedule(tx)
                     })?;
                 } else {
                     db.system_sql(
@@ -380,7 +397,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
                 db.tx(|tx| {
                     tx.system_sql("UPDATE __sys_event_catalog SET definition=pending_definition,pending_definition=NULL,pending_authority=NULL,lifecycle='active',last_error=NULL WHERE id=? AND operation=?",
                         &[id.into(),operation.clone().into()])?;
-                    finish_receipt(tx,id,&operation)?;schedule(tx)
+                    finish_receipt(tx,id,&operation,None)?;schedule(tx)
                 })?;
             }
         }
