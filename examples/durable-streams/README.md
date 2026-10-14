@@ -427,3 +427,10 @@ Host/local file observations have the same limits as `capacity.py`. This case
 uses the original application class and surviving local state/store. Removed-
 class recovery, compaction, follower-only proof, power/store/physical-host loss,
 long soaks and operational memory SLOs retain their separate qualification scope.
+
+For startup diagnosis, set `CELLAR_STREAM_FIXTURE_TRACE=1 RUST_BACKTRACE=1` on
+the same command. The opt-in fixture writes activation method/stage timings and
+the driver records host snapshots while replacement readiness is pending. These
+probes never invoke source cells and preserve the original readiness deadline.
+Keep diagnostic runs distinct from ordinary qualification: probes add traffic,
+and a successful replay cannot explain an earlier intermittent failure.

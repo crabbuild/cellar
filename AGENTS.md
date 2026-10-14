@@ -574,12 +574,21 @@ retries only tagged network failures for its idempotent configuration or read-on
 resolution/status calls, within the original activation deadline. It encodes the
 authority/body once and uses a new dispatch identity per attempt to avoid prior
 abort tombstones. General RPC still refuses ambiguous replay; protocol/authority/
-codec refusals are not tagged for this loop. The corrected image passes SQLite
-eight-source and one RustFS 144-source replay with complete shutdown. An earlier
-144-source run on that same image still hit activation's deadline and a closed-
-domain spawn panic; the prior pending-dispatch shutdown failure is also
-unestablished. Keep these separate release audits open rather than using successful
-replays to close them or relaxing readiness/durability/deadline/shutdown checks.
+codec refusals are not tagged for this loop. Preserve failed and passing evidence
+in the implementation status: a passing replay alone cannot establish an earlier
+failure's cause or justify relaxing readiness/durability/deadline/shutdown checks.
+Startup boot/periodic wake discovery now waits for the captured generation's
+event-resource activation before doing store reads or submitting cold hints.
+Both embedded and CLI paths use `node/wake_discovery.rs`; predecessor recovery,
+node authority and authenticated internal serving retain their existing order.
+Failed/cancelled activation cannot start discovery; hosts without event activation
+do not wait. Durable publications remain intact and normal discovery resumes
+after readiness, including removed-class delivery. Gated reply task admission
+uses try_spawn: refusal drops reply/value/gates in their owner and returns a closed
+completion to the driver, without unproven output or a closure panic. The trace
+identified startup source-wake pressure and the concrete alarm reply spawn caller;
+untraced 144/192-source RustFS cases pass after these fixes. Wider maintenance
+fairness and failed-startup/shutdown cut points retain their separate audits.
 `whole_fleet.py` explicitly selects bucket proofs, audits one accepted event with
 a proven unacked inbox effect plus one capacity-blocked source obligation, then
 SIGKILLs all three processes. It inventories/discards only its private node data

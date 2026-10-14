@@ -178,6 +178,14 @@ fn main() -> Result<()> {
             None
         };
     let faults = args.get(2).is_some();
+    if faults && std::env::var_os("CELLAR_STREAM_FIXTURE_TRACE").is_some() {
+        tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .with_env_filter("off,cellar::daemon::event_resources=debug")
+            .try_init()
+            .map_err(|error| anyhow::anyhow!("fixture tracing: {error}"))?;
+    }
     let node_name = fixture
         .as_ref()
         .map_or(application::SCRIPT, |fixture| fixture.node.as_str());

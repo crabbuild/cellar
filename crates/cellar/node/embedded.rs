@@ -951,25 +951,13 @@ async fn prepare(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     if let Some(ownership) = &ownership {
-        let bucket = ownership.bucket_client();
-        let boot_ms = now_ms();
-        let live = crate::dead_node_gc::live_nodes(&bucket, boot_ms).await;
-        let due = crate::wake::due_scan(&bucket, boot_ms as i64).await;
-        for (cell, entry_ms) in crate::wake::elected_due(ownership, &node, &live, due).await {
-            let _ = app.tx.send(Message::WakeHint {
-                cell,
-                entry_ms,
-                scope: cellar_logic::WakeHintScope::Fleet,
-            });
-        }
-        crate::asyncrt::spawn(crate::wake::run_periodic(
-            bucket,
+        super::wake_discovery::start(
+            &app,
+            ownership.bucket_client(),
             ownership.clone(),
-            node.clone(),
-            app.tx.clone(),
+            &node,
             duration_ms("wake period", config.maintenance.wake_period)?,
-        ))
-        .detach();
+        )?;
     }
     spawn_cron_arm(app.clone());
     let info = NodeInfo {

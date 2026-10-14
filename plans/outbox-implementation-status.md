@@ -2111,3 +2111,63 @@ Evidence root:
 Example SHA-256: `855eebf8a2c0fa80c8071bf309fb65171d58a0db514d60676506cf6feaf8be7f`.
 All owned markers remain 1. This scoped fix does not complete the design's full
 implementation, fault/capacity/lifecycle matrix or requirement audit.
+
+## Startup wake pressure and closed-domain gated replies (2026-10-14)
+
+The opt-in diagnostic 144-source RustFS run reproduced the activation deadline
+and panic. RPC stage logs stopped at catalog configure/resolve. Host snapshots
+showed all 16 activation slots in owner-log recovery with 113–119 additional
+activations queued, while only one or two cells were resident. The backtrace
+identified `host_turn::send_answer_after_arm_gates` called from native alarm
+failure settlement after the execution domain had closed. This replaces the
+earlier unknown-caller/unknown-pressure account with concrete evidence; it does
+not establish the cause of the separate original five-second bootstrap timeout.
+
+Reply delivery now uses fallible task admission. When a begun turn settles after
+closure, refusal drops the reply value and discovery-gate receivers in their
+originating domain. The returned closed completion remains visible to the driver;
+no success or handler error bypasses an unproven gate. Both closed-poll tests
+failed with the original infallible spawn; they pass after the fix, as does normal
+admitted delivery waiting for discovery. Successful values drop exactly once.
+
+Shared `node/wake_discovery.rs` orders boot/periodic discovery after the captured
+generation's event-resource activation. Its first store read and first cold hint
+cannot consume admission ahead of catalog/partition readiness. Embedded and CLI
+bootstraps retain predecessor recovery, node authority and internal serving.
+Readiness failure/cancellation cannot launch discovery; no-event hosts proceed
+immediately. Durable wake publications are neither consumed nor discarded while
+waiting, and the regular scan resumes after activation. Catalog configuration
+can directly reconcile a retained pending operation before the general scan.
+Tests cover pending activation, success, failure, cancellation and no-event hosts.
+
+All 121 library and 30 serial Node cases pass (286.15s for Node), including
+removed-class source recovery, native outbox append/ack loss, source retirement,
+ownership and original lifetime/deadline/shutdown assertions. The diagnostic
+helpers preserve the original readiness deadline and record host metadata only;
+activation debug logs report method/stage/timing/success without reply payloads.
+Temporary debug tags are removed. Diagnostic observations add traffic and are
+kept separate from the final qualification runs.
+
+The final archived image passes untraced RustFS runs with 144 and 192 independent
+sources, each exceeding one host's 128-resident limit. Each audits original
+accepted/pending state, observes all three SIGKILLs, recovers unchanged protected
+history and delivers/consumes every original event without source requests before
+completion. Exact inbox effects, checkpoints 144/192, all three complete final
+shutdown reports and owned server removal pass; both saved audit-only checks
+pass. Drains took 95.03s and 140.39s on this machine, not SLO guarantees. Ordinary
+smoke, all 62 Python guards, docs (35/6/370), dependencies (401/no JavaScript
+engine) and whitespace checks pass. The failed diagnostic/backtraces, baseline
+and fixed regressions and all images/configuration/evidence are preserved.
+Workspace/all-target/all-feature Clippy-D passes (1m56s), along with the final
+121-library replay, all 10 Cellar doctests and 432-file formatting. These checks
+do not substitute for another complete-workspace integration or release-matrix
+run.
+
+Evidence root:
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-large-recovery-diagnosis-dkejbs8w`.
+Final example SHA-256: `ffd5dbd8f516552166c08b7014c92f4133added3024206325d84580181837515`.
+These fixes address the observed startup-pressure and gated-reply panic paths.
+They do not close general wake fairness, every failed-startup/shutdown/network
+cut, the prior pending-dispatch failure's full audit, follower/power/store/physical-
+host loss, broader capacity/SLO accounting or the full design requirement audit.
+All Cellar-owned markers remain 1 and the full goal remains active.

@@ -1,17 +1,38 @@
 #!/usr/bin/env python3
 """Independent cold-source recovery under bounded residency and required retention."""
 import argparse
+import concurrent.futures
 import hashlib
+import http.client
 import json
+import os
 from pathlib import Path
 import tempfile
 import time
 import urllib.parse
 
 from capacity import observe
-from faults import Ledger, eventually, integer, read, require, validate_event, validate_source
+from faults import AuditError, Ledger, eventually, integer, read, require, validate_event, validate_source
 from fleet_faults import FleetProcess, NetworkStore, PeerProxy, free_address
 from many_sources_audit import audit
+
+
+def replacement_ready(process,live,peers,ledger):
+    if not os.environ.get("CELLAR_STREAM_FIXTURE_TRACE"):return process.ready()
+    # Diagnostic host snapshots never invoke a source. The existing readiness
+    # deadline remains in Process.ready and is not refreshed by observations.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        ready=pool.submit(process.ready)
+        while not ready.done():
+            for node,value in live.items():
+                if value.child.poll() is not None:continue
+                try:
+                    state=read("http://"+peers[node],"/state",timeout=.5)
+                except (OSError, AuditError, http.client.HTTPException) as error:
+                    ledger.record("many_startup_probe_unavailable",node=node,pid=value.child.pid,error=type(error).__name__)
+                else:ledger.record("many_startup_observation",node=node,pid=value.child.pid,state=state)
+            time.sleep(.25)
+        return ready.result()
 
 
 def cleanup(processes,proxy,store,ledger):
@@ -125,7 +146,7 @@ def exercise(binary,root,count,stream_rows,soak_seconds,delay,image):
         # Fleet-mode recovery may need a peer's retained log. Start every
         # replacement before waiting for any one node's readiness.
         for node in ("destination","producer","consumer"):
-            origins[node]=live[node].ready()
+            origins[node]=replacement_ready(live[node],live,peers,ledger)
             ledger.record("many_restarted",node=node,pid=live[node].child.pid)
         observe(ledger,live,peers,"cold-before-retry")
         # No /orders request occurs between restart and complete delivery.

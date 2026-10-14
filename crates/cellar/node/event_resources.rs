@@ -96,11 +96,26 @@ async fn rpc(
             reply,
         };
         async move {
+            let started = std::time::Instant::now();
+            tracing::debug!(
+                event = "event_activation_exchange",
+                phase = "started",
+                method,
+                "activation exchange started"
+            );
             let (_, result) = futures_util::future::join(
                 super::dispatch_rpc_call(app.clone(), request),
                 receiver,
             )
             .await;
+            tracing::debug!(
+                event = "event_activation_exchange",
+                phase = "completed",
+                method,
+                elapsed_ms = started.elapsed().as_millis(),
+                succeeded = result.as_ref().is_ok_and(|value| value.is_ok()),
+                "activation exchange completed"
+            );
             result.context("resource activation response channel closed")?
         }
     })

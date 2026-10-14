@@ -58,6 +58,7 @@ mod event_resources;
 mod ingress;
 mod source_operator;
 mod stream_operator;
+mod wake_discovery;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
@@ -4889,16 +4890,6 @@ async fn async_main(
         // due while nothing was watching. It probes like the elected waker
         // does, so a rolling restart does not send every node the whole
         // fleet's due set once each.
-        let boot_ms = now_ms();
-        let live = crate::dead_node_gc::live_nodes(&client, boot_ms).await;
-        let due = crate::wake::due_scan(&client, boot_ms as i64).await;
-        for (cell, entry_ms) in crate::wake::elected_due(&ownership, &node, &live, due).await {
-            let _ = app.tx.send(Message::WakeHint {
-                cell,
-                entry_ms,
-                scope: cellar_logic::WakeHintScope::Fleet,
-            });
-        }
 
         // And again, on a timer, for the rest of the process's life.
         //
@@ -4925,14 +4916,7 @@ async fn async_main(
         // cell with a live owner elsewhere resolves to that owner rather
         // than stealing it.
         let tick_ms = crate::env_vars::positive::<u64>("CELLAR_WAKER_TICK_MS")?.unwrap_or(60_000);
-        crate::asyncrt::spawn(crate::wake::run_periodic(
-            client,
-            ownership,
-            node.clone(),
-            app.tx.clone(),
-            tick_ms,
-        ))
-        .detach();
+        wake_discovery::start(&app, client, ownership, &node, tick_ms)?;
     }
 
     // Arm the schedule, then watch the pointer. Adoption arms it again, so
