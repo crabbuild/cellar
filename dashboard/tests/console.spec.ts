@@ -1987,7 +1987,7 @@ test("workflow pins, duration evidence, bounded search and comparisons stay tied
           instanceId: body.instance,
           scope: `__Workflow:${body.instance}`,
           cursor: command.cursor,
-          done: true,
+          done: body.instance !== "other",
           events:
             body.instance === "other"
               ? [
@@ -2067,6 +2067,9 @@ test("workflow pins, duration evidence, bounded search and comparisons stay tied
   await comparison
     .getByRole("tab", { name: "Run comparison", exact: true })
     .click()
+  await expect(comparison.getByLabel("Right run comparison")).not.toContainText(
+    "older events omitted"
+  )
   await expect(comparison.getByLabel("Right run comparison")).toContainText(
     '"other": true'
   )

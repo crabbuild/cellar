@@ -441,12 +441,14 @@ export function WorkflowExecution({
   onNext,
   target,
   compare = true,
+  paging = true,
 }: {
   history: ExecutionHistory
   pending: boolean
   onNext: (cursor: number) => void
   target?: ResourceTarget
   compare?: boolean
+  paging?: boolean
 }) {
   const [run, setRun] = useState("")
   const [selected, setSelected] = useState<number | null>(null)
@@ -767,6 +769,7 @@ export function WorkflowExecution({
                   pending={pending}
                   onNext={onNext}
                   compare={false}
+                  paging={false}
                 />
               )}
               renderDefinition={(snapshot, events) => (
@@ -781,7 +784,7 @@ export function WorkflowExecution({
           </TabsContent>
         ) : null}
       </Tabs>
-      {!history.done && history.events.at(-1) && (
+      {paging && !history.done && history.events.at(-1) && (
         <Button
           className="w-fit"
           variant="outline"

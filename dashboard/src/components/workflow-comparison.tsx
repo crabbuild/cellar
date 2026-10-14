@@ -87,7 +87,6 @@ export function WorkflowComparison({
     events: value.events.filter(
       (event) => (event.generation ?? "legacy") === generation
     ),
-    done: true,
   })
   const leftEvents = slice(history, left),
     rightEvents = slice(right, selectedRight)
@@ -222,14 +221,14 @@ export function WorkflowComparison({
             <div className="workflow-comparison-grid">
               <div aria-label="Left run comparison">
                 {renderRun(
-                  { ...leftEvents, clipped: history.clipped || !history.done },
+                  { ...leftEvents, clipped: history.clipped },
                   () => {},
                   false
                 )}
               </div>
               <div aria-label="Right run comparison">
                 {renderRun(
-                  { ...rightEvents, clipped: right.clipped || !right.done },
+                  { ...rightEvents, clipped: right.clipped },
                   () => {},
                   fetch.isPending
                 )}
