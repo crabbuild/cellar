@@ -2058,3 +2058,56 @@ Example SHA-256: `e09dfaa99b5e7a8aa8a7c8e02789ea2b8bf08b0c937104aae764ea5a2f2074
 The objective remains active with this recovery/admission failure at the next
 priority; the full implementation, qualification and requirement audit retain
 their existing scope.
+
+## Activation-specific transport replay (2026-10-14)
+
+The general RPC router correctly stops an ambiguous failed/truncated exchange:
+it cannot safely repeat an arbitrary application handler. It previously flattened
+that error's type before returning it, and event activation also stopped after
+one exchange even though its configuration operation is durably idempotent and
+its other methods only resolve/read state. Startup peer connection closure could
+therefore end otherwise recoverable resource activation.
+
+Remote RPC now preserves a private network-failure context for Reqwest/Hyper/I/O
+errors, including interrupted response bodies. Header/protocol/authority failures
+retain ordinary errors. General dispatch's ambiguity classification and refusal
+remain unchanged. The activation helper alone repeats tagged transport errors,
+using the same authority and encoded body; a fresh request ID avoids a previous
+abort tombstone. Backoff caps at 200 ms under the original enclosing activation
+deadline, with no detached retry owner. Successful responses still pass the same
+resource/revision/digest/grant checks before binding pin/readiness. Permanent
+delivery/protocol/codec failures and response-channel closure are not replayed.
+
+The one-attempt regression compiled and failed with the tagged peer-closed error;
+earlier test compilation corrections are not the behavioral baseline. Four final
+regressions pass: network replay, unchanged general-RPC ambiguity, permanent
+permission refusal, untagged protocol refusal and caller-deadline cancellation
+with no surviving retry task. All 115 library and 30 serial Node cases pass
+(281.98s for Node), including actual append/ack loss, ownership, removed-class
+recovery, binding/retirement and unchanged shutdown deadlines.
+
+The archived example passes fresh SQLite eight-source recovery: three SIGKILLs,
+original protected history, autonomous delivery without source requests, eight
+acceptances/effects, checkpoint 8 and all final shutdown reports. A RustFS
+144-source replay also passes three SIGKILLs, 144 original acceptances/effects,
+checkpoint 144, complete replacement shutdown and owned server removal. Its
+drain was 105.78s on this machine; saved audit-only checks pass for both cases.
+The ordinary example smoke and all 62 Python oracle/proxy/cleanup guards pass.
+Workspace/all-target/all-feature Clippy-D passes (2m19s), as do all 10 Cellar
+doctests, 430-file formatting, docs (35/6/370), dependencies (401/no JavaScript
+engine) and whitespace checks. This is not another complete-workspace integration
+or complete release-matrix pass.
+
+The first RustFS 144-source run on this same image still failed the original
+activation deadline, followed by a spawn panic at execution/domain.rs:668 after
+domain closure. A diagnostic replay with RUST_BACKTRACE=1 passed instead, so it
+did not identify the panic's caller. Neither replay establishes that deadline/
+panic cause or closes the prior pending-dispatch shutdown failure. All failed
+cases remain preserved and excluded from passing qualification. Large recovery,
+late task admission, maintenance fairness and release qualification stay open.
+
+Evidence root:
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-activation-replay-evidence-aj1xd665`.
+Example SHA-256: `855eebf8a2c0fa80c8071bf309fb65171d58a0db514d60676506cf6feaf8be7f`.
+All owned markers remain 1. This scoped fix does not complete the design's full
+implementation, fault/capacity/lifecycle matrix or requirement audit.

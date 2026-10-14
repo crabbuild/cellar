@@ -11,6 +11,32 @@ use std::sync::Arc;
 
 struct Pending(Option<Arc<event_stream::readiness::Readiness>>);
 
+async fn activation_exchange<T, F, Fut>(mut exchange: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let mut backoff = std::time::Duration::from_millis(25);
+    loop {
+        match exchange().await {
+            Err(error)
+                if error
+                    .downcast_ref::<super::RemoteRpcTransportFailure>()
+                    .is_some() =>
+            {
+                // These activation methods are operation-idempotent or read-only.
+                // The enclosing activation timeout/cancellation still owns this
+                // exchange. Ordinary application RPC remains non-replayable.
+                crate::asyncrt::sleep(backoff).await;
+                backoff = backoff
+                    .saturating_mul(2)
+                    .min(std::time::Duration::from_millis(200));
+            }
+            result => return result,
+        }
+    }
+}
+
 impl Drop for Pending {
     fn drop(&mut self) {
         // A cancelled activation cannot leave readiness observers pending
@@ -52,25 +78,35 @@ async fn rpc(
     method: &str,
     args: Value,
 ) -> Result<Value> {
-    let (reply, receiver) = tokio::sync::oneshot::channel();
-    let request = RpcCallReq {
-        authority: Some(authority.into()),
-        request_id: Some(crate::engine_api::next_request_id()),
-        cancel: None,
-        scope,
-        name: Some(name),
-        method: method.into(),
-        args: crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(
-            args,
-        )?)?,
-        reply,
-    };
-    let (_, result) =
-        futures_util::future::join(super::dispatch_rpc_call(app.clone(), request), receiver).await;
-    let value = crate::application::decode_rpc_result(
-        &result.context("resource activation response channel closed")??,
-    )?
-    .to_json()?;
+    let authority = authority.into();
+    let args =
+        crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(args)?)?;
+    let result = activation_exchange(|| {
+        let (reply, receiver) = tokio::sync::oneshot::channel();
+        let request = RpcCallReq {
+            authority: Some(authority.clone()),
+            // The operation/body is unchanged. A fresh dispatch identity avoids
+            // an abort tombstone from the prior ambiguous call cancelling replay.
+            request_id: Some(crate::engine_api::next_request_id()),
+            cancel: None,
+            scope: scope.clone(),
+            name: Some(name.clone()),
+            method: method.into(),
+            args: args.clone(),
+            reply,
+        };
+        async move {
+            let (_, result) = futures_util::future::join(
+                super::dispatch_rpc_call(app.clone(), request),
+                receiver,
+            )
+            .await;
+            result.context("resource activation response channel closed")?
+        }
+    })
+    .await
+    .with_context(|| format!("event activation {method}"))?;
+    let value = crate::application::decode_rpc_result(&result)?.to_json()?;
     if let Some(error) = value.get("error") {
         return Err(serde_json::from_value::<DeliveryError>(error.clone())?.into());
     }
@@ -182,4 +218,119 @@ async fn activate_inner(app: &AppHandle, generation: &Generation) -> Result<()> 
     }
     generation.event_readiness.pin(activated)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[tokio::test]
+    async fn activation_replays_only_tagged_transport_failure() -> Result<()> {
+        let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(
+            tokio::runtime::Handle::current(),
+        ));
+        let calls = AtomicUsize::new(0);
+        let result = domain
+            .run(activation_exchange(|| {
+                let attempt = calls.fetch_add(1, Ordering::SeqCst);
+                async move {
+                    if attempt == 0 {
+                        let failure = super::super::remote_rpc_failure(anyhow::Error::new(
+                            std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "peer closed"),
+                        ));
+                        assert_eq!(
+                            super::super::classify_remote_attempt(&failure),
+                            cellar_logic::routing::Attempt::Ambiguous,
+                            "tagging an activation failure must not authorize ordinary RPC replay"
+                        );
+                        Err(failure)
+                    } else {
+                        Ok(7)
+                    }
+                }
+            }))
+            .await?;
+        assert_eq!(result?, 7);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        domain.shutdown().await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn permanent_activation_failure_is_not_replayed() -> Result<()> {
+        let calls = AtomicUsize::new(0);
+        let result = activation_exchange(|| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async {
+                Err::<(), _>(
+                    DeliveryError::new(event_stream::ErrorCode::Forbidden, "denied").into(),
+                )
+            }
+        })
+        .await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            result
+                .unwrap_err()
+                .downcast_ref::<DeliveryError>()
+                .unwrap()
+                .code,
+            event_stream::ErrorCode::Forbidden
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn protocol_refusal_is_not_tagged_for_activation_replay() -> Result<()> {
+        let calls = AtomicUsize::new(0);
+        let result = activation_exchange(|| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async {
+                Err::<(), _>(super::super::remote_rpc_failure(anyhow::anyhow!(
+                    "incompatible protocol"
+                )))
+            }
+        })
+        .await;
+        let error = result.unwrap_err();
+        assert!(error
+            .downcast_ref::<super::super::RemoteRpcTransportFailure>()
+            .is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn activation_retry_retains_its_enclosing_deadline() -> Result<()> {
+        let domain = Arc::new(crate::asyncrt::ExecutionDomain::new(
+            tokio::runtime::Handle::current(),
+        ));
+        let calls = AtomicUsize::new(0);
+        let result = domain
+            .run(crate::asyncrt::timeout(
+                std::time::Duration::from_millis(40),
+                activation_exchange(|| {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    async {
+                        Err::<(), _>(
+                            anyhow::anyhow!("peer closed")
+                                .context(super::super::RemoteRpcTransportFailure),
+                        )
+                    }
+                }),
+            ))
+            .await?;
+        assert!(result.is_err(), "activation extended its caller deadline");
+        let stopped = calls.load(Ordering::SeqCst);
+        assert!(stopped > 0);
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            stopped,
+            "timed-out activation retained a retry task"
+        );
+        domain.shutdown().await;
+        Ok(())
+    }
 }

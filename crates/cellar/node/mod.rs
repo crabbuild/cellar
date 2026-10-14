@@ -400,6 +400,31 @@ impl std::fmt::Display for StalePeerRoute {
 
 impl std::error::Error for StalePeerRoute {}
 
+/// Identifies a failed remote RPC exchange without authorizing general replay.
+#[derive(Debug)]
+struct RemoteRpcTransportFailure;
+
+impl std::fmt::Display for RemoteRpcTransportFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("remote RPC transport failed")
+    }
+}
+
+impl std::error::Error for RemoteRpcTransportFailure {}
+
+fn remote_rpc_failure(error: anyhow::Error) -> anyhow::Error {
+    if error.downcast_ref::<reqwest::Error>().is_some()
+        || error.downcast_ref::<hyper::Error>().is_some()
+        || error.downcast_ref::<std::io::Error>().is_some()
+    {
+        error.context(RemoteRpcTransportFailure)
+    } else {
+        // Header/protocol/authority refusals are not transport failures and
+        // must not enter the activation-only replay loop.
+        error.context("remote RPC transport failed")
+    }
+}
+
 /// Preserve the owner's durability verdict and handler failure in a peer reply.
 fn peer_gate_failure(verdict: RequestError, handler: Option<&anyhow::Error>) -> HttpReply {
     let detail = match handler {
@@ -1604,7 +1629,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                             anyhow::bail!("Durable Object RPC cancelled")
                         }
                         RemoteRetryOutcome::Stop => match response {
-                            Err(error) => anyhow::bail!("remote RPC transport failed: {error:#}"),
+                            Err(error) => return Err(remote_rpc_failure(error)),
                             Ok(_) => anyhow::bail!("remote RPC owner was stale"),
                         },
                     }
@@ -1637,7 +1662,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     None => collecting.await,
                 };
                 let body = collected
-                    .map_err(|error| anyhow::anyhow!("remote RPC body: {error}"))?
+                    .map_err(|error| remote_rpc_failure(error.into()).context("remote RPC body"))?
                     .to_bytes();
                 return Ok(if expects_structured_response {
                     crate::engine_api::RpcData::Structured(body)

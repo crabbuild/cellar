@@ -569,11 +569,17 @@ limit. Required retention, rather than only a network proxy, backpressures local
 and remote appends even when source ownership moves. It archives the protected
 prefix, audits remaining obligations, SIGKILLs every fleet process and starts all
 replacements before waiting for readiness. No source requests occur before full
-consumption. Its saved oracle and cleanup-failure guard are mandatory. Current
-concurrent-restart SQLite/RustFS cases fail event activation on peer connection
-closure; RustFS also exposed a pending dispatch at shutdown. These are open
-production/release failures, not passing capacity evidence or a reason to relax
-readiness/durability/deadline/shutdown checks.
+consumption. Its saved oracle and cleanup-failure guard are mandatory. Activation
+retries only tagged network failures for its idempotent configuration or read-only
+resolution/status calls, within the original activation deadline. It encodes the
+authority/body once and uses a new dispatch identity per attempt to avoid prior
+abort tombstones. General RPC still refuses ambiguous replay; protocol/authority/
+codec refusals are not tagged for this loop. The corrected image passes SQLite
+eight-source and one RustFS 144-source replay with complete shutdown. An earlier
+144-source run on that same image still hit activation's deadline and a closed-
+domain spawn panic; the prior pending-dispatch shutdown failure is also
+unestablished. Keep these separate release audits open rather than using successful
+replays to close them or relaxing readiness/durability/deadline/shutdown checks.
 `whole_fleet.py` explicitly selects bucket proofs, audits one accepted event with
 a proven unacked inbox effect plus one capacity-blocked source obligation, then
 SIGKILLs all three processes. It inventories/discards only its private node data
