@@ -114,7 +114,47 @@ fn valid_name(name: &str) -> bool {
 }
 
 struct Order {
-    faults: bool,
+    faults: Option<Arc<FaultControls>>,
+}
+
+impl Order {
+    fn confirm(&self, context: &Context, event: &OrderConfirmed) -> Result<Value> {
+        let encoded = serde_json::to_value(event)?;
+        let db = context.storage()?;
+        let events = context.stream::<OrderConfirmed>("EVENTS")?;
+        let outcome = db.tx(|tx| {
+            if let Some(existing) = tx.get_json("order")? {
+                return Ok(if existing == encoded {
+                    "duplicate"
+                } else {
+                    "conflict"
+                });
+            }
+            tx.put_json("order", &encoded)?;
+            let digest = payload_digest(event)?;
+            tx.emit(&events, event.clone())?;
+            if self.faults.is_some() {
+                let page = tx.outbox(&OutboxOptions {
+                    limit: 1,
+                    cursor: None,
+                })?;
+                let producer = page
+                    .lanes
+                    .first()
+                    .ok_or_else(|| anyhow::anyhow!("emitted lane missing"))?;
+                tx.put_json(
+                    "command_receipt",
+                    &json!({"payload_sha256":digest,"source":producer.revision.source,
+                "incarnation":producer.revision.incarnation,"lane":producer.revision.lane,
+                "sequence":(producer.revision.next_sequence-1).to_string()}),
+                )?;
+            }
+            Ok("created")
+        })?;
+        Ok(
+            json!({"status":outcome,"order":db.get_json("order")?,"receipt":db.get_json("command_receipt")?}),
+        )
+    }
 }
 
 impl Cell for Order {
@@ -155,45 +195,59 @@ impl Cell for Order {
                 order_id: order_id.into(),
                 amount_cents,
             };
-            let encoded = serde_json::to_value(&event)?;
-            let events = context.stream::<OrderConfirmed>("EVENTS")?;
-            let outcome = db.tx(|tx| {
-                if let Some(existing) = tx.get_json("order")? {
-                    return Ok(if existing == encoded {
-                        "duplicate"
-                    } else {
-                        "conflict"
-                    });
+            let hold = self.faults.as_ref().and_then(|controls| {
+                url.query_pairs()
+                    .find(|(name, _)| name == "hold_before_send")
+                    .map(|(_, token)| (controls.clone(), token.into_owned()))
+            });
+            if let Some((controls, token)) = hold {
+                if !valid_name(&token) {
+                    return reply(
+                        &context,
+                        400,
+                        json!({"error":"bounded source hold token required"}),
+                    );
                 }
-                tx.put_json("order", &encoded)?;
-                let digest = payload_digest(&event)?;
-                tx.emit(&events, event)?;
-                if self.faults {
-                    let page = tx.outbox(&OutboxOptions {
-                        limit: 1,
-                        cursor: None,
-                    })?;
-                    let producer = page
-                        .lanes
-                        .first()
-                        .ok_or_else(|| anyhow::anyhow!("emitted lane missing"))?;
-                    tx.put_json(
-                        "command_receipt",
-                        &json!({"payload_sha256":digest,"source":producer.revision.source,
-                        "incarnation":producer.revision.incarnation,"lane":producer.revision.lane,
-                        "sequence":(producer.revision.next_sequence-1).to_string()}),
-                    )?;
-                }
-                Ok("created")
-            })?;
+                // Acquire the real cell input gate before the transaction.
+                // Internal outbox work cannot enter while this callback holds it.
+                return context
+                    .block_concurrency_while(move |context| async move {
+                        let result = self.confirm(&context, &event)?;
+                        anyhow::ensure!(
+                            result["status"] == "created",
+                            "source fault requires a fresh command"
+                        );
+                        let db = context.storage()?;
+                        db.sync().await?;
+                        let outbox = db.outbox(&OutboxOptions {
+                            limit: 1,
+                            cursor: None,
+                        })?;
+                        anyhow::ensure!(
+                            outbox.pending_rows == 1
+                                && outbox.lanes.len() == 1
+                                && outbox.lanes[0].attempts == 0
+                                && outbox.lanes[0].revision.dispatch_generation == 0,
+                            "source dispatched before its gated proof boundary"
+                        );
+                        *controls.phase.lock().unwrap() =
+                            Some(json!({"boundary":"source_proven_before_send",
+                        "token":token,"command":result,"outbox":outbox}));
+                        // The independent observer records this evidence and SIGKILLs
+                        // the process before the ordinary gate/deadline can release it.
+                        std::future::pending::<Result<Output>>().await
+                    })
+                    .await;
+            }
+            let result = self.confirm(&context, &event)?;
             reply(
                 &context,
-                match outcome {
-                    "created" => 201,
-                    "conflict" => 409,
+                match result["status"].as_str() {
+                    Some("created") => 201,
+                    Some("conflict") => 409,
                     _ => 200,
                 },
-                json!({"status":outcome,"order":db.get_json("order")?,"receipt":db.get_json("command_receipt")?}),
+                result,
             )
         })
     }
@@ -343,7 +397,7 @@ pub fn applications(faults: Option<Arc<FaultControls>>) -> Result<CompiledApplic
     CompiledApplications::default().register(SCRIPT,"v1",move || {
         let endpoints=faults.clone();
         let projections=faults.clone();
-        let enabled=faults.is_some();
+        let sources=faults.clone();
         Ok(Arc::new(Registry::new(move |context,invocation| {
             let endpoints=endpoints.clone();
             Box::pin(async move {
@@ -379,6 +433,6 @@ pub fn applications(faults: Option<Arc<FaultControls>>) -> Result<CompiledApplic
                 return reply(&context,200,serde_json::to_value(status)?);
             }
             reply(&context,404,json!({"routes":["POST /orders/ID?amount_cents=N","GET /orders/ID","GET /events","GET /subscription","GET /projection","POST /projection/retry","POST /projection/process"]}))
-        })}).cell("Order",move |_,_|Ok(Arc::new(Order{faults:enabled})))?.cell("Projection",move |_,_|Ok(Arc::new(Projection{faults:projections.clone()})))?))
+        })}).cell("Order",move |_,_|Ok(Arc::new(Order{faults:sources.clone()})))?.cell("Projection",move |_,_|Ok(Arc::new(Projection{faults:projections.clone()})))?))
     })
 }

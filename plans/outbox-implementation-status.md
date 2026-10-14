@@ -1099,3 +1099,58 @@ does not qualify source destruction or the remaining complete release matrix.
 The final rebuilt CLI passes both existing test cases, including missing/invalid/
 oversized resource input and rejection of inventory/binding options before fleet
 access. No runtime deadline or shutdown assertion was weakened.
+
+
+## Source loss before the first dispatch attempt
+
+`examples/durable-streams/before_send.py` now qualifies this previously missing
+single-node cut point with the actual compiled executable. The opt-in source
+request acquires the ordinary `block_concurrency_while` input gate before its
+business/outbox transaction. It calls `db.sync`, then exposes the proven command
+receipt and a lane with zero attempts and dispatch generation. The observer
+fsyncs its independent command plan and boundary evidence, verifies no destination
+record and kills the still-pending process. Neither the source HTTP reply nor a
+client acknowledgment is fabricated; the command is proven but ambiguous to the
+original HTTP caller.
+
+Before any framework restart, the client copies the killed source's complete
+SQLite family and reads only that forensic copy. The original business state,
+source incarnation, next sequence, pending obligation and zero attempts are
+verified after SIGKILL. The envelope digest is recorded before retry. SQLite/WAL
+hashes authenticate the archived durable bytes; SHM read marks are mutable
+bookkeeping and excluded. After restart, the routed source/destination/effect/
+checkpoint snapshot is audited before source replay or consumer processing.
+Dispatch may recover without client retry. The command replay must return the
+original receipt as a duplicate; destination offset/event/producer/payload and
+encoded-envelope identity match the killed image. The consumer creates exactly
+one receipt/effect and checkpoint 1, and final preserving shutdown uses all
+original drain assertions.
+
+The initial real run passed the boundary, post-kill forensic audit, recovery and
+final effect checks. The final real run also authenticates the saved database/WAL
+in audit-only mode. Evidence is retained in
+`/private/tmp/cellar-stream-before-send-20261014-b`; the executable digest is
+`034c7cd9d1e124141ff9791d2ab3cef65604d59b9ab81d90e91894a55752a90a`.
+Its final summary reports two runtime audits, one actual SIGKILL and one effect;
+the forensic pre-restart audit is additional. Sixteen oracle tests pass, including
+nonzero pre-send/post-kill attempts, lost source state, changed incarnation,
+missing pending/accepted work, premature effects/checkpoints and replay-before-
+audit refusals. The ordinary executable smoke passes. The prior process fault
+scenario also passes on this exact binary, with four audits, two SIGKILLs and one
+dropped source HTTP response; evidence remains in
+`/private/tmp/cellar-stream-process-faults-20261014-e`.
+
+This is actual source loss before first send under persistent single-node
+SQLite-bucket assumptions. It does not qualify separate-host destination/ack
+response loss, followers, network/store/power faults, every cut point, capacity
+soaks or complete release readiness. Whole-source destruction remains unfinished;
+its serving/admission lifetimes must fence suspended contexts and retained handles,
+in addition to durable closure, bounded cleanup and tombstone recreation.
+
+
+Final workspace all-target/all-feature Clippy passes with warnings denied; all
+11 workspace doctests pass with one existing ignored case. Formatting checks
+421 Rust files. Docs validate 35 documents, 6 flows and 370 references; the
+all-feature dependency check retains 401 packages without a JavaScript engine;
+whitespace checks pass. Both final measuring journals pass audit-only rechecks.
+This is targeted qualification, not a new uninterrupted full runtime gate.

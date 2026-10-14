@@ -473,6 +473,12 @@ digests/effect receipts and re-audits saved stages. Run its oracle guards with
 `python3 -m unittest discover -s examples/durable-streams -p 'test_*.py'`.
 This is single-node SQLite-bucket process evidence; it does not complete the
 destination/follower/network/power/cut-point/capacity release matrix.
+`examples/durable-streams/before_send.py` holds the source's actual input gate,
+proves its command/obligation and SIGKILLs before the first dispatch attempt.
+Copy the killed SQLite family and audit zero attempts before restarting, then
+audit recovery before replay. Audit-only mode checks saved database/WAL hashes,
+envelope identity and replay ordering; SHM read marks are mutable bookkeeping.
+Keep the original handler/gate deadlines and complete final shutdown assertions.
 
 ## Change discipline
 

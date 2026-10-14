@@ -154,9 +154,34 @@ the measuring ledger and a summary with the executable digest. The audit-only
 command rechecks all four original snapshots, distinct kill stages, response
 loss, proven consumer boundary and replay ordering without sending requests.
 
-This qualifies these single-node process-loss and source HTTP-response-loss
-cases with a persistent SQLite-backed bucket. It does not qualify source loss
-before its first dispatch attempt, destination append/ack response loss,
+The separate [before_send.py](before_send.py) case holds the source's real input
+gate before committing the command. After `db.sync`, it exposes a proven command
+receipt with one pending obligation and zero dispatch attempts/generation. The
+independent client records that boundary, observes SIGKILL and copies the killed
+source's database/WAL family before restarting any framework process. A read of
+only that forensic copy verifies zero attempts after the kill and archives the
+original envelope digest. Recovery is audited before ambiguous command replay
+or consumer processing; replay returns `duplicate`, the accepted envelope matches
+the killed image and the consumer applies one effect with checkpoint 1.
+
+```sh
+python3 examples/durable-streams/before_send.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --output /tmp/cellar-stream-before-send-evidence
+python3 examples/durable-streams/before_send.py \
+  --audit /tmp/cellar-stream-before-send-evidence/ledger.jsonl
+```
+
+Audit-only mode rechecks the original boundary, actual kill, forensic SQLite
+image/WAL hashes, both saved runtime snapshots and replay ordering. SQLite's
+mutable SHM read marks are not authenticated durable bytes. No client source
+acknowledgment is invented: this command was proven by the held handler but its
+HTTP response was interrupted. Ordinary handler/input-gate deadlines remain in
+force; the harness must reach the boundary and kill promptly.
+
+These qualify single-node process loss (including before first dispatch) and
+source HTTP-response loss with a persistent SQLite-backed bucket. They do not
+qualify destination append/ack response loss,
 separate producer/destination/consumer hosts, follower or network/bucket faults,
 power loss, the complete cut-point matrix, or capacity soaks. Those release
 requirements remain in the [design](../../plans/002-outbox-streams-subscriptions.md).

@@ -137,13 +137,13 @@ def validate_snapshot(operations, snapshot, expected_effects, expected_checkpoin
 
 
 class Ledger:
-    def __init__(self, root):
+    def __init__(self, root, commands=(("a", 1200, 1), ("b", 300, 2))):
         self.path = root / "ledger.jsonl"
         self.stream = self.path.open("x")
         self.lock = threading.Lock()
         self.audited = False
         self.operations = {}
-        for key, amount, offset in (("a", 1200, 1), ("b", 300, 2)):
+        for key, amount, offset in commands:
             payload = {"order_id": key, "amount_cents": amount}
             self.operations[key] = dict(payload=payload, sha256=digest(payload), offset=offset, attempts=0)
         self.record("plan", operations=self.operations)
