@@ -529,9 +529,11 @@ retries must not reinterpret `latest` at a later stream end.
 ## Storage model
 
 These are logical schema contracts. The implementation must add checked SQLite
-DDL, foreign keys or equivalent transactional checks, schema-version metadata,
-and migrations. All fields below are durable unless stated otherwise. Positive
-sequences and offsets use checked signed 64-bit integers; overflow rejects the
+DDL, foreign keys or equivalent transactional checks and version-1 schema
+markers. Development layout changes use hard cutovers with recreated state;
+there are no old-layout readers or migrations. All fields below are durable
+unless stated otherwise. Positive sequences and offsets use checked signed
+64-bit integers; overflow rejects the
 operation before mutation. UUIDs and tokens use fixed-size blobs. Absolute
 deadlines use signed millisecond timestamps from injected clocks.
 
