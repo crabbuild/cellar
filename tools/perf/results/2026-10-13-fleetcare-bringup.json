@@ -1,0 +1,4158 @@
+{
+  "date": "2026-10-13",
+  "status": "full_inventory_functional_qualified_short_latency_provisional",
+  "raw_run_directory": ".cellar/perf/fleetcare-full-13-parity",
+  "command": "python3 tools/perf/fleetcare.py --rates 25 --seconds 3 --warmup-seconds 1 --repeats 1 --output .cellar/perf/fleetcare-full-13-parity",
+  "completed": true,
+  "cleanup_completed": true,
+  "metadata": {
+    "schema_version": 2,
+    "workload_contract": "fleetcare-v2",
+    "source_digest": "7c3eb6d27a2581b880bebd068f59571a7b4396a116b9e410fe292308246fde0a",
+    "revision": "2f514334c193ee585c3edb90ba8e3ed2be327d41",
+    "dirty": true,
+    "profile": "full",
+    "suite": "standard",
+    "matrix": {
+      "hosts": [
+        "embedded",
+        "daemon"
+      ],
+      "durability": [
+        "bucket",
+        "fleet"
+      ],
+      "rates": [
+        25
+      ],
+      "mixes": [
+        "read",
+        "write",
+        "core",
+        "attachments",
+        "capabilities"
+      ],
+      "skews": [
+        "uniform"
+      ],
+      "seconds": 3,
+      "warmup_seconds": 1,
+      "repeats": 1
+    },
+    "policy": {
+      "max_resident": 512,
+      "max_cached_routes": 2048,
+      "max_requests": 128,
+      "shutdown_ms": 120000,
+      "ownership": "sticky",
+      "stateless_workers": 2,
+      "cell_requests": 16,
+      "cells_per_worker": 32,
+      "handler_budget_seconds": 30,
+      "operation_deadline_ms": 30000,
+      "admission_wait_ms": 100,
+      "activations": 64,
+      "evictions": 4,
+      "releases": 32,
+      "lease_ttl_ms": 10000,
+      "wake_ms": 1000,
+      "store_case_isolation": "fresh_per_host_policy",
+      "store_logger_level": "warn",
+      "local_disk_reclamation": "trim_after_clear",
+      "memory_pressure": {
+        "mode": "off",
+        "high_bytes": null,
+        "rss_hard_bytes": null
+      },
+      "minimum_store_free_bytes": 26843545600,
+      "queue_dlq": {
+        "projection_repair": true,
+        "max_retries": 10,
+        "retry_delay_seconds": 5
+      },
+      "store_transport": {
+        "request_seconds": 15,
+        "connect_seconds": 3,
+        "retry_seconds": 30,
+        "data_retries": 2,
+        "cas_retries": 0,
+        "isolated_lease_pool": true
+      }
+    },
+    "resources": {
+      "nodes": 3,
+      "topology": "colima-host-network-separate-cgroups",
+      "node_cpus": 1,
+      "node_memory": 2147483648,
+      "application_cpus": 0.9375,
+      "application_memory": 1879048192,
+      "child_cpus": 0.0625,
+      "child_memory": 268435456,
+      "max_children_per_node": 1,
+      "disk_bytes": 10737418240,
+      "store_cpus": 2,
+      "store_memory": 4294967296,
+      "generator_cpus": 2,
+      "generator_memory": 2147483648,
+      "simulator_cpus": 1,
+      "simulator_memory": 268435456,
+      "vm_cpus": 8,
+      "vm_memory": 16732549120,
+      "store_filesystem_bytes": 83953606656,
+      "store_filesystem_inodes": 5242880
+    },
+    "generator": {
+      "algorithm": "splitmix64-v1",
+      "arrival": "fixed_rate",
+      "seed": 20261012,
+      "max_in_flight": 128,
+      "verification_concurrency": 8,
+      "payload_bytes": 1024
+    },
+    "architecture": "aarch64",
+    "sandbox_image": "sha256:35f0ea619cabd376978579663f2f087a04ab92f5c2ea9311399bf17f664b5233",
+    "image": "sha256:472d78c9c712230a46282a0ae05c1110dff79f86b2a7a5b3ccfad43d9035e171",
+    "rustfs_image": "sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c"
+  },
+  "checks_summary": {
+    "store_filesystem_observation": 20,
+    "fresh_object_store": 4,
+    "seed": 4,
+    "audit": 16,
+    "ownership_inventory": 12,
+    "attachment_seed": 4,
+    "probes": 4,
+    "load": 48,
+    "output_proof_sources": 4,
+    "projections": 12,
+    "receipts": 408,
+    "replay": 60,
+    "process_crash_restart": 4,
+    "fault_traffic_outcomes": 8,
+    "object_store_outage": 4,
+    "kv_latest_value_recovery": 20
+  },
+  "checks_passed": 632,
+  "capability_cases_passed": 92,
+  "shutdown_reports_passed": 36,
+  "kv_snapshots": 20,
+  "exact_tenant_kv_recovery_comparisons": 320,
+  "measured_attempts": 1500,
+  "measured_successes": 1500,
+  "combinations": [
+    {
+      "host": "embedded",
+      "durability": "bucket",
+      "completed": true,
+      "probes": 23,
+      "seed_seconds": 130.792536774,
+      "ownership": {
+        "seed": {
+          "owners": [
+            3333,
+            3334,
+            3333
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "measured": {
+          "owners": [
+            3333,
+            3334,
+            3333
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "reload": {
+          "owners": [
+            3335,
+            3334,
+            3331
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "bucket-restore": {
+          "owners": [
+            3335,
+            3334,
+            3331
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        }
+      },
+      "receipt_checks": {
+        "pre-replay": {
+          "ledgers": 13,
+          "acknowledgements": 9636,
+          "ambiguous": 0
+        },
+        "fault-crash-pre-replay": {
+          "ledgers": 14,
+          "acknowledgements": 9722,
+          "ambiguous": 7
+        },
+        "fault-store-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9815,
+          "ambiguous": 7
+        },
+        "reload-0": {
+          "ledgers": 15,
+          "acknowledgements": 9815,
+          "ambiguous": 7
+        },
+        "reload-1": {
+          "ledgers": 15,
+          "acknowledgements": 9815,
+          "ambiguous": 7
+        },
+        "reload-2": {
+          "ledgers": 15,
+          "acknowledgements": 9815,
+          "ambiguous": 7
+        },
+        "bucket-restore-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9815,
+          "ambiguous": 7
+        }
+      },
+      "output_barrier_observations": {
+        "started": 62838,
+        "bucket": 62838,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 1405823584,
+        "max_us": 382980
+      },
+      "state_audits": {
+        "seed-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3130,
+            "node2": 3134,
+            "node3": 3135
+          },
+          "count": 10000,
+          "elapsed_s": 75.008568743,
+          "pending_outbox": 0
+        },
+        "replay-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3130,
+            "node2": 3134,
+            "node3": 3135
+          },
+          "count": 10000,
+          "elapsed_s": 68.623497947,
+          "pending_outbox": 0
+        },
+        "final-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3100,
+            "node2": 3134,
+            "node3": 3165
+          },
+          "count": 10000,
+          "elapsed_s": 81.044030068,
+          "pending_outbox": 0
+        },
+        "bucket-restore-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3100,
+            "node2": 3134,
+            "node3": 3165
+          },
+          "count": 10000,
+          "elapsed_s": 86.967106138,
+          "pending_outbox": 0
+        }
+      },
+      "shutdown_reports": 9
+    },
+    {
+      "host": "embedded",
+      "durability": "fleet",
+      "completed": true,
+      "probes": 23,
+      "seed_seconds": 202.489146475,
+      "ownership": {
+        "seed": {
+          "owners": [
+            3334,
+            3334,
+            3332
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "measured": {
+          "owners": [
+            3334,
+            3334,
+            3332
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "reload": {
+          "owners": [
+            3341,
+            3308,
+            3351
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "bucket-restore": {
+          "owners": [
+            3341,
+            3308,
+            3351
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        }
+      },
+      "receipt_checks": {
+        "pre-replay": {
+          "ledgers": 13,
+          "acknowledgements": 9636,
+          "ambiguous": 0
+        },
+        "fault-crash-pre-replay": {
+          "ledgers": 14,
+          "acknowledgements": 9713,
+          "ambiguous": 16
+        },
+        "fault-store-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9806,
+          "ambiguous": 16
+        },
+        "reload-0": {
+          "ledgers": 15,
+          "acknowledgements": 9806,
+          "ambiguous": 16
+        },
+        "reload-1": {
+          "ledgers": 15,
+          "acknowledgements": 9806,
+          "ambiguous": 16
+        },
+        "reload-2": {
+          "ledgers": 15,
+          "acknowledgements": 9806,
+          "ambiguous": 16
+        },
+        "bucket-restore-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9806,
+          "ambiguous": 16
+        }
+      },
+      "output_barrier_observations": {
+        "started": 62984,
+        "bucket": 145,
+        "fleet": 62839,
+        "errors": 0,
+        "elapsed_us": 1942244160,
+        "max_us": 1353433
+      },
+      "state_audits": {
+        "seed-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3134,
+            "node3": 3134
+          },
+          "count": 10000,
+          "elapsed_s": 158.723298936,
+          "pending_outbox": 0
+        },
+        "replay-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3134,
+            "node3": 3134
+          },
+          "count": 10000,
+          "elapsed_s": 118.373781612,
+          "pending_outbox": 0
+        },
+        "final-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3118,
+            "node3": 3150
+          },
+          "count": 10000,
+          "elapsed_s": 117.244827767,
+          "pending_outbox": 1
+        },
+        "bucket-restore-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3118,
+            "node3": 3150
+          },
+          "count": 10000,
+          "elapsed_s": 198.254531993,
+          "pending_outbox": 1
+        }
+      },
+      "shutdown_reports": 9
+    },
+    {
+      "host": "daemon",
+      "durability": "bucket",
+      "completed": true,
+      "probes": 23,
+      "seed_seconds": 244.283080233,
+      "ownership": {
+        "seed": {
+          "owners": [
+            3333,
+            3333,
+            3334
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "measured": {
+          "owners": [
+            3333,
+            3333,
+            3334
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "reload": {
+          "owners": [
+            3369,
+            3328,
+            3303
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "bucket-restore": {
+          "owners": [
+            3369,
+            3328,
+            3303
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        }
+      },
+      "receipt_checks": {
+        "pre-replay": {
+          "ledgers": 13,
+          "acknowledgements": 9636,
+          "ambiguous": 0
+        },
+        "fault-crash-pre-replay": {
+          "ledgers": 14,
+          "acknowledgements": 9723,
+          "ambiguous": 6
+        },
+        "fault-store-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9816,
+          "ambiguous": 6
+        },
+        "reload-0": {
+          "ledgers": 15,
+          "acknowledgements": 9816,
+          "ambiguous": 6
+        },
+        "reload-1": {
+          "ledgers": 15,
+          "acknowledgements": 9816,
+          "ambiguous": 6
+        },
+        "reload-2": {
+          "ledgers": 15,
+          "acknowledgements": 9816,
+          "ambiguous": 6
+        },
+        "bucket-restore-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9816,
+          "ambiguous": 6
+        }
+      },
+      "output_barrier_observations": {
+        "started": 62955,
+        "bucket": 62955,
+        "fleet": 0,
+        "errors": 0,
+        "elapsed_us": 3293952770,
+        "max_us": 1274715
+      },
+      "state_audits": {
+        "seed-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3124,
+            "node2": 3136,
+            "node3": 3139
+          },
+          "count": 10000,
+          "elapsed_s": 236.361967722,
+          "pending_outbox": 0
+        },
+        "replay-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3124,
+            "node2": 3136,
+            "node3": 3139
+          },
+          "count": 10000,
+          "elapsed_s": 95.857729194,
+          "pending_outbox": 0
+        },
+        "final-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3124,
+            "node2": 3168,
+            "node3": 3107
+          },
+          "count": 10000,
+          "elapsed_s": 104.942718202,
+          "pending_outbox": 0
+        },
+        "bucket-restore-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3124,
+            "node2": 3168,
+            "node3": 3107
+          },
+          "count": 10000,
+          "elapsed_s": 85.969937952,
+          "pending_outbox": 0
+        }
+      },
+      "shutdown_reports": 9
+    },
+    {
+      "host": "daemon",
+      "durability": "fleet",
+      "completed": true,
+      "probes": 23,
+      "seed_seconds": 161.889838939,
+      "ownership": {
+        "seed": {
+          "owners": [
+            3334,
+            3333,
+            3333
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "measured": {
+          "owners": [
+            3334,
+            3333,
+            3333
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "reload": {
+          "owners": [
+            3315,
+            3339,
+            3346
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        },
+        "bucket-restore": {
+          "owners": [
+            3314,
+            3340,
+            3346
+          ],
+          "residents": [
+            512,
+            512,
+            512
+          ],
+          "cached_routes": [
+            2048,
+            2048,
+            2048
+          ]
+        }
+      },
+      "receipt_checks": {
+        "pre-replay": {
+          "ledgers": 13,
+          "acknowledgements": 9636,
+          "ambiguous": 0
+        },
+        "fault-crash-pre-replay": {
+          "ledgers": 14,
+          "acknowledgements": 9714,
+          "ambiguous": 15
+        },
+        "fault-store-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9807,
+          "ambiguous": 15
+        },
+        "reload-0": {
+          "ledgers": 15,
+          "acknowledgements": 9807,
+          "ambiguous": 15
+        },
+        "reload-1": {
+          "ledgers": 15,
+          "acknowledgements": 9807,
+          "ambiguous": 15
+        },
+        "reload-2": {
+          "ledgers": 15,
+          "acknowledgements": 9807,
+          "ambiguous": 15
+        },
+        "bucket-restore-pre-replay": {
+          "ledgers": 15,
+          "acknowledgements": 9807,
+          "ambiguous": 15
+        }
+      },
+      "output_barrier_observations": {
+        "started": 62964,
+        "bucket": 400,
+        "fleet": 62564,
+        "errors": 0,
+        "elapsed_us": 1517049132,
+        "max_us": 734947
+      },
+      "state_audits": {
+        "seed-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3133,
+            "node3": 3135
+          },
+          "count": 10000,
+          "elapsed_s": 86.376540078,
+          "pending_outbox": 0
+        },
+        "replay-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3133,
+            "node3": 3135
+          },
+          "count": 10000,
+          "elapsed_s": 81.736217002,
+          "pending_outbox": 0
+        },
+        "final-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3147,
+            "node3": 3121
+          },
+          "count": 10000,
+          "elapsed_s": 100.438396179,
+          "pending_outbox": 1
+        },
+        "bucket-restore-audit": {
+          "action": "audit",
+          "business_owners": {
+            "node1": 3131,
+            "node2": 3147,
+            "node3": 3121
+          },
+          "count": 10000,
+          "elapsed_s": 85.987176509,
+          "pending_outbox": 1
+        }
+      },
+      "shutdown_reports": 9
+    }
+  ],
+  "measurements": [
+    {
+      "host": "embedded",
+      "durability": "bucket",
+      "mix": "read",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-bucket-read-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 15.487,
+          "p95_ms": 32.511,
+          "p99_ms": 32.511,
+          "service_p99_ms": 31.231,
+          "scheduling_debt_p99_ms": 9.983,
+          "successful_p99_ms": 32.511,
+          "outcome_p99_ms": {
+            "ok": 32.511
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "devices_read": {
+          "attempts": 47,
+          "sent": 47,
+          "successful": 47,
+          "successful_rps": 15.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 14.975,
+          "p95_ms": 21.759,
+          "p99_ms": 24.319,
+          "service_p99_ms": 23.295,
+          "scheduling_debt_p99_ms": 10.879,
+          "successful_p99_ms": 24.319,
+          "outcome_p99_ms": {
+            "ok": 24.319
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 47
+          }
+        },
+        "inventory_read": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 10.623,
+          "p95_ms": 24.063,
+          "p99_ms": 24.063,
+          "service_p99_ms": 18.943,
+          "scheduling_debt_p99_ms": 9.855,
+          "successful_p99_ms": 24.063,
+          "outcome_p99_ms": {
+            "ok": 24.063
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.9812853969999997,
+      "completed_over_elapsed_rps": 25.156934010903758
+    },
+    {
+      "host": "embedded",
+      "durability": "bucket",
+      "mix": "write",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-bucket-write-uniform-25-r0",
+      "summary": {
+        "books_write": {
+          "attempts": 14,
+          "sent": 14,
+          "successful": 14,
+          "successful_rps": 4.666666666666667,
+          "acknowledged_commands_rps": 4.666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 8.575,
+          "p95_ms": 25.343,
+          "p99_ms": 25.343,
+          "service_p99_ms": 22.527,
+          "scheduling_debt_p99_ms": 4.063,
+          "successful_p99_ms": 25.343,
+          "outcome_p99_ms": {
+            "ok": 25.343
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 14
+          }
+        },
+        "devices_write": {
+          "attempts": 53,
+          "sent": 53,
+          "successful": 53,
+          "successful_rps": 17.666666666666668,
+          "acknowledged_commands_rps": 17.666666666666668,
+          "success_fraction": 1.0,
+          "p50_ms": 9.343,
+          "p95_ms": 20.991,
+          "p99_ms": 34.815,
+          "service_p99_ms": 33.791,
+          "scheduling_debt_p99_ms": 11.391,
+          "successful_p99_ms": 34.815,
+          "outcome_p99_ms": {
+            "ok": 34.815
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 53
+          }
+        },
+        "inventory_write": {
+          "attempts": 8,
+          "sent": 8,
+          "successful": 8,
+          "successful_rps": 2.6666666666666665,
+          "acknowledged_commands_rps": 2.6666666666666665,
+          "success_fraction": 1.0,
+          "p50_ms": 10.111,
+          "p95_ms": 12.287,
+          "p99_ms": 12.287,
+          "service_p99_ms": 9.599,
+          "scheduling_debt_p99_ms": 6.015,
+          "successful_p99_ms": 12.287,
+          "outcome_p99_ms": {
+            "ok": 12.287
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 8
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.971815262,
+      "completed_over_elapsed_rps": 25.237100353783703
+    },
+    {
+      "host": "embedded",
+      "durability": "bucket",
+      "mix": "core",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-bucket-core-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 5.439,
+          "p95_ms": 20.223,
+          "p99_ms": 20.223,
+          "service_p99_ms": 19.711,
+          "scheduling_debt_p99_ms": 3.999,
+          "successful_p99_ms": 20.223,
+          "outcome_p99_ms": {
+            "ok": 20.223
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        },
+        "books_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 1.6666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 11.775,
+          "p95_ms": 14.847,
+          "p99_ms": 14.847,
+          "service_p99_ms": 10.751,
+          "scheduling_debt_p99_ms": 6.335,
+          "successful_p99_ms": 14.847,
+          "outcome_p99_ms": {
+            "ok": 14.847
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "devices_read": {
+          "attempts": 23,
+          "sent": 23,
+          "successful": 23,
+          "successful_rps": 7.666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.199,
+          "p95_ms": 6.463,
+          "p99_ms": 8.703,
+          "service_p99_ms": 4.735,
+          "scheduling_debt_p99_ms": 7.743,
+          "successful_p99_ms": 8.703,
+          "outcome_p99_ms": {
+            "ok": 8.703
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 23
+          }
+        },
+        "devices_write": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 5.0,
+          "success_fraction": 1.0,
+          "p50_ms": 15.103,
+          "p95_ms": 32.767,
+          "p99_ms": 32.767,
+          "service_p99_ms": 29.951,
+          "scheduling_debt_p99_ms": 6.527,
+          "successful_p99_ms": 32.767,
+          "outcome_p99_ms": {
+            "ok": 32.767
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "inventory_read": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 8.831,
+          "p95_ms": 18.943,
+          "p99_ms": 18.943,
+          "service_p99_ms": 17.407,
+          "scheduling_debt_p99_ms": 7.679,
+          "successful_p99_ms": 18.943,
+          "outcome_p99_ms": {
+            "ok": 18.943
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "inventory_write": {
+          "attempts": 3,
+          "sent": 3,
+          "successful": 3,
+          "successful_rps": 1.0,
+          "acknowledged_commands_rps": 1.0,
+          "success_fraction": 1.0,
+          "p50_ms": 9.087,
+          "p95_ms": 11.135,
+          "p99_ms": 11.135,
+          "service_p99_ms": 8.575,
+          "scheduling_debt_p99_ms": 2.527,
+          "successful_p99_ms": 11.135,
+          "outcome_p99_ms": {
+            "ok": 11.135
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 3
+          }
+        },
+        "kv_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 13.567,
+          "p95_ms": 27.135,
+          "p99_ms": 27.135,
+          "service_p99_ms": 26.367,
+          "scheduling_debt_p99_ms": 4.735,
+          "successful_p99_ms": 27.135,
+          "outcome_p99_ms": {
+            "ok": 27.135
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "sql_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.031,
+          "p95_ms": 22.783,
+          "p99_ms": 22.783,
+          "service_p99_ms": 18.943,
+          "scheduling_debt_p99_ms": 3.807,
+          "successful_p99_ms": 22.783,
+          "outcome_p99_ms": {
+            "ok": 22.783
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.978462738,
+      "completed_over_elapsed_rps": 25.180774982721974
+    },
+    {
+      "host": "embedded",
+      "durability": "bucket",
+      "mix": "attachments",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-bucket-attachments-uniform-25-r0",
+      "summary": {
+        "attachment_read": {
+          "attempts": 37,
+          "sent": 37,
+          "successful": 37,
+          "successful_rps": 12.333333333333334,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.295,
+          "p95_ms": 11.647,
+          "p99_ms": 11.903,
+          "service_p99_ms": 1.983,
+          "scheduling_debt_p99_ms": 10.751,
+          "successful_p99_ms": 11.903,
+          "outcome_p99_ms": {
+            "ok": 11.903
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 37
+          }
+        },
+        "attachment_write": {
+          "attempts": 38,
+          "sent": 38,
+          "successful": 38,
+          "successful_rps": 12.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 14.079,
+          "p95_ms": 34.303,
+          "p99_ms": 35.839,
+          "service_p99_ms": 33.279,
+          "scheduling_debt_p99_ms": 8.319,
+          "successful_p99_ms": 35.839,
+          "outcome_p99_ms": {
+            "ok": 35.839
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 38
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.974092257,
+      "completed_over_elapsed_rps": 25.217778575454595
+    },
+    {
+      "host": "embedded",
+      "durability": "bucket",
+      "mix": "capabilities",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-bucket-capabilities-uniform-25-r0",
+      "summary": {
+        "capability_assets": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 5.759,
+          "p95_ms": 13.695,
+          "p99_ms": 13.695,
+          "service_p99_ms": 4.415,
+          "scheduling_debt_p99_ms": 10.495,
+          "successful_p99_ms": 13.695,
+          "outcome_p99_ms": {
+            "ok": 13.695
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_loader": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.871,
+          "p95_ms": 13.439,
+          "p99_ms": 13.439,
+          "service_p99_ms": 4.223,
+          "scheduling_debt_p99_ms": 10.495,
+          "successful_p99_ms": 13.439,
+          "outcome_p99_ms": {
+            "ok": 13.439
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "capability_outbound": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.927,
+          "p95_ms": 44.543,
+          "p99_ms": 44.543,
+          "service_p99_ms": 43.007,
+          "scheduling_debt_p99_ms": 6.207,
+          "successful_p99_ms": 44.543,
+          "outcome_p99_ms": {
+            "ok": 44.543
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_service": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 6.143,
+          "p95_ms": 14.847,
+          "p99_ms": 14.847,
+          "service_p99_ms": 3.967,
+          "scheduling_debt_p99_ms": 11.519,
+          "successful_p99_ms": 14.847,
+          "outcome_p99_ms": {
+            "ok": 14.847
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_tcp": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.991,
+          "p95_ms": 7.487,
+          "p99_ms": 7.487,
+          "service_p99_ms": 5.055,
+          "scheduling_debt_p99_ms": 3.487,
+          "successful_p99_ms": 7.487,
+          "outcome_p99_ms": {
+            "ok": 7.487
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_tls": {
+          "attempts": 10,
+          "sent": 10,
+          "successful": 10,
+          "successful_rps": 3.3333333333333335,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 6.463,
+          "p95_ms": 16.255,
+          "p99_ms": 16.255,
+          "service_p99_ms": 6.847,
+          "scheduling_debt_p99_ms": 9.471,
+          "successful_p99_ms": 16.255,
+          "outcome_p99_ms": {
+            "ok": 16.255
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 10
+          }
+        },
+        "capability_web": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.295,
+          "p95_ms": 15.999,
+          "p99_ms": 15.999,
+          "service_p99_ms": 4.351,
+          "scheduling_debt_p99_ms": 11.775,
+          "successful_p99_ms": 15.999,
+          "outcome_p99_ms": {
+            "ok": 15.999
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.96501491,
+      "completed_over_elapsed_rps": 25.294982412078326
+    },
+    {
+      "host": "embedded",
+      "durability": "fleet",
+      "mix": "read",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-fleet-read-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 233.471,
+          "p95_ms": 573.439,
+          "p99_ms": 573.439,
+          "service_p99_ms": 573.439,
+          "scheduling_debt_p99_ms": 6.399,
+          "successful_p99_ms": 573.439,
+          "outcome_p99_ms": {
+            "ok": 573.439
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "devices_read": {
+          "attempts": 47,
+          "sent": 47,
+          "successful": 47,
+          "successful_rps": 15.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 159.743,
+          "p95_ms": 1064.959,
+          "p99_ms": 1425.407,
+          "service_p99_ms": 1409.023,
+          "scheduling_debt_p99_ms": 6.975,
+          "successful_p99_ms": 1425.407,
+          "outcome_p99_ms": {
+            "ok": 1425.407
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 47
+          }
+        },
+        "inventory_read": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 35.327,
+          "p95_ms": 1048.575,
+          "p99_ms": 1048.575,
+          "service_p99_ms": 1040.383,
+          "scheduling_debt_p99_ms": 5.183,
+          "successful_p99_ms": 1048.575,
+          "outcome_p99_ms": {
+            "ok": 1048.575
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 4.374404779,
+      "completed_over_elapsed_rps": 17.1451897547408
+    },
+    {
+      "host": "embedded",
+      "durability": "fleet",
+      "mix": "write",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-fleet-write-uniform-25-r0",
+      "summary": {
+        "books_write": {
+          "attempts": 14,
+          "sent": 14,
+          "successful": 14,
+          "successful_rps": 4.666666666666667,
+          "acknowledged_commands_rps": 4.666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 13.439,
+          "p95_ms": 45.055,
+          "p99_ms": 45.055,
+          "service_p99_ms": 44.031,
+          "scheduling_debt_p99_ms": 6.271,
+          "successful_p99_ms": 45.055,
+          "outcome_p99_ms": {
+            "ok": 45.055
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 14
+          }
+        },
+        "devices_write": {
+          "attempts": 53,
+          "sent": 53,
+          "successful": 53,
+          "successful_rps": 17.666666666666668,
+          "acknowledged_commands_rps": 17.666666666666668,
+          "success_fraction": 1.0,
+          "p50_ms": 12.671,
+          "p95_ms": 28.927,
+          "p99_ms": 60.927,
+          "service_p99_ms": 59.903,
+          "scheduling_debt_p99_ms": 8.191,
+          "successful_p99_ms": 60.927,
+          "outcome_p99_ms": {
+            "ok": 60.927
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 53
+          }
+        },
+        "inventory_write": {
+          "attempts": 8,
+          "sent": 8,
+          "successful": 8,
+          "successful_rps": 2.6666666666666665,
+          "acknowledged_commands_rps": 2.6666666666666665,
+          "success_fraction": 1.0,
+          "p50_ms": 9.855,
+          "p95_ms": 30.975,
+          "p99_ms": 30.975,
+          "service_p99_ms": 28.671,
+          "scheduling_debt_p99_ms": 5.439,
+          "successful_p99_ms": 30.975,
+          "outcome_p99_ms": {
+            "ok": 30.975
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 8
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 3.001137462,
+      "completed_over_elapsed_rps": 24.99052474258175
+    },
+    {
+      "host": "embedded",
+      "durability": "fleet",
+      "mix": "core",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-fleet-core-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 20.223,
+          "p95_ms": 573.439,
+          "p99_ms": 573.439,
+          "service_p99_ms": 565.247,
+          "scheduling_debt_p99_ms": 6.271,
+          "successful_p99_ms": 573.439,
+          "outcome_p99_ms": {
+            "ok": 573.439
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        },
+        "books_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 1.6666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 70.655,
+          "p95_ms": 589.823,
+          "p99_ms": 589.823,
+          "service_p99_ms": 589.823,
+          "scheduling_debt_p99_ms": 3.743,
+          "successful_p99_ms": 589.823,
+          "outcome_p99_ms": {
+            "ok": 589.823
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "devices_read": {
+          "attempts": 23,
+          "sent": 23,
+          "successful": 23,
+          "successful_rps": 7.666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 23.295,
+          "p95_ms": 290.815,
+          "p99_ms": 397.311,
+          "service_p99_ms": 397.311,
+          "scheduling_debt_p99_ms": 10.367,
+          "successful_p99_ms": 397.311,
+          "outcome_p99_ms": {
+            "ok": 397.311
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 23
+          }
+        },
+        "devices_write": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 5.0,
+          "success_fraction": 1.0,
+          "p50_ms": 241.663,
+          "p95_ms": 1556.479,
+          "p99_ms": 1556.479,
+          "service_p99_ms": 1556.479,
+          "scheduling_debt_p99_ms": 4.991,
+          "successful_p99_ms": 1556.479,
+          "outcome_p99_ms": {
+            "ok": 1556.479
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "inventory_read": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 186.367,
+          "p95_ms": 802.815,
+          "p99_ms": 802.815,
+          "service_p99_ms": 794.623,
+          "scheduling_debt_p99_ms": 9.471,
+          "successful_p99_ms": 802.815,
+          "outcome_p99_ms": {
+            "ok": 802.815
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "inventory_write": {
+          "attempts": 3,
+          "sent": 3,
+          "successful": 3,
+          "successful_rps": 1.0,
+          "acknowledged_commands_rps": 1.0,
+          "success_fraction": 1.0,
+          "p50_ms": 344.063,
+          "p95_ms": 679.935,
+          "p99_ms": 679.935,
+          "service_p99_ms": 679.935,
+          "scheduling_debt_p99_ms": 4.415,
+          "successful_p99_ms": 679.935,
+          "outcome_p99_ms": {
+            "ok": 679.935
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 3
+          }
+        },
+        "kv_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 483.327,
+          "p95_ms": 663.551,
+          "p99_ms": 663.551,
+          "service_p99_ms": 663.551,
+          "scheduling_debt_p99_ms": 4.415,
+          "successful_p99_ms": 663.551,
+          "outcome_p99_ms": {
+            "ok": 663.551
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "sql_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 42.495,
+          "p95_ms": 247.807,
+          "p99_ms": 247.807,
+          "service_p99_ms": 245.759,
+          "scheduling_debt_p99_ms": 3.711,
+          "successful_p99_ms": 247.807,
+          "outcome_p99_ms": {
+            "ok": 247.807
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 3.994935151,
+      "completed_over_elapsed_rps": 18.773771579552733
+    },
+    {
+      "host": "embedded",
+      "durability": "fleet",
+      "mix": "attachments",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-fleet-attachments-uniform-25-r0",
+      "summary": {
+        "attachment_read": {
+          "attempts": 37,
+          "sent": 37,
+          "successful": 37,
+          "successful_rps": 12.333333333333334,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.487,
+          "p95_ms": 23.295,
+          "p99_ms": 37.887,
+          "service_p99_ms": 30.719,
+          "scheduling_debt_p99_ms": 6.975,
+          "successful_p99_ms": 37.887,
+          "outcome_p99_ms": {
+            "ok": 37.887
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 37
+          }
+        },
+        "attachment_write": {
+          "attempts": 38,
+          "sent": 38,
+          "successful": 38,
+          "successful_rps": 12.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 20.479,
+          "p95_ms": 58.367,
+          "p99_ms": 72.703,
+          "service_p99_ms": 70.655,
+          "scheduling_debt_p99_ms": 9.855,
+          "successful_p99_ms": 72.703,
+          "outcome_p99_ms": {
+            "ok": 72.703
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 38
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.974582369,
+      "completed_over_elapsed_rps": 25.21362352632165
+    },
+    {
+      "host": "embedded",
+      "durability": "fleet",
+      "mix": "capabilities",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "embedded-fleet-capabilities-uniform-25-r0",
+      "summary": {
+        "capability_assets": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.967,
+          "p95_ms": 6.271,
+          "p99_ms": 6.271,
+          "service_p99_ms": 2.335,
+          "scheduling_debt_p99_ms": 5.055,
+          "successful_p99_ms": 6.271,
+          "outcome_p99_ms": {
+            "ok": 6.271
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_loader": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.359,
+          "p95_ms": 10.751,
+          "p99_ms": 10.751,
+          "service_p99_ms": 2.271,
+          "scheduling_debt_p99_ms": 9.599,
+          "successful_p99_ms": 10.751,
+          "outcome_p99_ms": {
+            "ok": 10.751
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "capability_outbound": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.063,
+          "p95_ms": 10.623,
+          "p99_ms": 10.623,
+          "service_p99_ms": 2.527,
+          "scheduling_debt_p99_ms": 8.959,
+          "successful_p99_ms": 10.623,
+          "outcome_p99_ms": {
+            "ok": 10.623
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_service": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.103,
+          "p95_ms": 7.615,
+          "p99_ms": 7.615,
+          "service_p99_ms": 1.567,
+          "scheduling_debt_p99_ms": 6.271,
+          "successful_p99_ms": 7.615,
+          "outcome_p99_ms": {
+            "ok": 7.615
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_tcp": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.455,
+          "p95_ms": 6.719,
+          "p99_ms": 6.719,
+          "service_p99_ms": 2.431,
+          "scheduling_debt_p99_ms": 5.311,
+          "successful_p99_ms": 6.719,
+          "outcome_p99_ms": {
+            "ok": 6.719
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_tls": {
+          "attempts": 10,
+          "sent": 10,
+          "successful": 10,
+          "successful_rps": 3.3333333333333335,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.991,
+          "p95_ms": 10.751,
+          "p99_ms": 10.751,
+          "service_p99_ms": 4.671,
+          "scheduling_debt_p99_ms": 7.423,
+          "successful_p99_ms": 10.751,
+          "outcome_p99_ms": {
+            "ok": 10.751
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 10
+          }
+        },
+        "capability_web": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 7.807,
+          "p95_ms": 12.671,
+          "p99_ms": 12.671,
+          "service_p99_ms": 1.791,
+          "scheduling_debt_p99_ms": 10.879,
+          "successful_p99_ms": 12.671,
+          "outcome_p99_ms": {
+            "ok": 12.671
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.964131228,
+      "completed_over_elapsed_rps": 25.3025234819327
+    },
+    {
+      "host": "daemon",
+      "durability": "bucket",
+      "mix": "read",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-bucket-read-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 30.719,
+          "p95_ms": 999.423,
+          "p99_ms": 999.423,
+          "service_p99_ms": 991.231,
+          "scheduling_debt_p99_ms": 5.439,
+          "successful_p99_ms": 999.423,
+          "outcome_p99_ms": {
+            "ok": 999.423
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "devices_read": {
+          "attempts": 47,
+          "sent": 47,
+          "successful": 47,
+          "successful_rps": 15.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 47.103,
+          "p95_ms": 811.007,
+          "p99_ms": 917.503,
+          "service_p99_ms": 909.311,
+          "scheduling_debt_p99_ms": 7.231,
+          "successful_p99_ms": 917.503,
+          "outcome_p99_ms": {
+            "ok": 917.503
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 47
+          }
+        },
+        "inventory_read": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 23.807,
+          "p95_ms": 950.271,
+          "p99_ms": 950.271,
+          "service_p99_ms": 950.271,
+          "scheduling_debt_p99_ms": 9.983,
+          "successful_p99_ms": 950.271,
+          "outcome_p99_ms": {
+            "ok": 950.271
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 3.737935585,
+      "completed_over_elapsed_rps": 20.064551219386516
+    },
+    {
+      "host": "daemon",
+      "durability": "bucket",
+      "mix": "write",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-bucket-write-uniform-25-r0",
+      "summary": {
+        "books_write": {
+          "attempts": 14,
+          "sent": 14,
+          "successful": 14,
+          "successful_rps": 4.666666666666667,
+          "acknowledged_commands_rps": 4.666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 241.663,
+          "p95_ms": 1294.335,
+          "p99_ms": 1294.335,
+          "service_p99_ms": 1294.335,
+          "scheduling_debt_p99_ms": 9.343,
+          "successful_p99_ms": 1294.335,
+          "outcome_p99_ms": {
+            "ok": 1294.335
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 14
+          }
+        },
+        "devices_write": {
+          "attempts": 53,
+          "sent": 53,
+          "successful": 53,
+          "successful_rps": 17.666666666666668,
+          "acknowledged_commands_rps": 17.666666666666668,
+          "success_fraction": 1.0,
+          "p50_ms": 446.463,
+          "p95_ms": 1540.095,
+          "p99_ms": 1982.463,
+          "service_p99_ms": 1966.079,
+          "scheduling_debt_p99_ms": 14.207,
+          "successful_p99_ms": 1982.463,
+          "outcome_p99_ms": {
+            "ok": 1982.463
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 53
+          }
+        },
+        "inventory_write": {
+          "attempts": 8,
+          "sent": 8,
+          "successful": 8,
+          "successful_rps": 2.6666666666666665,
+          "acknowledged_commands_rps": 2.6666666666666665,
+          "success_fraction": 1.0,
+          "p50_ms": 348.159,
+          "p95_ms": 1409.023,
+          "p99_ms": 1409.023,
+          "service_p99_ms": 1409.023,
+          "scheduling_debt_p99_ms": 7.871,
+          "successful_p99_ms": 1409.023,
+          "outcome_p99_ms": {
+            "ok": 1409.023
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 8
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 4.171157622,
+      "completed_over_elapsed_rps": 17.980619961333122
+    },
+    {
+      "host": "daemon",
+      "durability": "bucket",
+      "mix": "core",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-bucket-core-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 15.231,
+          "p95_ms": 225.279,
+          "p99_ms": 225.279,
+          "service_p99_ms": 225.279,
+          "scheduling_debt_p99_ms": 1.903,
+          "successful_p99_ms": 225.279,
+          "outcome_p99_ms": {
+            "ok": 225.279
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        },
+        "books_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 1.6666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 83.967,
+          "p95_ms": 105.471,
+          "p99_ms": 105.471,
+          "service_p99_ms": 101.375,
+          "scheduling_debt_p99_ms": 9.599,
+          "successful_p99_ms": 105.471,
+          "outcome_p99_ms": {
+            "ok": 105.471
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "devices_read": {
+          "attempts": 23,
+          "sent": 23,
+          "successful": 23,
+          "successful_rps": 7.666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 13.055,
+          "p95_ms": 44.543,
+          "p99_ms": 165.887,
+          "service_p99_ms": 159.743,
+          "scheduling_debt_p99_ms": 8.831,
+          "successful_p99_ms": 165.887,
+          "outcome_p99_ms": {
+            "ok": 165.887
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 23
+          }
+        },
+        "devices_write": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 5.0,
+          "success_fraction": 1.0,
+          "p50_ms": 120.831,
+          "p95_ms": 876.543,
+          "p99_ms": 876.543,
+          "service_p99_ms": 876.543,
+          "scheduling_debt_p99_ms": 3.455,
+          "successful_p99_ms": 876.543,
+          "outcome_p99_ms": {
+            "ok": 876.543
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "inventory_read": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 18.431,
+          "p95_ms": 638.975,
+          "p99_ms": 638.975,
+          "service_p99_ms": 638.975,
+          "scheduling_debt_p99_ms": 6.847,
+          "successful_p99_ms": 638.975,
+          "outcome_p99_ms": {
+            "ok": 638.975
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "inventory_write": {
+          "attempts": 3,
+          "sent": 3,
+          "successful": 3,
+          "successful_rps": 1.0,
+          "acknowledged_commands_rps": 1.0,
+          "success_fraction": 1.0,
+          "p50_ms": 60.415,
+          "p95_ms": 434.175,
+          "p99_ms": 434.175,
+          "service_p99_ms": 434.175,
+          "scheduling_debt_p99_ms": 0.847,
+          "successful_p99_ms": 434.175,
+          "outcome_p99_ms": {
+            "ok": 434.175
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 3
+          }
+        },
+        "kv_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 565.247,
+          "p95_ms": 696.319,
+          "p99_ms": 696.319,
+          "service_p99_ms": 696.319,
+          "scheduling_debt_p99_ms": 11.263,
+          "successful_p99_ms": 696.319,
+          "outcome_p99_ms": {
+            "ok": 696.319
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "sql_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 52.735,
+          "p95_ms": 589.823,
+          "p99_ms": 589.823,
+          "service_p99_ms": 589.823,
+          "scheduling_debt_p99_ms": 4.735,
+          "successful_p99_ms": 589.823,
+          "outcome_p99_ms": {
+            "ok": 589.823
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 3.025151238,
+      "completed_over_elapsed_rps": 24.792148920655055
+    },
+    {
+      "host": "daemon",
+      "durability": "bucket",
+      "mix": "attachments",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-bucket-attachments-uniform-25-r0",
+      "summary": {
+        "attachment_read": {
+          "attempts": 37,
+          "sent": 37,
+          "successful": 37,
+          "successful_rps": 12.333333333333334,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 2.911,
+          "p95_ms": 4.543,
+          "p99_ms": 7.871,
+          "service_p99_ms": 3.455,
+          "scheduling_debt_p99_ms": 6.143,
+          "successful_p99_ms": 7.871,
+          "outcome_p99_ms": {
+            "ok": 7.871
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 37
+          }
+        },
+        "attachment_write": {
+          "attempts": 38,
+          "sent": 38,
+          "successful": 38,
+          "successful_rps": 12.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 25.087,
+          "p95_ms": 46.079,
+          "p99_ms": 62.463,
+          "service_p99_ms": 61.951,
+          "scheduling_debt_p99_ms": 5.759,
+          "successful_p99_ms": 62.463,
+          "outcome_p99_ms": {
+            "ok": 62.463
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 38
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.987512294,
+      "completed_over_elapsed_rps": 25.104499201769645
+    },
+    {
+      "host": "daemon",
+      "durability": "bucket",
+      "mix": "capabilities",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-bucket-capabilities-uniform-25-r0",
+      "summary": {
+        "capability_assets": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.031,
+          "p95_ms": 6.975,
+          "p99_ms": 6.975,
+          "service_p99_ms": 2.079,
+          "scheduling_debt_p99_ms": 5.823,
+          "successful_p99_ms": 6.975,
+          "outcome_p99_ms": {
+            "ok": 6.975
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_loader": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.903,
+          "p95_ms": 9.471,
+          "p99_ms": 9.471,
+          "service_p99_ms": 2.303,
+          "scheduling_debt_p99_ms": 7.807,
+          "successful_p99_ms": 9.471,
+          "outcome_p99_ms": {
+            "ok": 9.471
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "capability_outbound": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 5.503,
+          "p95_ms": 45.055,
+          "p99_ms": 45.055,
+          "service_p99_ms": 43.007,
+          "scheduling_debt_p99_ms": 10.239,
+          "successful_p99_ms": 45.055,
+          "outcome_p99_ms": {
+            "ok": 45.055
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_service": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.671,
+          "p95_ms": 9.215,
+          "p99_ms": 9.215,
+          "service_p99_ms": 1.839,
+          "scheduling_debt_p99_ms": 7.423,
+          "successful_p99_ms": 9.215,
+          "outcome_p99_ms": {
+            "ok": 9.215
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_tcp": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.351,
+          "p95_ms": 11.903,
+          "p99_ms": 11.903,
+          "service_p99_ms": 2.591,
+          "scheduling_debt_p99_ms": 9.599,
+          "successful_p99_ms": 11.903,
+          "outcome_p99_ms": {
+            "ok": 11.903
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_tls": {
+          "attempts": 10,
+          "sent": 10,
+          "successful": 10,
+          "successful_rps": 3.3333333333333335,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 7.039,
+          "p95_ms": 14.335,
+          "p99_ms": 14.335,
+          "service_p99_ms": 4.991,
+          "scheduling_debt_p99_ms": 10.111,
+          "successful_p99_ms": 14.335,
+          "outcome_p99_ms": {
+            "ok": 14.335
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 10
+          }
+        },
+        "capability_web": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 5.695,
+          "p95_ms": 8.575,
+          "p99_ms": 8.575,
+          "service_p99_ms": 2.815,
+          "scheduling_debt_p99_ms": 6.399,
+          "successful_p99_ms": 8.575,
+          "outcome_p99_ms": {
+            "ok": 8.575
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.96525243,
+      "completed_over_elapsed_rps": 25.292956256004146
+    },
+    {
+      "host": "daemon",
+      "durability": "fleet",
+      "mix": "read",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-fleet-read-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 14.079,
+          "p95_ms": 21.247,
+          "p99_ms": 21.247,
+          "service_p99_ms": 19.455,
+          "scheduling_debt_p99_ms": 5.119,
+          "successful_p99_ms": 21.247,
+          "outcome_p99_ms": {
+            "ok": 21.247
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "devices_read": {
+          "attempts": 47,
+          "sent": 47,
+          "successful": 47,
+          "successful_rps": 15.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 14.463,
+          "p95_ms": 22.527,
+          "p99_ms": 27.391,
+          "service_p99_ms": 25.343,
+          "scheduling_debt_p99_ms": 8.959,
+          "successful_p99_ms": 27.391,
+          "outcome_p99_ms": {
+            "ok": 27.391
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 47
+          }
+        },
+        "inventory_read": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.607,
+          "p95_ms": 21.503,
+          "p99_ms": 21.503,
+          "service_p99_ms": 19.711,
+          "scheduling_debt_p99_ms": 5.695,
+          "successful_p99_ms": 21.503,
+          "outcome_p99_ms": {
+            "ok": 21.503
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.9749817629999997,
+      "completed_over_elapsed_rps": 25.210238574494415
+    },
+    {
+      "host": "daemon",
+      "durability": "fleet",
+      "mix": "write",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-fleet-write-uniform-25-r0",
+      "summary": {
+        "books_write": {
+          "attempts": 14,
+          "sent": 14,
+          "successful": 14,
+          "successful_rps": 4.666666666666667,
+          "acknowledged_commands_rps": 4.666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 8.703,
+          "p95_ms": 25.599,
+          "p99_ms": 25.599,
+          "service_p99_ms": 24.319,
+          "scheduling_debt_p99_ms": 3.679,
+          "successful_p99_ms": 25.599,
+          "outcome_p99_ms": {
+            "ok": 25.599
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 14
+          }
+        },
+        "devices_write": {
+          "attempts": 53,
+          "sent": 53,
+          "successful": 53,
+          "successful_rps": 17.666666666666668,
+          "acknowledged_commands_rps": 17.666666666666668,
+          "success_fraction": 1.0,
+          "p50_ms": 8.959,
+          "p95_ms": 23.295,
+          "p99_ms": 36.351,
+          "service_p99_ms": 34.815,
+          "scheduling_debt_p99_ms": 8.063,
+          "successful_p99_ms": 36.351,
+          "outcome_p99_ms": {
+            "ok": 36.351
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 53
+          }
+        },
+        "inventory_write": {
+          "attempts": 8,
+          "sent": 8,
+          "successful": 8,
+          "successful_rps": 2.6666666666666665,
+          "acknowledged_commands_rps": 2.6666666666666665,
+          "success_fraction": 1.0,
+          "p50_ms": 6.975,
+          "p95_ms": 11.647,
+          "p99_ms": 11.647,
+          "service_p99_ms": 10.495,
+          "scheduling_debt_p99_ms": 2.495,
+          "successful_p99_ms": 11.647,
+          "outcome_p99_ms": {
+            "ok": 11.647
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 8
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.97754323,
+      "completed_over_elapsed_rps": 25.188551166728146
+    },
+    {
+      "host": "daemon",
+      "durability": "fleet",
+      "mix": "core",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-fleet-core-uniform-25-r0",
+      "summary": {
+        "books_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.487,
+          "p95_ms": 17.663,
+          "p99_ms": 17.663,
+          "service_p99_ms": 16.895,
+          "scheduling_debt_p99_ms": 2.495,
+          "successful_p99_ms": 17.663,
+          "outcome_p99_ms": {
+            "ok": 17.663
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        },
+        "books_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 1.6666666666666667,
+          "success_fraction": 1.0,
+          "p50_ms": 9.855,
+          "p95_ms": 17.151,
+          "p99_ms": 17.151,
+          "service_p99_ms": 9.727,
+          "scheduling_debt_p99_ms": 7.487,
+          "successful_p99_ms": 17.151,
+          "outcome_p99_ms": {
+            "ok": 17.151
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "devices_read": {
+          "attempts": 23,
+          "sent": 23,
+          "successful": 23,
+          "successful_rps": 7.666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.327,
+          "p95_ms": 10.239,
+          "p99_ms": 33.791,
+          "service_p99_ms": 33.279,
+          "scheduling_debt_p99_ms": 8.575,
+          "successful_p99_ms": 33.791,
+          "outcome_p99_ms": {
+            "ok": 33.791
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 23
+          }
+        },
+        "devices_write": {
+          "attempts": 15,
+          "sent": 15,
+          "successful": 15,
+          "successful_rps": 5.0,
+          "acknowledged_commands_rps": 5.0,
+          "success_fraction": 1.0,
+          "p50_ms": 11.647,
+          "p95_ms": 143.359,
+          "p99_ms": 143.359,
+          "service_p99_ms": 141.311,
+          "scheduling_debt_p99_ms": 10.751,
+          "successful_p99_ms": 143.359,
+          "outcome_p99_ms": {
+            "ok": 143.359
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 15
+          }
+        },
+        "inventory_read": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.103,
+          "p95_ms": 30.207,
+          "p99_ms": 30.207,
+          "service_p99_ms": 27.903,
+          "scheduling_debt_p99_ms": 3.967,
+          "successful_p99_ms": 30.207,
+          "outcome_p99_ms": {
+            "ok": 30.207
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "inventory_write": {
+          "attempts": 3,
+          "sent": 3,
+          "successful": 3,
+          "successful_rps": 1.0,
+          "acknowledged_commands_rps": 1.0,
+          "success_fraction": 1.0,
+          "p50_ms": 6.783,
+          "p95_ms": 96.255,
+          "p99_ms": 96.255,
+          "service_p99_ms": 94.207,
+          "scheduling_debt_p99_ms": 2.015,
+          "successful_p99_ms": 96.255,
+          "outcome_p99_ms": {
+            "ok": 96.255
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 3
+          }
+        },
+        "kv_write": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 12.415,
+          "p95_ms": 20.223,
+          "p99_ms": 20.223,
+          "service_p99_ms": 19.199,
+          "scheduling_debt_p99_ms": 3.871,
+          "successful_p99_ms": 20.223,
+          "outcome_p99_ms": {
+            "ok": 20.223
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        },
+        "sql_read": {
+          "attempts": 6,
+          "sent": 6,
+          "successful": 6,
+          "successful_rps": 2.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.967,
+          "p95_ms": 14.463,
+          "p99_ms": 14.463,
+          "service_p99_ms": 13.311,
+          "scheduling_debt_p99_ms": 7.679,
+          "successful_p99_ms": 14.463,
+          "outcome_p99_ms": {
+            "ok": 14.463
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 6
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.986536118,
+      "completed_over_elapsed_rps": 25.11270483151746
+    },
+    {
+      "host": "daemon",
+      "durability": "fleet",
+      "mix": "attachments",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-fleet-attachments-uniform-25-r0",
+      "summary": {
+        "attachment_read": {
+          "attempts": 37,
+          "sent": 37,
+          "successful": 37,
+          "successful_rps": 12.333333333333334,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 2.879,
+          "p95_ms": 7.487,
+          "p99_ms": 9.343,
+          "service_p99_ms": 1.983,
+          "scheduling_debt_p99_ms": 8.127,
+          "successful_p99_ms": 9.343,
+          "outcome_p99_ms": {
+            "ok": 9.343
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 37
+          }
+        },
+        "attachment_write": {
+          "attempts": 38,
+          "sent": 38,
+          "successful": 38,
+          "successful_rps": 12.666666666666666,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 12.927,
+          "p95_ms": 23.039,
+          "p99_ms": 31.743,
+          "service_p99_ms": 30.207,
+          "scheduling_debt_p99_ms": 8.575,
+          "successful_p99_ms": 31.743,
+          "outcome_p99_ms": {
+            "ok": 31.743
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 38
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.991571491,
+      "completed_over_elapsed_rps": 25.07043546364642
+    },
+    {
+      "host": "daemon",
+      "durability": "fleet",
+      "mix": "capabilities",
+      "skew": "uniform",
+      "rate": 25,
+      "repeat": 0,
+      "phase": "daemon-fleet-capabilities-uniform-25-r0",
+      "summary": {
+        "capability_assets": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 4.287,
+          "p95_ms": 8.191,
+          "p99_ms": 8.191,
+          "service_p99_ms": 3.807,
+          "scheduling_debt_p99_ms": 6.271,
+          "successful_p99_ms": 8.191,
+          "outcome_p99_ms": {
+            "ok": 8.191
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_loader": {
+          "attempts": 12,
+          "sent": 12,
+          "successful": 12,
+          "successful_rps": 4.0,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.103,
+          "p95_ms": 12.543,
+          "p99_ms": 12.543,
+          "service_p99_ms": 2.175,
+          "scheduling_debt_p99_ms": 10.623,
+          "successful_p99_ms": 12.543,
+          "outcome_p99_ms": {
+            "ok": 12.543
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 12
+          }
+        },
+        "capability_outbound": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 7.231,
+          "p95_ms": 53.247,
+          "p99_ms": 53.247,
+          "service_p99_ms": 51.199,
+          "scheduling_debt_p99_ms": 8.319,
+          "successful_p99_ms": 53.247,
+          "outcome_p99_ms": {
+            "ok": 53.247
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_service": {
+          "attempts": 13,
+          "sent": 13,
+          "successful": 13,
+          "successful_rps": 4.333333333333333,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.647,
+          "p95_ms": 12.927,
+          "p99_ms": 12.927,
+          "service_p99_ms": 3.903,
+          "scheduling_debt_p99_ms": 11.007,
+          "successful_p99_ms": 12.927,
+          "outcome_p99_ms": {
+            "ok": 12.927
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 13
+          }
+        },
+        "capability_tcp": {
+          "attempts": 11,
+          "sent": 11,
+          "successful": 11,
+          "successful_rps": 3.6666666666666665,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 3.423,
+          "p95_ms": 9.471,
+          "p99_ms": 9.471,
+          "service_p99_ms": 2.719,
+          "scheduling_debt_p99_ms": 8.127,
+          "successful_p99_ms": 9.471,
+          "outcome_p99_ms": {
+            "ok": 9.471
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 11
+          }
+        },
+        "capability_tls": {
+          "attempts": 10,
+          "sent": 10,
+          "successful": 10,
+          "successful_rps": 3.3333333333333335,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 6.911,
+          "p95_ms": 11.647,
+          "p99_ms": 11.647,
+          "service_p99_ms": 5.503,
+          "scheduling_debt_p99_ms": 7.871,
+          "successful_p99_ms": 11.647,
+          "outcome_p99_ms": {
+            "ok": 11.647
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 10
+          }
+        },
+        "capability_web": {
+          "attempts": 5,
+          "sent": 5,
+          "successful": 5,
+          "successful_rps": 1.6666666666666667,
+          "acknowledged_commands_rps": 0.0,
+          "success_fraction": 1.0,
+          "p50_ms": 5.439,
+          "p95_ms": 14.207,
+          "p99_ms": 14.207,
+          "service_p99_ms": 3.071,
+          "scheduling_debt_p99_ms": 11.135,
+          "successful_p99_ms": 14.207,
+          "outcome_p99_ms": {
+            "ok": 14.207
+          },
+          "p99_confident": false,
+          "outcomes": {
+            "ok": 5
+          }
+        }
+      },
+      "arrival_seconds": 3,
+      "elapsed_seconds": 2.965541358,
+      "completed_over_elapsed_rps": 25.29049200331537
+    }
+  ],
+  "shutdown_outcomes": [
+    {
+      "label": "embedded-bucket-preserve-0",
+      "host": "embedded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-preserve-1",
+      "host": "embedded",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-preserve-2",
+      "host": "embedded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-final",
+      "host": "embedded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-final",
+      "host": "embedded",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-final",
+      "host": "embedded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-bucket-restore-final",
+      "host": "embedded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-bucket-restore-final",
+      "host": "embedded",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-bucket-bucket-restore-final",
+      "host": "embedded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-preserve-0",
+      "host": "embedded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-preserve-1",
+      "host": "embedded",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-preserve-2",
+      "host": "embedded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-final",
+      "host": "embedded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-final",
+      "host": "embedded",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-final",
+      "host": "embedded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-bucket-restore-final",
+      "host": "embedded",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-bucket-restore-final",
+      "host": "embedded",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "embedded-fleet-bucket-restore-final",
+      "host": "embedded",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "caller_executors_alive": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "embedded_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-preserve-0",
+      "host": "daemon",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-preserve-1",
+      "host": "daemon",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-preserve-2",
+      "host": "daemon",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-final",
+      "host": "daemon",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-final",
+      "host": "daemon",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-final",
+      "host": "daemon",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-bucket-restore-final",
+      "host": "daemon",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-bucket-restore-final",
+      "host": "daemon",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-bucket-bucket-restore-final",
+      "host": "daemon",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-preserve-0",
+      "host": "daemon",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-preserve-1",
+      "host": "daemon",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-preserve-2",
+      "host": "daemon",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-final",
+      "host": "daemon",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-final",
+      "host": "daemon",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-final",
+      "host": "daemon",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-bucket-restore-final",
+      "host": "daemon",
+      "node": 1,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-bucket-restore-final",
+      "host": "daemon",
+      "node": 2,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": false,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "handoff",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    {
+      "label": "daemon-fleet-bucket-restore-final",
+      "host": "daemon",
+      "node": 3,
+      "exit_code": 0,
+      "proof": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    }
+  ],
+  "native_validation": {
+    "workspace_check": "passed",
+    "workspace_lib_tests": "passed",
+    "workspace_doc_tests": "passed",
+    "workspace_clippy": "passed",
+    "app_tests": 11,
+    "python_guards": 64,
+    "fmt": "passed",
+    "native_dependencies": "387 packages; no JavaScript engine",
+    "docs": "35 documents, 6 flows, 342 references",
+    "latest_workspace": "Workspace library/integration groups passed; the timing-sensitive native_node suite passed all 15 tests separately with one test thread. Workspace doc tests, check and Clippy passed after the admission correction.",
+    "latest_source_checks": [
+      "cargo fmt --all -- --check",
+      "python3 tools/check_native_dependencies.py",
+      "python3 tools/docs/check.py",
+      "cargo check --workspace --all-targets --all-features --locked",
+      "cargo test -p cellar-fleetcare --locked (11 tests)",
+      "cargo test -p cellar --test native_cli --test native_artifacts --locked",
+      "cargo clippy --workspace --all-targets --all-features --locked -- -D warnings",
+      "python3 -m unittest discover -s tools/perf -p test_*.py (64 guards)"
+    ]
+  },
+  "findings": [
+    {
+      "issue": "Covered imminent alarms blocked cold admission at full residency",
+      "resolution": "Keep the alarm residency optimization only while there is spare capacity; retain wake, durability and ownership guards.",
+      "regression": "native_node::full_node_admits_cold_cells_past_a_covered_alarm failed before and passed after."
+    },
+    {
+      "issue": "Clean local reload rejected retained evicted databases as live",
+      "resolution": "The final stale-live inventory includes live records only; retained cached files remain cached.",
+      "regression": "Native replication tests and actual local reloads passed."
+    },
+    {
+      "issue": "Gated remote RPC handler failures lost their typed error",
+      "resolution": "Preserve the bounded gated handler-error body and cancellation; output-gate failures remain opaque.",
+      "regression": "Three-node SDK control test passed."
+    },
+    {
+      "issue": "Valid projections exhausted primary retries and were quarantined in DLQ",
+      "resolution": "Repair valid versioned snapshots idempotently from DLQ; quarantine poison and malformed messages.",
+      "regression": "Real SDK Queue/DLQ/SQL test failed before and passed after; 23rd suite probe exercises repair."
+    },
+    {
+      "issue": "Clearing private loop disks did not reclaim sparse backing extents",
+      "resolution": "Trim only this stopped run's private loop filesystems; isolate RustFS per completed case and require storage headroom.",
+      "evidence": {
+        "repro": "64-MiB private ext4 loop, 16-MiB payload",
+        "blocks_before": 41240,
+        "blocks_after_delete": 41240,
+        "blocks_after_trim": 8344,
+        "policy": "trim private filesystems only after nodes and client stop and state clearing succeeds"
+      }
+    },
+    {
+      "issue": "Embedding and daemon used different proactive memory policies",
+      "resolution": "Explicit off/auto policy in both hosts, validate actual core watermarks at startup, include policy in baseline compatibility.",
+      "evidence": {
+        "embedding_before": "unset proactive pressure",
+        "daemon_before": "automatic pressure from 1792-MiB cgroup",
+        "symptom": "bindings handler exceeded 30 seconds; daemon reported rss-hard shedding and no memory headroom with about 246 MiB working set and 1487 MiB complete cgroup charge",
+        "diagnostic": "Both daemon policies completed every 10,000-cell recovery gate and all 18 shutdown reports with fixed Docker quotas and matched proactive pressure off.",
+        "runner_policy": "explicit --memory-pressure off/auto, actual core watermarks verified and baseline compatibility enforced"
+      }
+    },
+    {
+      "issue": "Earlier RustFS conditional ownership writes returned HTTP 500",
+      "resolution": "Cause remains unestablished. Failures are retained; fresh-case backend, headroom and storage observations reduce interference without recovering a failed case."
+    }
+  ],
+  "historical_runs": [
+    {
+      "run": "fleetcare-smoke-13",
+      "completed": true,
+      "cleanup_completed": true,
+      "checks_passed": 608,
+      "shutdown_reports": 36,
+      "failures": [],
+      "source_digest": "0b6794772d88f59d1e02d8a9a522e03c1b04fb47f8b632afde36cdce1d274ade",
+      "raw_run_directory": ".cellar/perf/fleetcare-smoke-13"
+    },
+    {
+      "run": "fleetcare-full-03",
+      "completed": false,
+      "cleanup_completed": false,
+      "checks_passed": 37,
+      "shutdown_reports": 0,
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "OSError",
+          "error": "[Errno 23] Too many open files in system"
+        },
+        {
+          "operation": "state_snapshot",
+          "scenario": "embedded-bucket",
+          "label": "failure-node1",
+          "error": "docker exec cellar-perf-20261013-052146-131f8e-node1 sh: Cannot connect to the Docker daemon at unix:///Users/haipingfu/.colima/default/docker.sock. Is the docker daemon running?\n"
+        },
+        {
+          "operation": "state_snapshot",
+          "scenario": "embedded-bucket",
+          "label": "failure-node2",
+          "error": "[Errno 23] Too many open files in system"
+        },
+        {
+          "operation": "state_snapshot",
+          "scenario": "embedded-bucket",
+          "label": "failure-node3",
+          "error": "[Errno 23] Too many open files in system"
+        },
+        {
+          "operation": "cleanup",
+          "type": "OSError",
+          "error": "[Errno 23] Too many open files in system"
+        }
+      ],
+      "source_digest": "83bf102f83c626a6cb7fcaadf8a81776d771801cf84a976a1275d40b75dc7e47",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-03"
+    },
+    {
+      "run": "fleetcare-full-03-recovery-2",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks_passed": 96,
+      "shutdown_reports": 0,
+      "failures": [
+        {
+          "operation": "continuation",
+          "type": "RuntimeError",
+          "error": "client resume-replay-26 exited 1: Error: HTTP 500 Internal Server Error at /api/5/devices/299/receipts/fixture-v1 via ingress 0: Worker failed: handler exceeded 30s budget; see resume-replay-26.log"
+        }
+      ],
+      "source_digest": "83bf102f83c626a6cb7fcaadf8a81776d771801cf84a976a1275d40b75dc7e47",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-03-recovery-2"
+    },
+    {
+      "run": "fleetcare-full-05",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks_passed": 16,
+      "shutdown_reports": 0,
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client embedded-bucket-projection-audit exited 1: Error: HTTP 500 Internal Server Error at /api/3/books/57 via ingress 0: Worker failed: handler exceeded 30s budget; see embedded-bucket-projection-audit.log"
+        }
+      ],
+      "source_digest": "0b6794772d88f59d1e02d8a9a522e03c1b04fb47f8b632afde36cdce1d274ade",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-05"
+    },
+    {
+      "run": "fleetcare-full-06-cache-zero",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks_passed": 0,
+      "shutdown_reports": 0,
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client embedded-bucket-seed exited 1: Error: HTTP 500 Internal Server Error at /api/1/inventory/40 via ingress 0: Worker failed: handler exceeded 30s budget; see embedded-bucket-seed.log"
+        }
+      ],
+      "source_digest": "0b6794772d88f59d1e02d8a9a522e03c1b04fb47f8b632afde36cdce1d274ade",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-06-cache-zero"
+    },
+    {
+      "run": "fleetcare-full-07-wake10",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks_passed": 16,
+      "shutdown_reports": 0,
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client embedded-bucket-projection-audit exited 1: Error: HTTP 500 Internal Server Error at /api/3/books/16 via ingress 1: Worker failed: handler exceeded 30s budget; see embedded-bucket-projection-audit.log"
+        }
+      ],
+      "source_digest": "cbbdce1a7b1027d9a9c4eda69c42cfe6574bbc76de09706cd3085846b3bee9fb",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-07-wake10"
+    },
+    {
+      "run": "fleetcare-full-08-daemon",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks_passed": 16,
+      "shutdown_reports": 0,
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client daemon-bucket-projection-audit exited 1: Error: HTTP 500 Internal Server Error at /api/3/books/114 via ingress 0: Worker failed: route failed: CapacityExhausted; see daemon-bucket-projection-audit.log"
+        }
+      ],
+      "source_digest": "cbbdce1a7b1027d9a9c4eda69c42cfe6574bbc76de09706cd3085846b3bee9fb",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-08-daemon"
+    },
+    {
+      "run": "fleetcare-full-10-admission",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks": 320,
+      "shutdown_reports": 18,
+      "completed_combinations": [
+        "embedded/bucket",
+        "embedded/fleet"
+      ],
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client daemon-bucket-projection-audit exited 1: Error: HTTP 500 Internal Server Error at /api/10/devices/82 via ingress 0: Worker failed: route failed: AcquireFailed; see daemon-bucket-projection-audit.log"
+        }
+      ],
+      "source_digest": "93b8b350e439ac3c00b3c12f1f185e253bffab533f5307d231a069c1b22d822d",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-10-admission"
+    },
+    {
+      "run": "fleetcare-daemon-store-probe",
+      "completed": false,
+      "cleanup_completed": true,
+      "diagnostic": true,
+      "checks": 283,
+      "shutdown_reports": 12,
+      "completed_combinations": [
+        "daemon/bucket"
+      ],
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client daemon-fleet-final-projection-audit exited 1: Error: 3 projections failed their captured authoritative watermarks; see daemon-fleet-final-projection-audit.log"
+        }
+      ],
+      "source_digest": "93b8b350e439ac3c00b3c12f1f185e253bffab533f5307d231a069c1b22d822d",
+      "raw_run_directory": ".cellar/perf/fleetcare-daemon-store-probe"
+    },
+    {
+      "run": "fleetcare-full-11-isolated-repair",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks": 159,
+      "shutdown_reports": 9,
+      "completed_combinations": [
+        "embedded/bucket"
+      ],
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "RustFS needs at least 25 GiB free before a case; available 24.34 GiB and 4898386 inodes"
+        },
+        {
+          "operation": "state_snapshot",
+          "scenario": "embedded-bucket",
+          "label": "failure-node1",
+          "error": "<urlopen error [Errno 61] Connection refused>"
+        },
+        {
+          "operation": "state_snapshot",
+          "scenario": "embedded-bucket",
+          "label": "failure-node2",
+          "error": "<urlopen error [Errno 61] Connection refused>"
+        },
+        {
+          "operation": "state_snapshot",
+          "scenario": "embedded-bucket",
+          "label": "failure-node3",
+          "error": "<urlopen error [Errno 61] Connection refused>"
+        }
+      ],
+      "source_digest": "bf1642163917be55ce97615d372639dbc94ebf8b548233b39644b6417446c06f",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-11-isolated-repair"
+    },
+    {
+      "run": "fleetcare-full-12-trimmed",
+      "completed": false,
+      "cleanup_completed": true,
+      "checks": 323,
+      "shutdown_reports": 18,
+      "completed_combinations": [
+        "embedded/bucket",
+        "embedded/fleet"
+      ],
+      "failures": [
+        {
+          "operation": "suite",
+          "type": "RuntimeError",
+          "error": "client daemon-bucket-probes exited 1: Error: diagnostic /diagnostics/bindings\n\nCaused by:\n    HTTP 500 Internal Server Error at /diagnostics/bindings via ingress 0: Worker failed: handler exceeded 30s budget; see daemon-bucket-probes.log"
+        }
+      ],
+      "source_digest": "09a4ab689ad3322ed23a6da429ca8d3fa8998605e8a3c4799b351dec62a93567",
+      "raw_run_directory": ".cellar/perf/fleetcare-full-12-trimmed"
+    },
+    {
+      "run": "fleetcare-daemon-pressure-probe",
+      "completed": true,
+      "cleanup_completed": true,
+      "diagnostic": true,
+      "pressure_override": "CELLAR_MAX_RSS_MB=0",
+      "checks": 316,
+      "shutdown_reports": 18,
+      "completed_combinations": [
+        "daemon/bucket",
+        "daemon/fleet"
+      ],
+      "failures": [],
+      "source_digest": "09a4ab689ad3322ed23a6da429ca8d3fa8998605e8a3c4799b351dec62a93567",
+      "raw_run_directory": ".cellar/perf/fleetcare-daemon-pressure-probe"
+    }
+  ],
+  "limits": [
+    "Three-second measurements, one-second warmup, one repeat; all operation p99 sample counts remain provisional.",
+    "Several samples exceed the 10-ms generator-debt limit or 1000-ms latency SLO; completion does not imply a valid capacity baseline.",
+    "Default long 25/100/400 matrix and six-hour soak were not run on this source.",
+    "All nodes share one Colima VM; availability-zone latency is not simulated.",
+    "Cache always misses; SQL dump and workflow sensitive/rollback are unsupported. Trusted TLS throughput, peer partition, rolling code adoption and deliberate shutdown-budget exhaustion remain outside standard qualification.",
+    "Strong KV checks preserve latest values and metadata, not intermediate overwrite receipt history.",
+    "Memory-pressure auto is available but this full-scale qualification used matched off policies with Docker hard quotas."
+  ],
+  "pr_integration": {
+    "base_revision": "6a8e252",
+    "measured_snapshot_predates_rebase": true,
+    "new_source_digest": "45687cbbe7cc50020ae78af9a52406d97b0d88153b4beb8744c8d3ee6a2ba36c",
+    "changes": [
+      "Caller-owned asset cache and HTTP client factory",
+      "Workflow binding settings and explicit wait API",
+      "Docker workspace includes tools/xtask",
+      "Repository declaration spacing"
+    ],
+    "full_scale_requalification": false,
+    "validation": {
+      "workspace_check_all_targets_all_features": "passed",
+      "workspace_clippy_all_targets_all_features": "passed",
+      "cargo_format_check": "381 files passed",
+      "native_dependencies": "402 packages; no JavaScript engine",
+      "docs": "35 documents, 6 flows, 361 references",
+      "fleetcare_tests": 11,
+      "harness_guards": 64,
+      "native_cli": 1,
+      "native_artifacts": 4,
+      "native_replication": 5,
+      "native_node": "17/18 initially passed; existing fleet-drain test hit NodeLeaseExpired and passed isolated retry; no assertions changed"
+    }
+  }
+}

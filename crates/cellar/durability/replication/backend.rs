@@ -4044,6 +4044,7 @@ impl LtxRepl {
         let remaining: std::collections::BTreeSet<_> = self
             .local_cells()
             .into_iter()
+            .filter(|cell| cell.live)
             .map(|cell| (cell.id, cell.epoch))
             .collect();
         anyhow::ensure!(

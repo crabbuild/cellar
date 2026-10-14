@@ -1,0 +1,323 @@
+{
+  "schema_version": 1,
+  "status": "qualification_blueprint_with_implemented_standard_suite",
+  "application": "FleetCare",
+  "source_revision": "2f514334c193ee585c3edb90ba8e3ed2be327d41",
+  "tenant_count": 20,
+  "root_cell_count": 10000,
+  "cell_classes": [
+    {
+      "name": "Device",
+      "count": 5999,
+      "node_targets": [
+        1999,
+        2000,
+        2000
+      ]
+    },
+    {
+      "name": "WorkOrderBook",
+      "count": 2400,
+      "node_targets": [
+        800,
+        800,
+        800
+      ]
+    },
+    {
+      "name": "Inventory",
+      "count": 1000,
+      "node_targets": [
+        334,
+        333,
+        333
+      ]
+    },
+    {
+      "name": "DispatchWorkflow",
+      "count": 500,
+      "node_targets": [
+        166,
+        167,
+        167
+      ]
+    },
+    {
+      "name": "SqlDatabase",
+      "count": 60,
+      "node_targets": [
+        20,
+        20,
+        20
+      ]
+    },
+    {
+      "name": "KvNamespace",
+      "count": 20,
+      "node_targets": [
+        7,
+        7,
+        6
+      ]
+    },
+    {
+      "name": "QueueBroker",
+      "count": 20,
+      "node_targets": [
+        7,
+        6,
+        7
+      ]
+    },
+    {
+      "name": "Cron",
+      "count": 1,
+      "node_targets": [
+        1,
+        0,
+        0
+      ]
+    }
+  ],
+  "smoke_profile": {
+    "tenant_count": 2,
+    "root_cell_count": 100,
+    "cell_counts": {
+      "Device": 51,
+      "WorkOrderBook": 24,
+      "Inventory": 10,
+      "DispatchWorkflow": 4,
+      "SqlDatabase": 6,
+      "KvNamespace": 2,
+      "QueueBroker": 2,
+      "Cron": 1
+    },
+    "primary_queues": 1,
+    "dead_letter_queues": 1
+  },
+  "resources": {
+    "node_count": 3,
+    "node_cpu": 1,
+    "node_memory_bytes": 2147483648,
+    "node_memory_swap_bytes": 2147483648,
+    "node_disk_bytes": 10737418240,
+    "rustfs_cpu": 2,
+    "rustfs_memory_bytes": 4294967296,
+    "generator_cpu": 2,
+    "generator_memory_bytes": 2147483648,
+    "simulator_cpu": 1,
+    "simulator_memory_bytes": 268435456,
+    "required_vm_cpu": 8,
+    "required_vm_memory_bytes": 17179869184,
+    "application_cpu": 0.9375,
+    "application_memory_bytes": 1879048192,
+    "cell_container_cpu": 0.0625,
+    "cell_container_memory_bytes": 268435456,
+    "max_containers_per_node": 1
+  },
+  "ownership": {
+    "placement_weights": [
+      1,
+      1,
+      1
+    ],
+    "node_targets": [
+      3334,
+      3333,
+      3333
+    ],
+    "target_is_not_pinning": true,
+    "balance_tolerance_fraction": 0.05,
+    "baseline_eviction": "Sticky",
+    "eviction_sweep": [
+      "Sticky",
+      "Release"
+    ]
+  },
+  "initial_policy": {
+    "max_resident": 512,
+    "max_cached_routes": 2048,
+    "max_activations": 64,
+    "max_evictions": 4,
+    "max_releases": 32,
+    "max_stateless_requests_per_script_pool": 128,
+    "max_cell_requests": 16,
+    "max_stateless_workers": 2,
+    "max_cells_per_worker": 32,
+    "handler_budget_ms": 30000,
+    "admission_wait_ms": 100,
+    "lease_ttl_ms": 10000,
+    "operation_deadline_ms": 30000,
+    "max_request_body_bytes": 33554432,
+    "wake_period_ms": 1000,
+    "shutdown_deadline_ms": 120000,
+    "other_sdk_policies": "Explicitly capture replica/log/loader/startup/maintenance values in the run manifest"
+  },
+  "measurement": {
+    "arrival_models": [
+      "fixed_rate",
+      "seeded_poisson"
+    ],
+    "offered_requests_per_second": [
+      10,
+      25,
+      50,
+      100,
+      200,
+      400,
+      800,
+      1600
+    ],
+    "warmup_min_seconds": 180,
+    "measurement_min_seconds": 300,
+    "repeats": 3,
+    "max_generator_in_flight": 1024,
+    "resource_sample_seconds": 1,
+    "trace_sample_fraction": 0.01,
+    "baseline_mutation_retries": 0,
+    "p99_min_samples_for_confident_label": 10000,
+    "pilot_soak_seconds": 1800,
+    "soak_seconds": 21600,
+    "soak_fraction_of_measured_sustainable_rate": 0.7,
+    "clock": "Monotonic client scheduled-arrival-to-complete-response; stage timings within each process"
+  },
+  "traffic_profiles": {
+    "core_mixed": {
+      "device_read": 30,
+      "device_history_read": 0,
+      "order_read": 10,
+      "inventory_read": 10,
+      "sql_projection_read": 10,
+      "kv_read": 0,
+      "blob_read": 0,
+      "device_write": 20,
+      "order_write": 10,
+      "inventory_write": 5,
+      "kv_write": 5,
+      "blob_write": 0
+    },
+    "full_application": {
+      "device_read": 25,
+      "device_history_read": 10,
+      "order_read": 10,
+      "inventory_read": 5,
+      "sql_projection_read": 10,
+      "kv_read": 5,
+      "blob_read": 5,
+      "device_write": 15,
+      "order_write": 8,
+      "inventory_write": 3,
+      "kv_write": 1,
+      "blob_write": 3
+    }
+  },
+  "data": {
+    "seed": 20261012,
+    "random_algorithm": "Select and version the deterministic generator algorithm before implementation",
+    "telemetry_default_bytes": 1024,
+    "telemetry_size_sweep_bytes": [
+      128,
+      1024,
+      16384,
+      65536
+    ],
+    "cell_logical_size_sweep_bytes": [
+      4096,
+      65536,
+      1048576
+    ],
+    "blob_default_bytes": 262144,
+    "blob_size_sweep_bytes": [
+      262144,
+      1048576,
+      16777216
+    ],
+    "history_page_limit": 100,
+    "domain_payload_limit_bytes": 65536,
+    "receipts_retained_through_final_audit": true,
+    "operational_receipt_retention_seconds": 86400
+  },
+  "background": {
+    "saga_fraction_of_full_profile_order_commands": 0.25,
+    "baseline_hibernating_connections": 200,
+    "connection_sweep": [
+      200,
+      2000
+    ],
+    "facet_max_child_scopes": 50,
+    "primary_queue_count": 10,
+    "dead_letter_queue_count": 10,
+    "alarm_device_fraction_sweep": [
+      0.01,
+      0.1,
+      1.0
+    ],
+    "deadline_shapes": [
+      "spread",
+      "coincident"
+    ],
+    "projection_consistency": "Asynchronous full snapshots guarded by per-source version"
+  },
+  "stream_limits": {
+    "blob_transfers_per_node": 8,
+    "buffered_chunks_per_stream": 2,
+    "chunk_bytes": 131072,
+    "websocket_pending_bytes_per_connection": 65536,
+    "websocket_pending_bytes_per_node": 33554432
+  },
+  "container_profile": {
+    "isolated_from_baseline": true,
+    "max_children_per_node": 1,
+    "instance_type": "dev",
+    "child_cpu": 0.0625,
+    "child_memory_bytes": 268435456,
+    "application_cpu": 0.9375,
+    "application_memory_bytes": 1879048192,
+    "auxiliary_resources": "Account for and bound fence/proxy containers before making a strict aggregate-budget claim"
+  },
+  "provisional_capacity_criteria": {
+    "resident_point_read_p99_ms": 100,
+    "resident_durable_command_p99_ms": 500,
+    "activated_point_read_p99_ms": 2000,
+    "activated_durable_command_p99_ms": 3000,
+    "automated_saga_p99_ms": 5000,
+    "projection_visibility_p99_ms": 2000,
+    "expected_valid_operation_success_fraction": 0.999,
+    "peak_memory_fraction": 0.8,
+    "disk_occupancy_fraction": 0.7,
+    "correctness_failures_allowed": 0,
+    "steadily_growing_backlog_allowed": false,
+    "targets_are_unmeasured_hypotheses": true
+  },
+  "required_fault_cases": [
+    "owner_crash_before_commit",
+    "owner_crash_after_commit_before_response",
+    "owner_crash_after_acknowledgement",
+    "single_node_loss_and_survivor_recovery",
+    "all_nodes_and_local_state_loss_with_recorded_bucket_coverage",
+    "peer_only_partition_with_bucket_access",
+    "full_owner_network_isolation",
+    "rustfs_delay_and_outage",
+    "external_response_lost_after_effect",
+    "queue_duplicate_poison_and_dead_letter",
+    "workflow_controls_and_failed_compensation",
+    "eviction_with_alarms_streams_and_background_work",
+    "rolling_handoff_preserve_reload_and_generation_adoption",
+    "shutdown_budget_exhaustion"
+  ],
+  "known_limitations": [
+    "Cache API always misses",
+    "SQL dump is unsupported",
+    "Extended workflow sensitive/rollback, batch/configuration, history and byte-stream APIs are outside the implemented suite's coverage",
+    "Facets have additional parent-owned database scopes",
+    "Fleet-enabled mode may acknowledge using Bucket proof",
+    "All simulated nodes share one VM, host disk and RustFS server"
+  ],
+  "completion_gate": "Every required phase, saved pre-replay acknowledgement audit and final preserving-reload audit must pass",
+  "implementation": {
+    "crate": "crates/cellar-fleetcare",
+    "runner": "tools/perf/fleetcare.py",
+    "readme": "crates/cellar-fleetcare/README.md",
+    "blueprint_is_runner_config": false
+  }
+}
