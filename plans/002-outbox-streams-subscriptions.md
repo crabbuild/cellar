@@ -1212,6 +1212,18 @@ lease. No retained unread record means null age, even with positive lost-history
 lag. SDK/operator acceptance verifies the observation against offsets and lease
 expiry. These are bounded diagnostics, not aggregate host/fleet metric gauges.
 
+Outbox inspection now reports whole-source oldest pending event age and blocked
+lane counts for a fixed seven-code permanent reason set, with per-lane age and
+reason metadata. Transactional counters replace pending-range count/sum scans;
+explicit covering indexes bound timestamp reads. Blocked terminal seal delivery
+counts even without event rows. Retry/acceptance clears the current reason;
+human diagnostics are not parsed into metric labels. Sample time uses the owner
+wall clock and negative age from skew clamps to zero. Restore audits counters
+and requires accounting triggers and age indexes. The schema remains 1 with a
+development-state hard cutover, without migration. Operator page acceptance
+verifies source/lane identity, reason cardinality, totals and age consistency.
+These are source observations; complete host/fleet aggregate export remains open.
+
 Owner-routed CLI/API operations provide outbox list/inspect/retry, stream
 describe/read, subscription describe/pause/resume/reset, and lifecycle operation
 status. Reset/destruction reports the exact incarnation and affected range and

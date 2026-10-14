@@ -922,3 +922,45 @@ This adds authoritative per-subscription diagnostics, not aggregate gauges in
 reasons, stream physical/logical byte and offset observations, retention-blocked
 bytes, aggregate lease/lag gauges, whole-fleet discovery, source destruction and
 the full release fault/capacity matrix remain unfinished.
+
+## Source backlog observations
+
+Outbox inspection now includes sampled wall time, whole-source oldest pending
+age, and seven fixed permanent blocked-reason counts. Lane metadata includes
+its own oldest pending age and typed blocked reason. Blocked terminal seals
+count even with no pending event payload; null age means no pending event rows.
+Wall-clock skew clamps negative age to zero. These are source observations,
+not cold-cell/fleet totals or aggregate series in the host metric export.
+
+Per-lane row/byte and source reason counters update with emission, deletion,
+block/retry and acceptance in the same SQLite transaction. Reason classification
+uses typed permanent failure codes, never parsed human messages. Explicit
+covering age indexes read at most one timestamp; lane inspection no longer
+counts/sums its pending range. Restore audits counters and blocked states and
+requires accounting triggers/age indexes. SDK and signed operator page acceptance
+checks source/lane identity, totals, fixed reasons and age/cursor consistency.
+The schema remains 1. Earlier development layouts require recreation; there is
+no migration or legacy response fallback.
+
+The first compile exposed a missing semicolon in the cursor helper extraction;
+it was fixed before qualification. All 94 library cases, 6 artifact and 2 CLI
+checks passed, including new accounting rollback/restore, corrupted counter /
+missing index/trigger refusal, indexed query plans, decimal precision and forged
+response cases. The persisted stream delivery/retention/revocation test passed
+with the new layout. All 26 serial Node cases passed (237.01 seconds), including source retry,
+handoff and removed-class recovery with current age/reason observations and the
+original full shutdown gates. The native outbox SDK fixture initially failed its
+whole-response equality check because new sampled ages advanced by one
+millisecond. Its comparison now derives creation timestamps from those ages,
+retaining every original metadata/counter/reason/wake-deadline equality check.
+The exact SDK replay passed (0.20 seconds), including operation capacity and
+immutable receipts. Workspace all-target/all-feature Clippy passed with warnings
+denied; 11 workspace doctests passed with one existing ignored case. Formatting
+checked 419 Rust files; docs validated 35 documents, 6 flows and 370 references;
+dependency checks retained 401 packages without a JavaScript engine, and
+whitespace checks passed. This is targeted qualification; the earlier failed
+full workspace runtime gate and remaining release matrix are not superseded.
+
+Complete aggregate export, stream physical/logical byte/offset and retention
+observations, whole-fleet discovery, source destruction and actual process/
+response-loss/follower/ownership/capacity release qualification remain open.

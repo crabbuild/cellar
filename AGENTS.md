@@ -89,6 +89,13 @@ is null when no unread payload remains. A read clamps to the durable clock but
 does not advance it or expire leases. Each returned row adds at most one primary-
 key timestamp lookup; SDK/operator acceptance checks observation consistency.
 This diagnostic coverage does not supply aggregate metric gauges.
+Outbox inspection uses transactional per-lane row/byte counters and seven
+fixed permanent failure counters, including blocked seal delivery. Explicit
+covering age indexes bound source/lane timestamp reads; pages do not aggregate
+event ranges. Current blocked reasons clear on retry or accepted delivery.
+Restore validates accounting and requires its indexes/triggers. The schema
+marker stays 1; prior development layouts require recreated state. SDK/operator
+page acceptance checks scope, lane identity, totals, reason set and ages.
 Catalog inventory uses `cellar stream list` with a separate
 fleet-administration namespace capability and `/catalogs/` ingress; resource
 grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle

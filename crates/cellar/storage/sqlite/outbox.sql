@@ -13,7 +13,12 @@ CREATE TABLE IF NOT EXISTS __sys_outbox_lanes (
     retry_at_ms INTEGER NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     last_error TEXT,
-    dispatch_generation INTEGER NOT NULL DEFAULT 0
+    dispatch_generation INTEGER NOT NULL DEFAULT 0,
+    pending_rows INTEGER NOT NULL DEFAULT 0 CHECK(typeof(pending_rows)='integer' AND pending_rows>=0),
+    pending_bytes INTEGER NOT NULL DEFAULT 0 CHECK(typeof(pending_bytes)='integer' AND pending_bytes>=0),
+    blocked_reason TEXT CHECK(blocked_reason IS NULL OR blocked_reason IN ('Forbidden','DestinationDeleted','SequenceGap','PayloadTooLarge','UnsupportedProtocol','ConfigConflict','ProducerSealed')),
+    CHECK(status!='blocked' OR blocked_reason IS NOT NULL),
+    CHECK(blocked_reason IS NULL OR status IN ('blocked','sealed'))
 );
 CREATE INDEX IF NOT EXISTS __sys_outbox_lanes_retry ON __sys_outbox_lanes(retry_at_ms,lane);
 CREATE TABLE IF NOT EXISTS __sys_outbox (
@@ -21,9 +26,11 @@ CREATE TABLE IF NOT EXISTS __sys_outbox (
     sequence INTEGER NOT NULL CHECK(typeof(sequence)='integer' AND sequence>0),
     envelope BLOB NOT NULL,
     size INTEGER NOT NULL CHECK(size>=0),
-    created_at_ms INTEGER NOT NULL,
+    created_at_ms INTEGER NOT NULL CHECK(typeof(created_at_ms)='integer' AND created_at_ms>=0),
     PRIMARY KEY(lane,sequence)
 ) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS __sys_outbox_age ON __sys_outbox(created_at_ms);
+CREATE INDEX IF NOT EXISTS __sys_outbox_lane_age ON __sys_outbox(lane,created_at_ms);
 CREATE TABLE IF NOT EXISTS __sys_outbox_stats (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
     rows INTEGER NOT NULL CHECK(typeof(rows)='integer' AND rows>=0),
@@ -32,9 +39,29 @@ CREATE TABLE IF NOT EXISTS __sys_outbox_stats (
 INSERT OR IGNORE INTO __sys_outbox_stats VALUES(1,0,0);
 CREATE TRIGGER IF NOT EXISTS __sys_outbox_insert AFTER INSERT ON __sys_outbox BEGIN
     UPDATE __sys_outbox_stats SET rows=rows+1,bytes=bytes+NEW.size WHERE singleton=1;
+    UPDATE __sys_outbox_lanes SET pending_rows=pending_rows+1,pending_bytes=pending_bytes+NEW.size WHERE lane=NEW.lane;
 END;
 CREATE TRIGGER IF NOT EXISTS __sys_outbox_delete AFTER DELETE ON __sys_outbox BEGIN
     UPDATE __sys_outbox_stats SET rows=rows-1,bytes=bytes-OLD.size WHERE singleton=1;
+    UPDATE __sys_outbox_lanes SET pending_rows=pending_rows-1,pending_bytes=pending_bytes-OLD.size WHERE lane=OLD.lane;
+END;
+
+CREATE TABLE IF NOT EXISTS __sys_outbox_blocked (
+    reason TEXT PRIMARY KEY CHECK(reason IN ('Forbidden','DestinationDeleted','SequenceGap','PayloadTooLarge','UnsupportedProtocol','ConfigConflict','ProducerSealed')),
+    lanes INTEGER NOT NULL CHECK(typeof(lanes)='integer' AND lanes>=0)
+) WITHOUT ROWID;
+INSERT OR IGNORE INTO __sys_outbox_blocked VALUES
+    ('Forbidden',0),('DestinationDeleted',0),('SequenceGap',0),('PayloadTooLarge',0),
+    ('UnsupportedProtocol',0),('ConfigConflict',0),('ProducerSealed',0);
+CREATE TRIGGER IF NOT EXISTS __sys_outbox_lane_blocked_insert AFTER INSERT ON __sys_outbox_lanes BEGIN
+    UPDATE __sys_outbox_blocked SET lanes=lanes+1 WHERE reason=NEW.blocked_reason;
+END;
+CREATE TRIGGER IF NOT EXISTS __sys_outbox_lane_blocked_update AFTER UPDATE OF blocked_reason ON __sys_outbox_lanes BEGIN
+    UPDATE __sys_outbox_blocked SET lanes=lanes-1 WHERE reason=OLD.blocked_reason;
+    UPDATE __sys_outbox_blocked SET lanes=lanes+1 WHERE reason=NEW.blocked_reason;
+END;
+CREATE TRIGGER IF NOT EXISTS __sys_outbox_lane_blocked_delete AFTER DELETE ON __sys_outbox_lanes BEGIN
+    UPDATE __sys_outbox_blocked SET lanes=lanes-1 WHERE reason=OLD.blocked_reason;
 END;
 
 CREATE TABLE IF NOT EXISTS __sys_outbox_seals (

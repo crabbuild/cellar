@@ -39,6 +39,27 @@ pub struct OutboxRevision {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutboxBlocked {
+    pub reason: ErrorCode,
+    #[serde(with = "crate::application::event_stream::decimal")]
+    pub lanes: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutboxObservation {
+    #[serde(with = "crate::application::event_stream::decimal")]
+    pub observed_ms: i64,
+    /// None means there are no pending event rows; seal-only work is separate.
+    #[serde(with = "crate::application::event_stream::decimal::optional")]
+    pub oldest_pending_age_ms: Option<i64>,
+    /// Fixed reason set; counts include blocked terminal seal delivery.
+    pub blocked_lanes: Vec<OutboxBlocked>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutboxLane {
     pub revision: OutboxRevision,
     pub resource: Resource,
@@ -55,9 +76,13 @@ pub struct OutboxLane {
     pub attempts: i64,
     pub last_error: Option<String>,
     pub seal_state: Option<String>,
+    pub blocked_reason: Option<ErrorCode>,
+    #[serde(with = "crate::application::event_stream::decimal::optional")]
+    pub oldest_pending_age_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutboxPage {
     pub incarnation: Option<String>,
     #[serde(with = "crate::application::event_stream::decimal")]
@@ -66,6 +91,7 @@ pub struct OutboxPage {
     pub pending_bytes: i64,
     pub lanes: Vec<OutboxLane>,
     pub next: Option<String>,
+    pub observation: OutboxObservation,
 }
 
 fn failure(code: ErrorCode, message: &str) -> anyhow::Error {
@@ -100,6 +126,180 @@ fn valid_hex(value: &str, length: usize) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+fn optional_number(row: &SqlRow, column: &str) -> Result<Option<i64>> {
+    match row.get(column) {
+        Some(SqlValue::Null) => Ok(None),
+        _ => number(row, column).map(Some),
+    }
+}
+
+fn age(created_ms: Option<i64>, now: i64) -> Result<Option<i64>> {
+    created_ms
+        .map(|created| {
+            anyhow::ensure!(created >= 0, "invalid outbox creation time");
+            Ok(now.saturating_sub(created).max(0))
+        })
+        .transpose()
+}
+
+fn after(encoded: Option<&str>, source: &str, incarnation: Option<&str>) -> Result<String> {
+    if let Some(encoded) = encoded {
+        let invalid = || {
+            failure(
+                ErrorCode::InvalidCursor,
+                "outbox cursor does not match this source incarnation",
+            )
+        };
+        if encoded.len() > 1024 {
+            return Err(invalid());
+        }
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(encoded.strip_prefix("v1.").ok_or_else(invalid)?)
+            .map_err(|_| invalid())?;
+        let (cursor_source, cursor_incarnation, lane): (String, String, String) =
+            serde_json::from_slice(&bytes).map_err(|_| invalid())?;
+        if cursor_source != source
+            || incarnation != Some(cursor_incarnation.as_str())
+            || !valid_hex(&lane, 64)
+        {
+            return Err(invalid());
+        }
+        Ok(lane)
+    } else {
+        Ok(String::new())
+    }
+}
+
+impl OutboxPage {
+    pub(crate) fn validate(&self, source: &str, options: &OutboxOptions) -> Result<()> {
+        let invalid = || {
+            failure(
+                ErrorCode::InvalidRequest,
+                "invalid outbox observation response",
+            )
+        };
+        let mut previous = after(
+            options.cursor.as_deref(),
+            source,
+            self.incarnation.as_deref(),
+        )?;
+        let observation = &self.observation;
+        let valid_age = |age: Option<i64>, rows: i64| {
+            age.is_some() == (rows > 0)
+                && age.is_none_or(|age| age >= 0 && age <= observation.observed_ms)
+        };
+        if !(1..=MAX_LANES).contains(&options.limit)
+            || self.lanes.len() > options.limit
+            || self.pending_rows < 0
+            || self.pending_bytes < 0
+            || observation.observed_ms < 0
+            || !valid_age(observation.oldest_pending_age_ms, self.pending_rows)
+            || observation.blocked_lanes.len() != ErrorCode::BLOCKED_REASONS.len()
+            || self
+                .incarnation
+                .as_deref()
+                .is_some_and(|id| !valid_hex(id, 32))
+            || (self.incarnation.is_none()
+                && (!self.lanes.is_empty()
+                    || self.pending_rows != 0
+                    || self.pending_bytes != 0
+                    || self.next.is_some()))
+        {
+            return Err(invalid());
+        }
+        let mut total_blocked = 0i64;
+        for (count, reason) in observation
+            .blocked_lanes
+            .iter()
+            .zip(ErrorCode::BLOCKED_REASONS)
+        {
+            if count.reason != reason || count.lanes < 0 {
+                return Err(invalid());
+            }
+            total_blocked = total_blocked.checked_add(count.lanes).ok_or_else(invalid)?;
+        }
+        if self.incarnation.is_none() && total_blocked != 0 {
+            return Err(invalid());
+        }
+        let mut rows = 0i64;
+        let mut bytes = 0i64;
+        let mut seen_blocked = [0i64; 7];
+        for lane in &self.lanes {
+            lane.resource.validate()?;
+            let revision = &lane.revision;
+            if revision.source != source
+                || self.incarnation.as_deref() != Some(revision.incarnation.as_str())
+                || !valid_hex(&revision.lane, 64)
+                || revision.lane <= previous
+                || revision.lane
+                    != crate::application::event_stream::lane_identity(
+                        &lane.resource,
+                        source,
+                        &revision.incarnation,
+                    )?
+                || revision.dispatch_generation < 0
+                || revision.next_sequence <= 0
+                || revision.settled_through < 0
+                || revision.settled_through >= revision.next_sequence
+                || lane.pending_rows < 0
+                || lane.pending_bytes < 0
+                || lane.attempts < 0
+                || !valid_age(lane.oldest_pending_age_ms, lane.pending_rows)
+                || lane.oldest_pending_age_ms > observation.oldest_pending_age_ms
+                || !matches!(lane.status.as_str(), "pending" | "blocked" | "sealed")
+                || lane
+                    .seal_state
+                    .as_deref()
+                    .is_some_and(|state| !matches!(state, "pending" | "blocked" | "accepted"))
+                || (lane.status == "sealed") != lane.seal_state.is_some()
+                || lane.blocked_reason.is_some()
+                    != (lane.status == "blocked" || lane.seal_state.as_deref() == Some("blocked"))
+                || lane.principal.is_empty()
+                || lane.principal.len() > 256
+                || lane.grant.is_empty()
+                || lane.grant.len() > 256
+            {
+                return Err(invalid());
+            }
+            rows = rows.checked_add(lane.pending_rows).ok_or_else(invalid)?;
+            bytes = bytes.checked_add(lane.pending_bytes).ok_or_else(invalid)?;
+            if let Some(reason) = lane.blocked_reason {
+                let index = ErrorCode::BLOCKED_REASONS
+                    .iter()
+                    .position(|code| *code == reason)
+                    .ok_or_else(invalid)?;
+                seen_blocked[index] += 1;
+            }
+            previous.clone_from(&revision.lane);
+        }
+        if (options.cursor.is_none()
+            && self.next.is_none()
+            && (rows != self.pending_rows
+                || bytes != self.pending_bytes
+                || seen_blocked
+                    .iter()
+                    .zip(&observation.blocked_lanes)
+                    .any(|(seen, count)| *seen != count.lanes)))
+            || rows > self.pending_rows
+            || bytes > self.pending_bytes
+            || seen_blocked
+                .iter()
+                .zip(&observation.blocked_lanes)
+                .any(|(seen, count)| *seen > count.lanes)
+        {
+            return Err(invalid());
+        }
+        if let Some(next) = &self.next {
+            if self.lanes.is_empty()
+                || after(Some(next), source, self.incarnation.as_deref())? != previous
+            {
+                return Err(invalid());
+            }
+        }
+        Ok(())
+    }
+}
+
 impl Storage {
     fn outbox_incarnation(&self) -> Result<Option<String>> {
         let scope = self.scope()?;
@@ -132,31 +332,8 @@ impl Storage {
         }
         let source = self.scope()?;
         let incarnation = self.outbox_incarnation()?;
-        let after = if let Some(encoded) = &options.cursor {
-            let invalid = || {
-                failure(
-                    ErrorCode::InvalidCursor,
-                    "outbox cursor does not match this source incarnation",
-                )
-            };
-            if encoded.len() > 1024 {
-                return Err(invalid());
-            }
-            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(encoded.strip_prefix("v1.").ok_or_else(invalid)?)
-                .map_err(|_| invalid())?;
-            let (cursor_source, cursor_incarnation, lane): (String, String, String) =
-                serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-            if cursor_source != source
-                || incarnation.as_deref() != Some(cursor_incarnation.as_str())
-                || !valid_hex(&lane, 64)
-            {
-                return Err(invalid());
-            }
-            lane
-        } else {
-            String::new()
-        };
+        let after = after(options.cursor.as_deref(), source, incarnation.as_deref())?;
+        let now = crate::asyncrt::wall_ms().max(0);
         let Some(incarnation) = incarnation else {
             return Ok(OutboxPage {
                 incarnation: None,
@@ -164,6 +341,17 @@ impl Storage {
                 pending_bytes: 0,
                 lanes: Vec::new(),
                 next: None,
+                observation: OutboxObservation {
+                    observed_ms: now,
+                    oldest_pending_age_ms: None,
+                    blocked_lanes: ErrorCode::BLOCKED_REASONS
+                        .iter()
+                        .map(|reason| OutboxBlocked {
+                            reason: *reason,
+                            lanes: 0,
+                        })
+                        .collect(),
+                },
             });
         };
         let totals = self.system_sql(
@@ -175,11 +363,11 @@ impl Storage {
         // are deliberately absent from the result and allocation budget.
         let rows=self.system_sql(
             "SELECT l.lane,l.next_sequence,l.settled_through,l.status,l.retry_at_ms,l.attempts,l.dispatch_generation,
-            substr(l.last_error,1,1024) AS last_error,s.state AS seal_state,
+            substr(l.last_error,1,1024) AS last_error,s.state AS seal_state,l.blocked_reason,
             json_extract(l.binding,'$.resource') AS resource,json_extract(l.binding,'$.principal') AS principal,
             json_extract(l.binding,'$.grant') AS grant,
-            (SELECT count(*) FROM __sys_outbox AS e WHERE e.lane=l.lane) AS pending_rows,
-            (SELECT coalesce(sum(size),0) FROM __sys_outbox AS e WHERE e.lane=l.lane) AS pending_bytes
+            l.pending_rows,l.pending_bytes,
+            (SELECT created_at_ms FROM __sys_outbox AS e INDEXED BY __sys_outbox_lane_age WHERE e.lane=l.lane ORDER BY created_at_ms LIMIT 1) AS oldest_ms
             FROM __sys_outbox_lanes AS l LEFT JOIN __sys_outbox_seals AS s ON s.lane=l.lane
             WHERE l.lane>? ORDER BY l.lane LIMIT ?",&[after.into(),i64::try_from(options.limit+1)?.into()])?;
         let lanes = rows
@@ -205,6 +393,10 @@ impl Storage {
                     attempts: number(row, "attempts")?,
                     last_error: optional_text(row, "last_error")?,
                     seal_state: optional_text(row, "seal_state")?,
+                    blocked_reason: optional_text(row, "blocked_reason")?
+                        .map(|reason| serde_json::from_value(serde_json::Value::String(reason)))
+                        .transpose()?,
+                    oldest_pending_age_ms: age(optional_number(row, "oldest_ms")?, now)?,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -220,13 +412,49 @@ impl Storage {
             } else {
                 None
             };
-        Ok(OutboxPage {
+        let oldest = self.system_sql("SELECT created_at_ms FROM __sys_outbox INDEXED BY __sys_outbox_age ORDER BY created_at_ms LIMIT 1", &[])?;
+        let reasons = self.system_sql(
+            "SELECT reason,lanes FROM __sys_outbox_blocked ORDER BY reason LIMIT 8",
+            &[],
+        )?;
+        anyhow::ensure!(
+            reasons.len() == ErrorCode::BLOCKED_REASONS.len(),
+            "outbox blocked reason inventory incomplete"
+        );
+        let blocked_lanes = ErrorCode::BLOCKED_REASONS
+            .iter()
+            .map(|reason| -> Result<OutboxBlocked> {
+                let name = format!("{reason:?}");
+                let row = reasons
+                    .iter()
+                    .find(|row| text(row, "reason").is_ok_and(|value| value == name))
+                    .context("outbox blocked reason missing")?;
+                Ok(OutboxBlocked {
+                    reason: *reason,
+                    lanes: number(row, "lanes")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let page = OutboxPage {
             incarnation: Some(incarnation),
             pending_rows: number(totals, "rows")?,
             pending_bytes: number(totals, "bytes")?,
             lanes,
             next,
-        })
+            observation: OutboxObservation {
+                observed_ms: now,
+                oldest_pending_age_ms: age(
+                    oldest
+                        .first()
+                        .map(|row| number(row, "created_at_ms"))
+                        .transpose()?,
+                    now,
+                )?,
+                blocked_lanes,
+            },
+        };
+        page.validate(source, options)?;
+        Ok(page)
     }
 
     /// Re-arm one observed lane without changing its events or sequences.
@@ -260,11 +488,72 @@ impl Storage {
                 Err(cellar_logic::event_stream::RetryRefusal::Exhausted) => return Err(failure(ErrorCode::OperationLimit,"outbox dispatch generation exhausted")),
             };
             let now=crate::asyncrt::wall_ms();
-            tx.system_sql("UPDATE __sys_outbox_lanes SET status=CASE WHEN status='sealed' THEN 'sealed' ELSE 'pending' END,retry_at_ms=?,attempts=0,dispatch_generation=? WHERE lane=?",
+            tx.system_sql("UPDATE __sys_outbox_lanes SET status=CASE WHEN status='sealed' THEN 'sealed' ELSE 'pending' END,retry_at_ms=?,attempts=0,blocked_reason=NULL,dispatch_generation=? WHERE lane=?",
                 &[now.into(),generation.into(),revision.lane.clone().into()])?;
             tx.system_sql("UPDATE __sys_outbox_seals SET state='pending' WHERE lane=? AND state!='accepted'",&[revision.lane.clone().into()])?;
             tx.schedule_work(cellar_logic::work::Reason::Outbox,now)?;
             Ok(true)
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn acceptance_checks_source_totals_reason_cardinality_and_decimal_ages() -> Result<()> {
+        let source = "Order:123";
+        let incarnation = "00000000000000000000000000000002";
+        let resource = Resource {
+            tenant: "tenant".into(),
+            application: "shop".into(),
+            id: "00000000000000000000000000000001".into(),
+            name: "orders".into(),
+            family: "orders".into(),
+        };
+        let lane = crate::application::event_stream::lane_identity(&resource, source, incarnation)?;
+        let counts = ErrorCode::BLOCKED_REASONS
+            .iter()
+            .map(|reason| OutboxBlocked {
+                reason: *reason,
+                lanes: i64::from(*reason == ErrorCode::Forbidden),
+            })
+            .collect::<Vec<_>>();
+        let value = json!({"incarnation":incarnation,"pending_rows":"1","pending_bytes":i64::MAX.to_string(),"lanes":[{"revision":{"source":source,"incarnation":incarnation,"lane":lane,"dispatch_generation":"1","next_sequence":"2","settled_through":"0"},"resource":resource,"principal":"shop","grant":"publisher","status":"blocked","pending_rows":"1","pending_bytes":i64::MAX.to_string(),"retry_at_ms":"100","attempts":"1","last_error":"Forbidden: publication denied","seal_state":null,"blocked_reason":"Forbidden","oldest_pending_age_ms":"10"}],"next":null,"observation":{"observed_ms":"100","oldest_pending_age_ms":"10","blocked_lanes":counts}});
+        let page: OutboxPage = serde_json::from_value(value.clone())?;
+        page.validate(source, &OutboxOptions::default())?;
+        assert_eq!(serde_json::to_value(page)?, value);
+        for (pointer, replacement) in [
+            ("/lanes/0/revision/source", json!("Order:other")),
+            ("/lanes/0/blocked_reason", json!("Unavailable")),
+            ("/lanes/0/pending_rows", json!("0")),
+            ("/observation/oldest_pending_age_ms", json!(null)),
+            ("/observation/blocked_lanes/0/lanes", json!("0")),
+            (
+                "/observation/blocked_lanes/0/reason",
+                json!("ConfigConflict"),
+            ),
+            ("/observation/observed_ms", json!("-1")),
+        ] {
+            let mut forged = value.clone();
+            *forged.pointer_mut(pointer).unwrap() = replacement;
+            assert!(
+                serde_json::from_value::<OutboxPage>(forged)?
+                    .validate(source, &OutboxOptions::default())
+                    .is_err(),
+                "{pointer}"
+            );
+        }
+        let mut secret = value.clone();
+        secret["lanes"][0]["envelope"] = json!("must not leak");
+        assert!(serde_json::from_value::<OutboxPage>(secret).is_err());
+        let mut noncanonical = value;
+        noncanonical["observation"]["oldest_pending_age_ms"] = json!("01");
+        assert!(serde_json::from_value::<OutboxPage>(noncanonical).is_err());
+        assert_eq!(age(Some(100), 10)?, Some(0));
+        assert!(age(Some(-1), 100).is_err());
+        Ok(())
     }
 }

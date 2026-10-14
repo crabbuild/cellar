@@ -129,6 +129,13 @@ impl Cell for Order {
                 let empty = db.outbox(&OutboxOptions::default())?;
                 assert!(empty.incarnation.is_none() && empty.lanes.is_empty());
                 assert_eq!((empty.pending_rows, empty.pending_bytes), (0, 0));
+                assert!(empty.observation.oldest_pending_age_ms.is_none());
+                assert_eq!(empty.observation.blocked_lanes.len(), 7);
+                assert!(empty
+                    .observation
+                    .blocked_lanes
+                    .iter()
+                    .all(|count| count.lanes == 0));
                 assert_eq!(
                     code(&db.emit(&orders, event()).unwrap_err()),
                     ErrorCode::TransactionRequired
@@ -210,10 +217,25 @@ impl Cell for Order {
                 assert_eq!(before.pending_rows, 2);
                 assert_eq!(before.lanes.len(), 1);
                 assert_eq!(before.lanes[0].pending_rows, 2);
+                assert!(before.observation.oldest_pending_age_ms.is_some());
+                assert!(before.lanes[0].oldest_pending_age_ms.is_some());
+                assert!(before.lanes[0].blocked_reason.is_none());
+                assert!(before
+                    .observation
+                    .blocked_lanes
+                    .iter()
+                    .all(|count| count.lanes == 0));
                 assert!(before.pending_bytes > 0 && before.next.is_none());
                 assert_eq!(before.lanes[0].revision.next_sequence, 3);
                 let wire = serde_json::to_value(&before)?;
                 assert_eq!(wire["pending_rows"], "2");
+                assert!(wire["observation"]["oldest_pending_age_ms"].is_string());
+                assert!(wire["observation"]["observed_ms"].is_string());
+                assert!(wire["observation"]["blocked_lanes"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|count| count["lanes"] == "0"));
                 assert!(wire["lanes"][0].get("envelope").is_none());
                 assert_eq!(
                     code(
@@ -504,9 +526,34 @@ async fn source_scenario() -> Result<()> {
         source_operation(&runtime, third).await?["error"]["code"],
         "OperationLimit"
     );
+    let stable = |mut reply: serde_json::Value| -> Result<serde_json::Value> {
+        let observed = reply["result"]["observation"]["observed_ms"]
+            .as_str()
+            .context("sample time missing")?
+            .parse::<i64>()?;
+        // Compare sampled ages as creation timestamps. Every stored counter,
+        // identity, reason and wake deadline still participates in equality.
+        for lane in reply["result"]["lanes"]
+            .as_array_mut()
+            .context("lanes missing")?
+        {
+            if let Some(age) = lane["oldest_pending_age_ms"].as_str() {
+                lane["oldest_pending_age_ms"] = (observed - age.parse::<i64>()?).to_string().into();
+            }
+        }
+        if let Some(age) = reply["result"]["observation"]["oldest_pending_age_ms"].as_str() {
+            reply["result"]["observation"]["oldest_pending_age_ms"] =
+                (observed - age.parse::<i64>()?).to_string().into();
+        }
+        reply["result"]["observation"]
+            .as_object_mut()
+            .context("observation missing")?
+            .remove("observed_ms");
+        Ok(reply)
+    };
     assert_eq!(
-        source_operation(&runtime, serde_json::json!({"op":"inspect"})).await?,
-        before,
+        stable(source_operation(&runtime, serde_json::json!({"op":"inspect"})).await?)?,
+        stable(before)?,
         "capacity failure changed source metadata or wake deadline"
     );
     assert_eq!(

@@ -35,6 +35,22 @@ pub enum ErrorCode {
     PendingDelivery,
 }
 
+impl ErrorCode {
+    pub(crate) const BLOCKED_REASONS: [Self; 7] = [
+        Self::Forbidden,
+        Self::DestinationDeleted,
+        Self::SequenceGap,
+        Self::PayloadTooLarge,
+        Self::UnsupportedProtocol,
+        Self::ConfigConflict,
+        Self::ProducerSealed,
+    ];
+
+    pub(crate) fn is_permanent(self) -> bool {
+        Self::BLOCKED_REASONS.contains(&self)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DeliveryError {
     pub code: ErrorCode,
@@ -53,16 +69,7 @@ impl DeliveryError {
     }
 
     pub fn is_permanent(&self) -> bool {
-        matches!(
-            self.code,
-            ErrorCode::Forbidden
-                | ErrorCode::DestinationDeleted
-                | ErrorCode::SequenceGap
-                | ErrorCode::PayloadTooLarge
-                | ErrorCode::UnsupportedProtocol
-                | ErrorCode::ConfigConflict
-                | ErrorCode::ProducerSealed
-        )
+        self.code.is_permanent()
     }
 }
 

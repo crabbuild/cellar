@@ -166,7 +166,7 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
                     capture_batch_limits(tx,&lane,&response)?;
                     tx.system_sql("DELETE FROM __sys_outbox WHERE lane=? AND sequence<=?",&[lane.clone().into(),last.into()])?;
                 }
-                tx.system_sql("UPDATE __sys_outbox_lanes SET settled_through=max(settled_through,?),attempts=0,last_error=NULL,retry_at_ms=?,
+                tx.system_sql("UPDATE __sys_outbox_lanes SET settled_through=max(settled_through,?),attempts=0,last_error=NULL,blocked_reason=NULL,retry_at_ms=?,
                     status=CASE WHEN status='sealed' THEN 'sealed' ELSE 'pending' END WHERE lane=?",
                     &[last.into(),crate::asyncrt::wall_ms().into(),lane.clone().into()])?;
                 Ok(())
@@ -179,14 +179,16 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
             {
                 capture_batch_limits(&db, &lane, &failure.data)?;
             }
-            let permanent = error
+            let blocked_reason = error
                 .downcast_ref::<event_stream::DeliveryError>()
-                .is_some_and(|error| error.is_permanent());
+                .filter(|error| error.is_permanent())
+                .map(|error| format!("{:?}", error.code));
+            let permanent = blocked_reason.is_some();
             let error = error.to_string().chars().take(1024).collect::<String>();
             db.tx(|tx| {
-                tx.system_sql("UPDATE __sys_outbox_lanes SET last_error=?,status=CASE WHEN status='sealed' THEN 'sealed' ELSE ? END,
+                tx.system_sql("UPDATE __sys_outbox_lanes SET last_error=?,blocked_reason=?,status=CASE WHEN status='sealed' THEN 'sealed' ELSE ? END,
                     retry_at_ms=CASE WHEN ?=1 THEN ? ELSE retry_at_ms END WHERE lane=?",
-                    &[error.into(),if permanent {"blocked"} else {"pending"}.into(),i64::from(permanent).into(),crate::asyncrt::wall_ms().saturating_add(300_000).into(),lane.clone().into()])?;
+                    &[error.into(),blocked_reason.map(SqlValue::Text).unwrap_or(SqlValue::Null),if permanent {"blocked"} else {"pending"}.into(),i64::from(permanent).into(),crate::asyncrt::wall_ms().saturating_add(300_000).into(),lane.clone().into()])?;
                 if sealing {tx.system_sql("UPDATE __sys_outbox_seals SET state=? WHERE lane=?",
                     &[if permanent {"blocked"} else {"pending"}.into(),lane.clone().into()])?;}
                 Ok(())

@@ -1525,6 +1525,19 @@ async fn source_operator_routes_to_owner_replays_receipts_and_recovers_handoff()
     )
     .await?;
     ensure!(page["result"]["pending_rows"] == "1");
+    ensure!(page["result"]["lanes"][0]["blocked_reason"] == "Forbidden");
+    ensure!(page["result"]["observation"]["oldest_pending_age_ms"].is_string());
+    let reasons = page["result"]["observation"]["blocked_lanes"]
+        .as_array()
+        .unwrap();
+    ensure!(
+        reasons.len() == 7
+            && reasons
+                .iter()
+                .find(|count| count["reason"] == "Forbidden")
+                .unwrap()["lanes"]
+                == "1"
+    );
     let expected = page["result"]["lanes"][0]["revision"].clone();
     ensure!(expected["source"] == scope);
     let request = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000055","reason":"retry after restoring destination publication","expected":expected}});
@@ -1580,6 +1593,12 @@ async fn source_operator_routes_to_owner_replays_receipts_and_recovers_handoff()
         "outbox",
     )
     .await?;
+    ensure!(page["result"]["observation"]["oldest_pending_age_ms"].is_null());
+    ensure!(page["result"]["observation"]["blocked_lanes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|count| count["lanes"] == "0"));
     let settled = serde_json::json!({"op":"retry","change":{"operation":"00000000000000000000000000000057","reason":"record settled producer observation","expected":page["result"]["lanes"][0]["revision"]}});
     ensure!(
         operator(&client, &entrance, &scope, &settled, "outbox").await?["result"]["rearmed"]
@@ -1756,6 +1775,12 @@ async fn removed_source_class_recovers_delivery_and_control_without_application_
         state["result"]["incarnation"] == before["result"]["incarnation"]
             && state["result"]["pending_rows"] == "1",
         "removed source identity/backlog changed"
+    );
+    ensure!(state["result"]["lanes"][0]["blocked_reason"] == "Forbidden");
+    ensure!(state["result"]["observation"]["oldest_pending_age_ms"].is_string());
+    ensure!(
+        state["result"]["observation"]["blocked_lanes"]
+            == before["result"]["observation"]["blocked_lanes"]
     );
     let denied = client
         .get(format!(

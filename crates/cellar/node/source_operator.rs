@@ -85,11 +85,11 @@ where
         authority: Some(crate::runtime::RpcAuthority::Source(authority)),
         request_id: Some(crate::engine_api::next_request_id()),
         cancel: None,
-        scope,
+        scope: scope.clone(),
         name: None,
         method: crate::runtime::source_control::METHOD.into(),
         args: crate::application::encode_rpc(&cellar_native::clone::StructuredValue::from_json(
-            serde_json::to_value(command)?,
+            serde_json::to_value(&command)?,
         )?)?,
         reply,
     };
@@ -99,6 +99,19 @@ where
     match result {
         Ok(data) => {
             let value = crate::application::decode_rpc_result(&data)?.to_json()?;
+            if let crate::runtime::source_control::Request::Inspect { limit, cursor } = &command {
+                if let Some(result) = value.get("result") {
+                    let page: crate::application::OutboxPage =
+                        serde_json::from_value(result.clone())?;
+                    page.validate(
+                        &scope,
+                        &crate::application::OutboxOptions {
+                            limit: *limit,
+                            cursor: cursor.clone(),
+                        },
+                    )?;
+                }
+            }
             Ok(peer_response(
                 Response::builder()
                     .status(StatusCode::OK)

@@ -12,9 +12,10 @@ const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
     ddl: include_str!("outbox.sql"),
     required: &[
         ("__sys_event_source", "singleton,incarnation,protocol"),
-        ("__sys_outbox_lanes", "lane,binding,next_sequence,settled_through,status,retry_at_ms,attempts,last_error,dispatch_generation"),
+        ("__sys_outbox_lanes", "lane,binding,next_sequence,settled_through,status,retry_at_ms,attempts,last_error,dispatch_generation,pending_rows,pending_bytes,blocked_reason"),
         ("__sys_outbox", "lane,sequence,envelope,size,created_at_ms"),
         ("__sys_outbox_stats", "singleton,rows,bytes"),
+        ("__sys_outbox_blocked", "reason,lanes"),
 
         ("__sys_outbox_seals", "lane,operation,terminal,state"),
         ("__sys_outbox_batch_limits", "lane,bytes,records"),
@@ -22,7 +23,37 @@ const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
 };
 
 pub(super) fn check_schema(connection: &Connection) -> anyhow::Result<bool> {
-    SCHEMA.check(connection)
+    let present = SCHEMA.check(connection)?;
+    if present {
+        for (index, expected) in [
+            ("__sys_outbox_age", "created_at_ms"),
+            ("__sys_outbox_lane_age", "lane,created_at_ms"),
+        ] {
+            let columns = connection
+                .prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")?
+                .query_map([index], |row| row.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            super::event_schema::compatible(
+                columns.join(",") == expected,
+                "outbox age index missing or inconsistent",
+            )?;
+        }
+        for trigger in [
+            "__sys_outbox_insert",
+            "__sys_outbox_delete",
+            "__sys_outbox_lane_blocked_insert",
+            "__sys_outbox_lane_blocked_update",
+            "__sys_outbox_lane_blocked_delete",
+        ] {
+            let present: bool = connection.query_row(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name=?1)",
+                [trigger],
+                |row| row.get(0),
+            )?;
+            super::event_schema::compatible(present, "outbox accounting trigger missing")?;
+        }
+    }
+    Ok(present)
 }
 
 pub(super) fn restore_schema(connection: &Connection) -> anyhow::Result<()> {
@@ -42,7 +73,7 @@ fn validate_retained(connection: &Connection) -> anyhow::Result<()> {
     let (rows, bytes, actual_rows, actual_bytes, invalid): (i64,i64,i64,i64,i64) = connection.query_row(
         "SELECT rows,bytes,(SELECT count(*) FROM __sys_outbox),
         (SELECT coalesce(sum(size),0) FROM __sys_outbox),
-        (SELECT count(*) FROM __sys_outbox WHERE size!=length(envelope)) FROM __sys_outbox_stats WHERE singleton=1",
+        (SELECT count(*) FROM __sys_outbox AS e WHERE size!=length(envelope) OR created_at_ms<0 OR NOT EXISTS(SELECT 1 FROM __sys_outbox_lanes WHERE lane=e.lane)) FROM __sys_outbox_stats WHERE singleton=1",
         [], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?)))?;
     super::event_schema::compatible(
         rows == actual_rows && bytes == actual_bytes && invalid == 0,
@@ -58,6 +89,37 @@ fn validate_retained(connection: &Connection) -> anyhow::Result<()> {
         sources == 1 || (sources == 0 && lanes == 0),
         "producer lanes lack their original source incarnation",
     )?;
+    let invalid: i64 = connection.query_row("SELECT count(*) FROM __sys_outbox_lanes AS l
+        LEFT JOIN __sys_outbox_seals AS s ON s.lane=l.lane
+        WHERE l.pending_rows!=(SELECT count(*) FROM __sys_outbox WHERE lane=l.lane)
+        OR l.pending_bytes!=(SELECT coalesce(sum(size),0) FROM __sys_outbox WHERE lane=l.lane)
+        OR (l.blocked_reason IS NOT NULL)!=(l.status='blocked' OR (l.status='sealed' AND coalesce(s.state='blocked',0)))", [], |row|row.get(0))?;
+    super::event_schema::compatible(
+        invalid == 0,
+        "outbox lane counters or blocked state conflict with retained obligations",
+    )?;
+    let reasons = connection
+        .prepare("SELECT reason,lanes FROM __sys_outbox_blocked ORDER BY reason")?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    super::event_schema::compatible(
+        reasons.len() == ErrorCode::BLOCKED_REASONS.len(),
+        "outbox blocked reason inventory is incomplete",
+    )?;
+    for (reason, lanes) in reasons {
+        let code: ErrorCode = serde_json::from_value(serde_json::Value::String(reason.clone()))?;
+        let actual: i64 = connection.query_row(
+            "SELECT count(*) FROM __sys_outbox_lanes WHERE blocked_reason=?1",
+            [&reason],
+            |row| row.get(0),
+        )?;
+        super::event_schema::compatible(
+            code.is_permanent() && lanes == actual,
+            "outbox blocked counters conflict with retained lanes",
+        )?;
+    }
     Ok(())
 }
 
@@ -370,7 +432,7 @@ pub(crate) fn seal(scope: &str, binding: &Binding, operation: &str) -> anyhow::R
                 let generation = generation
                     .checked_add(1)
                     .ok_or_else(|| anyhow::anyhow!("outbox dispatch generation exhausted"))?;
-                connection.execute("UPDATE __sys_outbox_lanes SET status='sealed',dispatch_generation=?2,retry_at_ms=?3,attempts=0,last_error=NULL WHERE lane=?1",
+                connection.execute("UPDATE __sys_outbox_lanes SET status='sealed',dispatch_generation=?2,retry_at_ms=?3,attempts=0,last_error=NULL,blocked_reason=NULL WHERE lane=?1",
                     rusqlite::params![lane,generation,now])?;
                 connection.execute(
                     "INSERT INTO __sys_outbox_seals(lane,operation,terminal) VALUES(?1,?2,?3)",
@@ -925,6 +987,119 @@ mod tests {
         assert_eq!(first.lane, second.lane);
         assert_eq!(second.sequence, 2);
         close(SCOPE);
+        Ok(())
+    }
+
+    #[test]
+    fn lane_accounting_and_blocked_reasons_follow_commit_rollback_and_restore() -> anyhow::Result<()>
+    {
+        let cells = Cells::default();
+        let _installed = cells.install();
+        let directory = tempfile::tempdir()?;
+        open_cell(&directory, 1)?;
+        transaction_control(SCOPE, "start", false, "cells_tx_1").unwrap();
+        send(&binding(), Limits::default())?;
+        send(&binding(), Limits::default())?;
+        let mut other = binding();
+        other.resource.id = "00000000000000000000000000000002".into();
+        send(&other, Limits::default())?;
+        transaction_control(SCOPE, "commit", false, "cells_tx_1").unwrap();
+        let lane = envelopes()?[0].lane.clone();
+        let verify = || -> anyhow::Result<()> {
+            with(SCOPE, |c| {
+                let invalid: i64 = c.query_row("SELECT count(*) FROM __sys_outbox_lanes l WHERE pending_rows!=(SELECT count(*) FROM __sys_outbox WHERE lane=l.lane) OR pending_bytes!=(SELECT coalesce(sum(size),0) FROM __sys_outbox WHERE lane=l.lane)",[],|row|row.get(0))?;
+                assert_eq!(invalid, 0);
+                for (query, index) in [
+                    ("EXPLAIN QUERY PLAN SELECT created_at_ms FROM __sys_outbox INDEXED BY __sys_outbox_age ORDER BY created_at_ms LIMIT 1", "__sys_outbox_age"),
+                    ("EXPLAIN QUERY PLAN SELECT created_at_ms FROM __sys_outbox INDEXED BY __sys_outbox_lane_age WHERE lane='test' ORDER BY created_at_ms LIMIT 1", "__sys_outbox_lane_age"),
+                ] {
+                    let plan = c.prepare(query)?.query_map([],|row|row.get::<_,String>(3))?.collect::<rusqlite::Result<Vec<_>>>()?.join(" ");
+                    assert!(plan.contains(index) && !plan.contains("TEMP B-TREE"), "{plan}");
+                }
+                Ok::<_,anyhow::Error>(())
+            }).unwrap()
+        };
+        verify()?;
+        system_sql(SCOPE,"UPDATE __sys_outbox_lanes SET status='blocked',blocked_reason='Forbidden' WHERE lane=?",&[lane.clone().into()])?;
+        transaction_control(SCOPE, "start", false, "cells_tx_2").unwrap();
+        system_sql(
+            SCOPE,
+            "DELETE FROM __sys_outbox WHERE lane=? AND sequence=1",
+            &[lane.clone().into()],
+        )?;
+        system_sql(
+            SCOPE,
+            "UPDATE __sys_outbox_lanes SET blocked_reason='DestinationDeleted' WHERE lane=?",
+            &[lane.clone().into()],
+        )?;
+        verify()?;
+        let count = |reason: &str| -> anyhow::Result<i64> {
+            Ok(with(SCOPE, |c| {
+                c.query_row(
+                    "SELECT lanes FROM __sys_outbox_blocked WHERE reason=?1",
+                    [reason],
+                    |row| row.get(0),
+                )
+            })
+            .unwrap()?)
+        };
+        assert_eq!(count("Forbidden")?, 0);
+        assert_eq!(count("DestinationDeleted")?, 1);
+        transaction_control(SCOPE, "rollback", false, "cells_tx_2").unwrap();
+        verify()?;
+        assert_eq!(envelopes()?.len(), 3);
+        assert_eq!(count("Forbidden")?, 1);
+        assert_eq!(count("DestinationDeleted")?, 0);
+        close(SCOPE);
+        open_cell(&directory, 2)?;
+        verify()?;
+        assert_eq!(count("Forbidden")?, 1);
+        system_sql(
+            SCOPE,
+            "UPDATE __sys_outbox_lanes SET status='pending',blocked_reason=NULL WHERE lane=?",
+            &[lane.into()],
+        )?;
+        assert_eq!(count("Forbidden")?, 0);
+        close(SCOPE);
+        Ok(())
+    }
+
+    #[test]
+    fn activation_refuses_invalid_observation_accounting_and_missing_indices() -> anyhow::Result<()>
+    {
+        for mutation in [
+            "UPDATE __sys_outbox_lanes SET pending_rows=pending_rows+1",
+            "UPDATE __sys_outbox_blocked SET lanes=1 WHERE reason='Forbidden'",
+            "DROP INDEX __sys_outbox_age",
+            "DROP TRIGGER __sys_outbox_lane_blocked_update",
+        ] {
+            let cells = Cells::default();
+            let _installed = cells.install();
+            let directory = tempfile::tempdir()?;
+            let path = open_cell(&directory, 1)?;
+            transaction_control(SCOPE, "start", false, "cells_tx_1").unwrap();
+            send(&binding(), Limits::default())?;
+            transaction_control(SCOPE, "commit", false, "cells_tx_1").unwrap();
+            let original = serde_json::to_vec(&envelopes()?)?;
+            close(SCOPE);
+            Connection::open(&path)?.execute_batch(mutation)?;
+            let failure = open_cell(&directory, 2).unwrap_err();
+            assert_eq!(
+                failure.downcast_ref::<DeliveryError>().unwrap().code,
+                ErrorCode::UnsupportedProtocol,
+                "{mutation}"
+            );
+            let c = Connection::open(&path)?;
+            let bytes: Vec<u8> =
+                c.query_row("SELECT envelope FROM __sys_outbox", [], |row| row.get(0))?;
+            let retained: Envelope = serde_json::from_slice(&bytes)?;
+            assert_eq!(serde_json::to_vec(&vec![retained])?, original);
+            assert_eq!(
+                c.query_row("SELECT version FROM __sys_outbox_schema", [], |row| row
+                    .get::<_, i64>(0))?,
+                1
+            );
+        }
         Ok(())
     }
 }

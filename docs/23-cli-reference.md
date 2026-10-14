@@ -84,6 +84,14 @@ cellar outbox audit SCOPE --limit 100 --after POSITION --json [FLEET OPTIONS]
 
 `SCOPE` is the exact cell scope, including its class and ID. Inspection returns
 metadata and an optional continuation for `--cursor`; it excludes event bodies.
+Its `observation` includes sampled wall time, whole-source oldest pending event
+age, and blocked lane counts for a fixed seven-code permanent failure set. Lane
+metadata includes transactional pending rows/bytes, oldest pending age and typed
+`blocked_reason`. Blocked terminal seals count even without pending event rows.
+Age is null with no pending events, and wall-clock skew clamps negative age to
+zero. Every page repeats live source totals, including on continuation; integers
+use decimal strings. Retry clears the current blocked reason while preserving
+the prior human error diagnostic until successful delivery.
 Save the selected lane's `revision` object as `REVISION.json` before retrying.
 The guard includes source incarnation, dispatch generation, next sequence and
 settled watermark. Retry advances dispatch authority and commits wake work

@@ -71,6 +71,23 @@ history's age is unknown. These diagnostics are authorized owner observations,
 not series in the host metric export or fleet totals. Inventory uses a bounded
 primary-key page plus at most one indexed timestamp lookup per returned row.
 
+Owner-routed outbox inspection reports whole-source pending rows/bytes, sampled
+wall time, oldest pending event age, and blocked lane counts for seven fixed
+permanent failure codes. Lane pages include their own pending rows/bytes/age
+and typed `blocked_reason`. Counts include failed terminal seal delivery, which
+can remain blocked with no pending event payload and null event age. Transient
+errors retain retry behavior and do not enter the permanent reason counts.
+
+Source and lane accounting commits with event inserts/deletes and block/retry
+transitions. Age reads use explicit covering indexes with a one-row limit;
+per-lane inspection no longer counts or sums its pending event range. A null
+age means no pending event rows; wall-clock skew clamps negative age to zero.
+Every continuation repeats whole-source observations, so pages are live samples.
+Restore rejects inconsistent counters, missing accounting triggers or age
+indexes, and earlier layouts. The schema marker remains 1; recreate development
+state on this cutover. These source observations are not fleet totals or
+additional series in the host `/event-metrics` export.
+
 ## Proposed dashboard contract
 
 | View | Signals to collect | Operator decision |
