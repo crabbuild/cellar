@@ -215,3 +215,40 @@ qualify destination append/ack response loss,
 separate producer/destination/consumer hosts, follower or network/bucket faults,
 power loss, the complete cut-point matrix, or capacity soaks. Those release
 requirements remain in the [design](../../plans/002-outbox-streams-subscriptions.md).
+
+
+## Independent-process destination recovery
+
+[fleet_faults.py](fleet_faults.py) starts destination, producer and consumer as
+three independent loopback processes with separate node directories and one
+private SQLite-backed bucket. The opt-in `--fleet-fixture FILE` host mode captures
+bounded node/bucket/peer/advertisement/definition settings. It preserves the
+ordinary actor, handler, lease, replication and shutdown policies. Test-only
+source/effect diagnostics identify the serving process; normal routes retain
+the walkthrough behavior.
+
+A peer proxy forwards the original authenticated tunnel and exact framing. It
+holds a complete successful append reply through an independent command/source/
+destination audit, then the harness SIGKILLs the destination. Automatic append
+retries are blocked while the destination restarts; a saved recovery audit must
+prove that the accepted envelope still exists before retry is released. Retried
+request and acceptance bytes match exactly. A consumer with a stale pooled
+connection is audited before another processing attempt, and an installed lease
+keeps its original expiry. Inbox redelivery adds no repeated effect; the final
+checkpoint is 1. The replacement destination and both surviving processes must
+report complete preserving shutdown. Saved audits require the original process
+IDs, kill/restart/retry order, command acknowledgments, captured byte digests and
+final shutdown reports.
+
+```sh
+python3 examples/durable-streams/fleet_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --output /tmp/cellar-independent-stream-evidence
+python3 examples/durable-streams/fleet_faults.py \
+  --audit /tmp/cellar-independent-stream-evidence/ledger.jsonl
+```
+
+This proves one independent-process destination append/response-loss cut point
+on a single machine. It does not qualify separate physical hosts, network object
+stores, follower loss, destination ack SIGKILL, power loss or the complete failure
+and capacity matrix.

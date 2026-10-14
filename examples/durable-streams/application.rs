@@ -75,7 +75,17 @@ pub fn definition() -> Definition {
 /// Explicit local fixture controls; absent from the ordinary walkthrough.
 #[derive(Default)]
 pub struct FaultControls {
+    node: String,
     phase: Mutex<Option<Value>>,
+}
+
+impl FaultControls {
+    pub fn for_node(node: &str) -> Self {
+        Self {
+            node: node.into(),
+            ..Default::default()
+        }
+    }
 }
 
 fn payload_digest(event: &OrderConfirmed) -> Result<String> {
@@ -170,11 +180,11 @@ impl Cell for Order {
             }
             let db = context.storage()?;
             if request.method == "GET" {
-                return reply(
-                    &context,
-                    200,
-                    json!({"order":db.get_json("order")?,"receipt":db.get_json("command_receipt")?,"outbox":db.outbox(&OutboxOptions::default())?}),
-                );
+                let mut state = json!({"order":db.get_json("order")?,"receipt":db.get_json("command_receipt")?,"outbox":db.outbox(&OutboxOptions::default())?});
+                if let Some(controls) = &self.faults {
+                    state["host"] = json!(controls.node);
+                }
+                return reply(&context, 200, state);
             }
             if request.method != "POST" {
                 return reply(&context, 405, json!({"error":"use GET or POST"}));
@@ -272,14 +282,15 @@ impl Cell for Projection {
             let url = url::Url::parse(&request.url)?;
             let path = url.path().to_owned();
             let db = context.storage()?;
-            if request.method == "GET"
-                && path == "/__test/projection-receipts"
-                && self.faults.is_some()
+            if let Some(controls) = self
+                .faults
+                .as_ref()
+                .filter(|_| request.method == "GET" && path == "/__test/projection-receipts")
             {
                 return reply(
                     &context,
                     200,
-                    json!({"projection":projection(&db)?,"receipts":db.get_json("effect_receipts")?.unwrap_or_else(||json!({}))}),
+                    json!({"projection":projection(&db)?,"receipts":db.get_json("effect_receipts")?.unwrap_or_else(||json!({})), "host":controls.node}),
                 );
             }
             let hold = path == "/projection/hold" && self.faults.is_some();

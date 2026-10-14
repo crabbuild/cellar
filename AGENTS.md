@@ -525,6 +525,15 @@ Copy the killed SQLite family and audit zero attempts before restarting, then
 audit recovery before replay. Audit-only mode checks saved database/WAL hashes,
 envelope identity and replay ordering; SHM read marks are mutable bookkeeping.
 Keep the original handler/gate deadlines and complete final shutdown assertions.
+`examples/durable-streams/fleet_faults.py` uses opt-in bounded loopback fleet
+configuration to start separate destination/producer/consumer processes sharing
+a private SQLite bucket. The proxy holds a proven append reply through audit,
+SIGKILLs the destination and blocks automatic retries until recovered acceptance
+is audited. Consumer transport ambiguity is audited before retry and preserves
+original lease expiry. Saved evidence validates exact peer byte digests, process
+roles/IDs and complete surviving/replacement shutdown. This is separate-process
+single-machine evidence, not physical-host/follower/power/capacity qualification.
+
 
 ## Change discipline
 

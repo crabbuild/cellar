@@ -1511,6 +1511,16 @@ local network response-loss evidence; it does not satisfy separate physical
 hosts/process loss, persistent measuring-ledger or the remaining follower/power and cut-point
 qualification.
 
+The separate `fleet_faults.py` fixture extends that evidence to three independent
+loopback processes with one private SQLite-backed bucket. It holds a proven
+append reply through audit, kills the destination, blocks automatic retry and
+audits recovered acceptance before release. Exact append/acceptance digests,
+process identities, inbox effects/checkpoint and complete final shutdown are
+rechecked from the saved measuring ledger. Consumer transport failures are
+independently audited before another attempt, retaining original lease expiry.
+This covers one process-loss cut point; separate physical hosts, network stores,
+follower/ack/power loss and the complete matrix remain required.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

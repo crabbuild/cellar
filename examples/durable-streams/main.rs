@@ -8,7 +8,7 @@ use anyhow::{ensure, Result};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
 use cellar::sdk::*;
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 fn graph(faults: bool) -> DeploymentGraph {
     let mut definition = application::definition();
@@ -55,13 +55,47 @@ fn graph(faults: bool) -> DeploymentGraph {
     })
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FleetFixture {
+    node: String,
+    bucket: PathBuf,
+    peer: SocketAddr,
+    advertise: SocketAddr,
+    declare: bool,
+}
+
 fn main() -> Result<()> {
     let args = std::env::args().skip(1).collect::<Vec<_>>();
-    ensure!(
-        args.len() <= 3 && args.get(2).is_none_or(|arg| arg == "--fault-harness"),
-        "usage: cellar-example-streams [DATA] [PORT] [--fault-harness]"
-    );
+    let fixture =
+        if args.get(2).is_some_and(|arg| arg == "--fleet-fixture") {
+            ensure!(
+                args.len() == 4,
+                "--fleet-fixture requires a configuration file"
+            );
+            let path = PathBuf::from(&args[3]);
+            ensure!(
+                std::fs::metadata(&path)?.len() <= 4096,
+                "fleet fixture configuration exceeds limit"
+            );
+            let fixture: FleetFixture = serde_json::from_slice(&std::fs::read(path)?)?;
+            ensure!(
+                !fixture.node.is_empty()
+                    && fixture.node.len() <= 128
+                    && fixture.peer.ip().is_loopback()
+                    && fixture.advertise.ip().is_loopback(),
+                "fleet fixtures require a bounded node identity and loopback peers"
+            );
+            Some(fixture)
+        } else {
+            ensure!(args.len()<=3 && args.get(2).is_none_or(|arg|arg=="--fault-harness"),
+            "usage: cellar-example-streams [DATA] [PORT] [--fault-harness | --fleet-fixture FILE]");
+            None
+        };
     let faults = args.get(2).is_some();
+    let node_name = fixture
+        .as_ref()
+        .map_or(application::SCRIPT, |fixture| fixture.node.as_str());
     let data = PathBuf::from(
         std::env::args()
             .nth(1)
@@ -85,18 +119,30 @@ fn main() -> Result<()> {
     host.block_on(async {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
         let public_address = listener.local_addr()?;
-        let bucket = cellar::bucket::Bucket::open_dev(&data.join("fleet.sqlite"))?;
+        let bucket_path = fixture
+            .as_ref()
+            .map(|fixture| fixture.bucket.clone())
+            .unwrap_or_else(|| data.join("fleet.sqlite"));
+        let bucket = cellar::bucket::Bucket::open_dev(&bucket_path)?;
         let bootstrap = ExecutionDomain::new(host.handle().clone());
         let key = bootstrap
             .run(cellar::peer_auth::load_or_create(&bucket))
             .await??;
         bootstrap.shutdown().await;
-        let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let peer = fixture
+            .as_ref()
+            .map(|fixture| fixture.peer)
+            .unwrap_or_else(|| "127.0.0.1:0".parse().unwrap());
+        let internal_listener = tokio::net::TcpListener::bind(peer).await?;
         let signer = Arc::new(PeerProbeSigner::generate());
         let mut config = NodeConfig::new(
             ActorIdentity {
-                node: application::SCRIPT.into(),
-                advertise: internal_listener.local_addr()?.to_string(),
+                node: node_name.into(),
+                advertise: fixture
+                    .as_ref()
+                    .map(|fixture| fixture.advertise)
+                    .unwrap_or(internal_listener.local_addr()?)
+                    .to_string(),
                 region: "local".into(),
             },
             ActorOptions {
@@ -132,7 +178,7 @@ fn main() -> Result<()> {
             .no_proxy()
             .connect_timeout(Duration::from_secs(5))
             .build()?;
-        let peer_auth = Arc::new(PeerAuth::new(key, application::SCRIPT)?);
+        let peer_auth = Arc::new(PeerAuth::new(key, node_name)?);
         let fleet = NodeFleet {
             replica_storage: ReplicaStorage::new(
                 bucket.store.clone(),
@@ -170,12 +216,16 @@ fn main() -> Result<()> {
             metrics: None,
         };
         let applications = application::applications(
-            faults.then(|| Arc::new(application::FaultControls::default())),
+            faults.then(|| Arc::new(application::FaultControls::for_node(node_name))),
         )?;
         #[cfg(unix)]
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-        let node = Node::start(config, services, graph(faults), applications).await?;
+        let mut deployment = graph(faults);
+        if fixture.as_ref().is_some_and(|fixture| !fixture.declare) {
+            deployment.primary.event_streams.clear();
+        }
+        let node = Node::start(config, services, deployment, applications).await?;
         cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
             "{}",
             serde_json::json!({"ready":format!("http://{public_address}")})

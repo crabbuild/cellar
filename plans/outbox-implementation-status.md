@@ -1564,3 +1564,59 @@ with saved-ledger audits passing. Private evidence is retained at
 `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-named-binding-evidence-1baheykw`
 with a manifest identifying the item-order-only correction after image qualification. Wider name lookup/revocation/adoption fault races and the existing full
 process/follower/ownership/capacity release matrix remain unqualified.
+
+
+## Independent-process destination append loss and recovery
+
+The standalone stream executable has an opt-in bounded `--fleet-fixture FILE`
+mode with unique node identity, shared private bucket path, loopback peer/advertise
+addresses and explicit resource-declaration role. Producer, destination and
+consumer run in separate processes/directories. Their factory-owned diagnostics
+prove where source and effect state are actually hosted. Ordinary configuration,
+all owned markers (1), original operation/handler/lease policies and complete
+shutdown assertions remain intact.
+
+The new `fleet_faults.py` forwards the real authenticated HTTP/1 tunnel and framing,
+then holds a complete successful append reply. Its fsynced measuring ledger records
+the original command, acknowledgment, payload/envelope identity and raw peer-byte
+digests. Before observed destination SIGKILL, it audits one pending source row and
+exactly one proven destination acceptance. Automatic append attempts cannot reach
+the restarted destination until a separate recovery audit verifies that acceptance
+survived. Retry sends identical request bytes and returns identical acceptance;
+source settlement and consumer inbox redelivery finish with one effect/checkpoint.
+Original/replacement process IDs, actual kill exit, stage order and each complete
+final shutdown are required by saved-evidence audit.
+
+The first run reached successful destination recovery/settlement but its first
+consumer request hit a stale pooled RPC connection. The harness now audits effects
+and checkpoint before repeating an ambiguous consumer operation; if a lease was
+installed, it waits for that original expiry. Expected connection refusal is
+recorded only during the deliberate outage/teardown. No protocol deadlines or
+proof gates were relaxed. A subsequent run passes with one interruption audit.
+Ten new oracle guards reject mutated original commands, lost proven acceptance,
+retry-before-audit, wrong/foreign process identity, changed captured bytes,
+missing reply loss, premature recovery/shutdown, duplicate effects and incomplete
+final shutdown. All 26 existing/new Python oracle cases pass. Final diagnostic
+pattern matching replaces an unnecessary unwrap; ordinary routes retain their
+original response fields outside fault mode. Final Clippy-D passes for workspace/
+all-target/all-feature, 11 doctests pass with one existing ignored case, formatting
+checks 426 Rust files, docs validate 35/6/370, dependencies retain 401 packages
+without a JavaScript engine and whitespace checks pass. The SDK production core
+is unchanged from the preceding 394-case workspace gate; this batch qualifies the
+fixture and measuring client directly rather than claiming another workspace run.
+
+On archived executable SHA-256
+`9fe1d1bb1dff2691f507e366440123bed4b2dc8b3fba1da6bdc51113ed279a76`,
+the fresh independent-process case passes with five saved audits, three initial
+processes, one replacement destination, one observed SIGKILL/reply drop and one
+identical append retry. Ordinary smoke, both earlier process-fault drivers and
+all three audit-only commands pass on the same image. Private evidence, binary,
+ledger hashes, logs, source patch and scope manifest are retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-independent-stream-parent-r5j0ub8t`.
+The final surviving producer/consumer and replacement destination have distinct
+complete preserving-shutdown reports.
+
+This is independent-process evidence on one machine using a persistent SQLite
+bucket. It is not separate physical hosts, network object storage, follower loss,
+destination acknowledgment SIGKILL, power loss, source cleanup loss or complete
+capacity/release qualification.
