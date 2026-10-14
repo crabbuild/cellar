@@ -208,3 +208,45 @@ pub(super) async fn handle(
 fn reply(status: StatusCode, value: serde_json::Value) -> HttpReply {
     peer_response(response(status, value.to_string()))
 }
+
+/// Called only after the runtime route authenticates the complete path/body.
+/// Reuse the normal cancellable RPC driver; fetch would arm a legacy cron owner.
+pub(super) async fn cron_history(app: AppHandle, scope: String, body: Vec<u8>) -> HttpReply {
+    let result = async {
+        anyhow::ensure!(body.len() <= 4096, "cron history query exceeds 4 KiB");
+        let query: crate::application::cron::HistoryQuery = serde_json::from_slice(&body)?;
+        query.validate()?;
+        let (reply, receive) = oneshot::channel();
+        let (cancel_tx, cancel) = oneshot::channel();
+        let _hangup = HangUp(Some(cancel_tx));
+        dispatch_rpc_call(
+            app,
+            RpcCallReq {
+                request_id: Some(crate::engine_api::next_request_id()),
+                cancel: Some(cancel),
+                scope,
+                name: None,
+                method: "__cronHistory".into(),
+                args: crate::engine_api::RpcData::Json(String::from_utf8(body)?),
+                reply,
+            },
+        )
+        .await;
+        let value = receive.await.context("cron history RPC dropped")??;
+        let crate::engine_api::RpcData::Json(value) = value else {
+            anyhow::bail!("cron history RPC did not return JSON");
+        };
+        Ok::<_, anyhow::Error>(serde_json::from_str::<serde_json::Value>(&value)?)
+    }
+    .await;
+    match result {
+        Ok(value) => response(
+            StatusCode::OK,
+            serde_json::json!({"result":value}).to_string(),
+        ),
+        Err(error) => response(
+            StatusCode::BAD_REQUEST,
+            serde_json::json!({"error":error.to_string()}).to_string(),
+        ),
+    }
+}

@@ -567,3 +567,14 @@ both themes, mobile controls and overflow down to 320px, navigation dismissal,
 keyboard focus, and resource filtering. Desktop, mobile, SQL and workflow screenshots
 were inspected in both themes as applicable. These are Chromium fixture checks;
 no physical-device or cross-browser qualification is implied.
+
+
+## SQL/KV workbench follow-up — 2026-10-14
+
+The [SQL and KV workspace implementation](004-sql-kv-workspaces.md) adds query
+tabs, CodeMirror completion, session history, query plans and a resizable result
+explorer. KV uses loaded drafts, exact expiry policies and owner-side revision
+preconditions across SDK and operator writers. This supersedes the original
+last-write-wins-only console editing description; unconditional application and
+CLI writes keep their existing semantics. See that follow-up for its independent
+verification record and remaining SQL extensions.

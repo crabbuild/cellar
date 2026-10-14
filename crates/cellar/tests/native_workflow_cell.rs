@@ -990,6 +990,7 @@ async fn run() -> Result<()> {
         json!({"operation":"resume"}),
         json!({"operation":"send_event","event_type":"approval","payload":{"approved":true}}),
         json!({"operation":"history","cursor":0}),
+        json!({"operation":"history_search","cursor":0,"query":"workflow"}),
         json!({"operation":"terminate","rollback":false}),
         json!({"operation":"restart"}),
     ] {
@@ -1108,6 +1109,28 @@ async fn run() -> Result<()> {
         call(&runtime, "status", &scheduled_id).await?["output"],
         json!({"cron":"* * * * *","scheduled_ms":occurrence})
     );
+    let cron_reply = runtime
+        .rpc(
+            cron_scope.clone(),
+            None,
+            "__cronHistory".into(),
+            RpcData::Json("{}".into()),
+            Some(cellar::engine_api::next_request_id()),
+        )
+        .await?;
+    let RpcData::Json(cron_body) = cron_reply.data else {
+        anyhow::bail!("expected JSON cron history");
+    };
+    let cron_journal: Value = json!({"result":serde_json::from_str::<Value>(&cron_body)?});
+    assert_eq!(
+        cron_journal["result"]["items"][0]["status"],
+        "workflow_accepted"
+    );
+    assert_eq!(
+        cron_journal["result"]["items"][0]["workflow_instance"],
+        scheduled_id
+    );
+    assert_eq!(cron_journal["result"]["items"][0]["workflow_binding"], "WF");
     runtime.swap_out_cell(&cron_scope, 1).await?;
     call(&runtime, "batch", "unused").await?;
     call(&runtime, "create", "rollback").await?;
@@ -1183,6 +1206,29 @@ async fn run() -> Result<()> {
         .iter()
         .any(|event| event["input"] == "[REDACTED]"));
 
+    for (query, expected) in [
+        ("input-secret", false),
+        ("[REDACTED]", true),
+        ("absent-search-term", false),
+    ] {
+        let reply=runtime.fetch_cell(scope("sensitive"),None,console_request(json!({"binding":"WF","instance":"sensitive","command":{"operation":"history_search","cursor":0,"query":query}})),None).await?;
+        assert_eq!(reply.status, 200);
+        let result: Value = serde_json::from_slice(&reply.body)?;
+        assert_eq!(
+            !result["result"]["events"].as_array().unwrap().is_empty(),
+            expected
+        );
+        assert!(result["result"]["scanned"].as_u64().unwrap() > 0);
+        assert_eq!(result["result"]["at_end"], true);
+        assert!(!String::from_utf8_lossy(&reply.body).contains("input-secret"));
+    }
+    assert!(
+        cellar::application::workflow::OperatorAction::HistorySearch {
+            cursor: 0,
+            query: "x".into()
+        }
+        .is_read()
+    );
     call(&runtime, "create", "rollback-held").await?;
     fire(&runtime, "rollback-held", 120).await?;
     let driving = runtime.clone();

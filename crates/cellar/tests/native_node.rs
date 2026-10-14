@@ -1678,7 +1678,8 @@ async fn management_resource_writes_survive_forced_owner_closure() -> Result<()>
 }
 
 async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
-    use cellar::management::{FleetClient, QueueAction};
+    use base64::Engine;
+    use cellar::management::{EditExpiration, FleetClient, KvEdit, QueueAction, RevisionCondition};
     use serde_json::json;
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -1747,13 +1748,32 @@ async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
     ready(&a).await?;
     ready(&b).await?;
     let client = FleetClient::new(bucket, false);
-    let owner=management.run(async {
-        client.sql("dashboard-db","CREATE TABLE receipts(id TEXT PRIMARY KEY); INSERT INTO receipts VALUES ('ack-before-handoff')",false).await?;
-        client.kv_put("dashboard-kv","receipt",b"ack-before-handoff".to_vec(),None,None).await?;
-        let paused=client.queue("dashboard-queue",QueueAction::Pause,10).await?;
-        ensure!(paused["paused"]==true,"queue pause was not acknowledged");
-        client.cell(&cellar::engine_api::sql_cell_scope("dashboard-db")).await?.owner.context("SQL owner absent")
-    }).await??;
+    let (owner, revision) = management
+        .run(async {
+            client.sql(
+                "dashboard-db",
+                "CREATE TABLE receipts(id TEXT PRIMARY KEY); INSERT INTO receipts VALUES ('ack-before-handoff')",
+                false,
+            ).await?;
+            client.kv_put(
+                "dashboard-kv",
+                "receipt",
+                b"ack-before-handoff".to_vec(),
+                None,
+                None,
+            ).await?;
+            let paused = client.queue("dashboard-queue", QueueAction::Pause, 10).await?;
+            ensure!(paused["paused"] == true, "queue pause was not acknowledged");
+            let revision = client.kv_inspect("dashboard-kv", "receipt").await?["revision"]
+                .as_str().context("KV revision absent")?.to_string();
+            let scope = cellar::engine_api::kv_cell_scope(
+                "dashboard-kv",
+                cellar_logic::kv::shard_of("receipt", cellar_logic::kv::SHARDS),
+            );
+            let owner = client.cell(&scope).await?.owner.context("KV owner absent")?;
+            Ok::<_, anyhow::Error>((owner, revision))
+        })
+        .await??;
     let (previous, remaining) = if owner == "dashboard-a" {
         (a, b)
     } else {
@@ -1780,11 +1800,39 @@ async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
                 result["results"][0]["rows"] == json!([["ack-before-handoff"]]),
                 "acknowledged SQL receipt lost: {result}"
             );
+            let schema = client.sql(
+                "dashboard-db",
+                "SELECT m.name,p.name,p.type,p.pk FROM (SELECT name FROM sqlite_schema WHERE type IN ('table','view') AND name NOT GLOB '__sys_*' AND name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 100) AS m JOIN pragma_table_info(m.name) AS p ORDER BY m.name,p.cid LIMIT 1000",
+                true,
+            ).await?;
+            ensure!(
+                schema["results"][0]["rows"][0][0] == "receipts",
+                "workbench schema query failed: {schema}"
+            );
+            let explain = client.sql(
+                "dashboard-db", "EXPLAIN QUERY PLAN SELECT * FROM receipts", true,
+            ).await?;
+            ensure!(
+                explain["results"][0]["columns"] == json!(["id", "parent", "notused", "detail"]),
+                "query plan failed: {explain}"
+            );
             let value = client.kv_get("dashboard-kv", "receipt").await?;
             ensure!(
                 value["value"] == json!(b"ack-before-handoff".to_vec()),
                 "acknowledged KV value lost: {value}"
             );
+            ensure!(value["revision"] == revision, "handoff changed the inspected revision");
+            let edit = KvEdit {
+                value_base64: base64::engine::general_purpose::STANDARD.encode(b"ack-after-handoff"),
+                tag: "bytes".into(),
+                metadata: Some("null".into()),
+                expiration: EditExpiration::Preserve,
+                condition: RevisionCondition { revision: Some(revision.clone()) },
+            };
+            let applied = client.kv_edit("dashboard-kv", "receipt", edit.clone()).await?;
+            ensure!(applied["ok"] == true, "successor rejected valid revision");
+            let stale = client.kv_edit("dashboard-kv", "receipt", edit).await?;
+            ensure!(stale["conflict"] == true, "successor accepted stale revision");
             ensure!(
                 client
                     .queue("dashboard-queue", QueueAction::Info, 10)
@@ -1806,7 +1854,17 @@ async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
                 result["results"][0]["rows"] == json!([[2]]),
                 "successor did not accept SQL write"
             );
-            client.kv_delete("dashboard-kv", "receipt").await?;
+            let current = client.kv_inspect("dashboard-kv", "receipt").await?;
+            let stale = client.kv_delete_if(
+                "dashboard-kv", "receipt",
+                RevisionCondition { revision: Some(revision.clone()) },
+            ).await?;
+            ensure!(stale["conflict"] == true, "stale delete accepted");
+            let deleted = client.kv_delete_if(
+                "dashboard-kv", "receipt",
+                RevisionCondition { revision: current["revision"].as_str().map(str::to_string) },
+            ).await?;
+            ensure!(deleted["ok"] == true, "conditional delete failed");
             client
                 .queue("dashboard-queue", QueueAction::Resume, 10)
                 .await?;
@@ -1863,9 +1921,30 @@ async fn management_crons_report_pending_until_embedded_host_adopts() -> Result<
     initial.primary.crons = manifest.crons;
     let mut node = Node::start(config, services, initial, applications("cron", None)?).await?;
     ready(&node).await?;
+    let anonymous = reqwest::Client::new()
+        .post(format!(
+            "http://{}/do/.cron:embedded-node",
+            node.info().internal_address
+        ))
+        .json(&json!({"op":"history","query":{}}))
+        .send()
+        .await?;
+    ensure!(
+        anonymous.status() == reqwest::StatusCode::FORBIDDEN,
+        "anonymous cron inspection was not refused"
+    );
     let client = FleetClient::new(bucket.clone(), false);
     let saved = management
         .run(async {
+            let empty = client.cron_history("embedded-node", None, 50, None).await?;
+            ensure!(
+                empty["items"] == json!([]),
+                "future schedule fabricated execution history"
+            );
+            ensure!(
+                empty["active_alarm"].is_number(),
+                "inspection lost the active schedule observation"
+            );
             let before = client.cron_configuration("embedded-node").await?;
             let before_nodes = client
                 .cron_propagation("embedded-node", PageRequest::default())
@@ -1908,6 +1987,15 @@ async fn management_crons_report_pending_until_embedded_host_adopts() -> Result<
             ensure!(
                 adopted.items[0].observed_revision == saved.revision,
                 "node reported the wrong cron revision"
+            );
+            let empty = client.cron_history("embedded-node", None, 50, None).await?;
+            ensure!(
+                empty["items"] == json!([]),
+                "adoption fabricated a completed execution"
+            );
+            ensure!(
+                cellar::deploy::is_reserved_scope(".cron:embedded-node"),
+                "cron inspection exposed an anonymous cell route"
             );
             Ok::<_, anyhow::Error>(())
         })
@@ -2324,5 +2412,101 @@ async fn remote_workflow_deletion_preserves_gated_handler_completion() -> Result
         );
     }
     drop(cores);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn signed_cron_history_forwards_without_arming_and_refuses_other_protocols() -> Result<()> {
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let management = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let bucket = management
+        .run(async {
+            let bucket = Bucket::open_dev(&directory.path().join("history-fleet.sqlite"))?;
+            bucket
+                .put(
+                    "fleet/peer-auth.json",
+                    json!({"version":1,"key":"0b".repeat(32)})
+                        .to_string()
+                        .into_bytes(),
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(bucket)
+        })
+        .await??;
+    let first_core = Executor::new("cron-history-owner")?;
+    let second_core = Executor::new("cron-history-entrance")?;
+    let (config, services) = inputs(
+        "history-owner",
+        &directory.path().join("owner"),
+        &first_core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(), applications("history", None)?).await?;
+    ready(&owner).await?;
+    let (config, services) = inputs(
+        "history-entrance",
+        &directory.path().join("entrance"),
+        &second_core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let entrance = Node::start(config, services, graph(), applications("history", None)?).await?;
+    ready(&entrance).await?;
+    let auth = cellar::peer_auth::PeerAuth::new([0x0b; 32], "dashboard")?;
+    let http = client()?;
+    for node in [&owner, &entrance] {
+        let path = "/runtime/.cron:embedded-node?inspection=cron_history_v1";
+        let body = b"{}".to_vec();
+        let response = auth
+            .sign(
+                http.post(format!("http://{}{path}", node.info().internal_address))
+                    .body(body.clone()),
+                "POST",
+                path,
+                &body,
+                &node.info().node,
+            )?
+            .send()
+            .await?;
+        let status = response.status();
+        let value: serde_json::Value = response.json().await?;
+        ensure!(
+            status == reqwest::StatusCode::OK,
+            "cron history forwarding failed: {value}"
+        );
+        ensure!(
+            value["result"]["items"] == json!([]) && value["result"]["active_alarm"].is_null(),
+            "history armed an inactive schedule: {value}"
+        );
+    }
+    for query in [
+        "inspection=unsupported",
+        "inspection=cron_history_v1&name=other",
+    ] {
+        let path = format!("/runtime/.cron:embedded-node?{query}");
+        let body = b"{}".to_vec();
+        let response = auth
+            .sign(
+                http.post(format!("http://{}{path}", entrance.info().internal_address))
+                    .body(body.clone()),
+                "POST",
+                &path,
+                &body,
+                &entrance.info().node,
+            )?
+            .send()
+            .await?;
+        ensure!(
+            response.status() == reqwest::StatusCode::BAD_REQUEST,
+            "invalid history protocol was admitted"
+        );
+    }
+    stopped(owner).await?;
+    stopped(entrance).await?;
+    management.shutdown().await;
     Ok(())
 }

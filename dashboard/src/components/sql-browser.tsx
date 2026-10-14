@@ -1,18 +1,17 @@
 import { useState } from "react"
 import { useMutation } from "@tanstack/react-query"
-import { Database, History, Table2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+  ChevronDown,
+  Database,
+  History,
+  KeyRound,
+  RefreshCw,
+  Table2,
+} from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Feedback } from "@/components/console-ui"
-import { SqlResults } from "@/components/sql-results"
 import {
   Table,
   TableBody,
@@ -21,159 +20,179 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { fleetPath, request } from "@/lib/api"
+import { resourceRequest, type ResourceTarget } from "@/lib/resource"
 import { useSession } from "@/lib/session"
 
+export type SchemaObject = {
+  name: string
+  kind: string
+  ddl: string
+  columns: { name: string; type: string; primary: boolean }[]
+}
 type HistoryPage = {
   items: { id: number; name: string; applied_at: string }[]
   next_cursor: number | null
   table: string
   exists: boolean
 }
-type Schema = { name: string; kind: string; ddl: string }[]
+
 export function SqlBrowser({
-  fleet,
-  application,
-  binding,
+  target,
+  objects,
+  pending,
+  error,
+  refresh,
+  inspect,
+  insert,
+  canRead,
 }: {
-  fleet: string
-  application: string
-  binding: string
+  target: ResourceTarget
+  objects: SchemaObject[]
+  pending: boolean
+  error: Error | null
+  refresh: () => void
+  inspect: (name: string, query: string) => void
+  insert: (identifier: string) => void
+  canRead: boolean
 }) {
-  const { token, session } = useSession()
-  const canRead = session.grants[fleet]?.includes("data_read") ?? false
-  const [schema, setSchema] = useState<Schema>([])
+  const { token } = useSession()
+  const [search, setSearch] = useState("")
   const [table, setTable] = useState("__sys_sql_migrations")
   const [history, setHistory] = useState<HistoryPage | null>(null)
-  const [detail, setDetail] = useState<unknown>(null)
   const action = useMutation({
-    mutationFn: async ({
-      command,
-      display,
-    }: {
-      command: Record<string, unknown>
-      display: "schema" | "history" | "detail"
-    }) => ({
-      display,
-      reply: await request<{ result: unknown }>(
-        token,
-        fleetPath(fleet, "/resources/action"),
-        {
-          method: "POST",
-          body: JSON.stringify({
-            application,
-            binding,
-            operation_id: crypto.randomUUID(),
-            command,
-          }),
-        }
-      ),
-    }),
-    onSuccess: ({ display, reply }) => {
-      if (display === "history") setHistory(reply.result as HistoryPage)
-      else if (display === "detail") setDetail(reply.result)
-      else {
-        const result = reply.result as { results?: { rows: unknown[][] }[] }
-        setSchema(
-          (result.results?.[0]?.rows ?? []).map(([name, kind, ddl]) => ({
-            name: String(name),
-            kind: String(kind),
-            ddl: ddl == null ? "" : String(ddl),
-          }))
-        )
-      }
-    },
+    mutationFn: async (command: Record<string, unknown>) =>
+      (await resourceRequest(token, target, command)).result as HistoryPage,
+    onSuccess: setHistory,
+    retry: false,
   })
-  const inspect = (sql: string, display: "schema" | "detail") =>
-    action.mutate({ command: { action: "sql", sql, readonly: true }, display })
+  const quoted = (name: string) => `"${name.replaceAll('"', '""')}"`
+  const filtered = objects.filter((object) =>
+    object.name.toLocaleLowerCase().includes(search.toLocaleLowerCase())
+  )
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Database explorer</CardTitle>
-        <CardDescription>
-          Inspect up to 100 schema objects and browse applied migrations without
-          modifying the database.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-5">
+    <aside className="workbench-sidebar" aria-label="Database explorer">
+      <div className="workbench-sidebar-heading">
+        <h2>
+          <Database />
+          Database explorer
+        </h2>
         <Button
-          variant="outline"
-          disabled={!canRead || action.isPending}
-          onClick={() =>
-            inspect(
-              "SELECT name, type, sql FROM sqlite_schema WHERE name NOT GLOB '__sys_*' AND name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 100",
-              "schema"
-            )
-          }
+          variant="ghost"
+          size="icon-sm"
+          aria-label="Browse schema"
+          title="Refresh schema"
+          disabled={!canRead || pending}
+          onClick={refresh}
         >
-          <Database data-icon="inline-start" />
-          Browse schema
+          <RefreshCw />
         </Button>
-        <Feedback loading={action.isPending} error={action.error}>
-          {schema.length ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead>Definition</TableHead>
-                  <TableHead>Inspect</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {schema.map((item) => (
-                  <TableRow key={item.name}>
-                    <TableCell className="font-mono">{item.name}</TableCell>
-                    <TableCell>{item.kind}</TableCell>
-                    <TableCell>
-                      <pre className="max-w-lg text-xs break-all whitespace-pre-wrap">
-                        {item.ddl}
-                      </pre>
-                    </TableCell>
-                    <TableCell>
-                      {["table", "view"].includes(item.kind) ? (
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              inspect(
-                                `PRAGMA table_info("${item.name.replaceAll('"', '""')}")`,
-                                "detail"
-                              )
-                            }
-                          >
-                            Columns
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() =>
-                              inspect(
-                                `SELECT * FROM "${item.name.replaceAll('"', '""')}" LIMIT 100`,
-                                "detail"
-                              )
-                            }
-                          >
-                            <Table2 />
-                            Rows
-                          </Button>
-                        </div>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
+      </div>
+      <Field>
+        <FieldLabel htmlFor="schema-filter" className="sr-only">
+          Find schema object
+        </FieldLabel>
+        <Input
+          id="schema-filter"
+          placeholder="Find a table or view…"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </Field>
+      <div className="schema-tree">
+        <Feedback loading={pending && objects.length === 0} error={error}>
+          {filtered.map((object) => (
+            <details key={object.name} className="schema-object">
+              <summary>
+                <ChevronDown />
+                <Table2 />
+                <span>{object.name}</span>
+                <small>{object.kind}</small>
+              </summary>
+              <div className="schema-object-actions">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canRead}
+                  onClick={() =>
+                    inspect(
+                      object.name,
+                      `SELECT * FROM ${quoted(object.name)} LIMIT 100;`
+                    )
+                  }
+                >
+                  Rows
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!canRead}
+                  onClick={() =>
+                    inspect(
+                      `${object.name} columns`,
+                      `PRAGMA table_info(${quoted(object.name)});`
+                    )
+                  }
+                >
+                  Columns
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => insert(quoted(object.name))}
+                >
+                  Insert name
+                </Button>
+              </div>
+              <ul
+                className="schema-columns"
+                aria-label={`${object.name} columns`}
+              >
+                {object.columns.map((column) => (
+                  <li key={column.name}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        insert(`${quoted(object.name)}.${quoted(column.name)}`)
+                      }
+                      title="Insert column into query"
+                    >
+                      {column.primary ? (
+                        <KeyRound aria-hidden />
+                      ) : (
+                        <span className="schema-column-dot" aria-hidden />
+                      )}
+                      <span>{column.name}</span>
+                      <small>{column.type}</small>
+                    </button>
+                  </li>
                 ))}
-              </TableBody>
-            </Table>
-          ) : action.isSuccess && action.data.display === "schema" ? (
-            <p className="text-sm text-muted-foreground">
-              No application schema objects found.
+              </ul>
+              <details className="schema-definition">
+                <summary>Definition</summary>
+                <pre>{object.ddl || "No definition returned."}</pre>
+              </details>
+            </details>
+          ))}
+          {!pending && !filtered.length ? (
+            <p className="workbench-empty">
+              {search
+                ? "No loaded schema objects match."
+                : "No application tables or views found."}
             </p>
           ) : null}
-          {detail ? <SqlResults value={detail} /> : null}
         </Feedback>
-        <div className="flex flex-wrap items-end gap-3">
-          <Field className="max-w-sm">
+      </div>
+      <p className="workspace-caption">
+        Up to 100 schema objects and 1,000 columns. Framework tables are
+        protected.
+      </p>
+      <details className="schema-migrations">
+        <summary>
+          <History />
+          Migration history
+        </summary>
+        <div className="flex flex-col gap-3">
+          <Field>
             <FieldLabel htmlFor="migration-table">
               Migration history table
             </FieldLabel>
@@ -185,65 +204,60 @@ export function SqlBrowser({
           </Field>
           <Button
             variant="outline"
+            size="sm"
             disabled={!canRead || action.isPending}
             onClick={() =>
-              action.mutate({
-                command: { action: "sql_migrations", table, after: 0 },
-                display: "history",
-              })
+              action.mutate({ action: "sql_migrations", table, after: 0 })
             }
           >
-            <History data-icon="inline-start" />
             Load migration history
           </Button>
-        </div>
-        {history ? (
-          <div className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              {history.table} ·{" "}
-              {history.exists
-                ? `${history.items.length} migrations on this page`
-                : "No history table exists"}
-            </p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>ID</TableHead>
-                  <TableHead>Migration</TableHead>
-                  <TableHead>Applied at · UTC</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {history.items.map((item) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{item.id}</TableCell>
-                    <TableCell>{item.name}</TableCell>
-                    <TableCell>{item.applied_at}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            {history.next_cursor !== null ? (
-              <Button
-                variant="outline"
-                disabled={action.isPending}
-                onClick={() =>
-                  action.mutate({
-                    command: {
-                      action: "sql_migrations",
-                      table: history.table,
-                      after: history.next_cursor,
-                    },
-                    display: "history",
-                  })
-                }
-              >
-                Next migrations
-              </Button>
+          <Feedback error={action.error}>
+            {history ? (
+              <>
+                <p className="workspace-caption">
+                  {history.table} ·{" "}
+                  {history.exists
+                    ? `${history.items.length} migrations on this page`
+                    : "No history table exists"}
+                </p>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Migration</TableHead>
+                      <TableHead>Applied · UTC</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {history.items.map((item) => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>{item.applied_at}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                {history.next_cursor !== null ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={action.isPending}
+                    onClick={() =>
+                      action.mutate({
+                        action: "sql_migrations",
+                        table: history.table,
+                        after: history.next_cursor,
+                      })
+                    }
+                  >
+                    Next migrations
+                  </Button>
+                ) : null}
+              </>
             ) : null}
-          </div>
-        ) : null}
-      </CardContent>
-    </Card>
+          </Feedback>
+        </div>
+      </details>
+    </aside>
   )
 }

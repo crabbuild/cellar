@@ -1,3 +1,4 @@
+import { useRef, useState } from "react"
 import { Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,6 +11,10 @@ import {
 } from "@/components/ui/table"
 import { JsonView, Status } from "@/components/console-ui"
 import { bytes, date } from "@/lib/api"
+import {
+  QueueMessagePanel,
+  type QueueMessage,
+} from "@/components/queue-message"
 
 type RecordValue = Record<string, unknown>
 function object(value: unknown): RecordValue {
@@ -17,14 +22,6 @@ function object(value: unknown): RecordValue {
 }
 function array(value: unknown): RecordValue[] {
   return Array.isArray(value) ? value.map(object) : []
-}
-function metadata(value: unknown) {
-  if (typeof value !== "string") return value
-  try {
-    return JSON.parse(value)
-  } catch {
-    return value
-  }
 }
 function decode(value: unknown, encoding: unknown): Uint8Array | null {
   try {
@@ -97,97 +94,12 @@ function ValuePreview({
     </div>
   )
 }
-export function KvResults({
-  value,
-  pending,
-  onRead,
-  onNext,
-}: {
-  value: unknown
-  pending: boolean
-  onRead: (key: string) => void
-  onNext: (after: string) => void
-}) {
-  const result = object(value)
-  if (Array.isArray(result.keys)) {
-    const keys = array(result.keys)
-    return (
-      <div className="space-y-4">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Key</TableHead>
-              <TableHead>Expiration</TableHead>
-              <TableHead>Metadata</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {keys.map((key, i) => (
-              <TableRow key={i}>
-                <TableCell>
-                  <Button
-                    variant="link"
-                    disabled={pending}
-                    onClick={() => onRead(String(key.name))}
-                  >
-                    {String(key.name)}
-                  </Button>
-                </TableCell>
-                <TableCell>
-                  {key.expiration == null
-                    ? "No expiration"
-                    : date(Number(key.expiration))}
-                </TableCell>
-                <TableCell className="max-w-60 truncate">
-                  {key.metadata == null ? "—" : String(key.metadata)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        <p className="text-xs text-muted-foreground">
-          {keys.length} keys on this page ·{" "}
-          {result.complete ? "End of listing" : "More keys available"}
-        </p>
-        {!result.complete && keys.length > 0 ? (
-          <Button
-            variant="outline"
-            disabled={pending}
-            onClick={() => onNext(String(keys.at(-1)?.name))}
-          >
-            Next 100 keys
-          </Button>
-        ) : null}
-      </div>
-    )
-  }
-  if (result.found === false)
-    return (
-      <p className="text-sm text-muted-foreground">
-        This key was not found. It may have expired or been deleted.
-      </p>
-    )
-  if (result.found === true)
-    return (
-      <div className="space-y-4">
-        <dl className="detail-grid">
-          <dt>Expiration</dt>
-          <dd>
-            {result.expiration == null
-              ? "No expiration"
-              : date(Number(result.expiration))}
-          </dd>
-          <dt>Storage type</dt>
-          <dd>{String(result.tag)}</dd>
-        </dl>
-        <ValuePreview value={result.value} encoding={result.valueEncoding} />
-        <h3 className="text-sm font-medium">Metadata</h3>
-        <JsonView value={metadata(result.metadata)} />
-      </div>
-    )
-  return <JsonView value={value} />
-}
 export function QueueResults({ value }: { value: unknown }) {
+  const messageTrigger = useRef<HTMLButtonElement | null>(null)
+  const [selected, setSelected] = useState<{
+    message: QueueMessage
+    observedAt?: number
+  } | null>(null)
   const result = object(value)
   const metrics =
     typeof result.backlogCount === "number" ? result : object(result.metrics)
@@ -239,8 +151,22 @@ export function QueueResults({ value }: { value: unknown }) {
             <TableBody>
               {array(result.messages).map((message, i) => (
                 <TableRow key={i}>
-                  <TableCell className="font-mono text-xs">
-                    {String(message.id)}
+                  <TableCell>
+                    <Button
+                      variant="link"
+                      onClick={(event) => {
+                        messageTrigger.current = event.currentTarget
+                        setSelected({
+                          message: message as unknown as QueueMessage,
+                          observedAt:
+                            typeof result.observedAt === "number"
+                              ? result.observedAt
+                              : undefined,
+                        })
+                      }}
+                    >
+                      {String(message.id)}
+                    </Button>
                   </TableCell>
                   <TableCell>
                     <Status label={String(message.state)} />
@@ -267,6 +193,12 @@ export function QueueResults({ value }: { value: unknown }) {
           </Table>
         </>
       ) : null}
+      <QueueMessagePanel
+        message={selected?.message ?? null}
+        observedAt={selected?.observedAt}
+        onClose={() => setSelected(null)}
+        returnFocus={() => messageTrigger.current?.focus()}
+      />
       <details>
         <summary className="cursor-pointer text-xs text-muted-foreground">
           Complete broker response

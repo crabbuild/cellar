@@ -53,18 +53,24 @@ pub struct CronSchedule {
     pub scheduled_ms: i64,
 }
 
+impl CronSchedule {
+    pub(crate) fn instance_id(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(self.cron.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        format!("cron-{}-{}", digest, self.scheduled_ms)
+    }
+}
+
 impl Workflow {
     pub(crate) async fn create_scheduled(
         &self,
         context: &Context,
         schedule: CronSchedule,
     ) -> Result<()> {
-        use sha2::{Digest, Sha256};
-        let digest = Sha256::digest(schedule.cron.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let id = format!("cron-{}-{}", digest, schedule.scheduled_ms);
+        let id = schedule.instance_id();
         let (instance, mut arguments) = self.options(CreateOptions {
             id: Some(id),
             ..Default::default()

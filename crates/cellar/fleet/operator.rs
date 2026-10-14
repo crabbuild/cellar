@@ -153,6 +153,22 @@ impl Reachable {
         self
     }
 
+    /// The signed query is refused by old entrances before dispatch. New
+    /// entrances use a read-only RPC, which old cron owners cannot interpret
+    /// as their legacy fetch/arm protocol.
+    pub(crate) fn with_cron_history(mut self) -> Self {
+        for entrance in &mut self.entrances {
+            let suffix = if entrance.path.contains('?') {
+                "&inspection=cron_history_v1"
+            } else {
+                "?inspection=cron_history_v1"
+            };
+            entrance.path.push_str(suffix);
+            entrance.url.push_str(suffix);
+        }
+        self
+    }
+
     /// A lease outlives the node that wrote it, and a node that drains keeps
     /// its lease while it refuses work, so the first entrance in the list is
     /// not always usable. Move to the next one when a node cannot be reached
