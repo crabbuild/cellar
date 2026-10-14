@@ -1005,3 +1005,49 @@ files; docs validated 35 documents, 6 flows and 370 references; dependency check
 retained 401 packages without a JavaScript engine; whitespace checks passed.
 This is targeted qualification, not completion of the earlier failed full
 workspace runtime gate or the remaining process-fault/capacity matrix.
+
+## Actual process loss and independent receipt ledger
+
+The durable-stream executable has an explicit `--fault-harness` mode with a
+one-record required stream, source command/producer receipts, atomic consumer
+receipt/effect archive and an owning-request hold after `db.sync` and before ack.
+The ordinary walkthrough has no enabled hold/probe controls. Normal framework
+ownership, discovery, replication, output, lease and shutdown gates are retained.
+
+The independent client fsyncs its plan/attempts before issuing commands, records
+source acknowledgments and payload digests, archives encoded-envelope digests,
+and saves each original snapshot. A real proxy consumes the source's successful
+HTTP response and shuts the client socket. Actual SIGKILL exits are checked for
+an acknowledged source with pending capacity pressure and for proven consumer
+local effects before ack; forced loss cannot supply a graceful stop report.
+Every restart is audited before ambiguous source retry or consumer redelivery.
+Retained lease expiry is observed before fresh fetch; redelivery adds no duplicate
+local effect. Archived effect receipts account for intentionally reclaimed events.
+The final projection equals its two distinct receipts and checkpoint 2.
+The final host requires all original complete preserving-shutdown assertions.
+
+The first process run passed both post-kill audits but its premature fresh fetch
+failed while the restored lease was active. The harness now waits for the original
+lease expiry and checks that expiry did not advance the checkpoint; no lease or
+handler deadline was weakened. Three subsequent real runs passed four audits, two
+SIGKILLs and one dropped source response. The final rebuilt executable digest is
+`996b91316f82d53cb1aff53d285d7445ce383f07b58440775908cf72b4e11928`.
+Evidence remains in `/private/tmp/cellar-stream-process-faults-20261014-d`, with
+logs, the independent JSONL ledger, private state and `summary.json`. The final
+normal executable smoke also passed. Nine oracle guards reject missing client/
+upstream acknowledgments, unissued operations, changed payload/envelope/producer
+identity, duplicate acceptance/effects, early checkpoints, missing archives and
+premature/misordered replay. Audit-only rechecks of both passing journals passed.
+Final workspace all-target/all-feature Clippy passed with warnings denied;
+11 workspace doctests passed with one existing ignored case. Formatting checked
+420 Rust files; docs validated 35 documents, 6 flows and 370 references; the
+all-feature dependency graph retained 401 packages without a JavaScript engine;
+whitespace checks passed. No new complete workspace runtime gate is claimed.
+
+This qualifies actual single-node process loss and source HTTP response loss
+under persistent SQLite-bucket assumptions. It does not qualify source loss
+before the first dispatch attempt, destination append/ack response loss,
+separate producer/destination/consumer hosts, followers, network/store/power
+faults, every commit/proof cut point, capacity soaks or the full release matrix.
+Those requirements, complete physical storage/aggregate metrics, whole-fleet
+inventory and guarded source destruction remain unfinished.

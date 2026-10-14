@@ -119,3 +119,44 @@ acknowledgment, empty fetch and a new event after restart. Expected final output
 starts `PASS durable streams`. Temporary smoke state is removed automatically.
 For the walkthrough, stop the host first and remove only its tutorial data
 directory when its retained orders, projection and fleet state are no longer needed.
+
+## Process-failure qualification
+
+The separate [faults.py](faults.py) harness runs the actual compiled executable
+with `--fault-harness` against a fresh private directory. This opt-in mode uses
+a one-record required stream, stores immutable source/effect receipts, and holds
+one consumer request after `db.sync` has proven effects but before acknowledgment.
+All ordinary ownership, discovery, replication, lease and output gates still run.
+
+The measuring client fsyncs its own command plan, payload digests, acknowledgments,
+accepted envelope digests and snapshots. A loopback proxy consumes a real source
+response and closes the client socket. The harness then observes two actual
+SIGKILL exits: one with an acknowledged source obligation pending behind stream
+capacity, and one with proven consumer effects before acknowledgment. Each
+restart is audited before ambiguous source retry or consumer redelivery. The
+second restart must recover the existing lease and checkpoint; redelivery waits
+for that lease's original expiry and must add no repeated effect. After progress
+reclaims acknowledged history, archived effect/acceptance receipts continue to
+account for the intentionally removed event. Final totals must equal distinct
+receipts and the final process must report complete preserving shutdown.
+
+```sh
+python3 -m unittest discover -s examples/durable-streams -p 'test_*.py'
+python3 examples/durable-streams/faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --output /tmp/cellar-stream-fault-evidence
+python3 examples/durable-streams/faults.py \
+  --audit /tmp/cellar-stream-fault-evidence/ledger.jsonl
+```
+
+The output directory must not exist. It retains logs, private bucket/state,
+the measuring ledger and a summary with the executable digest. The audit-only
+command rechecks all four original snapshots, distinct kill stages, response
+loss, proven consumer boundary and replay ordering without sending requests.
+
+This qualifies these single-node process-loss and source HTTP-response-loss
+cases with a persistent SQLite-backed bucket. It does not qualify source loss
+before its first dispatch attempt, destination append/ack response loss,
+separate producer/destination/consumer hosts, follower or network/bucket faults,
+power loss, the complete cut-point matrix, or capacity soaks. Those release
+requirements remain in the [design](../../plans/002-outbox-streams-subscriptions.md).

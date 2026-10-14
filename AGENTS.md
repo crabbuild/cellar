@@ -458,6 +458,14 @@ duplicate local effects. The private bucket also retains the randomly generated
 fleet secret. Verify the real binary with `python3 examples/durable-streams/smoke.py
 --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams"`; this is a local demo,
 not production crash/response-loss or multi-node capacity qualification.
+Its separate `examples/durable-streams/faults.py` opt-in harness records an
+independent fsynced ledger, drops a real source HTTP response and observes
+SIGKILL with a pending source obligation and proven consumer effects before
+ack. It audits before replay, preserves lease expiry, archives accepted envelope
+digests/effect receipts and re-audits saved stages. Run its oracle guards with
+`python3 -m unittest discover -s examples/durable-streams -p 'test_*.py'`.
+This is single-node SQLite-bucket process evidence; it does not complete the
+destination/follower/network/power/cut-point/capacity release matrix.
 
 ## Change discipline
 

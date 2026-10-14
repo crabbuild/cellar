@@ -1468,6 +1468,20 @@ consumer effects match their retained inbox receipts. For event-loss audits,
 disable destructive retention or archive an independent acceptance ledger;
 intentional expiry must not be mistaken for lost delivery.
 
+The compiled durable-stream example now has an opt-in process-fault harness
+with an independent fsynced measuring ledger and audit-before-replay guard.
+Local qualification observes source HTTP response loss, SIGKILL while a proven
+source obligation remains pending behind required-stream capacity, and SIGKILL
+after proven consumer inbox/effects but before ack. Each restart is audited
+before source retry or consumer replay; existing leases retain their original
+expiry. Saved payload/envelope digests and effect receipts account for accepted
+events after intentional capacity reclamation. An audit-only command rechecks
+every saved stage and rejects incomplete or misordered evidence.
+This is actual single-node process evidence with a persistent SQLite-backed
+bucket. It does not satisfy source loss before the first send, destination
+append/ack response loss, separate-host/follower/network/bucket/power faults,
+all listed cut points, or capacity qualification. Those requirements remain.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

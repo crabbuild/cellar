@@ -10,9 +10,13 @@ use cellar::fleet::LoadedDeployment;
 use cellar::sdk::*;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-fn graph() -> DeploymentGraph {
+fn graph(faults: bool) -> DeploymentGraph {
+    let mut definition = application::definition();
+    if faults {
+        definition.max_records = 1;
+    }
     DeploymentGraph::single(LoadedDeployment {
-        event_streams: vec![application::definition()],
+        event_streams: vec![definition],
         native: None,
         script_name: application::SCRIPT.into(),
         version: "v1".into(),
@@ -49,6 +53,12 @@ fn graph() -> DeploymentGraph {
 }
 
 fn main() -> Result<()> {
+    let args = std::env::args().skip(1).collect::<Vec<_>>();
+    ensure!(
+        args.len() <= 3 && args.get(2).is_none_or(|arg| arg == "--fault-harness"),
+        "usage: cellar-example-streams [DATA] [PORT] [--fault-harness]"
+    );
+    let faults = args.get(2).is_some();
     let data = PathBuf::from(
         std::env::args()
             .nth(1)
@@ -156,11 +166,13 @@ fn main() -> Result<()> {
             containers: None,
             metrics: None,
         };
-        let applications = application::applications()?;
+        let applications = application::applications(
+            faults.then(|| Arc::new(application::FaultControls::default())),
+        )?;
         #[cfg(unix)]
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-        let node = Node::start(config, services, graph(), applications).await?;
+        let node = Node::start(config, services, graph(faults), applications).await?;
         cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!(
             "{}",
             serde_json::json!({"ready":format!("http://{public_address}")})
