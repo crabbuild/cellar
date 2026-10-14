@@ -1,5 +1,20 @@
 # Embedded fleet validation
 
+The [FleetCare application and standard suite](../../crates/cellar-fleetcare/README.md)
+run 10,000 cells on three nodes, in embedded and daemon modes, using Colima and
+RustFS. Run `python3 tools/perf/fleetcare.py` from the repository root. The suite
+builds its release images, measures read/write traffic, verifies all receipts
+and projections, checks SDK capabilities, injects crash/store failures and
+verifies local and bucket recovery. It writes repeatable reports and can fail
+on regressions with `--baseline`. Use `--profile smoke --suite smoke` for a
+quick functional check. The [original design](field-service-design.md) includes
+additional qualification experiments; its [blueprint](field-service-workload.json)
+is documentation, not runner configuration.
+The [FleetCare qualification report](results/2026-10-13-fleetcare-bringup.md)
+records the application checks, full-scale recovery evidence and provisional
+traffic measurements, including the admission and local-reload fixes exposed
+by the workload.
+
 The [2026-10-12 report](results/2026-10-12-embedded-1000.md) records the completed
 1,000-cell run and the earlier admission and shutdown failures it exposed.
 The [10,000-cell reference run](results/2026-10-12-embedded-10000-reference.md)

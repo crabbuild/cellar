@@ -1542,3 +1542,238 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     writer.shutdown().await;
     Ok(())
 }
+
+struct AlarmResident;
+
+impl Cell for AlarmResident {
+    fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            let Invocation::Fetch(request) = event else {
+                return Ok(Output::Done);
+            };
+            let storage = context.storage()?;
+            let count = storage
+                .get_json("count")?
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                + 1;
+            storage.put_json("count", &serde_json::json!(count))?;
+            if request.url.ends_with("/armed") {
+                storage.set_alarm(cellar::asyncrt::wall_ms() + 60_000)?;
+            }
+            Ok(response(count))
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn full_node_admits_cold_cells_past_a_covered_alarm() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("alarm-admission-core")?;
+    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (mut config, services) = inputs(
+        "alarm-admission",
+        &directory.path().join("state"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    config.actor.core.max_resident = 2;
+    config.actor.core.max_activations = 2;
+    config.actor.core.max_evictions = 1;
+    config.actor.core.alarm_resident_ms = 3_600_000;
+    config.actor.core.operation_deadline_ms = Some(1_000);
+    config.runtime.handler_budget = Duration::from_secs(4);
+    let applications = CompiledApplications::default().register("embedded-node", "test", || {
+        Ok(Arc::new(
+            Registry::new(|context, event| {
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    let name = request.url.rsplit('/').next().unwrap_or("new");
+                    let cell = context.namespace("ACCOUNTS")?.get_by_name(name);
+                    Ok(Output::Http(cell.fetch(&context, request).await?))
+                })
+            })
+            .cell("Account", |_, _| Ok(Arc::new(AlarmResident)))?,
+        ))
+    })?;
+    let node = Node::start(config, services, graph(), applications).await?;
+    ready(&node).await?;
+    let client = client()?;
+    let result = async {
+        ensure!(
+            call(&client, &node, reqwest::Method::GET, "/armed").await? == "1",
+            "alarm cell failed"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        ensure!(
+            call(&client, &node, reqwest::Method::GET, "/idle").await? == "1",
+            "idle cell failed"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        ensure!(
+            call(&client, &node, reqwest::Method::GET, "/new")
+                .await
+                .map_err(|error| error.context("cold request at full residency"))?
+                == "1",
+            "cold cell was not admitted"
+        );
+        ensure!(
+            call(&client, &node, reqwest::Method::GET, "/armed").await? == "2",
+            "alarm cell write lost across eviction"
+        );
+        Ok::<_, anyhow::Error>(())
+    }
+    .await;
+    let outcome = node.shutdown(ShutdownMode::Preserve).await?;
+    result?;
+    ensure!(
+        matches!(outcome, NodeOutcome::Stopped(_)),
+        "unexpected stop {outcome:?}"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_workflow_deletion_preserves_gated_handler_completion() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let client = client()?;
+    let mut nodes = Vec::new();
+    let mut cores = Vec::new();
+    for index in 0..3 {
+        let core = Executor::new("workflow-rpc-core")?;
+        let (config, services) = inputs(
+            &format!("workflow-node-{index}"),
+            &directory.path().join(format!("node-{index}")),
+            &core,
+            Some(bucket.clone()),
+            100,
+        )
+        .await?;
+        let mut graph = fixture::graph(
+            "embedded-node",
+            "",
+            vec![cellar::deploy::workflow_class("embedded-node")],
+        );
+        graph.primary.options.workflow_bindings = vec![cellar::engine_api::WorkflowBinding {
+            environment: "REPAIR".into(),
+            workflow: "repair".into(),
+            class: "Repair".into(),
+            settings: Default::default(),
+        }];
+        let applications =
+            CompiledApplications::default().register("embedded-node", "test", || {
+                Ok(Arc::new(
+                    Registry::new(|context, event| {
+                        Box::pin(async move {
+                            let Invocation::Fetch(request) = event else {
+                                return Ok(Output::Done);
+                            };
+                            let workflow = context.workflow("REPAIR")?;
+                            let instance = if request.url.ends_with("/create") {
+                                workflow
+                                    .create(
+                                        &context,
+                                        workflow::CreateOptions {
+                                            id: Some("same-repair".into()),
+                                            ..Default::default()
+                                        },
+                                    )
+                                    .await?
+                            } else {
+                                workflow.get(&context, "same-repair").await?
+                            };
+                            let scope = instance.scope();
+                            let value = if request.url.ends_with("/delete") {
+                                instance.delete(&context).await?;
+                                serde_json::json!({"deleted":true,"scope":scope})
+                            } else {
+                                serde_json::json!({"scope":scope})
+                            };
+                            Ok(Output::Http(
+                                http::Response::from_json(&value)?.into_http(&context)?,
+                            ))
+                        })
+                    })
+                    .workflow("Repair", |_, _, steps| {
+                        Box::pin(async move {
+                            steps
+                                .wait_for_event_with_timeout(
+                                    "assignment",
+                                    "assignment".into(),
+                                    None,
+                                )
+                                .await
+                        })
+                    })?,
+                ))
+            })?;
+        nodes.push(Node::start(config, services, graph, applications).await?);
+        cores.push(core);
+    }
+    for node in &nodes {
+        ready(node).await?;
+    }
+    let created: serde_json::Value =
+        serde_json::from_str(&call(&client, &nodes[0], reqwest::Method::POST, "/create").await?)?;
+    let scope = created["scope"].as_str().unwrap();
+    let mut owner = None;
+    for (index, node) in nodes.iter().enumerate() {
+        let state: serde_json::Value = client
+            .get(format!("http://{}/state", node.info().internal_address))
+            .send()
+            .await?
+            .json()
+            .await?;
+        if state["published"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == scope)
+        {
+            owner = Some(index);
+        }
+    }
+    let owner = owner.ok_or_else(|| anyhow::anyhow!("workflow has no authoritative owner"))?;
+    let ingress = (owner + 1) % nodes.len();
+    let deleted: serde_json::Value = serde_json::from_str(
+        &call(&client, &nodes[ingress], reqwest::Method::POST, "/delete").await?,
+    )?;
+    ensure!(
+        deleted["deleted"] == true,
+        "remote deletion did not report completion"
+    );
+    let missing = client
+        .get(format!(
+            "http://{}/status",
+            nodes[ingress].info().public_address
+        ))
+        .send()
+        .await?;
+    ensure!(
+        missing.status() == 500,
+        "deleted instance remained readable"
+    );
+    call(&client, &nodes[owner], reqwest::Method::POST, "/create").await?;
+    call(&client, &nodes[owner], reqwest::Method::POST, "/delete").await?;
+    for node in nodes {
+        let NodeOutcome::Stopped(report) = node.run_until(async { ShutdownMode::Preserve }).await?
+        else {
+            anyhow::bail!("workflow test node did not stop");
+        };
+        ensure!(
+            report.application_work_drained
+                && report.cells_drained
+                && report.local_durability_closed
+                && !report.drain_timed_out
+                && !report.deadline_elapsed,
+            "incomplete workflow test shutdown {report:?}"
+        );
+    }
+    drop(cores);
+    Ok(())
+}

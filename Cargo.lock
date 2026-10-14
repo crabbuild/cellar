@@ -354,6 +354,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellar-fleetcare"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bytes",
+ "cellar",
+ "cellar-logic",
+ "fastwebsockets",
+ "futures-util",
+ "http-body-util",
+ "hyper",
+ "object_store",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tikv-jemallocator",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "cellar-logic"
 version = "0.1.0"
 
