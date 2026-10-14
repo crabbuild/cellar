@@ -531,6 +531,13 @@ impl Node {
                 )
                 .await
                 .context("node bootstrap deadline elapsed")??;
+                if let Some(bucket) = prepared.fleet_bucket.clone() {
+                    super::operations::NodeOperations::install(
+                        bucket,
+                        prepared.clean_reload_node.clone(),
+                        prepared.process_generation.clone(),
+                    )?;
+                }
                 let app = prepared.app.clone();
                 if ready.send((app, info)).is_err() {
                     return Ok(NodeOutcome::Cancelled);
@@ -545,14 +552,20 @@ impl Node {
             // The entered root is gone before joining; joining inside it would
             // wait for the supervisor's own root and never complete.
             owner.shutdown().await;
-            match boot {
+            let outcome = match boot {
                 Ok(Ok(result)) => result,
                 Ok(Err(_)) => Ok(NodeOutcome::Cancelled),
                 Err(panic) => Err(anyhow::anyhow!(
                     "node supervisor panicked: {}",
                     panic_message(panic)
                 )),
+            };
+            if let Some(operations) = owner.services().node_operations() {
+                operations
+                    .joined(&outcome, tokio::runtime::Handle::current())
+                    .await;
             }
+            outcome
         });
         let (app, info) = match readiness.await {
             Ok(ready) => ready,

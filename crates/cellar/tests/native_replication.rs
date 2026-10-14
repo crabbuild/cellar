@@ -564,3 +564,64 @@ async fn command_line_replication_adapter_validates_and_captures_policy() -> Res
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clean_reload_inventory_preserves_evicted_cache() -> Result<()> {
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let directory = tempfile::tempdir()?;
+    let storage = ReplicaStorage::new(
+        Arc::new(object_store::memory::InMemory::new()),
+        Default::default(),
+    )?;
+    let replica = start(&domain, directory.path(), storage).await?;
+    domain
+        .run(async {
+            let mut paths = std::collections::BTreeMap::new();
+            for cell in [CELL, "Account:resident", "Account:stale"] {
+                let active = replica
+                    .ltx()
+                    .activate(ActivationOptions {
+                        cell,
+                        epoch: 1,
+                        fresh: true,
+                        took_over: false,
+                        resume_local: false,
+                        prior: None,
+                    })
+                    .await?;
+                let connection = rusqlite::Connection::open(&active.path)?;
+                connection.execute_batch(
+                    "CREATE TABLE state(value INTEGER); INSERT INTO state VALUES(7)",
+                )?;
+                drop(connection);
+                paths.insert(cell, active.path);
+                if cell == CELL {
+                    replica.ltx().release(cell, 1).await?;
+                } else {
+                    replica.ltx().close_for_reload(cell, 1).await?;
+                }
+            }
+            let cached = paths[CELL].with_extension("evicted");
+            assert!(
+                cached.is_file(),
+                "ordinary eviction must create a real cache entry"
+            );
+            let keep = std::collections::BTreeSet::from([("Account:resident".to_string(), 1)]);
+            assert_eq!(replica.ltx().prune_stale_live(&keep)?, 1);
+            assert!(
+                cached.is_file(),
+                "a clean reload must retain the ordinary eviction cache"
+            );
+            assert!(paths["Account:resident"].is_file());
+            assert!(!paths["Account:stale"].exists());
+            let missing_live = std::collections::BTreeSet::from([(CELL.to_string(), 1)]);
+            assert!(
+                replica.ltx().prune_stale_live(&missing_live).is_err(),
+                "a cache entry cannot stand in for a missing certified live database"
+            );
+            anyhow::Ok(())
+        })
+        .await??;
+    domain.shutdown().await;
+    Ok(())
+}

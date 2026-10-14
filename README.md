@@ -18,6 +18,13 @@ Use `cellar::sdk` to define cells and services. A cell owns its durable state;
 Cellar routes calls to its owner and gates externally visible results on the
 required durability proof. Nodes sharing a bucket form a fleet.
 
+The [fleet console](crates/cellar-admin/README.md) provides a Vite, React and
+shadcn UI for fleet inventory, nodes, cells, SQL, KV, queues, workflows and cron.
+Its separate authenticated management service routes resource operations through
+Cellar owners and tracks node shutdown through durable, joined-work receipts.
+See the
+[dashboard scope and implementation status](plans/003-fleet-dashboard.md).
+
 The SDK provides storage and transactions, structured RPC, SQL, KV, queues,
 workflows, cron, Blob, HTTP and bodies, assets, caches, HTML rewriting,
 WebSockets, TCP/TLS, cell-owned containers, facets, and compiled application loaders. Owned values

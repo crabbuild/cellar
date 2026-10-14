@@ -153,7 +153,7 @@ class Harness:
         self.disks_created = True
         script = f"""set -euo pipefail
 for node in 1 2 3; do
-  truncate -s 5G {shlex.quote(self.vm_root)}/node${{node}}.img
+  truncate -s {getattr(self.args, 'disk_gib', 5)}G {shlex.quote(self.vm_root)}/node${{node}}.img
   mkfs.ext4 -q -F -m 0 {shlex.quote(self.vm_root)}/node${{node}}.img
   mkdir {shlex.quote(self.vm_root)}/node${{node}}
   mount -o loop,noatime {shlex.quote(self.vm_root)}/node${{node}}.img {shlex.quote(self.vm_root)}/node${{node}}

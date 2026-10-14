@@ -184,6 +184,7 @@ fn graph(expressions: Vec<String>) -> DeploymentGraph {
         assets: None,
         services: Vec::new(),
         crons: expressions,
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),
@@ -191,6 +192,14 @@ fn graph(expressions: Vec<String>) -> DeploymentGraph {
 }
 
 fn generation(id: u64, expressions: Vec<String>, signals: Arc<Signals>) -> Result<Generation> {
+    generation_from_graph(id, graph(expressions), signals)
+}
+
+fn generation_from_graph(
+    id: u64,
+    graph: DeploymentGraph,
+    signals: Arc<Signals>,
+) -> Result<Generation> {
     let registry = Registry::new(move |context, invocation| {
         Box::pin(worker(context, invocation, signals.clone()))
     })
@@ -199,7 +208,7 @@ fn generation(id: u64, expressions: Vec<String>, signals: Arc<Signals>) -> Resul
     })?;
     Generation::build_native(
         id,
-        graph(expressions),
+        graph,
         GenerationOptions {
             node: "test".into(),
             region: "test".into(),
@@ -247,6 +256,26 @@ async fn arm(runtime: &RuntimeManager, scope: &str) -> Result<HttpResponse> {
         .await?;
     assert_eq!(reply.status, 204);
     Ok(reply)
+}
+
+async fn executions(runtime: &RuntimeManager, scope: &str, query: Value) -> Result<Value> {
+    let reply = runtime
+        .rpc(
+            scope.into(),
+            None,
+            "__cronHistory".into(),
+            RpcData::Json(query.to_string()),
+            Some(cellar::engine_api::next_request_id()),
+        )
+        .await?;
+    assert!(
+        reply.write_position.is_none(),
+        "history must not arm or write"
+    );
+    let RpcData::Json(value) = reply.data else {
+        return Err(anyhow!("expected JSON history"));
+    };
+    Ok(serde_json::from_str(&value)?)
 }
 
 async fn seed(
@@ -354,6 +383,13 @@ async fn run() -> Result<()> {
             let _ = gate.reply.send(Ok(()));
         }
     });
+    let empty = executions(&runtime, &scope, json!({})).await?;
+    assert_eq!(empty["items"], json!([]));
+    assert!(empty["active_alarm"].is_null());
+    assert!(
+        runtime.alarm(&scope).is_none(),
+        "history must not arm a schedule"
+    );
     let armed = arm(&runtime, &scope).await?;
     assert!(armed.write_position.is_some());
     let planned = cellar_logic::cron::next_after(
@@ -401,6 +437,30 @@ async fn run() -> Result<()> {
             (SUCCESS.into(), occurrence)
         ]
     );
+    let journal = executions(&runtime, &scope, json!({})).await?;
+    let attempts = journal["items"].as_array().unwrap();
+    assert_eq!(attempts.len(), 3);
+    assert_eq!(attempts[0]["status"], "completed");
+    assert_eq!(attempts[1]["status"], "failed_no_retry");
+    assert_eq!(attempts[2]["status"], "failed");
+    assert_eq!(attempts[2]["background_errors"], 1);
+    assert_eq!(attempts[2]["retry_requested"], true);
+    assert_eq!(attempts[2]["configuration"]["deployment_version"], "test");
+    assert_eq!(attempts[2]["configuration"]["prefix"], "test/");
+    assert_eq!(attempts[2]["runtime_generation"], 1);
+    assert!(attempts
+        .iter()
+        .all(|a| a["ended_at"].is_number() && a["duration_ms"].is_number()));
+    let first_page = executions(&runtime, &scope, json!({"limit":1})).await?;
+    let older = executions(
+        &runtime,
+        &scope,
+        json!({"limit":1,"before":first_page["next_cursor"].as_str().unwrap().parse::<u64>()?}),
+    )
+    .await?;
+    assert_eq!(older["items"][0]["expression"], DECLINE);
+    let filtered = executions(&runtime, &scope, json!({"expression":FAIL})).await?;
+    assert_eq!(filtered["items"].as_array().unwrap().len(), 1);
     let retry = runtime.alarm(&scope).unwrap();
     assert!((1..=4000).contains(&(retry - cellar::ownership_store::now_ms() as i64)));
     arm(&runtime, &scope).await?;
@@ -431,6 +491,10 @@ async fn run() -> Result<()> {
         .any(|(cell, ticket)| cell == &scope
             && ticket.channel == cellar_logic::Channel::CellRpc
             && ticket.epoch == Some(1)));
+    let retried = executions(&runtime, &scope, json!({"expression":FAIL})).await?;
+    assert_eq!(retried["items"][0]["status"], "completed");
+    assert_eq!(retried["items"][0]["attempt"], 2);
+    assert_eq!(retried["items"][0]["scheduled_at"], occurrence);
     // Owed expressions intentionally remain activation-local, as before.
     signals.mode.store(2, Ordering::SeqCst);
     seed(&runtime, &data, &scope, occurrence).await?;
@@ -460,6 +524,42 @@ async fn run() -> Result<()> {
         Some(occurrence),
         "retired work must not settle or rewrite the persisted occurrence"
     );
+    let interrupted = executions(&runtime, &scope, json!({"expression":FAIL})).await?;
+    assert_eq!(interrupted["items"][0]["status"], "started");
+    assert!(interrupted["items"][0]["ended_at"].is_null());
+    assert!(interrupted["items"][0]["duration_ms"].is_null());
+    assert!(interrupted["items"][0]["retry_requested"].is_null());
+    assert_eq!(interrupted["active_alarm"], occurrence);
+    // Real attempts enforce bounded retention, including across activations.
+    runtime.swap_out_cell(&scope, 1).await?;
+    runtime.adopt(generation(99, vec![SUCCESS.into(); 260], signals.clone())?);
+    runtime.start_cell(scope.clone(), 1, false).await?;
+    runtime.publish_cell(&scope, 1)?;
+    seed(&runtime, &data, &scope, occurrence).await?;
+    runtime.fire_alarm(98, scope.clone(), occurrence).await?;
+    let mut before = None;
+    let mut count = 0;
+    loop {
+        let page = executions(&runtime, &scope, json!({"limit":100,"before":before})).await?;
+        count += page["items"].as_array().unwrap().len();
+        assert_eq!(page["retention_limit"], 256);
+        assert!(page["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["status"] == "completed"));
+        before = page["next_cursor"]
+            .as_str()
+            .map(str::parse::<u64>)
+            .transpose()?;
+        if before.is_none() {
+            break;
+        }
+    }
+    assert_eq!(count, 256);
+    // Restore the original interrupted occurrence fixture before continuing
+    // the adoption assertions; the retention run armed a future occurrence.
+    seed(&runtime, &data, &scope, occurrence).await?;
     // Adoption changes the actual config used by the automatic system cell.
     runtime.swap_out_cell(&scope, 1).await?;
     let next = generation(2, vec!["unsatisfiable".into()], signals.clone())?;
@@ -485,9 +585,50 @@ async fn run() -> Result<()> {
     .await?;
     runtime.swap_out_cell(&scope, 1).await?;
     runtime.swap_out_cell(SINK, 1).await?;
-    let next = generation(3, Vec::new(), signals)?;
+    // Disabling the schedule must remove an already armed future occurrence.
+    let future_alarm = cellar::ownership_store::now_ms() as i64 + 60_000;
+    seed(&runtime, &data, &scope, future_alarm).await?;
+    assert_eq!(runtime.alarm(&scope), Some(future_alarm));
+    runtime.swap_out_cell(&scope, 1).await?;
+    let mut disabled = graph(Vec::new());
+    disabled.primary.cron_revision = Some("disabled-revision".into());
+    runtime.adopt(generation_from_graph(3, disabled, signals.clone())?);
+    runtime.start_cell(scope.clone(), 1, false).await?;
+    runtime.publish_cell(&scope, 1)?;
+    arm(&runtime, &scope).await?;
+    // The arm response can precede publication of the event driver's final
+    // alarm snapshot, just like the alarm turn checked above.
+    cellar::asyncrt::timeout(Duration::from_secs(2), async {
+        while runtime.alarm(&scope).is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert_eq!(
+        runtime.generation().cron_revision(),
+        Some("disabled-revision")
+    );
+    runtime.swap_out_cell(&scope, 1).await?;
+    let db = rusqlite::Connection::open(data.join(&scope).join("ltx/e1/db.sqlite"))?;
+    let remaining: u64 = db.query_row(
+        "SELECT count(*) FROM __sys_cell_alarm WHERE scope=? AND at_ms IS NOT NULL",
+        [&scope],
+        |row| row.get(0),
+    )?;
+    assert_eq!(remaining, 0, "empty override left a persisted alarm");
+    drop(db);
+    let next = generation(4, Vec::new(), signals)?;
     runtime.adopt(next);
     assert!(runtime.cron_cell().is_none());
+    runtime.start_cell(scope.clone(), 1, false).await?;
+    runtime.publish_cell(&scope, 1)?;
+    let archived = executions(&runtime, &scope, json!({"limit":1})).await?;
+    assert_eq!(archived["items"].as_array().unwrap().len(), 1);
+    assert!(
+        runtime.alarm(&scope).is_none(),
+        "archived history inspection rearmed a removed schedule"
+    );
+    runtime.swap_out_cell(&scope, 1).await?;
     shutdown.send(true)?;
     router.await?;
     proofs.await?;

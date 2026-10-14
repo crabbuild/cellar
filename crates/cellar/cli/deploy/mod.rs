@@ -98,6 +98,7 @@ pub const RESERVED_CLASSES: &[&str] = &[
     QUEUE_CLASS,
     EVENT_STREAM_CLASS,
     EVENT_CATALOG_CLASS,
+    cellar_logic::cron::RESERVED_CLASS,
 ];
 
 /// The Durable Object class a script's workflow instances run as.

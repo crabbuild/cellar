@@ -15,7 +15,8 @@ durable wakes, replication, recovery, and fleet shutdown.
 Applications implement contracts from `cellar::sdk` and compile into native
 executables with their application factories embedded. The `cellar` CLI builds,
 develops, publishes, installs, and operates those applications. `cellar` is the
-single CLI executable. A generic CLI binary cannot serve an application whose
+single application CLI executable; the optional `cellar-dashboard` service serves
+the management console. A generic CLI binary cannot serve an application whose
 factories were not compiled into it.
 
 Deployment `stream_bindings` use `BindingConfig` selectors. Their `resource.id`
@@ -251,10 +252,13 @@ crates/
     platform/             Machine and process-memory adapters
     tests/                Native SDK and host integration tests
   cellar-axum/            Axum handlers, external ingress service, shared builder, OpenAPI
+  cellar-admin/           Browser management API, authentication and operation audit
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
   cellar-native/          Owned values, structured clone, crypto, and web primitives
+  cellar-fleetcare/        Field-service app, embedded/daemon hosts and open-loop client
 examples/                 Compiled Rust applications and project configurations
+dashboard/                Vite, React and shadcn/ui browser management console
 docs/                     Builder/team guides, evidence, decisions, and SVG explorer
 tools/                    Formatting, dependency checks, documentation, and fleet tooling
 .github/workflows/        SDK checks and release builds
@@ -294,10 +298,28 @@ Workflow batch/configuration, compensation, history, and byte-stream adapters
 live under `application/workflow/`. Their journals and chunks share the owning
 instance's SQLite state and output gate. Workflow subscriptions and stream
 readers retain their opening invocation; continuation reads do not consume a
-new subrequest slot. Native workflow packages retain the `workflows-v1` feature
-while Cellar is in internal development.
+new subrequest slot. Workflow binding definitions are bounded, non-executable
+diagrams. Create/restart snapshots and content digests share the instance transaction and retention;
+history events retain their execution generation. Inspection inputs are explicit
+`StepConfig::input` values, redacted with sensitive outputs. Definition versioning
+does not pin executable versions or change replay policy.
+Native workflow packages retain the `workflows-v1` feature while Cellar is in
+internal development.
 Use `native_workflow`, `native_workflow_cell`, `native_cron`, and
 `native_artifacts` when changing these contracts.
+Dashboard cron overrides live under `config/cron/`, keyed by deployment prefix and
+declared expressions. Conditional writes guard the observed schedule revision.
+The loader and standalone watcher share resolution; embedded hosts explicitly
+adopt a loaded graph. `LoadedDeployment::cron_revision` records an adopted override,
+including an empty schedule that must retire an existing alarm. Do not infer a
+successful scheduled occurrence from generation adoption. Bounded execution observations
+live in `application/cron/history.rs` in the scheduling cell's own SQLite/output
+gate; retain started attempts without terminal evidence after interruption. Only
+the primary application owns that cell. The cron class remains inspectable after
+schedule removal, while `Generation::cron_cell` determines active adoption.
+Cron inspection uses the authenticated reserved-cell route, a fixed read-only
+`__cronHistory` RPC, and `data_read`;
+anonymous `/do/` requests must not expose its journal.
 
 The layout preserves three mixed modules for later focused refactors:
 `node/mod.rs` combines shared node composition with process startup;
@@ -467,7 +489,12 @@ curl http://127.0.0.1:9876/counters/alpha
 
 `tools/perf/README.md` describes isolated Docker/Colima validation of the
 embedded `sdk::Node` path, actual RustFS recovery, rolling handoffs and returned
-shutdown proofs. Its separate `faults.py` driver exercises process failures
+shutdown proofs. `python3 tools/perf/fleetcare.py` builds the separate
+`cellar-fleetcare` application and runs its 10,000-cell read/write matrix in
+embedded and daemon modes with Bucket and Fleet durability. Use
+`--profile smoke --suite smoke` for a short functional check; the default
+standard suite additionally verifies crash, store outage and cold recovery.
+Its separate `faults.py` driver exercises process failures
 during writes with an application receipt ledger. Verify acknowledged receipts
 before replaying ambiguous requests; otherwise retry can hide lost writes.
 The driver's final audit rechecks saved ledgers from each verification stage.
@@ -629,6 +656,42 @@ smoke is `census_smoke.py`; keep census scope distinct from destination watermar
 
 
 ## Change discipline
+
+The dashboard is an optional management application, separate from native cell
+execution. Browser JavaScript does not authorize adding a JavaScript engine to
+the Rust workspace. `fleet/management/` and `fleet/operator.rs` supply shared
+metadata observations and owner-routed requests. The console must not open cell
+SQLite files or expose the private peer listener. `cellar-admin` owns its separate
+audit database; authentication, permissions and fleet configuration are explicit.
+Node stop acceptance is not shutdown proof. Signed stop requests bind the node,
+generation, requested mode and operation identity. Final receipts in the fleet
+bucket require the returned drain report and an explicit execution-domain join;
+CLI hosts also join their dedicated core thread. A lost reply or failed receipt
+publication remains unknown. Audit reconciliation must preserve a terminal proof
+even when an earlier acceptance response arrives later.
+KV console inspection and conditional edits live under `application/kv/inspection.rs`
+and `fleet/management/kv.rs`. Every namespace put assigns a persisted revision;
+compare it inside the owner transaction, including expiry after blob publication.
+Conditional console requests also pin the inspected binding identity across deployments.
+Console edits preserve exact expiry and storage tags, and distinguish absent
+metadata from JSON null. Definite revision conflicts are rejected; lost write
+replies remain unknown. Keep the existing unconditional SDK/CLI signatures.
+See `plans/003-fleet-dashboard.md`, `plans/004-sql-kv-workspaces.md`, and
+`plans/005-resource-inspectors.md` for
+implementation progress and release gates.
+
+For dashboard changes, also run:
+
+```sh
+cargo test -p cellar-admin --locked
+npm --prefix dashboard ci
+npm --prefix dashboard run build
+npm --prefix dashboard run lint
+npm --prefix dashboard run test:ui
+```
+
+Browser fixture tests do not prove live-fleet behavior. Operator and lifecycle
+changes additionally need the corresponding SDK and isolated fleet tests.
 
 - Read the changed module, its callers, adjacent implementations, and relevant
   tests before choosing a fix. Verify dependency contracts from their source or

@@ -251,6 +251,22 @@ impl Storage {
         crate::storage::sql_run(self.scope()?, request).map_err(Into::into)
     }
 
+    pub(crate) fn sql_console(
+        &self,
+        sql: &str,
+        readonly: bool,
+    ) -> Result<cellar_native::sql::SqlResponse> {
+        crate::storage::sql_console(self.scope()?, sql, readonly).map_err(Into::into)
+    }
+
+    pub(crate) fn sql_console_migrations(
+        &self,
+        table: &str,
+        after: u64,
+    ) -> Result<serde_json::Value> {
+        crate::storage::sql_console_migrations(self.scope()?, table, after)
+    }
+
     fn installed_activation_scope(&self) -> Result<&str> {
         let io = crate::host_io::installed_context()
             .ok_or_else(|| anyhow!("native storage is outside an executing turn"))?;

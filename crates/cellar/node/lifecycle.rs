@@ -108,6 +108,40 @@ pub enum NodeOutcome {
 }
 
 impl NodeOutcome {
+    /// Machine-readable CLI observation of the actual driver outcome. This is
+    /// deliberately not a graceful-stop assertion: incomplete phases survive.
+    pub(crate) fn cli_report(&self) -> serde_json::Value {
+        use serde_json::json;
+        match self {
+            Self::Stopped(r) => json!({
+                "event": "daemon_node_stopped", "outcome": "stopped",
+                "mode": match r.mode { ShutdownMode::Handoff => "handoff", ShutdownMode::Preserve => "preserve" },
+                "ingress_drained": r.ingress_drained,
+                "application_work_drained": r.application_work_drained,
+                "pending_application_events": r.pending_application_events,
+                "cells_drained": r.cells_drained, "pending_dispatches": r.pending_dispatches,
+                "log_quiesced": r.log_quiesced, "local_durability_closed": r.local_durability_closed,
+                "clean_reload_prepared": r.clean_reload_prepared,
+                "drain_timed_out": r.drain_timed_out, "deadline_elapsed": r.deadline_elapsed,
+            }),
+            Self::Fenced { code, reason } => json!({
+                "event": "daemon_node_stopped", "outcome": "fenced", "fence_code": code,
+                "reason": match reason {
+                    FenceReason::NodeLeaseExpired => "node_lease_expired",
+                    FenceReason::NodeLeaseMissing => "node_lease_missing",
+                    FenceReason::NodeLeaseMismatch => "node_lease_mismatch",
+                }
+            }),
+            Self::Cancelled => json!({"event": "daemon_node_stopped", "outcome": "cancelled"}),
+            Self::CoreFailed { .. } => {
+                json!({"event": "daemon_node_stopped", "outcome": "core_failed"})
+            }
+            Self::ReplicationFailed { .. } => {
+                json!({"event": "daemon_node_stopped", "outcome": "replication_failed"})
+            }
+        }
+    }
+
     /// Only the command-line adapter translates outcomes to process exits.
     pub(crate) fn cli_exit_code(&self) -> i32 {
         match self {
@@ -115,5 +149,49 @@ impl NodeOutcome {
             Self::Fenced { code, .. } => *code,
             Self::Cancelled | Self::CoreFailed { .. } | Self::ReplicationFailed { .. } => 3,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cli_report_preserves_incomplete_shutdown() {
+        let report = NodeOutcome::Stopped(ShutdownReport {
+            mode: ShutdownMode::Preserve,
+            ingress_drained: true,
+            application_work_drained: false,
+            pending_application_events: 7,
+            cells_drained: false,
+            pending_dispatches: 3,
+            log_quiesced: false,
+            local_durability_closed: false,
+            clean_reload_prepared: false,
+            drain_timed_out: true,
+            deadline_elapsed: true,
+        })
+        .cli_report();
+        assert_eq!(report["mode"], "preserve");
+        assert_eq!(report["pending_application_events"], 7);
+        assert_eq!(report["pending_dispatches"], 3);
+        assert_eq!(report["application_work_drained"], false);
+        assert_eq!(report["deadline_elapsed"], true);
+    }
+
+    #[test]
+    fn cli_report_distinguishes_failure_from_fence() {
+        let value = NodeOutcome::ReplicationFailed {
+            error: "private detail".into(),
+        }
+        .cli_report();
+        assert_eq!(value["outcome"], "replication_failed");
+        assert!(value.get("reason").is_none());
+        let value = NodeOutcome::Fenced {
+            code: 3,
+            reason: FenceReason::NodeLeaseMismatch,
+        }
+        .cli_report();
+        assert_eq!(value["reason"], "node_lease_mismatch");
     }
 }

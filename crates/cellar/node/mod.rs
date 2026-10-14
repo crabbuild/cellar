@@ -59,6 +59,7 @@ mod event_metrics;
 mod event_resources;
 mod event_state;
 mod ingress;
+pub(crate) mod operations;
 mod source_operator;
 mod stream_operator;
 mod wake_discovery;
@@ -915,7 +916,23 @@ async fn adopt_deployment(
         };
     };
     let current = runtime.generation();
-    if !force && pointer.version == current.version() && pointer.prefix == current.prefix() {
+    let (expressions, schedule_revision) =
+        match crate::deployment_cron::desired(&deployment.bucket, &pointer).await {
+            Ok(desired) => desired,
+            Err(error) => {
+                return ReloadOutcome::Failed {
+                    version: pointer.version,
+                    prefix: pointer.prefix,
+                    error: format!("read cron configuration: {error:#}"),
+                }
+            }
+        };
+    if !force
+        && pointer.version == current.version()
+        && pointer.prefix == current.prefix()
+        && schedule_revision.as_deref() == current.cron_revision()
+        && expressions == current.primary_crons
+    {
         return ReloadOutcome::Unchanged {
             generation: current.id(),
             version: current.version().to_string(),
@@ -940,7 +957,11 @@ async fn adopt_deployment(
     // Source compilation and compiled application factories both run away
     // from the routing and lease timer threads.
     let backend = backend.clone();
-    let built = tokio::task::spawn_blocking(move || backend.build(id, graph, options)).await;
+    let build = match crate::asyncrt::try_blocking(move || backend.build(id, graph, options)) {
+        Ok(build) => build,
+        Err(error) => return failed(format!("generation build refused: {error}")),
+    };
+    let built = build.await;
     let generation = match built {
         Ok(Ok(generation)) => generation,
         Ok(Err(error)) => return failed(format!("{error:#}")),
@@ -983,11 +1004,12 @@ fn start_pointer_watcher(
     mut requests: crate::generation::ReloadReceiver,
     backend: Backend,
 ) {
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         let period = crate::generation::poll_interval();
         let mut tick = tokio::time::interval_at(tokio::time::Instant::now() + period, period);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut failed: Option<ReloadOutcome> = None;
+        let mut last_schedule: Option<(Vec<String>, Option<String>)> = None;
         loop {
             let request = crate::asyncrt::select! {
                 _ = tick.tick() => ReloadRequest { force: false, reply: None },
@@ -996,7 +1018,14 @@ fn start_pointer_watcher(
                     None => return,
                 },
             };
-            let outcome = match fleet::read_current_pointer(&deployment.bucket).await {
+            let desired = async {
+                let pointer = fleet::read_current_pointer(&deployment.bucket).await?;
+                let schedule =
+                    crate::deployment_cron::desired(&deployment.bucket, &pointer).await?;
+                Ok::<_, anyhow::Error>((pointer, schedule))
+            }
+            .await;
+            let outcome = match desired {
                 Err(error) => {
                     tracing::warn!(event = "deployment_pointer_unreadable", %error);
                     ReloadOutcome::Failed {
@@ -1005,28 +1034,34 @@ fn start_pointer_watcher(
                         error: format!("{error:#}"),
                     }
                 }
-                Ok(pointer) => match &failed {
-                    Some(ReloadOutcome::Failed {
-                        version, prefix, ..
-                    }) if !request.force
-                        && version == &pointer.version
-                        && prefix == &pointer.prefix =>
-                    {
-                        failed.clone().expect("matched above")
+                Ok((pointer, schedule)) => {
+                    if Some(&schedule) != last_schedule.as_ref() {
+                        failed = None;
+                        last_schedule = Some(schedule);
                     }
-                    _ => {
-                        adopt_deployment(
-                            &app,
-                            &deployment,
-                            &node,
-                            &region,
-                            pointer,
-                            request.force,
-                            &backend,
-                        )
-                        .await
+                    match &failed {
+                        Some(ReloadOutcome::Failed {
+                            version, prefix, ..
+                        }) if !request.force
+                            && version == &pointer.version
+                            && prefix == &pointer.prefix =>
+                        {
+                            failed.clone().expect("matched above")
+                        }
+                        _ => {
+                            adopt_deployment(
+                                &app,
+                                &deployment,
+                                &node,
+                                &region,
+                                pointer,
+                                request.force,
+                                &backend,
+                            )
+                            .await
+                        }
                     }
-                },
+                }
             };
             match &outcome {
                 ReloadOutcome::Adopted {
@@ -1067,7 +1102,8 @@ fn start_pointer_watcher(
                 let _ = reply.send(outcome);
             }
         }
-    });
+    })
+    .detach();
 }
 
 /// `POST /reload`: adopt the pointer's deployment now and report the outcome.
@@ -1670,6 +1706,35 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                         .is_some_and(|value| value == "cell")
                 {
                     return Err(anyhow::Error::new(crate::engine_api::CellOverloaded));
+                }
+                if !event_call && !response.status().is_success()
+                    && response
+                        .headers()
+                        .get(HANDLER_FAILURE_HEADER)
+                        .is_some_and(|v| v == "1")
+                {
+                    // Only a gated handler failure carries this marker. Gate
+                    // rejection remains opaque below, so an SDK control must
+                    // never interpret an unproven mutation as its completion.
+                    let collecting =
+                        Limited::new(response.into_body(), MAX_PEER_CONTROL_BODY_BYTES).collect();
+                    let collected = match cancel.as_mut() {
+                        Some(cancel) => crate::asyncrt::select_biased! {
+                            "an RPC cancellation wins an undelivered handler error";
+                            _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
+                            collected = collecting => collected,
+                        },
+                        None => collecting.await,
+                    };
+                    let body = collected
+                        .map_err(|error| anyhow::anyhow!("remote RPC error body: {error}"))?
+                        .to_bytes();
+                    let body = String::from_utf8_lossy(&body);
+                    return Err(anyhow::Error::new(RemoteHandlerFailure(
+                        body.strip_prefix(HANDLER_FAILURE_PREFIX)
+                            .unwrap_or(&body)
+                            .to_owned(),
+                    )));
                 }
                 if !response.status().is_success() {
                     let failure = anyhow::anyhow!("remote RPC failed with {}",response.status());
@@ -2485,7 +2550,9 @@ pub(crate) async fn dispatch_forwarded_rpc(
                     .await;
                 match completed.result {
                     Ok(outcome) => Ok(outcome.data),
-                    Err(LocalRequestFailure::Handler(error)) => Err(error),
+                    Err(LocalRequestFailure::Handler(error)) => {
+                        return peer_response(internal_do_worker_error(error));
+                    }
                     Err(LocalRequestFailure::OutputGate { verdict, handler }) => {
                         return peer_gate_failure(verdict, handler.as_ref());
                     }
@@ -2557,6 +2624,8 @@ pub(crate) async fn dispatch_forwarded_rpc(
     }
 }
 
+#[path = "network/management.rs"]
+mod management;
 #[path = "network/peer_tunnel.rs"]
 mod peer_tunnel;
 #[path = "network/websocket.rs"]
@@ -3100,6 +3169,7 @@ async fn handle_internal(
     let result = match path.as_str() {
         "/event-metrics" if app.runtime.is_some() => event_metrics::handle(&app, request).await,
         "/peer/probe" => internal_probe(request, app).await,
+        "/peer/management" => management::handle(request, app, shutdown).await,
         "/peer/handoff" => internal_handoff(request, app).await,
         _ if path.starts_with("/peer/log/") => internal_log(request, app, path.clone()).await,
         "/state" => response(StatusCode::OK, app.snapshot().await),
@@ -3214,16 +3284,37 @@ async fn handle_internal(
                 return Ok(peer_response(response(error.status(), error.message())));
             }
             let mut name = None;
+            let mut cron_history = false;
             for (key, value) in url::form_urlencoded::parse(
                 operator_query.as_deref().unwrap_or_default().as_bytes(),
             ) {
-                if key != "name" || name.is_some() || value.is_empty() {
+                if key == "inspection"
+                    && value == "cron_history_v1"
+                    && !cron_history
+                    && scope
+                        .split_once(':')
+                        .is_some_and(|(class, _)| class == cellar_logic::cron::RESERVED_CLASS)
+                {
+                    cron_history = true;
+                } else if key == "name" && name.is_none() && !value.is_empty() {
+                    name = Some(value.into_owned());
+                } else {
                     return Ok(peer_response(response(
                         StatusCode::BAD_REQUEST,
                         "{\"error\":\"invalid operator query\"}",
                     )));
                 }
-                name = Some(value.into_owned());
+            }
+            if cron_history {
+                if name.is_some() {
+                    return Ok(peer_response(response(
+                        StatusCode::BAD_REQUEST,
+                        "{\"error\":\"cron inspection does not accept a cell name\"}",
+                    )));
+                }
+                return Ok(peer_response(
+                    management::cron_history(app, scope, body.to_vec()).await,
+                ));
             }
             // A Queue needs its name before its constructor chooses a
             // consumer. The runtime also proves that this name hashes to the
@@ -3946,6 +4037,7 @@ async fn async_main(
     );
     let local_cache_max_bytes = local_cache_max_bytes_from_environment()?;
     let shutdown_policy = crate::node_lifecycle::ShutdownPolicy::from_env()?;
+    let shutdown_report_json = crate::env_vars::flag("CELLAR_SHUTDOWN_REPORT_JSON", false)?;
     let fail_publish_once = std::env::var_os("CELLAR_TEST_FAIL_PUBLISH_ONCE").is_some();
     let ingress = crate::startup::bind_ingress_listener(&settings.listen).await?;
     let internal =
@@ -4389,6 +4481,7 @@ async fn async_main(
                     assets: None,
                     services: Vec::new(),
                     crons,
+                    cron_revision: None,
                     containers: Vec::new(),
                     fence_image: None,
                     container_images: Vec::new(),
@@ -4676,7 +4769,7 @@ async fn async_main(
     }
     // Seed `/state` and the first lease before the core starts or the ticker posts a sample.
     let services = crate::asyncrt::services();
-    let initial_sample = tokio::task::spawn_blocking(move || services.sample_metrics()).await?;
+    let initial_sample = crate::asyncrt::try_blocking(move || services.sample_metrics())?.await?;
     actor.store_load_sample(initial_sample);
     // The core is a serial ownership actor, not a Worker executor. It owns the
     // node lease timer, so ingress, proxy retries, and restore completions must
@@ -4685,7 +4778,7 @@ async fn async_main(
     // executor models them. Request work, restores, and blocking scans stay on
     // the shared runtime and report their results back as messages.
     let (actor_exit_tx, actor_exit_rx) = mpsc::unbounded_channel();
-    std::thread::Builder::new()
+    let core_thread = std::thread::Builder::new()
         .name("cellar-core".into())
         .spawn(move || {
             let result = tokio::runtime::Builder::new_current_thread()
@@ -4693,9 +4786,13 @@ async fn async_main(
                 .build()
                 .map_err(|error| error.to_string())
                 .and_then(|runtime| {
-                    runtime
-                        .block_on(actor.run(rx))
-                        .map_err(|error| error.to_string())
+                    #[cfg(not(cellar_internal_tests))]
+                    let result = runtime
+                        .block_on(crate::asyncrt::run_in_process_domain(actor.run(rx)))
+                        .map_err(|error| error.to_string())?;
+                    #[cfg(cellar_internal_tests)]
+                    let result = runtime.block_on(actor.run(rx));
+                    result.map_err(|error| error.to_string())
                 });
             let _ = actor_exit_tx.send(result);
         })?;
@@ -4719,20 +4816,28 @@ async fn async_main(
                 // 1.5 GB of it free (GCE, 2026-09-04). Trimmed here,
                 // ahead of the sample, on a blocking thread because a trim
                 // walks every free chunk.
-                let _ = tokio::task::spawn_blocking(crate::memory::trim_c_heap_if_retained).await;
+                let Ok(trim) = crate::asyncrt::try_blocking(crate::memory::trim_c_heap_if_retained)
+                else {
+                    return;
+                };
+                let _ = trim.await;
                 let services = crate::asyncrt::services();
-                let sample =
-                    match tokio::task::spawn_blocking(move || services.sample_metrics()).await {
-                        Ok(sample) => sample,
-                        Err(error) => {
-                            tracing::warn!(
-                                event = "load_sample_failed",
-                                %error,
-                                "process load sample failed"
-                            );
-                            continue;
-                        }
-                    };
+                let Ok(sample_task) =
+                    crate::asyncrt::try_blocking(move || services.sample_metrics())
+                else {
+                    return;
+                };
+                let sample = match sample_task.await {
+                    Ok(sample) => sample,
+                    Err(error) => {
+                        tracing::warn!(
+                            event = "load_sample_failed",
+                            %error,
+                            "process load sample failed"
+                        );
+                        continue;
+                    }
+                };
                 if sample_tx.send(Message::SampleLoad(sample)).is_err() {
                     return;
                 }
@@ -4757,7 +4862,7 @@ async fn async_main(
             let gate_node = node.clone();
             let gate_flag = app.fleet_ready.clone();
             let max_restoring = max_activations as u64;
-            tokio::spawn(async move {
+            crate::asyncrt::spawn(async move {
                 let started = std::time::Instant::now();
                 let mut deadline_reported = false;
                 let mut tick = tokio::time::interval(std::time::Duration::from_secs(1));
@@ -4821,7 +4926,8 @@ async fn async_main(
                         );
                     }
                 }
-            });
+            })
+            .detach();
         }
         _ => app
             .fleet_ready
@@ -4849,7 +4955,7 @@ async fn async_main(
         let node = node.clone();
         let replication = explorer_replication.clone();
         let sample_ms = fleet_sample_ms;
-        tokio::spawn(async move {
+        crate::asyncrt::spawn(async move {
             let mut tick = tokio::time::interval(std::time::Duration::from_millis(sample_ms));
             tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut settled_after_ms = 0;
@@ -4927,7 +5033,8 @@ async fn async_main(
                 }
                 settled_after_ms = now_ms + LOAD_SAMPLE_PERIOD.as_millis() as u64;
             }
-        });
+        })
+        .detach();
     }
 
     if let Some((client, ownership)) = wake_scan {
@@ -5023,6 +5130,17 @@ async fn async_main(
     ))?;
     let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
     let mut sigint = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+    #[cfg(not(cellar_internal_tests))]
+    let stop_operations = fleet_bucket
+        .clone()
+        .map(|bucket| {
+            operations::NodeOperations::install(
+                bucket,
+                clean_reload_node.clone(),
+                process_generation.clone(),
+            )
+        })
+        .transpose()?;
     let outcome = driver::run(
         driver::PreparedDriver {
             app,
@@ -5053,7 +5171,31 @@ async fn async_main(
             }
         },
     )
-    .await?;
+    .await;
+    #[cfg(not(cellar_internal_tests))]
+    let outcome = {
+        crate::asyncrt::shutdown_process_domain().await;
+        // Joining a host thread belongs to the CLI boundary, after its domain
+        // has dropped the tracked core root. Keep the directory lock until then.
+        let core_join = tokio::task::spawn_blocking(move || core_thread.join()).await;
+        let outcome = match core_join {
+            Ok(Ok(())) => outcome,
+            _ => Err(anyhow::anyhow!("core host thread failed while joining")),
+        };
+        if let Some(operations) = stop_operations {
+            operations
+                .joined(&outcome, tokio::runtime::Handle::current())
+                .await;
+        }
+        outcome
+    };
+    #[cfg(cellar_internal_tests)]
+    drop(core_thread);
+    let outcome = outcome?;
+    if shutdown_report_json {
+        crate::cli_output::Output::new(crate::cli_output::Format::Text)
+            .line(format_args!("{}", outcome.cli_report()))?;
+    }
     // Process ownership belongs to this command-line adapter alone.
     exit_flushed(outcome.cli_exit_code());
 }

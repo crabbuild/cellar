@@ -206,6 +206,7 @@ async fn native_workflow_preflight_refuses_bad_batches_before_any_cell_call() ->
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),

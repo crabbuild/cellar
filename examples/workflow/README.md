@@ -81,3 +81,8 @@ JSON field order is not significant.
 
 The [catalog](../README.md) includes automated verification, packaging and the
 [application-builder roadmap](../ROADMAP.md).
+
+The project declares a `reports-v1` diagram for the dashboard. Open its workflow
+workspace to preview the definition, then inspect a retained instance’s execution
+path and activity timeline. Definition snapshots follow each execution’s retention
+and remain distinct from executable version pinning.

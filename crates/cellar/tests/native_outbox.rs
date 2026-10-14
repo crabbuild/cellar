@@ -446,6 +446,7 @@ async fn source_scenario() -> Result<()> {
         assets: None,
         services: vec![],
         crons: vec![],
+        cron_revision: None,
         containers: vec![],
         fence_image: None,
         container_images: vec![],

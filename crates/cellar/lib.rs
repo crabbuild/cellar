@@ -188,7 +188,7 @@ pub mod event_inventory;
 pub mod event_metrics;
 #[path = "observability/event_state.rs"]
 pub mod event_state;
-#[path = "cli/operator_cell.rs"]
+#[path = "fleet/operator.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]
 #[path = "observability/otlp.rs"]
@@ -454,3 +454,9 @@ pub fn worker_compat(metadata: &serde_json::Value) -> engine_api::Compat {
         ),
     }
 }
+
+#[path = "fleet/management/mod.rs"]
+pub mod management;
+
+#[path = "deployment/cron.rs"]
+mod deployment_cron;

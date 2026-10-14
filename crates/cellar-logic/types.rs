@@ -865,6 +865,15 @@ pub enum Event {
         cell: CellId,
         now_mono_ms: u64,
     },
+    /// An operator eviction tied to the ownership epoch it observed. The
+    /// epoch check and admission share one core event; a stale tab cannot
+    /// evict a later ownership epoch.
+    EvictRequestedAtEpoch {
+        request: RequestId,
+        cell: CellId,
+        epoch: Epoch,
+        now_mono_ms: u64,
+    },
     /// A periodic resource sample from the edge.
     ///
     /// The core never reads a clock or a proc file; the shell measures and
@@ -944,6 +953,7 @@ pub enum EvictSuccess {
 /// An eviction refused before an operation starts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EvictRefusal {
+    EpochChanged,
     NodeUnavailable,
     CellActive,
     CellTransitioning,
@@ -992,6 +1002,7 @@ impl EvictError {
     /// because a Rust variant rename must not change operator clients.
     pub const fn reason(&self) -> &'static str {
         match self {
+            Self::Refused(EvictRefusal::EpochChanged) => "epoch_changed",
             Self::Refused(EvictRefusal::NodeUnavailable) => "node_unavailable",
             Self::Refused(EvictRefusal::CellActive) => "cell_active",
             Self::Refused(EvictRefusal::CellTransitioning) => "cell_transitioning",

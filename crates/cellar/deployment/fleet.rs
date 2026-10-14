@@ -962,7 +962,11 @@ async fn load_worker_at_pointer(
     let script_name = manifest.script_name.clone();
     let version = manifest.version.clone();
     let prefix = pointer.prefix.clone();
-    let crons = manifest.crons.clone();
+    let (crons, cron_revision) =
+        match crate::deployment_cron::read(bucket, &script_name, &prefix, &manifest.crons).await? {
+            Some((expressions, revision)) => (expressions, Some(revision)),
+            None => (manifest.crons.clone(), None),
+        };
     let containers = manifest.containers.clone();
     let fence_image = manifest.fence_image.clone();
     let container_images = manifest.container_images.clone();
@@ -994,6 +998,7 @@ async fn load_worker_at_pointer(
         assets,
         services,
         crons,
+        cron_revision,
         containers,
         fence_image,
         container_images,
@@ -1017,6 +1022,8 @@ pub struct LoadedDeployment {
     pub services: Vec<(String, String, Option<String>)>,
     /// `triggers.crons` from the manifest, driving the reserved cron cell.
     pub crons: Vec<String>,
+    /// Adopted schedule override revision; `None` uses deployment declarations.
+    pub cron_revision: Option<String>,
     /// `containers` from the manifest: the classes whose cells supervise a
     /// container.
     pub containers: Vec<crate::container::ContainerSpec>,

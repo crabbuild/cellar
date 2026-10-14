@@ -687,6 +687,7 @@ fn deployment() -> LoadedDeployment {
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),

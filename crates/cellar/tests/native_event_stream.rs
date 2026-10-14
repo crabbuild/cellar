@@ -555,6 +555,7 @@ fn event_graph(script: &str, bindings: Vec<Binding>) -> DeploymentGraph {
         assets: None,
         services: vec![],
         crons: vec![],
+        cron_revision: None,
         containers: vec![],
         fence_image: None,
         container_images: vec![],

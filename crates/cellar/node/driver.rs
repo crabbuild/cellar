@@ -111,7 +111,11 @@ where
     let admission_fence = AdmissionFence(prepared.app.draining.clone());
     async move {
         let _admission_fence = admission_fence;
-        run_inner(prepared, stop).await
+        let result = run_inner(prepared, stop).await;
+        if let Some(operations) = crate::asyncrt::services().node_operations() {
+            operations.drained(&result);
+        }
+        result
     }
 }
 
@@ -435,6 +439,7 @@ where
     // shutdown. Progress can extend only the inner stall deadline. The
     // absolute bound leaves the orchestrator time to observe an orderly exit
     // instead of replacing a progressing donor with SIGKILL.
+    super::operations::phase("draining_ingress");
     let shutdown_started = tokio::time::Instant::now();
     let process_deadline = shutdown_started
         .checked_add(std::time::Duration::from_millis(shutdown_total_ms))
@@ -801,6 +806,7 @@ where
     let mut process_deadline_fired = false;
     let mut handoff = tokio::time::interval(std::time::Duration::from_millis(50));
     let mut containers_reaped = false;
+    super::operations::phase("draining_cells");
     let drained = if !admitted_work_drained {
         false
     } else {
@@ -1114,6 +1120,7 @@ where
     // The graceful-shutdown drain point: seal our node-log record so the
     // next incarnation starts with no gather. Guarded inside — it seals
     // only when every shipped frame is bucket-covered.
+    super::operations::phase("closing_durability");
     let durability_quiesced = if let Some(owner) = &mut durability_owner {
         let remaining = process_deadline.saturating_duration_since(tokio::time::Instant::now());
         let completed = if remaining.is_zero() {

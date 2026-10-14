@@ -6,10 +6,15 @@ use super::*;
 pub struct BindingSettings {
     pub default_retention: Retention,
     pub schedules: Vec<String>,
+    /// Optional versioned documentation for the compiled workflow.
+    pub definition: Option<Definition>,
 }
 
 impl BindingSettings {
     pub fn validate(&self) -> Result<()> {
+        if let Some(definition) = &self.definition {
+            definition.validate()?;
+        }
         for duration in [
             &self.default_retention.success,
             &self.default_retention.error,
@@ -35,6 +40,7 @@ impl BindingSettings {
         let settings: Self = serde_json::from_value(json!({
             "default_retention": value.get("default_retention").cloned().unwrap_or(json!({})),
             "schedules": value.get("schedules").cloned().unwrap_or(json!([])),
+            "definition": value.get("definition").cloned().unwrap_or(json!(null)),
         }))?;
         settings.validate()?;
         Ok(settings)
@@ -47,18 +53,24 @@ pub struct CronSchedule {
     pub scheduled_ms: i64,
 }
 
+impl CronSchedule {
+    pub(crate) fn instance_id(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(self.cron.as_bytes())
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        format!("cron-{}-{}", digest, self.scheduled_ms)
+    }
+}
+
 impl Workflow {
     pub(crate) async fn create_scheduled(
         &self,
         context: &Context,
         schedule: CronSchedule,
     ) -> Result<()> {
-        use sha2::{Digest, Sha256};
-        let digest = Sha256::digest(schedule.cron.as_bytes())
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>();
-        let id = format!("cron-{}-{}", digest, schedule.scheduled_ms);
+        let id = schedule.instance_id();
         let (instance, mut arguments) = self.options(CreateOptions {
             id: Some(id),
             ..Default::default()

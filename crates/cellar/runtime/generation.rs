@@ -306,6 +306,8 @@ pub struct Generation {
     pub(crate) version: String,
     pub(crate) prefix: String,
     pub(crate) script_name: String,
+    pub(crate) cron_revision: Option<String>,
+    pub(crate) primary_crons: Vec<String>,
     pub(crate) stateless: crate::runtime::StatelessRuntime,
     pub(crate) services: HashMap<String, crate::runtime::StatelessRuntime>,
     pub(crate) source_recovery: Arc<WorkerConfig>,
@@ -393,6 +395,11 @@ impl Generation {
         &self.version
     }
 
+    /// The schedule override this generation adopted, if any.
+    pub fn cron_revision(&self) -> Option<&str> {
+        self.cron_revision.as_deref()
+    }
+
     pub fn prefix(&self) -> &str {
         &self.prefix
     }
@@ -415,16 +422,26 @@ impl Generation {
     }
 
     pub fn has_cell_classes(&self) -> bool {
-        !self.cell_configs.is_empty()
+        self.cell_configs
+            .keys()
+            .any(|class| class != cellar_logic::cron::RESERVED_CLASS)
+            || self.cron_cell().is_some()
     }
 
     /// The reserved cell carrying this deployment's cron schedule, or `None`
-    /// when the deployment declares no `triggers.crons`. Derived from the
-    /// registered class rather than plumbed separately, so it cannot
-    /// disagree with what `start_cell` will accept.
+    /// when no schedules or overrides need adopting. The class also remains
+    /// registered for read-only retained-history inspection after removal.
     pub fn cron_cell(&self) -> Option<String> {
         self.cell_configs
             .get(cellar_logic::cron::RESERVED_CLASS)
+            .filter(|config| {
+                self.cron_revision.is_some()
+                    || !config.crons.is_empty()
+                    || config
+                        .workflow_bindings
+                        .iter()
+                        .any(|binding| !binding.settings.schedules.is_empty())
+            })
             .map(|config| cellar_logic::cron::reserved_cell(&config.script_name))
     }
 
@@ -438,10 +455,8 @@ impl Generation {
     /// once — and the cron cell must run the new schedule before the
     /// adoption arms it.
     ///
-    /// The cron class is named beside `deploy::is_reserved_class` rather
-    /// than added to it. That predicate also decides which classes refuse an
-    /// unauthenticated operator route, and the cron cell is not one of them,
-    /// so widening it to reach this list would widen that refusal too.
+    /// Cron execution inspection uses the same authenticated operator route
+    /// as the other runtime classes; anonymous cell fetches cannot inspect it.
     pub fn reserved_classes(&self) -> Vec<String> {
         self.cell_configs
             .keys()
@@ -692,6 +707,8 @@ impl Generation {
         let primary_script = primary.script_name.clone();
         let version = primary.version.clone();
         let prefix = primary.prefix.clone();
+        let cron_revision = primary.cron_revision.clone();
+        let primary_crons = primary.crons.clone();
         let mut all_containers = Vec::new();
         let mut all_container_images = Vec::new();
         let mut fence_image = None;
@@ -779,6 +796,13 @@ impl Generation {
                 .with_loaders(loader_bindings)
                 .with_queue_consumers(queue_catalog.clone())
                 .with_crons(if is_primary { crons } else { Vec::new() })
+                .with_cron_history(is_primary.then(|| {
+                    crate::application::cron::HistoryConfiguration {
+                        prefix: prefix.clone(),
+                        deployment_version: version.clone(),
+                        schedule_revision: cron_revision.clone(),
+                    }
+                }))
                 .with_containers(containers)
                 .with_generation(id);
             if let Some(application) = applications.remove(&script) {
@@ -807,13 +831,10 @@ impl Generation {
             }
             // Cron is runtime-supplied, not a manifest class. Its alarm calls
             // the primary script's scheduled handler with that script's bindings.
-            if is_primary
-                && (!config.crons.is_empty()
-                    || config
-                        .workflow_bindings
-                        .iter()
-                        .any(|binding| !binding.settings.schedules.is_empty()))
-            {
+            // Keep the class available to inspect retained execution records
+            // after schedules are removed. cron_cell() separately determines
+            // whether the node must arm/adopt an active schedule.
+            if is_primary {
                 cell_configs.insert(cellar_logic::cron::RESERVED_CLASS.to_string(), config);
             }
         }
@@ -839,6 +860,8 @@ impl Generation {
             version,
             prefix,
             script_name: primary_script,
+            cron_revision,
+            primary_crons,
             stateless,
             services: service_pools,
             cell_configs,

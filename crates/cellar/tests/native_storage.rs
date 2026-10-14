@@ -408,6 +408,7 @@ fn deployment(script: &str, classes: Vec<String>, delete_alarm: bool) -> LoadedD
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),

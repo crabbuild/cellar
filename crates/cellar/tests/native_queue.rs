@@ -82,6 +82,7 @@ fn graph() -> DeploymentGraph {
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),
@@ -150,6 +151,19 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
         Invocation::Fetch(request) => {
             let producer = context.queue("Q")?;
             assert!(context.queue("missing").is_err());
+            if request.url.ends_with("/preview-budget") {
+                let queue = context.queue("GROUP")?;
+                for _ in 0..6 {
+                    queue
+                        .send(
+                            &context,
+                            Body::Bytes(vec![0xff; 128_000]),
+                            Default::default(),
+                        )
+                        .await?;
+                }
+                return Ok(response(json!("large messages queued")));
+            }
             if request.url.ends_with("/group") {
                 let producer = context.queue("GROUP")?;
                 let results = futures_util::future::join_all((0..64).map(|index| {
@@ -475,6 +489,12 @@ async fn run() -> Result<()> {
     assert_eq!(call_worker(&runtime, "basic").await?, "binding checked");
     let peek = operator(&runtime, Q, json!({"op":"peek"})).await?;
     assert_eq!(peek["messages"].as_array().unwrap().len(), 4);
+    let bounded = operator(&runtime, Q, json!({"op":"peek","console":true,"limit":100})).await?;
+    assert_eq!(bounded["messages"], peek["messages"]);
+    assert_eq!(bounded["truncated"], false);
+    assert!(bounded["observedAt"].is_number());
+    assert_eq!(bounded["messages"][0]["deliveryAttempts"], 0);
+    assert_eq!(bounded["messages"][0]["lease"]["active"], false);
     let ids = peek["messages"]
         .as_array()
         .unwrap()
@@ -493,6 +513,15 @@ async fn run() -> Result<()> {
     assert_eq!(second.batch.messages.len(), 2);
     assert_eq!(first.batch.metrics.backlog_count, 2.0);
     assert_eq!(second.batch.metrics.backlog_count, 0.0);
+    let leased = operator(&runtime, Q, json!({"op":"peek","console":true})).await?;
+    assert!(leased["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|m| m["deliveryAttempts"] == 1
+            && m["lease"]["active"] == true
+            && m["lease"]["generation"] == 1
+            && m["lease"]["expiresAt"].is_number()));
     let moved = std::mem::replace(&mut first.batch, dummy());
     signals.mode.store(1, Ordering::SeqCst);
     let result = runtime
@@ -558,6 +587,9 @@ async fn run() -> Result<()> {
     );
     let dead = operator(&runtime, DLQ, json!({"op":"peek"})).await?;
     assert_eq!(dead["messages"][0]["deadLetterSource"], Q);
+    assert_eq!(dead["messages"][0]["provenance"]["sourceQueue"], Q);
+    assert!(dead["messages"][0]["provenance"]["transferId"].is_string());
+    assert_eq!(dead["messages"][0]["deliveryAttempts"], 0);
     assert_eq!(dead["messages"][0]["attempts"], 0);
     operator(&runtime, Q, json!({"op":"pause"})).await?;
     assert_eq!(
@@ -668,6 +700,10 @@ async fn run() -> Result<()> {
     drop(db);
     runtime.start_cell(scope(Q), 1, false).await?;
     runtime.publish_cell(&scope(Q), 1)?;
+    let expired_snapshot = operator(&runtime, Q, json!({"op":"peek","console":true})).await?;
+    assert_eq!(expired_snapshot["messages"][0]["lease"]["active"], false);
+    assert!(expired_snapshot["messages"][0]["lease"]["expiresAt"].is_number());
+    assert_eq!(expired_snapshot["messages"][0]["deliveryAttempts"], 1);
     operator(&runtime, Q, json!({"op":"resume"})).await?;
     fire(&runtime, Q, 6).await?;
     assert!(batches.try_recv().is_err());
@@ -686,6 +722,28 @@ async fn run() -> Result<()> {
         .queue_service(call.generation, &call.script, moved)
         .await?;
     settle(&runtime, Q, settlement(&call, result)).await?;
+    assert_eq!(
+        call_worker(&runtime, "preview-budget").await?,
+        "large messages queued"
+    );
+    let preview = operator(
+        &runtime,
+        GROUP,
+        json!({"op":"peek","console":true,"limit":100}),
+    )
+    .await?;
+    assert_eq!(preview["truncated"], true);
+    let messages = preview["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    assert!(messages.iter().all(|message| message["size"] == 128_000));
+    // The limit applies before loading bodies and includes base64 expansion
+    // within the web transport's response cap. Preview never consumes messages.
+    assert!(serde_json::to_vec(&preview)?.len() < 1024 * 1024);
+    assert_eq!(
+        operator(&runtime, GROUP, json!({"op":"info"})).await?["backlogCount"],
+        6
+    );
+    operator(&runtime, GROUP, json!({"op":"purge"})).await?;
     let grouped = call_worker(&runtime, "group").await?;
     let counts = grouped
         .as_array()
