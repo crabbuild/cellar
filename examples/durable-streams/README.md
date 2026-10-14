@@ -240,6 +240,16 @@ report complete preserving shutdown. Saved audits require the original process
 IDs, kill/restart/retry order, command acknowledgments, captured byte digests and
 final shutdown reports.
 
+Supply `--rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc` to run the same boundary
+against a fresh private Docker RustFS S3 server. The driver creates a random
+bucket and credentials, publishes only a random loopback port and removes only
+its own container after all nodes have stopped. Credentials reach explicitly
+constructed host clients through the fixture environment and are omitted from
+configuration and ledgers. Conditional ownership writes use a separate no-retry
+client. Saved evidence records the actual store image, backend and cleanup order.
+The SQLite mode remains the default. Use a pinned image digest for reproducible
+qualification and preserve the binary digest with the ledger.
+
 ```sh
 python3 examples/durable-streams/fleet_faults.py \
   --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
@@ -249,6 +259,7 @@ python3 examples/durable-streams/fleet_faults.py \
 ```
 
 This proves one independent-process destination append/response-loss cut point
-on a single machine. It does not qualify separate physical hosts, network object
-stores, follower loss, destination ack SIGKILL, power loss or the complete failure
+on a single machine, with the selected SQLite or RustFS S3 backend. It does not
+qualify separate physical hosts, follower loss, destination ack SIGKILL, object-
+store loss, power loss or the complete failure
 and capacity matrix.

@@ -234,6 +234,9 @@ independent measuring ledgers and audit before replay at every ambiguous boundar
 The process harness and before-first-send SIGKILL case supply scoped single-node
 SQLite-bucket evidence. The real peer proxy adds append/ack response loss across
 three embedded nodes in one process, not the entire fleet fault matrix.
+The independent-process append-loss driver also runs on a fresh private RustFS
+S3 bucket; its passed case proves network-store recovery at that boundary, without
+qualifying store/follower loss or separate physical hosts.
 
 Source destruction/recreation now has a durable closed-admission lifecycle,
 exact destination evidence, immutable loss receipts, source/work/lane fences,
@@ -1620,3 +1623,48 @@ This is independent-process evidence on one machine using a persistent SQLite
 bucket. It is not separate physical hosts, network object storage, follower loss,
 destination acknowledgment SIGKILL, power loss, source cleanup loss or complete
 capacity/release qualification.
+
+## Network-store destination recovery (2026-10-14)
+
+The opt-in standalone fleet fixture accepts either its existing SQLite bucket
+path or a bounded loopback S3 endpoint/name. The application explicitly builds
+ordinary, paginated and no-retry conditional ownership clients. Test credentials
+are captured only at this process boundary and never saved in fixture configs.
+No production API, deadline, proof gate, schema or version marker changes.
+
+`fleet_faults.py --rustfs-image IMAGE` owns a fresh Docker RustFS server, random
+loopback port, random credentials and new bucket. Its ledger records backend,
+actual image ID and server/bucket identity without credentials. Cleanup removes
+only that container after the original producer/consumer and replacement
+destination have returned complete preserving shutdown. The saved oracle rejects
+missing, foreign or premature store cleanup. Its 27 guards pass.
+
+The first attempt stopped during setup because RustFS health preceded S3 bucket
+readiness (HTTP 503). Its partial evidence is retained; it is not a passed run.
+The driver now uses the established fleet harness's bounded startup-only 503
+retry. This does not change node ownership/replication timeouts or conditional
+write retries. A fresh run passes against RustFS image
+`sha256:040304b66e029a5cde4bed140b41513e925909839a9b912a40a98340610d1f66`.
+Four saved independent audits prove one accepted event before destination
+SIGKILL and after recovery, before allowing automatic append retry. Original
+request/reply bytes match; source settlement, one inbox effect and checkpoint 1
+survive. Actual process IDs, reply drop, replacement startup and all final
+shutdowns are checked again by audit-only mode.
+
+Archived executable SHA-256
+`51c2e4e1c25a60a13553b80b9730c1113b3efdc2737796cea9a57d3e4f2b9889`
+and private evidence are retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-stream-network-evidence-cfq3dp2e`.
+Ordinary smoke and the default SQLite fleet case pass on the same executable;
+the latter has five saved audits, including one consumer interruption audit.
+Both backend ledgers pass independent audit-only rechecks. Focused example all-feature
+Clippy-D passes; documentation validates 35 documents/6 flows/370 references,
+dependency checks retain 401 packages without a JavaScript engine and whitespace
+checks pass. The previous 394-case workspace gate applies to the unchanged core;
+this batch exercises the changed host and measuring harness directly.
+
+This qualifies one separate-process destination append/reply-loss cut point
+using a network object store on the same machine. It does not establish
+follower-only proof, store loss, whole-fleet recovery without local data,
+physical-host/power loss, acknowledgment SIGKILL, source cleanup loss, every
+commit/proof cut point or capacity/soak qualification.

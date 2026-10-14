@@ -56,6 +56,18 @@ class FleetOracleTests(unittest.TestCase):
     def test_complete_independent_process_evidence(self):
         self.assertEqual(self.audit(fixture())["destination_sigkills"],1)
 
+    def test_network_store_evidence_requires_matching_cleanup_after_shutdown(self):
+        rows=fixture()
+        rows.insert(1,dict(event="network_store_started",backend="s3",container="cellar-stream-store-private",
+            image_id="sha256:"+"e"*64,bucket="stream-private",endpoint="http://127.0.0.1:9000"))
+        rows.append(dict(event="network_store_removed",container="cellar-stream-store-private"))
+        self.assertEqual(self.audit(rows)["backend"],"s3")
+        with self.assertRaisesRegex(AuditError,"cleanup evidence"):self.audit(rows[:-1])
+        altered=copy.deepcopy(rows);altered[-1]["container"]="another-store"
+        with self.assertRaisesRegex(AuditError,"removed before"):self.audit(altered)
+        altered=copy.deepcopy(rows);altered.insert(3,altered.pop())
+        with self.assertRaisesRegex(AuditError,"removed before"):self.audit(altered)
+
     def test_changed_original_command_is_rejected(self):
         rows=fixture();rows[0]["operations"]["cross"]["payload"]["amount_cents"]=726
         with self.assertRaisesRegex(AuditError,"original measuring"):self.audit(rows)

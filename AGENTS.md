@@ -533,6 +533,12 @@ is audited. Consumer transport ambiguity is audited before retry and preserves
 original lease expiry. Saved evidence validates exact peer byte digests, process
 roles/IDs and complete surviving/replacement shutdown. This is separate-process
 single-machine evidence, not physical-host/follower/power/capacity qualification.
+The same driver accepts `--rustfs-image` to create a fresh private Docker S3
+server and bucket. It captures image/backend identity, retries only startup
+CreateBucket 503s, injects separate no-retry conditional-write clients and removes
+its own server after complete node shutdown. Credentials stay outside saved
+configuration and ledgers. This adds network-store destination recovery evidence;
+it does not prove follower-only acknowledgment, store loss or physical-host loss.
 
 
 ## Change discipline

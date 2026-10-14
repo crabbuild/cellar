@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+import secrets
 from pathlib import Path
 import socket
 import socketserver
@@ -12,6 +13,8 @@ import subprocess
 import tempfile
 import threading
 import time
+import urllib.request
+import urllib.error
 
 from faults import AuditError, Ledger, Process, eventually, read, require, validate_snapshot
 
@@ -160,17 +163,17 @@ class PeerProxy:
 
 
 class FleetProcess(Process):
-    def __init__(self, binary, root, node, label, peer, advertise, declare):
+    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None):
         self.node = node
         data = root / "data" / node
         data.mkdir(parents=True, exist_ok=True)
         config = root / f"{label}-config.json"
-        config.write_text(json.dumps(dict(node=node, bucket=str(root/"fleet.sqlite"), peer=f"{peer[0]}:{peer[1]}",
+        config.write_text(json.dumps(dict(node=node, bucket=store.config if store else str(root/"fleet.sqlite"), peer=f"{peer[0]}:{peer[1]}",
             advertise=f"{advertise[0]}:{advertise[1]}", declare=declare)))
         self.log = root/f"{label}.log"
         self.output = self.log.open("xb")
         self.child = subprocess.Popen([str(binary),str(data),"0","--fleet-fixture",str(config)],
-            stdout=self.output, stderr=subprocess.STDOUT, env=dict(os.environ,NO_COLOR="1"))
+            stdout=self.output, stderr=subprocess.STDOUT, env=dict(os.environ,NO_COLOR="1", **(store.credentials if store else {})))
 
 
     def stop_recorded(self, ledger):
@@ -199,14 +202,82 @@ def audit(ledger, origins, label, pending, effects, checkpoint):
     return snapshot
 
 
+class NetworkStore:
+    """One owned ephemeral Docker server; never uses an existing bucket or store."""
+    def __init__(self, root, ledger, image):
+        self.name="cellar-stream-store-"+secrets.token_hex(8)
+        self.started=False
+        self.root, self.ledger, self.image=root, ledger, image
+        self.access, self.secret="stream-"+secrets.token_hex(8), secrets.token_hex(24)
+        self.credentials=dict(CELLAR_STREAM_FIXTURE_ACCESS=self.access,CELLAR_STREAM_FIXTURE_SECRET=self.secret)
+
+    def start(self):
+        # Pass credentials via the environment, never shell interpolation or
+        # command diagnostics. The container's own writable layer is discarded.
+        result=subprocess.run(["docker","run","-d","--name",self.name,
+            "--publish","127.0.0.1::9000","--cpus","1","--memory","2g",
+            "-e","RUSTFS_ACCESS_KEY","-e","RUSTFS_SECRET_KEY",
+            "-e","RUSTFS_CONSOLE_ENABLE=false","-e","RUSTFS_OBS_LOGGER_LEVEL=error",self.image,"/data"],
+            env=dict(os.environ,RUSTFS_ACCESS_KEY=self.access,RUSTFS_SECRET_KEY=self.secret),capture_output=True,text=True)
+        require(result.returncode==0,"private RustFS server could not start")
+        self.started=True
+        info=json.loads(subprocess.check_output(["docker","inspect",self.name]))[0]
+        port=info["NetworkSettings"]["Ports"]["9000/tcp"][0]["HostPort"]
+        endpoint="http://127.0.0.1:"+port
+        deadline=time.monotonic()+90
+        while True:
+            try:
+                with urllib.request.urlopen(endpoint+"/health",timeout=2) as response:
+                    require(response.status==200,"RustFS health failed")
+                break
+            except (OSError, AuditError):
+                require(time.monotonic()<deadline,"private RustFS readiness timed out")
+                time.sleep(.2)
+        # Reuse the established stdlib SigV4 creation helper; no SDK dependency.
+        import importlib.util
+        spec=importlib.util.spec_from_file_location("cellar_perf_store",Path(__file__).resolve().parents[2]/"tools/perf/run.py")
+        helper=importlib.util.module_from_spec(spec);spec.loader.exec_module(helper)
+        bucket="stream-"+secrets.token_hex(8)
+        deadline=time.monotonic()+60
+        while True:
+            try:
+                require(helper.create_bucket(endpoint,bucket,self.access,self.secret)==200,"private bucket creation failed")
+                break
+            except urllib.error.HTTPError as error:
+                require(error.code==503 and time.monotonic()<deadline,"private bucket creation failed after readiness")
+                self.ledger.record("network_store_startup_retry",status=error.code)
+                time.sleep(.2)
+        self.config=dict(endpoint=endpoint,name=bucket)
+        self.ledger.record("network_store_started",backend="s3",container=self.name,image_id=info["Image"],bucket=bucket,endpoint=endpoint)
+
+    def close(self):
+        if self.started:
+            logs=subprocess.run(["docker","logs",self.name],capture_output=True,text=True)
+            safe=(logs.stdout+logs.stderr).replace(self.access,"[redacted]").replace(self.secret,"[redacted]")
+            (self.root/"rustfs.log").write_text(safe)
+            result=subprocess.run(["docker","rm","-f",self.name],capture_output=True)
+            require(result.returncode==0,"private RustFS cleanup failed")
+            self.started=False
+            self.ledger.record("network_store_removed",container=self.name)
+
+
 def audit_evidence(path):
     operations, labels, passed = None, {}, set()
     held, kills, resumed, forwarded, drops = None, 0, False, 0, 0
     known_effects = set()
     pids, restarted, stopped = None, None, set()
+    store, removed = None, False
     for line in path.read_text().splitlines():
         row = json.loads(line); event=row["event"]
-        if event=="plan":
+        if event=="network_store_started":
+            require(store is None and pids is None and row["backend"]=="s3" and row["image_id"].startswith("sha256:")
+                and row["container"].startswith("cellar-stream-store-") and row["endpoint"].startswith("http://127.0.0.1:"),"invalid private network store evidence")
+            store=row
+        elif event=="network_store_removed":
+            require(store is not None and not removed and stopped=={"producer","destination","consumer"}
+                and row["container"]==store["container"],"network store removed before complete fleet shutdown")
+            removed=True
+        elif event=="plan":
             require(operations is None, "multiple fleet plans")
             operations=row["operations"]
         elif event=="attempt":
@@ -293,21 +364,24 @@ def audit_evidence(path):
     require(set(labels)==passed and required.issubset(passed)
         and held is not None and kills==1 and drops==1 and restarted is not None and resumed and forwarded>=1
         and stopped=={"producer","destination","consumer"}, "incomplete fleet fault evidence")
-    return dict(audits=len(passed),independent_processes=3,destination_sigkills=kills,response_drops=drops,identical_retries=forwarded)
+    require(store is None or removed,"network store cleanup evidence missing")
+    return dict(audits=len(passed),independent_processes=3,destination_sigkills=kills,response_drops=drops,identical_retries=forwarded,backend="s3" if store else "sqlite")
 
 
-def exercise(binary, root):
+def exercise(binary, root, rustfs_image=None):
     require(os.name=="posix", "fleet qualification requires SIGKILL")
     root.mkdir(parents=True,exist_ok=False)
     ledger=Ledger(root,commands=(("cross",725,1),)); processes=[]; proxy=None
+    store=NetworkStore(root,ledger,rustfs_image) if rustfs_image else None
     try:
+        if store:store.start()
         destination_peer=free_address(); proxy=PeerProxy(destination_peer,ledger)
-        destination=FleetProcess(binary,root,"destination","destination-initial",destination_peer,proxy.address,True)
+        destination=FleetProcess(binary,root,"destination","destination-initial",destination_peer,proxy.address,True,store)
         processes.append(destination); origins={"destination":destination.ready()}
         require(read(origins["destination"],"/__test/events")["records"]==[], "destination not initially empty")
         for node in ("producer","consumer"):
             peer=free_address()
-            process=FleetProcess(binary,root,node,node,peer,peer,False)
+            process=FleetProcess(binary,root,node,node,peer,peer,False,store)
             processes.append(process);origins[node]=process.ready()
         ledger.record("fleet_started",pids={node:process.child.pid for node,process in zip(("destination","producer","consumer"),processes)})
         require(read(origins["producer"],"/orders/cross")["host"]=="producer", "source was placed on another process")
@@ -317,7 +391,7 @@ def exercise(binary, root):
         audit(ledger,origins,"before-destination-loss",1,[],0)
         destination.crash(ledger,"destination-after-proven-append")
         proxy.release.set()
-        destination=FleetProcess(binary,root,"destination","destination-recovered",destination_peer,proxy.address,True)
+        destination=FleetProcess(binary,root,"destination","destination-recovered",destination_peer,proxy.address,True,store)
         processes.append(destination);origins["destination"]=destination.ready()
         ledger.record("destination_restarted", pid=destination.child.pid)
         audit(ledger,origins,"recovered-before-retry",1,[],0)
@@ -349,8 +423,9 @@ def exercise(binary, root):
         proxy.outage=True
         for process in reversed(processes):process.stop_recorded(ledger)
         proxy.close();proxy=None
+        if store:store.close()
         summary=dict(audit_evidence(ledger.path),status="passed",binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-            scope="three independent loopback processes sharing a private SQLite bucket; proven destination append reply loss and destination SIGKILL",output=str(root))
+            scope="three independent loopback processes sharing a private "+("RustFS S3" if store else "SQLite")+" bucket; proven destination append reply loss and destination SIGKILL",output=str(root))
         (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
         print(json.dumps(summary),flush=True)
     finally:
@@ -358,6 +433,7 @@ def exercise(binary, root):
             proxy.release.set();proxy.outage=True
         for process in reversed(processes):process.stop()
         if proxy is not None:proxy.close()
+        if store:store.close()
         ledger.close()
 
 
@@ -366,6 +442,7 @@ if __name__=="__main__":
     target=parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--binary",type=Path);target.add_argument("--audit",type=Path)
     parser.add_argument("--output",type=Path)
+    parser.add_argument("--rustfs-image",help="start a fresh private Docker RustFS server instead of the SQLite bucket")
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
-    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-stream-fleet-parent-"))/"evidence").resolve())
+    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-stream-fleet-parent-"))/"evidence").resolve(),args.rustfs_image)

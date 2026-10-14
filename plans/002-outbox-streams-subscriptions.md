@@ -1518,8 +1518,13 @@ audits recovered acceptance before release. Exact append/acceptance digests,
 process identities, inbox effects/checkpoint and complete final shutdown are
 rechecked from the saved measuring ledger. Consumer transport failures are
 independently audited before another attempt, retaining original lease expiry.
-This covers one process-loss cut point; separate physical hosts, network stores,
-follower/ack/power loss and the complete matrix remain required.
+Its `--rustfs-image` mode repeats the same cut point against a fresh private
+network S3 bucket. The measuring client owns that Docker server, records its
+actual image/backend and removes it after complete node shutdown. Saved evidence
+requires matching cleanup identity/order; credentials are excluded. Both SQLite
+and RustFS modes pass with independently archived executable/ledger digests.
+This covers one process-loss cut point on those two backends; separate physical
+hosts, store/follower/ack/power loss and the complete matrix remain required.
 
 ### Capacity and lifecycle qualification
 

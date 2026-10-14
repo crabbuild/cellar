@@ -59,10 +59,80 @@ fn graph(faults: bool) -> DeploymentGraph {
 #[serde(deny_unknown_fields)]
 struct FleetFixture {
     node: String,
-    bucket: PathBuf,
+    bucket: FixtureBucket,
     peer: SocketAddr,
     advertise: SocketAddr,
     declare: bool,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum FixtureBucket {
+    Local(PathBuf),
+    Network(NetworkBucket),
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NetworkBucket {
+    endpoint: String,
+    name: String,
+}
+
+impl FixtureBucket {
+    fn open(&self) -> Result<cellar::bucket::Bucket> {
+        match self {
+            Self::Local(path) => cellar::bucket::Bucket::open_dev(path),
+            Self::Network(config) => {
+                use object_store::aws::{AmazonS3Builder, S3ConditionalPut};
+                let endpoint = reqwest::Url::parse(&config.endpoint)?;
+                ensure!(
+                    endpoint.scheme() == "http"
+                        && endpoint.host_str() == Some("127.0.0.1")
+                        && endpoint.port().is_some()
+                        && endpoint.username().is_empty()
+                        && endpoint.password().is_none()
+                        && endpoint.path() == "/"
+                        && endpoint.query().is_none()
+                        && endpoint.fragment().is_none(),
+                    "network fixtures require a loopback HTTP object store"
+                );
+                ensure!(
+                    !config.name.is_empty() && config.name.len() <= 63,
+                    "invalid fixture bucket name"
+                );
+                // Only this opt-in application fixture captures credentials. The
+                // framework receives explicit clients, including no-retry CAS.
+                let builder = AmazonS3Builder::new()
+                    .with_bucket_name(&config.name)
+                    .with_region("us-east-1")
+                    .with_endpoint(&config.endpoint)
+                    .with_allow_http(true)
+                    .with_virtual_hosted_style_request(false)
+                    .with_access_key_id(std::env::var("CELLAR_STREAM_FIXTURE_ACCESS")?)
+                    .with_secret_access_key(std::env::var("CELLAR_STREAM_FIXTURE_SECRET")?)
+                    .with_conditional_put(S3ConditionalPut::ETagMatch);
+                let store = Arc::new(builder.clone().build()?);
+                let conditional = Arc::new(
+                    builder
+                        .with_retry(object_store::RetryConfig {
+                            max_retries: 0,
+                            retry_timeout: Duration::from_secs(30),
+                            ..Default::default()
+                        })
+                        .build()?,
+                );
+                cellar::bucket::Bucket::from_clients(
+                    store.clone(),
+                    conditional,
+                    store,
+                    cellar::bucket::StorageBackend::S3,
+                    config.name.clone(),
+                    String::new(),
+                )
+            }
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -119,11 +189,10 @@ fn main() -> Result<()> {
     host.block_on(async {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", port)).await?;
         let public_address = listener.local_addr()?;
-        let bucket_path = fixture
-            .as_ref()
-            .map(|fixture| fixture.bucket.clone())
-            .unwrap_or_else(|| data.join("fleet.sqlite"));
-        let bucket = cellar::bucket::Bucket::open_dev(&bucket_path)?;
+        let bucket = match &fixture {
+            Some(fixture) => fixture.bucket.open()?,
+            None => cellar::bucket::Bucket::open_dev(&data.join("fleet.sqlite"))?,
+        };
         let bootstrap = ExecutionDomain::new(host.handle().clone());
         let key = bootstrap
             .run(cellar::peer_auth::load_or_create(&bucket))
