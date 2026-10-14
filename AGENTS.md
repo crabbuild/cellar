@@ -127,7 +127,10 @@ advance a replacement. Event/inbox/lane cleanup is batched, business reset uses 
 existing transaction, receipts/tombstones survive and recreation mints fresh
 producer identity. Source roots register top-level physical facet names durably before opening.
 Destruction retires child activations and reclaims registered subtrees in at most
-100 replica objects per host batch, keeping each registry row until completion.
+100 replica objects and, after remote completion, at most 100 local files or
+directories per host batch, keeping each registry row until completion. Local
+cleanup uses `FileSystem::remove_dir_batch` on the owning blocking executor;
+custom filesystems must implement that resumable, no-symlink-following contract.
 Recreated sources qualify facet storage names by producer incarnation; logical
 names and startup identity remain unchanged. Native opens carry a captured
 admission check across host waits and restore, and serialize with subtree cleanup.

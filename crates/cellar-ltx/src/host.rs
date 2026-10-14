@@ -119,6 +119,16 @@ pub trait FileSystem: Send + Sync {
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()>;
 
+    /// Remove at most `limit` files/directories from a closed subtree, without
+    /// following symlinks or materializing its whole inventory. Return true
+    /// only when the root is absent. Interrupted batches must be resumable.
+    fn remove_dir_batch(&self, _path: &Path, _limit: usize) -> io::Result<bool> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "bounded directory cleanup is unsupported",
+        ))
+    }
+
     fn create_dir_all(&self, path: &Path) -> io::Result<()>;
 
     /// Best-effort cache recency, in the caller's wall-clock time.
@@ -149,6 +159,20 @@ pub(crate) fn telemetry_us() -> u64 {
 /// The ordinary direct-filesystem backend.
 #[derive(Default)]
 pub struct DirectFileSystem;
+
+#[allow(clippy::disallowed_methods)]
+fn remove_direct_leaf(path: &Path, kind: std::fs::FileType) -> io::Result<()> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::FileTypeExt;
+        if kind.is_symlink_dir() {
+            return std::fs::remove_dir(path);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = kind;
+    std::fs::remove_file(path)
+}
 
 struct DirectFile {
     file: std::fs::File,
@@ -277,6 +301,50 @@ impl FileSystem for DirectFileSystem {
 
     fn remove_dir_all(&self, path: &Path) -> io::Result<()> {
         std::fs::remove_dir_all(path)
+    }
+
+    fn remove_dir_batch(&self, path: &Path, limit: usize) -> io::Result<bool> {
+        if limit == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "empty cleanup budget",
+            ));
+        }
+        let metadata = match std::fs::symlink_metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
+            Err(error) => return Err(error),
+        };
+        if !metadata.is_dir() {
+            remove_direct_leaf(path, metadata.file_type())?;
+            return Ok(true);
+        }
+        let mut current = path.to_path_buf();
+        let mut removed = 0;
+        loop {
+            // Keep one path and one entry, releasing each directory iterator
+            // before descending. Wide trees consume no inventory-sized memory,
+            // and deep trees do not keep a stack of open directory handles.
+            let next = std::fs::read_dir(&current)?.next().transpose()?;
+            if let Some(entry) = next {
+                let kind = entry.file_type()?;
+                if kind.is_dir() {
+                    current = entry.path();
+                    continue;
+                }
+                remove_direct_leaf(&entry.path(), kind)?;
+            } else {
+                std::fs::remove_dir(&current)?;
+                if current == path {
+                    return Ok(true);
+                }
+                current.pop();
+            }
+            removed += 1;
+            if removed == limit {
+                return Ok(false);
+            }
+        }
     }
 
     fn create_dir_all(&self, path: &Path) -> io::Result<()> {

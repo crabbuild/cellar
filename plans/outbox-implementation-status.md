@@ -1340,3 +1340,42 @@ complete Node run). Workspace all-target/all-feature Clippy passes with warnings
 denied; formatting checks 423 Rust files. Docs validate 35 documents, 6 flows
 and 370 references; dependencies retain 401 packages without a JavaScript engine,
 and whitespace checks pass.
+
+
+## Bounded local facet reclamation
+
+Source facet reclamation no longer invokes recursive `remove_dir_all` on an
+async host turn. The injected `FileSystem::remove_dir_batch(path, limit)` contract
+removes at most the requested number of files/directories and reports completion
+only when the root is absent. The direct provider streams one directory entry
+at a time, keeps one traversal path, closes each iterator before descending and
+unlinks symlinks without following them. It can resume from the same root after
+process-local state is lost. A zero budget is refused; an absent root completes
+idempotently; other filesystem errors propagate. Custom providers default to an
+explicit unsupported error and must implement the contract to reclaim sources;
+there is no unbounded fallback.
+
+The replication backend completes its at-most-100-object remote sweep before
+admitting at-most-100-path local batches on the owning blocking executor. The
+nonreplicated host deletion path uses the same injected method. Executor refusal
+propagates without panic. Incomplete local work returns false, so the original
+source registry key and durable cleanup obligation remain retained. Existing
+ordinary facet deletion keeps its separate API and behavior.
+
+Tests seed 205 remote objects and 205 local files under the same closed subtree.
+Remote counts 105, 5, 0 are followed by local counts 105, 5 and complete removal;
+terminal completion is withheld through incomplete local batches. Exact remote
+root/sibling/other-root and local root bytes remain unchanged. A nested-tree test
+reconstructs the direct provider each turn, independently inventories removals
+and asserts no batch exceeds 17 entries, including directories. It verifies
+symlink targets outside the subtree survive and root symlinks are unlinked.
+Final qualification passes 102 library cases, both serial source lifecycle cases,
+workspace/all-target/all-feature Clippy with warnings denied, 423-file formatting,
+11 doctests with one existing ignored case, docs (35/6/370), dependencies (401,
+no JavaScript engine) and whitespace checks. Unix symlink behavior is exercised;
+the Windows-specific directory-symlink unlink branch follows the installed Rust
+standard library contract but has not been executed on Windows. These
+removal-count/memory bounds do not prove a
+wall-time or byte-I/O bound for arbitrary directory depth, filesystem latency,
+large individual unlink or SQLite business table reset. Capacity and abrupt-loss
+qualification remain required.

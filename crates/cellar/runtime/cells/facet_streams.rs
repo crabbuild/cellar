@@ -262,13 +262,12 @@ impl FacetStreams {
                 replication.ltx().delete_streams_batch(&facet).await
             }
             None => {
-                match crate::asyncrt::fs().remove_dir_all(&local(&facet)) {
-                    Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
-                        return Err(error.into())
-                    }
-                    _ => {}
-                }
-                Ok(true)
+                let filesystem = crate::asyncrt::fs();
+                let path = local(&facet);
+                Ok(
+                    crate::asyncrt::try_blocking(move || filesystem.remove_dir_batch(&path, 100))?
+                        .await??,
+                )
             }
         }
     }

@@ -306,7 +306,9 @@ the successor intact. Source event/inbox/lane reclamation is batched; existing
 business SQL table reset has separate transaction cost. Top-level facet names are registered before opening; source cleanup removes
 those independent subtrees, including children absent from the current process.
 A registry row stays until cleanup completes. Each remote batch deletes at most
-100 objects; the root replica and sibling streams remain intact. Recreated
+100 objects; local cleanup subsequently removes at most 100 files or directories
+per batch on the blocking executor. The root replica and sibling streams remain
+intact. Custom filesystems must provide resumable bounded directory deletion. Recreated
 sources use incarnation-qualified physical facet names while retaining public
 logical names and startup identity. Warm and owner-handoff nested-facet cases
 are qualified. Large local-directory/SQL reset capacity and the full source
