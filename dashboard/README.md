@@ -77,3 +77,26 @@ loading their contents into the browser. Query tabs, history and drafts are not
 persisted when leaving this workspace or reloading.
 
 See [implementation and verification](../plans/004-sql-kv-workspaces.md).
+
+Queue peek results open a read-only message sheet with payload preview, byte
+export, age in the current queue, delivery attempts, visibility, lease expiry
+and retained dead-letter transfer identity. It never consumes a message. The
+source queue's earlier age and attempt history are not retained by transfers.
+
+Workflow execution views can pin a step snapshot while selecting other steps or
+generations, search retained history through bounded owner pages, and overlay
+recorded step durations. Partial intervals and missing duration evidence are
+labeled explicitly; a configured sleep duration is not elapsed execution time.
+Compare retained generations or another instance beside one another, with each
+run's recorded definition, node/path changes and inputs/outputs. Search fields
+that exceed the payload budget are explicitly omitted; use history for full data.
+
+Cron configuration and adoption remain separate from actual execution records.
+Load retained attempts to inspect handler failure, retry requests, drained
+background failures, timing and adopted configuration. An interrupted attempt
+without a completion record stays unknown. Scheduled workflow acceptance links
+to its workflow instance and does not claim workflow completion. The owner retains
+256 attempts; history is available with data-read permission and starts with this
+framework version. Removed schedules retain inspection access without rearming.
+
+See [inspector implementation and verification](../plans/005-resource-inspectors.md).

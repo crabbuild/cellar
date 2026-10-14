@@ -1612,3 +1612,102 @@ body {
     min-height: var(--space-12);
   }
 }
+
+.resource-detail-sheet[data-side="right"] {
+  width: min(100%, 680px);
+  max-width: 680px;
+  overflow-y: auto;
+}
+.resource-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: 0 var(--space-4);
+  min-width: 0;
+}
+.resource-detail-body h3 {
+  font-weight: 550;
+  margin-bottom: var(--space-3);
+}
+.inspection-payload {
+  padding: var(--space-4);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 50dvh;
+  overflow: auto;
+}
+.inspection-filter-row {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: var(--space-3);
+}
+.inspection-filter-row > [data-slot="field"] {
+  flex: 1;
+  min-width: 0;
+}
+@media (max-width: 760px) {
+  .inspection-filter-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+.workflow-duration-overlay {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--info);
+}
+.workflow-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: 280px;
+  overflow: auto;
+}
+.workflow-search-results li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.workflow-search-results small {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.workflow-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+}
+.workflow-comparison-grid > section,
+.workflow-comparison-grid > div {
+  min-width: 0;
+}
+.workflow-comparison-grid h4 {
+  font-weight: 550;
+  margin-bottom: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.workflow-comparison-grid .workflow-execution-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (min-width: 1100px) {
+  .workflow-inspector {
+    position: sticky;
+    top: var(--space-4);
+    align-self: start;
+    max-height: 80dvh;
+    overflow: auto;
+  }
+}
+@media (max-width: 1000px) {
+  .workflow-comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

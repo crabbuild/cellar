@@ -1834,3 +1834,394 @@ test("KV conflict recovery refuses an oversized latest value", async ({
   await expect(page.locator(".kv-conflict")).toContainText("Value omitted")
   expect(writes).toBe(1)
 })
+
+test("queue details preserve binary payloads and expose lease and provenance snapshots", async ({
+  page,
+}) => {
+  const reads: unknown[] = []
+  await page.route("**/resources/action", async (route) => {
+    reads.push(route.request().postDataJSON().command)
+    await route.fulfill({
+      json: {
+        result: {
+          observedAt: now,
+          messages: [
+            {
+              id: "message-binary",
+              bodyBase64: "/wAB",
+              contentType: "bytes",
+              size: 3,
+              enqueuedAt: now - 120000,
+              visibleAt: now - 1000,
+              attempts: 2,
+              deliveryAttempts: 3,
+              state: "leased",
+              leasedUntil: now + 30000,
+              deadLetterSource: "source-queue",
+              transferTarget: null,
+              lease: { active: true, expiresAt: now + 30000, generation: 7 },
+              provenance: {
+                sourceQueue: "source-queue",
+                transferId: "transfer-123",
+                kind: null,
+                targetQueue: null,
+              },
+            },
+          ],
+        },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "Queues", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByRole("button", { name: "Peek", exact: true }).click()
+  await page
+    .getByRole("button", { name: "message-binary", exact: true })
+    .click()
+  const panel = page.getByRole("dialog", { name: "Message details" })
+  await expect(panel).toContainText("2.0 min")
+  await expect(panel).toContainText("Active at observation")
+  await expect(panel).toContainText("transfer-123")
+  await expect(panel).toContainText("source-queue")
+  await expect(panel).toContainText(
+    "Earlier source-queue attempt history is not retained"
+  )
+  await panel.getByRole("tab", { name: "Base64", exact: true }).click()
+  await expect(panel).toContainText("/wAB")
+  const downloadEvent = page.waitForEvent("download")
+  await panel.getByRole("button", { name: "Download bytes" }).click()
+  const stream = await (await downloadEvent).createReadStream()
+  const chunks: Buffer[] = []
+  for await (const chunk of stream!) chunks.push(chunk)
+  expect([...Buffer.concat(chunks)]).toEqual([255, 0, 1])
+  expect(reads).toEqual([{ action: "queue", operation: "peek", limit: 100 }])
+  await page.keyboard.press("Escape")
+  await expect(panel).not.toBeVisible()
+  await expect(
+    page.getByRole("button", { name: "message-binary", exact: true })
+  ).toBeFocused()
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page
+    .getByRole("button", { name: "message-binary", exact: true })
+    .click()
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth
+    )
+  ).toBeTruthy()
+  await panel.screenshot({ path: "test-results/queue-message-mobile.png" })
+})
+
+test("workflow pins, duration evidence, bounded search and comparisons stay tied to their runs", async ({
+  page,
+}) => {
+  const definition = (version: string) => ({
+    version,
+    nodes: [
+      {
+        id: "prepare",
+        label: version === "v1" ? "Prepare" : "Prepare updated",
+        kind: "activity",
+        step: "prepare",
+      },
+      ...(version === "v2"
+        ? [{ id: "approve", label: "Approve", kind: "wait", step: "approval" }]
+        : []),
+    ],
+    edges: version === "v2" ? [{ from: "prepare", to: "approve" }] : [],
+  })
+  const event = (
+    id: number,
+    type: string,
+    generation: string,
+    fields = {}
+  ) => ({
+    eventId: id,
+    timestamp: now + id * 100,
+    instanceId: "order-42",
+    generation,
+    type,
+    ...fields,
+  })
+  const events = [
+    event(1, "step_started", "run-1", {
+      stepName: "prepare",
+      count: 1,
+      input: { items: 3 },
+    }),
+    event(2, "step_completed", "run-1", {
+      stepName: "prepare",
+      count: 1,
+      output: { receipt: "first" },
+    }),
+    event(3, "step_started", "run-2", {
+      stepName: "prepare",
+      count: 2,
+      input: "[REDACTED]",
+    }),
+    event(4, "step_started", "run-2", {
+      stepName: "approval",
+      durationMs: 60000,
+    }),
+  ]
+  await page.route("**/resources/action", async (route) => {
+    const body = route.request().postDataJSON().command,
+      command = body.command
+    if (command.operation === "history_search")
+      return route.fulfill({
+        json: {
+          result: {
+            instanceId: body.instance,
+            scope: `__Workflow:${body.instance}`,
+            events: command.cursor ? [events[2]] : [],
+            scanned: 64,
+            next_cursor: command.cursor ? null : 64,
+            at_end: !!command.cursor,
+            done: false,
+          },
+        },
+      })
+    await route.fulfill({
+      json: {
+        result: {
+          instanceId: body.instance,
+          scope: `__Workflow:${body.instance}`,
+          cursor: command.cursor,
+          done: body.instance !== "other",
+          events:
+            body.instance === "other"
+              ? [
+                  { ...events[0], instanceId: "other", input: { other: true } },
+                  {
+                    ...events[1],
+                    instanceId: "other",
+                    output: { receipt: "other" },
+                  },
+                ]
+              : events,
+          definitions: {
+            "run-1": { definition: definition("v1"), revision: "one" },
+            "run-2": { definition: definition("v2"), revision: "two" },
+          },
+        },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "Workflows", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByLabel("Instance ID").fill("order-42")
+  await page.getByRole("button", { name: "Load history", exact: true }).click()
+  const explorer = page.getByLabel("Workflow execution explorer").first(),
+    inspector = explorer.getByLabel("Step inspector")
+  await explorer
+    .getByLabel("Execution generation", { exact: true })
+    .selectOption("run-1")
+  await explorer.getByRole("button", { name: /prepare step completed/ }).click()
+  await expect(inspector).toContainText("100 ms")
+  await explorer.getByRole("button", { name: "Pin step details" }).click()
+  await explorer
+    .getByLabel("Execution generation", { exact: true })
+    .selectOption("run-2")
+  await explorer.getByRole("button", { name: /approval step started/ }).click()
+  await expect(inspector).toContainText('"receipt": "first"')
+  await expect(inspector).toContainText("run-1")
+  await explorer.getByRole("button", { name: "Unpin details" }).click()
+  await expect(inspector).toContainText("Duration not recorded")
+  await expect(inspector).not.toContainText("1.0 min")
+  await explorer
+    .getByLabel("Search retained history", { exact: true })
+    .fill("secret")
+  await explorer
+    .getByRole("button", { name: "Search history", exact: true })
+    .click()
+  await expect(explorer).toContainText("No matches in this scanned page")
+  await explorer
+    .getByRole("button", { name: "Search next history page" })
+    .click()
+  await explorer.getByRole("button", { name: "#3 · prepare" }).click()
+  await expect(inspector).toContainText("[REDACTED]")
+  await explorer.getByRole("tab", { name: "Compare runs and versions" }).click()
+  const comparison = page.getByLabel("Workflow comparison", { exact: true })
+  await comparison.getByLabel("Left execution generation").selectOption("run-1")
+  await comparison
+    .getByLabel("Right execution generation")
+    .selectOption("run-2")
+  await comparison
+    .getByRole("tab", { name: "Definition comparison", exact: true })
+    .click()
+  await expect(comparison.getByLabel("Definition changes")).toContainText(
+    "1 added nodes"
+  )
+  await expect(comparison.getByLabel("Definition changes")).toContainText(
+    "1 changed nodes"
+  )
+  await expect(
+    comparison.getByLabel("Left definition comparison")
+  ).toContainText("v1")
+  await expect(
+    comparison.getByLabel("Right definition comparison")
+  ).toContainText("v2")
+  await comparison.getByLabel("Comparison instance").fill("other")
+  await comparison.getByRole("button", { name: "Load comparison run" }).click()
+  await expect(comparison).toContainText("Right · other")
+  await comparison
+    .getByRole("tab", { name: "Run comparison", exact: true })
+    .click()
+  await expect(comparison.getByLabel("Right run comparison")).not.toContainText(
+    "older events omitted"
+  )
+  await expect(comparison.getByLabel("Right run comparison")).toContainText(
+    '"other": true'
+  )
+  await expect(comparison.getByLabel("Left run comparison")).not.toContainText(
+    '"other": true'
+  )
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth
+    )
+  ).toBeTruthy()
+  await comparison.screenshot({ path: "test-results/workflow-comparison.png" })
+  await page.getByRole("radio", { name: "Dark theme", exact: true }).click()
+  await comparison.screenshot({
+    path: "test-results/workflow-comparison-dark.png",
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth
+    )
+  ).toBeTruthy()
+})
+
+test("cron execution history keeps adoption, acceptance and interruption distinct", async ({
+  page,
+}) => {
+  const queries: string[] = []
+  const configuration = {
+    application: "commerce-api",
+    prefix: "deploy/current",
+    deployment_revision: "deploy-current",
+    revision: "cron-current",
+    expressions: ["*/5 * * * *"],
+    primary: true,
+  }
+  await page.route("**/applications/commerce-api/cron**", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/nodes"))
+      return route.fulfill({
+        json: pageOf([
+          {
+            node: nodes[0].id,
+            status: "adopted",
+            observed_revision: "cron-current",
+            observed_at: now,
+          },
+        ]),
+      })
+    if (!url.pathname.endsWith("/executions"))
+      return route.fulfill({ json: configuration })
+    queries.push(url.search)
+    await route.fulfill({
+      json: {
+        items: url.searchParams.has("before")
+          ? []
+          : [
+              {
+                id: 3,
+                expression: "*/5 * * * *",
+                scheduled_at: now - 1000,
+                started_at: now - 500,
+                ended_at: null,
+                duration_ms: null,
+                status: "started",
+                attempt: 1,
+                target: "application",
+                node: "n1",
+                runtime_generation: 2,
+                retry_requested: false,
+                configuration: {
+                  prefix: "deploy/current",
+                  deployment_version: "v2",
+                  schedule_revision: "cron-current",
+                },
+              },
+              {
+                id: 2,
+                expression: "0 * * * *",
+                scheduled_at: now - 10000,
+                started_at: now - 9000,
+                ended_at: now - 8000,
+                duration_ms: 1000,
+                status: "workflow_accepted",
+                attempt: 1,
+                target: "workflow",
+                workflow_name: "Checkout",
+                workflow_binding: "CHECKOUT",
+                workflow_instance: "cron-instance",
+                node: "n1",
+                runtime_generation: 1,
+                retry_requested: false,
+                configuration: {
+                  prefix: "deploy/old",
+                  deployment_version: "v1",
+                  schedule_revision: null,
+                },
+              },
+              {
+                id: 1,
+                expression: "0 * * * *",
+                scheduled_at: now - 20000,
+                started_at: now - 19000,
+                ended_at: now - 18000,
+                duration_ms: 1000,
+                status: "failed",
+                attempt: 2,
+                target: "application",
+                node: "n1",
+                runtime_generation: 1,
+                retry_requested: true,
+                error: "handler failed",
+                background_errors: 1,
+              },
+            ],
+        next_cursor: url.searchParams.has("before") ? null : "1",
+        observed_at: now,
+        retention_limit: 256,
+        active_alarm: now + 30000,
+      },
+    })
+  })
+  await page.getByRole("link", { name: "Cron schedules", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByRole("button", { name: "Load execution history" }).click()
+  await expect(page.locator("main")).toContainText("Completion not recorded")
+  await expect(page.locator("main")).toContainText("Workflow accepted")
+  await expect(page.locator("main")).toContainText("Current configuration")
+  await expect(page.locator("main")).toContainText(
+    "Earlier or unrecorded configuration"
+  )
+  await page
+    .getByRole("button", { name: "0 * * * *", exact: true })
+    .last()
+    .click()
+  const panel = page.getByRole("dialog", { name: "Schedule execution" })
+  await expect(panel).toContainText("handler failed")
+  await expect(panel).toContainText("Yes; inspect later attempts")
+  await page.keyboard.press("Escape")
+  await page
+    .getByRole("button", { name: "0 * * * *", exact: true })
+    .first()
+    .click()
+  await expect(
+    panel.getByRole("link", { name: "Inspect workflow execution →" })
+  ).toHaveAttribute("href", /\?instance=cron-instance$/)
+  await page.keyboard.press("Escape")
+  await page.getByRole("button", { name: "Earlier executions" }).click()
+  await expect(page.locator("main")).toContainText("No recorded attempts")
+  await expect(page.locator("main")).toContainText(
+    "Empty history is not evidence"
+  )
+  expect(queries).toEqual(["?limit=50", "?limit=50&before=1"])
+})

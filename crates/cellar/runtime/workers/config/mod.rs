@@ -121,6 +121,7 @@ pub struct WorkerConfig {
     /// `triggers.crons` from the deployment. Empty for a loaded worker and for
     /// any script without cron triggers.
     pub crons: Vec<String>,
+    pub(crate) cron_history: Option<crate::application::cron::HistoryConfiguration>,
     /// `containers` from the deployment: the classes whose `ctx.container`
     /// exists. Empty for a loaded worker.
     pub containers: Vec<crate::container::ContainerSpec>,
@@ -215,6 +216,7 @@ impl WorkerConfig {
             resource_limits: None,
             tail_reporting: false,
             crons: Vec::new(),
+            cron_history: None,
             containers: Vec::new(),
             generation: 0,
             main_imports,
@@ -302,6 +304,14 @@ impl WorkerConfig {
     /// Give this Worker the deployment's cron trigger expressions.
     pub fn with_crons(mut self, crons: Vec<String>) -> Self {
         self.crons = crons;
+        self
+    }
+
+    pub(crate) fn with_cron_history(
+        mut self,
+        metadata: Option<crate::application::cron::HistoryConfiguration>,
+    ) -> Self {
+        self.cron_history = metadata;
         self
     }
 

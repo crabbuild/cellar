@@ -1,4 +1,6 @@
-use super::FleetClient;
+use std::time::Duration;
+
+use super::{FleetClient, Reachable, Subject};
 use crate::{
     deployment_cron,
     protocol::{DeployPointer, Manifest},
@@ -206,5 +208,47 @@ impl FleetClient {
             nodes.next_cursor,
             nodes.warnings,
         ))
+    }
+}
+
+impl FleetClient {
+    /// Real retained attempts from the scheduling cell. Does not arm or run a schedule.
+    pub async fn cron_history(
+        &self,
+        application: &str,
+        before: Option<u64>,
+        limit: u32,
+        expression: Option<&str>,
+    ) -> Result<serde_json::Value> {
+        let query = crate::application::cron::HistoryQuery {
+            before,
+            limit,
+            expression: expression.map(str::to_string),
+        };
+        query.validate()?;
+        // Only the primary application owns the fleet's scheduling cell.
+        // Its retained records remain inspectable after schedules are removed.
+        let configuration = self.cron_configuration(application).await?;
+        ensure!(
+            configuration.primary,
+            "only the primary application owns a scheduling cell"
+        );
+        let scope = cellar_logic::cron::reserved_cell(application);
+        Reachable::from_entrances(
+            &self.bucket,
+            Subject {
+                noun: "cron history",
+                source: "dashboard",
+                timeout: Duration::from_secs(30),
+            },
+            scope.clone(),
+            None,
+            self.routing_entrances(&scope).await?,
+        )
+        .await?
+        .with_response_limit(8 * 1024 * 1024)
+        .with_cron_history()
+        .call(serde_json::json!({"before":before,"limit":limit,"expression":expression}))
+        .await
     }
 }

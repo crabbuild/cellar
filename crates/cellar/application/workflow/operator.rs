@@ -11,6 +11,10 @@ pub enum OperatorAction {
     History {
         cursor: u64,
     },
+    HistorySearch {
+        cursor: u64,
+        query: String,
+    },
     Start {
         params: serde_json::Value,
     },
@@ -29,7 +33,10 @@ pub enum OperatorAction {
 
 impl OperatorAction {
     pub fn is_read(&self) -> bool {
-        matches!(self, Self::Inspect | Self::Status | Self::History { .. })
+        matches!(
+            self,
+            Self::Inspect | Self::Status | Self::History { .. } | Self::HistorySearch { .. }
+        )
     }
 }
 
@@ -133,6 +140,7 @@ impl InstanceCell {
                     Ok(serde_json::Value::Object(result))
                 }
                 OperatorAction::History { cursor } => operator_history(&self.storage, &id, cursor),
+                OperatorAction::HistorySearch { cursor, query } => operator_search(&self.storage, &id, cursor, &query),
                 action => {
                     if !matches!(action,OperatorAction::Start {..}) {
                         let meta = existing.as_ref().ok_or_else(|| error("instance does not exist"))?;
@@ -190,6 +198,15 @@ fn operator_history(
     instance: &str,
     cursor: u64,
 ) -> Result<serde_json::Value> {
+    operator_history_page(storage, instance, cursor, true)
+}
+
+fn operator_history_page(
+    storage: &crate::application::Storage,
+    instance: &str,
+    cursor: u64,
+    include_definitions: bool,
+) -> Result<serde_json::Value> {
     let page = super::history::page(storage, &data(json!({ "cursor": cursor }))?)?;
     // Convert fields individually: a structured output must not hide the timeline.
     let mut event = property(&page, "events")?.ok_or_else(|| error("missing events"))?;
@@ -227,7 +244,7 @@ fn operator_history(
             }
         }
         if let Some(generation) = value.get("generation").and_then(serde_json::Value::as_str) {
-            if !definitions.contains_key(generation) {
+            if include_definitions && !definitions.contains_key(generation) {
                 if let Some(snapshot) = read(storage, &format!("__wf.definition.{generation}"))? {
                     definitions.insert(generation.into(), operator_json(&snapshot)?);
                 }
@@ -256,5 +273,115 @@ fn operator_json(value: &StructuredValue) -> Result<serde_json::Value> {
         Err(_) => Ok(
             json!({"encoding":"cellar_structured_clone","base64":base64::engine::general_purpose::STANDARD.encode(cellar_native::clone::encode(value)?)}),
         ),
+    }
+}
+
+// Search progresses over bounded owner pages, including pages with no matches.
+// It never mixes instances or turns missing/unloaded events into completed steps.
+fn operator_search(
+    storage: &crate::application::Storage,
+    instance: &str,
+    cursor: u64,
+    query: &str,
+) -> Result<serde_json::Value> {
+    ensure!(
+        query.len() <= 256 && !query.trim().is_empty(),
+        "history search requires 1–256 bytes"
+    );
+    let query = query.to_lowercase();
+    let mut after = cursor;
+    let mut scanned = 0;
+    let mut matched = Vec::new();
+    let mut read_bytes = 0usize;
+    let mut match_bytes = 0usize;
+    let mut at_end = false;
+    let mut done = false;
+    for _ in 0..8 {
+        let page = operator_history_page(storage, instance, after, false)?;
+        let events = page["events"]
+            .as_array()
+            .ok_or_else(|| error("unreadable history page"))?;
+        done = page["done"] == true;
+        if events.is_empty() {
+            at_end = true;
+            break;
+        }
+        for event in events {
+            let encoded = serde_json::to_string(event)?;
+            if scanned > 0 && read_bytes.saturating_add(encoded.len()) > 8 * 1024 * 1024 {
+                return Ok(
+                    json!({"instanceId":instance,"events":matched,"next_cursor":after,"scanned":scanned,"at_end":false,"done":false}),
+                );
+            }
+            let matches = encoded.to_lowercase().contains(&query);
+            let hit = if matches {
+                Some(search_hit(event.clone())?)
+            } else {
+                None
+            };
+            if hit
+                .as_ref()
+                .is_some_and(|(_, bytes)| match_bytes.saturating_add(*bytes) > 4 * 1024 * 1024)
+            {
+                return Ok(
+                    json!({"instanceId":instance,"events":matched,"next_cursor":after,"scanned":scanned,"at_end":false,"done":false}),
+                );
+            }
+            read_bytes = read_bytes.saturating_add(encoded.len());
+            scanned += 1;
+            after = event["eventId"]
+                .as_u64()
+                .ok_or_else(|| error("unreadable event identity"))?;
+            if let Some((hit, bytes)) = hit {
+                match_bytes = match_bytes.saturating_add(bytes);
+                matched.push(hit);
+            }
+        }
+        if done {
+            at_end = true;
+            break;
+        }
+    }
+    Ok(
+        json!({"instanceId":instance,"events":matched,"next_cursor":if at_end {None}else{Some(after)},"scanned":scanned,"at_end":at_end,"done":done}),
+    )
+}
+
+// A hit locates an event; large data fields remain available through normal
+// history reads. Explicit omission markers prevent huge JSON escape expansion
+// from making the search response exceed the console's transport budget.
+fn search_hit(mut event: serde_json::Value) -> Result<(serde_json::Value, usize)> {
+    let mut omitted = Vec::new();
+    if serde_json::to_vec(&event)?.len() > 1024 * 1024 {
+        for field in ["input", "output", "params", "error", "config"] {
+            if let Some(value) = event.get(field) {
+                if serde_json::to_vec(value)?.len() > 128 * 1024 {
+                    event[field] = json!({"inspection":"omitted from bounded history search; load the event through history"});
+                    omitted.push(field);
+                }
+            }
+        }
+        if !omitted.is_empty() {
+            event["inspectionOmitted"] = json!(omitted);
+        }
+    }
+    let bytes = serde_json::to_vec(&event)?.len();
+    Ok((event, bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_bounds_escaped_payloads_without_hiding_identity_or_redaction() -> Result<()> {
+        let large = json!({"eventId":123,"generation":"run-1","type":"step_completed","stepName":"secret","output":"\0".repeat(1024*1024-32),"input":"[REDACTED]"});
+        let (hit, bytes) = search_hit(large)?;
+        assert!(bytes < 1024 * 1024);
+        assert_eq!(hit["eventId"], 123);
+        assert_eq!(hit["generation"], "run-1");
+        assert_eq!(hit["input"], "[REDACTED]");
+        assert_eq!(hit["inspectionOmitted"], json!(["output"]));
+        Ok(())
     }
 }

@@ -94,6 +94,12 @@ explorer separates generations and offers a recorded path, activity timeline,
 input/output inspector and the definition snapshot captured for that run. See
 [workflow definitions and inspection](../../docs/08-asynchronous-work.md#visual-definitions-and-execution-inspection)
 for publishing diagrams and explicitly recording step inputs.
+The explorer adds pinned step snapshots, recorded duration overlays and side-by-side
+run/definition comparisons. `history_search` requires `data_read` and scans at most
+64 events per request, with explicit continuation even on an empty matching page.
+Search results retain redaction; oversized data fields are explicitly omitted from
+search hits and remain available through ordinary history. History pages include
+the owner scope so the browser cannot merge a rebound binding's earlier events.
 Changes to an existing workflow require its observed execution generation. After
 a restart, inspect the new execution before issuing another control.
 
@@ -113,6 +119,28 @@ Saving returns acceptance; the node adoption table compares actual loaded revisi
 and expressions, and reports unreachable/older nodes separately. Adoption does not
 prove that an occurrence ran. An empty override retains the scheduling cell so it
 can clear an old alarm. Workflow schedule declarations remain deployment configuration.
+
+`GET /api/v1/fleets/{fleet}/applications/{application}/cron/executions` requires
+`data_read`, with optional `before`, `limit` (1–100, default 50) and `expression`
+filters. Only the primary application owns a scheduling cell. Reads are owner-routed
+and do not arm schedules or create an absent journal. A signed
+`inspection=cron_history_v1` query is refused by older entrances before dispatch;
+new entrances reuse the cancellable owner-routed `__cronHistory` RPC. Older owners
+refuse this unsupported RPC instead of interpreting a legacy fetch as arming. Its own SQLite and output gate
+retain the last 256 actual attempts with configuration identity, occurrence, attempt,
+start/end timing, duration, handler result kind, failure and drained background-error
+count. `started` without completion evidence may be running or interrupted; a retry
+request does not prove another attempt occurred. Attempt numbering follows the
+existing activation-local retry state; record IDs distinguish all retained attempts. `workflow_accepted` confirms only the
+create request, with a linkable instance ID. Old framework executions are not
+backfilled. Removing a schedule retains inspection access; anonymous `/do/` access
+to cron cells is refused. These observations do not change retry or replay policy.
+
+Queue console peek snapshots add observation time, total delivery attempts (including
+a recorded lease), lease activity/expiry/generation and transfer provenance. They
+remain non-consuming and bounded by the existing 512 KiB payload preview budget.
+Dead-letter acceptance resets age and attempts in the receiving queue; the panel
+explicitly distinguishes these from unretained earlier source-queue history.
 
 Node controls use signed private requests with process-generation
 preconditions. Balancing preferences propagate through node leases; acceptance of

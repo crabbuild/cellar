@@ -659,3 +659,49 @@ async fn conditional_kv_drafts_cannot_cross_a_rebound_namespace() {
     assert_eq!(operations["items"], json!([]));
     domain.shutdown().await;
 }
+
+#[tokio::test]
+async fn execution_inspection_requires_data_read_before_lookup() {
+    let (_dir, app, domain) = fixture().await;
+    for fleet in ["alpha", "beta", "missing"] {
+        let (status, _) = get(
+            &app,
+            &format!("/api/v1/fleets/{fleet}/applications/missing/cron/executions"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+    let body = json!({"application":"missing","binding":"WF","operation_id":"search","command":{"action":"workflow","instance":"run","command":{"operation":"history_search","query":"step","cursor":0}}});
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/fleets/alpha/resources/action")
+                .header("authorization", format!("Bearer {TOKEN}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    // Write-only operators cannot use history search to read step inputs.
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/fleets/alpha/resources/action")
+                .header(
+                    "authorization",
+                    "Bearer write-only-test-token-with-32-or-more-bytes",
+                )
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    domain.shutdown().await;
+}

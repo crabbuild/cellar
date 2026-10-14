@@ -490,6 +490,9 @@ async fn run() -> Result<()> {
     let bounded = operator(&runtime, Q, json!({"op":"peek","console":true,"limit":100})).await?;
     assert_eq!(bounded["messages"], peek["messages"]);
     assert_eq!(bounded["truncated"], false);
+    assert!(bounded["observedAt"].is_number());
+    assert_eq!(bounded["messages"][0]["deliveryAttempts"], 0);
+    assert_eq!(bounded["messages"][0]["lease"]["active"], false);
     let ids = peek["messages"]
         .as_array()
         .unwrap()
@@ -508,6 +511,15 @@ async fn run() -> Result<()> {
     assert_eq!(second.batch.messages.len(), 2);
     assert_eq!(first.batch.metrics.backlog_count, 2.0);
     assert_eq!(second.batch.metrics.backlog_count, 0.0);
+    let leased = operator(&runtime, Q, json!({"op":"peek","console":true})).await?;
+    assert!(leased["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|m| m["deliveryAttempts"] == 1
+            && m["lease"]["active"] == true
+            && m["lease"]["generation"] == 1
+            && m["lease"]["expiresAt"].is_number()));
     let moved = std::mem::replace(&mut first.batch, dummy());
     signals.mode.store(1, Ordering::SeqCst);
     let result = runtime
@@ -573,6 +585,9 @@ async fn run() -> Result<()> {
     );
     let dead = operator(&runtime, DLQ, json!({"op":"peek"})).await?;
     assert_eq!(dead["messages"][0]["deadLetterSource"], Q);
+    assert_eq!(dead["messages"][0]["provenance"]["sourceQueue"], Q);
+    assert!(dead["messages"][0]["provenance"]["transferId"].is_string());
+    assert_eq!(dead["messages"][0]["deliveryAttempts"], 0);
     assert_eq!(dead["messages"][0]["attempts"], 0);
     operator(&runtime, Q, json!({"op":"pause"})).await?;
     assert_eq!(
@@ -683,6 +698,10 @@ async fn run() -> Result<()> {
     drop(db);
     runtime.start_cell(scope(Q), 1, false).await?;
     runtime.publish_cell(&scope(Q), 1)?;
+    let expired_snapshot = operator(&runtime, Q, json!({"op":"peek","console":true})).await?;
+    assert_eq!(expired_snapshot["messages"][0]["lease"]["active"], false);
+    assert!(expired_snapshot["messages"][0]["lease"]["expiresAt"].is_number());
+    assert_eq!(expired_snapshot["messages"][0]["deliveryAttempts"], 1);
     operator(&runtime, Q, json!({"op":"resume"})).await?;
     fire(&runtime, Q, 6).await?;
     assert!(batches.try_recv().is_err());

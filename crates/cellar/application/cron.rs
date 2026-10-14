@@ -1,6 +1,12 @@
 //! The native reserved cron cell. Schedule and retry policy remain in
 //! cellar_logic::cron; storage, wake discovery and ownership remain the host's.
 
+mod history;
+pub(crate) use history::{Configuration as HistoryConfiguration, Query as HistoryQuery};
+
+use futures_util::TryStreamExt;
+use serde_json::{json, Value};
+
 use super::{Application, Cell, Context, EventState, HandlerFuture, Invocation, Output, Storage};
 use crate::engine_api::HttpResponse;
 use anyhow::{anyhow, Result};
@@ -45,6 +51,11 @@ struct Schedule {
     parsed: Vec<policy::Cron>,
     positions: Vec<usize>,
     workflow_targets: Vec<Option<super::workflow::Workflow>>,
+    workflow_bindings: Vec<Option<String>>,
+    configuration: Option<HistoryConfiguration>,
+    application_name: String,
+    node: String,
+    runtime_generation: u64,
     state: Mutex<State>,
 }
 
@@ -53,14 +64,23 @@ pub(crate) fn create_cell(
     application: Arc<dyn Application>,
     mut expressions: Vec<String>,
 ) -> Result<Arc<dyn Cell>> {
+    anyhow::ensure!(
+        context
+            .identity()
+            .is_some_and(|identity| identity.scope
+                == policy::reserved_cell(&context.worker_config.script_name)),
+        "cron application identity mismatch"
+    );
     let mut workflow_targets = vec![None; expressions.len()];
+    let mut workflow_bindings = vec![None; expressions.len()];
     let mut bindings = context.workflow_bindings.iter().collect::<Vec<_>>();
     bindings.sort_by(|left, right| left.0.cmp(right.0));
-    for (_, workflow) in bindings {
+    for (binding, workflow) in bindings {
         workflow.settings.validate()?;
         for expression in &workflow.settings.schedules {
             expressions.push(expression.clone());
             workflow_targets.push(Some(workflow.clone()));
+            workflow_bindings.push(Some(binding.clone()));
         }
     }
     let mut parsed = Vec::new();
@@ -80,6 +100,11 @@ pub(crate) fn create_cell(
         parsed,
         positions,
         workflow_targets,
+        workflow_bindings,
+        configuration: context.worker_config.cron_history.clone(),
+        application_name: context.worker_config.script_name.clone(),
+        node: context.worker_config.node.clone(),
+        runtime_generation: context.generation,
         state: Mutex::new(State::default()),
     }))
 }
@@ -152,32 +177,73 @@ impl Schedule {
                 }
             }
         };
+        let attempt = if retried {
+            self.state.lock().unwrap().retry.saturating_add(1)
+        } else {
+            1
+        };
         let mut failed = Vec::new();
         for index in due {
-            if let Some(workflow) = &self.workflow_targets[index] {
-                if let Err(error) = workflow
-                    .create_scheduled(
-                        context,
-                        super::workflow::CronSchedule {
-                            cron: self.expressions[index].clone(),
-                            scheduled_ms: occurrence,
-                        },
-                    )
-                    .await
-                {
-                    tracing::error!(cron=%self.expressions[index],%error,"scheduled workflow creation failed");
+            let started = now();
+            let clock = crate::asyncrt::mono_ms();
+            let workflow = self.workflow_targets[index].as_ref();
+            let schedule = super::workflow::CronSchedule {
+                cron: self.expressions[index].clone(),
+                scheduled_ms: occurrence,
+            };
+            let mut record = json!({
+                "expression":self.expressions[index],"schedule_index":index,"scheduled_at":occurrence,
+                "started_at":started,"ended_at":null,"duration_ms":null,"status":"started","attempt":attempt,
+                "application":self.application_name,"node":self.node,"runtime_generation":self.runtime_generation,
+                "configuration":self.configuration,"target":if workflow.is_some(){"workflow"}else{"application"},
+                "workflow_name":workflow.map(|w|w.name()),"workflow_binding":self.workflow_bindings[index],
+                "workflow_instance":workflow.map(|_|schedule.instance_id()),"retry_requested":null,
+            });
+            let id = history::begin(&self.storage, &self.expressions[index], record.clone())?;
+            if let Some(workflow) = workflow {
+                match workflow.create_scheduled(context, schedule).await {
+                    Ok(()) => {
+                        record["status"] = json!("workflow_accepted");
+                        record["retry_requested"] = json!(false);
+                    }
+                    Err(error) => {
+                        tracing::error!(cron=%self.expressions[index],%error,"scheduled workflow creation failed");
+                        record["status"] = json!("failed");
+                        record["error"] = json!(history::error_text(error));
+                        record["retry_requested"] = json!(true);
+                        failed.push(index);
+                    }
+                }
+            } else {
+                let controller = Scheduled {
+                    scheduled_ms: occurrence,
+                    cron: self.expressions[index].clone(),
+                    no_retry: Arc::new(AtomicBool::new(false)),
+                };
+                let outcome =
+                    ScheduledRun::new(context, self.application.clone(), controller).await;
+                if outcome.retry {
                     failed.push(index);
                 }
-                continue;
+                record["status"] = json!(if outcome.error.is_some() {
+                    if outcome.retry {
+                        "failed"
+                    } else {
+                        "failed_no_retry"
+                    }
+                } else if outcome.background_errors > 0 {
+                    "completed_with_background_errors"
+                } else {
+                    "completed"
+                });
+                record["error"] = json!(outcome.error);
+                record["result"] = outcome.output;
+                record["background_errors"] = json!(outcome.background_errors);
+                record["retry_requested"] = json!(outcome.retry);
             }
-            let controller = Scheduled {
-                scheduled_ms: occurrence,
-                cron: self.expressions[index].clone(),
-                no_retry: Arc::new(AtomicBool::new(false)),
-            };
-            if ScheduledRun::new(context, self.application.clone(), controller).await {
-                failed.push(index);
-            }
+            record["ended_at"] = json!(now());
+            record["duration_ms"] = json!(crate::asyncrt::mono_ms().saturating_sub(clock));
+            history::finish(&self.storage, id, record)?;
         }
         self.arm(Some(occurrence), failed, retried)
     }
@@ -187,7 +253,31 @@ impl Cell for Schedule {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
             match invocation {
-                Invocation::Fetch(_) => self.fetch(),
+                Invocation::Fetch(request) => {
+                    let mut stream = context.take_body(request.body)?;
+                    let mut bytes = Vec::new();
+                    while let Some(chunk) = stream.try_next().await.map_err(anyhow::Error::msg)? {
+                        anyhow::ensure!(
+                            bytes.len().saturating_add(chunk.len()) <= 4096,
+                            "cron inspection request exceeds 4 KiB"
+                        );
+                        bytes.extend(chunk);
+                    }
+                    anyhow::ensure!(bytes.is_empty(),"cron arming does not accept a body; inspect history through __cronHistory RPC");
+                    self.fetch()
+                }
+                Invocation::CellRpc { method, args } => {
+                    anyhow::ensure!(method == "__cronHistory", "unsupported cron RPC");
+                    let crate::engine_api::RpcData::Json(body) = args else {
+                        return Err(anyhow!("cron history requires JSON"));
+                    };
+                    anyhow::ensure!(body.len() <= 4096, "cron inspection request exceeds 4 KiB");
+                    let query: history::Query = serde_json::from_str(&body)?;
+                    let page = history::page(&self.storage, query)?;
+                    Ok(Output::Rpc(crate::engine_api::RpcData::Json(
+                        serde_json::to_string(&page)?,
+                    )))
+                }
                 Invocation::Alarm { scheduled_ms } => {
                     self.alarm(&context, scheduled_ms).await?;
                     Ok(Output::Done)
@@ -208,6 +298,16 @@ struct ScheduledRun {
     handler: Option<HandlerFuture<Output>>,
     background: Vec<HandlerFuture<()>>,
     retry: bool,
+    error: Option<String>,
+    output: Value,
+    background_errors: u32,
+}
+
+struct RunOutcome {
+    retry: bool,
+    error: Option<String>,
+    output: Value,
+    background_errors: u32,
 }
 
 impl ScheduledRun {
@@ -233,14 +333,17 @@ impl ScheduledRun {
             handler: Some(handler),
             background: Vec::new(),
             retry: false,
+            error: None,
+            output: Value::Null,
+            background_errors: 0,
         }
     }
 }
 
 impl Future for ScheduledRun {
-    type Output = bool;
+    type Output = RunOutcome;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<bool> {
+    fn poll(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<RunOutcome> {
         let this = self.get_mut();
         if let Some(handler) = &mut this.handler {
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -249,7 +352,11 @@ impl Future for ScheduledRun {
             .unwrap_or_else(|panic| Poll::Ready(Err(crate::native_worker::panic_error(panic))));
             if let Poll::Ready(result) = result {
                 this.handler = None;
+                if let Ok(output) = &result {
+                    this.output = history::output_summary(output);
+                }
                 if let Err(error) = result {
+                    this.error = Some(history::error_text(&error));
                     tracing::error!(cron=%this.controller.cron,%error,"scheduled handler failed");
                     // The existing cell records this before draining waitUntil.
                     this.retry = !this.controller.no_retry.load(Ordering::Acquire);
@@ -268,6 +375,7 @@ impl Future for ScheduledRun {
                 Poll::Pending => true,
                 Poll::Ready(result) => {
                     if let Err(error) = result {
+                        this.background_errors = this.background_errors.saturating_add(1);
                         tracing::error!(%error,"scheduled background work failed");
                     }
                     false
@@ -279,7 +387,12 @@ impl Future for ScheduledRun {
             cx.waker().wake_by_ref();
         }
         if this.handler.is_none() && this.background.is_empty() && !queued {
-            Poll::Ready(this.retry)
+            Poll::Ready(RunOutcome {
+                retry: this.retry,
+                error: this.error.take(),
+                output: std::mem::take(&mut this.output),
+                background_errors: this.background_errors,
+            })
         } else {
             Poll::Pending
         }

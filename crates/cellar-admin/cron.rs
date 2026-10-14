@@ -156,3 +156,40 @@ pub(crate) async fn propagation(
             .map_err(anyhow::Error::from)?,
     ))
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ExecutionQuery {
+    before: Option<u64>,
+    #[serde(default = "execution_page_size")]
+    limit: u32,
+    expression: Option<String>,
+}
+
+fn execution_page_size() -> u32 {
+    50
+}
+
+pub(crate) async fn executions(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, application)): Path<(String, String)>,
+    axum::extract::Query(query): axum::extract::Query<ExecutionQuery>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&fleet, Permission::DataRead)?;
+    let client = &console
+        .fleets
+        .get(&fleet)
+        .ok_or_else(ApiError::forbidden)?
+        .client;
+    Ok(Json(
+        client
+            .cron_history(
+                &application,
+                query.before,
+                query.limit,
+                query.expression.as_deref(),
+            )
+            .await?,
+    ))
+}

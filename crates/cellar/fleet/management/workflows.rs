@@ -15,12 +15,26 @@ impl FleetClient {
             !instance.is_empty() && instance.len() <= 256,
             "invalid workflow instance ID"
         );
-        self.call(
-            crate::engine_api::workflow_cell_scope(application, &binding.identity, instance),
+        let history = matches!(
+            command,
+            WorkflowAction::History { .. } | WorkflowAction::HistorySearch { .. }
+        );
+        let scope =
+            crate::engine_api::workflow_cell_scope(application, &binding.identity, instance);
+        let mut result=self.call(
+            scope.clone(),
             None,
             json!({"binding":binding.name,"instance":instance,"command":command,"expected_generation":expected_generation}),
         )
-        .await
+        .await?;
+        if history {
+            let fields = result
+                .as_object_mut()
+                .ok_or_else(|| anyhow::anyhow!("workflow history is not an object"))?;
+            fields.insert("scope".into(), json!(scope));
+            fields.insert("bindingIdentity".into(), json!(binding.identity));
+        }
+        Ok(result)
     }
 
     /// Bound each page by visited scopes, including instances of other bindings.

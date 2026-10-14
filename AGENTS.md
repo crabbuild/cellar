@@ -141,7 +141,14 @@ declared expressions. Conditional writes guard the observed schedule revision.
 The loader and standalone watcher share resolution; embedded hosts explicitly
 adopt a loaded graph. `LoadedDeployment::cron_revision` records an adopted override,
 including an empty schedule that must retire an existing alarm. Do not infer a
-successful scheduled occurrence from generation adoption.
+successful scheduled occurrence from generation adoption. Bounded execution observations
+live in `application/cron/history.rs` in the scheduling cell's own SQLite/output
+gate; retain started attempts without terminal evidence after interruption. Only
+the primary application owns that cell. The cron class remains inspectable after
+schedule removal, while `Generation::cron_cell` determines active adoption.
+Cron inspection uses the authenticated reserved-cell route, a fixed read-only
+`__cronHistory` RPC, and `data_read`;
+anonymous `/do/` requests must not expose its journal.
 
 The layout preserves three mixed modules for later focused refactors:
 `node/mod.rs` combines shared node composition with process startup;
@@ -387,7 +394,8 @@ Conditional console requests also pin the inspected binding identity across depl
 Console edits preserve exact expiry and storage tags, and distinguish absent
 metadata from JSON null. Definite revision conflicts are rejected; lost write
 replies remain unknown. Keep the existing unconditional SDK/CLI signatures.
-See `plans/003-fleet-dashboard.md` and `plans/004-sql-kv-workspaces.md` for
+See `plans/003-fleet-dashboard.md`, `plans/004-sql-kv-workspaces.md`, and
+`plans/005-resource-inspectors.md` for
 implementation progress and release gates.
 
 For dashboard changes, also run:
