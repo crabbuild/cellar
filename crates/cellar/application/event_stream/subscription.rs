@@ -212,7 +212,7 @@ impl<E> Subscription<E> {
             .call(
                 context,
                 "__streamNext",
-                json!({"fetch_id":fetch_id,"expected":identity,
+                json!({"fetch_id":fetch_id,"expected":&identity,
             "max_records":options.max_records.min(limits.batch_records()),
             "max_bytes":options.max_bytes.min(limits.batch_bytes()),
             "wait_ms":options.wait_ms.min(limits.max_poll_ms).to_string()}),
@@ -221,65 +221,14 @@ impl<E> Subscription<E> {
         if value.is_null() {
             return Ok(None);
         }
-        let receipt = Receipt::decode(
-            value["receipt"]
-                .as_str()
-                .ok_or_else(|| error(ErrorCode::StaleReceipt, "missing batch receipt"))?,
-        )?;
-        self.check_receipt(&receipt)?;
-        let mut records = Vec::new();
-        let mut total_bytes = 0usize;
-        for row in value["records"]
-            .as_array()
-            .ok_or_else(|| error(ErrorCode::InvalidRequest, "missing batch records"))?
-        {
-            let offset = super::subscription_store::integer(row, "offset")?;
-            let encoded = row["envelope"]
-                .as_str()
-                .ok_or_else(|| error(ErrorCode::InvalidRequest, "missing batch envelope"))?;
-            if encoded.len() > limits.event_bytes().div_ceil(3) * 4 {
-                return Err(error(
-                    ErrorCode::PayloadTooLarge,
-                    "encoded batch event exceeds receiver limits",
-                ));
-            }
-            let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
-            total_bytes = total_bytes
-                .checked_add(bytes.len())
-                .ok_or_else(|| error(ErrorCode::PayloadTooLarge, "batch byte overflow"))?;
-            if records.len() >= options.max_records.min(limits.batch_records())
-                || bytes.len() > limits.event_bytes()
-                || total_bytes > options.max_bytes.min(limits.batch_bytes())
-            {
-                return Err(error(
-                    ErrorCode::PayloadTooLarge,
-                    "batch exceeds receiver limits",
-                ));
-            }
-            records.push(Record {
-                offset,
-                event: serde_json::from_slice(&bytes)?,
-                encoded: bytes,
-            });
-        }
-        if records.is_empty()
-            || records[0].offset != receipt.first
-            || records.last().unwrap().offset != receipt.last
-            || records
-                .windows(2)
-                .any(|pair| pair[0].offset.checked_add(1) != Some(pair[1].offset))
-        {
-            return Err(error(
-                ErrorCode::StaleReceipt,
-                "batch does not match receipt",
-            ));
-        }
+        let (receipt, records, issued_at_ms, expires_at_ms) =
+            accept_batch(self.stream.resource(), &identity, options, limits, value)?;
         Ok(Some(Batch {
             subscription: self.clone(),
             receipt,
             records,
-            issued_at_ms: super::subscription_store::integer(&value, "issued_ms")?,
-            expires_at_ms: super::subscription_store::integer(&value, "expires_ms")?,
+            issued_at_ms,
+            expires_at_ms,
         }))
     }
 
@@ -312,8 +261,16 @@ impl<E> Subscription<E> {
 
     pub async fn retry(&self, context: &Context, receipt: &Receipt, delay_ms: i64) -> Result<()> {
         self.check_receipt(receipt)?;
-        if delay_ms < 0 {
-            return Err(error(ErrorCode::InvalidRequest, "negative retry delay"));
+        if delay_ms < 0
+            || delay_ms
+                > crate::application::limits::current()
+                    .events
+                    .max_retry_delay_ms
+        {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "retry delay exceeds policy",
+            ));
         }
         self.call(
             context,
@@ -332,6 +289,9 @@ impl<E> Subscription<E> {
         expires_ms: i64,
     ) -> Result<i64> {
         self.check_receipt(receipt)?;
+        if expires_ms < 0 {
+            return Err(error(ErrorCode::InvalidRequest, "negative lease expiry"));
+        }
         let value = self
             .call(
                 context,
@@ -339,9 +299,104 @@ impl<E> Subscription<E> {
                 json!({"receipt":receipt.encode()?,"expires_ms":expires_ms.to_string()}),
             )
             .await?;
-        super::subscription_store::integer(&value, "expires_ms")
+        accept_extension(expires_ms, &value)
     }
 }
+
+fn accept_extension(requested: i64, value: &Value) -> Result<i64> {
+    let accepted = super::subscription_store::integer(value, "expires_ms")?;
+    if accepted < requested || accepted <= 0 {
+        return Err(error(
+            ErrorCode::StaleReceipt,
+            "extension response shortened requested expiry",
+        ));
+    }
+    Ok(accepted)
+}
+
+fn accept_batch(
+    resource: &super::Resource,
+    identity: &super::SubscriptionIdentity,
+    options: BatchOptions,
+    limits: cellar_logic::event_stream::Limits,
+    value: Value,
+) -> Result<(Receipt, Vec<Record>, i64, i64)> {
+    identity.validate()?;
+    let receipt = Receipt::decode(
+        value["receipt"]
+            .as_str()
+            .ok_or_else(|| error(ErrorCode::StaleReceipt, "missing batch receipt"))?,
+    )?;
+    if receipt.resource != resource.id
+        || identity.resource != resource.id
+        || receipt.name != identity.name
+        || receipt.subscription != identity.id
+        || receipt.incarnation != identity.generation
+    {
+        return Err(error(
+            ErrorCode::SubscriptionReset,
+            "batch names another subscription incarnation",
+        ));
+    }
+    let issued = super::subscription_store::integer(&value, "issued_ms")?;
+    let expires = super::subscription_store::integer(&value, "expires_ms")?;
+    if issued < 0
+        || expires <= issued
+        || expires
+            .checked_sub(issued)
+            .is_none_or(|duration| duration > limits.max_lease_lifetime_ms)
+    {
+        return Err(error(
+            ErrorCode::StaleReceipt,
+            "invalid batch lease interval",
+        ));
+    }
+    let rows = value["records"]
+        .as_array()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "missing batch records"))?;
+    let count = options.max_records.min(limits.batch_records());
+    let budget = options.max_bytes.min(limits.batch_bytes());
+    if count == 0 || budget == 0 || rows.len() > count {
+        return Err(error(
+            ErrorCode::PayloadTooLarge,
+            "batch exceeds receiver limits",
+        ));
+    }
+    if rows.is_empty()
+        || i64::try_from(rows.len()).ok()
+            != receipt
+                .last
+                .checked_sub(receipt.first)
+                .and_then(|n| n.checked_add(1))
+    {
+        return Err(error(
+            ErrorCode::StaleReceipt,
+            "batch does not match receipt",
+        ));
+    }
+    let mut records = Vec::new();
+    let mut total = 0usize;
+    for (index, row) in rows.iter().enumerate() {
+        let offset = super::subscription_store::integer(row, "offset")?;
+        if receipt.first.checked_add(i64::try_from(index)?) != Some(offset) {
+            return Err(error(
+                ErrorCode::StaleReceipt,
+                "batch skipped or repeated an offset",
+            ));
+        }
+        let record =
+            super::client::decode_record(resource, row, limits, budget.saturating_sub(total))?;
+        total = total
+            .checked_add(record.encoded.len())
+            .ok_or_else(|| error(ErrorCode::PayloadTooLarge, "batch byte overflow"))?;
+        records.push(record);
+    }
+    Ok((receipt, records, issued, expires))
+}
+
+#[cfg(test)]
+#[path = "subscription_tests.rs"]
+mod tests;
 
 impl<E> Batch<E> {
     pub fn receipt(&self) -> &Receipt {

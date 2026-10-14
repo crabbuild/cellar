@@ -701,3 +701,15 @@ producer replies carry retired/cleanup_complete so an empty terminal set is not
 mistaken for an active producer census. Pages are live, not snapshots/drain proofs.
 Facet inventory, every historical restore/backend/ownership/capacity cut and
 complete release qualification remain separate work. All owned markers stay 1.
+
+
+Subscription fetch acceptance compares the receipt with the identity resolved for
+that fetch, including subscription UUID and incarnation. Raw and leased reads
+share the bounded envelope decoder: remaining caller bytes bound base64 allocation,
+and family/source/incarnation/lane/event identities are independently checked.
+Leased replies must match the exact contiguous receipt range and a nonnegative,
+positive lease interval within captured lifetime limits. Unknown application event
+schemas remain readable; processing authority never depends on application decoding.
+Negative extension deadlines and retry delays outside host policy fail before RPC.
+All owned markers remain 1; full codec, cancellation, lifecycle/fault qualification
+remains tracked in plans/outbox-implementation-status.md.

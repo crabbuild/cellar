@@ -252,56 +252,14 @@ fn accept_page(
                 "read response skipped or repeated an offset",
             ));
         }
-        let encoded = row["envelope"]
-            .as_str()
-            .ok_or_else(|| error(ErrorCode::InvalidRequest, "read envelope is missing"))?;
-        let maximum = limits.event_bytes().min(budget.saturating_sub(total));
-        if encoded.len() > maximum.div_ceil(3) * 4 {
-            return Err(error(
-                ErrorCode::PayloadTooLarge,
-                "encoded read event exceeds receiver budget",
-            ));
-        }
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(encoded)
-            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid read envelope encoding"))?;
-        if bytes.len() > maximum {
-            return Err(error(
-                ErrorCode::PayloadTooLarge,
-                "read response exceeds byte budget",
-            ));
-        }
+        let record = decode_record(expected, row, limits, budget.saturating_sub(total))?;
         total = total
-            .checked_add(bytes.len())
+            .checked_add(record.encoded.len())
             .ok_or_else(|| error(ErrorCode::PayloadTooLarge, "read response byte overflow"))?;
-        let event: Envelope = serde_json::from_slice(&bytes)
-            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid read event envelope"))?;
-        super::store::validate_id(&event.source_incarnation)
-            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid read source incarnation"))?;
-        if !cellar_logic::cell::valid_cell_scope(&event.source)
-            || event.sequence <= 0
-            || event.version == 0
-            || event.created_at_ms < 0
-            || event.family != expected.family
-            || event.key.len() > limits.max_key_bytes
-            || event.family.len() > limits.max_family_bytes
-            || event.lane
-                != super::lane_identity(expected, &event.source, &event.source_incarnation)?
-            || event.id != format!("v1:{}:{}", event.lane, event.sequence)
-        {
-            return Err(error(
-                ErrorCode::InvalidRequest,
-                "read event identity conflicts with stream",
-            ));
-        }
         position = position
             .checked_add(1)
             .ok_or_else(|| error(ErrorCode::InvalidCursor, "read cursor overflow"))?;
-        records.push(Record {
-            offset,
-            event,
-            encoded: bytes,
-        });
+        records.push(record);
     }
     if next != position || (records.is_empty() && first != end) {
         return Err(error(
@@ -318,6 +276,68 @@ fn accept_page(
         },
         earliest,
         end,
+    })
+}
+
+/// Validate bounded envelopes identically for raw replay and leased delivery.
+pub(super) fn decode_record(
+    expected: &super::Resource,
+    row: &serde_json::Value,
+    limits: cellar_logic::event_stream::Limits,
+    remaining: usize,
+) -> Result<Record> {
+    let offset = super::subscription_store::integer(row, "offset")?;
+    let encoded = row["envelope"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "stream envelope is missing"))?;
+    let maximum = limits.event_bytes().min(remaining);
+    if encoded.len() > maximum.div_ceil(3) * 4 {
+        return Err(error(
+            ErrorCode::PayloadTooLarge,
+            "encoded stream event exceeds receiver budget",
+        ));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| {
+            error(
+                ErrorCode::InvalidRequest,
+                "invalid stream envelope encoding",
+            )
+        })?;
+    if bytes.len() > maximum {
+        return Err(error(
+            ErrorCode::PayloadTooLarge,
+            "stream response exceeds byte budget",
+        ));
+    }
+    let event: Envelope = serde_json::from_slice(&bytes)
+        .map_err(|_| error(ErrorCode::InvalidRequest, "invalid stream event envelope"))?;
+    super::store::validate_id(&event.source_incarnation).map_err(|_| {
+        error(
+            ErrorCode::InvalidRequest,
+            "invalid stream source incarnation",
+        )
+    })?;
+    if !cellar_logic::cell::valid_cell_scope(&event.source)
+        || event.sequence <= 0
+        || event.version == 0
+        || event.created_at_ms < 0
+        || event.family != expected.family
+        || event.key.len() > limits.max_key_bytes
+        || event.family.len() > limits.max_family_bytes
+        || event.lane != super::lane_identity(expected, &event.source, &event.source_incarnation)?
+        || event.id != format!("v1:{}:{}", event.lane, event.sequence)
+    {
+        return Err(error(
+            ErrorCode::InvalidRequest,
+            "stream event identity conflicts with stream",
+        ));
+    }
+    Ok(Record {
+        offset,
+        event,
+        encoded: bytes,
     })
 }
 

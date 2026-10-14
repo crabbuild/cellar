@@ -2472,3 +2472,56 @@ Cellar-owned peer protocol, native-host protocol, wake format and schema markers
 remain **1**, with hard development cutovers rather than backward compatibility.
 The implementation goal remains active; the remaining requirement audit and
 qualification must continue before release.
+
+
+## Subscription reply acceptance audit (2026-10-14)
+
+The client previously checked resource/name and receipt offsets but did not compare
+subscription UUID/incarnation with the identity resolved for its fetch. It also
+accepted unvalidated envelope identity and arbitrary issued/expiry intervals.
+Fetch acceptance now checks all resolved receipt identity fields, exact nonempty
+contiguous range, canonical timestamps and positive lease duration within captured
+host lifetime. Raw and leased reads share one bounded envelope decoder, including
+remaining-byte allocation checks and family/source/incarnation/lane/event identity.
+Malformed base64/JSON becomes a typed InvalidRequest; unknown application event
+versions and exact integer payloads remain inspectable. Retry policy/negative
+extension deadline preflight and extension response lower-bound checks are included.
+All owned markers stay 1. Current qualification results will be recorded below;
+this does not close the full transport/codec/cancellation or lease/fault matrix.
+
+The first library gate passes 150 cases and fails one new oversized-envelope
+fixture: its size*8 string is still below the default host allocation bound, so
+InvalidRequest for malformed JSON is correct. The fixture now exceeds the actual
+captured host base64 bound. No acceptance check or error expectation was relaxed;
+this failed fixture result is retained separately from final qualification.
+
+A second library run passes 152 cases and reproduces the same oversized fixture
+failure. Inspection finds the source still uses size*8: a concurrently running
+formatter rewrote its earlier snapshot after the correction. The fixture is now
+corrected only after that formatter is terminal; production acceptance code is
+unchanged. Rebuilt native binaries from the final compile run separately while
+the corrected library gate is prepared. Preserve both failed fixture gates.
+
+Next audited priority: storage/sqlite/wake_record.rs still drops previous
+alarm-only __sys_cell_wake_* triggers and installs the current work projection;
+work.rs explicitly tests upgrading that layout. This is a remaining internal
+compatibility path contrary to the hard-cutover policy. Replace it with explicit
+old-layout refusal before base-schema mutation and retain fresh/current-layout
+wake identity, reopen and rollback coverage. This finding is not yet fixed or
+qualified by the subscription gates.
+
+The corrected serial library gate passes **153 tests** (363.01 seconds), including
+all nine new subscription acceptance regressions and the nine existing raw-read
+acceptance regressions. Rebuilt native stream integration passes (12.43 seconds);
+all **31 rebuilt serial Node cases** pass (293.26 seconds), including exact lost
+append/ack reply handling and complete shutdown. Final formatting checks 445 Rust
+files; 62 Python guards, docs (35 documents/6 flows/370 references), native
+dependencies (401/no JavaScript engine) and whitespace checks pass. Final source workspace/all-target/all-feature Clippy with warnings denied
+passes (11m10s). These are scoped library/stream/Node
+checks, not a refreshed entire workspace release or process-fault matrix.
+
+Evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-subscription-acceptance-119lzq9p`.
+It retains both failed fixture gates, lint-style failure, corrected source/logs
+and archived rebuilt native binaries. No receipt, deadline, shutdown or caller
+budget assertion is relaxed. Full transport allocation, cancellation, lease-race,
+follower/power/store-loss, physical metrics and release qualification remain open.
