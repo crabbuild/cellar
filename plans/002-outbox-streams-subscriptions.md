@@ -1478,9 +1478,21 @@ expiry. Saved payload/envelope digests and effect receipts account for accepted
 events after intentional capacity reclamation. An audit-only command rechecks
 every saved stage and rejects incomplete or misordered evidence.
 This is actual single-node process evidence with a persistent SQLite-backed
-bucket. It does not satisfy source loss before the first send, destination
-append/ack response loss, separate-host/follower/network/bucket/power faults,
-all listed cut points, or capacity qualification. Those requirements remain.
+bucket. The separate `before_send.py` case adds source SIGKILL before its first
+attempt, with a killed SQLite-family audit and recovery audit before replay.
+These cases do not complete destination append/ack response loss,
+separate-host/follower/network/bucket/power faults, all listed cut points, or
+capacity qualification. The remaining requirements retain their full scope.
+
+The serial Node suite additionally tests a proven destination append reply lost
+on the actual authenticated peer tunnel between independently started embedded
+nodes. It audits known command payload/identity, pending source accounting and
+exact destination envelope before dropping the captured reply. Retry bytes and
+acceptance match, with one offset, one inbox effect and checkpoint 1. Distinct
+node domains/data directories and complete shutdown are asserted. This extends
+local network response-loss evidence; it does not satisfy separate physical
+hosts/process loss, persistent measuring-ledger or remaining ack/follower/power
+and cut-point qualification.
 
 ### Capacity and lifecycle qualification
 

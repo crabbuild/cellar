@@ -1,6 +1,9 @@
 //! Actual node routing and proof gates, including staged adoption and inbox
 //! redelivery. No synthetic successful-gate adapter is installed here.
 
+#[path = "append_reply_fault.rs"]
+mod append_reply_fault;
+
 #[path = "source_cleanup_fault.rs"]
 mod source_cleanup_fault;
 
@@ -2904,5 +2907,245 @@ async fn source_destruction_fences_suspended_turns_retained_handles_and_preserve
     stopped(node)
         .await
         .context("source lifetime complete shutdown")?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lost_proven_append_reply_retries_exact_bytes_without_duplicate_acceptance() -> Result<()> {
+    use base64::Engine;
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("append-reply-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (mut config, services) = inputs(
+        "append-destination",
+        &directory.path().join("destination"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let proxy = append_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
+    config.identity.advertise = proxy.address.to_string();
+    let destination_constructors = Arc::new(AtomicUsize::new(0));
+    let destination = Node::start(
+        config,
+        services,
+        graph(1, false),
+        applications_with_probe("destination", Some(destination_constructors.clone()))?,
+    )
+    .await?;
+    super::ready(&destination).await?;
+    let client = client()?;
+    let empty = stream_operator(
+        &client,
+        &destination,
+        &binding(false),
+        json!({"kind":"read","cursor":null,"limit":10,"max_bytes":4096,"payload":true}),
+        "audit",
+    )
+    .await?;
+    ensure!(
+        empty["result"]["records"] == json!([]),
+        "destination was not empty: {empty}"
+    );
+    ensure!(destination_constructors.load(Ordering::Acquire) == 0);
+    let (config, services) = inputs(
+        "append-producer",
+        &directory.path().join("producer"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let producer_constructors = Arc::new(AtomicUsize::new(0));
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let producer = Node::start(
+        config,
+        services,
+        external,
+        applications_with_probe("producer", Some(producer_constructors.clone()))?,
+    )
+    .await?;
+    super::ready(&producer).await?;
+    proxy.capture.armed.store(true, Ordering::Release);
+    ensure!(call(&client, &producer, reqwest::Method::POST, "/write").await? == "producer:1");
+    tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
+        .await??
+        .forget();
+    ensure!(
+        producer_constructors.load(Ordering::Acquire) == 1
+            && destination_constructors.load(Ordering::Acquire) == 0,
+        "source was not independently hosted"
+    );
+    let captured = proxy.capture.exchanges.lock().unwrap().clone();
+    ensure!(captured.len() == 1 && captured[0].dropped && captured[0].scope == stream_scope()?);
+    let request = cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
+        captured[0].request.clone().into(),
+    ))?
+    .to_json()?;
+    let reply = cellar::application::decode_rpc_result(&cellar::engine_api::RpcData::Structured(
+        captured[0].response.clone().into(),
+    ))?
+    .to_json()?;
+    ensure!(request[0]["records"]
+        .as_array()
+        .is_some_and(|records| records.len() == 1));
+    let envelope: serde_json::Value = serde_json::from_slice(
+        &base64::engine::general_purpose::STANDARD
+            .decode(request[0]["records"][0].as_str().unwrap())?,
+    )?;
+    ensure!(
+        reply["ok"]["protocol"] == 1
+            && reply["ok"]["accepted_through"] == "1"
+            && reply["ok"]["resource"] == resource().id
+            && reply["ok"]["lane"] == request[0]["lane"],
+        "captured append reply did not prove the exact prefix: {reply}"
+    );
+    ensure!(
+        envelope["payload"] == json!({"value":1})
+            && envelope["sequence"] == "1"
+            && envelope["lane"] == request[0]["lane"]
+            && envelope["family"] == Changed::FAMILY
+            && envelope["version"] == 1
+            && request[0]["binding"]["resource"]["id"] == resource().id,
+        "append changed the independently issued command: {envelope}"
+    );
+    let scope = envelope["source"]
+        .as_str()
+        .context("envelope source missing")?;
+    let pending = operator(&client, &producer, scope, &json!({"op":"inspect"}), "audit").await?;
+    ensure!(
+        pending["result"]["pending_rows"] == "1"
+            && pending["result"]["incarnation"] == envelope["source_incarnation"]
+            && pending["result"]["lanes"][0]["revision"]["next_sequence"] == "2"
+            && pending["result"]["lanes"][0]["revision"]["settled_through"] == "0",
+        "source settled before receiving the reply: {pending}"
+    );
+    let accepted = stream_operator(
+        &client,
+        &destination,
+        &binding(false),
+        json!({"kind":"read","cursor":null,"limit":10,"max_bytes":4096,"payload":true}),
+        "audit",
+    )
+    .await?;
+    ensure!(
+        accepted["result"]["records"]
+            .as_array()
+            .is_some_and(|records| records.len() == 1)
+            && accepted["result"]["records"][0]["offset"] == "1"
+            && accepted["result"]["records"][0]["event"] == envelope,
+        "destination acceptance differed before reply loss: {accepted}"
+    );
+    // Audit the acknowledged command and accepted envelope before permitting
+    // network loss/retry or any consumer to hide a missing obligation.
+    ensure!(call(&client, &producer, reqwest::Method::GET, "/read").await? == "producer:1");
+    proxy.capture.release.add_permits(1);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = operator(&client, &producer, scope, &json!({"op":"inspect"}), "audit").await?;
+        if state["result"]["pending_rows"] == "0" {
+            break;
+        }
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "append retry did not settle: {state}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let attempts = proxy.capture.exchanges.lock().unwrap().clone();
+    ensure!(
+        attempts.len() >= 2 && attempts.iter().filter(|exchange| exchange.dropped).count() == 1
+    );
+    for attempt in &attempts {
+        ensure!(
+            attempt.scope == captured[0].scope
+                && attempt.request == captured[0].request
+                && attempt.response == captured[0].response,
+            "append retry changed bytes or acceptance"
+        );
+    }
+    let after = stream_operator(
+        &client,
+        &destination,
+        &binding(false),
+        json!({"kind":"read","cursor":null,"limit":10,"max_bytes":4096,"payload":true}),
+        "audit",
+    )
+    .await?;
+    ensure!(
+        after["result"]["records"] == accepted["result"]["records"],
+        "lost reply duplicated acceptance"
+    );
+    let (config, services) = inputs(
+        "append-consumer",
+        &directory.path().join("consumer"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let consumer_constructors = Arc::new(AtomicUsize::new(0));
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let consumer = Node::start(
+        config,
+        services,
+        external,
+        applications_with_probe("consumer", Some(consumer_constructors.clone()))?,
+    )
+    .await?;
+    super::ready(&consumer).await?;
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/process-retry?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/process-ack?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    ensure!(
+        consumer_constructors.load(Ordering::Acquire) == 1,
+        "consumer was not independently hosted"
+    );
+    let subscription = stream_operator(
+        &client,
+        &destination,
+        &binding(true),
+        json!({"kind":"subscription","name":"projection"}),
+        "audit",
+    )
+    .await?;
+    ensure!(
+        subscription["result"]["checkpoint"] == "1",
+        "consumer skipped or lost the accepted prefix: {subscription}"
+    );
+    stopped(consumer)
+        .await
+        .context("append fault consumer complete shutdown")?;
+    stopped(producer)
+        .await
+        .context("append fault producer complete shutdown")?;
+    stopped(destination)
+        .await
+        .context("append fault destination complete shutdown")?;
+    proxy
+        .stop()
+        .await
+        .context("append fault proxy joined every connection")?;
     Ok(())
 }

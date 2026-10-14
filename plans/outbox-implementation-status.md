@@ -1379,3 +1379,39 @@ removal-count/memory bounds do not prove a
 wall-time or byte-I/O bound for arbitrary directory depth, filesystem latency,
 large individual unlink or SQLite business table reset. Capacity and abrupt-loss
 qualification remain required.
+
+
+## Proven destination append reply loss across embedded nodes
+
+The Node suite now runs destination, producer and consumer as independently
+started nodes with distinct data directories/execution domains over the private
+persistent SQLite bucket. Source/consumer factory probes confirm business state
+materializes on their intended hosts; the destination materializes neither. It
+owns the warmed stream before the producer starts. Its advertised private peer
+address points to a loopback TCP proxy forwarding unmodified HTTP/1 establishment
+and tunneled request/response framing, including the original authenticated
+handshake. No production receiver, output proof, routing or ownership gate is
+replaced.
+
+The proxy captures the complete successful append reply after the real destination
+output gate. Before closing sockets, an independent measuring path verifies the
+acknowledged command state, known `{value:1}` payload, exact source incarnation,
+sequence 1/next sequence 2, one pending source row with settled prefix 0, and one
+destination offset whose full envelope matches the captured request. Only then
+is the loss released. Framework retry sends identical encoded request bytes and
+receives identical acceptance bytes for the same resource/lane/accepted prefix.
+Destination records remain exactly unchanged. A separate consumer commits/proves
+an inbox effect, explicitly retries its batch, then redelivers/acknowledges with
+one effect and checkpoint 1. All three nodes must complete original preserving
+shutdown, and the proxy joins every connection. Runtime deadlines remain intact.
+
+The focused case and all 29 serial Node cases pass (212.63 seconds for the full
+run). Workspace/all-target/all-feature Clippy passes with warnings denied;
+formatting checks 424 Rust files, docs validate 35 documents/6 flows/370 references,
+dependencies retain 401 packages without a JavaScript engine and whitespace
+checks pass.
+This is actual peer append response loss across embedded nodes in one test
+process, with in-process measurement snapshots and a persistent SQLite bucket.
+It does not qualify independent physical hosts/process failures, saved fsynced
+measuring ledgers, destination ack response loss, follower loss, power loss or
+all other commit/proof cut points. Those release requirements remain open.

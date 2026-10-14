@@ -495,6 +495,12 @@ digests/effect receipts and re-audits saved stages. Run its oracle guards with
 `python3 -m unittest discover -s examples/durable-streams -p 'test_*.py'`.
 This is single-node SQLite-bucket process evidence; it does not complete the
 destination/follower/network/power/cut-point/capacity release matrix.
+The serial Node suite also places destination, producer and consumer in distinct
+execution domains. A real loopback peer tunnel proxy captures a proven append
+reply, holds it through an independent source/destination audit and closes both
+sockets. Retry bytes and acceptance match exactly; one destination offset and
+one inbox-protected effect survive. This is actual network reply loss between
+embedded nodes, not separate-process/host, SIGKILL or power qualification.
 `examples/durable-streams/before_send.py` holds the source's actual input gate,
 proves its command/obligation and SIGKILLs before the first dispatch attempt.
 Copy the killed SQLite family and audit zero attempts before restarting, then
