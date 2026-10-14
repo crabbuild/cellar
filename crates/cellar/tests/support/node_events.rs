@@ -80,7 +80,7 @@ fn graph(revision: i64, missing: bool) -> DeploymentGraph {
         application.resource.id = "00000000000000000000000000000002".into();
         application.resource.name = "missing".into();
     }
-    graph.primary.options.stream_bindings = vec![application, binding(true)];
+    graph.primary.options.stream_bindings = vec![application.into(), binding(true).into()];
     graph
 }
 
@@ -3305,5 +3305,282 @@ async fn lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effect
         .stop()
         .await
         .context("append fault proxy joined every connection")?;
+    Ok(())
+}
+
+struct NamedCounter {
+    label: &'static str,
+    retained: Arc<std::sync::Mutex<Option<Stream<Changed>>>>,
+}
+
+impl Cell for NamedCounter {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            if let Invocation::Fetch(request) = &invocation {
+                let path = url::Url::parse(&request.url)?.path().to_owned();
+                match path.as_str() {
+                    "/pin-stream" => {
+                        let stream = context.stream::<Changed>("EVENTS")?;
+                        let id = stream.resource().id.clone();
+                        *self.retained.lock().unwrap() = Some(stream);
+                        return Ok(super::response(id));
+                    }
+                    "/binding-id" => {
+                        return Ok(super::response(
+                            context.stream::<Changed>("EVENTS")?.resource().id.clone(),
+                        ))
+                    }
+                    "/retained-id" => {
+                        return Ok(super::response(
+                            self.retained
+                                .lock()
+                                .unwrap()
+                                .as_ref()
+                                .unwrap()
+                                .resource()
+                                .id
+                                .clone(),
+                        ))
+                    }
+                    "/emit-retained" => {
+                        let stream = self.retained.lock().unwrap().as_ref().unwrap().clone();
+                        let result = context
+                            .storage()?
+                            .tx(|tx| tx.emit(&stream, Changed { value: 99 }));
+                        let code = result.err().and_then(|error|error.downcast::<DeliveryError>().ok())
+                            .context("retained handle unexpectedly emitted or failed without delivery classification")?.code;
+                        return Ok(super::response(format!("{code:?}")));
+                    }
+                    "/event-value" => {
+                        let page = context
+                            .stream::<Changed>("EVENTS")?
+                            .read(&context, None, ReadOptions::default())
+                            .await?;
+                        return Ok(super::response(
+                            page.records
+                                .first()
+                                .map(|record| {
+                                    record.event.decode::<Changed>().map(|event| event.value)
+                                })
+                                .transpose()?
+                                .unwrap_or(0),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            Arc::new(Counter(self.label))
+                .invoke(context, invocation)
+                .await
+        })
+    }
+}
+
+fn named_applications(
+    label: &'static str,
+    retained: Arc<std::sync::Mutex<Option<Stream<Changed>>>>,
+) -> Result<CompiledApplications> {
+    CompiledApplications::default().register("embedded-node", "test", move || {
+        let retained = retained.clone();
+        Ok(Arc::new(
+            Registry::new(|context, event| {
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = event else {
+                        return Ok(Output::Done);
+                    };
+                    Ok(Output::Http(
+                        context
+                            .namespace("ACCOUNTS")?
+                            .get_by_name("events")
+                            .fetch(&context, request)
+                            .await?,
+                    ))
+                })
+            })
+            .cell("Account", move |_, _| {
+                Ok(Arc::new(NamedCounter {
+                    label,
+                    retained: retained.clone(),
+                }))
+            })?,
+        ))
+    })
+}
+
+fn named_graph() -> DeploymentGraph {
+    let mut graph = graph(1, false);
+    graph.primary.event_streams.clear();
+    for binding in &mut graph.primary.options.stream_bindings {
+        binding.resource.id = None;
+    }
+    graph
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn named_bindings_resolve_grants_and_pin_uuid_across_recreation() -> Result<()> {
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("named-bindings-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "name-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let retained = Arc::new(std::sync::Mutex::new(None));
+    let (config, services) = inputs(
+        "name-client",
+        &directory.path().join("client"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut client_node = Node::start(
+        config,
+        services,
+        named_graph(),
+        named_applications("named", retained.clone())?,
+    )
+    .await?;
+    super::ready(&client_node).await?;
+    let client = client()?;
+    ensure!(
+        call(&client, &client_node, reqwest::Method::GET, "/pin-stream").await? == resource().id
+    );
+    ensure!(call(&client, &client_node, reqwest::Method::POST, "/write").await? == "named:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while call(&client, &client_node, reqwest::Method::GET, "/event-value").await? != "1" {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    for mismatch in ["missing-name", "revoked-grant", "wrong-family"] {
+        let mut candidate = named_graph();
+        match mismatch {
+            "missing-name" => {
+                candidate.primary.options.stream_bindings[0].resource.name = "absent".into()
+            }
+            "revoked-grant" => candidate.primary.options.stream_bindings[0].grant = "absent".into(),
+            _ => {
+                candidate.primary.options.stream_bindings[0].resource.family = "other-family".into()
+            }
+        }
+        ensure!(
+            client_node
+                .adopt(candidate, named_applications("invalid", retained.clone())?)
+                .await
+                .is_err(),
+            "invalid name binding was adopted: {mismatch}"
+        );
+        ensure!(call(&client, &client_node, reqwest::Method::GET, "/read").await? == "named:1");
+    }
+    ensure!(
+        call(
+            &client,
+            &client_node,
+            reqwest::Method::POST,
+            "/revoke-publish"
+        )
+        .await?
+            == "active"
+    );
+    ensure!(client_node
+        .adopt(
+            named_graph(),
+            named_applications("revoked", retained.clone())?
+        )
+        .await
+        .is_err());
+    ensure!(
+        call(
+            &client,
+            &client_node,
+            reqwest::Method::POST,
+            "/restore-publish"
+        )
+        .await?
+            == "active"
+    );
+    let retired=stream_operator(&client, &owner, &binding(true), json!({"kind":"retire","request":{
+        "operation":"000000000000000000000000000000f1","revision":"3","reason":"name reuse qualification",
+        "mode":{"mode":"force","data_loss_acknowledgment":"discard the old stream payload for this isolated name test"}}}), "names-audit").await?;
+    ensure!(
+        retired.get("result").is_some(),
+        "retirement failed: {retired}"
+    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let state = stream_operator(
+            &client,
+            &owner,
+            &binding(true),
+            json!({"kind":"retirement_status","operation":"000000000000000000000000000000f1"}),
+            "names-audit",
+        )
+        .await?;
+        if state["result"]["state"] == "deleted" {
+            break;
+        }
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "retirement did not finish: {state}"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    ensure!(client_node
+        .adopt(
+            named_graph(),
+            named_applications("deleted", retained.clone())?
+        )
+        .await
+        .is_err());
+    let mut successor = named_graph();
+    let mut definition = graph(1, false).primary.event_streams.remove(0);
+    definition.resource.id = "00000000000000000000000000000002".into();
+    successor.primary.event_streams.push(definition);
+    client_node
+        .adopt(
+            successor,
+            named_applications("successor", retained.clone())?,
+        )
+        .await?;
+    ensure!(
+        call(&client, &client_node, reqwest::Method::GET, "/binding-id").await?
+            == "00000000000000000000000000000002"
+    );
+    ensure!(
+        call(&client, &client_node, reqwest::Method::GET, "/retained-id").await? == resource().id
+    );
+    ensure!(
+        call(
+            &client,
+            &client_node,
+            reqwest::Method::POST,
+            "/emit-retained"
+        )
+        .await?
+            == "Forbidden"
+    );
+    ensure!(call(&client, &client_node, reqwest::Method::POST, "/write").await? == "successor:2");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while call(&client, &client_node, reqwest::Method::GET, "/event-value").await? != "2" {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    stopped(client_node)
+        .await
+        .context("named binding client complete shutdown")?;
+    stopped(owner)
+        .await
+        .context("named binding owner complete shutdown")?;
     Ok(())
 }

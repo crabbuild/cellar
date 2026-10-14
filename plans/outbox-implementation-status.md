@@ -213,7 +213,7 @@ this does not constitute a released deployed primitive yet.
 | Requirement | Evidence now | Work remaining |
 | --- | --- | --- |
 | Short producer APIs and atomic emission | Source tables, `tx`/`emit`, bounded serializer, typed admission errors, native source test, storage rollback/capacity/reopen tests | Complete public error/overflow classification and adoption budgets |
-| Resource identity and authorization | Host RPC provenance, reserved classes, durable catalog reconciliation, independent receiver grants, receipt revocation, deletion/recreation and terminal UUID tombstones; validated native declarations/bindings; owner-routed startup/adoption with current-state proof and independent binding resolution | Friendly name-only resolution and complete administrative authority qualification |
+| Resource identity and authorization | Host RPC provenance, reserved classes, durable catalog reconciliation, independent receiver grants, receipt revocation, deletion/recreation and terminal UUID tombstones; validated native declarations/bindings; owner-routed startup/adoption with current-state proof and independent binding resolution; optional name selectors resolve and pin UUIDs once per generation | Complete name/adoption race and administrative authority qualification |
 | Stream append/read and deduplication | Persisted destination schema, built-in factory, atomic producer watermark, bounded read API; duplicate acceptance after payload expiry; exact-byte append retry after a proven peer reply is lost; version-1 stream/catalog and source/inbox schemas; feature/format capability | Wider fault, separate-host/storage and adversarial qualification |
 | Durable outbox delivery | Real destination integration, generation-fenced cleanup, blocked permanent errors, adaptive batch limits, host/lane reservations | Cancellation/routing/fairness qualification and operational controls |
 | Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling; proven ack reply loss and unchanged receipt replay return `AlreadyAcknowledged` with one effect/checkpoint | Complete deadline/error/race matrix and production lifecycle/crash qualification |
@@ -244,8 +244,8 @@ and measure physical SQLite/WAL/LTX/bucket growth and maintenance fairness.
 Cold wakes, hot streams, compaction/restore, lag/backpressure, memory and offline
 soaks retain their full capacity scope.
 
-Finish whole-fleet discovery, aggregate owner-state/physical metrics, friendly
-name-only binding resolution, the complete policy/error/adoption matrix and
+Finish whole-fleet discovery, aggregate owner-state/physical metrics, the complete
+name-resolution/policy/error/adoption matrix and
 qualified SQLite-only recovery inventory. Current subscription, accepted-source
 and namespace catalog listings are bounded live views; accepted-source inventory
 is not a census of undispatched producers or an all-producer drain proof.
@@ -282,10 +282,10 @@ maintenance scheduling for protected old history. Keep adapter effects separate
 from pure protocol decisions. Source and destination tables currently use hex
 text identities; the final schema still requires review. Layout changes use
 development hard cutovers without migration machinery.
-Normalized native projects currently supply explicit resolved UUIDs in
-`Definition` and `Binding`; a friendly name-only configuration still needs
-catalog resolution. Resource definition capture alone must not be mistaken for
-successful activation.
+Native definitions retain explicit creation UUIDs. `BindingConfig` now supports
+omitted IDs for catalog name resolution; runtime `Binding` identities stay fully
+resolved and pin to the activated generation. Resource definition capture alone
+must not be mistaken for successful activation.
 
 Continue real failure qualification through discovery, replication, follower
 proof, ownership changes, output gates and shutdown. The runnable example uses
@@ -1515,3 +1515,52 @@ manifest. Workspace/all-target/all-feature Clippy passes with warnings denied,
 All 16 fault oracle tests and saved-ledger re-audits pass; whitespace is clean.
 Full-workspace test success does not close the independent-host/follower/power/capacity or full
 commit/proof qualification matrix.
+
+
+## Name-selected deployment bindings with pinned delivery identities
+
+`BindingConfig`/`ResourceConfig` now separate deployment selectors from runtime
+`Binding`/`Resource`. Config JSON may omit `resource.id`; explicit IDs preserve
+their serialized shape and require exact matching. Counts, fields, grant subsets
+and a 64 KiB declaration encoding cap validate before worker construction.
+Programmatic configuration call sites convert resolved bindings with `.into()`.
+Stored lane and event formats retain mandatory UUIDs; all markers stay 1.
+
+A private `event-name-resolution-v1` authority is bound to one catalog namespace,
+selector, environment, principal and grant and permits only `__catalogResolveName`.
+It reads one indexed nondeleted name row, rejects nonactive state, and checks the
+actual durable grant. No provisioning/mutation capability is added. Requested
+permissions live in a bounded RPC body (128 KiB including framing, 64 KiB decoded
+JSON), not in the 16 KiB authority header; body identity must match the header.
+The existing exact catalog/partition identity and grant checks repeat afterward,
+closing lookup/recreation/revocation races through UUID checks. Only all-successful
+resolution installs a once-pinned generation map before admission. A failed
+candidate preserves the serving generation; reactivation cannot retarget its map.
+
+Context stream handles clone resolved bindings. Emit/seal checks compare current
+resolved identity, never a name wildcard, so retained old handles cannot publish
+to a successor. Background obligations keep immutable stored binding identities.
+The two-node case resolves external names, proves delivery, rejects missing names,
+missing/revoked grants and wrong families, preserves serving code after failures,
+then retires/recreates the name under another UUID. A new generation resolves the
+successor while the retained old handle stays on its original UUID and emission
+is refused; new delivery reaches the successor with exact value 2. Original node
+shutdown and runtime deadlines remain. The fixture retirement request was fixed
+to use the catalog's observed revision 3 rather than an invented successor 4.
+Unit guards cover namespace/method scope, no authority promotion, maximum-size
+subscription declarations without oversized headers, and once-pinned UUIDs.
+Artifact metadata checks cover omitted versus malformed IDs.
+
+The focused real-node case and complete serial workspace gate pass: 394 cases
+across 99 reports, including 30 Node cases. After Clippy caught implementations
+following test modules, item order was corrected without behavior/assertion changes;
+final library replay passes 104 cases and Clippy-D passes for workspace/all-targets/
+all-features. Formatting checks 426 Rust files; 11 doctests pass (one existing
+ignored), docs validate 35/6/370, dependencies retain 401 packages without a JS
+engine, 16 oracle guards and whitespace checks pass. Ordinary smoke and both real
+process-fault drivers pass on archived workspace-image SHA-256
+`83fb2875e434f1e47ceadf37a645230a65bb4ccd41d3c6f77d5dec3720fbb1f9`,
+with saved-ledger audits passing. Private evidence is retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-named-binding-evidence-1baheykw`
+with a manifest identifying the item-order-only correction after image qualification. Wider name lookup/revocation/adoption fault races and the existing full
+process/follower/ownership/capacity release matrix remain unqualified.

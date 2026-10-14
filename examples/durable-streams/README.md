@@ -18,7 +18,37 @@ production fleet or the complete crash/ownership/response-loss matrix; see the
 family/version identify its payload schema and whose key groups this order's
 events. The resource has an explicit incarnation UUID. Definition and binding
 objects provision a required `projection` subscription and separate business
-and management grants. Name-only resource resolution is still under development.
+and management grants. Deployment bindings can supply an explicit UUID or omit
+`resource.id` to resolve the current catalog name during activation.
+
+For example, a native `stream_bindings` entry can select the provisioned name:
+
+```json
+{
+  "environment": "EVENTS",
+  "resource": {
+    "tenant": "example",
+    "application": "stream-example",
+    "name": "orders",
+    "family": "order-confirmed"
+  },
+  "principal": "stream-example",
+  "grant": "business",
+  "publish": true,
+  "read": true,
+  "subscriptions": ["projection"]
+}
+```
+
+`BindingConfig` is the deployment selector; `Binding` and `Resource` remain
+resolved runtime identities. Rust hosts convert an existing `Binding` with
+`.into()` and can set the resulting `resource.id` to `None` for name lookup.
+The catalog must already contain an active resource and independently authorize
+the grant. Name lookup does not provision a resource. Activation also checks the
+exact UUID at the catalog and partition before admitting work. Each generation
+pins that UUID; recreating `orders` cannot redirect a retained stream handle or
+stored outbox lane. A new generation may resolve its successor, and emission with
+an old handle is refused. Resource definitions still declare their creation UUID.
 
 Each order has a named `Order` cell. Its `db.tx` stores the business record and
 calls `tx.emit(&events, event)` together. A repeated request with the same amount

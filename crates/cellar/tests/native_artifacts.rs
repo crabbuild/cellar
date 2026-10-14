@@ -193,6 +193,17 @@ fn native_event_configuration_refuses_unmarked_or_inconsistent_authority() -> Re
     let resources = event_resources_from_manifest(&manifest, &limits)?;
     assert_eq!(resources.definitions.len(), 1);
     assert_eq!(resources.bindings[0].environment, "ORDERS");
+    let mut named = manifest.clone();
+    named.raw_metadata["stream_bindings"][0]["resource"]
+        .as_object_mut()
+        .unwrap()
+        .remove("id");
+    let named_resources = event_resources_from_manifest(&named, &limits)?;
+    assert!(named_resources.bindings[0].resource.id.is_none());
+    let mut malformed = named.clone();
+    malformed.raw_metadata["stream_bindings"][0]["resource"]["id"] = json!("");
+    assert!(event_resources_from_manifest(&malformed, &limits).is_err());
+
     for class in [
         cellar::deploy::EVENT_STREAM_CLASS,
         cellar::deploy::EVENT_CATALOG_CLASS,

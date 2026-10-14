@@ -88,7 +88,7 @@ pub struct WorkerConfig {
     /// [[kv]].
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<QueueBinding>,
-    pub(crate) stream_bindings: Vec<crate::application::event_stream::Binding>,
+    pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
     pub(crate) queue_consumers: Vec<QueueConsumerRegistration>,
     /// This script declared a consumer in its own manifest. The deployment-

@@ -303,7 +303,7 @@ pub struct WorkerConfigOptions {
     pub sql_bindings: Vec<(String, String)>,
     pub kv_bindings: Vec<(String, String)>,
     pub queue_bindings: Vec<QueueBinding>,
-    pub stream_bindings: Vec<crate::application::event_stream::Binding>,
+    pub stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub queue_consumers: Vec<crate::protocol::QueueConsumerConfig>,
     pub workflow_bindings: Vec<WorkflowBinding>,
     pub vars: Vec<(String, String)>,

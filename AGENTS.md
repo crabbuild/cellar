@@ -18,6 +18,16 @@ develops, publishes, installs, and operates those applications. `cellar` is the
 single CLI executable. A generic CLI binary cannot serve an application whose
 factories were not compiled into it.
 
+Deployment `stream_bindings` use `BindingConfig` selectors. Their `resource.id`
+may be omitted for catalog name lookup; runtime `Binding`/outbox lanes always
+retain resolved UUIDs. A private namespace/method-bound lookup reads an existing
+active resource and validates current grants; it cannot provision or mutate.
+The declaration travels in a bounded 128 KiB RPC body with a 64 KiB JSON cap,
+not in the authority header. Catalog and partition identity/grants are checked
+again before generation-local bindings pin once and admission opens. Name reuse
+requires a new generation; old handles cannot emit or seal against successors.
+All owned markers remain 1.
+
 Event delivery is under implementation; track the complete remaining scope in
 `plans/outbox-implementation-status.md`. Native `streams` declarations and
 `stream_bindings` are validated in `deployment/event_resources.rs` and require

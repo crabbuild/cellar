@@ -525,7 +525,7 @@ fn event_graph(script: &str, bindings: Vec<Binding>) -> DeploymentGraph {
             kv_bindings: vec![],
             queue_bindings: vec![],
             queue_consumers: vec![],
-            stream_bindings: bindings,
+            stream_bindings: bindings.into_iter().map(Into::into).collect(),
             workflow_bindings: vec![],
             vars: vec![],
             node: "test".into(),

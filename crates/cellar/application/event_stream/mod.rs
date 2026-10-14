@@ -7,6 +7,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 pub(crate) mod authority;
+mod binding_config;
 pub(crate) mod broker;
 pub(crate) mod catalog;
 pub(crate) mod catalog_inventory;
@@ -19,6 +20,7 @@ mod error;
 mod inventory;
 mod lifecycle;
 mod lifecycle_store;
+pub(crate) mod name_resolution;
 mod producer;
 pub(crate) mod readiness;
 mod retirement;
@@ -32,6 +34,7 @@ mod store;
 mod subscription;
 mod subscription_store;
 pub use authority::Authority;
+pub use binding_config::{BindingConfig, ResourceConfig};
 pub use catalog_inventory::{
     CatalogEntry, CatalogListOptions, CatalogNamespace, CatalogPage, CatalogState,
 };
@@ -227,7 +230,7 @@ impl Resource {
 
 /// Deployment-resolved publication and consumption authority. A resource ID
 /// alone is not a grant; receivers authorize the principal independently.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Binding {
     pub environment: String,
@@ -323,7 +326,7 @@ impl Context {
             .iter()
             .find(|binding| binding.environment == name)
             .ok_or_else(|| anyhow::anyhow!("no event stream binding named {name}"))?;
-        binding.validate()?;
+        let binding = self.worker_config.event_readiness.binding(binding)?;
         if binding.resource.family != E::FAMILY {
             return Err(error::error(
                 ErrorCode::EventFamilyMismatch,
@@ -332,7 +335,7 @@ impl Context {
         }
         Ok(Stream {
             readiness: self.worker_config.event_readiness.clone(),
-            binding: Arc::new(binding.clone()),
+            binding: Arc::new(binding),
             services: self.io.host_services().clone(),
             event: PhantomData,
         })

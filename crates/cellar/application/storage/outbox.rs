@@ -28,7 +28,14 @@ impl Storage {
                     .any(|current| current.environment == stream.binding.environment
                         && current.principal == stream.binding.principal
                         && current.grant == stream.binding.grant
-                        && current.resource.same_identity(stream.resource())
+                        && self
+                            .0
+                            .worker_config
+                            .event_readiness
+                            .binding(current)
+                            .is_ok_and(|resolved| resolved
+                                .resource
+                                .same_identity(stream.resource()))
                         && current.publish),
             "producer seal is not bound to this application"
         );
@@ -79,7 +86,12 @@ impl Storage {
                 current.environment == stream.binding.environment
                     && current.principal == stream.binding.principal
                     && current.grant == stream.binding.grant
-                    && current.resource.same_identity(stream.resource())
+                    && self
+                        .0
+                        .worker_config
+                        .event_readiness
+                        .binding(current)
+                        .is_ok_and(|resolved| resolved.resource.same_identity(stream.resource()))
                     && current.publish
             }))
             || !stream.binding.publish

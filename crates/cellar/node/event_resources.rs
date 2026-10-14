@@ -46,7 +46,7 @@ pub(super) async fn activate(app: AppHandle, generation: &Generation) -> Result<
 
 async fn rpc(
     app: &AppHandle,
-    authority: Authority,
+    authority: impl Into<crate::runtime::RpcAuthority>,
     scope: String,
     name: String,
     method: &str,
@@ -129,8 +129,22 @@ async fn activate_inner(app: &AppHandle, generation: &Generation) -> Result<()> 
             "event resource does not match the current deployment definition"
         );
     }
-    for binding in generation.event_bindings() {
-        let authority = Authority::resolution(binding)?;
+    let mut activated = Vec::new();
+    for declaration in generation.event_bindings() {
+        let binding = if declaration.resource.id.is_some() {
+            declaration.explicit()?
+        } else {
+            let authority = event_stream::name_resolution::NameAuthority::new(declaration)?;
+            let namespace = authority.namespace();
+            let resolved = rpc(app, authority, namespace.scope()?, namespace.name()?,
+                event_stream::name_resolution::METHOD, json!([{"declaration":base64::engine::general_purpose::STANDARD.encode(event_stream::encoding::json(declaration, 64<<10)?)}])).await?;
+            anyhow::ensure!(
+                resolved["state"] == "active",
+                "named event binding is not active"
+            );
+            declaration.resolve(serde_json::from_value(resolved["resource"].clone())?)?
+        };
+        let authority = Authority::resolution(&binding)?;
         // Retirement intent closes new binding adoption before delegated
         // partition closure finishes. Check both authorities; partition-only
         // resolution could accept a still-active partition during retirement.
@@ -148,7 +162,7 @@ async fn activate_inner(app: &AppHandle, generation: &Generation) -> Result<()> 
             catalog["state"].as_str() == Some("active") && resource == binding.resource,
             "catalog binding identity differs from the deployment"
         );
-        let encoded = event_stream::encoding::json(binding, 64 << 10)?;
+        let encoded = event_stream::encoding::json(&binding, 64 << 10)?;
         let resolved = rpc(
             app,
             authority,
@@ -164,6 +178,8 @@ async fn activate_inner(app: &AppHandle, generation: &Generation) -> Result<()> 
             resolved["state"].as_str() == Some("active") && resource == binding.resource,
             "resolved event binding identity differs from the deployment"
         );
+        activated.push(binding);
     }
+    generation.event_readiness.pin(activated)?;
     Ok(())
 }

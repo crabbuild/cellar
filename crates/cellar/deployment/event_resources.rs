@@ -2,7 +2,7 @@
 //! are not catalog activation receipts or application-supplied RPC authority.
 
 use super::Manifest;
-use crate::application::event_stream::{Binding, Definition};
+use crate::application::event_stream::{BindingConfig, Definition};
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 
@@ -12,13 +12,13 @@ pub const MAX_DEPLOYMENT_STREAM_BINDINGS: usize = 128;
 #[derive(Clone, Debug, Default)]
 pub struct EventResources {
     pub definitions: Vec<Definition>,
-    pub bindings: Vec<Binding>,
+    pub bindings: Vec<BindingConfig>,
 }
 
 pub fn validate_event_resources(
     script: &str,
     definitions: &[Definition],
-    bindings: &[Binding],
+    bindings: &[BindingConfig],
     occupied: &BTreeSet<String>,
     limits: &cellar_logic::event_stream::Limits,
 ) -> Result<()> {
@@ -53,6 +53,7 @@ pub fn validate_event_resources(
     let mut environments = occupied.clone();
     for binding in bindings {
         binding.validate()?;
+        crate::application::event_stream::encoding::json(binding, 64 << 10)?;
         anyhow::ensure!(
             super::valid_binding_name(&binding.environment)
                 && environments.insert(binding.environment.clone()),
@@ -62,14 +63,15 @@ pub fn validate_event_resources(
             binding.principal == script,
             "event binding cannot impersonate another application"
         );
-        if let Some(definition) = definitions
-            .iter()
-            .find(|definition| definition.resource.id == binding.resource.id)
-        {
-            anyhow::ensure!(
-                definition.resource == binding.resource,
-                "event binding conflicts with the declared resource scope, name, or family"
-            );
+        if let Some(definition) = definitions.iter().find(|definition| {
+            binding
+                .resource
+                .id
+                .as_ref()
+                .is_some_and(|id| *id == definition.resource.id)
+                || binding.resource.matches_name(&definition.resource)
+        }) {
+            binding.resolve(definition.resource.clone())?;
             let grant = definition
                 .grants
                 .iter()

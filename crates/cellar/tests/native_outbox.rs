@@ -430,7 +430,7 @@ async fn source_scenario() -> Result<()> {
             sql_bindings: vec![],
             kv_bindings: vec![],
             queue_bindings: vec![],
-            stream_bindings: bindings(),
+            stream_bindings: bindings().into_iter().map(Into::into).collect(),
             queue_consumers: vec![],
             workflow_bindings: vec![],
             vars: vec![],

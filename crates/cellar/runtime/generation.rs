@@ -300,7 +300,7 @@ pub struct GenerationOptions {
 /// `RuntimeManager`, which hands out this struct only as a snapshot.
 pub struct Generation {
     event_streams: Vec<(String, crate::application::event_stream::Definition)>,
-    event_bindings: Vec<crate::application::event_stream::Binding>,
+    event_bindings: Vec<crate::application::event_stream::BindingConfig>,
     pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
     pub(crate) id: GenerationId,
     pub(crate) version: String,
@@ -327,7 +327,7 @@ pub struct Generation {
 }
 
 impl Generation {
-    pub(crate) fn event_bindings(&self) -> &[crate::application::event_stream::Binding] {
+    pub(crate) fn event_bindings(&self) -> &[crate::application::event_stream::BindingConfig] {
         &self.event_bindings
     }
 

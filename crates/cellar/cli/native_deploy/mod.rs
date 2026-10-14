@@ -81,7 +81,7 @@ pub struct ApplicationConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub streams: Vec<crate::application::event_stream::Definition>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub stream_bindings: Vec<crate::application::event_stream::Binding>,
+    pub stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     #[serde(default)]
     pub compatibility_date: Option<String>,
     #[serde(default)]

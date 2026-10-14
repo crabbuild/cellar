@@ -11,6 +11,7 @@ pub enum RpcAuthority {
     Event(event_stream::Authority),
     Source(SourceAuthority),
     Catalog(CatalogAuthority),
+    Name(event_stream::name_resolution::NameAuthority),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -158,6 +159,7 @@ impl RpcAuthority {
             Self::Event(authority) => authority.validate(),
             Self::Source(authority) => authority.validate(),
             Self::Catalog(authority) => authority.validate(),
+            Self::Name(authority) => authority.validate(),
         }
     }
 
@@ -176,6 +178,7 @@ impl RpcAuthority {
                 Ok(())
             }
             Self::Catalog(authority) => authority.validate_target(scope, method),
+            Self::Name(authority) => authority.validate_target(scope, method),
         }
     }
 }
@@ -194,6 +197,12 @@ pub(crate) fn validate_target(
             );
             Ok(())
         }
+    }
+}
+
+impl From<event_stream::name_resolution::NameAuthority> for RpcAuthority {
+    fn from(authority: event_stream::name_resolution::NameAuthority) -> Self {
+        Self::Name(authority)
     }
 }
 

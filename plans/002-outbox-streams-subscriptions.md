@@ -377,6 +377,19 @@ creation uses a client operation UUID and idempotent reconciliation: record
 Bindings become usable only after durable activation. Interrupted creation is
 discoverable and retried using internal work, never guessed from a missing reply.
 
+Native `stream_bindings` declarations use `BindingConfig` with a `ResourceConfig`
+selector. An explicit `resource.id` is checked as an exact incarnation; omitting
+it selects `(tenant, application, name, family)`. Definitions still carry their
+creation UUID. A read-only host capability binds name lookup to the namespace,
+selector, principal and grant. The bounded request carries requested permissions;
+the receiver compares it with that capability and current durable grants. This
+lookup cannot create/update resources. Activation then repeats exact catalog and
+partition resolution and atomically pins all successful bindings to the generation
+before readiness opens. Failed candidate adoption preserves the serving generation.
+Runtime stream handles and persisted source lanes carry full UUIDs. A generation
+cannot replace its pinned map; a later generation may resolve a recreated name,
+and retained old handles fail emission/seal checks against the new UUID.
+
 Source identity includes a persistent, random source incarnation UUID, minted
 by the injected host service and committed before external use. A lane is
 uniquely identified by source scope, source incarnation, destination UUID, and

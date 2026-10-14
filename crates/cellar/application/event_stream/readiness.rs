@@ -1,9 +1,14 @@
 //! Generation-local admission. Catalog/partition state remains authoritative;
 //! this latch only prevents staged bindings from admitting application work.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::collections::BTreeMap;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    OnceLock,
+};
 
 pub(crate) struct Readiness {
+    bindings: OnceLock<BTreeMap<(String, String), super::Binding>>,
     ready: AtomicBool,
     result: tokio::sync::watch::Sender<Option<Result<(), String>>>,
 }
@@ -12,9 +17,60 @@ impl Readiness {
     pub(crate) fn new(ready: bool) -> Self {
         let (result, _) = tokio::sync::watch::channel(ready.then_some(Ok(())));
         Self {
+            bindings: OnceLock::new(),
             ready: AtomicBool::new(ready),
             result,
         }
+    }
+
+    pub(crate) fn pin(&self, bindings: Vec<super::Binding>) -> anyhow::Result<()> {
+        let mut resolved = BTreeMap::new();
+        for binding in bindings {
+            binding.validate()?;
+            anyhow::ensure!(
+                resolved
+                    .insert(
+                        (binding.principal.clone(), binding.environment.clone()),
+                        binding
+                    )
+                    .is_none(),
+                "duplicate resolved binding"
+            );
+        }
+        let prior = self.bindings.get_or_init(|| resolved.clone());
+        anyhow::ensure!(
+            *prior == resolved,
+            "generation bindings cannot be retargeted"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn binding(
+        &self,
+        declaration: &super::BindingConfig,
+    ) -> anyhow::Result<super::Binding> {
+        declaration.validate()?;
+        if let Some(bindings) = self.bindings.get() {
+            let binding = bindings
+                .get(&(
+                    declaration.principal.clone(),
+                    declaration.environment.clone(),
+                ))
+                .ok_or_else(|| {
+                    super::error::error(
+                        super::ErrorCode::Unavailable,
+                        "binding is absent from activated generation",
+                    )
+                })?;
+            anyhow::ensure!(
+                declaration.resolve(binding.resource.clone())? == *binding,
+                "binding differs from captured deployment"
+            );
+            return Ok(binding.clone());
+        }
+        // Runtime-only hosts may supply already resolved bindings. A name never
+        // becomes an ID, nor triggers lookup, outside owner activation.
+        declaration.explicit()
     }
 
     pub(crate) fn begin(&self) {

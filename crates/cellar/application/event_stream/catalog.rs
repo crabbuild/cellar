@@ -505,6 +505,7 @@ impl Cell for Catalog {
                 "__catalogRetirementStatus" => retirement_status(&context, &body),
                 "__catalogStatus" => configuration_status(&context),
                 "__catalogResolve" => resolve(&context),
+                super::name_resolution::METHOD => super::name_resolution::resolve(&context, &body),
                 _ => Err(error(
                     ErrorCode::UnsupportedProtocol,
                     "unknown catalog operation",

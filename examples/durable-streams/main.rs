@@ -22,7 +22,10 @@ fn graph(faults: bool) -> DeploymentGraph {
         version: "v1".into(),
         prefix: "stream-example/v1".into(),
         options: WorkerConfigOptions {
-            stream_bindings: vec![application::binding(false), application::binding(true)],
+            stream_bindings: vec![
+                application::binding(false).into(),
+                application::binding(true).into(),
+            ],
             src: String::new(),
             script_name: application::SCRIPT.into(),
             do_classes: vec!["Order".into(), "Projection".into()],
