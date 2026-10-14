@@ -797,7 +797,7 @@ where
     // deadline. A deadline-cut cell keeps its durable owner record and follows
     // the same lease-expiry recovery path as an abrupt process loss.
     let mut stall_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
-    let mut handed_off = 0;
+    let mut settled_handoffs = 0;
     let mut process_deadline_fired = false;
     let mut handoff = tokio::time::interval(std::time::Duration::from_millis(50));
     let mut containers_reaped = false;
@@ -818,9 +818,9 @@ where
             .await
             .and_then(Result::ok);
             if shutdown_mode == ShutdownMode::Handoff
-                && status.is_some_and(|status| status.handed_off > handed_off)
+                && status.is_some_and(|status| status.settled_handoffs > settled_handoffs)
             {
-                handed_off = status.expect("checked drain status").handed_off;
+                settled_handoffs = status.expect("checked drain status").settled_handoffs;
                 stall_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
             }
             // A drain that makes progress can outlive the token TTL, so the
@@ -1059,6 +1059,7 @@ where
                 releasing = status.releasing,
                 adopting = status.adopting,
                 handed_off = status.handed_off,
+                settled_handoffs = status.settled_handoffs,
                 drain_state,
                 "the shutdown handoff made no progress"
             ),

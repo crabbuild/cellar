@@ -415,3 +415,121 @@ fn a_zero_route_cache_retains_authority_for_resident_and_dormant_cells() {
     assert_eq!(state.owned_cells(), 1);
     assert_eq!(state.phase(cell), Some(&Phase::Dormant { epoch: 8 }));
 }
+
+#[test]
+fn terminal_adoption_failures_advance_drain_progress_without_counting_stale_replies() {
+    let mut limits = config();
+    limits.max_releases = 1;
+    limits.ownership_on_evict = OwnershipOnEvict::Sticky;
+    let mut state = State::new("owner", limits);
+    for request_id in 1..=3 {
+        let cell = format!("Account:drain-{request_id}");
+        let op = request(&mut state, request_id, &cell);
+        on_event(
+            &mut state,
+            Event::OwnerRead {
+                op,
+                now_ms: 0,
+                result: Ok(Some(OwnerRecord {
+                    node: Some("owner".into()),
+                    epoch: 7,
+                    etag: "owner".into(),
+                })),
+            },
+        );
+        for _ in 0..4 {
+            let event = match state.phase(&cell).cloned().unwrap() {
+                Phase::Acquiring { op, .. } => Event::OwnerCasCompleted {
+                    op,
+                    result: Ok(CasOutcome::Applied),
+                },
+                Phase::Restoring { op, .. } => Event::RestoreCompleted {
+                    op,
+                    result: Ok(RestoreOutcome {
+                        restored: true,
+                        alarm: None,
+                    }),
+                },
+                Phase::Starting { op, .. } => Event::RuntimeStarted {
+                    op,
+                    isolate: Some(cellar_logic::isolate::HeapId::new(1)),
+                    generation: 1,
+                    result: Ok(()),
+                },
+                Phase::Publishing { op, .. } => Event::Published { op, result: Ok(()) },
+                phase => panic!("unexpected activation phase {phase:?}"),
+            };
+            on_event(&mut state, event);
+        }
+        on_event(
+            &mut state,
+            Event::ActivityFinished {
+                request: request_id,
+            },
+        );
+    }
+    let mut effects = on_event(&mut state, Event::ReleaseAll);
+    for expected in 1..=3 {
+        assert_eq!(state.settled_handoffs(), expected - 1);
+        assert!(state.handoffs_in_flight() <= 1);
+        loop {
+            let next = effects.iter().find_map(|effect| match effect {
+                Effect::EnsureDurable { op, .. } => Some(Event::DurabilityChecked {
+                    op: *op,
+                    result: Ok(()),
+                }),
+                Effect::StopRuntime { op, .. } => Some(Event::RuntimeStopped { op: *op }),
+                Effect::ReleaseOwner { op, .. } => Some(Event::OwnerReleased {
+                    op: *op,
+                    result: Ok(CasOutcome::Applied),
+                }),
+                _ => None,
+            });
+            let Some(next) = next else {
+                break;
+            };
+            effects = on_event(&mut state, next);
+            assert_eq!(
+                state.settled_handoffs(),
+                expected - 1,
+                "nonterminal release work was counted as settled"
+            );
+        }
+        let op = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::AdoptReleased { op, .. } => Some(*op),
+                _ => None,
+            })
+            .expect("released cell must await successor adoption");
+        assert_eq!(state.adopting(), 1);
+        effects = on_event(
+            &mut state,
+            Event::SuccessorAdopted {
+                op,
+                result: Err(Failure::Definite),
+            },
+        );
+        assert_eq!(state.settled_handoffs(), expected);
+        assert_eq!(
+            state.handed_off(),
+            0,
+            "a failed acknowledgement became a successful adoption"
+        );
+        on_event(
+            &mut state,
+            Event::SuccessorAdopted {
+                op,
+                result: Err(Failure::Definite),
+            },
+        );
+        assert_eq!(
+            state.settled_handoffs(),
+            expected,
+            "stale adoption reply counted twice"
+        );
+        state.validate().unwrap();
+    }
+    assert_eq!(state.owned_cells(), 0);
+    assert_eq!(state.handoffs_in_flight(), 0);
+}

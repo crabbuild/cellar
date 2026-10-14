@@ -1341,10 +1341,19 @@ impl State {
     }
 
     /// Completed successor ownership acknowledgements during this process lifetime.
-    /// Shutdown uses this monotonic value to distinguish a slow, advancing
-    /// handoff from one that has stopped making progress.
+    /// Successful adoption telemetry; terminal drain progress also includes
+    /// failed successor acknowledgements after ownership release.
     pub fn handed_off(&self) -> u64 {
         self.activity.handed_off
+    }
+
+    /// Terminal successor-adoption operations, including unowned cells whose
+    /// successor acknowledgement failed. Only the core's terminal transition
+    /// increments these counters; retry attempts are not drain progress.
+    pub fn settled_handoffs(&self) -> u64 {
+        self.activity
+            .handed_off
+            .saturating_add(self.activity.handoff_failed)
     }
 
     /// Return an epoch this node has acquired for a dormant, warming, or

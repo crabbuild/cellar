@@ -627,6 +627,9 @@ pub struct DrainStatus {
     /// Monotonic ownership acknowledgements. A progressing handoff can
     /// take longer than one stall interval when the node owns many cells.
     pub handed_off: u64,
+    /// Terminal adoption operations that released their shutdown pacing permit.
+    /// Failed acknowledgements count only after the cell becomes inactive.
+    pub settled_handoffs: u64,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -2832,6 +2835,7 @@ impl Actor {
                     releasing: self.state.releasing(),
                     adopting: self.state.adopting(),
                     handed_off: self.state.handed_off(),
+                    settled_handoffs: self.state.settled_handoffs(),
                 });
             }
             Message::ResidentEpoch { cell, reply } => {
