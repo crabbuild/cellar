@@ -40,6 +40,10 @@ pub async fn due_scan(bucket: &Bucket, now_ms: i64) -> Vec<(String, i64)> {
     let minutes = match bucket.common_prefixes(ENTRY_PREFIX).await {
         Ok(minutes) => minutes,
         Err(e) => {
+            crate::asyncrt::services()
+                .events()
+                .metrics
+                .increment(crate::event_metrics::Counter::WakeDiscoveryFailed, 1);
             warn!(error = %e, "wake due scan bucket listing failed");
             return due;
         }
@@ -61,6 +65,10 @@ pub async fn due_scan(bucket: &Bucket, now_ms: i64) -> Vec<(String, i64)> {
         let objects = match objects {
             Ok(objects) => objects,
             Err(e) => {
+                crate::asyncrt::services()
+                    .events()
+                    .metrics
+                    .increment(crate::event_metrics::Counter::WakeDiscoveryFailed, 1);
                 warn!(error = %e, %minute, "wake due scan entry listing failed");
                 continue;
             }

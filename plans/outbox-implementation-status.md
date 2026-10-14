@@ -852,3 +852,38 @@ checked 417 Rust files; documentation validated 35 documents, 6 flows and 370
 references; the dependency graph remains 401 reachable packages without a
 JavaScript engine. All 11 final workspace doctests passed. This is targeted qualification,
 not a new uninterrupted full workspace runtime pass or release completion.
+
+## Event host observations (in progress)
+
+Adds an execution-domain-owned fixed-size metric registry, public
+`HostServices::event_metrics()` snapshots and fleet-authenticated internal
+`GET /event-metrics` (Prometheus text) / `?format=json` exports. No cell, event,
+stream, subscription, payload or caller labels enter the registry. Counters and
+histogram buckets saturate rather than overflowing; JSON counters/sums preserve
+full integer precision with decimal strings. Timers retain their original host
+clock and registry across cancellation in another domain. Missing clocks after
+closure are counted explicitly rather than replaced by invented elapsed time.
+
+Current observations cover dispatch RPC outcomes/duration, local append and
+deduplicated record counts, per-new-record source timestamp to local append age,
+ack processing/replay/duration, cursor-expiration observations and due-discovery
+listing failures. Active waiter/inflight dispatch gauges use existing bounded
+reservations. These are host-lifetime observations, not durable acknowledgment
+receipts or a census of dormant/cold cells. Backlog, bounded blocked-reason,
+stream allocated/logical byte and offset, active-lease, subscription-lag and
+retention-blocked byte gauges still require authoritative owner-state snapshots.
+The full metrics requirement therefore remains unfinished.
+
+Two registry tests passed (saturation, exact export, bucket accumulation, host
+isolation and cancellation/closed-clock attribution). The real two-node test
+passed in 10.65 seconds: actual emission/append/ack appears in SDK and signed
+JSON/text exports, unsigned reads are refused, sibling-host counters remain
+untouched, and both nodes retain original complete shutdown assertions. The wider
+targeted gate passed 90 library, 6 artifact, 2 CLI, 1 catalog delivery/retention/
+revocation and all 26 Node tests (239.44 seconds for the Node suite). Workspace
+all-target/all-feature Clippy passed with warnings denied; formatting checked
+419 Rust files, documentation validated 35 documents, 6 flows and 370 references,
+and the dependency graph remains 401 packages without a JavaScript engine.
+All 11 workspace doctests passed.
+No persistent marker or compatibility path is added. This is targeted
+qualification; the complete runtime, fault and capacity matrix remains open.

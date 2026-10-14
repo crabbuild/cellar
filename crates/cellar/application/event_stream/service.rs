@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 pub(crate) struct Service {
     waiters: AtomicUsize,
     dispatches: Mutex<BTreeSet<(String, String)>>,
+    pub(crate) metrics: Arc<crate::event_metrics::Registry>,
 }
 
 pub(crate) struct Waiter(Arc<Service>);
@@ -35,6 +36,13 @@ impl Drop for Dispatch {
 }
 
 impl Service {
+    pub(crate) fn metrics_snapshot(&self) -> crate::event_metrics::EventMetricsSnapshot {
+        self.metrics.snapshot(
+            self.waiters.load(Ordering::Acquire) as u64,
+            self.dispatches.lock().unwrap().len() as u64,
+        )
+    }
+
     pub(crate) fn waiter(self: &Arc<Self>, limit: usize) -> Option<Waiter> {
         self.waiters
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {

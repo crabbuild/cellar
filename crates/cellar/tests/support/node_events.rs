@@ -2008,3 +2008,130 @@ async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Resu
         .context("catalog inventory entrance shutdown")?;
     Ok(())
 }
+
+fn metric(snapshot: &cellar::sdk::EventMetricsSnapshot, name: &str) -> u64 {
+    snapshot
+        .counters
+        .iter()
+        .find(|counter| counter.name == name)
+        .unwrap()
+        .value
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn event_metrics_export_tracks_real_work_and_keeps_hosts_isolated() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("event-metrics-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "event-metrics-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let sibling_bucket =
+        cellar::bucket::Bucket::open_dev(&directory.path().join("sibling-fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "event-metrics-sibling",
+        &directory.path().join("sibling"),
+        &core,
+        Some(sibling_bucket),
+        0,
+    )
+    .await?;
+    let sibling = Node::start(config, services, graph(1, false), applications("sibling")?).await?;
+    super::ready(&sibling).await?;
+    let client = client()?;
+    ensure!(owner
+        .services()
+        .event_metrics()
+        .counters
+        .iter()
+        .all(|counter| counter.value == 0));
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot = owner.services().event_metrics();
+            if metric(&snapshot, "cellar_event_dispatch_rpc_succeeded_total") > 0
+                && metric(&snapshot, "cellar_event_appended_records_total") == 1
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/process-ack").await? == "1");
+    let snapshot = owner.services().event_metrics();
+    ensure!(
+        metric(&snapshot, "cellar_event_ack_calls_total") == 1
+            && metric(&snapshot, "cellar_event_ack_processed_total") == 1
+    );
+    ensure!(
+        snapshot
+            .histograms
+            .iter()
+            .find(|histogram| histogram.name == "cellar_event_source_to_append_seconds")
+            .unwrap()
+            .count
+            == 1
+    );
+    ensure!(sibling
+        .services()
+        .event_metrics()
+        .counters
+        .iter()
+        .all(|counter| counter.value == 0));
+    let path = "/event-metrics?format=json";
+    let url = format!("http://{}{path}", owner.info().internal_address);
+    ensure!(client.get(&url).send().await?.status() == 401);
+    let auth = PeerAuth::new([11; 32], "metrics-operator")?;
+    let response = auth
+        .sign(client.get(&url), "GET", path, &[], &owner.info().node)?
+        .send()
+        .await?;
+    ensure!(response.status() == 200);
+    let exported: serde_json::Value = response.json().await?;
+    ensure!(exported["counters"].as_array().unwrap().len() == snapshot.counters.len());
+    ensure!(exported["counters"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|counter| counter["value"].is_string()));
+    let path = "/event-metrics";
+    let response = auth
+        .sign(
+            client.get(format!("http://{}{path}", owner.info().internal_address)),
+            "GET",
+            path,
+            &[],
+            &owner.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(
+        response.status() == 200
+            && response.headers()["content-type"]
+                .to_str()?
+                .starts_with("text/plain")
+    );
+    let text = response.text().await?;
+    ensure!(
+        text.contains("cellar_event_appended_records_total 1")
+            && text.contains("cellar_event_ack_processed_total 1")
+    );
+    ensure!(
+        !text.contains("scope=") && !text.contains("subscription=") && !text.contains("resource=")
+    );
+    stopped(owner)
+        .await
+        .context("event metrics owner shutdown")?;
+    stopped(sibling)
+        .await
+        .context("event metrics sibling shutdown")?;
+    Ok(())
+}

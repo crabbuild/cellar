@@ -76,7 +76,13 @@ and a `sources1` cursor bound to tenant/application/stream identity. It shows
 accepted watermarks and retained seals, including after payload expiry, without
 payloads or tokens. It is not a census of undispatched sources or an all-producer
 drain proof. Each page repeats current administration checks. Whole-fleet
-resource/source inventories and exported event metrics remain unfinished.
+resource/source inventories and complete event metrics remain unfinished.
+Fixed-cardinality event observations belong to each host execution domain.
+`HostServices::event_metrics()` and fleet-authenticated internal `/event-metrics`
+export operation counters, histograms and live reservation gauges without
+resource identities or payload labels. Timers retain their creating domain.
+These observations are not a receipt ledger or cold-cell state census;
+authoritative backlog, lease, lag and retention gauges remain unfinished.
 Catalog inventory uses `cellar stream list` with a separate
 fleet-administration namespace capability and `/catalogs/` ingress; resource
 grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle

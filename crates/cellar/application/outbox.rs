@@ -109,6 +109,11 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
     // proof. The saved retry deadline remains armed while the RPC is pending.
     db.sync().await?;
     let authority = event_stream::authority::Authority::delivery(&context, &binding)?;
+    let services = context.io.host_services();
+    let metric_timer = services.events().metrics.timer(
+        crate::event_metrics::Histogram::Dispatch,
+        services.domain_token(),
+    );
     let result = event_stream::call_authorized(
         &context,
         authority,
@@ -118,6 +123,7 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
         request,
     )
     .await;
+    metric_timer.finish(result.is_ok());
     context.check_turn()?;
     let current = db.system_sql(
         "SELECT dispatch_generation FROM __sys_outbox_lanes WHERE lane=?",

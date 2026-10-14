@@ -31,6 +31,33 @@ exporter sheds telemetry when saturated and counts drops; absent spans do not
 prove absent application work. Never use sampled
 telemetry alone as the command receipt ledger.
 
+## Event host observations
+
+`node.services().event_metrics()` returns fixed host-lifetime counters,
+histograms and current waiter/dispatch reservations. The same snapshot is
+available on the internal listener through fleet-signed `GET /event-metrics`
+(Prometheus text) or `GET /event-metrics?format=json`. The signature covers the
+complete path/query. Bodies are forbidden. Unsigned reads are refused.
+
+Names and buckets are fixed; event, cell, stream, subscription and caller IDs
+are absent from labels. JSON counters and histogram sums/counts use decimal
+strings. Histograms use millisecond observations rendered as seconds in the
+text format. Counters saturate on overflow. Snapshots are live atomic
+observations, not a transaction across all series.
+
+Dispatch series describe RPC completion, not proven source cleanup. Append
+counts describe local commits; source-to-append age uses the immutable event
+creation timestamp, clamps clock skew to zero and observes only newly appended
+records. Ack processing includes successful no-op acknowledgments; replay is
+counted separately. A dropped timer records cancellation against its original
+host. A closed host clock produces a timing-unavailable counter. These metrics
+cannot replace the receipt ledger or ownership/durability proofs.
+
+This export does not yet provide backlog, blocked-reason, stream byte/offset,
+lease, subscription-lag or retention-blocked gauges. Current reservation counts
+are not cold-cell or fleet totals. The complete event metrics profile remains
+under implementation.
+
 ## Proposed dashboard contract
 
 | View | Signals to collect | Operator decision |

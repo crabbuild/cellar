@@ -199,6 +199,7 @@ pub use crate::daemon::{
     ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
     NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
 };
+pub use crate::event_metrics::{EventBucket, EventCounter, EventHistogram, EventMetricsSnapshot};
 pub use crate::generation::DeploymentGraph;
 pub use crate::host_services::{
     ApplicationWorkSnapshot, HostMetricsSample, HostServices, MetricsSampler,

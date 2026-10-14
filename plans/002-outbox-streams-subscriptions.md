@@ -1192,6 +1192,17 @@ cursors, subscription lag in records/time, ack latency, retention blocked bytes,
 and wake discovery failures. Avoid event, cell, and arbitrary subscription IDs
 as unbounded global metric labels; use paginated diagnostic endpoints for detail.
 
+The current host observation registry exposes `HostServices::event_metrics()`
+and fleet-authenticated internal `GET /event-metrics` exports (Prometheus text
+or `?format=json`). Fixed counters and histograms cover dispatch RPC outcomes,
+local append/deduplication, source timestamp age at append, ack processing/replay,
+cursor expiration and due-discovery listing failures. Timers retain their
+original host domain on cancellation. Integer counters and sums saturate and
+JSON encodes them as decimal strings. Reservation gauges are live host state;
+these observations are neither durable receipts nor a dormant-cell census.
+Authoritative backlog, blocked-reason, stream byte/offset, lease, lag and
+retention-blocked gauges remain implementation requirements.
+
 Owner-routed CLI/API operations provide outbox list/inspect/retry, stream
 describe/read, subscription describe/pause/resume/reset, and lifecycle operation
 status. Reset/destruction reports the exact incarnation and affected range and
@@ -1255,8 +1266,8 @@ retirement receipts. Ordinary SDK receipts carry no operator.
 Current markers require these columns before base schema
 mutation. Terminal results retain captured records/bytes and the exact retained
 payload range after cleanup; malformed or conflicting range/provenance echoes
-cannot finish the catalog receipt. Fleet inventories and exported metrics
-remain future work; the full release qualification gates still apply.
+cannot finish the catalog receipt. Fleet inventories and complete exported
+metrics remain unfinished; the full release qualification gates still apply.
 
 Catalog inventory uses `cellar stream list --tenant TENANT --application APPLICATION`
 and signed `/catalogs/SCOPE` ingress. A private platform capability is scoped to
@@ -1282,7 +1293,7 @@ SDK/operator response validation rederives lane identity and preserves decimal
 watermarks through `i64::MAX`. Retained producer metadata survives payload expiry.
 Pages are live observations, not a snapshot or an inventory of undispatched
 sources. They cannot prove that every producer is drained. Fleet-wide
-inventories, source destruction and exported metrics remain separate requirements.
+inventories, source destruction and complete exported metrics remain separate requirements.
 
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;

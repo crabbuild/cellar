@@ -53,6 +53,7 @@ mod catalog_operator;
 mod driver;
 #[cfg(not(cellar_internal_tests))]
 mod embedded;
+mod event_metrics;
 mod event_resources;
 mod ingress;
 mod source_operator;
@@ -3010,6 +3011,7 @@ async fn handle_internal(
     let cell_scope = path.strip_prefix("/cell/");
     let evict_scope = path.strip_prefix("/evict/");
     let result = match path.as_str() {
+        "/event-metrics" if app.runtime.is_some() => event_metrics::handle(&app, request).await,
         "/peer/probe" => internal_probe(request, app).await,
         "/peer/handoff" => internal_handoff(request, app).await,
         _ if path.starts_with("/peer/log/") => internal_log(request, app, path.clone()).await,

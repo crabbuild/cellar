@@ -164,6 +164,12 @@ impl HostServices {
         self.application_work.snapshot()
     }
 
+    /// Fixed-cardinality event observations for this host across generations.
+    /// These counters are not a backlog census or durability receipt ledger.
+    pub fn event_metrics(&self) -> crate::event_metrics::EventMetricsSnapshot {
+        self.events.metrics_snapshot()
+    }
+
     pub(crate) fn application_work_registry(&self) -> Arc<ApplicationWork> {
         self.application_work.clone()
     }

@@ -422,6 +422,8 @@ pub(crate) fn schedule(db: &Storage, definition: &Definition) -> Result<()> {
 }
 
 pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
+    let metrics = context.io.host_services().events().metrics.clone();
+    metrics.increment(crate::event_metrics::Counter::AppendCalls, 1);
     let caller = authority(context, Action::Append)?;
     let db = context.storage()?;
     let (definition, _) = load(&db)?;
@@ -510,7 +512,7 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
             "event cannot fit stream capacity",
         ));
     }
-    db.tx(|tx| {
+    let (reply, skipped, ages) = db.tx(|tx| {
         let (_,row)=load(tx)?;
         let now=crate::asyncrt::wall_ms().max(number(&row,"logical_ms")?);
         let producers=tx.system_sql("SELECT * FROM __sys_stream_producers WHERE lane=?",&[lane.into()])?;
@@ -561,10 +563,23 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
             ON CONFLICT(lane) DO UPDATE SET accepted_through=excluded.accepted_through",
             &[lane.into(),decoded[0].0.source.clone().into(),decoded[0].0.source_incarnation.clone().into(),caller.principal.clone().into(),caller.grant.clone().into(),plan.accepted_through.into()])?;
         schedule(tx,&definition)?;
-        Ok(json!({"protocol":1,"resource":definition.resource.id,"lane":lane,"accepted_through":plan.accepted_through.to_string(),
+        let ages = decoded.iter().skip(plan.skip).map(|(event,_)| now.saturating_sub(event.created_at_ms).max(0) as u64).collect::<Vec<_>>();
+        Ok((json!({"protocol":1,"resource":definition.resource.id,"lane":lane,"accepted_through":plan.accepted_through.to_string(),
             "batch_bytes":definition.max_bytes.min(limits.batch_bytes() as i64).to_string(),
-            "batch_records":definition.max_records.min(limits.batch_records() as i64).to_string()}))
-    })
+            "batch_records":definition.max_records.min(limits.batch_records() as i64).to_string()}), plan.skip, ages))
+    })?;
+    metrics.increment(
+        crate::event_metrics::Counter::DeduplicatedRecords,
+        skipped as u64,
+    );
+    metrics.increment(
+        crate::event_metrics::Counter::AppendedRecords,
+        ages.len() as u64,
+    );
+    for age in ages {
+        metrics.observe(crate::event_metrics::Histogram::SourceToAppend, age);
+    }
+    Ok(reply)
 }
 
 pub(crate) fn read(context: &Context, body: &Value) -> Result<Value> {

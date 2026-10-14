@@ -167,7 +167,17 @@ impl Cell for Broker {
                     "__streamRead" => store::read(&context, &body),
                     "__streamResolve" => store::resolve(&context, &body),
                     "__streamNext" => self.next(&context,&body).await,
-                    "__streamAck" => { let result=subscription_store::ack(&context,&body); if result.is_ok() {self.notify();} result },
+                    "__streamAck" => {
+                        let services = context.io.host_services();
+                        let timer = services.events().metrics.timer(crate::event_metrics::Histogram::Ack, services.domain_token());
+                        let result=subscription_store::ack(&context,&body);
+                        timer.finish(result.is_ok());
+                        if let Ok(value) = &result {
+                            if value["status"] == "already_acknowledged" { services.events().metrics.increment(crate::event_metrics::Counter::AckReplayed, 1); }
+                            self.notify();
+                        }
+                        result
+                    },
                     "__streamRetry" => { let result=subscription_store::retry(&context,&body); if result.is_ok() {self.notify();} result },
                     "__streamExtend" => subscription_store::extend(&context,&body),
                     "__streamSubscriptionStatus" => super::lifecycle_store::status(&context,&body),
@@ -193,6 +203,19 @@ impl Cell for Broker {
                     )),
                 }
             }.await;
+            if result
+                .as_ref()
+                .err()
+                .and_then(|failure| failure.downcast_ref::<super::DeliveryError>())
+                .is_some_and(|failure| failure.code == ErrorCode::CursorExpired)
+            {
+                context
+                    .io
+                    .host_services()
+                    .events()
+                    .metrics
+                    .increment(crate::event_metrics::Counter::CursorExpired, 1);
+            }
             reply(result)
         })
     }
