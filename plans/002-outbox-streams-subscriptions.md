@@ -1339,8 +1339,8 @@ an in-memory event bus would conceal the main failure modes.
 
 The feature adds SQLite tables, SDK methods, resource configuration, system cell
 classes, and internal RPCs. It does not change LTX's physical encoding or
-introduce Celld compatibility. A dedicated feature/protocol revision identifies
-support for internal work reasons and event-stream ownership.
+introduce Celld compatibility. The `event-delivery-v1` feature identifies support
+for internal work reasons and event-stream ownership.
 
 Cellar is in internal development and has no backward compatibility contract.
 All Cellar-owned protocol, format and schema markers remain at version 1,
