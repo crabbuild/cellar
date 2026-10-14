@@ -396,6 +396,7 @@ impl NativeWorker {
         }
         Ok(Context {
             event_authority: None,
+            catalog_authority: None,
             io,
             state: Arc::new(EventState::default()),
             identity,
@@ -609,6 +610,10 @@ impl NativeWorker {
             Some(crate::runtime::RpcAuthority::Source(authority)) => Some(authority),
             Some(crate::runtime::RpcAuthority::Event(authority)) => {
                 context.event_authority = Some(authority);
+                None
+            }
+            Some(crate::runtime::RpcAuthority::Catalog(authority)) => {
+                context.catalog_authority = Some(authority);
                 None
             }
             None => None,

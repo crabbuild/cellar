@@ -398,7 +398,7 @@ async fn reconcile(context: &Context, id: &str) -> Result<Value> {
                     ));
                 }
                 db.tx(|tx| {
-                    tx.system_sql("UPDATE __sys_event_catalog SET definition=pending_definition,pending_definition=NULL,pending_authority=NULL,lifecycle='active',last_error=NULL WHERE id=? AND operation=?",
+                    tx.system_sql("UPDATE __sys_event_catalog SET definition=pending_definition,accepted_revision=desired_revision,desired_revision=NULL,pending_definition=NULL,pending_authority=NULL,lifecycle='active',last_error=NULL WHERE id=? AND operation=?",
                         &[id.into(),operation.clone().into()])?;
                     finish_receipt(tx,id,&operation,None)?;schedule(tx)
                 })?;
@@ -464,8 +464,8 @@ async fn configure(context: &Context, body: &Value) -> Result<Value> {
             if !current.resource.same_identity(&desired.resource) || current.resource.name!=desired.resource.name || desired.revision<=current.revision {
                 return Err(error(ErrorCode::ConfigConflict,"catalog configuration revision conflicts"));
             }
-            tx.system_sql("UPDATE __sys_event_catalog SET pending_definition=?,pending_authority=?,operation=?,digest=?,operation_authority=?,lifecycle='updating',retry_at_ms=? WHERE id=?",
-                &[serde_json::to_string(&desired)?.into(),serde_json::to_string(&caller)?.into(),operation.into(),digest.clone().into(),serde_json::to_string(&caller)?.into(),crate::asyncrt::wall_ms().into(),desired.resource.id.clone().into()])?;
+            tx.system_sql("UPDATE __sys_event_catalog SET pending_definition=?,desired_revision=?,pending_authority=?,operation=?,digest=?,operation_authority=?,lifecycle='updating',retry_at_ms=? WHERE id=?",
+                &[serde_json::to_string(&desired)?.into(),desired.revision.into(),serde_json::to_string(&caller)?.into(),operation.into(),digest.clone().into(),serde_json::to_string(&caller)?.into(),crate::asyncrt::wall_ms().into(),desired.resource.id.clone().into()])?;
         } else {
             caller.require_provisioning()?;
             store::authorize(&desired,&caller,Action::Configure,None)?;
@@ -474,9 +474,9 @@ async fn configure(context: &Context, body: &Value) -> Result<Value> {
             if store::number(&counts[0],"n")?>=100_000 { return Err(error(ErrorCode::ConfigConflict,"catalog identity history is full")); }
             let live=tx.system_sql("SELECT count(*) AS n FROM __sys_event_catalog WHERE lifecycle!='deleted'",&[])?;
             if store::number(&live[0],"n")?>=10_000 { return Err(error(ErrorCode::ConfigConflict,"catalog live-resource limit reached")); }
-            tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms)
-                VALUES(?,?,'creating',?,?,?,?,?,?)",
-                &[desired.resource.id.clone().into(),desired.resource.name.clone().into(),serde_json::to_string(&desired)?.into(),
+            tx.system_sql("INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,desired_revision,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms)
+                VALUES(?,?,'creating',?,?,?,?,?,?,?,?,?,?)",
+                &[desired.resource.id.clone().into(),desired.resource.name.clone().into(),desired.resource.tenant.clone().into(),desired.resource.application.clone().into(),desired.resource.family.clone().into(),desired.revision.into(),serde_json::to_string(&desired)?.into(),
                     serde_json::to_string(&caller)?.into(),operation.into(),digest.clone().into(),serde_json::to_string(&caller)?.into(),crate::asyncrt::wall_ms().into()])?;
         }
         insert_receipt(tx,&caller,operation,"configure",&digest)?;
@@ -496,6 +496,7 @@ impl Cell for Catalog {
             };
             let body = broker::body(&args)?;
             let result = match method.as_str() {
+                super::catalog_inventory::METHOD => super::catalog_inventory::list(&context, &body),
                 "__catalogConfigure" => configure(&context, &body).await,
                 "__catalogRetire" => retire(&context, &body).await,
                 "__catalogRetirementStatus" => retirement_status(&context, &body),

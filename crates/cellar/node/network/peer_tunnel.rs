@@ -649,7 +649,10 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     "RPC method header is missing",
                 )));
             };
-            let body_limit = if method == crate::runtime::source_control::METHOD
+            let body_limit = if matches!(&authority, Some(crate::runtime::RpcAuthority::Catalog(_)))
+            {
+                crate::runtime::catalog_control::MAX_RPC_BYTES
+            } else if method == crate::runtime::source_control::METHOD
                 || matches!(&authority, Some(crate::runtime::RpcAuthority::Source(_)))
             {
                 crate::runtime::source_control::MAX_RPC_BYTES

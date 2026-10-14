@@ -1811,3 +1811,200 @@ async fn removed_source_class_recovers_delivery_and_control_without_application_
     stopped(node).await?;
     Ok(())
 }
+
+async fn catalog_operator(
+    client: &reqwest::Client,
+    node: &Node,
+    cursor: serde_json::Value,
+    limit: usize,
+) -> Result<serde_json::Value> {
+    let resource = resource();
+    let name = serde_json::to_string(&(&resource.tenant, &resource.application))?;
+    let id = cellar_native::cell_id::for_name("cells:v1:event-catalog:__EventCatalog", &name);
+    let path = format!(
+        "/catalogs/__EventCatalog:{}",
+        cellar_native::cell_id::encode_hex(&id)
+    );
+    let body = serde_json::to_vec(
+        &serde_json::json!({"namespace":{"tenant":resource.tenant,"application":resource.application},"cursor":cursor,"limit":limit}),
+    )?;
+    let auth = PeerAuth::new([11; 32], "catalogs-operator")?;
+    let response = auth
+        .sign(
+            client
+                .post(format!("http://{}{path}", node.info().internal_address))
+                .body(body.clone()),
+            "POST",
+            &path,
+            &body,
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(
+        response.status() == 200,
+        "catalog operator response {}: {}",
+        response.status(),
+        response.text().await?
+    );
+    Ok(response.json().await?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Result<()> {
+    use serde_json::{json, Value};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("catalog-inventory-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "catalog-inventory-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let mut declarations = graph(1, false);
+    for ordinal in 2..=3 {
+        let mut definition = declarations.primary.event_streams[0].clone();
+        definition.resource.id = format!("{ordinal:032x}");
+        definition.resource.name = format!("extra-{ordinal}");
+        declarations.primary.event_streams.push(definition);
+    }
+    let owner = Node::start(config, services, declarations, applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let (config, services) = inputs(
+        "catalog-inventory-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let client = client()?;
+    let local = catalog_operator(&client, &owner, Value::Null, 100)
+        .await
+        .context("catalog inventory direct owner")?;
+    ensure!(
+        local["result"]["records"]
+            .as_array()
+            .is_some_and(|rows| rows.len() == 3),
+        "catalog direct reply: {local}"
+    );
+    let first = catalog_operator(&client, &entrance, Value::Null, 1)
+        .await
+        .context("catalog inventory routed first page")?;
+    ensure!(first["result"]["records"].as_array().unwrap().len() == 1);
+    ensure!(first["result"]["records"][0]["accepted_revision"] == "1");
+    let saved = first["result"]["cursor"].clone();
+    ensure!(saved.is_string());
+    let mut retired = binding(true);
+    retired.resource.id = format!("{:032x}", 3);
+    retired.resource.name = "extra-3".into();
+    let request = Retirement {
+        operation: "00000000000000000000000000000099".into(),
+        revision: 1,
+        reason: "catalog tombstone qualification".into(),
+        mode: RetirementMode::Force {
+            data_loss_acknowledgment: "explicitly retire this empty test stream".into(),
+        },
+    };
+    let accepted = stream_operator(
+        &client,
+        &entrance,
+        &retired,
+        json!({"kind":"retire","request":request}),
+        "catalogs-operator",
+    )
+    .await?;
+    ensure!(
+        accepted["error"].is_null(),
+        "catalog fixture retirement failed: {accepted}"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let page = catalog_operator(&client, &entrance, Value::Null, 100).await?;
+            if page["result"]["records"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|entry| entry["state"] == "deleted")
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    stopped(owner)
+        .await
+        .context("catalog inventory owner handoff")?;
+    let mut records = first["result"]["records"].as_array().unwrap().clone();
+    let mut cursor = saved;
+    for _ in 0..4 {
+        let page = catalog_operator(&client, &entrance, cursor, 1).await?;
+        let rows = page["result"]["records"].as_array().unwrap();
+        ensure!(rows.len() <= 1);
+        records.extend(rows.iter().cloned());
+        cursor = page["result"]["cursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    ensure!(cursor.is_null() && records.len() == 3);
+    ensure!(records[0]["resource"]["id"] == resource().id);
+    ensure!(
+        records[2]["resource"]["id"] == format!("{:032x}", 3) && records[2]["state"] == "deleted"
+    );
+    ensure!(records
+        .iter()
+        .all(|entry| entry["accepted_revision"] == "1" && entry["desired_revision"].is_null()));
+    let encoded = serde_json::to_string(&records)?;
+    ensure!(
+        !encoded.contains("grants")
+            && !encoded.contains("payload")
+            && !encoded.contains("definition")
+            && !encoded.contains("token")
+    );
+    let resource = resource();
+    let name = serde_json::to_string(&(&resource.tenant, &resource.application))?;
+    let id = cellar_native::cell_id::for_name("cells:v1:event-catalog:__EventCatalog", &name);
+    let path = format!(
+        "/catalogs/__EventCatalog:{}",
+        cellar_native::cell_id::encode_hex(&id)
+    );
+    let body = serde_json::to_vec(
+        &json!({"namespace":{"tenant":resource.tenant,"application":resource.application},"cursor":null,"limit":1}),
+    )?;
+    let unsigned = client
+        .post(format!("http://{}{path}", entrance.info().internal_address))
+        .body(body.clone())
+        .send()
+        .await?;
+    ensure!(unsigned.status() == 401);
+    let mut wrong: Value = serde_json::from_slice(&body)?;
+    wrong["namespace"]["application"] = "foreign".into();
+    let wrong = serde_json::to_vec(&wrong)?;
+    let auth = PeerAuth::new([11; 32], "catalogs-operator")?;
+    let response = auth
+        .sign(
+            client
+                .post(format!("http://{}{path}", entrance.info().internal_address))
+                .body(wrong.clone()),
+            "POST",
+            &path,
+            &wrong,
+            &entrance.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(response.status() == 400);
+    stopped(entrance)
+        .await
+        .context("catalog inventory entrance shutdown")?;
+    Ok(())
+}

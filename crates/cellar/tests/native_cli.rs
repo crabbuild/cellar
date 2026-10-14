@@ -50,6 +50,7 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
                     && help.contains("--confirm-reset")
                     && help.contains("--payload")
                     && help.contains("cellar stream sources")
+                    && help.contains("cellar stream list")
             );
         }
         for action in ["reset", "delete"] {
@@ -84,6 +85,27 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
 #[test]
 fn stream_operator_cli_refuses_invalid_inputs_before_fleet_access() -> Result<()> {
     let executable = env!("CARGO_BIN_EXE_cellar");
+    for (flag, value, message) in [
+        ("--limit", "101", "invalid catalog list bounds"),
+        ("--limit", "0", "invalid catalog list bounds"),
+        ("--cursor", "subs1.%%%", "InvalidCursor"),
+        ("--payload", "true", "invalid catalog list option"),
+    ] {
+        let output = Command::new(executable)
+            .args([
+                "stream",
+                "list",
+                "--tenant",
+                "tenant",
+                "--application",
+                "app",
+                flag,
+                value,
+            ])
+            .output()?;
+        ensure!(!output.status.success());
+        ensure!(String::from_utf8(output.stderr)?.contains(message));
+    }
     let directory = tempfile::tempdir()?;
     let mut binding = tempfile::NamedTempFile::new_in(directory.path())?;
     binding.write_all(&serde_json::to_vec(&serde_json::json!({

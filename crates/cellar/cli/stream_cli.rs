@@ -13,7 +13,11 @@ use std::borrow::Cow;
 use std::io::Read;
 use std::time::Duration;
 
+#[path = "catalog_cli.rs"]
+mod catalog_cli;
+
 const HELP: &str = "cellar stream describe --binding BINDING.json
+cellar stream list --tenant TENANT --application APPLICATION [--cursor TOKEN] [--limit N]
 cellar stream sources --binding BINDING.json [--cursor TOKEN] [--limit N]
 cellar stream read --binding BINDING.json [--cursor TOKEN] [--limit N] [--max-bytes N] [--payload]
 cellar stream status --binding BINDING.json --operation UUID
@@ -306,6 +310,9 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
 }
 
 pub async fn run(arguments: Vec<String>, subscription: bool) -> Result<()> {
+    if !subscription && arguments.first().is_some_and(|verb| verb == "list") {
+        return catalog_cli::run(arguments.into_iter().skip(1).collect()).await;
+    }
     let Some(options) = parse(arguments, subscription)? else {
         return Output::new(Format::Text).line(format_args!(
             "{HELP}\n\n{FLEET_HELP}\n  --json              Print one JSON result object"

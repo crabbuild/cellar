@@ -117,6 +117,7 @@ that grant; its current durable permissions are checked by the receiver.
 A fleet signature and supplied permission flags cannot restore a revoked grant.
 
 ```text
+cellar stream list --tenant TENANT --application APPLICATION [--cursor TOKEN] [--limit N] [FLEET OPTIONS]
 cellar stream sources --binding BINDING.json [--cursor TOKEN] [--limit N] [FLEET OPTIONS]
 cellar stream describe --binding BINDING.json --json [FLEET OPTIONS]
 cellar stream read --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
@@ -146,6 +147,18 @@ from the stream-read cursor. Pages are live observations rather than a snapshot:
 new lower UUIDs require a fresh traversal. The receiver checks the current
 administration grant on every page, including continuation after owner handoff.
 The SDK equivalent is `stream.subscriptions(&context, SubscriptionListOptions)`.
+
+Catalog listing requires fleet administration through a separate namespace
+capability; a stream administration grant cannot list its tenant/application.
+It returns bounded identity/lifecycle metadata, current operation and accepted/
+desired revision strings, including retained deleted resources. Configuration
+bodies, grants, credentials and event payloads are absent. Its `catalog1` cursor
+binds the exact tenant/application catalog and page tail. Pages are live
+observations, not a snapshot or whole-fleet resource/producer discovery.
+The owner reads at most 101 scalar metadata rows for a 100-record page, through
+the ordinary recovery and output gates. Every page verifies fleet authentication
+and the namespace/method capability. The signed HTTP equivalent is
+`POST /catalogs/SCOPE` with `{"namespace":{"tenant":"TENANT","application":"APPLICATION"},"cursor":null,"limit":100}`.
 
 Source inventory lists destination-observed producer lanes, ordered by lane digest.
 Each record contains the source scope/incarnation, captured principal/grant,
@@ -178,7 +191,7 @@ method/path/body verification precedes authority minting. Operator RPC authority
 is restricted to these stream methods and cannot configure a catalog or append
 events. Requests and binding files are bounded to 16 KiB, expected identity
 files to 4 KiB and replies to 1 MiB. This surface remains under implementation;
-catalog-wide and whole-fleet source inventories, lifecycle controls and exported
+whole-fleet resource/source inventories, lifecycle controls and exported
 metrics are outstanding.
 
 Stream retirement uses the same binding and administration grant, but routes to

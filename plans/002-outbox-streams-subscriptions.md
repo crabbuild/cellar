@@ -1255,8 +1255,22 @@ retirement receipts. Ordinary SDK receipts carry no operator.
 Current markers require these columns before base schema
 mutation. Terminal results retain captured records/bytes and the exact retained
 payload range after cleanup; malformed or conflicting range/provenance echoes
-cannot finish the catalog receipt. Catalog/fleet inventories and exported metrics
+cannot finish the catalog receipt. Fleet inventories and exported metrics
 remain future work; the full release qualification gates still apply.
+
+Catalog inventory uses `cellar stream list --tenant TENANT --application APPLICATION`
+and signed `/catalogs/SCOPE` ingress. A private platform capability is scoped to
+one namespace and the listing method; individual resource grants are not promoted.
+The receiver validates that capability before accessing metadata. Identity,
+lifecycle, operation and accepted/desired revisions are selected from scalar
+catalog columns using a bounded primary-key range. Configuration changes commit
+those columns with the corresponding definition/lifecycle transition. The
+`catalog1` continuation binds the namespace and page tail, and every response
+validates identity, ordering, bounds, decimal revisions and lifecycle consistency.
+Deleted identities remain listed. The schema stays at 1; older development
+layouts require recreation, without migration. This is namespace administration,
+not whole-fleet discovery or coordinated producer-drain proof. Local cursor, capability and two-node handoff/tombstone checks are qualified;
+the broader release fault and capacity gates remain open.
 
 Destination source inventory is exposed as `Stream::sources` and `cellar stream
 sources`. Signed command kind `sources` requires current resource administration
@@ -1267,7 +1281,7 @@ A primary-key range reads at most 101 rows for a 100-record page. Its bounded
 SDK/operator response validation rederives lane identity and preserves decimal
 watermarks through `i64::MAX`. Retained producer metadata survives payload expiry.
 Pages are live observations, not a snapshot or an inventory of undispatched
-sources. They cannot prove that every producer is drained. Catalog and fleet-wide
+sources. They cannot prove that every producer is drained. Fleet-wide
 inventories, source destruction and exported metrics remain separate requirements.
 
 Development mode uses the same source/stream/subscription protocol against local

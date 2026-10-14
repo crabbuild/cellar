@@ -351,6 +351,7 @@ pub(crate) struct Activation {
 #[derive(Clone)]
 pub struct Context {
     pub(crate) event_authority: Option<event_stream::Authority>,
+    pub(crate) catalog_authority: Option<crate::runtime::rpc_authority::CatalogAuthority>,
     pub(crate) io: Arc<crate::host_io::IoContext>,
     pub(crate) state: Arc<EventState>,
     pub(crate) identity: Option<CellIdentity>,

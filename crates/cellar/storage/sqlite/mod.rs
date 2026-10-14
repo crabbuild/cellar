@@ -4674,7 +4674,7 @@ mod system_schema_tests {
         system_sql_schema(scope,"CREATE TABLE __sys_stream_schema(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL CHECK(version=1)); INSERT INTO __sys_stream_schema VALUES(1,1);
             CREATE TABLE __sys_event_catalog_schema(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL CHECK(version=1)); INSERT INTO __sys_event_catalog_schema VALUES(1,1);")?;
         system_sql(scope,"INSERT INTO __sys_stream_producers(lane,source,incarnation,principal,grant_id,accepted_through,sealed) VALUES('preserved-lane','Producer:source','incarnation','principal','grant',7,1)",&[])?;
-        system_sql(scope,"INSERT INTO __sys_event_catalog(id,name,lifecycle,operation,digest,operation_authority,retry_at_ms) VALUES('retired-id','retired','deleted','delete-operation','digest','{}',0)",&[])?;
+        system_sql(scope,"INSERT INTO __sys_event_catalog(id,name,lifecycle,tenant,application,family,accepted_revision,operation,digest,operation_authority,retry_at_ms) VALUES('retired-id','retired','deleted','tenant','test','events',1,'delete-operation','digest','{}',0)",&[])?;
         delete_all_with_alarm(scope, false)?;
         assert_eq!(
             alarm_snapshot(scope)?.source().map(|source| source.id),

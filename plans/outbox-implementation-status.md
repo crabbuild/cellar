@@ -215,7 +215,7 @@ this does not constitute a released deployed primitive yet.
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
-| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in | Catalog/fleet inventories, exported metrics, source destruction and broader control qualification |
+| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in | Whole-fleet inventories, exported metrics, source destruction and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer/native/fleet/schema markers at 1; hard-cutover development policy and incompatible source-policy refusal | Fresh-state/reopen fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
@@ -231,9 +231,10 @@ It retains the full existing shutdown assertion and explicitly verifies that a
 failed unsupported startup releases its directory for immediate reuse. Friendly
 name-only resource configuration remains separate from resolved UUID bindings.
 
-Add catalog stream listings, exported bounded metrics and remaining source
-inventory/lifecycle controls. Subscription listing is implemented in the current
-work below; catalog-wide authority remains a separate contract. Source
+Continue exported bounded metrics and whole-fleet source/resource inventory and
+lifecycle controls. Subscription, destination-observed source and namespace
+catalog listings are implemented in the current work below. Catalog inventory
+uses a separate platform capability; resource grants remain resource-scoped. Source
 inspection, guarded retry, operation status and audit now have authenticated owner-routed HTTP/CLI
 entry points. Subscription
 administration, producer sealing and stream retirement are implemented, but
@@ -813,3 +814,41 @@ resource-scoped and must not mint that capability. Inventory must use bounded
 primary-key pages, retain deleted identities, expose only lifecycle/identity
 metadata, and use namespace-bound continuations. It cannot substitute for
 whole-fleet producer discovery or a coordinated retirement proof.
+
+## Catalog namespace inventory (implemented; release qualification incomplete)
+
+Adds `cellar stream list --tenant/--application`, signed `/catalogs/` ingress,
+namespace-bound host RPC authority and bounded scalar metadata pages. Resource
+administration cannot mint the namespace capability or invoke the listing method.
+Current identity/lifecycle, operation and accepted/desired revision columns commit
+with definition transitions; listings copy no configuration, grants, tokens or
+payloads. Cursor and response acceptance bind namespace, order and page tail.
+The catalog schema remains 1; a prior layout lacking metadata columns is refused
+before base schema mutation and must be recreated. No migrations are introduced.
+
+Compilation and targeted qualification passed. New checks cover bounds, cursor namespace,
+decimal revisions, sensitive-field rejection and method/scope capability limits.
+The real bucket-backed Node fixture creates three resources, retires one, resumes
+one-record pages after owner handoff and requires full original shutdown proofs.
+The reset/replication fixture initializes the current scalar catalog columns while
+preserving its existing reset and restore assertions. Whole-fleet inventory,
+metrics, source destruction and the full fault/capacity matrix remain open.
+
+The first routed integration run failed with a remote RPC error. A direct-owner
+probe reproduced `InvalidRequest: event RPC arguments must be a single object`:
+the new request producer had omitted the event protocol's one-element argument
+array. After correcting that, the direct-owner result exposed a missing operator
+`ok` to `result` normalization. Both contracts are now exercised through the real
+event decoder and response projection, including malformed reply envelopes.
+The original two-node test then passed (7.49 seconds), with retained tombstones,
+one-record continuation after handoff, unsigned-request refusal, namespace/path
+mismatch refusal and complete original shutdown reports. No deadline or proof
+assertion was changed.
+
+The wider targeted gate passed 88 library, 6 artifact, 2 CLI, 1 catalog delivery/
+retention/revocation and all 25 Node tests (229.46 seconds for the Node suite).
+Workspace all-target/all-feature Clippy passed with warnings denied. Formatting
+checked 417 Rust files; documentation validated 35 documents, 6 flows and 370
+references; the dependency graph remains 401 reachable packages without a
+JavaScript engine. All 11 final workspace doctests passed. This is targeted qualification,
+not a new uninterrupted full workspace runtime pass or release completion.

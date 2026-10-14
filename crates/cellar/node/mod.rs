@@ -49,6 +49,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod catalog_operator;
 mod driver;
 #[cfg(not(cellar_internal_tests))]
 mod embedded;
@@ -3072,6 +3073,9 @@ async fn handle_internal(
         }
         _ if path.starts_with("/streams/") && app.runtime.is_some() => {
             stream_operator::handle(&app, request).await
+        }
+        _ if path.starts_with("/catalogs/") && app.runtime.is_some() => {
+            catalog_operator::handle(&app, request).await
         }
         _ if path.starts_with("/runtime/") && app.runtime.is_some() => {
             let scope = path

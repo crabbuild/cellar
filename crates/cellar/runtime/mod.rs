@@ -862,6 +862,7 @@ pub(crate) async fn receive_service_fetch_response_for_test(
     receive_service_response(response, lifetime, Some(cancel)).await
 }
 
+pub(crate) mod catalog_control;
 pub(crate) mod rpc_authority;
 pub(crate) mod source_control;
 pub(crate) mod source_recovery;

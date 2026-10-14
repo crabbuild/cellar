@@ -91,6 +91,14 @@ impl Reachable {
         Self::open_route(fleet, subject, scope, None, "streams").await
     }
 
+    pub(crate) async fn open_catalog(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "catalogs").await
+    }
+
     async fn open_route(
         fleet: Fleet<'_>,
         subject: Subject,
@@ -128,7 +136,7 @@ impl Reachable {
             http,
             auth,
             subject,
-            reply_limit: matches!(route, "outbox" | "streams")
+            reply_limit: matches!(route, "outbox" | "streams" | "catalogs")
                 .then_some(crate::runtime::source_control::MAX_REPLY_BYTES),
             entrances: nodes
                 .into_iter()

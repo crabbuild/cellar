@@ -10,6 +10,60 @@ use serde::{Deserialize, Serialize};
 pub enum RpcAuthority {
     Event(event_stream::Authority),
     Source(SourceAuthority),
+    Catalog(CatalogAuthority),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum CatalogKind {
+    #[serde(rename = "catalog-operator-v1")]
+    Inventory,
+}
+
+/// Platform namespace inspection; an application resource grant cannot mint it.
+#[doc(hidden)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogAuthority {
+    kind: CatalogKind,
+    namespace: event_stream::CatalogNamespace,
+    operator: String,
+}
+
+impl CatalogAuthority {
+    pub(crate) fn mint(
+        namespace: event_stream::CatalogNamespace,
+        operator: String,
+    ) -> Result<Self> {
+        let authority = Self {
+            kind: CatalogKind::Inventory,
+            namespace,
+            operator,
+        };
+        authority.validate()?;
+        Ok(authority)
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.namespace.validate()?;
+        anyhow::ensure!(
+            !self.operator.is_empty() && self.operator.len() <= 256,
+            "invalid catalog operator identity"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
+        self.validate()?;
+        anyhow::ensure!(
+            scope == self.namespace.scope()? && method == event_stream::catalog_inventory::METHOD,
+            "catalog authority does not match its RPC target"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn namespace(&self) -> &event_stream::CatalogNamespace {
+        &self.namespace
+    }
 }
 
 impl From<event_stream::Authority> for RpcAuthority {
@@ -67,6 +121,7 @@ impl RpcAuthority {
         match self {
             Self::Event(authority) => authority.validate(),
             Self::Source(authority) => authority.validate(),
+            Self::Catalog(authority) => authority.validate(),
         }
     }
 
@@ -84,6 +139,7 @@ impl RpcAuthority {
                 );
                 Ok(())
             }
+            Self::Catalog(authority) => authority.validate_target(scope, method),
         }
     }
 }
@@ -108,6 +164,55 @@ pub(crate) fn validate_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn catalog_authority_is_namespace_and_method_bound_without_resource_promotion() -> Result<()> {
+        let namespace = event_stream::CatalogNamespace {
+            tenant: "tenant".into(),
+            application: "app".into(),
+        };
+        let scope = namespace.scope()?;
+        let catalog = RpcAuthority::Catalog(CatalogAuthority::mint(
+            namespace.clone(),
+            "platform".into(),
+        )?);
+        catalog.validate_target(&scope, event_stream::catalog_inventory::METHOD)?;
+        for method in [
+            "__catalogConfigure",
+            "__catalogRetire",
+            "__catalogStatus",
+            "__streamRead",
+        ] {
+            assert!(catalog.validate_target(&scope, method).is_err());
+        }
+        let foreign = event_stream::CatalogNamespace {
+            application: "other".into(),
+            ..namespace
+        };
+        assert!(catalog
+            .validate_target(&foreign.scope()?, event_stream::catalog_inventory::METHOD)
+            .is_err());
+        assert!(validate_target(None, &scope, event_stream::catalog_inventory::METHOD).is_err());
+        let binding: event_stream::Binding = serde_json::from_value(serde_json::json!({
+            "environment":"EVENTS","resource":{"tenant":"tenant","application":"app","id":"00000000000000000000000000000001","name":"events","family":"events"},
+            "principal":"app","grant":"management","administer":true
+        }))?;
+        let resource = RpcAuthority::Event(event_stream::Authority::operator(
+            &binding,
+            event_stream::authority::Action::Administer,
+            "resource".into(),
+        )?);
+        assert!(resource
+            .validate_target(&scope, event_stream::catalog_inventory::METHOD)
+            .is_err());
+        let encoded = serde_json::to_value(catalog)?;
+        let decoded: RpcAuthority = serde_json::from_value(encoded.clone())?;
+        decoded.validate_target(&scope, event_stream::catalog_inventory::METHOD)?;
+        let mut forged = encoded;
+        forged["grant"] = serde_json::json!("application");
+        assert!(serde_json::from_value::<RpcAuthority>(forged).is_err());
+        Ok(())
+    }
 
     #[test]
     fn source_authority_is_method_and_scope_bound_and_preserves_event_wire_shape() -> Result<()> {

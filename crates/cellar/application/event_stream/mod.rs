@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub(crate) mod authority;
 pub(crate) mod broker;
 pub(crate) mod catalog;
+pub(crate) mod catalog_inventory;
 mod catalog_schema;
 mod client;
 mod config;
@@ -29,6 +30,9 @@ mod store;
 mod subscription;
 mod subscription_store;
 pub use authority::Authority;
+pub use catalog_inventory::{
+    CatalogEntry, CatalogListOptions, CatalogNamespace, CatalogPage, CatalogState,
+};
 pub use client::{Configuration, Cursor, Page, ReadOptions, Record};
 pub use config::{
     Definition, Grant, Retention, Start, SubscriptionDefinition, MAX_DEFINITION_BYTES,

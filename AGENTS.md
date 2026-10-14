@@ -75,8 +75,14 @@ Pages are live observations, not a snapshot. Destination source inventory uses
 and a `sources1` cursor bound to tenant/application/stream identity. It shows
 accepted watermarks and retained seals, including after payload expiry, without
 payloads or tokens. It is not a census of undispatched sources or an all-producer
-drain proof. Each page repeats current administration checks. Catalog and
-whole-fleet source inventories and exported event metrics remain unfinished.
+drain proof. Each page repeats current administration checks. Whole-fleet
+resource/source inventories and exported event metrics remain unfinished.
+Catalog inventory uses `cellar stream list` with a separate
+fleet-administration namespace capability and `/catalogs/` ingress; resource
+grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle
+rows, including tombstones. `catalog1` continuations bind the namespace and tail.
+Catalog identity and accepted/desired revision columns commit with configuration
+state; the schema marker stays 1 and older layouts require recreated state.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained
