@@ -477,6 +477,21 @@ async fn fire(runtime: &RuntimeManager, scope: &str, id: u64) -> Result<()> {
     Ok(())
 }
 
+async fn observe_deadline(
+    runtime: &RuntimeManager,
+    scope: &str,
+    expected: Option<i64>,
+) -> Result<()> {
+    cellar::asyncrt::timeout(Duration::from_secs(2), async {
+        while runtime.alarm(scope) != expected {
+            cellar::asyncrt::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .map_err(|_| anyhow!("stream deadline did not converge to {expected:?}"))?;
+    Ok(())
+}
+
 async fn replay(runtime: &RuntimeManager, captured: &Captured) -> Result<Value> {
     let (send, _receive) = tokio::sync::oneshot::channel();
     let mut request = RpcCallReq {
@@ -879,7 +894,13 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         .await
         .is_err());
     // A live lease protects retained bytes even past their age target.
-    fire(&runtime, &recorded.scope, 2).await?;
+    observe_deadline(
+        &runtime,
+        &recorded.scope,
+        Some(analytics["expires_ms"].as_str().unwrap().parse()?),
+    )
+    .await?;
+    cellar::asyncrt::sleep(Duration::from_millis(1100)).await;
     let age_blocked = fetch(&runtime, "stats").await?;
     assert_eq!(
         age_blocked["observation"]["retention_blocked_bytes"],
@@ -1067,7 +1088,10 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     assert_eq!(paused["current"], status["identity"]);
     fetch(&runtime, "emit").await?;
     fire(&runtime, SOURCE, 9).await?;
-    fire(&runtime, &recorded.scope, 10).await?;
+    // A paused required checkpoint cannot advance solely with time. It must
+    // not retain a periodic age wake that can never reclaim this payload.
+    observe_deadline(&runtime, &recorded.scope, None).await?;
+    cellar::asyncrt::sleep(Duration::from_millis(1100)).await;
     assert_eq!(fetch(&runtime, "read").await?["events"][0]["sequence"], "5");
     assert_eq!(
         fetch(

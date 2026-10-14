@@ -72,6 +72,10 @@ explicit retry plus clean restart, not simulated crash or actual response loss.
 The projection is driven by bounded HTTP requests; this recipe does not install
 a background consumer. Required retention can eventually backpressure producers
 if the projection stops making progress.
+Required checkpoints can keep events beyond their age target. Age maintenance
+waits for checkpoint or policy progress when the whole prefix is protected;
+live leases keep their expiry deadline. Acknowledgment releases capacity and
+resumes eligible bounded cleanup.
 
 [main.rs](main.rs) owns host/core executors, listeners, clients and an injected
 `NodeFleet`. Its private SQLite-backed object store retains replicated data, logs,

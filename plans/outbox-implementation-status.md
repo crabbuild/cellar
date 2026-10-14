@@ -15,6 +15,12 @@ removed implementations and are not current supported behavior.
 ## Current code
 
 - `Storage::tx` delegates to the existing synchronous savepoint machinery.
+- Stream age maintenance quiesces when the first retained record is protected
+  by a required checkpoint or live lease. Lease-expiry work remains scheduled;
+  checkpoint/lifecycle/configuration transitions transactionally recompute the
+  deadline. Indexed minimum checkpoint, bounded leases and one oldest record
+  bound eligibility observation without scanning retained payloads. Eligible sweeps retain their existing
+  bounded continuation interval and other alarms/work reasons remain intact.
 - `cellar outbox census [CLASS]` walks one bounded bucket-directory page and
   probes source owners through signed inspection, including root producers
   unseen by destination inventories. It reports source/empty/unavailable without
@@ -227,7 +233,7 @@ this does not constitute a released deployed primitive yet.
 | Durable outbox delivery | Real destination integration, generation-fenced cleanup, blocked permanent errors, adaptive batch limits, host/lane reservations | Cancellation/routing/fairness qualification and operational controls |
 | Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling; proven ack reply loss and unchanged receipt replay return `AlreadyAcknowledged` with one effect/checkpoint | Complete deadline/error/race matrix and production lifecycle/crash qualification |
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
-| Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, source destruction crash/lease/policy and SQL-reset capacity qualification, scalable blocked-retention wake policy and capacity evidence |
+| Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, source destruction crash/lease/policy and SQL-reset capacity qualification, retention continuation/capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
 | Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in; guarded source destruction/recreation, exact terminal evidence, retained loss receipts, bounded remote/local facet cleanup and incarnation fencing; namespace catalog inventory and fixed-cardinality event metrics | Catalog namespace/facet/historical census, aggregate owner-state/physical metrics and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer/native/fleet/schema markers at 1; hard-cutover development policy and incompatible source-policy refusal | Fresh-state/reopen fault qualification; destination/consumer policy-adoption matrix |
@@ -235,6 +241,9 @@ this does not constitute a released deployed primitive yet.
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
 
 ## Next implementation step
+
+Investigate the observed cancelled-bootstrap deadline/DomainClosed failure; isolated
+repeats and a complete node replay pass, but its cause remains unestablished.
 
 Complete the remaining release fault matrix across independent processes/physical
 hosts and supported storage backends, including followers, expired/isolated owners,
@@ -1850,3 +1859,61 @@ snapshot, all-producer drain proof, facet/historical source or catalog namespace
 inventory, nor aggregate authoritative gauges. Other cloud backends, removed-
 class/cold/facet coverage, ownership/listing races, scale/latency and physical
 accounting remain qualification/implementation work.
+
+
+## Quiescent protected retention maintenance (2026-10-14)
+
+Previously, the oldest retained append time always selected an age deadline,
+including when a required checkpoint prevented deletion. Once that age elapsed,
+maintenance rearmed at the existing one-second minimum forever without possible
+progress. Scheduling now reads one oldest primary-key record and compares its
+offset against the same required-checkpoint/live-lease deletion frontier used by
+sweeping. Protected prefixes have no age wake; lease cleanup keeps its expiry
+wake. Checkpoint/retry/lease/lifecycle transitions already recompute work, and
+accepted configuration now recomputes its deadline in that configuration's
+transaction so changed retention or age limits cannot leave eligible work dormant.
+
+The frontier reads the indexed minimum required checkpoint and at most 129 live
+leases, rejecting more than the current 128-subscription bound. Scheduling clamps
+wall time to durable logical time. Checked age-deadline overflow refusal remains
+active even with a protected prefix, avoiding acceptance that could become
+unacknowledgeable when protection lifts. Eligible expired records continue in
+bounded row/byte sweeps with the existing one-second minimum; clearing this
+reason leaves application alarms and other work intact. No schema, protocol,
+version marker, source/destination identity or durability gate changes.
+
+Four new production-SQL tests use a synthetic activation, not a fleet proof
+adapter. They require no periodic work for a protected required prefix, progress-
+triggered rearming, one-record bounded continuation, retained application alarm,
+live/expired lease handling, configuration rollback/release, durable-clock clamp
+and protected deadline-overflow refusal. All 110 library cases pass. The native
+stream fixture now checks that a live lease's expiry is its only deadline and a
+paused required checkpoint has no age deadline; it retains protection/age, receipt,
+reclamation, authorization and lifecycle assertions. That integration case passes.
+
+The first serial Node run passed 29/30 but cancelled bootstrap hit its original
+five-second deadline and a worker panicked with `DomainClosed`. Its selected
+original diagnostic is retained separately (not misrepresented as a complete raw
+log). One isolated replay and five repeats pass without changes. A full replay
+with backtraces passes all 30 cases in 256.57s. No cancellation fix, relaxed budget
+or established root cause is claimed; investigate this observed failure before
+closing release qualification. Event delivery/ownership/lifecycle cases passed
+in both runs. Workspace/all-target/all-feature Clippy-D, 11 doctests (one existing ignored),
+428-file formatting, docs (35/6/370), dependencies (401/no JavaScript engine),
+44 fault oracle guards and whitespace checks pass. This batch does not claim another complete-workspace integration gate.
+
+On archived CLI/example images, the real RustFS whole-fleet case passes four
+audits, three SIGKILLs and three discarded local node directories. Independent
+SQLite ack loss passes four audits, destination SIGKILL/reply drop and identical
+stored receipt replay. Both saved audit-only checks pass. Real RustFS census
+passes three one-prefix pages, undispatched/empty/failed-probe cases and scoped
+cursor refusal. Ordinary smoke passes. Private evidence, images, initial failure,
+isolated/full replay logs, source patch and manifest are retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-retention-scheduling-evidence-4mi5bznc`.
+Example SHA-256: `1c312594d0016938fd06fbdaff78cbf2ccd352bf556dea6573596f1fdb815530`.
+CLI SHA-256: `d86d84fa4d574742fd2e58c8a6dc4be815935bf0a77f681ea7c60415e5bac6cd`.
+
+This removes periodic age work that cannot reclaim a protected prefix. It does
+not qualify hot-stream/large-metadata/wake fairness, complete clock/lease/config
+races, follower/power/store/physical-host loss or the remaining capacity/soak
+matrix. Aggregate/physical metrics and wider census remain implementation work.

@@ -114,6 +114,14 @@ Restore audits contiguous offsets, sizes, timestamp order and byte positions
 before base-schema mutation. SQLite allocation observations use a fixed framework
 helper after activation checks; public pragma permissions stay unchanged. Full
 WAL/LTX/bucket physical usage and aggregate export remain unfinished.
+Stream maintenance only schedules age reclamation for an eligible first record;
+required checkpoint protection can quiesce age work entirely. Live/expired lease
+cleanup retains its expiry wake. Checkpoint/lifecycle/configuration transitions
+recompute deadlines in their transaction; configuration cannot leave newly
+eligible age work dormant. Indexed minimum checkpoint, at most 129 lease probes
+and one oldest record bound scheduling independently of retained payload size.
+Use durable logical time, preserve overflow refusal, and keep bounded continuation
+intervals plus independent application alarms/work reasons.
 Catalog inventory uses `cellar stream list` with a separate
 fleet-administration namespace capability and `/catalogs/` ingress; resource
 grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle

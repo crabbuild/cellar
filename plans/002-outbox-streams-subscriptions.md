@@ -898,6 +898,20 @@ prevent sufficient reclamation, reject append with `StreamFull` and retry later.
 Maximum bytes is a hard admission limit; maximum age is a reclamation target
 that live leases and maintenance delay may temporarily extend.
 
+Maintenance schedules an age deadline only when the first retained record lies
+inside the current deletion frontier. A required checkpoint can protect the
+entire prefix indefinitely; without a lease-expiry deadline, that state has no
+periodic age wake. Checkpoint progress, retry, lease extension/release,
+subscription lifecycle changes and accepted configuration recompute durable
+work in their transaction. Lease expiry remains scheduled even when it cannot
+release a required checkpoint. Expired eligible prefixes continue in bounded
+sweeps with the existing one-second minimum interval; clearing maintenance does
+not clear application alarms or other work reasons. Scheduling clamps time to
+the durable logical clock and retains checked age-deadline overflow refusal.
+The required frontier uses its indexed minimum checkpoint, lease observation is
+bounded by the current 128-subscription definition, and oldest age reads one
+primary-key record. Protected payload size cannot expand scheduling reads.
+
 Lagging subscriptions can lose history in this mode. Mark them expired when
 their next required offset falls below the new floor. The next fetch returns
 `CursorExpired`; an administrator must explicitly reset or replace them. Never

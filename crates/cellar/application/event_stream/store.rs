@@ -12,6 +12,10 @@ use rand::RngCore;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+#[cfg(test)]
+#[path = "store_tests.rs"]
+mod tests;
+
 pub(crate) fn text(row: &SqlRow, key: &str) -> Result<String> {
     match row.get(key) {
         Some(SqlValue::Text(value)) => Ok(value.clone()),
@@ -307,8 +311,39 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
             revision=excluded.revision,config_operation=excluded.config_operation,config_digest=excluded.config_digest,
             config_principal=excluded.config_principal,config_grant=excluded.config_grant",
             &[definition.into(),desired.revision.into(),operation.into(),digest.clone().into(),caller.principal.clone().into(),caller.grant.clone().into()])?;
+        // Configuration can release retention protection or change age limits.
+        // Persist its replacement deadline in the same transaction.
+        schedule(tx,&desired)?;
         Ok(json!({"revision":desired.revision.to_string(),"resource":desired.resource.id,"operation":operation,"digest":digest}))
     })
+}
+
+fn retention_frontier(db: &Storage, definition: &Definition, now: i64) -> Result<i64> {
+    let checkpoints = if definition.retention == Retention::Required {
+        db.system_sql("SELECT checkpoint FROM __sys_stream_subscriptions INDEXED BY __sys_stream_required_frontier WHERE required=1 AND state!='deleted' ORDER BY checkpoint LIMIT 1",&[])?
+            .iter().map(|row|number(row,"checkpoint")).collect::<Result<Vec<_>>>()?
+    } else {
+        vec![]
+    };
+    let leases = db
+        .system_sql(
+            "SELECT first_offset FROM __sys_stream_leases WHERE expires_ms>? ORDER BY subscription LIMIT 129",
+            &[now.into()],
+        )?
+        .iter()
+        .map(|row| number(row, "first_offset"))
+        .collect::<Result<Vec<_>>>()?;
+    if leases.len() > 128 {
+        return Err(error(
+            ErrorCode::UnsupportedProtocol,
+            "stream lease inventory exceeds the current definition bound",
+        ));
+    }
+    Ok(cellar_logic::event_stream::deletion_frontier(
+        i64::MAX,
+        checkpoints,
+        leases,
+    )?)
 }
 
 pub(crate) fn sweep(
@@ -323,21 +358,7 @@ pub(crate) fn sweep(
         .remove(0);
     let total_rows = number(&row, "rows")?;
     let total_bytes = number(&row, "bytes")?;
-    let checkpoints = if definition.retention == Retention::Required {
-        db.system_sql("SELECT checkpoint FROM __sys_stream_subscriptions WHERE required=1 AND state!='deleted'",&[])?
-            .iter().map(|row|number(row,"checkpoint")).collect::<Result<Vec<_>>>()?
-    } else {
-        vec![]
-    };
-    let leases = db
-        .system_sql(
-            "SELECT first_offset FROM __sys_stream_leases WHERE expires_ms>?",
-            &[now.into()],
-        )?
-        .iter()
-        .map(|row| number(row, "first_offset"))
-        .collect::<Result<Vec<_>>>()?;
-    let frontier = cellar_logic::event_stream::deletion_frontier(i64::MAX, checkpoints, leases)?;
+    let frontier = retention_frontier(db, definition, now)?;
     let limits = crate::application::limits::current().events;
     let candidates=db.system_sql("SELECT offset,size,append_ms FROM __sys_stream_events WHERE offset<=? ORDER BY offset LIMIT ?",
         &[frontier.into(),i64::try_from(limits.sweep_rows)?.into()])?;
@@ -383,15 +404,33 @@ pub(crate) fn sweep(
 }
 
 pub(crate) fn schedule(db: &Storage, definition: &Definition) -> Result<()> {
-    let rows = db.system_sql(
-        "SELECT min(append_ms) AS oldest FROM __sys_stream_events",
+    let logical = db.system_sql("SELECT logical_ms FROM __sys_stream WHERE singleton=1", &[])?;
+    let now = crate::asyncrt::wall_ms()
+        .max(number(&logical[0], "logical_ms")?)
+        .max(0);
+    schedule_at(db, definition, now)
+}
+
+fn schedule_at(db: &Storage, definition: &Definition, now: i64) -> Result<()> {
+    let frontier = retention_frontier(db, definition, now)?;
+    // Append timestamps follow offset order. One primary-key read suffices;
+    // a protected first record also protects every later record from sweeping.
+    let oldest = db.system_sql(
+        "SELECT offset,append_ms FROM __sys_stream_events ORDER BY offset LIMIT 1",
         &[],
     )?;
-    let oldest = match rows[0].get("oldest") {
-        Some(SqlValue::Integer(value)) => Some(*value),
-        Some(SqlValue::Null) => None,
-        _ => return Err(anyhow::anyhow!("invalid stream age")),
-    };
+    let age = oldest
+        .first()
+        .map(|row| -> Result<Option<i64>> {
+            // Preserve deadline overflow rejection even while a checkpoint blocks
+            // reclamation, so later acknowledgment cannot reveal an invalid age.
+            let deadline = number(row, "append_ms")?
+                .checked_add(definition.max_age_ms)
+                .ok_or_else(|| anyhow::anyhow!("stream age deadline overflow"))?;
+            Ok((number(row, "offset")? <= frontier).then_some(deadline))
+        })
+        .transpose()?
+        .flatten();
     let leases = db.system_sql(
         "SELECT min(expires_ms) AS expires FROM __sys_stream_leases",
         &[],
@@ -401,16 +440,9 @@ pub(crate) fn schedule(db: &Storage, definition: &Definition) -> Result<()> {
         Some(SqlValue::Null) => None,
         _ => return Err(anyhow::anyhow!("invalid lease expiry")),
     };
-    let now = crate::asyncrt::wall_ms();
-    let age = oldest
-        .map(|value| {
-            value
-                .checked_add(definition.max_age_ms)
-                .ok_or_else(|| anyhow::anyhow!("stream age deadline overflow"))
-        })
-        .transpose()?;
     if let Some(deadline) = age.into_iter().chain(expiry).min() {
-        // Protected old records must not cause an immediate, unbounded wake loop.
+        // Eligible expired prefixes continue in bounded batches. Protected
+        // prefixes await checkpoint/configuration transitions or lease expiry.
         db.schedule_work(
             cellar_logic::work::Reason::StreamMaintenance,
             deadline.max(now.saturating_add(1000)),
