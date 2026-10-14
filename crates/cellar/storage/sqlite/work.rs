@@ -280,30 +280,122 @@ mod tests {
     }
 
     #[test]
-    fn legacy_alarm_projection_is_upgraded_without_reusing_publication_identity(
+    fn current_projection_reopen_preserves_deadlines_and_publication_tombstones(
     ) -> anyhow::Result<()> {
         let cells = Cells::default();
         let _installed = cells.install();
         let directory = tempfile::tempdir()?;
-        let path = directory.path().join("cell.sqlite");
-        let connection = Connection::open(&path)?;
-        schema(&connection)?;
-        connection.execute_batch(
-            "CREATE TABLE __sys_cell_wake(scope TEXT PRIMARY KEY,epoch TEXT,sequence INTEGER,at_ms INTEGER);
-             INSERT INTO __sys_cell_alarm(scope,at_ms) VALUES('Work:source',200);
-             INSERT INTO __sys_cell_wake VALUES('Work:source','0000000000000001',42,200);
-             CREATE TRIGGER __sys_cell_wake_delete AFTER DELETE ON __sys_cell_alarm BEGIN
-               UPDATE __sys_cell_wake SET sequence=sequence+1,at_ms=NULL WHERE scope=OLD.scope;
-             END;"
-        )?;
-        drop(connection);
-        open_cell(&directory, 2)?;
-        assert_eq!(alarm_snapshot(SCOPE)?.source().unwrap().id.sequence, 42);
+        open_cell(&directory, 1)?;
+        set_alarm(SCOPE, 200)?;
         set(SCOPE, Reason::Outbox, 100)?;
-        delete_alarm(SCOPE)?;
-        assert_eq!(alarm_snapshot(SCOPE)?.at_ms(), Some(100));
-        assert!(alarm_snapshot(SCOPE)?.source().unwrap().id.sequence > 42);
+        let work = due(SCOPE, 100)?.unwrap();
+        let original = alarm_snapshot(SCOPE)?;
         close(SCOPE);
+        open_cell(&directory, 1)?;
+        assert!(alarm_snapshot(SCOPE)?.same_installation(original));
+        assert_eq!(get_alarm(SCOPE), Some(200));
+        assert_eq!(due(SCOPE, 100)?, Some(work));
+        clear(SCOPE, work)?;
+        assert_eq!(alarm_snapshot(SCOPE)?.at_ms(), Some(200));
+        assert!(
+            alarm_snapshot(SCOPE)?.source().unwrap().id.sequence
+                > original.source().unwrap().id.sequence
+        );
+        delete_alarm(SCOPE)?;
+        let consumed = alarm_snapshot(SCOPE)?;
+        assert_eq!(consumed.at_ms(), None);
+        close(SCOPE);
+        open_cell(&directory, 1)?;
+        assert!(alarm_snapshot(SCOPE)?.same_installation(consumed));
+        close(SCOPE);
+        open_cell(&directory, 2)?;
+        let restored = alarm_snapshot(SCOPE)?;
+        assert_eq!(restored.at_ms(), None);
+        assert_eq!(restored.source().unwrap().id.epoch, 2);
+        assert_eq!(
+            restored.source().unwrap().id.sequence,
+            consumed.source().unwrap().id.sequence
+        );
+        set(SCOPE, Reason::Outbox, 300)?;
+        assert!(
+            alarm_snapshot(SCOPE)?.source().unwrap().id.sequence
+                > consumed.source().unwrap().id.sequence
+        );
+        assert!(due(SCOPE, 300)?.unwrap().generation > work.generation);
+        assert!(!clear(SCOPE, work)?.0);
+        close(SCOPE);
+        Ok(())
+    }
+
+    #[test]
+    fn previous_alarm_projection_is_refused_before_schema_or_identity_mutation(
+    ) -> anyhow::Result<()> {
+        let cells = Cells::default();
+        let _installed = cells.install();
+        for old_trigger in [
+            "__sys_cell_wake_insert",
+            "__sys_cell_wake_update",
+            "__sys_cell_wake_delete",
+        ] {
+            let directory = tempfile::tempdir()?;
+            let path = directory.path().join("cell.sqlite");
+            let connection = Connection::open(&path)?;
+            connection.execute_batch(
+                "CREATE TABLE __sys_cell_alarm(scope TEXT PRIMARY KEY,at_ms INTEGER,retry INTEGER DEFAULT 0,counted_retry INTEGER NOT NULL DEFAULT 0,generation INTEGER NOT NULL DEFAULT 0);
+                 CREATE TABLE __sys_cell_wake(scope TEXT PRIMARY KEY,epoch TEXT,sequence INTEGER,at_ms INTEGER);
+                 INSERT INTO __sys_cell_alarm(scope,at_ms) VALUES('Work:source',200);
+                 INSERT INTO __sys_cell_wake VALUES('Work:source','0000000000000001',42,200);"
+            )?;
+            connection.execute_batch(&format!("CREATE TRIGGER {old_trigger} AFTER DELETE ON __sys_cell_alarm BEGIN UPDATE __sys_cell_wake SET sequence=sequence+1,at_ms=NULL WHERE scope=OLD.scope; END;"))?;
+            let snapshot = |db: &Connection| -> anyhow::Result<Vec<(String, String)>> {
+                Ok(db
+                    .prepare(
+                        "SELECT name,sql FROM sqlite_schema WHERE sql IS NOT NULL ORDER BY name",
+                    )?
+                    .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
+            };
+            let before = snapshot(&connection)?;
+            let journal: String =
+                connection.pragma_query_value(None, "journal_mode", |row| row.get(0))?;
+            let failure =
+                schema(&connection).expect_err("previous projection was silently upgraded");
+            assert_eq!(
+                failure
+                    .downcast_ref::<crate::application::event_stream::DeliveryError>()
+                    .unwrap()
+                    .code,
+                crate::application::event_stream::ErrorCode::UnsupportedProtocol
+            );
+            assert_eq!(snapshot(&connection)?, before);
+            assert_eq!(
+                connection
+                    .pragma_query_value(None, "journal_mode", |row| row.get::<_, String>(0))?,
+                journal
+            );
+            drop(connection);
+            assert!(open_cell(&directory, 2).is_err());
+            assert!(
+                with(SCOPE, |_| ()).is_none(),
+                "refused storage was installed"
+            );
+            let connection = Connection::open(&path)?;
+            assert_eq!(snapshot(&connection)?, before);
+            let retained: (String, i64, i64) = connection.query_row(
+                "SELECT epoch,sequence,at_ms FROM __sys_cell_wake WHERE scope=?",
+                [SCOPE],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )?;
+            assert_eq!(retained, ("0000000000000001".into(), 42, 200));
+            assert_eq!(
+                connection.query_row(
+                    "SELECT at_ms FROM __sys_cell_alarm WHERE scope=?",
+                    [SCOPE],
+                    |row| row.get::<_, i64>(0)
+                )?,
+                200
+            );
+        }
         Ok(())
     }
 }

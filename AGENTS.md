@@ -713,3 +713,11 @@ schemas remain readable; processing authority never depends on application decod
 Negative extension deadlines and retry delays outside host policy fail before RPC.
 All owned markers remain 1; full codec, cancellation, lifecycle/fault qualification
 remains tracked in plans/outbox-implementation-status.md.
+
+
+Wake projection admission rejects previous alarm-only __sys_cell_wake_* triggers
+through wake_record::check_schema before base-schema DDL, journal pragmas or writer
+epoch updates. It never drops/replaces those triggers as an upgrade. Recreate that
+development layout; all markers remain 1. Current projections preserve same-epoch
+publication identity and consumed tombstones; a new owner advances the epoch while
+retaining the monotonic sequence and independent alarm/work deadlines.

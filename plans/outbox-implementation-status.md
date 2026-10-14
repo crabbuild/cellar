@@ -2525,3 +2525,81 @@ It retains both failed fixture gates, lint-style failure, corrected source/logs
 and archived rebuilt native binaries. No receipt, deadline, shutdown or caller
 budget assertion is relaxed. Full transport allocation, cancellation, lease-race,
 follower/power/store-loss, physical metrics and release qualification remain open.
+
+
+## Alarm projection hard-cutover admission (2026-10-14)
+
+The existing built legacy-upgrade test passes, reproducing acceptance of the
+previous alarm-only wake projection. The new refusal regression fails against the before-change code with
+"previous projection was silently upgraded", independently confirming the policy
+violation. Its failed log is retained. The implementation
+now checks for each previous __sys_cell_wake_* trigger at schema entry before DDL,
+journal pragmas or activation writer-epoch updates. It returns typed
+UnsupportedProtocol with development-state recreation guidance. The DROP TRIGGER
+upgrade path is removed; all Cellar-owned markers remain 1.
+
+The refusal regression checks untouched schema/journal mode, retained alarm time
+and wake epoch/sequence, plus no installed storage after failed open. A positive
+current-layout regression checks same-epoch reopen, independent alarm/work
+removal, consumed tombstones, new-epoch sequence retention, and obsolete-work
+refusal. Final scoped qualification is recorded below; this does not close remaining schema,
+backend/follower/power/store-loss, maintenance/capacity or release-matrix work.
+
+
+### Next SDK acceptance priorities from current-source inspection
+
+These are concrete remaining checks, not completed qualification or new protocol
+semantics. Audit all returned metadata before reporting successful mutation or
+exposing receipt authority; preserve operation/fetch/receipt identity on retry.
+
+| Surface | Current evidence | Remaining implementation/qualification |
+| --- | --- | --- |
+| Configuration and status (`event_stream/client.rs`) | Request definition/operation preflight; replies only deserialize Configuration | Bind returned resource/operation to request, recognize catalog states, bound error metadata, and test historical operation replay versus current status |
+| Subscription lifecycle change (`event_stream/lifecycle.rs`) | Operation/previous identity equality and current resource/name validation | Validate returned action/reason/state/current UUID/incarnation transitions, checkpoint/skipped range/time, including reset/delete and replay |
+| Stream audit (`event_stream/lifecycle.rs`) | Caller page bounds; returned AuditPage only deserializes | Enforce count/order/continuation, identity and receipt validity without exposing tokens; test malformed, repeated, out-of-page and foreign records |
+| Retirement (`event_stream/retirement.rs`) | Resource/operation equality | Validate state, affected range, error/provenance bounds and transitions; preserve terminal loss receipt after cleanup |
+| Retry (`event_stream/subscription.rs`) | Receipt preflight and captured delay cap; RPC reply discarded | Require canonical nonnegative retry_at_ms consistent with delay; malformed successful replies cannot count as accepted retry |
+| Shared event RPC (`event_stream/mod.rs`, `error.rs`) | Host execution certainty is typed; bounded global codec elsewhere | Audit request/response allocation limits and codec/timeout/cancellation classification; do not confuse malformed submitted results with proof of non-execution |
+
+The fetch/extension and raw-read gates above address their specific acceptance
+rules; they do not establish correctness of these other operations. Prioritize
+configuration/lifecycle/audit acceptance together so their invariants share one
+reviewable set, then complete typed transport and fault/cancellation qualification.
+
+The freshly rebuilt library test binary passes all **7 work/wake tests**
+(0.15 seconds), including the new refusal and current-layout/tombstone regressions
+plus existing rollback, alarm independence, restore and generation-exhaustion
+checks. The binary and SHA-256 are archived separately. Full library/native and
+Clippy gates are still live; these seven cases are not a substitute for them.
+
+The broad final run passes **154 library tests** (11.84 seconds) and the native
+stream integration (11.00 seconds), then finishes Node **30 passed/1 failed**
+(344.43 seconds). The final predecessor-recovery case reports execution domain
+is closed. It passes isolated on the same rebuilt binary with unchanged policies
+and deadlines (10.74 seconds). The cause remains unestablished; do not label the
+isolated pass a fix or attribute it to load without evidence. Preserve both logs.
+Native outbox was not reached because Cargo stops at the Node failure; it runs
+separately. A full unchanged Node replay is pending. Workspace/all-target/all-
+feature Clippy-D passes (21m54s including its build-lock wait); 445-file formatting,
+62 Python guards, docs (35/6/370), dependencies (401/no JavaScript engine) and
+whitespace checks pass. The broader failure audit remains open.
+
+The separate rebuilt native outbox target passes its transaction/authority/
+publication-grant integration (0.46 seconds). Exact rebuilt stream/Node/outbox
+binaries and hashes are archived. The unchanged full Node replay is still live;
+its result cannot be inferred from the isolated predecessor pass.
+
+The unchanged complete Node replay passes **all 31 cases** (305.32 seconds),
+including predecessor recovery and complete shutdown. This passes the selected
+current-source gate; it does not establish why the earlier 30/1 run failed or
+complete its separate failure audit. No code, deadline, lease, receipt or shutdown
+assertion changed between the failed full run, isolated pass and full passing
+replay. The exact archived binaries, both full logs, isolation log and source
+hashes retain that distinction.
+
+Evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-wake-cutover-f3ljgfrj`.
+All owned markers remain 1. Old-projection refusal and current-projection identity
+recovery are qualified by the before/after and full scoped gates. Next work is the
+SDK acceptance audit above, followed by remaining transport/cancellation, physical
+metrics, capacity/ownership/backend and full release qualification. The full
+implementation goal remains active.

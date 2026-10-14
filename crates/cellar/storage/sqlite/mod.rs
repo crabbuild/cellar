@@ -386,6 +386,7 @@ impl Drop for SqlCursor {
 pub fn schema(c: &Connection) -> anyhow::Result<()> {
     // Refuse unsupported event state before creating tables or changing any
     // wake projection. The epoch's activation cannot reinterpret that state.
+    wake_record::check_schema(c)?;
     outbox::check_schema(c)?;
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;

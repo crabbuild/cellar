@@ -6,6 +6,22 @@
 use cellar_logic::wake::{AlarmSnapshot, AlarmSource, PublicationId};
 use rusqlite::{params, Connection, OptionalExtension as _};
 
+/// Development layouts cut over without replacing a retained wake projection.
+/// Run before base-schema DDL, pragmas or ownership-epoch changes.
+pub(super) fn check_schema(c: &Connection) -> anyhow::Result<()> {
+    let previous: bool = c.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name IN (
+           '__sys_cell_wake_insert', '__sys_cell_wake_update', '__sys_cell_wake_delete'
+         ))",
+        [],
+        |row| row.get(0),
+    )?;
+    super::event_schema::compatible(
+        !previous,
+        "previous alarm-only wake projection; recreate development state",
+    )
+}
+
 /// The ownership protocol advances the epoch before a restored image can
 /// write. A same-epoch reopen retains this row, including consumed tombstones.
 /// Resetting its sequence would let an old DELETE name a new installation.
@@ -49,14 +65,8 @@ pub(crate) fn initialize(c: &Connection, scope: &str, epoch: u64) -> anyhow::Res
         )?;
         // Triggers also cover handler consumption, retry, and transaction
         // rollback. Callback bookkeeping cannot make identity atomic with SQL.
-        // Replace the previous alarm-only projection once. Work tombstones
-        // preserve generations and all changes advance publication identity,
-        // even when a different reason keeps the same effective deadline.
-        c.execute_batch(
-            "DROP TRIGGER IF EXISTS __sys_cell_wake_insert;
-             DROP TRIGGER IF EXISTS __sys_cell_wake_update;
-             DROP TRIGGER IF EXISTS __sys_cell_wake_delete;",
-        )?;
+        // Work tombstones preserve generations and all changes advance
+        // publication identity, even when another reason keeps the deadline.
         for (table, prefix, update_columns) in [
             ("__sys_cell_alarm", "alarm", "at_ms,generation"),
             ("__sys_work", "work", "at_ms,generation"),
