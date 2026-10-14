@@ -289,7 +289,7 @@ the goal complete from a local passing delivery test.
 The checkout is `codex/outbox-design`, based on
 `c35c1b257a5804d367a2aeffe65b8a3ba5c1aa3a`, with main through `6a8e252`
 merged to preserve the Axum/external-ingress and workflow additions. The
-implementation is submitted as draft PR #27 at the user's request. Operator tooling, examples and
+implementation is submitted as PR #27 at the user's request. Operator tooling, examples and
 production event failure qualification remain part of the active goal. Do not
 discard the original design or documentation edits.
 
@@ -783,3 +783,33 @@ validated 35 documents, 6 flows and 370 references. The all-feature dependency
 graph retains 401 reachable packages with no JavaScript engine; whitespace checks
 passed. These successes do not supersede the failed/incomplete broad runtime gate
 or establish full release qualification.
+
+## Runtime qualification diagnostics (2026-10-13)
+
+The first instrumented native HTTP replay reproduced its 30-second deadline
+while the first `network` call was pending. Service fetch/RPC/stream, loopback,
+restricted environment and broker routing had completed. A later stage-marked
+run passed, and all three replays with client-builder boundary markers passed.
+The diagnostic native S3 case passed; generic store construction took about
+2.4 seconds of the existing peer's 3-second accept window. An isolated client
+construction probe measured native-certificate builds at about 0.74 and 0.16
+seconds, while disabling that one input completed below the log's millisecond
+resolution. These observations do not establish the cause of the earlier
+HTTP deadline or S3 error. No production trust configuration, client factory,
+credential provider, timeout or proof policy changed.
+
+Temporary client/run logs and the construction probe were removed. The HTTP
+fixture now reports a fixed phase label on its original deadline error, and
+S3 accept/header failures identify the reader kind and request attempt. Final
+serial HTTP and replication suites passed all 5 and 4 cases respectively;
+focused all-feature Clippy passed with warnings denied. The failed broad gate
+and earlier isolated failures remain part of the evidence; these diagnostic
+passes do not prove a fix or establish full release qualification.
+
+Catalog inventory is the next implementation priority. Namespace inspection
+needs its own host-minted capability bound to tenant/application, catalog scope
+and the read-only listing method. Existing stream administration remains
+resource-scoped and must not mint that capability. Inventory must use bounded
+primary-key pages, retain deleted identities, expose only lifecycle/identity
+metadata, and use namespace-bound continuations. It cannot substitute for
+whole-fleet producer discovery or a coordinated retirement proof.

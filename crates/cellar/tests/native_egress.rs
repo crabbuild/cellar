@@ -1,5 +1,5 @@
 //! Native service/HTTP capabilities through production runtime dispatch.
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cellar::application::http::{Headers, MethodError, OutboundRequest, Redirect, Response};
 use cellar::application::loader::{Outbound, WorkerCode};
 use cellar::application::streams::FixedLengthStream;
@@ -50,6 +50,7 @@ fn props() -> StructuredValue {
 
 #[derive(Default)]
 struct Signals {
+    stage: Arc<Mutex<&'static str>>,
     origin: String,
     services: AtomicUsize,
     hold: AtomicBool,
@@ -62,6 +63,12 @@ struct Signals {
     background_started: Notify,
     background_release: Notify,
     background_finished: Notify,
+}
+
+impl Signals {
+    fn stage(&self, stage: &'static str) {
+        *self.stage.lock().unwrap() = stage;
+    }
 }
 
 struct PendingService(Arc<Signals>);
@@ -269,17 +276,25 @@ impl Cell for Root {
                         .is::<MethodError>());
                     for body in [None, Some(Vec::new().into())] {
                         let name = if body.is_some() { "empty" } else { "none" };
+                        self.0.stage(if body.is_some() {
+                            "HTTP empty body"
+                        } else {
+                            "HTTP absent body"
+                        });
                         let mut request = OutboundRequest::get(format!("{}/{name}", self.0.origin));
                         request.body = body;
                         let mut result = Response::from_http(context.fetch(request).await?);
                         assert_eq!(result.text(&context).await?, "ok");
                     }
                     let mut manual = OutboundRequest::get(format!("{}/redirect", self.0.origin));
+                    self.0.stage("manual redirect");
                     manual.redirect = Redirect::Manual;
                     assert_eq!(context.fetch(manual).await?.status, 302);
                     let mut error = OutboundRequest::get(format!("{}/redirect", self.0.origin));
+                    self.0.stage("error redirect");
                     error.redirect = Redirect::Error;
                     assert!(context.fetch(error).await.is_err());
+                    self.0.stage("follow redirect");
                     let mut followed = Response::from_http(
                         context
                             .fetch(OutboundRequest::get(format!("{}/redirect", self.0.origin)))
@@ -475,7 +490,10 @@ async fn call(runtime: &RuntimeManager, scope: &str, path: &str) -> Result<HttpR
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn native_services_outbound_env_brokers_http_gates_and_cancellation() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
-    cellar::asyncrt::timeout(Duration::from_secs(30), run()).await??;
+    let stage = Arc::new(Mutex::new("setup"));
+    cellar::asyncrt::timeout(Duration::from_secs(30), run(stage.clone()))
+        .await
+        .with_context(|| format!("native egress stalled at {}", *stage.lock().unwrap()))??;
     Ok(())
 }
 
@@ -504,9 +522,10 @@ fn embedded_http_does_not_read_process_environment() -> Result<()> {
     Ok(())
 }
 
-async fn run() -> Result<Arc<Signals>> {
+async fn run(stage: Arc<Mutex<&'static str>>) -> Result<Arc<Signals>> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let signals = Arc::new(Signals {
+        stage,
         origin: format!("http://{}", listener.local_addr()?),
         ..Default::default()
     });
@@ -688,6 +707,7 @@ async fn run() -> Result<Arc<Signals>> {
         }
     });
     let scope = "Root:first";
+    signals.stage("activation");
     runtime
         .restore_cell(
             scope,
@@ -712,6 +732,7 @@ async fn run() -> Result<Arc<Signals>> {
         ("network", "network"),
         ("redirect-limit", "limited"),
     ] {
+        signals.stage(path);
         assert_eq!(call(&runtime, scope, path).await?.body, expected.as_bytes());
     }
     {
@@ -738,6 +759,7 @@ async fn run() -> Result<Arc<Signals>> {
         );
         assert!(!peers.iter().any(|head| head.contains("/invalid")));
     }
+    signals.stage("held and refused proof gates");
     signals.hold.store(true, Ordering::SeqCst);
     let before = signals.services.load(Ordering::SeqCst);
     let caller = runtime.clone();
@@ -793,6 +815,7 @@ async fn run() -> Result<Arc<Signals>> {
     let caller = runtime.clone();
     let pending =
         cellar::asyncrt::spawn(async move { call(&caller, "Root:first", "cancel-network").await });
+    signals.stage("HTTP cancellation");
     signals.peer_pending.notified().await;
     signals.cancel.notify_one();
     assert_eq!(pending.await??.body, b"cancelled");
@@ -800,6 +823,7 @@ async fn run() -> Result<Arc<Signals>> {
     let caller = runtime.clone();
     let pending =
         cellar::asyncrt::spawn(async move { call(&caller, "Root:first", "cancel-service").await });
+    signals.stage("service cancellation");
     signals.service_pending.notified().await;
     signals.cancel.notify_one();
     assert_eq!(pending.await??.body, b"cancelled");
@@ -815,6 +839,7 @@ async fn run() -> Result<Arc<Signals>> {
         "drop-service-rpc",
         "cancel-service-rpc-gated",
     ] {
+        signals.stage(path);
         let before = signals.services.load(Ordering::SeqCst);
         let gated = path.ends_with("gated");
         signals.hold.store(gated, Ordering::SeqCst);
@@ -841,6 +866,7 @@ async fn run() -> Result<Arc<Signals>> {
         assert_eq!(call(&runtime, scope, "rpc").await?.body, b"rpc");
     }
     // Direct embedders have no SDK guard or external cancel channel.
+    signals.stage("direct RPC cancellation");
     let caller = runtime.clone();
     let pending = cellar::asyncrt::spawn(async move {
         caller
@@ -877,6 +903,7 @@ async fn run() -> Result<Arc<Signals>> {
         .await
         .is_err());
     assert_eq!(signals.services.load(Ordering::SeqCst), before);
+    signals.stage("completed RPC background lifetime");
     let (cancel, cancelled) = tokio::sync::oneshot::channel();
     let bytes = runtime
         .rpc_service_cancellable(
@@ -897,6 +924,7 @@ async fn run() -> Result<Arc<Signals>> {
     assert!(cancel.send(()).is_err());
     signals.background_release.notify_one();
     signals.background_finished.notified().await;
+    signals.stage("runtime retirement");
     runtime.swap_out_cell(scope, 1).await?;
     server.abort();
     services.abort();
@@ -923,7 +951,7 @@ async fn host_http_factory_applies_to_every_redirect_mode_and_limited_worker() -
     domain
         .services()
         .configure_http(cellar::sdk::HttpPolicy::default(), Some(factory))?;
-    let signals = domain.run(run()).await??;
+    let signals = domain.run(run(Arc::new(Mutex::new("setup")))).await??;
     {
         let requests = signals.peer_requests.lock().unwrap();
         assert!(!requests.is_empty());
