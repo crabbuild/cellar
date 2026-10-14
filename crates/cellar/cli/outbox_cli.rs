@@ -13,7 +13,11 @@ use std::borrow::Cow;
 use std::io::Read;
 use std::time::Duration;
 
-const HELP: &str = "cellar outbox inspect SCOPE [--limit N] [--cursor CURSOR]
+#[path = "outbox_census.rs"]
+mod census;
+
+const HELP: &str = "cellar outbox census [CLASS] [--limit N] [--cursor TOKEN]
+cellar outbox inspect SCOPE [--limit N] [--cursor CURSOR]
 cellar outbox retry SCOPE --expected REVISION.json --operation UUID --reason TEXT
 cellar outbox destroy SCOPE --incarnation UUID --operation UUID --reason TEXT --data-loss TEXT --confirm-destroy
 cellar outbox recreate SCOPE --incarnation UUID --operation UUID --reason TEXT --confirm-recreate
@@ -212,6 +216,9 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
 }
 
 pub async fn run(arguments: Vec<String>) -> Result<()> {
+    if arguments.first().is_some_and(|verb| verb == "census") {
+        return census::run(arguments.into_iter().skip(1).collect()).await;
+    }
     let Some(command) = parse(arguments)? else {
         return Output::new(Format::Text).line(format_args!(
             "{HELP}\n\n{FLEET_HELP}\n  --json              Print one JSON result object"

@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Real CLI census discovers accepted, undispatched and empty source cells."""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+
+from faults import Ledger, eventually, read, require
+from fleet_faults import FleetProcess, NetworkStore, free_address
+
+
+def exercise(cellar,binary,root,image):
+    root.mkdir(parents=True,exist_ok=False)
+    ledger=Ledger(root,commands=(("cross",725,1),("waiting",375,2)))
+    store=NetworkStore(root,ledger,image);processes=[]
+    try:
+        store.start();origins={}
+        for node in ("destination","producer"):
+            address=free_address()
+            process=FleetProcess(binary,root,node,node,address,address,node=="destination",store)
+            processes.append(process);origins[node]=process.ready()
+            if node=="destination":require(read(origins[node],"/__test/events")["records"]==[],"fresh stream not empty")
+        ledger.issue(origins["producer"],"cross")
+        eventually(lambda:read(origins["producer"],"/orders/cross"),lambda state:state["outbox"]["pending_rows"]=="0")
+        ledger.issue(origins["producer"],"waiting")
+        require(read(origins["producer"],"/orders/waiting")["outbox"]["pending_rows"]=="1","required retention did not block pending source")
+        require(read(origins["producer"],"/orders/empty")["order"] is None,"empty source changed")
+        env=dict(os.environ,AWS_ACCESS_KEY_ID=store.access,AWS_SECRET_ACCESS_KEY=store.secret,NO_COLOR="1")
+        binding=root/"management-binding.json"
+        binding.write_text(json.dumps(dict(environment="ADMIN_EVENTS",resource=dict(tenant="example",application="stream-example",
+            id="00000000000000000000000000000100",name="orders",family="order-confirmed"),principal="stream-example",grant="management",
+            publish=False,read=False,subscriptions=[],administer=True)))
+        source_list=subprocess.run([str(cellar),"stream","sources","--binding",str(binding),"--bucket","s3://"+store.config["name"],
+            "--endpoint",store.config["endpoint"],"--json"],env=env,capture_output=True,text=True,timeout=60)
+        require(source_list.returncode==0,"destination source listing failed: "+source_list.stderr)
+        destination_sources=json.loads(source_list.stdout)
+        require(len(destination_sources["records"])==1 and destination_sources["records"][0]["source"]==ledger.operations["cross"]["ack"]["source"],
+            "test did not contain a producer still unseen by destination inventory")
+        def command(class_name="Order",cursor=None,limit=1,success=True):
+            args=[str(cellar),"outbox","census",class_name,"--bucket","s3://"+store.config["name"],
+                "--endpoint",store.config["endpoint"],"--limit",str(limit),"--json"]
+            if cursor:args.extend(["--cursor",cursor])
+            reply=subprocess.run(args,env=env,capture_output=True,text=True,timeout=60)
+            require((reply.returncode==0)==success,"CLI census outcome differed: "+reply.stderr)
+            return reply
+        records={};cursor=None;pages=[]
+        for _ in range(10):
+            reply=command(cursor=cursor);page=json.loads(reply.stdout)
+            require(page["format"]==1 and page["complete_probes"] and page["scanned_prefixes"]<=1 and len(page["records"])<=1,"census page exceeded bound or lost probes")
+            pages.append(page)
+            for row in page["records"]:
+                require(row["source"] not in records and "lanes" not in row,"census duplicated source or leaked lane metadata")
+                records[row["source"]]=row
+            cursor=page["next"]
+            if cursor is None:break
+        require(cursor is None and len(records)==3,"bounded census missed a source")
+        for key,pending in (("cross","0"),("waiting","1")):
+            receipt=ledger.operations[key]["ack"];row=records[receipt["source"]]
+            require(row["status"]=="source" and row["incarnation"]==receipt["incarnation"] and row["pending_rows"]==pending,"census lost accepted/undispatched source identity")
+        require(sum(row["status"]=="empty" for row in records.values())==1,"empty source was not distinguished")
+        require(len(pages)>1 and pages[0]["next"],"test did not exercise provider continuation")
+        denied=command(class_name="Projection",cursor=pages[0]["next"],success=False)
+        require("another fleet/class" in denied.stderr,"foreign-class cursor was accepted")
+        # Stop every node but retain the bucket: failure must still print all
+        # candidates, never claim zero pending rows or a complete census.
+        for process in reversed(processes):process.stop()
+        unavailable=command(limit=100,success=False)
+        unavailable_page=json.loads(unavailable.stdout)
+        require(not unavailable_page["complete_probes"] and len(unavailable_page["records"])==3
+            and all(row["status"]=="unavailable" and "pending_rows" not in row for row in unavailable_page["records"]),
+            "unavailable owners were silently reported empty")
+        ledger.record("census_qualified",pages=pages,unavailable=unavailable_page)
+        summary=dict(status="passed",pages=len(pages),sources=2,undispatched_sources=1,empty_cells=1,unavailable_probes=3,
+            binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),cellar_sha256=hashlib.sha256(cellar.read_bytes()).hexdigest(),output=str(root))
+        (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
+        print(json.dumps(summary),flush=True)
+    finally:
+        for process in reversed(processes):process.stop()
+        store.close();ledger.close()
+
+
+if __name__=="__main__":
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--cellar",type=Path,required=True);parser.add_argument("--binary",type=Path,required=True)
+    parser.add_argument("--rustfs-image",default="rustfs/rustfs:1.0.0-beta.8-glibc");parser.add_argument("--output",type=Path)
+    args=parser.parse_args()
+    exercise(args.cellar.resolve(),args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-census-parent-"))/"evidence").resolve(),args.rustfs_image)

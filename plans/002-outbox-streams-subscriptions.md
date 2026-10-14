@@ -1342,7 +1342,24 @@ SDK/operator response validation rederives lane identity and preserves decimal
 watermarks through `i64::MAX`. Retained producer metadata survives payload expiry.
 Pages are live observations, not a snapshot or an inventory of undispatched
 sources. They cannot prove that every producer is drained. Fleet-wide
-inventories, source destruction and complete exported metrics remain separate requirements.
+inventories, source destruction qualification and complete exported metrics remain separate requirements.
+
+`cellar outbox census [CLASS]` additionally walks one bounded provider page of
+fleet cell directories and probes their owners through the existing signed
+source-inspection route. It includes current root sources unseen by any
+destination; it does not infer them from accepted watermarks or a local cache.
+Each call scans at most 100 prefixes, with four concurrent probes and one-lane
+bounded inspection whose whole-source counters are projected without lanes,
+payloads or receipt tokens. Stream/catalog roots are excluded; other framework
+roots remain candidates. `census1` tokens bind backend, bucket/prefix, endpoint
+and optional class and retain the provider continuation. Filtering does not
+trigger more pages; an empty page may still continue. Source/empty/unavailable
+rows distinguish observed state from missing evidence; partial probes print
+the page/cursor and exit unsuccessfully. Cold inspection may restore a source
+and progress existing durable work. This supplies live root-source census,
+not facet/historical-source inventory, a snapshot, all-producer drain proof or
+aggregate authoritative gauges. Other cloud backends, cold removed-class/facet
+coverage, ownership races and capacity remain qualification requirements.
 
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;

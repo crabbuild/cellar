@@ -29,6 +29,16 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
         ensure!(
             help.contains("cellar outbox retry SCOPE") && help.contains("--expected REVISION.json")
         );
+        let census = Command::new(executable)
+            .args(["outbox", "census", "--help"])
+            .output()?;
+        ensure!(census.status.success());
+        ensure!(String::from_utf8(census.stdout)?.contains("unavailable is never empty"));
+        let census = Command::new(executable)
+            .args(["outbox", "census", "--limit", "101"])
+            .output()?;
+        ensure!(!census.status.success());
+        ensure!(String::from_utf8(census.stderr)?.contains("between 1 and 100"));
         let invalid = Command::new(executable)
             .args(["outbox", "inspect", "Account:source", "--limit", "101"])
             .output()?;

@@ -327,3 +327,27 @@ python3 examples/durable-streams/ack_faults.py \
 Omit `--rustfs-image` for SQLite. These cases add independent-process ack-loss
 evidence on one machine. They do not qualify consumer process loss during exact
 receipt replay, follower-only proof, power/store loss or all lease/ack cut points.
+
+## Discover sources from the fleet
+
+`cellar outbox census Order --limit 100 --json [FLEET OPTIONS]` lists root source
+state through the bucket cell directory and signed owner inspection. Unlike
+destination `stream sources`, it can find a producer whose first event is still
+blocked. Continue with `--cursor` until `next` is null; filtered empty pages can
+still continue. Failed owner probes return `unavailable`, retain the page/cursor
+and cause a failed exit, rather than claiming an empty source. This is a live
+root-cell view, not a snapshot, drain proof, facet inventory or aggregate metrics.
+Inspection can restore a cold source and let existing durable work progress.
+
+Run the actual CLI against a private RustFS fixture:
+
+```sh
+python3 examples/durable-streams/census_smoke.py \
+  --cellar "$CARGO_TARGET_DIR/debug/cellar" \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --output /tmp/cellar-census-evidence
+```
+
+The driver checks a settled producer, a blocked producer absent from destination
+inventory and an empty cell across one-prefix pages. It rejects a foreign-class
+cursor and verifies explicit failed probes after complete node shutdown.

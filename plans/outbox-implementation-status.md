@@ -15,6 +15,15 @@ removed implementations and are not current supported behavior.
 ## Current code
 
 - `Storage::tx` delegates to the existing synchronous savepoint machinery.
+- `cellar outbox census [CLASS]` walks one bounded bucket-directory page and
+  probes source owners through signed inspection, including root producers
+  unseen by destination inventories. It reports source/empty/unavailable without
+  lanes/payloads/tokens; partial failure prints the page/cursor and fails the exit.
+  `census1` continuations bind fleet/prefix/class and filtering never expands the
+  listing budget. This is live root census, not facet/historical inventory or
+  aggregate gauges. The real RustFS CLI roundtrip verifies one-prefix pagination,
+  a capacity-blocked undispatched source, empty cells, foreign cursor rejection
+  and unavailable owners. Broader backend/ownership/cold/facet gates remain open.
 - `Storage::outbox(&OutboxOptions)` exposes bounded source diagnostics through
   the owning activation: total backlog, per-lane rows/bytes, destination identity,
   retry deadline/attempts, retained error and seal state. Pages contain at most
@@ -220,7 +229,7 @@ this does not constitute a released deployed primitive yet.
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, source destruction crash/lease/policy and SQL-reset capacity qualification, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
-| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in; guarded source destruction/recreation, exact terminal evidence, retained loss receipts, bounded remote/local facet cleanup and incarnation fencing; namespace catalog inventory and fixed-cardinality event metrics | Whole-fleet inventories, aggregate owner-state/physical metrics and broader control qualification |
+| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in; guarded source destruction/recreation, exact terminal evidence, retained loss receipts, bounded remote/local facet cleanup and incarnation fencing; namespace catalog inventory and fixed-cardinality event metrics | Catalog namespace/facet/historical census, aggregate owner-state/physical metrics and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer/native/fleet/schema markers at 1; hard-cutover development policy and incompatible source-policy refusal | Fresh-state/reopen fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
@@ -255,7 +264,7 @@ and measure physical SQLite/WAL/LTX/bucket growth and maintenance fairness.
 Cold wakes, hot streams, compaction/restore, lag/backpressure, memory and offline
 soaks retain their full capacity scope.
 
-Finish whole-fleet discovery, aggregate owner-state/physical metrics, the complete
+Finish catalog namespace/facet/historical source discovery, aggregate owner-state/physical metrics, the complete
 name-resolution/policy/error/adoption matrix and
 qualified SQLite-only recovery inventory. Current subscription, accepted-source
 and namespace catalog listings are bounded live views; accepted-source inventory
@@ -1786,3 +1795,58 @@ one machine with SQLite/RustFS storage. It does not qualify consumer process
 loss while replaying a receipt, follower-only proof, object-store/power loss,
 physical hosts, all lease/ack or source-cleanup cuts, full policy/lifecycle races
 or capacity/soak release requirements.
+
+
+## Bounded root-source fleet census (2026-10-14)
+
+`cellar outbox census [CLASS]` walks the existing durable bucket cell-directory
+index, then performs authenticated owner-routed source inspection. It needs no
+new registration publication or state schema. Each call asks for one provider
+page of at most 100 prefixes and runs at most four concurrent source probes in
+key order. Each inspection requests one lane, validates its complete owner page
+and projects only source identity, total pending event rows/bytes and fixed
+observations. No lane/principal/grant/payload/receipt metadata is returned.
+
+The `census1` continuation retains an opaque provider token, bound by a digest
+to backend, bucket/prefix, endpoint and optional class. Input/decoded provider
+continuations are bounded and canonical; malformed/foreign tokens fail before
+listing/probing. Filtering cannot trigger more provider pages, so an empty page
+may still have a continuation. Only stream/catalog classes are excluded; other
+framework roots remain candidates. A current source, no current outbox identity
+and an unavailable observation have distinct row states. Failed probes remain
+explicit rows; the CLI prints the usable page/cursor, sets `complete_probes: false`
+and returns a failed exit. It cannot substitute zero counts for unobserved data.
+
+The actual two-process RustFS CLI smoke qualifies three one-prefix pages over
+a settled source, a capacity-blocked pending source absent from destination
+`stream sources`, and an empty cell. It requires matching original incarnation/
+receipt scope and pending counts, no duplicate source or lane metadata, and
+foreign-class cursor rejection. After complete node shutdown with the bucket
+retained, a new CLI call must return all three unavailable rows without pending
+counts, false complete-probe flag and a failed exit. The normal output/proof,
+owner route and authorization are reused; no business SQLite is read or mutated
+directly from the bucket. Cold inspection may restore/progress durable work.
+
+All 106 library cases and both native CLI integration cases pass, including
+bounds/class/cursor guards and help/input rejection. The first focused command
+used the physical file name as its Rust test filter and matched zero tests; the
+correct logical `outbox_cli::census` filter then ran/passed both guards, and the
+full library replay passed. Workspace/all-target/all-feature Clippy-D, 427-file
+formatting, docs (35/6/370), dependencies (401/no JavaScript engine), 44 Python
+fault oracle guards and whitespace checks pass. This does not claim another
+complete workspace integration/fault run. The build briefly filled the mounted
+target volume; archived tested images were preserved, and only obsolete Oct-13
+Cellar library/rmeta cache files in this checkout's target were removed. No
+source/evidence/current binaries or other checkout caches were removed.
+
+Private paired CLI/example images, fixture/ledger/logs, source patch and manifest
+remain at `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-census-evidence-dr58nnxt`.
+CLI SHA-256: `e2b880f98faabdbedce23f066a641e398188d45778ed4de9b19bb6ea1584b067`.
+Example SHA-256: `feb746e3e580b472e79bc5b2d82392456fd1671843513cf5ec07cb0f53e372fb`.
+All owned markers remain 1.
+
+This supplies live root-source census for undispatched producers. It is not a
+snapshot, all-producer drain proof, facet/historical source or catalog namespace
+inventory, nor aggregate authoritative gauges. Other cloud backends, removed-
+class/cold/facet coverage, ownership/listing races, scale/latency and physical
+accounting remain qualification/implementation work.

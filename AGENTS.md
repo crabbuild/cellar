@@ -554,6 +554,17 @@ pooled transport requires another saved audit before retry. Exact bytes and
 `AlreadyAcknowledged` plus unchanged effect/checkpoint qualify this boundary;
 consumer/follower/power/store loss and the full lease/ack matrix remain open.
 
+`cellar outbox census [CLASS]` reads one bounded provider cell-directory page,
+then performs up to four concurrent signed source-owner inspections, including
+producers unseen by destinations. `census1` continuations bind fleet/prefix/class;
+filtered pages still advance without an unbounded listing. Catalog/stream cells
+are excluded, other framework roots stay candidates. Rows distinguish current
+source, empty and unavailable; partial failure prints its cursor and returns a
+failed exit. Metadata excludes lanes/payloads/tokens. Cold inspection can restore
+and progress durable work. This is live root-cell census, not a snapshot/drain
+proof, facet/historical-source inventory or aggregate gauges. The RustFS CLI
+smoke is `census_smoke.py`; keep census scope distinct from destination watermarks.
+
 
 ## Change discipline
 

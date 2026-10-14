@@ -76,11 +76,31 @@ remaining release gates. Current source commands use the existing fleet
 credentials and reach the authoritative owner:
 
 ```text
+cellar outbox census [CLASS] --limit 100 --json [FLEET OPTIONS]
+cellar outbox census [CLASS] --cursor TOKEN --json [FLEET OPTIONS]
 cellar outbox inspect SCOPE --limit 100 --json [FLEET OPTIONS]
 cellar outbox retry SCOPE --expected REVISION.json --operation UUID --reason TEXT [FLEET OPTIONS]
 cellar outbox status SCOPE --operation UUID --json [FLEET OPTIONS]
 cellar outbox audit SCOPE --limit 100 --after POSITION --json [FLEET OPTIONS]
 ```
+
+`census` reads exactly one bounded cell-directory page from the fleet bucket,
+then uses signed owner-routed inspection for each candidate source. It can find
+pending producers that have never appended to a destination. A call scans at
+most 100 prefixes and probes four sources concurrently, preserving key order.
+Catalog/stream cells are excluded; other framework cells remain candidates.
+The `census1` continuation binds backend, bucket/prefix, endpoint and optional
+class. Continue until `next` is null; a filtered empty page can still have a next
+page. Listings and source observations are live, without snapshot/drain proof.
+
+Rows distinguish `source` (current incarnation and whole-source pending counts),
+`empty` (no current outbox identity) and `unavailable` (no valid owner observation).
+No event payload, lane/grant metadata or receipt tokens are returned. Failed
+probes remain explicit rows; the page has `complete_probes: false` and the CLI
+exits unsuccessfully after printing rows/continuation. Cold inspection can
+restore a source and let its existing durable work progress. The bucket listing
+does not directly read or mutate business SQLite state, and observations do not
+constitute fleet aggregate gauges or historical source/tombstone inventory.
 
 `SCOPE` is the exact cell scope, including its class and ID. Inspection returns
 metadata and an optional continuation for `--cursor`; it excludes event bodies.
