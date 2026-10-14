@@ -131,6 +131,9 @@ Destruction retires child activations and reclaims registered subtrees in at mos
 Recreated sources qualify facet storage names by producer incarnation; logical
 names and startup identity remain unchanged. Native opens carry a captured
 admission check across host waits and restore, and serialize with subtree cleanup.
+An authenticated unfinished destruction replay re-arms durable cleanup before proof;
+terminal replays leave successors untouched. Injected lost replica-delete replies
+and complete owner handoff preserve closed admission and exact discard receipts.
 Large local-directory/SQL reset capacity and the complete source fault/lease/policy
 matrix remain unfinished. Do not infer full release qualification from the base-database tests.
 

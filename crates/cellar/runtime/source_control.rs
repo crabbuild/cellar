@@ -274,7 +274,12 @@ pub(crate) async fn invoke(
             if result["state"] == "deleted" {
                 return Ok(result);
             }
-            context.storage()?.sync().await?;
+            let db = context.storage()?;
+            // An explicit replay resumes an interrupted closure without waiting
+            // for its persisted outage backoff. Terminal replays above never
+            // re-arm work against a recreated successor.
+            super::source_destruction::schedule(&db, crate::asyncrt::wall_ms())?;
+            db.sync().await?;
             super::source_destruction::verify(&context).await?;
             return super::source_destruction::receipt(
                 &context.storage()?,

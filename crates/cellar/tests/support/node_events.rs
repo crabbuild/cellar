@@ -1,6 +1,9 @@
 //! Actual node routing and proof gates, including staged adoption and inbox
 //! redelivery. No synthetic successful-gate adapter is installed here.
 
+#[path = "source_cleanup_fault.rs"]
+mod source_cleanup_fault;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
@@ -99,6 +102,13 @@ impl Cell for Counter {
                 return Ok(Output::Http(child.fetch(&context, request).await?));
             }
             let db = context.storage()?;
+            if path == "/" && request.method == "GET" {
+                let count = db
+                    .get_json("count")?
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(0);
+                return Ok(super::response(format!("{}:{count}", self.0)));
+            }
             let events = context.stream::<Changed>("EVENTS")?;
             let body = if path == "/outbox-pending" {
                 db.outbox(&OutboxOptions::default())?
@@ -2308,25 +2318,36 @@ async fn source_destruction_requires_retired_destinations_and_recovers_closed_ad
     .await?;
     let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
     super::ready(&owner).await?;
-    let (config, services) = inputs(
-        "source-destruction-entrance",
-        &directory.path().join("entrance"),
-        &core,
-        Some(bucket),
-        0,
-    )
-    .await?;
-    let mut external = graph(1, false);
-    external.primary.event_streams.clear();
-    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
-    super::ready(&entrance).await?;
-    let client = client()?;
     let script = "embedded-node";
     let cell = cellar_native::cell_id::for_name(
         &format!("cells:v1:{}:{script}:Account", script.len()),
         "events",
     );
     let scope = format!("Account:{}", cellar_native::cell_id::encode_hex(&cell));
+    let cleanup_fault = source_cleanup_fault::CleanupFault::new(
+        bucket.store.clone(),
+        format!("{}cells/{scope}/facets/", bucket.prefix),
+    );
+    let (config, mut services) = inputs(
+        "source-destruction-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    services.fleet.as_mut().unwrap().replica_storage = ReplicaStorage::new(
+        cleanup_fault.clone(),
+        ReplicaStorageOptions {
+            prefix: bucket.prefix.clone(),
+            ..Default::default()
+        },
+    )?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let mut entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let client = client()?;
     ensure!(call(&client, &owner, reqwest::Method::POST, "/revoke-publish").await? == "active");
     ensure!(call(&client, &owner, reqwest::Method::POST, "/").await? == "owner:1");
     let inspected = operator(&client, &owner, &scope, &json!({"op":"inspect"}), "outbox").await?;
@@ -2378,12 +2399,118 @@ async fn source_destruction_requires_retired_destinations_and_recovers_closed_ad
         recovered["result"]["incarnation"] == incarnation
             && recovered["result"]["pending_rows"] == "1"
     );
+    cleanup_fault.armed.store(true, Ordering::Release);
     let retired=stream_operator(&client,&entrance,&binding(true),json!({"kind":"retire","request":{
         "operation":"000000000000000000000000000000ab","revision":"2","reason":"retire blocked source destination",
         "mode":{"mode":"force","data_loss_acknowledgment":"close this test stream before source destruction"}}}),"events-operator").await?;
     ensure!(
         retired.get("result").is_some(),
         "retirement failed: {retired}"
+    );
+    let fault_deadline = Instant::now() + Duration::from_secs(10);
+    while cleanup_fault.deleted.lock().unwrap().is_empty() {
+        let reply = operator(&client, &entrance, &scope, &command, "outbox").await?;
+        ensure!(
+            Instant::now() < fault_deadline,
+            "source cleanup never reached the deletion fault: {reply}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let interrupted = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"status","operation":"000000000000000000000000000000aa"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        interrupted["result"]["state"] == "cleaning"
+            && interrupted["result"]["discarded_rows"] == "1"
+            && interrupted["result"]["discarded_bytes"] == inspected["result"]["pending_bytes"],
+        "deletion reply loss changed progress: {interrupted}"
+    );
+    let refused = client
+        .post(format!("http://{}/", entrance.info().public_address))
+        .send()
+        .await?;
+    ensure!(
+        !refused.status().is_success(),
+        "business admission reopened during cleanup"
+    );
+    let premature = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"recreate","change":{"source":scope,"incarnation":incarnation,
+        "operation":"000000000000000000000000000000ad","reason":"cannot skip incomplete cleanup"}}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        premature["error"]["code"] == "ConfigConflict",
+        "incomplete cleanup recreated source: {premature}"
+    );
+    stopped(entrance)
+        .await
+        .context("interrupted cleanup owner complete shutdown")?;
+    let deleted_objects = cleanup_fault.deleted.lock().unwrap().clone();
+    ensure!(!deleted_objects.is_empty());
+    let audit_domain = cellar::asyncrt::ExecutionDomain::new(core.handle());
+    let audit_result = audit_domain
+        .run(async {
+            for path in &deleted_objects {
+                ensure!(
+                    matches!(
+                        bucket.store.head(path).await,
+                        Err(object_store::Error::NotFound { .. })
+                    ),
+                    "lost deletion reply had no durable deletion at {path}"
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    audit_domain.shutdown().await;
+    audit_result?;
+    cleanup_fault.armed.store(false, Ordering::Release);
+    let (config, mut services) = inputs(
+        "source-cleanup-successor",
+        &directory.path().join("successor"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    services.fleet.as_mut().unwrap().replica_storage = ReplicaStorage::new(
+        cleanup_fault.clone(),
+        ReplicaStorageOptions {
+            prefix: bucket.prefix.clone(),
+            ..Default::default()
+        },
+    )?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    external.primary.options.stream_bindings.clear();
+    entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let recovered_cleanup = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"status","operation":"000000000000000000000000000000aa"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        matches!(
+            recovered_cleanup["result"]["state"].as_str(),
+            Some("cleaning" | "deleted")
+        ) && recovered_cleanup["result"]["incarnation"] == incarnation
+            && recovered_cleanup["result"]["discarded_rows"] == "1"
+            && recovered_cleanup["result"]["discarded_bytes"]
+                == inspected["result"]["pending_bytes"],
+        "recovery changed the durable closure before replay: {recovered_cleanup}"
     );
     let deadline = Instant::now() + Duration::from_secs(10);
     let deleted = loop {

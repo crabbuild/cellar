@@ -294,6 +294,9 @@ source incarnation, original operator/request, captured and discarded event rows
 bytes, reason and loss acknowledgment. Repeat the same arguments after an
 ambiguous reply. Another operator or changed request cannot reuse its operation.
 Cleanup preserves source administration receipts and destination watermarks.
+Repeating an unfinished destruction request re-arms durable cleanup immediately,
+including after storage recovers from an outage. Terminal replays return the old
+receipt without scheduling work against a successor.
 
 Recreation requires the deleted incarnation and a new operation. It clears the
 base source's business state and mints a fresh producer incarnation. A retained

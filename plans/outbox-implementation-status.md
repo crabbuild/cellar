@@ -1305,3 +1305,38 @@ Final library qualification includes the delayed source-startup refusal and pass
 all 101 cases. Final Clippy passes with warnings denied; formatting checks 422
 Rust files. Docs validate 35 documents, 6 flows and 370 references; dependencies
 retain 401 packages without a JavaScript engine; whitespace checks pass.
+
+
+## Interrupted source facet cleanup and explicit resumption
+
+An authenticated replay of an unfinished destruction now re-arms the original
+source's durable Outbox work before passing proof. Background cleanup failures
+retain their five-minute outage backoff, but a deliberate operator replay can
+resume after service returns. The original operation/digest/operator and source
+incarnation checks still precede this mutation. A terminal replay returns its
+retained receipt without scheduling work against a successor.
+
+The serial Node lifecycle case injects a replica client that actually deletes
+facet objects in the persistent SQLite bucket, records their exact paths in an
+independent test ledger, then loses the deletion replies. Further facet listings
+fail until the interrupted owner fully shuts down. Before replacement startup,
+a separate caller-owned execution domain verifies every recorded object is absent.
+The source remains `cleaning` with exact captured/discarded rows and bytes;
+business calls and premature recreation are refused. The replacement has fresh
+local state and no bindings to the retired destination. It reads the recovered
+closure/counts before operator replay, completes cleanup, then proves root/child/
+nested-child business state is empty after recreation. Original loss, ownership,
+operator conflict, receipt replay and complete final shutdown assertions remain.
+
+The case exposed that replay previously returned a nonterminal receipt without
+advancing its durable outage deadline. The fixture also caught attempted graph
+cloning, a direct bucket audit outside its execution domain and unsupported
+adoption of a retired destination binding. These were corrected without changing
+runtime deadlines, retirement adoption checks or shutdown expectations. This is
+injected replica response-loss/outage plus graceful owner replacement evidence;
+it is not SIGKILL, power-loss, expired-lease or isolated-owner qualification.
+The focused case and all 28 serial Node cases pass (208.51 seconds for the
+complete Node run). Workspace all-target/all-feature Clippy passes with warnings
+denied; formatting checks 423 Rust files. Docs validate 35 documents, 6 flows
+and 370 references; dependencies retain 401 packages without a JavaScript engine,
+and whitespace checks pass.
