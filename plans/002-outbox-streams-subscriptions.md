@@ -1192,6 +1192,21 @@ Expose typed protocol outcomes:
   `ProducerSealed`, `UnsupportedProtocol`, `OwnershipLost`, `Unavailable`,
   `Ambiguous`, `PendingDelivery`.
 
+Host event RPCs preserve execution certainty across local and peer routes.
+`Unavailable` covers a request refused before submission or a connection that
+never reached its peer. A fenced authority or exhausted stale-owner route yields
+`OwnershipLost`. A lost result after submission, unproven output after execution,
+or an otherwise unclassified dispatched failure yields `Ambiguous`. Authenticated
+peer replies carry bounded host verdicts without copying handler bodies into the
+typed outcome. Missing or unknown verdicts cannot establish non-execution.
+Existing protocol errors retain their code. These codes do not authorize general
+RPC replay: applications retain the same operation/fetch/ack identity when their
+protocol permits retry, and consult durable receipts where required. In particular,
+ownership loss does not undo a prior commit or prove that an earlier attempt failed.
+The tunnel pool retries only when the transport returns the original request as
+unsent. A buffered body does not authorize replay after a response is lost;
+serialized failures must reach the dispatcher as ambiguous.
+
 Structured RPCs carry a protocol version and bounded fields. Authenticate and
 authorize before returning payloads, configuration, or detailed state. Error
 messages and telemetry must not log event bodies or bearer credentials.

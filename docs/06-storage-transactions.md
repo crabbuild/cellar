@@ -117,6 +117,13 @@ processing and `extend_until` uses an absolute bounded lease deadline. Local
 inbox protection lasts while receipts are retained; explicit pruning ends it.
 External effects still require their own idempotency protocol.
 
+Host event RPC failures expose `DeliveryError`: `Unavailable` for refusal before
+submission or a connection that never reached its peer, `OwnershipLost` for
+fenced/stale authority, and `Ambiguous` when a submitted result is lost or its
+output proof fails. Ownership loss does not undo a commit. Retain the same
+operation, fetch or acknowledgment receipt when retrying under that protocol;
+ordinary RPC does not automatically replay an ambiguous request.
+
 Streams expose bounded reads and resumable cursors. Retention can expire
 optional readers or backpressure producers behind required subscriptions.
 Do not promise unlimited history or assume a sealed source proves that unseen

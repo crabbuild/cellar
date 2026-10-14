@@ -464,22 +464,17 @@ fn inner_request(
     Ok(inner)
 }
 
-/// Send one inner request, preferring a pooled tunnel. A pooled connection
-/// can die between checkout and use, so a replayable body retries once on a
-/// fresh tunnel — the same stale keep-alive race every h1 pool has. A
-/// streamed body is not replayable; its pooled failure surfaces as the
-/// attempt failure the caller already handles.
+/// Retry a pooled tunnel only when Hyper returns the request as unsent.
+/// A buffered/replayable body alone cannot establish non-execution: the owner
+/// may have committed before losing its response. Reuse the exact recovered
+/// request (including a streamed body), without rebuilding protocol identity.
 async fn send_inner(
     peer: &Peer<'_>,
     kind: &'static str,
-    build: impl Fn(TunnelBody) -> anyhow::Result<Request<TunnelBody>>,
+    build: impl FnOnce(TunnelBody) -> anyhow::Result<Request<TunnelBody>>,
     body: crate::engine_api::RequestBody,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let key = format!("{}#{kind}", peer.addr);
-    let replay = match &body {
-        crate::engine_api::RequestBody::Bytes(bytes) => Some(bytes.clone()),
-        crate::engine_api::RequestBody::Stream(_) => None,
-    };
     let body = match body {
         crate::engine_api::RequestBody::Bytes(bytes) => full_body(bytes),
         crate::engine_api::RequestBody::Stream(stream_id) => {
@@ -488,30 +483,30 @@ async fn send_inner(
             stream_body(payload)
         }
     };
-    let mut body = Some(body);
+    let mut request = build(body)?;
     if let Some(sender) = checkout(&key) {
-        match send_on_tunnel(&key, sender, build(body.take().unwrap())?).await {
-            Ok(response) => {
-                return Ok(response);
-            }
-            Err(error) => {
-                let Some(bytes) = replay else {
-                    return Err(error);
+        match send_on_tunnel(&key, sender, request).await {
+            Ok(response) => return Ok(response),
+            Err(mut error) => {
+                let Some(unsent) = error.take_message() else {
+                    return Err(error.into_error().into());
                 };
-                body = Some(full_body(bytes));
+                request = unsent;
             }
         }
     }
     let sender = establish(peer, kind).await?;
-    send_on_tunnel(&key, sender, build(body.take().unwrap())?).await
+    send_on_tunnel(&key, sender, request)
+        .await
+        .map_err(|error| error.into_error().into())
 }
 
 async fn send_on_tunnel(
     key: &str,
     mut sender: TunnelSender,
     request: Request<TunnelBody>,
-) -> anyhow::Result<Response<PooledResponseBody>> {
-    let response = sender.send_request(request).await?;
+) -> Result<Response<PooledResponseBody>, hyper::client::conn::TrySendError<Request<TunnelBody>>> {
+    let response = sender.try_send_request(request).await?;
     let reusable =
         (response.status() != StatusCode::SWITCHING_PROTOCOLS).then(|| (key.to_string(), sender));
     Ok(response.map(|body| PooledResponseBody { body, reusable }))
@@ -835,3 +830,7 @@ pub(crate) fn response_stream(body: PooledResponseBody) -> HttpChunkStream {
 mod private_tests {
     include!(env!("CELLAR_CONFORMANCE_PEER_TUNNEL_TESTS"));
 }
+
+#[cfg(test)]
+#[path = "peer_tunnel_tests.rs"]
+mod tests;

@@ -7,6 +7,8 @@ pub enum ErrorCode {
     EventFamilyMismatch,
     OutboxFull,
     Unavailable,
+    OwnershipLost,
+    Ambiguous,
     Forbidden,
     NotInitialized,
     ConfigConflict,

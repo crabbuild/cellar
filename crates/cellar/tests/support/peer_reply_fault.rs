@@ -196,7 +196,10 @@ async fn message(reader: &mut BufReader<TcpStream>, response: bool) -> Result<Op
         result.wire_body = result.body.clone();
     } else {
         ensure!(
-            !response || result.head.starts_with(b"HTTP/1.1 101 "),
+            !response
+                || result.head.starts_with(b"HTTP/1.1 101 ")
+                || result.head.starts_with(b"HTTP/1.1 204 ")
+                || result.head.starts_with(b"HTTP/1.1 304 "),
             "unframed peer response"
         );
     }
@@ -244,5 +247,19 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
         }
         reply.write(client.get_mut()).await?;
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn bodyless_abort_response_keeps_next_message_framing_intact() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let mut writer = TcpStream::connect(listener.local_addr()?).await?;
+    let (reader, _) = listener.accept().await?;
+    writer.write_all(b"HTTP/1.1 204 No Content\r\nConnection: keep-alive\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok").await?;
+    let mut reader = BufReader::new(reader);
+    let abort = message(&mut reader, true).await?.unwrap();
+    ensure!(abort.head.starts_with(b"HTTP/1.1 204 ") && abort.body.is_empty());
+    let next = message(&mut reader, true).await?.unwrap();
+    ensure!(next.head.starts_with(b"HTTP/1.1 200 ") && next.body == b"ok");
     Ok(())
 }

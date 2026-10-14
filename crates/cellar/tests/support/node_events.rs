@@ -268,7 +268,13 @@ impl Cell for Counter {
                     if path == "/process-lost-ack" {
                         let result = match batch.ack(&context).await {
                             Ok(value) => format!("{value:?}"),
-                            Err(_) => "reply-lost".into(),
+                            Err(error) => format!(
+                                "{:?}",
+                                error
+                                    .downcast_ref::<DeliveryError>()
+                                    .context("lost acknowledgment lacked a typed delivery outcome")?
+                                    .code
+                            ),
                         };
                         return Ok(super::response(result));
                     }
@@ -3211,7 +3217,7 @@ async fn lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effect
     let outcome = tokio::time::timeout(Duration::from_secs(5), &mut acknowledging).await??;
     drop(acknowledging);
     ensure!(
-        outcome == "reply-lost" || outcome == "AlreadyAcknowledged",
+        outcome == "Ambiguous",
         "unexpected ack loss outcome: {outcome}"
     );
     // Inspect the original proven effect before deliberately retrying its saved

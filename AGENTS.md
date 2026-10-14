@@ -28,6 +28,17 @@ again before generation-local bindings pin once and admission opens. Name reuse
 requires a new generation; old handles cannot emit or seal against successors.
 All owned markers remain 1.
 
+Event RPC host outcomes use `node/event_failure.rs` and the invocation RPC gate.
+Pre-submission refusal/never-connected transport is `Unavailable`; fenced or
+exhausted stale ownership is `OwnershipLost`; lost submitted results and unproven
+post-execution output are `Ambiguous`. Authenticated peer host verdicts carry a
+bounded header, with unknown/missing verdicts failing conservatively. Existing
+DeliveryError and activation transport tags remain in the error chain. Typed
+outcomes do not authorize ordinary RPC replay or prove a prior commit absent.
+The tunnel pool uses Hyper try_send_request and retries only a returned unsent
+request. Buffered bytes alone cannot authorize retry after response loss. Reuse
+that exact returned request/body/headers; serialized failures surface as ambiguous.
+
 Event delivery is under implementation; track the complete remaining scope in
 `plans/outbox-implementation-status.md`. Native `streams` declarations and
 `stream_bindings` are validated in `deployment/event_resources.rs` and require

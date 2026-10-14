@@ -242,8 +242,9 @@ this does not constitute a released deployed primitive yet.
 
 ## Next implementation step
 
-The current audit prioritizes complete typed host/routing failure classification,
-then aggregate metrics and wider inventories, alongside the full release matrix.
+The host/routing failure classification is implemented below. Continue the full
+SDK preflight/codec/timeout/cancellation mapping audit, aggregate metrics and wider
+inventories, alongside the complete release matrix.
 The bounded/canonical Stream::read acceptance gap found by that audit is repaired
 below; it does not close the complete client/codec/subscription response audit.
 
@@ -2208,7 +2209,7 @@ markers remain 1 and development layouts use hard cutovers without migrations.
 | Ordinary reset preserves source, inbox and destination protocol state | SQLite reset preservation and PendingDelivery refusal tests | Full reset-vs-in-flight destruction/adoption interleavings remain unqualified |
 | Startup/adoption readiness and finite owned work; no unproven output on closed admission | event_resources, wake_discovery and gated reply tests; untraced 144/192-source recoveries | General wake fairness, every failed-startup/shutdown/network wait and the prior pending-dispatch audit remain open |
 | Supported host and hard-cutover compatibility contract | bucket-backed activation gate and version-1 markers; unsupported-layout and host-policy refusal tests | Qualified SQLite-only recovery/discovery is absent; external codecs and sequence/revision counters are separate |
-| Typed caller, pressure, consumer and authority outcomes | DeliveryError/ErrorCode plus local policy failures | **Implementation gap:** the named OwnershipLost/Ambiguous codes are absent from ErrorCode; host routing errors can remain generic; complete mapping audit is required |
+| Typed caller, pressure, consumer and authority outcomes | DeliveryError/ErrorCode plus local policy failures | Host RPC now retains OwnershipLost/Ambiguous plus local/peer phase classification; complete SDK preflight, codec, timeout and cancellation mapping audit is still required |
 | All envelope/metadata transport allocations stay within captured/hard budgets | bounded encoding, receiver budgets, subscription batch checks, repaired read acceptance, structured RPC ceiling | Complete codec/response-validation audit is not yet complete; global transport ceiling and caller decode budgets are separate |
 | Logical bytes plus physical storage headroom/accounting | per-source/stream counters, SQLite page observations and live local file samples | Full WAL/LTX/bucket/filesystem accounting and restore/compaction headroom are not implemented/qualified as a complete profile |
 | Export authoritative backlog, blocked lanes, offsets, leases, lag and retention gauges with bounded labels | fixed host operation metrics and owner-sampled source/stream/subscription diagnostics | **Implementation gap:** aggregate authoritative host/fleet gauges are missing; diagnostics and reservation gauges do not substitute for them |
@@ -2265,3 +2266,66 @@ Example SHA-256: `5c46eae8349018dfa73a307bc8bd466b10e9a0bd9f001081eaf631b38a5594
 The design's remaining migration sentence is corrected to the authorized internal
 hard-cutover policy. All Cellar-owned markers stay 1; full completion remains
 unproven and the goal is active.
+
+
+## Typed event host failures preserve execution certainty (2026-10-14)
+
+The named `OwnershipLost` and `Ambiguous` outcomes now exist in `ErrorCode`.
+`node/event_failure.rs` separates pre-execution route refusal from a failed output
+gate after execution. A fenced authority or exhausted stale route yields ownership
+loss; a request refused before submission or a never-connected peer yields
+unavailability. Lost submitted results, truncated reply bodies, unproven output
+and otherwise unclassified dispatched failures remain ambiguous. Typed ownership
+loss does not prove that an earlier attempt failed to commit.
+
+The invocation event path uses the existing egress gate verdict before handing
+its request to the host channel. Refusal cannot send an event packet; a lost
+submitted result retains cancellation for its exact request identity. Ordinary
+RPC uses its existing path. Authenticated peer host replies carry a bounded fixed
+verdict header; missing/unknown verdicts cannot turn an unknown result into safe
+non-execution. Existing DeliveryError codes and the private activation transport
+tag remain in the error chain, so activation-only retries keep their original
+policy/deadline and ordinary ambiguous RPC never gains automatic replay. Framework
+protocol/schema markers stay 1.
+
+Six new cases exercise unsent pooled request preservation, local/peer gate agreement, transport certainty and tag
+preservation, unknown peer verdicts, zero submission after source-gate refusal,
+and exact cancellation after a lost submitted result. The existing real peer
+append/ack reply-loss integration now requires a typed ambiguous lost-ack outcome
+before replaying the original persisted receipt. It retains independent acceptance,
+checkpoint/effect audits, exact retry bytes and complete node shutdown checks.
+
+The stricter real-network assertion initially failed: the caller received
+AlreadyAcknowledged after the proxy dropped a proven ack. Source inspection found
+that send_inner retried every pooled failure when its body was buffered, bypassing
+the dispatcher ambiguity policy. It now uses Hyper 1.11.0 try_send_request and
+retries only when take_message returns the unsent original request. Serialized
+requests are never replayed by this pool, including ordinary RPC/fetch. Returned
+requests retain their body and headers, including streamed bodies, without clone
+or re-encoding. This corrects an observed implementation gap, not the assertion.
+The failed gate is retained separately from the pending post-fix gates. The
+post-pool integration then exposed an unframed-response parser gap in the proxy:
+the required cancellation sends a valid bodyless 204 response, which the fixture
+rejected and used to terminate its listener. Subsequent source retries became
+Unavailable. The parser now accepts bodyless 101/204/304 responses while retaining
+framing checks for ordinary responses; a real socket regression verifies that
+the following framed reply remains intact. The strict lost-ack assertion and all
+original pre-replay/receipt/shutdown audits remain required.
+
+Final qualification passes 136 library tests (including the six new host/pool
+cases) and all 31 serial Node cases (including the bodyless parser and strict
+proven append/ack loss tests). The Node suite takes 276.10 seconds and retains its
+original deadlines, ownership, receipt and shutdown assertions. Workspace/all-
+target/all-feature Clippy with warnings denied, 436-file formatting, 62 unchanged
+Python guards, docs (35/6/370), dependencies (401/no JavaScript engine) and whitespace
+checks pass. Earlier passing results before the pool fix and both failed gates
+remain separate; none is relabeled as qualifying the later source. The earlier
+411-test workspace integration and 11-workspace-doctest gates predate these host/
+transport changes and do not establish a refreshed complete release gate.
+
+Evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-event-outcomes-evidence-lnz62meb`.
+All owned format/schema/protocol markers remain 1. A test-only
+Debug-bound assertion error was corrected before this gate; it is not a behavioral
+baseline. These host outcomes do not complete the full SDK preflight/codec/timeout/
+cancellation mapping audit, aggregate gauges, complete inventories, physical
+storage accounting or the remaining fault/capacity/lifecycle release matrix.
