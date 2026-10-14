@@ -1407,6 +1407,28 @@ not facet/historical-source inventory, a snapshot, all-producer drain proof or
 aggregate authoritative gauges. Other cloud backends, cold removed-class/facet
 coverage, ownership races and capacity remain qualification requirements.
 
+Fleet discovery is now exposed by `cellar event inventory`: one bounded provider
+root-directory page and four signed owner descriptor probes, with a fleet-bound
+inventory1 continuation. Catalog namespace identity is read from scalar retained
+rows and checked against the catalog's hashed scope; an empty catalog cannot
+invent a namespace. Stream identity and current source incarnation/history
+availability exclude payloads, grants and receipt tokens. Invalid, duplicate or
+unavailable roots remain explicit, with failed exit and usable continuation.
+
+Scoped resources/producers/history pages use a separate scope/method-bound
+platform InventoryAuthority, native framework interception and ordinary owner/
+output/discovery gates. Resource/producer readers share existing validated
+primary-key ranges; source receipt projection reads at most 101 rows for a
+100-record page, including retries so lifecycle filtering cannot cause unbounded
+scans. History1 binds scope and exact sequence tail and preserves predecessor/
+current incarnations, lifecycle and loss counts across supported source recreation.
+It does not return full receipts, operator reasons or payloads. Stream retirement
+intentionally purges producer metadata after preserving terminal identity/receipt;
+retired and cleanup_complete flags distinguish this from an active empty producer
+set. These are live retained metadata pages, not snapshot or all-producer drain
+proof. Facet inventory, arbitrary historical restore, full physical profiles and
+all original release gates remain outstanding.
+
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;
 an in-memory event bus would conceal the main failure modes.

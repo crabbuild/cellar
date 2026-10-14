@@ -679,3 +679,25 @@ or drain proof. IDs are absent from global labels. It does not include facet
 SQLite/WAL/LTX/bucket physical bytes, historical producer incarnations, or resident
 host gauges. `census_smoke.py` also exercises actual RustFS CLI state collection,
 protected/undispatched state, caps and unavailable owners. Keep these scopes explicit.
+
+
+`cellar event inventory` discovers one bounded provider page of root descriptors,
+with four signed owner probes and an inventory1 cursor bound to fleet bucket/
+prefix/endpoint/region. Invalid, duplicate or unavailable roots remain explicit;
+partial pages print their continuation and return failure. Catalog descriptors
+recover namespace identity from scalar retained rows and validate its hashed scope;
+empty catalogs cannot invent a namespace. Stream descriptors recover only resource
+identity; ordinary roots expose current incarnation and receipt-history availability.
+`event inventory SCOPE --page resources|producers|history` reads at most 101 scalar
+rows for 100 returned records. A distinct exact-scope/method InventoryAuthority and
+native framework handler precede application invocation and retain owner/output/
+discovery gates. Resource/producer pages share existing validated range readers.
+Source history projects retained operation identities, source incarnations,
+recreation predecessor, lifecycle and loss counts without full receipts/operator
+reasons/credentials. History1 binds root scope and exact sequence tail and remains
+valid across supported recreation because the receipt ledger is retained.
+Stream retirement deliberately purges producer metadata after terminal tombstones;
+producer replies carry retired/cleanup_complete so an empty terminal set is not
+mistaken for an active producer census. Pages are live, not snapshots/drain proofs.
+Facet inventory, every historical restore/backend/ownership/capacity cut and
+complete release qualification remain separate work. All owned markers stay 1.

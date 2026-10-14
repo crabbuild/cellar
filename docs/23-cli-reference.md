@@ -91,6 +91,33 @@ coverage before using fleet totals. A successful live directory traversal is not
 a snapshot or drain proof. Facet/WAL/LTX/bucket allocation, historical producer
 inventory and resident-host aggregate gauges remain separate work.
 
+## Fleet event inventory
+
+```text
+cellar event inventory --limit 100 --json [FLEET OPTIONS]
+cellar event inventory --cursor TOKEN --limit 100 --json [FLEET OPTIONS]
+cellar event inventory CATALOG_SCOPE --page resources --limit 100 --json [FLEET OPTIONS]
+cellar event inventory STREAM_SCOPE --page producers --cursor TOKEN --limit 100 --json [FLEET OPTIONS]
+cellar event inventory SOURCE_SCOPE --page history --cursor TOKEN --limit 100 --json [FLEET OPTIONS]
+```
+
+Without a scope, one provider page discovers catalog namespaces, retained stream
+identities and current root sources through four concurrent signed owner probes.
+Empty catalogs have no recoverable namespace identity. Continue with the printed
+fleet-bound token until next is null; failed probes remain unavailable rows and
+return a failed exit after printing the page. Cold reads may restore cells and
+progress existing work. Directory observations are live, without snapshot or drain
+proof; facet inventory remains separate.
+
+Scoped pages return at most 100 retained metadata records. Resource pages include
+catalog tombstones. Producer pages show destination-observed watermarks while
+retained; retirement intentionally purges those rows, so retired and cleanup_complete
+make terminal absence explicit. Source history projects destruction/recreation and
+retry receipt metadata, retaining old/new incarnations and loss counts across
+supported recreation. It excludes full receipts, operator reasons, tokens,
+configuration grants and event bodies. No page authorizes a mutation or proves that
+all producers have drained. Arbitrary historical backup restore remains unsupported.
+
 ## Outbox source controls
 
 The event primitive remains under implementation; the

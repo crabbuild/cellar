@@ -821,6 +821,29 @@ async fn retirement_operator_coordinates_or_forces_and_recovers_terminal_receipt
                 && values[&cellar::event_state::Gauge::StreamRows] == 0
         );
 
+        let producers = platform_inventory(
+            &client,
+            &entrance,
+            &stream_scope()?,
+            cellar::event_inventory::InventoryRequest::Producers {
+                limit: 100,
+                cursor: None,
+            },
+        )
+        .await?;
+        let cellar::event_inventory::InventoryReply::Producers {
+            resource: observed,
+            retired,
+            cleanup_complete,
+            page,
+        } = producers
+        else {
+            anyhow::bail!("producer inventory kind changed")
+        };
+        ensure!(
+            observed.id == resource().id && retired && cleanup_complete && page.records.is_empty(),
+            "retirement cleanup was misreported as a live empty producer set"
+        );
         // Bounded retention can reclaim an acknowledged event before closure.
         // The terminal range always corresponds to actual retained records.
         let records: i64 = terminal["result"]["records"].as_str().unwrap().parse()?;
@@ -2017,6 +2040,42 @@ async fn catalog_operator(
     Ok(response.json().await?)
 }
 
+async fn platform_inventory(
+    client: &reqwest::Client,
+    node: &Node,
+    scope: &str,
+    request: cellar::event_inventory::InventoryRequest,
+) -> Result<cellar::event_inventory::InventoryReply> {
+    let path = format!("/event-inventory/{scope}");
+    let body = serde_json::to_vec(&request)?;
+    let url = format!("http://{}{path}", node.info().internal_address);
+    ensure!(
+        client.post(&url).body(body.clone()).send().await?.status() == 401,
+        "unsigned platform inventory was accepted"
+    );
+    let auth = PeerAuth::new([11; 32], "inventory-observer")?;
+    let response = auth
+        .sign(
+            client.post(url).body(body.clone()),
+            "POST",
+            &path,
+            &body,
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    let status = response.status();
+    let value: serde_json::Value = response.json().await?;
+    ensure!(
+        status == 200,
+        "platform inventory failed with {status}: {value}"
+    );
+    let reply: cellar::event_inventory::InventoryReply =
+        serde_json::from_value(value["result"].clone())?;
+    reply.validate(scope, &request)?;
+    Ok(reply)
+}
+
 async fn catalog_retirement_proof(
     client: &reqwest::Client,
     node: &Node,
@@ -2703,6 +2762,48 @@ async fn source_destruction_requires_retired_destinations_and_recovers_closed_ad
     .await?;
     ensure!(
         recreated["result"]["state"] == "live" && recreated["result"]["incarnation"] != incarnation
+    );
+    use cellar::event_inventory::{InventoryReply, InventoryRequest};
+    let first = platform_inventory(
+        &client,
+        &entrance,
+        &scope,
+        InventoryRequest::History {
+            limit: 1,
+            cursor: None,
+        },
+    )
+    .await?;
+    let InventoryReply::History(first) = first else {
+        anyhow::bail!("history kind changed")
+    };
+    ensure!(
+        first.records.len() == 1
+            && first.records[0].incarnation == incarnation.as_str().unwrap()
+            && first.records[0].state.as_deref() == Some("deleted")
+            && first.records[0].discarded_rows == Some(1)
+            && first.cursor.is_some(),
+        "retired incarnation/loss history was not retained"
+    );
+    let next = platform_inventory(
+        &client,
+        &entrance,
+        &scope,
+        InventoryRequest::History {
+            limit: 1,
+            cursor: first.cursor,
+        },
+    )
+    .await?;
+    let InventoryReply::History(next) = next else {
+        anyhow::bail!("history kind changed")
+    };
+    ensure!(
+        next.records.len() == 1
+            && next.records[0].retired_incarnation.as_deref() == incarnation.as_str()
+            && next.records[0].incarnation == recreated["result"]["incarnation"].as_str().unwrap()
+            && next.cursor.is_none(),
+        "recreation history lost its original identity"
     );
     let fresh = operator(
         &client,

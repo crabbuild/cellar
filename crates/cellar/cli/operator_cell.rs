@@ -75,6 +75,14 @@ impl Reachable {
         Self::open_route(fleet, subject, scope, name, "runtime").await
     }
 
+    pub(crate) async fn open_inventory(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "event-inventory").await
+    }
+
     pub(crate) async fn open_state(
         fleet: Fleet<'_>,
         subject: Subject,
@@ -144,7 +152,9 @@ impl Reachable {
             http,
             auth,
             subject,
-            reply_limit: if route == "event-state" {
+            reply_limit: if route == "event-inventory" {
+                Some(crate::runtime::event_inventory::MAX_REPLY_BYTES)
+            } else if route == "event-state" {
                 Some(crate::runtime::event_state::MAX_REPLY_BYTES)
             } else {
                 matches!(route, "outbox" | "streams" | "catalogs")

@@ -9,10 +9,53 @@ use serde::{Deserialize, Serialize};
 #[serde(untagged)]
 pub enum RpcAuthority {
     State(StateAuthority),
+    Inventory(InventoryAuthority),
     Event(event_stream::Authority),
     Source(SourceAuthority),
     Catalog(CatalogAuthority),
     Name(event_stream::name_resolution::NameAuthority),
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InventoryAuthority {
+    kind: InventoryKind,
+    scope: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum InventoryKind {
+    #[serde(rename = "event-inventory-v1")]
+    Read,
+}
+
+impl InventoryAuthority {
+    pub(crate) fn mint(scope: String) -> Result<Self> {
+        let authority = Self {
+            kind: InventoryKind::Read,
+            scope,
+        };
+        authority.validate()?;
+        Ok(authority)
+    }
+
+    fn validate(&self) -> Result<()> {
+        anyhow::ensure!(
+            cellar_logic::cell::valid_cell_scope(&self.scope) && self.scope.contains(':'),
+            "invalid inventory authority scope"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
+        self.validate()?;
+        anyhow::ensure!(
+            scope == self.scope && method == super::event_inventory::METHOD,
+            "inventory authority is scope/method bound"
+        );
+        Ok(())
+    }
 }
 
 #[doc(hidden)]
@@ -200,6 +243,7 @@ impl RpcAuthority {
     pub(crate) fn validate(&self) -> Result<()> {
         match self {
             Self::State(authority) => authority.validate(),
+            Self::Inventory(authority) => authority.validate(),
             Self::Event(authority) => authority.validate(),
             Self::Source(authority) => authority.validate(),
             Self::Catalog(authority) => authority.validate(),
@@ -211,6 +255,7 @@ impl RpcAuthority {
         self.validate()?;
         match self {
             Self::State(authority) => authority.validate_target(scope, method),
+            Self::Inventory(authority) => authority.validate_target(scope, method),
             Self::Event(authority) => {
                 event_stream::validate_target(scope, authority)?;
                 authority.validate_operator_target(scope, method)
@@ -239,7 +284,8 @@ pub(crate) fn validate_target(
             anyhow::ensure!(
                 !event_stream::is_event_scope(scope)
                     && method != super::source_control::METHOD
-                    && method != super::event_state::METHOD,
+                    && method != super::event_state::METHOD
+                    && method != super::event_inventory::METHOD,
                 "framework RPC requires host authority"
             );
             Ok(())
@@ -256,6 +302,31 @@ impl From<event_stream::name_resolution::NameAuthority> for RpcAuthority {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inventory_capability_is_separate_from_metrics_and_mutation() -> Result<()> {
+        let inventory = RpcAuthority::Inventory(InventoryAuthority::mint("Order:source".into())?);
+        inventory.validate_target("Order:source", super::super::event_inventory::METHOD)?;
+        assert!(inventory
+            .validate_target("Order:other", super::super::event_inventory::METHOD)
+            .is_err());
+        assert!(inventory
+            .validate_target("Order:source", super::super::event_state::METHOD)
+            .is_err());
+        assert!(inventory
+            .validate_target("Order:source", super::super::source_control::METHOD)
+            .is_err());
+        assert!(
+            validate_target(None, "Order:source", super::super::event_inventory::METHOD).is_err()
+        );
+        let state = RpcAuthority::State(StateAuthority::mint("Order:source".into())?);
+        assert!(state
+            .validate_target("Order:source", super::super::event_inventory::METHOD)
+            .is_err());
+        let decoded: RpcAuthority = serde_json::from_value(serde_json::to_value(inventory)?)?;
+        decoded.validate_target("Order:source", super::super::event_inventory::METHOD)?;
+        Ok(())
+    }
 
     #[test]
     fn state_sample_capability_cannot_authorize_another_scope_or_mutation() -> Result<()> {

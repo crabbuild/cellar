@@ -292,6 +292,7 @@ USAGE:
   cellar sql execute DATABASE --command SQL [PROJECT] --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar kv get|put|delete|list|info NAMESPACE --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar queue info|peek|purge|pause|resume|redrive QUEUE --bucket [s3://|gs://|az://]NAME[/PREFIX]
+  cellar event inventory [SCOPE] --limit N [FLEET OPTIONS]
   cellar event metrics --max-roots N [FLEET OPTIONS]
   cellar outbox census [CLASS] --limit N [FLEET OPTIONS]
   cellar stream describe|read|status|audit --binding BINDING.json [FLEET OPTIONS]

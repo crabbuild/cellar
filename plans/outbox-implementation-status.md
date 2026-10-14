@@ -2403,3 +2403,72 @@ Example SHA-256: `c270b64106215dc050ec96122ba90f6cecf094ed5b2e83aa1501cf21c1b0e7
 All Cellar-owned markers remain 1. Remaining resident-host metrics, physical
 profiles, broad historical/facet/namespace inventories, SDK outcome/codec audits
 and the complete failure/capacity/lifecycle/release requirements keep the goal active.
+
+
+## Bounded fleet descriptor and retained history inventory (2026-10-14)
+
+Whole-fleet root descriptor discovery now identifies catalog namespaces, retained
+stream UUIDs and current source/history availability, without out-of-band tenant/
+application selection. It reads one bounded provider page and four owner probes;
+its inventory1 token binds bucket/prefix/endpoint/region. Root namespace identity
+is rederived from scalar catalog metadata and checked against the hashed owner
+scope. Empty catalogs report missing retained namespace identity explicitly.
+Partial probes print unavailable rows/continuation and return a failed exit.
+
+Scoped resource pages reuse the bounded validated catalog reader and include
+tombstones. Producer pages reuse the bounded lane/watermark reader and preserve
+source/lane identity checks, while exposing retirement/cleanup-complete flags.
+Inspection found that retirement intentionally purges these rows after retaining
+terminal identity/receipt; the implementation does not invent historical lanes
+or call terminal absence an active empty producer set. Root source history reads
+retained operation sequence ranges, including retries rather than scanning past
+them, and projects old/new producer incarnations, lifecycle and loss counts.
+The full receipt, operator reason/acknowledgment, token and payload are excluded.
+Supported recreation preserves this ledger and its scope/sequence continuation.
+
+A distinct exact-scope/method platform InventoryAuthority, signed ingress and
+native framework handler retain original activation/output/discovery gates and
+cannot authorize mutations or be replaced with metrics/resource authority. All
+owned markers stay 1. Source/module namespace and borrow/build issues were corrected
+before qualification; they are not behavioral reproduction evidence. Final gates
+and archived process evidence are recorded below when complete. This does not
+close facet inventories, every historical/backend/ownership/capacity cut, physical
+profiles, host metrics, codec/outcome audits or the full release matrix.
+
+
+The first behavioral gate passes 144 library cases and the native event integration,
+but the new retired-partition assertion fails. An isolated run reproduces it;
+inspection identifies a query for a nonexistent cleaned column. Retirement actually
+records completion with finished_ms. The query is corrected to that durable field,
+and unavailable ingress responses are structured JSON. Preserve both failed gates
+separately; do not weaken the terminal-cleanup assertion or count compile fixes as
+behavioral reproduction. Corrected full gates are recorded below.
+
+
+The corrected final gate passes **144 library tests**, the native event-stream
+integration and **all 31 serial Node tests** (279.05 seconds), including terminal
+retirement cleanup and paged old/new incarnation history across source recreation.
+Workspace/all-target/all-feature Clippy with warnings denied, 444-file formatting,
+62 Python guards, documentation (35 documents/6 flows/370 references), native
+dependencies (401 packages/no JavaScript engine) and whitespace checks pass.
+A dependency-check invocation without Cargo on PATH failed before inspection;
+the corrected PATH invocation passes. These are scoped gates, not a refreshed
+complete workspace integration/release matrix.
+
+The archived corrected CLI and example pass the actual RustFS census/metrics/
+inventory exercise. Five bounded descriptor pages discover all five roots, recover
+the catalog namespace and stream UUID, and agree with independently observed
+producer watermarks. Scoped resource/producer pages, fresh empty source history,
+foreign-fleet cursor refusal and all-five-owner unavailability after complete
+shutdown pass. The ledger records owned store removal. This supplies same-machine
+RustFS process evidence; facet/historical restore and the complete backend/owner/
+failure/capacity qualification remain open.
+
+Evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-inventory-qualification-13ibixvc`.
+CLI SHA-256: `deb9c040a2514985e9bcfbcb71ecd4ae29c86d21b8dd0ffd6f6f830c549c59b2`.
+Example SHA-256: `484aaac7787e6707316a717409625f824fa36a5fd42162dac597cb1bf0c8db9b`.
+Initial failed behavior logs remain archived separately from corrected passes.
+Cellar-owned peer protocol, native-host protocol, wake format and schema markers
+remain **1**, with hard development cutovers rather than backward compatibility.
+The implementation goal remains active; the remaining requirement audit and
+qualification must continue before release.

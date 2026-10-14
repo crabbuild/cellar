@@ -54,6 +54,7 @@ mod driver;
 #[cfg(not(cellar_internal_tests))]
 mod embedded;
 mod event_failure;
+mod event_inventory;
 mod event_metrics;
 mod event_resources;
 mod event_state;
@@ -3156,6 +3157,9 @@ async fn handle_internal(
         // `RESERVED_CLASSES` inherits both. (The pre-v5 `/__sql/` alias died
         // with the v0.4.0 stop-the-world upgrade; the CLI in this tree sends
         // `/runtime/`.)
+        _ if path.starts_with("/event-inventory/") && app.runtime.is_some() => {
+            event_inventory::handle(&app, request).await
+        }
         _ if path.starts_with("/event-state/") && app.runtime.is_some() => {
             event_state::handle(&app, request).await
         }

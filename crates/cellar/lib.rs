@@ -181,9 +181,11 @@ pub mod outbox_cli;
 #[path = "cli/stream_cli.rs"]
 pub mod stream_cli;
 
+#[doc(hidden)]
+#[path = "observability/event_inventory.rs"]
+pub mod event_inventory;
 #[path = "observability/event_metrics.rs"]
 pub mod event_metrics;
-#[doc(hidden)]
 #[path = "observability/event_state.rs"]
 pub mod event_state;
 #[path = "cli/operator_cell.rs"]

@@ -301,7 +301,7 @@ impl OutboxPage {
 }
 
 impl Storage {
-    fn outbox_incarnation(&self) -> Result<Option<String>> {
+    pub(crate) fn outbox_incarnation(&self) -> Result<Option<String>> {
         let scope = self.scope()?;
         anyhow::ensure!(
             crate::storage::facet_opening(scope).is_none(),

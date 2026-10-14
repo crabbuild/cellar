@@ -82,6 +82,39 @@ def exercise(cellar,binary,root,image):
         text=metrics(json_output=False).stdout
         require("cellar_event_fleet_outbox_rows 1" in text and "cellar_event_fleet_collection_complete 1" in text and "Order:" not in text and "resource=" not in text,"Prometheus gauges leaked identities or lost backlog")
         ledger.record("fleet_state_metrics_qualified",state=state,capped=capped,prometheus=text)
+        def inventory(scope=None,page_kind=None,cursor=None,limit=1,success=True,bucket_suffix=""):
+            args=[str(cellar),"event","inventory"]
+            if scope:args.append(scope)
+            args.extend(["--bucket","s3://"+store.config["name"]+bucket_suffix,"--endpoint",store.config["endpoint"],"--limit",str(limit),"--json"])
+            if page_kind:args.extend(["--page",page_kind])
+            if cursor:args.extend(["--cursor",cursor])
+            reply=subprocess.run(args,env=env,capture_output=True,text=True,timeout=60)
+            require((reply.returncode==0)==success,"CLI inventory outcome differed: "+reply.stderr)
+            return reply
+        discovered={};cursor=None;inventory_pages=[]
+        for _ in range(12):
+            page=json.loads(inventory(cursor=cursor).stdout)
+            require(page["complete_probes"] and page["scanned_prefixes"]<=1 and len(page["records"])<=1,"inventory lost its bounded probes")
+            inventory_pages.append(page)
+            for row in page["records"]:
+                require(row["status"]=="observed" and row["scope"] not in discovered,"inventory duplicated or lost a root")
+                discovered[row["scope"]]=row["inventory"]["data"]
+            cursor=page["next"]
+            if cursor is None:break
+        require(cursor is None and len(discovered)==5,"whole-fleet descriptor discovery missed a root")
+        catalogs=[r for r in discovered.values() if r["kind"]=="catalog"]
+        streams=[r for r in discovered.values() if r["kind"]=="stream"]
+        require(len(catalogs)==1 and catalogs[0]["namespace"]==dict(tenant="example",application="stream-example"),"namespace discovery required an out-of-band namespace or changed identity")
+        require(len(streams)==1 and streams[0]["resource"]["id"]=="00000000000000000000000000000100","stream descriptor identity changed")
+        listed=json.loads(inventory(scope=catalogs[0]["scope"],page_kind="resources").stdout)
+        require(listed["kind"]=="resources" and len(listed["data"]["records"])==1 and listed["data"]["records"][0]["resource"]==streams[0]["resource"],"resource inventory failed after namespace discovery")
+        producers=json.loads(inventory(scope=streams[0]["scope"],page_kind="producers").stdout)
+        require(not producers["data"]["retired"] and not producers["data"]["cleanup_complete"] and producers["data"]["page"]["records"]==destination_sources["records"],"platform producer inventory differed from accepted source audit")
+        history=json.loads(inventory(scope=ledger.operations["waiting"]["ack"]["source"],page_kind="history").stdout)
+        require(history["kind"]=="history" and history["data"]["records"]==[],"fresh source invented retained operation history")
+        foreign=inventory(cursor=inventory_pages[0]["next"],success=False,bucket_suffix="/other")
+        require("another fleet" in foreign.stderr,"fleet inventory cursor crossed bucket prefixes")
+        ledger.record("fleet_inventory_qualified",pages=inventory_pages,resources=listed,producers=producers,history=history)
         # Stop every node but retain the bucket: failure must still print all
         # candidates, never claim zero pending rows or a complete census.
         for process in reversed(processes):process.stop()
@@ -95,6 +128,10 @@ def exercise(cellar,binary,root,image):
         missing_text=metrics(success=False,json_output=False).stdout
         require("cellar_event_fleet_collection_complete 0" in missing_text and "cellar_event_fleet_outbox_rows" not in missing_text,"incomplete Prometheus scrape published fake zero backlog")
         ledger.record("fleet_state_metrics_unavailable",state=missing,prometheus=missing_text)
+        unavailable_inventory=json.loads(inventory(limit=100,success=False).stdout)
+        require(not unavailable_inventory["complete_probes"] and len(unavailable_inventory["records"])==5
+            and all(r["status"]=="unavailable" and "inventory" not in r for r in unavailable_inventory["records"]),"unavailable inventory roots became empty descriptors")
+        ledger.record("fleet_inventory_unavailable",page=unavailable_inventory)
         ledger.record("census_qualified",pages=pages,unavailable=unavailable_page)
         summary=dict(status="passed",pages=len(pages),sources=2,undispatched_sources=1,empty_cells=1,unavailable_probes=3,
             binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),cellar_sha256=hashlib.sha256(cellar.read_bytes()).hexdigest(),output=str(root))

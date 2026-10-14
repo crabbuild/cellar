@@ -7,7 +7,10 @@ use anyhow::{ensure, Result};
 use futures_util::{stream, StreamExt};
 use std::time::Duration;
 
-const HELP: &str = "cellar event metrics [--max-roots N] [--json]\n\nCollect current root-cell durable state through signed owner RPCs.\nAt most 100 provider prefixes per page and four concurrent probes.\nDefault bound: 10,000 roots/pages; hard bound: 100,000.\nCold inspection may restore cells and progress existing work.\nResults are live observations across sample times, not a snapshot or drain proof.\nFailed probes or exhausted bounds yield complete=false and a failed exit.\nPhysical bytes cover observed root SQLite pages, excluding facets/WAL/LTX/bucket.\nJSON uses exact decimal gauges; default output is Prometheus text without identities.";
+#[path = "event_inventory.rs"]
+mod inventory;
+
+const HELP: &str = "cellar event inventory [SCOPE] [--page resources|producers|history] [--cursor TOKEN] [--limit N] [--json]\ncellar event metrics [--max-roots N] [--json]\n\nCollect current root-cell durable state through signed owner RPCs.\nAt most 100 provider prefixes per page and four concurrent probes.\nDefault bound: 10,000 roots/pages; hard bound: 100,000.\nCold inspection may restore cells and progress existing work.\nResults are live observations across sample times, not a snapshot or drain proof.\nFailed probes or exhausted bounds yield complete=false and a failed exit.\nPhysical bytes cover observed root SQLite pages, excluding facets/WAL/LTX/bucket.\nJSON uses exact decimal gauges; default output is Prometheus text without identities.";
 
 struct Options {
     fleet: FleetFlags,
@@ -89,6 +92,9 @@ async fn probe(
 }
 
 pub async fn run(arguments: Vec<String>) -> Result<()> {
+    if arguments.first().is_some_and(|s| s == "inventory") {
+        return inventory::run(arguments.into_iter().skip(1).collect()).await;
+    }
     use std::io::Write;
     let Some(options) = parse(arguments)? else {
         return crate::cli_output::Output::new(crate::cli_output::Format::Text)

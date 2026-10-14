@@ -230,6 +230,20 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
     caller.validate_target(&identity.scope, METHOD)?;
     let namespace = caller.namespace();
     let options: CatalogListOptions = serde_json::from_value(body.clone())?;
+    Ok(serde_json::to_value(page(context, namespace, &options)?)?)
+}
+
+pub(crate) fn page(
+    context: &Context,
+    namespace: &CatalogNamespace,
+    options: &CatalogListOptions,
+) -> Result<CatalogPage> {
+    anyhow::ensure!(
+        context
+            .identity()
+            .is_some_and(|id| namespace.scope().is_ok_and(|scope| id.scope == scope)),
+        "catalog page names another owner scope"
+    );
     let after = options.validate(namespace)?;
     let db = context.storage()?;
     // Only scalar metadata is copied. The primary-key range reads at most 101
@@ -272,8 +286,8 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
         records,
         cursor,
     };
-    page.validate(namespace, &options)?;
-    Ok(serde_json::to_value(page)?)
+    page.validate(namespace, options)?;
+    Ok(page)
 }
 
 #[cfg(test)]

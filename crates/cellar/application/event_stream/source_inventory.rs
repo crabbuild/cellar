@@ -195,7 +195,26 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
             .and_then(|count| usize::try_from(count).ok())
             .ok_or_else(|| error(ErrorCode::InvalidRequest, "invalid source list bounds"))?,
     };
-    let after = options.validate(&definition.resource)?;
+    Ok(serde_json::to_value(page(
+        context,
+        &definition.resource,
+        &options,
+    )?)?)
+}
+
+pub(crate) fn page(
+    context: &Context,
+    resource: &Resource,
+    options: &SourceListOptions,
+) -> Result<SourcePage> {
+    anyhow::ensure!(
+        context
+            .identity()
+            .is_some_and(|id| super::cell_scope(resource).is_ok_and(|scope| id.scope == scope)),
+        "producer page names another owner scope"
+    );
+    let db = context.storage()?;
+    let after = options.validate(resource)?;
     // A primary-key range reads at most 101 metadata rows. No payload joins,
     // token columns, or filtering that scans past an unbounded retained prefix.
     let rows = db.system_sql("SELECT lane,source,incarnation,principal,grant_id,accepted_through,sealed FROM __sys_stream_producers WHERE lane>? ORDER BY lane LIMIT ?",
@@ -215,7 +234,7 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
     }
     let cursor = if more {
         Some(Cursor::encode(
-            &definition.resource,
+            resource,
             records
                 .last()
                 .ok_or_else(|| error(ErrorCode::InvalidRequest, "empty source continuation page"))?
@@ -226,12 +245,12 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
         None
     };
     let page = SourcePage {
-        resource: definition.resource.id.clone(),
+        resource: resource.id.clone(),
         records,
         cursor,
     };
-    page.validate(&definition.resource, &options)?;
-    Ok(serde_json::to_value(page)?)
+    page.validate(resource, options)?;
+    Ok(page)
 }
 
 #[cfg(test)]
