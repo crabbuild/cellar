@@ -189,6 +189,148 @@ test("SQL workspace confirms the selected target before submitting", async ({
   ).toBeVisible()
 })
 
+test("cell bindings separate matching namespaces from application resources and stay usable on narrow screens", async ({
+  page,
+}, testInfo) => {
+  const namespaces = [
+    "Customer",
+    "Order",
+    "Alarm",
+    "Async",
+    "Vector",
+    "Room",
+    "Supervisor",
+    "Account",
+    "Outbox",
+  ]
+  const application = {
+    ...apps[0],
+    bindings: [
+      ...namespaces.map((identity) => ({
+        name: identity === "Customer" ? "CUSTOMERS" : identity.toUpperCase(),
+        kind: "durable_object_namespace",
+        identity,
+        scope: null,
+        schedules: [],
+      })),
+      ...apps[0].bindings,
+      {
+        name: "BLOBS",
+        kind: "blob_bucket",
+        identity: "commerce-files",
+        scope: null,
+        schedules: [],
+      },
+      {
+        name: "DEAD",
+        kind: "queue",
+        identity: "dead-letter",
+        scope: "__Queue:dead",
+        schedules: [],
+      },
+    ],
+  }
+  await page.route("**/api/v1/fleets/main/applications?*", (route) =>
+    route.fulfill({ json: pageOf([application]) })
+  )
+  await page.getByRole("link", { name: "Cells", exact: true }).click()
+  await page.getByRole("link", { name: /Customer:alpha/ }).click()
+  const bindings = page.getByRole("region", {
+    name: "commerce-api bindings",
+    exact: true,
+  })
+  const matching = bindings.getByRole("region", {
+    name: "Bindings for this cell",
+    exact: true,
+  })
+  await expect(matching).toContainText("CUSTOMERS")
+  await expect(matching).toContainText("Cell class")
+  await expect(matching.getByRole("listitem")).toHaveCount(1)
+  await expect(bindings).toContainText("15 bindings")
+  await expect(
+    bindings.getByRole("region", { name: "Storage", exact: true })
+  ).toContainText("SQL database")
+  await expect(
+    bindings.getByRole("region", { name: "Storage", exact: true })
+  ).toContainText("Blob bucket")
+  await expect(
+    bindings.getByRole("region", { name: "Background work", exact: true })
+  ).toContainText("CHECKOUT")
+  await expect(
+    bindings.getByRole("link", { name: "Open CHECKOUT workflow workspace" })
+  ).toHaveAttribute("href", "/fleets/main/workflows/commerce-api/CHECKOUT")
+  const disclosure = bindings.getByRole("button", {
+    name: "Other cell namespaces 8",
+  })
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+  await expect(bindings.getByText("durable_object_namespace")).toHaveCount(0)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.screenshot({
+    path: testInfo.outputPath("cell-bindings-desktop.png"),
+    fullPage: true,
+  })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await disclosure.focus()
+  await page.keyboard.press("Enter")
+  await expect(disclosure).toHaveAttribute("aria-expanded", "true")
+  await expect(
+    bindings
+      .getByRole("list", { name: "Cell namespaces" })
+      .getByRole("listitem")
+  ).toHaveCount(8)
+  await expect(bindings.getByText("SUPERVISOR", { exact: true })).toBeVisible()
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth)
+  ).toBeLessThanOrEqual(390)
+  await page.screenshot({
+    path: testInfo.outputPath("cell-bindings-mobile.png"),
+    fullPage: true,
+  })
+  await bindings
+    .getByRole("link", { name: "Open DATABASE sql database workspace" })
+    .click()
+  await expect(page).toHaveURL(/\/fleets\/main\/sql\/commerce-api\/DATABASE/)
+  await expect(
+    page.getByRole("button", { name: "Run statement" })
+  ).toBeVisible()
+})
+
+test("backing resource cells show their matching binding once with the correct workspace link", async ({
+  page,
+}) => {
+  const cell = {
+    scope: "__SQLDatabase:abc",
+    class: "__SQLDatabase",
+    kind: "sql",
+    owner: nodes[0].id,
+    epoch: 18,
+    observed_at: now,
+    error: null,
+  }
+  await page.route("**/api/v1/fleets/main/cells*", (route) =>
+    route.fulfill({ json: pageOf([cell]) })
+  )
+  await page.route("**/api/v1/fleets/main/cells/*", (route) =>
+    route.fulfill({ json: cell })
+  )
+  await page.getByRole("link", { name: "Cells", exact: true }).click()
+  await page.getByRole("link", { name: /__SQLDatabase:abc/ }).click()
+  const matching = page.getByRole("region", {
+    name: "Bindings for this cell",
+    exact: true,
+  })
+  await expect(matching).toContainText("Backing cell")
+  await expect(
+    matching.getByRole("link", { name: "Open DATABASE sql database workspace" })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: "Open DATABASE sql database workspace" })
+  ).toHaveCount(1)
+  await expect(
+    page.getByRole("region", { name: "Storage", exact: true })
+  ).toContainText("CACHE")
+})
+
 test("desktop and narrow layouts have no page overflow", async ({
   page,
 }, testInfo) => {

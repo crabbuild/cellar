@@ -171,7 +171,11 @@ export default function Details({ kind }: { kind: "nodes" | "cells" }) {
               </Card>
               {"scope" in record ? (
                 <>
-                  <CellBindings fleet={fleet} cell={record} />
+                  <CellBindings
+                    key={`${fleet}:${record.scope}`}
+                    fleet={fleet}
+                    cell={record}
+                  />
                   <CellControls
                     key={`${record.scope}@${record.owner}@${record.epoch}`}
                     fleet={fleet}
