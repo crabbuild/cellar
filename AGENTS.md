@@ -131,6 +131,9 @@ Destruction retires child activations and reclaims registered subtrees in at mos
 directories per host batch, keeping each registry row until completion. Local
 cleanup uses `FileSystem::remove_dir_batch` on the owning blocking executor;
 custom filesystems must implement that resumable, no-symlink-following contract.
+Runtime-only facet fixtures must supply their per-domain host-gate adapter because
+registration writes parent storage. Synthetic fixture responders test API/policy
+contracts and are not fleet durability evidence.
 Recreated sources qualify facet storage names by producer incarnation; logical
 names and startup identity remain unchanged. Native opens carry a captured
 admission check across host waits and restore, and serialize with subtree cleanup.

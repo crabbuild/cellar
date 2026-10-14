@@ -1460,3 +1460,58 @@ nodes over a persistent SQLite bucket, with in-process measurement snapshots.
 It does not complete independent process/physical-host failures, fsynced saved
 measuring ledgers, follower/isolated-owner/expired-lease/power loss, all commit/proof
 cut points, capacity or the full workspace release gate.
+
+
+## Refreshed executable fault evidence on f46b878
+
+A locked all-feature build of `cellar-example-streams` at source revision
+`f46b8788c0baa9632d641f90b682b8da026e66da` produces executable SHA-256
+`c384539175bdeca45bb3b74eafe3b6d502dc0e623f431a0bf21594e9b245dfa1`.
+The unchanged ordinary smoke and both process-fault drivers pass on that exact
+binary. The process driver observes source HTTP response loss and two SIGKILLs
+(pending acknowledged source obligation; proven consumer effect before ack),
+with four independent saved audits, preserved original lease expiry, two distinct
+final effects/checkpoint 2 and complete final preserving shutdown. The first-send
+driver observes a proven but HTTP-unacknowledged source SIGKILL with zero attempts,
+audits the killed SQLite/WAL image before restart and the recovered source before
+replay, and finishes with one effect/checkpoint 1. Both audit-only commands recheck
+the saved ledgers/image; all 16 oracle guards pass.
+
+Private evidence is retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-stream-current-evidence-aylyo6uy`.
+`qualification.json` records the source revision, build command, binary digest,
+ledger hashes and exact scope; each driver retains its own summary, logs, private
+state and ledger. This refresh follows the bounded local cleanup and current
+append/ack embedded-node test changes. It is single-node persistent SQLite-bucket
+process evidence, not independent physical hosts, followers, power loss, source
+cleanup loss, arbitrary commit/proof cut points or capacity qualification.
+
+The workspace feature-unified build subsequently produced SHA-256
+`8d94fc339e1d29d8c9755ce1225a810fb7c4061c5993fc12a70b9e79b9acdaf0`.
+That image is archived as `workspace-image/cellar-example-streams` inside the
+same private evidence directory. Ordinary smoke, both actual process drivers
+and both saved-ledger audits were rerun successfully against the archived image;
+`workspace-process-faults` and `workspace-before-send` retain their fresh evidence.
+The manifest keeps both build variants distinct rather than assigning earlier
+fault results to an overwritten Cargo target file.
+
+The first serial full-workspace library/integration gate passed the library and
+native integration cases through the Cargo dev workflow, then stopped on two
+loader-policy cases with `no output-gate channel`. Their runtime-only host never
+installed a gate adapter because their parent previously made no storage writes;
+durable facet-name registration now writes parent state. The fixture now serves
+its per-domain gate contract like the neighboring native loader/cell fixtures,
+tracks invocation and verifies facet registration actually reaches it. Its
+runtime-only responder is not fleet durability evidence; production gate code
+and all budget/domain/shutdown assertions are unchanged. The focused native
+loader and all six loader-policy cases pass, including the invalid-environment
+subprocess case. The corrected serial full-workspace library/integration gate passes: 99 test
+reports, 391 passed cases, no failures or ignored cases. This includes all 29
+Node cases and the actual Cargo dev workflow, plus the remaining SDK/workspace
+targets. `workspace-tests.log` and its digest are retained in the private evidence
+manifest. Workspace/all-target/all-feature Clippy passes with warnings denied,
+11 workspace doctests pass with one existing ignored case, formatting checks
+424 Rust files and documentation validates 35 documents/6 flows/370 references.
+All 16 fault oracle tests and saved-ledger re-audits pass; whitespace is clean.
+Full-workspace test success does not close the independent-host/follower/power/capacity or full
+commit/proof qualification matrix.

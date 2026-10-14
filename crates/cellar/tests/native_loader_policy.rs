@@ -18,7 +18,10 @@ use cellar::sdk::{
 };
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 
@@ -269,6 +272,7 @@ struct Host {
     domain: ExecutionDomain,
     runtime: Arc<RuntimeManager>,
     mailbox: Arc<Mailbox>,
+    gates: Arc<AtomicUsize>,
     _directory: tempfile::TempDir,
 }
 
@@ -281,8 +285,23 @@ async fn host(policy: LoaderPolicy) -> Result<Host> {
     })?;
     let directory = tempfile::tempdir()?;
     let mailbox = Arc::new(Mailbox::default());
+    let gates = Arc::new(AtomicUsize::new(0));
     let runtime = domain
         .run(async {
+            // This runtime-only fixture isolates loader budgets rather than
+            // actor/fleet proof. Like native_loader/native_cells, it must serve
+            // the host gate contract now that facet registration writes parent
+            // storage. Real Node source/facet tests retain production gates.
+            let (send, mut requests) = tokio::sync::mpsc::unbounded_channel();
+            cellar::host_channels::set_gate_tx(send);
+            let observed = gates.clone();
+            cellar::asyncrt::spawn(async move {
+                while let Some(gate) = requests.recv().await {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    let _ = gate.reply.send(Ok(()));
+                }
+            })
+            .detach();
             let mut graph = fixture::graph("main", "", vec!["Root".into()]);
             graph.primary.loader_bindings = vec!["WORKERS".into()];
             let mut other = fixture::graph("other", "", vec!["OtherRoot".into()]).primary;
@@ -334,6 +353,7 @@ async fn host(policy: LoaderPolicy) -> Result<Host> {
         domain,
         runtime,
         mailbox,
+        gates,
         _directory: directory,
     })
 }
@@ -430,6 +450,10 @@ async fn originating_hosts_bound_environments_routes_and_derived_properties() ->
     assert_eq!(
         call(&b, "Root:shared", "properties").await?,
         "properties copied"
+    );
+    ensure!(
+        b.gates.load(Ordering::SeqCst) > 0,
+        "parent facet registration did not reach its host gate"
     );
     let small = a.mailbox.own.lock().unwrap().clone().unwrap();
     let large = b.mailbox.own.lock().unwrap().clone().unwrap();
