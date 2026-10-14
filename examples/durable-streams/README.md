@@ -296,3 +296,34 @@ Omit `--rustfs-image` for a private SQLite bucket. These runs prove bucket-mode
 recovery at this selected boundary on one machine. They do not qualify fleet
 follower-only proof, power or object-store loss, every commit/proof cut point,
 physical hosts, capacity or soaks.
+
+## Independent-process acknowledgment loss
+
+[ack_faults.py](ack_faults.py) starts the same three independent roles and holds
+a complete successful `__streamAck` reply on the real authenticated peer tunnel.
+The opt-in `/projection/lost-ack` route stores the exact batch receipt in the
+same transaction as its inbox effect, then syncs before acknowledgment. A saved
+audit requires checkpoint 1, no live lease, the original effect and the retained
+receipt digest before SIGKILL of the destination and actual socket reply loss.
+
+After destination restart, another audit checks that state before any replay.
+`/projection/ack-stored` decodes the persisted receipt and calls `Subscription::ack`
+without fetching another batch. Original request bytes must match and the SDK
+must return `AlreadyAcknowledged`; effects and checkpoint remain unchanged.
+If a stale pooled connection interrupts replay, the driver records that ambiguity
+and audits state/receipt again before another attempt. It preserves original
+handler, operation and lease deadlines. All final processes must report complete
+preserving shutdown.
+
+```sh
+python3 examples/durable-streams/ack_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc \
+  --output /tmp/cellar-ack-fault-evidence
+python3 examples/durable-streams/ack_faults.py \
+  --audit /tmp/cellar-ack-fault-evidence/ledger.jsonl
+```
+
+Omit `--rustfs-image` for SQLite. These cases add independent-process ack-loss
+evidence on one machine. They do not qualify consumer process loss during exact
+receipt replay, follower-only proof, power/store loss or all lease/ack cut points.

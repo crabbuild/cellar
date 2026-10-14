@@ -1538,6 +1538,17 @@ order and final shutdown. SQLite and RustFS runs qualify this selected whole-
 fleet bucket recovery boundary; follower-only proof, power/store loss and the
 remaining cut-point/capacity requirements retain their full scope.
 
+The independent `ack_faults.py` case holds a complete proven acknowledgment
+reply across an audit of checkpoint 1, no live lease and the consumer effect.
+The consumer stores its exact receipt atomically with that effect and proves
+both before ack. After destination SIGKILL and socket reply loss, recovery must
+retain the checkpoint/effect/receipt before replay. Only the persisted receipt
+is replayed, without another fetch; identical request bytes return
+`AlreadyAcknowledged`. Transport ambiguity requires another saved independent
+audit before repeating the same receipt. SQLite/RustFS cases qualify this
+independent-process boundary, leaving consumer/follower/store/power loss and
+other lease/ack cut points open.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

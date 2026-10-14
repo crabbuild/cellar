@@ -74,7 +74,10 @@ def message(stream, response=False):
 
 
 class PeerProxy:
-    def __init__(self, target, ledger):
+    def __init__(self, target, ledger, method="__streamAppend"):
+        require(method in ("__streamAppend","__streamAck"),"unsupported peer fault method")
+        self.method=method
+        self.label="append" if method=="__streamAppend" else "ack"
         self.target, self.ledger = target, ledger
         self.lock = threading.Lock()
         self.armed = False
@@ -91,7 +94,7 @@ class PeerProxy:
                     client = self.request.makefile("rb")
                     while (request := message(client)) is not None:
                         method = request["headers"].get(b"x-cells-rpc-method", b"").decode()
-                        targeted = method == "__streamAppend"
+                        targeted = method == proxy.method
                         with proxy.lock:
                             blocked = targeted and proxy.paused
                         if blocked:
@@ -106,7 +109,7 @@ class PeerProxy:
                         if reply is None:
                             return
                         if targeted:
-                            require(reply["first"].split()[1] == b"200", "append did not return a successful complete HTTP reply")
+                            require(reply["first"].split()[1] == b"200", "targeted RPC did not return a successful complete HTTP reply")
                             exchange = dict(method=method, scope=request["headers"][b"x-cells-scope"].decode(),
                                 request_sha256=hashlib.sha256(request["body"]).hexdigest(), response_sha256=hashlib.sha256(reply["body"]).hexdigest(),
                                 request=base64.b64encode(request["body"]).decode(), response=base64.b64encode(reply["body"]).decode())
@@ -116,13 +119,13 @@ class PeerProxy:
                                     proxy.armed, proxy.paused = False, True
                                     proxy.capture = exchange
                             if dropped:
-                                proxy.ledger.record("append_reply_held", exchange=exchange)
+                                proxy.ledger.record(proxy.label+"_reply_held", exchange=exchange)
                                 proxy.entered.set()
                                 require(proxy.release.wait(20), "measuring client did not release the original proof boundary")
-                                proxy.ledger.record("append_reply_lost", request_sha256=exchange["request_sha256"])
+                                proxy.ledger.record(proxy.label+"_reply_lost", request_sha256=exchange["request_sha256"])
                                 self.request.shutdown(socket.SHUT_RDWR)
                                 return
-                            proxy.ledger.record("append_reply_forwarded", exchange=exchange)
+                            proxy.ledger.record(proxy.label+"_reply_forwarded", exchange=exchange)
                         self.request.sendall(reply["wire"])
                 except (ConnectionResetError, BrokenPipeError):
                     # A real node can close its pooled tunnel during retirement.

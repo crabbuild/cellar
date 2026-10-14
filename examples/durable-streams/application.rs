@@ -290,7 +290,8 @@ impl Cell for Projection {
                 return reply(
                     &context,
                     200,
-                    json!({"projection":projection(&db)?,"receipts":db.get_json("effect_receipts")?.unwrap_or_else(||json!({})), "host":controls.node}),
+                    json!({"projection":projection(&db)?,"receipts":db.get_json("effect_receipts")?.unwrap_or_else(||json!({})), "host":controls.node,
+                        "ack_receipt_sha256":db.get_json("ack_receipt")?.and_then(|value|value.as_str().map(|value|hex::encode(Sha256::digest(value.as_bytes()))))}),
                 );
             }
             let hold = path == "/projection/hold" && self.faults.is_some();
@@ -314,8 +315,13 @@ impl Cell for Projection {
             if request.method == "GET" && path == "/projection" {
                 return reply(&context, 200, projection(&db)?);
             }
+            let lost_ack = self.faults.is_some() && path == "/projection/lost-ack";
+            let ack_stored = self.faults.is_some() && path == "/projection/ack-stored";
             if request.method != "POST"
-                || !(hold || matches!(path.as_str(), "/projection/process" | "/projection/retry"))
+                || !(hold
+                    || lost_ack
+                    || ack_stored
+                    || matches!(path.as_str(), "/projection/process" | "/projection/retry"))
             {
                 return reply(
                     &context,
@@ -325,6 +331,19 @@ impl Cell for Projection {
             }
             let events = context.stream::<OrderConfirmed>("EVENTS")?;
             let subscription = events.subscription("projection")?;
+            if ack_stored {
+                let encoded = db
+                    .get_json("ack_receipt")?
+                    .and_then(|value| value.as_str().map(str::to_owned))
+                    .ok_or_else(|| anyhow::anyhow!("stored acknowledgment receipt missing"))?;
+                let receipt = Receipt::decode(&encoded)?;
+                let result = subscription.ack(&context, &receipt).await?;
+                return reply(
+                    &context,
+                    200,
+                    json!({"status":format!("{result:?}"),"projection":projection(&db)?}),
+                );
+            }
             let Some(batch) = subscription
                 .next(
                     &context,
@@ -345,6 +364,9 @@ impl Cell for Projection {
             let mut fresh_effects = 0;
             for record in &batch.records {
                 let fresh = db.tx(|tx| {
+                    if lost_ack {
+                        tx.put_json("ack_receipt", &json!(batch.receipt().encode()?))?;
+                    }
                     if !tx.inbox("order-projection-v1")?.accept(record)? {
                         return Ok(false);
                     }
@@ -381,6 +403,17 @@ impl Cell for Projection {
             // Prove local receipts and effects before touching the remote
             // checkpoint. Redelivery reuses those receipts after recovery.
             db.sync().await?;
+            if lost_ack {
+                let status = match batch.ack(&context).await {
+                    Ok(value) => format!("{value:?}"),
+                    Err(_) => "reply_lost".into(),
+                };
+                return reply(
+                    &context,
+                    200,
+                    json!({"status":status,"fresh_effects":fresh_effects,"projection":projection(&db)?}),
+                );
+            }
             if let Some(token) = token {
                 let phase = json!({"token":token,"boundary":"consumer_proven_before_ack","receipt":batch.receipt().encode()?,
                     "records":batch.records.iter().map(event_receipt).collect::<Result<Vec<_>>>()?,"projection":projection(&db)?});

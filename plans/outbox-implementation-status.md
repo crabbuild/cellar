@@ -241,6 +241,10 @@ The whole-fleet driver also proves one bucket-mode recovery boundary on both
 backends after killing all three processes and discarding their local node data,
 with a pending source and proven unacked consumer effect. Wider cut points and
 follower-only/store/power faults remain required.
+The independent ack-loss driver also audits checkpoint/effect/receipt before
+destination SIGKILL and lost reply, then replays only the persisted exact receipt
+after recovery audit. Its SQLite/RustFS cases cover that selected ack boundary;
+consumer loss and the remaining lease/ack cuts are still required.
 
 Source destruction/recreation now has a durable closed-admission lifecycle,
 exact destination evidence, immutable loss receipts, source/work/lane fences,
@@ -1724,3 +1728,61 @@ caller executors in killed nodes are lost abruptly. This does not prove fleet
 follower-only acknowledgments/recovery, object-store/power loss, separate
 physical hosts, every commit/proof cut point, independent ack SIGKILL, source
 cleanup loss or full lifecycle/capacity/soak qualification.
+
+
+## Independent-process proven acknowledgment loss (2026-10-14)
+
+The standalone opt-in consumer now stores an encoded exact batch receipt in
+its effect/inbox transaction and syncs before remote ack. Its test diagnostics
+expose only the receipt digest; a separate replay route decodes the stored
+receipt and calls the SDK acknowledgment API without fetching another batch.
+Ordinary routes, SDK production core, all proof/deadline/lease policies and
+owned markers (1) remain unchanged. The existing real peer proxy can now target
+append or ack while retaining authenticated tunnel/framing and complete reply
+capture.
+
+`ack_faults.py` starts independent destination/producer/consumer processes.
+After source acceptance settles and is audited, the client holds the complete
+ack reply and audits checkpoint 1, no live lease, the proven consumer effect and
+receipt digest before destination SIGKILL. It drops the original socket reply;
+the consumer records one new effect and an actual lost-ack outcome. Replacement
+destination startup precedes a recovery audit of the same checkpoint/effect/
+receipt. Only then does it release the proxy and replay the stored receipt.
+Captured request bytes match the original ack; the SDK returns
+`AlreadyAcknowledged`, with no new fetch, effect or checkpoint advance.
+
+The first RustFS attempt recovered all audited state but then hit a stale pooled
+RPC connection during exact replay. Its partial evidence is retained and excluded
+from passed qualification. The measuring client now records transport ambiguity
+and audits the unchanged checkpoint/effect/receipt again before retrying the same
+stored receipt. Original deadlines and lease policies remain intact. A synthetic
+corruption test also exposed shared objects between its fabricated stage rows;
+the fixture now copies each snapshot independently so changing a recovery digest
+cannot change its earlier evidence.
+
+Fresh SQLite and RustFS S3 cases pass four and five saved audits respectively
+(the RustFS case includes one replay-interruption audit), each with observed
+destination SIGKILL/reply loss, one identical receipt replay and complete final
+shutdown of all surviving/replacement processes. Audit-only rechecks pass.
+Nine new oracle guards reject receipt/RPC substitution, checkpoint/lease/effect
+loss, missing/wrong process or original reply loss, premature replay/restart,
+mutated stored receipt/captured bytes, wrong idempotent status, duplicate effects,
+incomplete shutdown, missing/premature private store cleanup and unaudited replay
+ambiguity. All 44 original/new Python guards pass.
+
+On archived executable SHA-256
+`f521ac787753620af084f9957f73af174700f1889f80ff897777c54b061ecda2`,
+ordinary smoke plus the previous fleet-mode append-loss (five audits) and whole-
+fleet SQLite bucket-loss (four audits/three SIGKILLs/three local discards) cases
+pass with saved re-audits. Focused example all-feature Clippy-D passes; formatting
+checks 426 Rust files, docs validate 35/6/370, dependencies remain 401 without a
+JavaScript engine and whitespace checks pass. Core is unchanged from the prior
+394-case workspace gate; no new full-workspace run is claimed for this batch.
+Private image, ledgers, logs, source patch and qualification manifest are retained
+at `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-independent-ack-evidence-_aueu9u7`.
+
+This qualifies one independent-process ack-proof/destination-loss boundary on
+one machine with SQLite/RustFS storage. It does not qualify consumer process
+loss while replaying a receipt, follower-only proof, object-store/power loss,
+physical hosts, all lease/ack or source-cleanup cuts, full policy/lifecycle races
+or capacity/soak release requirements.

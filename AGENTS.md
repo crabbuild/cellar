@@ -546,6 +546,13 @@ after every kill is observed and audits bucket-restored receipts/state before
 consumer replay. No source POST repairs recovery. Replay adds zero old effects;
 ack releases capacity for the pending event and final shutdown is complete.
 SQLite/RustFS results qualify this boundary, not follower-only/power/store loss.
+`ack_faults.py` captures a proven `__streamAck` reply, audits checkpoint/effect/
+receipt before destination SIGKILL and reply loss, then audits recovery before
+exact stored-receipt replay. Opt-in consumer routes atomically save the receipt
+with its effect and sync before ack; replay never fetches a new batch. A stale
+pooled transport requires another saved audit before retry. Exact bytes and
+`AlreadyAcknowledged` plus unchanged effect/checkpoint qualify this boundary;
+consumer/follower/power/store loss and the full lease/ack matrix remain open.
 
 
 ## Change discipline
