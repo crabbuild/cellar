@@ -37,7 +37,7 @@ export function PageHeading({
         <h1>{title}</h1>
         <p>{description}</p>
       </div>
-      <div className="flex items-center gap-2">{children}</div>
+      {children ? <div className="page-actions">{children}</div> : null}
     </div>
   )
 }

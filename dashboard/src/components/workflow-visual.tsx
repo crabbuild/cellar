@@ -415,7 +415,7 @@ function tone(type: string) {
     ? "error"
     : /completed/.test(type)
       ? "good"
-      : /waiting|paused|started/.test(type)
+      : /waiting|paused/.test(type)
         ? "warning"
         : "neutral"
 }
@@ -486,7 +486,7 @@ export function WorkflowExecution({
         <label className="flex w-64 max-w-full flex-col gap-1 text-xs text-muted-foreground">
           Execution generation
           <select
-            className="rounded-md border bg-background p-2 text-foreground"
+            className="workflow-generation-select"
             aria-label="Execution generation"
             value={generation ?? ""}
             onChange={(event) => {

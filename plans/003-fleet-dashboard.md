@@ -548,3 +548,22 @@ library tests and the workflow integration test. Workspace all-target/all-featur
 Clippy passes with warnings denied; the formatter checks all 382 Rust files.
 Frontend build/lint, dependency-engine guard, documentation checks and diff
 whitespace checks also pass.
+
+### Theme and usability polish
+
+The console now has a shared neutral scale and semantic tokens for light/dark
+surfaces, text, borders, actions, focus and statuses. Spacing, typography, control
+sizes, radii and motion are documented in `dashboard/README.md`. Shared primitives
+apply them across the fleet, resource and workflow views.
+
+The shell adds an explicit light/system/dark preference, keyboard-focusable active
+navigation, and mobile menu dismissal after navigation. Resource lists support
+local filtering with a clear-filter recovery path, reset when the fleet or resource
+type changes. Routine reads no longer stack success toasts over inspected data.
+
+Frontend build, lint and all 17 browser fixture tests pass. New coverage checks
+persisted theme/system changes, 4.5:1 contrast for the tested semantic text pairs in
+both themes, mobile controls and overflow down to 320px, navigation dismissal,
+keyboard focus, and resource filtering. Desktop, mobile, SQL and workflow screenshots
+were inspected in both themes as applicable. These are Chromium fixture checks;
+no physical-device or cross-browser qualification is implied.

@@ -1,4 +1,11 @@
-import { Link, NavLink, Outlet, useNavigate, useParams } from "react-router-dom"
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom"
 import {
   Activity,
   Blocks,
@@ -8,10 +15,10 @@ import {
   CircleUserRound,
   Clock3,
   Database,
-  GitBranch,
   Layers3,
   LayoutDashboard,
   LogOut,
+  Monitor,
   Moon,
   Network,
   Server,
@@ -34,6 +41,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import {
   Select,
@@ -46,6 +54,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useTheme } from "@/components/theme-provider"
 import { useSession } from "@/lib/session"
 
@@ -86,11 +95,91 @@ const groups: {
   },
 ]
 
+function FleetNavigation({ fleet }: { fleet: string }) {
+  const { pathname } = useLocation()
+  const { setOpenMobile } = useSidebar()
+  return (
+    <nav aria-label="Fleet navigation">
+      {groups.map((group) => (
+        <SidebarGroup key={group.label}>
+          <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {group.links.map(({ path, label, icon: Icon }) => {
+                const target = `/fleets/${fleet}/${path}`
+                return (
+                  <SidebarMenuItem key={path}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={
+                        pathname === target || pathname.startsWith(`${target}/`)
+                      }
+                    >
+                      <NavLink to={target} onClick={() => setOpenMobile(false)}>
+                        <Icon aria-hidden />
+                        <span>{label}</span>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ))}
+    </nav>
+  )
+}
+
+function ThemeSwitcher() {
+  const { theme, setTheme } = useTheme()
+  return (
+    <div className="theme-switcher">
+      <ToggleGroup
+        type="single"
+        value={theme}
+        onValueChange={(value) => {
+          if (value === "light" || value === "dark" || value === "system")
+            setTheme(value)
+        }}
+        spacing={1}
+        size="sm"
+        aria-label="Color theme"
+      >
+        <ToggleGroupItem
+          value="light"
+          aria-label="Light theme"
+          title="Light theme"
+        >
+          <Sun aria-hidden />
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="system"
+          aria-label="System theme"
+          title="System theme"
+        >
+          <Monitor aria-hidden />
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="dark"
+          aria-label="Dark theme"
+          title="Dark theme"
+        >
+          <Moon aria-hidden />
+        </ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+  )
+}
+
 export function ConsoleLayout() {
   const { fleet = "" } = useParams()
   const navigate = useNavigate()
   const { session, logout } = useSession()
-  const { theme, setTheme } = useTheme()
+  const { pathname } = useLocation()
+  const section = groups
+    .flatMap((group) => group.links)
+    .find(({ path }) => pathname.split("/")[3] === path)
   const selected = session.fleets.find((f) => f.id === fleet)
   return (
     <SidebarProvider>
@@ -101,11 +190,11 @@ export function ConsoleLayout() {
               <Network />
             </span>
             <span>
-              cellar<span className="brand-caption">FLEET CONSOLE</span>
+              cellar<span className="brand-caption">Fleet console</span>
             </span>
           </Link>
           <div className="fleet-switcher">
-            <span className="eyebrow">Your workspace</span>
+            <span className="eyebrow">Fleet</span>
             <Select
               value={fleet}
               onValueChange={(value) => navigate(`/fleets/${value}/overview`)}
@@ -126,41 +215,16 @@ export function ConsoleLayout() {
           </div>
         </SidebarHeader>
         <SidebarContent>
-          {groups.map((group) => (
-            <SidebarGroup key={group.label}>
-              <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {group.links.map(({ path, label, icon: Icon }) => (
-                    <SidebarMenuItem key={path}>
-                      <NavLink to={`/fleets/${fleet}/${path}`}>
-                        {({ isActive }) => (
-                          <SidebarMenuButton asChild isActive={isActive}>
-                            <span>
-                              <Icon aria-hidden />
-                              <span>{label}</span>
-                            </span>
-                          </SidebarMenuButton>
-                        )}
-                      </NavLink>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          ))}
+          <FleetNavigation fleet={fleet} />
         </SidebarContent>
         <SidebarFooter>
-          <div className="sidebar-note">
-            <GitBranch />
-            <div>
-              One fleet. Every cell.<p>Ownership you can inspect.</p>
-            </div>
-          </div>
           <Separator />
           <div className="user-row">
             <CircleUserRound />
-            <span>{session.user}</span>
+            <span>
+              {session.user}
+              <small>Signed in</small>
+            </span>
             <Button
               variant="ghost"
               size="icon-sm"
@@ -174,31 +238,34 @@ export function ConsoleLayout() {
       </Sidebar>
       <SidebarInset className="min-w-0">
         <header className="topbar">
-          <div className="flex items-center gap-3">
+          <div className="console-breadcrumb">
             <SidebarTrigger />
             <Separator orientation="vertical" className="h-4" />
-            <span className="text-muted-foreground">Fleets</span>
-            <ChevronRight className="size-3 text-muted-foreground" />
-            <span>{selected?.name ?? "Unknown fleet"}</span>
+            <Link
+              className="breadcrumb-fleet"
+              to={`/fleets/${fleet}/overview`}
+              title={selected?.name}
+            >
+              {selected?.name ?? "Unknown fleet"}
+            </Link>
             <Badge variant="outline">
               {selected?.environment ?? "Unconfigured"}
             </Badge>
+            {section ? (
+              <span className="breadcrumb-section">
+                <ChevronRight aria-hidden />
+                {section.label}
+              </span>
+            ) : null}
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Toggle color theme"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          >
-            {theme === "dark" ? <Sun /> : <Moon />}
-          </Button>
+          <ThemeSwitcher />
         </header>
         <main className="console-content" id="main">
           <Outlet />
         </main>
         <footer className="console-footer">
-          <span>Cellar · Durable applications, visible infrastructure.</span>
-          <span>Observation is not ownership authority</span>
+          <span>Cellar · Fleet console</span>
+          <span>Data reflects the last successful observation</span>
         </footer>
       </SidebarInset>
     </SidebarProvider>

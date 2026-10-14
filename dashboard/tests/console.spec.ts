@@ -920,10 +920,170 @@ test("workflow definition and execution explorer preserve versions across paged 
   await page
     .getByLabel("Workflow definition graph")
     .screenshot({ path: "test-results/workflow-definition.png" })
+  await page.getByRole("radio", { name: "Dark theme", exact: true }).click()
+  await expect(page.locator("html")).toHaveClass("dark")
+  await explorer.screenshot({
+    path: "test-results/workflow-execution-dark.png",
+  })
   await page.setViewportSize({ width: 390, height: 844 })
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth
     )
   ).toBeTruthy()
+})
+
+test("theme preferences follow the system, persist and keep text readable", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.getByRole("radio", { name: "System theme", exact: true }).click()
+  for (const theme of ["dark", "light"] as const) {
+    await page.emulateMedia({ colorScheme: theme })
+    await expect(page.locator("html")).toHaveClass(theme)
+    const contrasts = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement)
+      const luminance = (name: string) => {
+        const hex = root.getPropertyValue(name).trim().replace("#", "")
+        const channels = [0, 2, 4].map((offset) => {
+          const c = parseInt(hex.slice(offset, offset + 2), 16) / 255
+          return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+        })
+        return (
+          channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+        )
+      }
+      return [
+        ["--foreground", "--background"],
+        ["--card-foreground", "--card"],
+        ["--muted-foreground", "--card"],
+        ["--muted-foreground", "--muted"],
+        ["--primary-foreground", "--primary"],
+        ["--primary-foreground", "--primary-hover"],
+        ["--info", "--card"],
+        ["--info", "--info-muted"],
+        ["--success", "--success-muted"],
+        ["--warning", "--warning-muted"],
+        ["--destructive", "--destructive-muted"],
+      ].map(([foreground, background]) => {
+        const a = luminance(foreground),
+          b = luminance(background)
+        return {
+          foreground,
+          background,
+          ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+        }
+      })
+    })
+    for (const pair of contrasts) {
+      expect(
+        pair.ratio,
+        `${theme}: ${pair.foreground} on ${pair.background}`
+      ).toBeGreaterThanOrEqual(4.5)
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`overview-${theme}.png`),
+      fullPage: true,
+    })
+  }
+  await page.getByRole("radio", { name: "Dark theme", exact: true }).click()
+  await expect(page.locator("html")).toHaveClass("dark")
+  await page.keyboard.press("d")
+  await expect(page.locator("html")).toHaveClass("dark")
+  await page.reload()
+  await expect(page.locator("html")).toHaveClass("dark")
+  await expect(page.locator("html")).toHaveCSS("color-scheme", "dark")
+})
+
+test("mobile navigation closes after selection and retains usable controls", async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page
+    .getByRole("button", { name: "Toggle Sidebar", exact: true })
+    .click()
+  const navigation = page.getByRole("navigation", { name: "Fleet navigation" })
+  await navigation.getByRole("link", { name: "Nodes", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "Nodes", exact: true })
+  ).toBeVisible()
+  await expect(page.getByRole("dialog")).not.toBeVisible()
+  const filter = page.getByLabel("Filter this page")
+  await filter.fill("vancouver-02")
+  await expect(
+    page.getByRole("link", { name: /node-vancouver-02/ })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("link", { name: /node-vancouver-01/ })
+  ).not.toBeVisible()
+  await page.getByRole("radio", { name: "Dark theme", exact: true }).click()
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth)
+    ).toBeLessThanOrEqual(width)
+    for (const name of [
+      "Toggle Sidebar",
+      "Light theme",
+      "System theme",
+      "Dark theme",
+    ]) {
+      const bounds = await page
+        .getByRole(name === "Toggle Sidebar" ? "button" : "radio", {
+          name,
+          exact: true,
+        })
+        .boundingBox()
+      expect(bounds?.height).toBeGreaterThanOrEqual(44)
+      expect(bounds?.width).toBeGreaterThanOrEqual(44)
+    }
+  }
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({
+    path: testInfo.outputPath("nodes-mobile-dark.png"),
+    fullPage: true,
+  })
+})
+
+test("resource filtering has a recovery path and keyboard-visible navigation", async ({
+  page,
+}, testInfo) => {
+  const link = page
+    .getByRole("navigation", { name: "Fleet navigation" })
+    .getByRole("link", { name: "SQL databases", exact: true })
+  await link.focus()
+  await page.keyboard.press("Tab")
+  await page.keyboard.press("Shift+Tab")
+  await expect(link).toBeFocused()
+  expect(
+    await link.evaluate((element) => getComputedStyle(element).boxShadow)
+  ).not.toBe("none")
+  await page.keyboard.press("Enter")
+  await expect(link).toHaveAttribute("aria-current", "page")
+  await page.getByLabel("Filter resources on this page").fill("does-not-exist")
+  await expect(
+    page.getByText("No matching resources", { exact: true })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Clear filter", exact: true }).click()
+  await expect(page.getByRole("link", { name: "Open workspace" })).toBeVisible()
+  await page.getByLabel("Filter resources on this page").fill("commerce-api")
+  await expect(page.getByRole("link", { name: "Open workspace" })).toBeVisible()
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "Key-value", exact: true })
+  ).toBeVisible()
+  await expect(page.getByLabel("Filter resources on this page")).toHaveValue("")
+  await link.click()
+  await expect(
+    page.getByRole("heading", { name: "SQL databases", exact: true })
+  ).toBeVisible()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await expect(
+    page.getByRole("heading", { name: "DATABASE", exact: true })
+  ).toBeVisible()
+  await page.getByRole("radio", { name: "Dark theme", exact: true }).click()
+  await page.screenshot({
+    path: testInfo.outputPath("sql-workspace-dark.png"),
+    fullPage: true,
+  })
 })

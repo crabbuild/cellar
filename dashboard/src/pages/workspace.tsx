@@ -64,6 +64,14 @@ import { Feedback, JsonView, PageHeading } from "@/components/console-ui"
 import { fleetPath, request, useApi, type Application } from "@/lib/api"
 import { useSession } from "@/lib/session"
 
+const resourceTitles: Record<string, string> = {
+  sql: "SQL databases",
+  kv: "Key-value",
+  queues: "Queues",
+  workflows: "Workflows",
+  cron: "Cron schedules",
+}
+
 type Result = {
   result?: unknown
   operation?: { status: string }
@@ -131,10 +139,7 @@ function ResourceWorkspace({ kind }: { kind: string }) {
         toast.info(
           "This operation was already recorded. Check Operations for its outcome."
         )
-      else
-        toast.success(
-          result.operation ? "Operation completed" : "Resource inspected"
-        )
+      else if (result.operation) toast.success("Operation completed")
       void cache.invalidateQueries({
         queryKey: [fleetPath(fleet, "/operations")],
       })
@@ -163,7 +168,7 @@ function ResourceWorkspace({ kind }: { kind: string }) {
         to={`/fleets/${encodeURIComponent(fleet)}/${kind}`}
       >
         <ArrowLeft />
-        Back to {kind}
+        Back to {resourceTitles[kind] ?? kind}
       </Link>
       <PageHeading
         title={binding}

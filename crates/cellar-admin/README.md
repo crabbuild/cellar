@@ -50,7 +50,7 @@ cargo test -p cellar-admin --locked
 
 The nine API tests cover fleet isolation, authorization, origin rejection,
 10,000-cell pagination, durable operation deduplication and stop reconciliation.
-Fourteen browser fixture tests cover navigation, permissions, resource controls,
+Seventeen browser fixture tests cover navigation, permissions, resource controls,
 ambiguous stop outcomes, responsive views and keyboard focus. Native tests verify
 SQL/KV/Queue state across graceful handoff and forced owner closure; shutdown
 receipts cover handoff, preserve, cancellation and deadline expiry. A standalone
