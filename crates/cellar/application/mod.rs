@@ -476,6 +476,23 @@ impl Context {
             );
         }
         if let Some(activation) = &self.io.native_activation {
+            anyhow::ensure!(
+                cellar_logic::event_stream::source_admitted(
+                    self.io.source_generation,
+                    activation
+                        .resources
+                        .source_generation
+                        .load(std::sync::atomic::Ordering::Acquire),
+                    activation
+                        .resources
+                        .source_closed
+                        .load(std::sync::atomic::Ordering::Acquire),
+                    self.io
+                        .framework_source
+                        .load(std::sync::atomic::Ordering::Acquire)
+                ),
+                "source business admission is closed or its incarnation has changed"
+            );
             if let Some(failure) = activation.resources.failure.lock().unwrap().as_ref() {
                 anyhow::bail!("native cell was reset: {failure}");
             }
@@ -513,6 +530,7 @@ impl Context {
                 .clone()
                 .expect("native cell has an activation"),
             None,
+            self.io.source_generation,
         ))
     }
 

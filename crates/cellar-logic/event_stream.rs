@@ -555,3 +555,23 @@ mod lag_tests {
         }
     }
 }
+
+/// Framework source control and recovery remain available after business
+/// admission closes. A recreated source never revalidates an old context or
+/// retained storage handle, even within the same writer activation.
+pub fn source_admitted(captured: u64, current: u64, closed: bool, framework: bool) -> bool {
+    framework || (!closed && captured == current)
+}
+
+#[cfg(test)]
+mod source_admission_tests {
+    #[test]
+    fn closure_and_recreation_never_revalidate_business_handles() {
+        assert!(super::source_admitted(0, 0, false, false));
+        assert!(!super::source_admitted(0, 1, true, false));
+        assert!(!super::source_admitted(0, 2, false, false));
+        assert!(super::source_admitted(2, 2, false, false));
+        assert!(super::source_admitted(0, 1, true, true));
+        assert!(!super::source_admitted(1, 1, true, false));
+    }
+}

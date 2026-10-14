@@ -31,6 +31,21 @@ pub(crate) async fn dispatch(context: Context, installation: Installation) -> Re
         return Ok(Output::Done);
     }
     db.ensure_outbox_schema()?;
+    if crate::runtime::source_destruction::pending(&db)? {
+        let result = async {
+            crate::runtime::source_destruction::verify(&context).await?;
+            crate::runtime::source_destruction::clean(&context).await
+        }
+        .await;
+        context.check_turn()?;
+        if result.is_err() || crate::runtime::source_destruction::pending(&db)? {
+            crate::runtime::source_destruction::schedule(
+                &db,
+                crate::asyncrt::wall_ms().saturating_add(if result.is_ok() { 100 } else { 300000 }),
+            )?;
+        }
+        return Ok(Output::Done);
+    }
     let lanes = db.system_sql(
         "SELECT lanes.lane,binding,attempts,dispatch_generation,CASE WHEN status='sealed' THEN 1 ELSE 0 END AS sealing,
          seals.operation AS seal_operation,seals.terminal AS terminal FROM __sys_outbox_lanes AS lanes

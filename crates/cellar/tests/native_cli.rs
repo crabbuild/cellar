@@ -41,6 +41,31 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
             .output()?;
         ensure!(!retry.status.success());
         ensure!(String::from_utf8(retry.stderr)?.contains("requires --operation"));
+        for action in ["destroy", "recreate"] {
+            let denied = Command::new(executable)
+                .args(["outbox", action, "Account:source"])
+                .output()?;
+            ensure!(!denied.status.success());
+            ensure!(
+                String::from_utf8(denied.stderr)?.contains(&format!("requires --confirm-{action}"))
+            );
+        }
+        let no_loss = Command::new(executable)
+            .args([
+                "outbox",
+                "destroy",
+                "Account:source",
+                "--confirm-destroy",
+                "--incarnation",
+                "00000000000000000000000000000001",
+                "--operation",
+                "00000000000000000000000000000002",
+                "--reason",
+                "test",
+            ])
+            .output()?;
+        ensure!(!no_loss.status.success());
+        ensure!(String::from_utf8(no_loss.stderr)?.contains("requires --data-loss TEXT"));
         for family in ["stream", "subscription"] {
             let output = Command::new(executable).args([family, "--help"]).output()?;
             ensure!(output.status.success(), "{family} help failed: {output:?}");

@@ -2275,3 +2275,408 @@ async fn event_metrics_export_tracks_real_work_and_keeps_hosts_isolated() -> Res
         .context("event metrics sibling shutdown")?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn source_destruction_requires_retired_destinations_and_recovers_closed_admission(
+) -> Result<()> {
+    use serde_json::json;
+    use tokio::time::Instant;
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("source-destruction-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "source-destruction-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(1, false), applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let (config, services) = inputs(
+        "source-destruction-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let client = client()?;
+    let script = "embedded-node";
+    let cell = cellar_native::cell_id::for_name(
+        &format!("cells:v1:{}:{script}:Account", script.len()),
+        "events",
+    );
+    let scope = format!("Account:{}", cellar_native::cell_id::encode_hex(&cell));
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/revoke-publish").await? == "active");
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/").await? == "owner:1");
+    let inspected = operator(&client, &owner, &scope, &json!({"op":"inspect"}), "outbox").await?;
+    ensure!(inspected["result"]["pending_rows"] == "1");
+    let incarnation = inspected["result"]["incarnation"].clone();
+    let command = json!({"op":"destroy","change":{"source":scope,"incarnation":incarnation,
+        "operation":"000000000000000000000000000000aa","reason":"source lifecycle qualification",
+        "data_loss_acknowledgment":"discard this proven obligation only after its exact destination is retired"}});
+    let denied = operator(&client, &owner, &scope, &command, "outbox").await?;
+    ensure!(
+        denied["error"]["code"] == "PendingDelivery",
+        "live destination destruction reply: {denied}"
+    );
+    let status = operator(
+        &client,
+        &owner,
+        &scope,
+        &json!({"op":"status","operation":"000000000000000000000000000000aa"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(status["result"]["state"] == "checking" && status["result"]["discarded_rows"] == "0");
+    let refused = client
+        .post(format!("http://{}/", owner.info().public_address))
+        .send()
+        .await?;
+    ensure!(
+        !refused.status().is_success(),
+        "source serving authority remained open"
+    );
+    let after = operator(&client, &owner, &scope, &json!({"op":"inspect"}), "outbox").await?;
+    ensure!(
+        after["result"]["pending_rows"] == "1" && after["result"]["incarnation"] == incarnation
+    );
+    stopped(owner)
+        .await
+        .context("source closure owner handoff")?;
+    let recovered = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"inspect"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        recovered["result"]["incarnation"] == incarnation
+            && recovered["result"]["pending_rows"] == "1"
+    );
+    let retired=stream_operator(&client,&entrance,&binding(true),json!({"kind":"retire","request":{
+        "operation":"000000000000000000000000000000ab","revision":"2","reason":"retire blocked source destination",
+        "mode":{"mode":"force","data_loss_acknowledgment":"close this test stream before source destruction"}}}),"events-operator").await?;
+    ensure!(
+        retired.get("result").is_some(),
+        "retirement failed: {retired}"
+    );
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let deleted = loop {
+        let reply = operator(&client, &entrance, &scope, &command, "outbox").await?;
+        let status = operator(
+            &client,
+            &entrance,
+            &scope,
+            &json!({"op":"status","operation":"000000000000000000000000000000aa"}),
+            "outbox",
+        )
+        .await?;
+        if status["result"]["state"] == "deleted" {
+            break status["result"].clone();
+        }
+        ensure!(
+            Instant::now() < deadline,
+            "source destruction did not finish: {reply} {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    ensure!(
+        deleted["discarded_rows"] == "1"
+            && deleted["discarded_bytes"] == inspected["result"]["pending_bytes"]
+    );
+    ensure!(
+        operator(&client, &entrance, &scope, &command, "outbox").await?["result"] == deleted,
+        "destruction receipt replay changed"
+    );
+    ensure!(
+        operator(&client, &entrance, &scope, &command, "other-operator").await?["error"]["code"]
+            == "Forbidden"
+    );
+    let mut changed = command.clone();
+    changed["change"]["reason"] = json!("different");
+    ensure!(
+        operator(&client, &entrance, &scope, &changed, "outbox").await?["error"]["code"]
+            == "ConfigConflict"
+    );
+    let recreated = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"recreate","change":{"source":scope,"incarnation":incarnation,
+        "operation":"000000000000000000000000000000ac","reason":"fresh source lifecycle"}}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        recreated["result"]["state"] == "live" && recreated["result"]["incarnation"] != incarnation
+    );
+    let fresh = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"inspect"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(
+        fresh["result"]["incarnation"] == recreated["result"]["incarnation"]
+            && fresh["result"]["pending_rows"] == "0"
+            && fresh["result"]["lanes"] == json!([])
+    );
+    ensure!(
+        call(&client, &entrance, reqwest::Method::GET, "/").await? == "entrance:0",
+        "business state survived source destruction"
+    );
+    ensure!(
+        operator(&client, &entrance, &scope, &command, "outbox").await?["result"] == deleted,
+        "old destroy replay targeted successor"
+    );
+    let old = operator(
+        &client,
+        &entrance,
+        &scope,
+        &json!({"op":"status","operation":"000000000000000000000000000000aa"}),
+        "outbox",
+    )
+    .await?;
+    ensure!(old["result"] == deleted);
+    let audit = operator(&client, &entrance, &scope, &json!({"op":"audit"}), "outbox").await?;
+    ensure!(audit["result"]["records"]
+        .as_array()
+        .is_some_and(|rows| rows.len() == 2));
+    stopped(entrance)
+        .await
+        .context("source lifecycle final complete shutdown")?;
+    Ok(())
+}
+
+#[derive(Default)]
+struct SourceLifetimeProbe {
+    saved: std::sync::Mutex<Option<Storage>>,
+    started: std::sync::atomic::AtomicBool,
+    dropped: std::sync::atomic::AtomicBool,
+}
+
+struct SourceLifetimeDrop(Arc<SourceLifetimeProbe>);
+
+impl Drop for SourceLifetimeDrop {
+    fn drop(&mut self) {
+        self.0.dropped.store(true, Ordering::Release);
+    }
+}
+
+struct SourceLifetimeCell(Arc<SourceLifetimeProbe>);
+
+impl Cell for SourceLifetimeCell {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            if let Invocation::Fetch(request) = &invocation {
+                match url::Url::parse(&request.url)?.path() {
+                    "/remember-storage" => {
+                        *self.0.saved.lock().unwrap() = Some(context.storage()?);
+                        return Ok(super::response("saved".to_owned()));
+                    }
+                    "/old-storage" => {
+                        let old = self.0.saved.lock().unwrap().clone().unwrap();
+                        let failure = old
+                            .get_json("count")
+                            .err()
+                            .context("retired storage became valid again")?;
+                        return Ok(super::response(failure.to_string()));
+                    }
+                    "/hold-source" => {
+                        let _guard = SourceLifetimeDrop(self.0.clone());
+                        self.0.started.store(true, Ordering::Release);
+                        return std::future::pending::<Result<Output>>().await;
+                    }
+                    _ => {}
+                }
+            }
+            Arc::new(Counter("lifetime"))
+                .invoke(context, invocation)
+                .await
+        })
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn source_destruction_fences_suspended_turns_retained_handles_and_preserves_live_watermarks(
+) -> Result<()> {
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("source-lifetime-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (mut config, services) = inputs(
+        "source-lifetime",
+        &directory.path().join("node"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    config.actor.core.idle_evict_ms = None;
+    let probe = Arc::new(SourceLifetimeProbe::default());
+    let constructors = probe.clone();
+    let apps = CompiledApplications::default().register("embedded-node", "test", move || {
+        let constructors = constructors.clone();
+        Ok(Arc::new(
+            Registry::new(|context, invocation| {
+                Box::pin(async move {
+                    let Invocation::Fetch(request) = invocation else {
+                        return Ok(Output::Done);
+                    };
+                    Ok(Output::Http(
+                        context
+                            .namespace("ACCOUNTS")?
+                            .get_by_name("events")
+                            .fetch(&context, request)
+                            .await?,
+                    ))
+                })
+            })
+            .cell("Account", move |_, _| {
+                Ok(Arc::new(SourceLifetimeCell(constructors.clone())))
+            })?,
+        ))
+    })?;
+    let node = Node::start(config, services, graph(1, false), apps).await?;
+    super::ready(&node).await?;
+    let client = client()?;
+    let script = "embedded-node";
+    let id = cellar_native::cell_id::for_name(
+        &format!("cells:v1:{}:{script}:Account", script.len()),
+        "events",
+    );
+    let scope = format!("Account:{}", cellar_native::cell_id::encode_hex(&id));
+    ensure!(
+        call(&client, &node, reqwest::Method::POST, "/")
+            .await
+            .context("source lifetime initial emission")?
+            == "lifetime:1"
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let page = operator(&client, &node, &scope, &json!({"op":"inspect"}), "outbox").await?;
+            if page["result"]["pending_rows"] == "0" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let status: serde_json::Value = serde_json::from_str(
+                &call(&client, &node, reqwest::Method::POST, "/seal")
+                    .await
+                    .context("source lifetime seal after confirmed settlement")?,
+            )?;
+            if status["state"] == "accepted" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(call(&client, &node, reqwest::Method::GET, "/remember-storage").await? == "saved");
+    let inventory = stream_operator(
+        &client,
+        &node,
+        &binding(true),
+        json!({"kind":"sources","cursor":null,"limit":100}),
+        "events-operator",
+    )
+    .await?;
+    ensure!(inventory["result"]["records"][0]["sealed"] == true);
+    let before = operator(&client, &node, &scope, &json!({"op":"inspect"}), "outbox").await?;
+    let incarnation = before["result"]["incarnation"].clone();
+    let held_client = client.clone();
+    let address = node.info().public_address;
+    let held = tokio::spawn(async move {
+        held_client
+            .post(format!("http://{address}/hold-source"))
+            .send()
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !probe.started.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let command = json!({"op":"destroy","change":{"source":scope,"incarnation":incarnation,
+        "operation":"000000000000000000000000000000ba","reason":"sealed live source lifetime test",
+        "data_loss_acknowledgment":"destroy this entire test source while retaining its sealed destination watermark"}});
+    let accepted = operator(&client, &node, &scope, &command, "outbox").await?;
+    ensure!(
+        accepted.get("result").is_some(),
+        "sealed source destruction failed: {accepted}"
+    );
+    let terminal = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let status = operator(
+                &client,
+                &node,
+                &scope,
+                &json!({"op":"status","operation":"000000000000000000000000000000ba"}),
+                "outbox",
+            )
+            .await?;
+            if status["result"]["state"] == "deleted" {
+                return Ok::<_, anyhow::Error>(status);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(
+        terminal["result"]["discarded_rows"] == "0" && probe.dropped.load(Ordering::Acquire),
+        "source closure did not drop the suspended handler"
+    );
+    ensure!(!tokio::time::timeout(Duration::from_secs(5), held)
+        .await???
+        .status()
+        .is_success());
+    let after = stream_operator(
+        &client,
+        &node,
+        &binding(true),
+        json!({"kind":"sources","cursor":null,"limit":100}),
+        "events-operator",
+    )
+    .await?;
+    ensure!(
+        after == inventory,
+        "source destruction changed live destination watermarks"
+    );
+    let recreated = operator(
+        &client,
+        &node,
+        &scope,
+        &json!({"op":"recreate","change":{"source":scope,"incarnation":incarnation,
+        "operation":"000000000000000000000000000000bb","reason":"fresh same-activation source"}}),
+        "outbox",
+    )
+    .await?;
+    ensure!(recreated["result"]["incarnation"] != incarnation);
+    ensure!(
+        call(&client, &node, reqwest::Method::GET, "/old-storage")
+            .await?
+            .contains("source business admission"),
+        "old storage was not fenced by source generation"
+    );
+    ensure!(call(&client, &node, reqwest::Method::GET, "/").await? == "lifetime:0");
+    stopped(node)
+        .await
+        .context("source lifetime complete shutdown")?;
+    Ok(())
+}

@@ -31,6 +31,12 @@ pub(crate) enum Request {
     Retry {
         change: Retry,
     },
+    Destroy {
+        change: super::source_destruction::Destroy,
+    },
+    Recreate {
+        change: super::source_destruction::Recreate,
+    },
     Status {
         operation: String,
     },
@@ -87,6 +93,8 @@ impl Request {
                 }
             }
             Self::Retry { change } => change.validate()?,
+            Self::Destroy { change } => change.validate()?,
+            Self::Recreate { change } => change.validate()?,
             Self::Status { operation } => {
                 if !id(operation, 32) {
                     return Err(error(
@@ -173,6 +181,9 @@ fn retry(db: &Storage, operator: &str, change: &Retry) -> Result<Value> {
             cellar_logic::event_stream::OperationRefusal::Capacity=>error(ErrorCode::OperationLimit,"source operation receipt capacity exhausted"),
         })?;
         if !apply {return Ok(serde_json::from_str(&stored_text(prior.first().context("source replay lacks receipt")?,"receipt")?)?);}
+        if crate::storage::outbox_control::source_admission(&change.expected.source)?.1 {
+            return Err(error(ErrorCode::ProducerSealed,"source closure prevents retrying its lanes"));
+        }
         let rearmed=tx.retry_outbox_lane(&change.expected)?;
         let now=crate::asyncrt::wall_ms();
         let receipt=json!({"operation":change.operation,"operator":operator,"reason":change.reason,"expected":change.expected,"rearmed":rearmed,"applied_ms":now.to_string()});
@@ -191,6 +202,10 @@ fn run(db: &Storage, operator: &str, request: Request) -> Result<Value> {
             db.outbox(&OutboxOptions { limit, cursor })?,
         )?),
         Request::Retry { change } => retry(db, operator, &change),
+        Request::Destroy { .. } | Request::Recreate { .. } => Err(error(
+            ErrorCode::InvalidRequest,
+            "source destruction requires its owning context",
+        )),
         Request::Status { operation } => {
             if !present(db)? {
                 return Err(error(
@@ -232,7 +247,7 @@ fn run(db: &Storage, operator: &str, request: Request) -> Result<Value> {
     }
 }
 
-pub(crate) fn invoke(
+pub(crate) async fn invoke(
     context: Context,
     invocation: Invocation,
     authority: super::SourceAuthority,
@@ -250,9 +265,25 @@ pub(crate) fn invoke(
         size <= MAX_RPC_BYTES,
         "source operator arguments are too large"
     );
-    let result = (|| {
+    let result = async {
         let request: Request =
             serde_json::from_value(crate::application::decode_rpc(&args)?.to_json()?)?;
+        request.validate()?;
+        if let Request::Destroy { change } = &request {
+            let result = super::source_destruction::begin(&context, authority.operator(), change)?;
+            if result["state"] == "deleted" {
+                return Ok(result);
+            }
+            context.storage()?.sync().await?;
+            super::source_destruction::verify(&context).await?;
+            return super::source_destruction::receipt(
+                &context.storage()?,
+                change.operation.as_str(),
+            );
+        }
+        if let Request::Recreate { change } = &request {
+            return super::source_destruction::recreate(&context, authority.operator(), change);
+        }
         if let Request::Retry { change } = &request {
             anyhow::ensure!(
                 context
@@ -264,7 +295,8 @@ pub(crate) fn invoke(
             );
         }
         run(&context.storage()?, authority.operator(), request)
-    })();
+    }
+    .await;
     let mut value = match result {
         Ok(result) => json!({"result":result}),
         Err(failure) => match failure.downcast_ref::<DeliveryError>() {

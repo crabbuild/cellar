@@ -266,3 +266,41 @@ matching committed retirement receipt. Live or unfinished retirement returns
 `PendingDelivery`. This read-only platform capability does not grant resource
 administration or source deletion. Guarded whole-source destruction remains
 unfinished.
+
+
+### Source destruction and recreation
+
+These fleet-administration commands affect the exact source incarnation:
+
+```text
+cellar outbox destroy SCOPE --incarnation UUID --operation UUID --reason TEXT --data-loss TEXT --confirm-destroy [FLEET OPTIONS]
+cellar outbox recreate SCOPE --incarnation UUID --operation UUID --reason TEXT --confirm-recreate [FLEET OPTIONS]
+cellar outbox status SCOPE --operation UUID --json [FLEET OPTIONS]
+```
+
+Save the incarnation returned by `outbox inspect`. Destruction closes business
+admission durably and captures the current lane/work generations. A pending or
+unsealed destination needs exact terminal retirement evidence; a fully settled,
+accepted sealed lane can retain its live destination. Evidence checks run through
+the catalog owner outside a source transaction. A live destination returns
+`PendingDelivery` with no discarded obligations; the accepted closure intent
+remains recoverable and business admission remains closed. Drain and seal live
+lanes before requesting destruction, or retire every affected destination through
+its independent administration capability before repeating the exact request.
+
+Status progresses through `checking`, `verified`, `cleaning` and `deleted`.
+An intermediate state is not a deletion proof. The terminal receipt retains the
+source incarnation, original operator/request, captured and discarded event rows/
+bytes, reason and loss acknowledgment. Repeat the same arguments after an
+ambiguous reply. Another operator or changed request cannot reuse its operation.
+Cleanup preserves source administration receipts and destination watermarks.
+
+Recreation requires the deleted incarnation and a new operation. It clears the
+base source's business state and mints a fresh producer incarnation. A retained
+storage handle or suspended context cannot become valid again in that activation.
+Replaying an old destruction operation returns its original receipt and leaves
+the successor intact. Source event/inbox/lane reclamation is batched; existing
+business SQL table reset has separate transaction cost. Independent facet-family
+cleanup and recreation isolation, large SQL reset capacity and the full source
+fault/lease/policy matrix remain unqualified. This feature is still under
+implementation and is not ready for release.

@@ -238,7 +238,7 @@ impl Guard {
         transaction.control(storage, "start")?;
         *storage.0.resources.open_transaction.lock().unwrap() = Some(transaction.clone());
         Ok(Self {
-            view: Storage(storage.0.clone(), Some(transaction)),
+            view: Storage(storage.0.clone(), Some(transaction), storage.2),
             previous_open,
         })
     }

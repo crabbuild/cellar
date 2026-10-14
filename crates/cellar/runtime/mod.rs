@@ -865,6 +865,7 @@ pub(crate) async fn receive_service_fetch_response_for_test(
 pub(crate) mod catalog_control;
 pub(crate) mod rpc_authority;
 pub(crate) mod source_control;
+pub(crate) mod source_destruction;
 pub(crate) mod source_recovery;
 pub(crate) mod stream_control;
 #[doc(hidden)]

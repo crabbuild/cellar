@@ -33,7 +33,7 @@ impl SqlCursor {
                 .map_err(anyhow::Error::msg)?;
         let rows_read = u64::from(prefetched.is_some());
         Ok(Self {
-            storage: Storage(storage.0.clone(), None),
+            storage: Storage(storage.0.clone(), None, storage.2),
             id,
             columns,
             prefetched,
@@ -157,7 +157,7 @@ impl KvCursor {
             options.reverse,
         )?;
         Ok(Self {
-            storage: Storage(storage.0.clone(), None),
+            storage: Storage(storage.0.clone(), None, storage.2),
             id: Some(id),
         })
     }

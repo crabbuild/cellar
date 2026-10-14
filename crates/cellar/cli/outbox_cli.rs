@@ -7,6 +7,7 @@ use crate::cli_options::{FleetFlags, FLEET_HELP};
 use crate::cli_output::{Format, Output, Record};
 use crate::operator_cell::{Fleet, Reachable, Subject};
 use crate::runtime::source_control::{Request, Retry};
+use crate::runtime::source_destruction::{Destroy, Recreate};
 use anyhow::{bail, Context, Result};
 use std::borrow::Cow;
 use std::io::Read;
@@ -14,6 +15,8 @@ use std::time::Duration;
 
 const HELP: &str = "cellar outbox inspect SCOPE [--limit N] [--cursor CURSOR]
 cellar outbox retry SCOPE --expected REVISION.json --operation UUID --reason TEXT
+cellar outbox destroy SCOPE --incarnation UUID --operation UUID --reason TEXT --data-loss TEXT --confirm-destroy
+cellar outbox recreate SCOPE --incarnation UUID --operation UUID --reason TEXT --confirm-recreate
 cellar outbox status SCOPE --operation UUID
 cellar outbox audit SCOPE [--limit N] [--after POSITION]
 
@@ -52,7 +55,10 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
     if matches!(verb.as_str(), "--help" | "-h" | "help") {
         return Ok(None);
     }
-    if !matches!(verb.as_str(), "inspect" | "retry" | "status" | "audit") {
+    if !matches!(
+        verb.as_str(),
+        "inspect" | "retry" | "destroy" | "recreate" | "status" | "audit"
+    ) {
         bail!("unknown outbox command {verb}");
     }
     let scope = arguments
@@ -70,6 +76,9 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
     let mut json = false;
     let mut unsafe_public_advertise = false;
     let mut operation = None;
+    let mut incarnation = None;
+    let mut data_loss = None;
+    let mut confirmed = false;
     let mut reason = None;
     let mut expected = None;
     let mut limit = None;
@@ -80,6 +89,14 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
             "--help" | "-h" => return Ok(None),
             "--json" => {
                 json = true;
+                continue;
+            }
+            "--confirm-destroy" if verb == "destroy" => {
+                confirmed = true;
+                continue;
+            }
+            "--confirm-recreate" if verb == "recreate" => {
+                confirmed = true;
                 continue;
             }
             "--unsafe-public-advertise" => {
@@ -97,10 +114,18 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
             continue;
         }
         match flag.as_str() {
-            "--operation" if matches!(verb.as_str(), "retry" | "status") => {
+            "--operation"
+                if matches!(verb.as_str(), "retry" | "destroy" | "recreate" | "status") =>
+            {
                 operation = Some(value(&flag)?)
             }
-            "--reason" if verb == "retry" => reason = Some(value(&flag)?),
+            "--reason" if matches!(verb.as_str(), "retry" | "destroy" | "recreate") => {
+                reason = Some(value(&flag)?)
+            }
+            "--incarnation" if matches!(verb.as_str(), "destroy" | "recreate") => {
+                incarnation = Some(value(&flag)?)
+            }
+            "--data-loss" if verb == "destroy" => data_loss = Some(value(&flag)?),
             "--expected" if verb == "retry" => expected = Some(value(&flag)?),
             "--limit" if matches!(verb.as_str(), "inspect" | "audit") => {
                 limit = Some(
@@ -114,6 +139,10 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
             _ => bail!("invalid outbox {verb} option {flag}"),
         }
     }
+    anyhow::ensure!(
+        !matches!(verb.as_str(), "destroy" | "recreate") || confirmed,
+        "outbox {verb} requires --confirm-{verb}"
+    );
     let request = match verb.as_str() {
         "inspect" => Request::Inspect {
             limit: limit.unwrap_or(100),
@@ -125,6 +154,24 @@ fn parse(arguments: Vec<String>) -> Result<Option<Command>> {
         },
         "status" => Request::Status {
             operation: operation.context("outbox status requires --operation")?,
+        },
+        "destroy" => Request::Destroy {
+            change: Destroy {
+                source: scope.clone(),
+                incarnation: incarnation.context("outbox destroy requires --incarnation")?,
+                operation: operation.context("outbox destroy requires --operation")?,
+                reason: reason.context("outbox destroy requires --reason")?,
+                data_loss_acknowledgment: data_loss
+                    .context("outbox destroy requires --data-loss TEXT")?,
+            },
+        },
+        "recreate" => Request::Recreate {
+            change: Recreate {
+                source: scope.clone(),
+                incarnation: incarnation.context("outbox recreate requires --incarnation")?,
+                operation: operation.context("outbox recreate requires --operation")?,
+                reason: reason.context("outbox recreate requires --reason")?,
+            },
         },
         "retry" => {
             let operation = operation.context("outbox retry requires --operation")?;

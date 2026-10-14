@@ -1154,3 +1154,92 @@ Final workspace all-target/all-feature Clippy passes with warnings denied; all
 all-feature dependency check retains 401 packages without a JavaScript engine;
 whitespace checks pass. Both final measuring journals pass audit-only rechecks.
 This is targeted qualification, not a new uninterrupted full runtime gate.
+
+
+## Source closure, destruction and recreation
+
+The source control path now accepts guarded destruction and recreation operations.
+Destruction commits its exact request/digest/operator, captured source incarnation,
+source admission generation, lane snapshot, current work generation and initial
+receipt in one transaction. Dispatch generations advance to reject older replies.
+Cached admission closes only after that transaction commits, before any await;
+ordinary application constructors/handlers, SDK operations and suspended turns
+cannot continue using the closed source. Retained storage/cursor/inbox/facet
+handles keep their original source generation. Activation and instance reset
+reconstruct the fence from durable state; recreation never revalidates old handles.
+
+Framework controls and original outbox recovery remain admitted under private
+host provenance. Each verification event makes at most one owner-routed retirement
+proof call outside SQLite. Required evidence covers pending obligations and lanes
+without an accepted terminal seal. Fully settled, accepted sealed lanes preserve
+their live destination. Source incarnation, lane hash and captured work generation
+are rechecked before recording proof. Every needed proof must commit before the
+source can enter cleanup; verification evidence itself passes `db.sync` before
+reclamation. Live destinations return `PendingDelivery` without discarded rows;
+the accepted closure remains durable and can be inspected/retried independently
+of its closed application. Drain/seal before destruction or retire every affected
+destination through its independent administration authority.
+
+Cleanup batches at most 1,000 event rows under a bounded encoded-byte budget,
+then inbox receipts and lane/seal/batch-limit metadata in bounded batches. Business
+storage uses the existing transactional reset, while the source administration
+schema, immutable request identity and terminal receipt remain retained. The
+receipt reports exact captured/discarded event counts and bytes and the original
+reason/loss acknowledgment. Destination watermarks are not erased by source
+cleanup. Recreation requires the exact deleted incarnation, retains the old
+receipt, mints a fresh random producer incarnation and advances admission generation.
+An old destruction replay returns its original terminal receipt without closing
+that successor. CLI `outbox destroy/recreate` exposes this host path with explicit
+confirmation flags; destruction additionally requires textual loss acknowledgment.
+All Cellar-owned markers stay 1; prior control layouts require recreated state.
+
+The two new Node cases cover a live destination refusal, closed admission across
+owner handoff, independent destination retirement, exact discard counts, durable
+receipt replay/conflict/operator checks and fresh identity/business-state reset.
+The second case closes a sealed source with a live destination, drops an actual
+suspended handler, rejects a retained storage handle after recreation in the same
+activation and compares the unchanged live destination watermark. Its first run
+exposed fixture ordering (seal before proven settlement), and the next exposed
+missing required inventory parameters. The corrected fixture preserves every
+original runtime deadline and assertion. A restore guard also refuses mismatched
+work and missing retirement evidence before any base-schema mutation.
+
+The first compiler pass found missing imports and an incremental Rust compiler
+panic; compilation with incremental state disabled exposes normal diagnostics.
+A later native reset branch needed explicit failure propagation because its
+caller returns a turn tuple rather than `Result`. No cache cleanup, protocol
+migration, proof bypass or deadline extension was used to hide those failures.
+
+This implements and tests the base source database lifecycle. Independent
+facet-family cleanup and recreation isolation, large SQL table-reset cost,
+exhaustive source cleanup crash/lease/grant/policy races and aggregate/physical
+capacity qualification remain unfinished. Full design completion is not claimed.
+
+
+The larger targeted run passed all 28 serial Node cases, 6 artifact cases,
+2 CLI cases, the persisted stream fixture, the native facet fixture and the
+native outbox SDK fixture. The new restore fixture initially initialized an
+event schema outside a transaction; the corrected library replay passes all
+100 cases, including both pre-mutation refusal checks. The dependency-free
+source admission test passes; all 11 workspace doctests pass with one existing
+ignored case. Workspace all-target/all-feature Clippy passes with warnings
+denied. Formatting covers 422 Rust files; docs validate 35 documents, 6 flows
+and 370 references; dependencies retain 401 packages without a JavaScript engine;
+whitespace checks pass.
+
+The first attempt at these final checks failed with no space on the private
+build volume. Only this checkout's disposable incremental caches were removed;
+source, binaries, snapshots and other checkouts were preserved. Repeated checks
+ran with incremental compilation disabled. These are targeted gates and corrected
+replays, not a new uninterrupted full workspace runtime pass or completion of
+the remaining source/fleet/capacity release matrix.
+
+
+Final Clippy and formatting checks also pass after the restore-fixture correction.
+The rebuilt ordinary durable-stream smoke passes. The real before-first-send
+SIGKILL case passes again on this binary, with two recovery/final audits, one
+kill and one effect. Its digest is
+`1b8426e420b3d383d928522fbe3d056ff35dd56e5e92cd2236d8f77bfb15c7a4`;
+evidence remains in `/private/tmp/cellar-source-lifecycle-before-send-20261014`.
+This requalifies ordinary generation-zero SDK behavior and that cut point; it is
+not source-destruction crash injection or independent facet-family qualification.

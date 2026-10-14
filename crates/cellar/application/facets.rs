@@ -191,6 +191,7 @@ struct Entries {
 }
 
 pub(crate) struct State {
+    source_generation: u64,
     activation: Weak<Activation>,
     slot: Weak<crate::pool::Slot>,
     scope: String,
@@ -254,6 +255,7 @@ impl Context {
             stored
                 .get_or_insert_with(|| {
                     Arc::new(State {
+                        source_generation: self.io.source_generation,
                         activation: Arc::downgrade(activation),
                         slot: Arc::downgrade(&slot),
                         scope: activation.scope.clone(),
@@ -280,6 +282,14 @@ impl State {
                 .as_ref()
                 .is_some_and(|current| Arc::ptr_eq(current, &activation)),
             "facet handle belongs to another cell activation"
+        );
+        anyhow::ensure!(
+            self.source_generation
+                == activation
+                    .resources
+                    .source_generation
+                    .load(Ordering::Acquire),
+            "facet manager belongs to a retired source incarnation"
         );
         Ok(activation)
     }

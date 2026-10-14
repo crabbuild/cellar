@@ -14,7 +14,7 @@ use cellar_native::event_context::EventFrames;
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -313,6 +313,8 @@ impl RequestVfs {
 pub struct IoContext {
     host_services: Arc<crate::host_services::HostServices>,
     pub(crate) native_activation: Option<Arc<crate::application::Activation>>,
+    pub(crate) source_generation: u64,
+    pub(crate) framework_source: AtomicBool,
     registration: Option<ContextRegistration>,
     engine: OnceLock<Box<dyn Any + Send + Sync>>,
     cleanup: OnceLock<ContextCleanup>,
@@ -646,6 +648,8 @@ impl IoContext {
             cpu_turn: Mutex::new(None),
             tail_reporting,
             native_activation: None,
+            source_generation: 0,
+            framework_source: AtomicBool::new(false),
             tail_logs: Mutex::new(TailLogCapture::default()),
         })
     }

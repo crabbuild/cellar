@@ -335,6 +335,15 @@ impl NativeWorker {
                     ));
                 }
             }
+            let (source_generation, source_closed) =
+                storage::outbox_control::source_admission(scope)?;
+            let resources = crate::application::storage::Resources::default();
+            resources
+                .source_generation
+                .store(source_generation, Ordering::Release);
+            resources
+                .source_closed
+                .store(source_closed, Ordering::Release);
             self.activations.insert(
                 scope.to_string(),
                 Arc::new(Activation {
@@ -342,7 +351,7 @@ impl NativeWorker {
                     scope: scope.to_string(),
                     epoch: authority.epoch,
                     delete_all_deletes_alarm: self.config.compat.delete_all_deletes_alarm,
-                    resources: Default::default(),
+                    resources,
                     websocket_states: Default::default(),
                 }),
             );
@@ -385,6 +394,15 @@ impl NativeWorker {
         Arc::get_mut(&mut io)
             .expect("new context has no external owners")
             .native_activation = scope.and_then(|scope| self.activations.get(scope).cloned());
+        if let Some(activation) = &io.native_activation {
+            let generation = activation
+                .resources
+                .source_generation
+                .load(Ordering::Acquire);
+            Arc::get_mut(&mut io)
+                .expect("new context has no external owners")
+                .source_generation = generation;
+        }
         self.registry.register(&mut io);
         io.begin_event();
         if let Some(identity) = &identity {
@@ -575,6 +593,22 @@ impl NativeWorker {
                 self.instances.remove(scope);
                 old.drain_resources();
                 storage::reset_native_resources(scope);
+                let (source_generation, source_closed) =
+                    match storage::outbox_control::source_admission(scope) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            self.activations.insert(scope.clone(), old);
+                            answer.fail(error);
+                            return (None, Vec::new());
+                        }
+                    };
+                let resources = crate::application::storage::Resources::default();
+                resources
+                    .source_generation
+                    .store(source_generation, Ordering::Release);
+                resources
+                    .source_closed
+                    .store(source_closed, Ordering::Release);
                 self.activations.insert(
                     scope.clone(),
                     Arc::new(Activation {
@@ -582,7 +616,7 @@ impl NativeWorker {
                         scope: scope.clone(),
                         epoch: old.epoch,
                         delete_all_deletes_alarm: old.delete_all_deletes_alarm,
-                        resources: Default::default(),
+                        resources,
                         websocket_states: Default::default(),
                     }),
                 );
@@ -618,6 +652,23 @@ impl NativeWorker {
             }
             None => None,
         };
+        context.io.framework_source.store(
+            source_authority.is_some()
+                || work
+                    .as_ref()
+                    .is_some_and(|work| work.reason == cellar_logic::work::Reason::Outbox),
+            Ordering::Release,
+        );
+        if scope
+            .as_ref()
+            .and_then(|scope| self.activations.get(scope))
+            .is_some_and(|activation| activation.resources.source_closed.load(Ordering::Acquire))
+        {
+            if let Some(scope) = &scope {
+                self.retire_facet_descendants(scope);
+                self.instances.remove(scope);
+            }
+        }
         let writes_before = scope.as_deref().and_then(storage::event_start_position);
         if matches!(&invocation, Invocation::WebSocketMessage { .. }) {
             *context.state.websocket_capture.lock().unwrap() = Some(Default::default());
@@ -645,7 +696,7 @@ impl NativeWorker {
                 if let Some(authority) = source_authority {
                     let context = context.clone();
                     return Ok(Box::pin(async move {
-                        crate::runtime::source_control::invoke(context, invocation, authority)
+                        crate::runtime::source_control::invoke(context, invocation, authority).await
                     }));
                 }
                 if let Some(installation) = work {
@@ -672,6 +723,7 @@ impl NativeWorker {
                         }
                     }));
                 }
+                context.check_turn()?;
                 if self.config.source_recovery {
                     return Ok(Box::pin(async {
                         Err(crate::runtime::source_recovery::unavailable())
@@ -979,6 +1031,30 @@ impl NativeWorker {
                 anyhow!(failure.unwrap_or_else(|| "native cell activation has retired".into())),
                 (position, None),
             ));
+            entry.context.end_event_registrations();
+            entry.context.seal_wait_until();
+            entry.context.close_sockets();
+            return adopt(entry);
+        }
+        if entry
+            .context
+            .native_activation
+            .as_ref()
+            .is_some_and(|activation| {
+                !cellar_logic::event_stream::source_admitted(
+                    entry.context.source_generation,
+                    activation
+                        .resources
+                        .source_generation
+                        .load(Ordering::Acquire),
+                    activation.resources.source_closed.load(Ordering::Acquire),
+                    entry.context.framework_source.load(Ordering::Acquire),
+                )
+            })
+        {
+            entry.native = None;
+            entry.alarm = None;
+            entry.fail_in_turn(anyhow!("source business admission has closed"));
             entry.context.end_event_registrations();
             entry.context.seal_wait_until();
             entry.context.close_sockets();
@@ -1781,6 +1857,33 @@ pub(crate) fn event_rpc(
         method,
         args,
         Some(authority.into()),
+    ))
+}
+
+/// Private platform evidence path. Application bindings cannot mint it.
+pub(crate) fn catalog_rpc(
+    context: &Context,
+    authority: crate::runtime::rpc_authority::CatalogAuthority,
+    scope: String,
+    name: String,
+    method: String,
+    args: RpcData,
+) -> HandlerFuture<RpcData> {
+    if let Err(error) = context
+        .check_turn()
+        .and_then(|()| authority.validate_target(&scope, &method))
+        .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
+    {
+        return Box::pin(async move { Err(error) });
+    }
+    let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
+    Box::pin(crate::host_rpc::call(
+        gate,
+        scope,
+        Some(name),
+        method,
+        args,
+        Some(crate::runtime::RpcAuthority::Catalog(authority)),
     ))
 }
 

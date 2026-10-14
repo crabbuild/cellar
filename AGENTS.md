@@ -115,8 +115,19 @@ read-only platform capability through the same catalog owner path. It requires
 a terminal identity and matching committed retirement receipt, returning scalar
 identity metadata without grants or event bodies. Resource grant revocation does
 not prevent platform verification; this capability cannot mutate resources.
-The proof is a prerequisite for guarded source destruction, whose closure,
-audited cleanup and source-incarnation tombstone protocol remain unfinished.
+Source destruction uses a durable source lifecycle and captured lane/work
+snapshot under the source control schema, still marker 1. Private source RPC and
+outbox work may continue after business admission closes; ordinary contexts,
+retained storage/cursor/inbox/facet handles and suspended turns keep their captured
+source generation. Restore and instance reset reconstruct the durable fence.
+`cellar outbox destroy/recreate` require exact incarnation, operation, reason and
+explicit CLI intent; destruction also requires a loss acknowledgment. Retirement
+evidence commits before deletion; stale verification and dispatch replies cannot
+advance a replacement. Event/inbox/lane cleanup is batched, business reset uses its
+existing transaction, receipts/tombstones survive and recreation mints fresh
+producer identity. Independent facet-family cleanup/recreation isolation, large
+SQL reset capacity and the complete source fault/lease/policy matrix remain
+unfinished. Do not infer full release qualification from the base-database tests.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained
