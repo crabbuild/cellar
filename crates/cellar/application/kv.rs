@@ -2,7 +2,9 @@
 //! RPC, expiry and blob commit order match the existing service. Fleet routing,
 //! ownership and durability still belong to the production host.
 
+mod inspection;
 mod wire;
+pub use inspection::{EditExpiration, RevisionCondition};
 
 use super::storage::{SqlRow, SqlValue};
 use super::{
@@ -597,10 +599,19 @@ impl NamespaceCell {
             return Ok(());
         }
         self.storage.system_sql_schema(
-            "CREATE TABLE IF NOT EXISTS __sys_kv (name TEXT PRIMARY KEY,value BLOB,blob_id TEXT,size INTEGER NOT NULL,tag TEXT NOT NULL,metadata TEXT,expires_at INTEGER) WITHOUT ROWID;
+            "CREATE TABLE IF NOT EXISTS __sys_kv (name TEXT PRIMARY KEY,value BLOB,blob_id TEXT,size INTEGER NOT NULL,tag TEXT NOT NULL,metadata TEXT,expires_at INTEGER,revision INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID;
              CREATE INDEX IF NOT EXISTS __sys_kv_expires ON __sys_kv(expires_at) WHERE expires_at IS NOT NULL;
              CREATE TABLE IF NOT EXISTS __sys_kv_meta(name TEXT PRIMARY KEY,value INTEGER NOT NULL) WITHOUT ROWID;"
         )?;
+        if !self
+            .exec("PRAGMA table_info(__sys_kv)", &[])?
+            .iter()
+            .any(|row| matches!(row.get("name"), Some(SqlValue::Text(name)) if name == "revision"))
+        {
+            self.storage.system_sql_schema(
+                "ALTER TABLE __sys_kv ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
         self.ready.store(true, Ordering::Release);
         Ok(())
     }
@@ -678,7 +689,7 @@ impl NamespaceCell {
         let mut rows = Vec::with_capacity(keys.len());
         let mut bytes = Vec::with_capacity(keys.len());
         for key in keys {
-            let row = self.exec("SELECT value,blob_id,tag,metadata,expires_at FROM __sys_kv WHERE name=? AND (expires_at IS NULL OR expires_at>?)", &[key.clone().into(), at.into()])?.into_iter().next();
+            let row = self.exec("SELECT value,blob_id,tag,metadata,expires_at,revision FROM __sys_kv WHERE name=? AND (expires_at IS NULL OR expires_at>?)", &[key.clone().into(), at.into()])?.into_iter().next();
             let Some(row) = row else {
                 rows.push(json!({ "key":key,"found":false }));
                 bytes.push(None);
@@ -708,7 +719,7 @@ impl NamespaceCell {
                     _ => return Err(error("stored inline value is not bytes")),
                 }
             };
-            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null});
+            let mut entry = json!({"key":key,"found":true,"tag":text(&row,"tag")?,"value":null,"revision":integer(&row,"revision")?.to_string()});
             if metadata {
                 entry["metadata"] = json!(optional_text(&row, "metadata")?);
             }
@@ -733,6 +744,15 @@ impl NamespaceCell {
     }
 
     async fn put(&self, context: &Context, entries: Vec<Entry>) -> Result<()> {
+        self.put_checked(context, entries, None).await.map(|_| ())
+    }
+
+    async fn put_checked(
+        &self,
+        context: &Context,
+        mut entries: Vec<Entry>,
+        condition: Option<(RevisionCondition, EditExpiration)>,
+    ) -> Result<bool> {
         for entry in &entries {
             check_key(&entry.key)?;
             check_value(entry.value.len())?;
@@ -754,6 +774,28 @@ impl NamespaceCell {
         }
         let _protocol = self.protocol.lock().await;
         self.open()?;
+        if let Some((condition, expiration)) = condition.as_ref() {
+            condition.validate()?;
+            ensure!(
+                entries.len() == 1,
+                "KV_ERROR: conditional edit requires one key"
+            );
+            let at = now();
+            let (revision, expires) = self.observed_revision(&entries[0].key, at)?;
+            if condition.revision != revision {
+                return Ok(false);
+            }
+            entries[0].expires = match expiration {
+                EditExpiration::Preserve => expires,
+                EditExpiration::Never => None,
+                EditExpiration::At { timestamp_ms } => {
+                    let timestamp = i64::try_from(*timestamp_ms)
+                        .map_err(|_| error("expiration is outside timestamp range"))?;
+                    ensure!(timestamp > at, "KV_ERROR: expiration is in the past");
+                    Some(timestamp)
+                }
+            };
+        }
         for entry in &entries {
             if !self
                 .exec(
@@ -811,23 +853,53 @@ impl NamespaceCell {
                 });
             }
         }
-        self.storage.transaction_sync(|_| {
+        let applied = self.storage.transaction_sync(|_| {
+            // Blob publication can suspend until the original key expires.
+            // Recheck inside the same transaction that applies the new value.
+            if let Some((condition, expiration)) = condition.as_ref() {
+                let at = now();
+                if self.observed_revision(&stored[0].entry.key, at)?.0 != condition.revision {
+                    return Ok(false);
+                }
+                if matches!(expiration, EditExpiration::At { .. }) {
+                    ensure!(stored[0].entry.expires.is_some_and(|expires| expires > at), "KV_ERROR: expiration is in the past");
+                }
+            }
             for item in &stored {
-                self.exec("INSERT INTO __sys_kv(name,value,blob_id,size,tag,metadata,expires_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,blob_id=excluded.blob_id,size=excluded.size,tag=excluded.tag,metadata=excluded.metadata,expires_at=excluded.expires_at", &[
-                    item.entry.key.clone().into(), item.value.clone().map(SqlValue::Blob).unwrap_or(SqlValue::Null), sql_text(item.reference.clone()), (item.entry.value.len() as i64).into(), item.entry.tag.clone().into(), sql_text(item.entry.metadata.clone()), sql_integer(item.entry.expires)
+                let revision = self.next_revision()?;
+                self.exec("INSERT INTO __sys_kv(name,value,blob_id,size,tag,metadata,expires_at,revision) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,blob_id=excluded.blob_id,size=excluded.size,tag=excluded.tag,metadata=excluded.metadata,expires_at=excluded.expires_at,revision=excluded.revision", &[
+                    item.entry.key.clone().into(), item.value.clone().map(SqlValue::Blob).unwrap_or(SqlValue::Null), sql_text(item.reference.clone()), (item.entry.value.len() as i64).into(), item.entry.tag.clone().into(), sql_text(item.entry.metadata.clone()), sql_integer(item.entry.expires), revision.into()
                 ])?;
             }
-            Ok(())
+            Ok(true)
         })?;
         if stored.iter().any(|item| item.entry.expires.is_some()) {
             self.rearm()?;
         }
-        Ok(())
+        Ok(applied)
     }
 
     async fn delete(&self, keys: Vec<String>) -> Result<()> {
+        self.delete_checked(keys, None).await.map(|_| ())
+    }
+
+    async fn delete_checked(
+        &self,
+        keys: Vec<String>,
+        condition: Option<RevisionCondition>,
+    ) -> Result<bool> {
         let _protocol = self.protocol.lock().await;
         self.open()?;
+        if let Some(condition) = condition.as_ref() {
+            condition.validate()?;
+            ensure!(
+                keys.len() == 1,
+                "KV_ERROR: conditional delete requires one key"
+            );
+            if self.observed_revision(&keys[0], now())?.0 != condition.revision {
+                return Ok(false);
+            }
+        }
         for key in &keys {
             if !self
                 .exec(
@@ -841,10 +913,15 @@ impl NamespaceCell {
             }
         }
         self.storage.transaction_sync(|_| {
+            if let Some(condition) = condition.as_ref() {
+                if self.observed_revision(&keys[0], now())?.0 != condition.revision {
+                    return Ok(false);
+                }
+            }
             for key in &keys {
                 self.exec("DELETE FROM __sys_kv WHERE name=?", &[key.clone().into()])?;
             }
-            Ok(())
+            Ok(true)
         })
     }
 
@@ -1022,14 +1099,32 @@ impl NamespaceCell {
         let at = now();
         match body["op"].as_str() {
             Some("get") => {
+                let _protocol = self.protocol.lock().await;
+                let at = now();
                 let key = js_string(body.get("key"));
+                check_key(&key)?;
+                if let Some(limit) = body.get("max_bytes") {
+                    let limit = limit
+                        .as_u64()
+                        .ok_or_else(|| error("invalid inspection byte limit"))?;
+                    self.open()?;
+                    let row = self.exec("SELECT size,tag,metadata,expires_at,revision FROM __sys_kv WHERE name=? AND (expires_at IS NULL OR expires_at>?)", &[key.clone().into(), at.into()])?.into_iter().next();
+                    if let Some(row) = row {
+                        let size = integer(&row, "size")?;
+                        if size > i64::try_from(limit).unwrap_or(i64::MAX) {
+                            return Ok(
+                                json!({"found":true,"valueOmitted":true,"size":size,"tag":text(&row,"tag")?,"revision":integer(&row,"revision")?.to_string(),"metadata":optional_text(&row,"metadata")?,"expiration":optional_integer(&row,"expires_at")?}),
+                            );
+                        }
+                    }
+                }
                 let graph = self.get(context, &[key], true, true, at).await?;
                 let row = &wire::array(&graph, &graph.root)?[0];
                 if !matches!(wire::field(&graph, row, "found"), CloneValue::Boolean(true)) {
-                    return Ok(json!({"found":false}));
+                    return Ok(json!({"found":false,"revision":null}));
                 }
                 let bytes = wire::bytes(&graph, wire::field(&graph, row, "value"))?;
-                let mut value = json!({"found":true,"tag":wire::string(wire::field(&graph,row,"tag"))?,"metadata":wire::optional_string(wire::field(&graph,row,"metadata"))?,"expiration":wire::optional_number(wire::field(&graph,row,"expiration"))?});
+                let mut value = json!({"found":true,"tag":wire::string(wire::field(&graph,row,"tag"))?,"revision":wire::string(wire::field(&graph,row,"revision"))?,"metadata":wire::optional_string(wire::field(&graph,row,"metadata"))?,"expiration":wire::optional_number(wire::field(&graph,row,"expiration"))?});
                 if bytes.len() > policy::MAX_INLINE_VALUE_BYTES {
                     value["value"] = json!(base64::engine::general_purpose::STANDARD.encode(bytes));
                     value["valueEncoding"] = json!("base64");
@@ -1038,10 +1133,10 @@ impl NamespaceCell {
                 }
                 Ok(value)
             }
-            Some(op @ ("put" | "put-base64")) => {
+            Some(op @ ("put" | "put-base64" | "edit")) => {
                 let key = js_string(body.get("key"));
                 check_key(&key)?;
-                let bytes = if op == "put-base64" {
+                let bytes = if op == "put-base64" || op == "edit" {
                     base64::engine::general_purpose::STANDARD
                         .decode(js_string(body.get("value")))
                         .map_err(error)?
@@ -1072,22 +1167,34 @@ impl NamespaceCell {
                     body["expiration"].as_f64(),
                     body["expirationTtl"].as_f64(),
                 )?;
-                self.put(
-                    context,
-                    vec![Entry {
-                        key,
-                        value: bytes,
-                        tag: body
-                            .get("tag")
-                            .filter(|value| !value.is_null())
-                            .map(|value| js_string(Some(value)))
-                            .unwrap_or_else(|| "bytes".into()),
-                        metadata,
-                        expires,
-                    }],
-                )
-                .await?;
-                Ok(json!({"ok":true}))
+                let condition = if op == "edit" {
+                    Some((
+                        serde_json::from_value::<RevisionCondition>(body["condition"].clone())
+                            .map_err(error)?,
+                        serde_json::from_value::<EditExpiration>(body["expiration_mode"].clone())
+                            .map_err(error)?,
+                    ))
+                } else {
+                    None
+                };
+                let applied = self
+                    .put_checked(
+                        context,
+                        vec![Entry {
+                            key,
+                            value: bytes,
+                            tag: body
+                                .get("tag")
+                                .filter(|value| !value.is_null())
+                                .map(|value| js_string(Some(value)))
+                                .unwrap_or_else(|| "bytes".into()),
+                            metadata,
+                            expires,
+                        }],
+                        condition,
+                    )
+                    .await?;
+                Ok(json!({"ok":applied,"conflict":!applied}))
             }
             Some("delete") => {
                 let keys = body["keys"]
@@ -1099,8 +1206,14 @@ impl NamespaceCell {
                 for key in &keys {
                     check_key(key)?;
                 }
-                self.delete(keys).await?;
-                Ok(json!({"ok":true}))
+                let condition = body
+                    .get("condition")
+                    .map(|value| {
+                        serde_json::from_value::<RevisionCondition>(value.clone()).map_err(error)
+                    })
+                    .transpose()?;
+                let applied = self.delete_checked(keys, condition).await?;
+                Ok(json!({"ok":applied,"conflict":!applied}))
             }
             Some("list") => self.list(
                 body["prefix"].as_str().unwrap_or_default().into(),

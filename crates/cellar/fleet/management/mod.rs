@@ -7,6 +7,8 @@
 mod crons;
 pub use crons::CronConfiguration;
 mod inventory;
+mod kv;
+pub use kv::{EditExpiration, KvEdit, RevisionCondition};
 mod nodes;
 mod operations;
 pub use nodes::NodeAction;

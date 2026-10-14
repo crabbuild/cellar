@@ -419,10 +419,8 @@ test("KV continuation retains the queried prefix and values decode as UTF-8", as
   await page.getByLabel("Key prefix").fill("edited-but-not-submitted")
   await page.getByRole("button", { name: "Next 100 keys" }).click()
   await page.getByRole("button", { name: "sessions/2", exact: true }).click()
-  await expect(page.getByLabel("Key", { exact: true })).toHaveValue(
-    "sessions/2"
-  )
-  await expect(page.locator(".json-view").first()).toContainText("hello")
+  await expect(page.getByLabel("Exact key")).toHaveValue("sessions/2")
+  await expect(page.getByLabel("Value preview")).toHaveText("hello")
   await expect(
     page.getByRole("button", { name: "Download value" })
   ).toBeVisible()
@@ -601,10 +599,11 @@ test("SQL explorer reads schema and retains migration pagination target", async 
   await page.getByRole("link", { name: "SQL databases", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByRole("button", { name: "Browse schema" }).click()
-  await expect(
-    page.getByRole("cell", { name: "customers", exact: true })
-  ).toBeVisible()
+  await expect(page.locator(".schema-object > summary")).toContainText(
+    "customers"
+  )
   expect(commands[0].readonly).toBe(true)
+  await page.locator(".schema-migrations > summary").click()
   await page.getByRole("button", { name: "Load migration history" }).click()
   await expect(
     page.getByRole("cell", { name: "add_customers.sql" })
@@ -861,8 +860,8 @@ test("keyboard cancellation returns focus without issuing a write", async ({
 }) => {
   let writes = 0
   await page.route("**/resources/action", async (route) => {
-    writes += 1
-    await route.fulfill({ json: { error: "No write should be submitted" } })
+    if (route.request().postDataJSON().command.readonly === false) writes += 1
+    await route.fulfill({ json: { result: { results: [] } } })
   })
   await page.getByRole("link", { name: "SQL databases", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
@@ -1228,4 +1227,610 @@ test("resource filtering has a recovery path and keyboard-visible navigation", a
     path: testInfo.outputPath("sql-workspace-dark.png"),
     fullPage: true,
   })
+})
+
+const sqlSchema = {
+  results: [
+    {
+      columns: ["name", "type", "sql"],
+      rows: [
+        ["customers", "table", "CREATE TABLE customers(id INTEGER, name TEXT)"],
+      ],
+    },
+    {
+      columns: ["table", "name", "type", "pk"],
+      rows: [
+        ["customers", "id", "INTEGER", 1],
+        ["customers", "name", "TEXT", 0],
+      ],
+    },
+  ],
+}
+
+test("SQL tabs, schema completion, selection shortcuts, query plans and session history", async ({
+  page,
+}) => {
+  const runs: { sql: string; readonly: boolean }[] = []
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    if (command.sql.includes("SELECT name, type, sql FROM sqlite_schema"))
+      return route.fulfill({ json: { result: sqlSchema } })
+    runs.push(command)
+    return route.fulfill({
+      json: {
+        result: {
+          results: [{ columns: ["id"], rows: [[runs.length]] }],
+          duration: 1,
+          count: 1,
+        },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "SQL databases", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  const editor = page.getByLabel("SQL statement", { exact: true })
+  await editor.fill("SELECT * FROM cust")
+  await editor.press("Control+Space")
+  await page.getByRole("option", { name: "customers", exact: true }).click()
+  await expect(editor).toHaveText("SELECT * FROM customers")
+  await editor.fill("SELECT customers.na")
+  await editor.press("Control+Space")
+  await page.getByRole("option", { name: "name", exact: true }).click()
+  await expect(editor).toHaveText("SELECT customers.name")
+  const full = "SELECT id FROM customers;\nSELECT name FROM customers;"
+  await editor.fill(full)
+  await editor.press("ArrowUp")
+  await editor.press("Home")
+  await editor.press("Shift+End")
+  await editor.press("ControlOrMeta+Enter")
+  await expect
+    .poll(() => runs.at(-1))
+    .toMatchObject({ sql: "SELECT id FROM customers;", readonly: true })
+  await expect(page.getByRole("cell", { name: "1", exact: true })).toBeVisible()
+  await editor.press("ControlOrMeta+Shift+Enter")
+  await expect
+    .poll(() => runs.at(-1))
+    .toMatchObject({ sql: full, readonly: true })
+  await expect(page.getByRole("cell", { name: "2", exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "New query tab" }).click()
+  await editor.fill("SELECT 42;")
+  await page.getByRole("button", { name: "Explain query", exact: true }).click()
+  await expect
+    .poll(() => runs.at(-1))
+    .toMatchObject({ sql: "EXPLAIN QUERY PLAN SELECT 42;", readonly: true })
+  await page.getByRole("tab", { name: "Query 1", exact: true }).click()
+  await expect.poll(() => editor.innerText()).toBe(full)
+  await expect(page.getByRole("cell", { name: "2", exact: true })).toBeVisible()
+  await page.getByRole("tab", { name: "Query 2", exact: true }).click()
+  await expect(editor).toHaveText("SELECT 42;")
+  await expect(page.getByRole("cell", { name: "3", exact: true })).toBeVisible()
+  const handle = page.getByRole("separator", {
+    name: "Resize SQL editor and results",
+  })
+  const before = await editor.boundingBox()
+  await handle.focus()
+  await handle.press("ArrowDown")
+  await expect
+    .poll(async () => (await editor.boundingBox())!.height)
+    .not.toBe(before!.height)
+  await page.getByRole("button", { name: "History (3)" }).click()
+  const history = page.getByRole("region", { name: "Session query history" })
+  await expect(history).toContainText("EXPLAIN QUERY PLAN SELECT 42;")
+  await history
+    .getByRole("button", { name: /EXPLAIN QUERY PLAN SELECT 42;/ })
+    .click()
+  await expect(
+    page.getByRole("tab", { name: "History query" })
+  ).toHaveAttribute("aria-selected", "true")
+  await expect(editor).toHaveText("EXPLAIN QUERY PLAN SELECT 42;")
+  expect(runs).toHaveLength(3)
+})
+
+test("SQL loaded results sort, filter, inspect full values and export exact bytes", async ({
+  page,
+}) => {
+  const value = 'a long value, with "quotes"\nand a newline'
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    await route.fulfill({
+      json: {
+        result: command.sql.includes(
+          "SELECT name, type, sql FROM sqlite_schema"
+        )
+          ? sqlSchema
+          : {
+              results: [
+                {
+                  columns: ["id", "name", "note"],
+                  rows: [
+                    [10, "Beta", null],
+                    [2, "Alpha", value],
+                    [30, "Other", "Alpha"],
+                  ],
+                },
+              ],
+              count: 1,
+              duration: 2,
+            },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "SQL databases", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByRole("button", { name: "Run statement" }).click()
+  await page.getByRole("button", { name: "Sort by id", exact: true }).click()
+  await expect(
+    page.locator(".result-table-scroll tbody tr").first()
+  ).toContainText("2Alpha")
+  await page.getByLabel("Filter column").click()
+  await page.getByRole("option", { name: "name", exact: true }).click()
+  await page.getByLabel("Filter loaded rows").fill("Alpha")
+  await expect(page.locator(".result-table-scroll tbody tr")).toHaveCount(1)
+  await page.getByRole("button", { name: value, exact: true }).click()
+  await expect(page.getByRole("dialog").locator("pre")).toHaveText(value)
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click()
+  const csv = page.waitForEvent("download")
+  await page.getByRole("button", { name: "CSV", exact: true }).click()
+  const fs = await import("node:fs/promises")
+  const csvDownload = await csv
+  expect(await fs.readFile((await csvDownload.path())!, "utf8")).toBe(
+    '"id","name","note"\r\n"2","Alpha","a long value, with ""quotes""\nand a newline"\r\n'
+  )
+  const json = page.waitForEvent("download")
+  await page.getByRole("button", { name: "JSON", exact: true }).click()
+  expect(
+    JSON.parse(await fs.readFile((await (await json).path())!, "utf8"))
+  ).toEqual({ columns: ["id", "name", "note"], rows: [[2, "Alpha", value]] })
+})
+
+test("KV drafts load value metadata expiry and preserve them through reviewed conditional saves", async ({
+  page,
+}) => {
+  const expiration = Date.now() + 86400000
+  let inspected = {
+    found: true,
+    revision: "5",
+    tag: "json",
+    value: Array.from(Buffer.from('{"n":1}')),
+    metadata: '{"source":"SDK"}',
+    expiration,
+  }
+  const commands: Record<string, unknown>[] = []
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    commands.push(command)
+    if (command.action === "kv_edit") {
+      expect(route.request().postDataJSON().expected_identity).toBe(
+        "commerce-cache"
+      )
+      expect(command.edit.condition).toEqual({ revision: "5" })
+      expect(command.edit.expiration).toEqual({ mode: "preserve" })
+      expect(command.edit.tag).toBe("json")
+      expect(command.edit.metadata).toBe('{"source":"SDK"}')
+      inspected = {
+        ...inspected,
+        revision: "6",
+        value: Array.from(Buffer.from(command.edit.value_base64, "base64")),
+      }
+      return route.fulfill({
+        json: {
+          result: { ok: true, conflict: false },
+          operation: { status: "succeeded" },
+        },
+      })
+    }
+    return route.fulfill({ json: { result: inspected } })
+  })
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByLabel("Exact key").fill("sessions/customer")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await expect(page.getByLabel("Value preview")).toHaveText('{"n":1}')
+  await page.getByRole("button", { name: "Edit value", exact: true }).click()
+  await expect(page.getByLabel("Metadata (JSON)")).toHaveValue(
+    '{\n  "source": "SDK"\n}'
+  )
+  await expect(page.getByLabel("Expiration", { exact: true })).toContainText(
+    "Preserve current expiry"
+  )
+  const value = page.getByLabel("Value", { exact: true })
+  await value.fill("{broken")
+  await expect(
+    page.getByRole("button", { name: "Review changes" })
+  ).toBeDisabled()
+  await value.fill('{"n":2}')
+  await page.getByRole("button", { name: "Format JSON" }).click()
+  await expect.poll(() => value.innerText()).toBe('{\n  "n": 2\n}')
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await expect(page.getByRole("alertdialog")).toContainText(
+    "Before · revision 5"
+  )
+  await expect(page.getByRole("alertdialog")).toContainText('{"n":1}')
+  await expect(page.getByRole("alertdialog")).toContainText(
+    new Date(expiration).toISOString()
+  )
+  expect(commands.filter((c) => c.action === "kv_edit")).toHaveLength(0)
+  await page.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect.poll(() => value.innerText()).toBe('{\n  "n": 2\n}')
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await expect
+    .poll(() => page.getByLabel("Value preview").innerText())
+    .toBe('{\n  "n": 2\n}')
+  expect(inspected.expiration).toBe(expiration)
+  expect(commands.filter((c) => c.action === "kv_edit")).toHaveLength(1)
+})
+
+test("KV conflicts keep the draft and require comparison before saving a new revision", async ({
+  page,
+}) => {
+  let reads = 0
+  const writes: {
+    action: string
+    edit: { condition: unknown; metadata: string; value_base64: string }
+  }[] = []
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    if (command.action === "kv_get") {
+      reads++
+      return route.fulfill({
+        json: {
+          result: {
+            found: true,
+            revision: reads === 1 ? "9" : "10",
+            tag: "text",
+            value: Array.from(
+              Buffer.from(
+                reads === 1
+                  ? "initial"
+                  : writes.length === 2
+                    ? "my draft"
+                    : "another writer"
+              )
+            ),
+            metadata: reads === 1 ? '{"source":"old"}' : '{"source":"new"}',
+            expiration: null,
+          },
+        },
+      })
+    }
+    writes.push(command)
+    return writes.length === 1
+      ? route.fulfill({
+          status: 409,
+          json: {
+            error: "This key changed or expired after it was inspected.",
+          },
+        })
+      : route.fulfill({
+          json: { result: { ok: true }, operation: { status: "succeeded" } },
+        })
+  })
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByLabel("Exact key").fill("key")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await page.getByRole("button", { name: "Edit value" }).click()
+  await page.getByLabel("Value", { exact: true }).fill("my draft")
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await expect(page.getByRole("alert")).toContainText(
+    "Key changed while you edited"
+  )
+  await expect(page.getByLabel("Value", { exact: true })).toHaveText("my draft")
+  await expect(
+    page.getByRole("button", { name: "Review changes" })
+  ).toBeDisabled()
+  expect(writes).toHaveLength(1)
+  await page.getByRole("button", { name: "Compare latest" }).click()
+  await expect(page.locator(".kv-conflict")).toContainText("another writer")
+  await page.getByRole("button", { name: "Use latest as baseline" }).click()
+  await expect(page.getByLabel("Metadata (JSON)")).toHaveValue(
+    '{\n  "source": "new"\n}'
+  )
+  await expect(page.getByLabel("Value", { exact: true })).toHaveText("my draft")
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await expect(page.getByLabel("Value preview")).toHaveText("my draft")
+  expect(writes[1].edit.condition).toEqual({ revision: "10" })
+  expect(writes[1].edit.metadata).toBe('{"source":"new"}')
+  expect(Buffer.from(writes[1].edit.value_base64, "base64").toString()).toBe(
+    "my draft"
+  )
+})
+
+test("KV binary bytes, expiry modes, deletion and unsaved draft navigation are explicit", async ({
+  page,
+}) => {
+  const writes: Record<string, unknown>[] = []
+  let found = true
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    if (command.action === "kv_list")
+      return route.fulfill({
+        json: {
+          result: {
+            keys: [
+              { name: "binary", expiration: null, metadata: null },
+              { name: "other", expiration: null, metadata: null },
+            ],
+            complete: true,
+          },
+        },
+      })
+    if (command.action === "kv_get")
+      return route.fulfill({
+        json: {
+          result: found
+            ? {
+                found: true,
+                revision: String(11 + writes.length),
+                tag: "bytes",
+                value: [0, 255, 1],
+                metadata: "null",
+                expiration: null,
+              }
+            : { found: false, revision: null },
+        },
+      })
+    writes.push(command)
+    if (command.action === "kv_delete_if") found = false
+    return route.fulfill({
+      json: { result: { ok: true }, operation: { status: "succeeded" } },
+    })
+  })
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByRole("button", { name: "List keys", exact: true }).click()
+  await page.getByRole("button", { name: "binary", exact: true }).click()
+  await expect(page.getByLabel("Value preview")).toHaveText("AP8B")
+  const download = page.waitForEvent("download")
+  await page.getByRole("button", { name: "Download value" }).click()
+  const fs = await import("node:fs/promises")
+  expect(
+    Array.from(await fs.readFile((await (await download).path())!))
+  ).toEqual([0, 255, 1])
+  await page.getByLabel("Value view").click()
+  await page.getByRole("option", { name: "Text", exact: true }).click()
+  await expect(page.getByRole("alert")).toContainText("not valid UTF-8")
+  await expect(page.getByLabel("Value preview")).toHaveText("AP8B")
+  await page.getByRole("button", { name: "Edit value", exact: true }).click()
+  await page.getByLabel("Value", { exact: true }).fill("AP8C")
+  await page.getByRole("button", { name: "other", exact: true }).click()
+  await expect(page.getByRole("alertdialog")).toContainText(
+    "Discard unsaved draft?"
+  )
+  await page.getByRole("button", { name: "Keep editing" }).click()
+  await expect(page.getByLabel("Value", { exact: true })).toHaveText("AP8C")
+  await page.getByLabel("Expiration", { exact: true }).click()
+  await page.getByRole("option", { name: "Expire at", exact: true }).click()
+  await page.getByLabel("Expiration date and time").fill("2099-04-05T12:30")
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await expect(page.getByLabel("Value preview")).toBeVisible()
+  const timestamp = await page.evaluate(() =>
+    new Date("2099-04-05T12:30:00").getTime()
+  )
+  expect(writes[0]).toMatchObject({
+    action: "kv_edit",
+    edit: {
+      value_base64: "AP8C",
+      metadata: "null",
+      tag: "bytes",
+      condition: { revision: "11" },
+      expiration: { mode: "at", timestamp_ms: timestamp },
+    },
+  })
+  await page.getByRole("button", { name: "Delete key", exact: true }).click()
+  await expect(page.getByRole("alertdialog")).toContainText("binary")
+  await page
+    .getByRole("button", { name: "Delete inspected key", exact: true })
+    .click()
+  await expect(
+    page.getByRole("button", { name: "Create this key" })
+  ).toBeVisible()
+  expect(writes[1]).toEqual({
+    action: "kv_delete_if",
+    key: "binary",
+    condition: { revision: "12" },
+  })
+  await page.getByRole("button", { name: "Create this key" }).click()
+  await page.getByLabel("Value", { exact: true }).fill("new value")
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await expect.poll(() => writes.length).toBe(3)
+  expect(writes[2]).toMatchObject({
+    action: "kv_edit",
+    edit: {
+      condition: { revision: null },
+      expiration: { mode: "never" },
+      value_base64: Buffer.from("new value").toString("base64"),
+    },
+  })
+})
+
+test("KV ignores a stale read and bounds large values", async ({ page }) => {
+  let release: (() => void) | undefined
+  let oldStarted = false
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    if (command.key === "slow") {
+      oldStarted = true
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+    }
+    await route.fulfill({
+      json: {
+        result:
+          command.key === "large"
+            ? {
+                found: true,
+                valueOmitted: true,
+                size: 2000000,
+                revision: "3",
+                metadata: '{"source":"SDK"}',
+                expiration: null,
+                tag: "bytes",
+              }
+            : {
+                found: true,
+                revision: "2",
+                value: Array.from(Buffer.from(command.key)),
+                metadata: null,
+                expiration: null,
+                tag: "text",
+              },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByLabel("Exact key").fill("slow")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await expect.poll(() => oldStarted).toBe(true)
+  await page.getByRole("button", { name: "New key", exact: true }).click()
+  await page.getByLabel("Key", { exact: true }).fill("new-draft")
+  release!()
+  await expect(page.getByLabel("Key", { exact: true })).toHaveValue("new-draft")
+  await page.getByRole("button", { name: "Discard draft", exact: true }).click()
+  await page
+    .getByRole("alertdialog")
+    .getByRole("button", { name: "Discard draft" })
+    .click()
+  await page.getByLabel("Exact key").fill("large")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await expect(
+    page.getByRole("heading", { name: "Value exceeds the inspection limit" })
+  ).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Edit key" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Edit value" })).toHaveCount(0)
+  await expect(page.locator(".kv-metadata")).toContainText('"source": "SDK"')
+})
+
+test("KV text drafts preserve UTF-8 BOM bytes and respect read-only grants", async ({
+  page,
+}) => {
+  let sent: Record<string, unknown> | undefined
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    if (command.action === "kv_edit") sent = command
+    await route.fulfill({
+      json: {
+        result:
+          command.action === "kv_edit"
+            ? { ok: true }
+            : {
+                found: true,
+                revision: "1",
+                value: [239, 187, 191, 65],
+                metadata: null,
+                expiration: null,
+                tag: "text",
+              },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByLabel("Exact key").fill("bom")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await page.getByRole("button", { name: "Edit value" }).click()
+  await expect(
+    page.getByRole("button", { name: "Review changes" })
+  ).toBeDisabled()
+  await page.getByLabel("Metadata (JSON)").fill("null")
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await expect
+    .poll(() => sent)
+    .toMatchObject({ edit: { value_base64: "77u/QQ==", metadata: "null" } })
+  await page.getByRole("button", { name: "Sign out" }).click()
+  await page.route("**/session", (route) =>
+    route.fulfill({
+      json: {
+        user: "viewer",
+        fleets: [
+          {
+            id: "main",
+            name: "Commerce production",
+            environment: "Production",
+          },
+        ],
+        grants: { main: ["metadata_read", "data_read"] },
+      },
+    })
+  )
+  await page
+    .getByLabel("Dashboard access token")
+    .fill("read-only-test-fixture-token")
+  await page.getByRole("button", { name: "Connect to fleet console" }).click()
+  await page.getByLabel("Exact key").fill("bom")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Edit value" })).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "Delete key", exact: true })
+  ).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "New key", exact: true })
+  ).toBeDisabled()
+})
+
+test("KV conflict recovery refuses an oversized latest value", async ({
+  page,
+}) => {
+  let reads = 0
+  let writes = 0
+  await page.route("**/resources/action", async (route) => {
+    const command = route.request().postDataJSON().command
+    if (command.action === "kv_edit") {
+      writes++
+      return route.fulfill({
+        status: 409,
+        json: { error: "Another writer changed this key." },
+      })
+    }
+    reads++
+    return route.fulfill({
+      json: {
+        result:
+          reads === 1
+            ? {
+                found: true,
+                revision: "1",
+                tag: "text",
+                value: [65],
+                metadata: null,
+                expiration: null,
+              }
+            : {
+                found: true,
+                revision: "2",
+                tag: "bytes",
+                valueOmitted: true,
+                size: 2000000,
+                metadata: null,
+                expiration: null,
+              },
+      },
+    })
+  })
+  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "Open workspace" }).click()
+  await page.getByLabel("Exact key").fill("key")
+  await page.getByRole("button", { name: "Read key", exact: true }).click()
+  await page.getByRole("button", { name: "Edit value" }).click()
+  await page.getByLabel("Value", { exact: true }).fill("my draft")
+  await page.getByRole("button", { name: "Review changes" }).click()
+  await page.getByRole("button", { name: "Save changes" }).click()
+  await page.getByRole("button", { name: "Compare latest" }).click()
+  await expect(
+    page.getByRole("button", { name: "Use latest as baseline" })
+  ).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "Review changes" })
+  ).toBeDisabled()
+  await expect(page.getByLabel("Value", { exact: true })).toHaveText("my draft")
+  await expect(page.locator(".kv-conflict")).toContainText("Value omitted")
+  expect(writes).toBe(1)
 })

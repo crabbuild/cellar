@@ -51,3 +51,29 @@ The theme selector provides light, system and dark modes, persists the preferenc
 and follows operating-system changes in system mode. There is no unmodified
 single-key theme shortcut. Browser coverage verifies theme persistence, semantic
 text contrast, mobile control sizes, navigation dismissal and resource filtering.
+
+## SQL and KV workspaces
+
+SQL keeps the database explorer beside ten session query tabs. CodeMirror uses
+SQLite syntax and the inspected table/column names for completion. Run selected
+SQL with Cmd/Ctrl+Enter; add Shift to run the entire editor. Explain runs
+`EXPLAIN QUERY PLAN` in enforced read-only mode. The editor/results divider works
+with pointer dragging and arrow keys. History retains the last 40 runs in memory.
+Result sorting, column filtering, full-value inspection and CSV/JSON downloads
+operate only on the returned rows; they do not fetch more data. SQL parameters,
+arbitrary-query continuation and staged row editing remain future work.
+
+KV keeps prefix pages beside the selected value. Edit creates an explicit draft
+of the inspected bytes, metadata, storage tag and expiry. Text, JSON and base64
+views preserve bytes; invalid UTF-8 stays binary. JSON formatting is explicit.
+Save and delete pin the inspected namespace identity and carry its observed
+revision to the owner. A conflict retains the
+draft; compare the latest observation and review again before saving. Unchanged
+fields adopt the latest baseline when resolving a conflict. Preserve expiry sends
+an owner-side instruction, never a recalculated TTL. Absolute dates are entered
+in local time and reviewed in UTC. Blank metadata is absent; JSON `null` remains
+metadata. Values above 1 MiB expose metadata, size, revision and expiry without
+loading their contents into the browser. Query tabs, history and drafts are not
+persisted when leaving this workspace or reloading.
+
+See [implementation and verification](../plans/004-sql-kv-workspaces.md).

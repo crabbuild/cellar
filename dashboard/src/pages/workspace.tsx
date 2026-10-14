@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { lazy, Suspense, useState } from "react"
 import {
   WorkflowDefinition,
   mergeHistory,
@@ -6,7 +6,7 @@ import {
 } from "@/components/workflow-visual"
 import { Link, useParams } from "react-router-dom"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ArrowLeft, Play, Search, Trash2 } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,30 +28,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { CronConfiguration } from "@/components/cron-configuration"
 import { CronPreview } from "@/components/cron-preview"
-import { KvResults, QueueResults } from "@/components/resource-results"
+import { QueueResults } from "@/components/resource-results"
 import {
   WorkflowWorkspace,
   WorkflowResults,
 } from "@/components/workflow-workspace"
-import { SqlBrowser } from "@/components/sql-browser"
-import { SqlResults } from "@/components/sql-results"
-import { Textarea } from "@/components/ui/textarea"
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field"
 import {
   Table,
   TableBody,
@@ -63,6 +46,9 @@ import {
 import { Feedback, JsonView, PageHeading } from "@/components/console-ui"
 import { fleetPath, request, useApi, type Application } from "@/lib/api"
 import { useSession } from "@/lib/session"
+
+const SqlWorkbench = lazy(() => import("@/components/sql-workbench"))
+const KvWorkspace = lazy(() => import("@/components/kv-workspace"))
 
 const resourceTitles: Record<string, string> = {
   sql: "SQL databases",
@@ -98,16 +84,6 @@ function ResourceWorkspace({ kind }: { kind: string }) {
   const resource = app.data?.bindings.find((item) => item.name === binding)
   const canWrite = session.grants[fleet]?.includes("data_write") ?? false
   const canRead = session.grants[fleet]?.includes("data_read") ?? false
-  const [sql, setSql] = useState(
-    "SELECT name, type FROM sqlite_schema\nWHERE name NOT LIKE '__sys_%'\nORDER BY name LIMIT 100;"
-  )
-  const [sqlMode, setSqlMode] = useState("read")
-  const [key, setKey] = useState("")
-  const [value, setValue] = useState("")
-  const [valueEncoding, setValueEncoding] = useState("utf8")
-  const [metadata, setMetadata] = useState("null")
-  const [ttl, setTtl] = useState("")
-  const [prefix, setPrefix] = useState("")
   const [confirmation, setConfirmation] = useState<{
     title: string
     description: string
@@ -190,275 +166,33 @@ function ResourceWorkspace({ kind }: { kind: string }) {
             </Link>
           ) : null}
         </div>
-        {kind === "sql" && resource ? (
-          <SqlBrowser
-            fleet={fleet}
-            application={application}
-            binding={binding}
-          />
-        ) : null}
         {kind === "sql" ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>SQL console</CardTitle>
-              <CardDescription>
-                Queries execute through the database owner. Review statements
-                before running them.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault()
-                  if (sqlMode === "read") {
-                    execute({ action: "sql", sql, readonly: true })
-                    return
-                  }
-                  confirm(
-                    "Execute SQL",
-                    "This statement may change stored data. Review the SQL and target before continuing.",
-                    { action: "sql", sql, readonly: false }
-                  )
-                }}
-              >
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="sql-mode">Query mode</FieldLabel>
-                    <Select value={sqlMode} onValueChange={setSqlMode}>
-                      <SelectTrigger id="sql-mode">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="read" disabled={!canRead}>
-                          Read only
-                        </SelectItem>
-                        <SelectItem
-                          value="write"
-                          disabled={!canWrite || !canRead}
-                        >
-                          Read and write
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FieldDescription>
-                      Queries are limited to 1,000 rows per result, 1 MiB of
-                      values and a bounded execution budget.
-                    </FieldDescription>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="sql">SQL statement</FieldLabel>
-                    <Textarea
-                      className="min-h-44 font-mono"
-                      id="sql"
-                      value={sql}
-                      onChange={(e) => setSql(e.target.value)}
-                      spellCheck={false}
-                    />
-                    <FieldDescription>
-                      Target: {fleet} / {application} / {binding}
-                    </FieldDescription>
-                  </Field>
-                  <div>
-                    <Button
-                      disabled={
-                        action.isPending ||
-                        !(sqlMode === "read" ? canRead : canRead && canWrite) ||
-                        !resource
-                      }
-                    >
-                      <Play data-icon="inline-start" />
-                      Run statement
-                    </Button>
-                  </div>
-                </FieldGroup>
-              </form>
-            </CardContent>
-          </Card>
+          <Suspense fallback={<p role="status">Loading SQL workbench…</p>}>
+            <SqlWorkbench
+              target={{
+                fleet,
+                application,
+                binding,
+                identity: resource?.identity,
+              }}
+              canRead={canRead}
+              canWrite={canWrite}
+            />
+          </Suspense>
         ) : null}
         {kind === "kv" ? (
-          <>
-            <Card>
-              <CardHeader>
-                <CardTitle>Key explorer</CardTitle>
-                <CardDescription>
-                  Read up to 100 keys by prefix, or inspect an exact key.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="prefix">Key prefix</FieldLabel>
-                    <Input
-                      id="prefix"
-                      value={prefix}
-                      onChange={(e) => setPrefix(e.target.value)}
-                      placeholder="sessions/"
-                    />
-                  </Field>
-                  <div>
-                    <Button
-                      variant="outline"
-                      disabled={!canRead || action.isPending}
-                      onClick={() =>
-                        execute({ action: "kv_list", prefix, after: "" })
-                      }
-                    >
-                      <Search data-icon="inline-start" />
-                      List keys
-                    </Button>
-                  </div>
-                </FieldGroup>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle>Read or write a key</CardTitle>
-                <CardDescription>
-                  Writes use last-write-wins semantics. Existing values may
-                  change while you edit.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="key">Key</FieldLabel>
-                    <Input
-                      id="key"
-                      value={key}
-                      onChange={(e) => setKey(e.target.value)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="value-encoding">
-                      Value encoding
-                    </FieldLabel>
-                    <Select
-                      value={valueEncoding}
-                      onValueChange={setValueEncoding}
-                    >
-                      <SelectTrigger id="value-encoding">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="utf8">UTF-8 text</SelectItem>
-                        <SelectItem value="base64">Base64 binary</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="value">Value</FieldLabel>
-                    <Textarea
-                      id="value"
-                      value={value}
-                      onChange={(e) => setValue(e.target.value)}
-                      className="min-h-28 font-mono"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="kv-metadata">
-                      Metadata (JSON)
-                    </FieldLabel>
-                    <Textarea
-                      id="kv-metadata"
-                      value={metadata}
-                      onChange={(e) => setMetadata(e.target.value)}
-                      className="font-mono"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="ttl">
-                      Expires after (seconds)
-                    </FieldLabel>
-                    <Input
-                      id="ttl"
-                      type="number"
-                      min="60"
-                      placeholder="No expiration"
-                      value={ttl}
-                      onChange={(e) => setTtl(e.target.value)}
-                    />
-                  </Field>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="outline"
-                      disabled={!key || !canRead || action.isPending}
-                      onClick={() => execute({ action: "kv_get", key })}
-                    >
-                      Read key
-                    </Button>
-                    <Button
-                      disabled={!key || !canWrite || action.isPending}
-                      onClick={() => {
-                        let parsedMetadata: unknown
-                        try {
-                          parsedMetadata = JSON.parse(metadata)
-                        } catch {
-                          toast.error("Metadata must be valid JSON.")
-                          return
-                        }
-                        if (
-                          ttl &&
-                          (!Number.isSafeInteger(Number(ttl)) ||
-                            Number(ttl) < 60)
-                        ) {
-                          toast.error(
-                            "Expiration must be a whole number of at least 60 seconds."
-                          )
-                          return
-                        }
-                        let bytes: Uint8Array
-                        try {
-                          bytes =
-                            valueEncoding === "base64"
-                              ? Uint8Array.from(atob(value), (c) =>
-                                  c.charCodeAt(0)
-                                )
-                              : new TextEncoder().encode(value)
-                        } catch {
-                          toast.error("Enter valid base64.")
-                          return
-                        }
-                        if (bytes.length > 1024 * 1024) {
-                          toast.error("Dashboard values are limited to 1 MiB.")
-                          return
-                        }
-                        let binary = ""
-                        for (const byte of bytes)
-                          binary += String.fromCharCode(byte)
-                        confirm(
-                          "Save key",
-                          `Write ${key} in this shared namespace.`,
-                          {
-                            action: "kv_put",
-                            key,
-                            value_base64: btoa(binary),
-                            metadata: parsedMetadata,
-                            expiration_ttl: ttl ? Number(ttl) : null,
-                          }
-                        )
-                      }}
-                    >
-                      Save key
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      disabled={!key || !canWrite || action.isPending}
-                      onClick={() =>
-                        confirm(
-                          "Delete key",
-                          `Delete ${key} from this shared namespace.`,
-                          { action: "kv_delete", key }
-                        )
-                      }
-                    >
-                      <Trash2 data-icon="inline-start" />
-                      Delete key
-                    </Button>
-                  </div>
-                </FieldGroup>
-              </CardContent>
-            </Card>
-          </>
+          <Suspense fallback={<p role="status">Loading KV explorer…</p>}>
+            <KvWorkspace
+              target={{
+                fleet,
+                application,
+                binding,
+                identity: resource?.identity,
+              }}
+              canRead={canRead}
+              canWrite={canWrite}
+            />
+          </Suspense>
         ) : null}
         {kind === "queues" ? (
           <Card>
@@ -592,25 +326,7 @@ function ResourceWorkspace({ kind }: { kind: string }) {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {kind === "sql" && displayed.result ? (
-                <SqlResults value={displayed.result} />
-              ) : kind === "kv" ? (
-                <KvResults
-                  value={displayed.result}
-                  pending={action.isPending}
-                  onRead={(key) => {
-                    setKey(key)
-                    execute({ action: "kv_get", key })
-                  }}
-                  onNext={(after) =>
-                    execute({
-                      action: "kv_list",
-                      prefix: action.variables?.prefix ?? "",
-                      after,
-                    })
-                  }
-                />
-              ) : kind === "workflows" ? (
+              {kind === "workflows" ? (
                 <WorkflowResults
                   value={
                     Array.isArray(

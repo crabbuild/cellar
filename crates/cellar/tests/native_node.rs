@@ -1678,7 +1678,8 @@ async fn management_resource_writes_survive_forced_owner_closure() -> Result<()>
 }
 
 async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
-    use cellar::management::{FleetClient, QueueAction};
+    use base64::Engine;
+    use cellar::management::{EditExpiration, FleetClient, KvEdit, QueueAction, RevisionCondition};
     use serde_json::json;
     let directory = tempfile::tempdir()?;
     let management = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -1747,13 +1748,32 @@ async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
     ready(&a).await?;
     ready(&b).await?;
     let client = FleetClient::new(bucket, false);
-    let owner=management.run(async {
-        client.sql("dashboard-db","CREATE TABLE receipts(id TEXT PRIMARY KEY); INSERT INTO receipts VALUES ('ack-before-handoff')",false).await?;
-        client.kv_put("dashboard-kv","receipt",b"ack-before-handoff".to_vec(),None,None).await?;
-        let paused=client.queue("dashboard-queue",QueueAction::Pause,10).await?;
-        ensure!(paused["paused"]==true,"queue pause was not acknowledged");
-        client.cell(&cellar::engine_api::sql_cell_scope("dashboard-db")).await?.owner.context("SQL owner absent")
-    }).await??;
+    let (owner, revision) = management
+        .run(async {
+            client.sql(
+                "dashboard-db",
+                "CREATE TABLE receipts(id TEXT PRIMARY KEY); INSERT INTO receipts VALUES ('ack-before-handoff')",
+                false,
+            ).await?;
+            client.kv_put(
+                "dashboard-kv",
+                "receipt",
+                b"ack-before-handoff".to_vec(),
+                None,
+                None,
+            ).await?;
+            let paused = client.queue("dashboard-queue", QueueAction::Pause, 10).await?;
+            ensure!(paused["paused"] == true, "queue pause was not acknowledged");
+            let revision = client.kv_inspect("dashboard-kv", "receipt").await?["revision"]
+                .as_str().context("KV revision absent")?.to_string();
+            let scope = cellar::engine_api::kv_cell_scope(
+                "dashboard-kv",
+                cellar_logic::kv::shard_of("receipt", cellar_logic::kv::SHARDS),
+            );
+            let owner = client.cell(&scope).await?.owner.context("KV owner absent")?;
+            Ok::<_, anyhow::Error>((owner, revision))
+        })
+        .await??;
     let (previous, remaining) = if owner == "dashboard-a" {
         (a, b)
     } else {
@@ -1780,11 +1800,39 @@ async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
                 result["results"][0]["rows"] == json!([["ack-before-handoff"]]),
                 "acknowledged SQL receipt lost: {result}"
             );
+            let schema = client.sql(
+                "dashboard-db",
+                "SELECT m.name,p.name,p.type,p.pk FROM (SELECT name FROM sqlite_schema WHERE type IN ('table','view') AND name NOT GLOB '__sys_*' AND name NOT GLOB 'sqlite_*' ORDER BY name LIMIT 100) AS m JOIN pragma_table_info(m.name) AS p ORDER BY m.name,p.cid LIMIT 1000",
+                true,
+            ).await?;
+            ensure!(
+                schema["results"][0]["rows"][0][0] == "receipts",
+                "workbench schema query failed: {schema}"
+            );
+            let explain = client.sql(
+                "dashboard-db", "EXPLAIN QUERY PLAN SELECT * FROM receipts", true,
+            ).await?;
+            ensure!(
+                explain["results"][0]["columns"] == json!(["id", "parent", "notused", "detail"]),
+                "query plan failed: {explain}"
+            );
             let value = client.kv_get("dashboard-kv", "receipt").await?;
             ensure!(
                 value["value"] == json!(b"ack-before-handoff".to_vec()),
                 "acknowledged KV value lost: {value}"
             );
+            ensure!(value["revision"] == revision, "handoff changed the inspected revision");
+            let edit = KvEdit {
+                value_base64: base64::engine::general_purpose::STANDARD.encode(b"ack-after-handoff"),
+                tag: "bytes".into(),
+                metadata: Some("null".into()),
+                expiration: EditExpiration::Preserve,
+                condition: RevisionCondition { revision: Some(revision.clone()) },
+            };
+            let applied = client.kv_edit("dashboard-kv", "receipt", edit.clone()).await?;
+            ensure!(applied["ok"] == true, "successor rejected valid revision");
+            let stale = client.kv_edit("dashboard-kv", "receipt", edit).await?;
+            ensure!(stale["conflict"] == true, "successor accepted stale revision");
             ensure!(
                 client
                     .queue("dashboard-queue", QueueAction::Info, 10)
@@ -1806,7 +1854,17 @@ async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
                 result["results"][0]["rows"] == json!([[2]]),
                 "successor did not accept SQL write"
             );
-            client.kv_delete("dashboard-kv", "receipt").await?;
+            let current = client.kv_inspect("dashboard-kv", "receipt").await?;
+            let stale = client.kv_delete_if(
+                "dashboard-kv", "receipt",
+                RevisionCondition { revision: Some(revision.clone()) },
+            ).await?;
+            ensure!(stale["conflict"] == true, "stale delete accepted");
+            let deleted = client.kv_delete_if(
+                "dashboard-kv", "receipt",
+                RevisionCondition { revision: current["revision"].as_str().map(str::to_string) },
+            ).await?;
+            ensure!(deleted["ok"] == true, "conditional delete failed");
             client
                 .queue("dashboard-queue", QueueAction::Resume, 10)
                 .await?;

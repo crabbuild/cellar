@@ -72,6 +72,15 @@ async fn fixture_with_cells(
                 principals: vec![
                     principal,
                     Principal::new(
+                        "editor".into(),
+                        "editor-test-token-with-32-or-more-bytes",
+                        BTreeMap::from([(
+                            "alpha".into(),
+                            vec![Permission::DataRead, Permission::DataWrite],
+                        )]),
+                    )
+                    .unwrap(),
+                    Principal::new(
                         "configurer".into(),
                         CONFIGURE_TOKEN,
                         BTreeMap::from([("alpha".into(), vec![Permission::Configure])]),
@@ -566,5 +575,87 @@ async fn stop_receipt_reconciles_only_its_actor_target_and_joined_proof() {
         .unwrap()
         .unwrap();
     assert_ne!(get(&app, path).await.0, StatusCode::OK);
+    domain.shutdown().await;
+}
+
+#[tokio::test]
+async fn conditional_kv_edits_require_read_and_write_permissions_before_lookup() {
+    let (_dir, app, domain) = fixture().await;
+    for command in [
+        json!({"action":"kv_edit","key":"key","edit":{"value_base64":"AA==","tag":"bytes","metadata":null,"expiration":{"mode":"preserve"},"condition":{"revision":"1"}}}),
+        json!({"action":"kv_delete_if","key":"key","condition":{"revision":"1"}}),
+    ] {
+        for token in [TOKEN, "write-only-test-token-with-32-or-more-bytes"] {
+            let response = app.clone().oneshot(Request::builder().method("POST")
+                .uri("/api/v1/fleets/alpha/resources/action")
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"application":"missing","binding":"KV","operation_id":"conditional","command":command}).to_string())).unwrap()).await.unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+    }
+    domain.shutdown().await;
+}
+
+#[tokio::test]
+async fn invalid_conditional_kv_inputs_are_rejected_before_dispatch_or_audit() {
+    let (_dir, app, domain) = fixture().await;
+    let edit = json!({"value_base64":"AA==","tag":"bytes","metadata":null,"expiration":{"mode":"preserve"},"condition":{"revision":"1"}});
+    let mut invalid_metadata = edit.clone();
+    invalid_metadata["metadata"] = json!("not JSON");
+    let mut invalid_bytes = edit.clone();
+    invalid_bytes["value_base64"] = json!("!invalid!");
+    for command in [
+        json!({"action":"kv_edit","key":"","edit":edit}),
+        json!({"action":"kv_edit","key":"key","edit":invalid_metadata}),
+        json!({"action":"kv_edit","key":"key","edit":invalid_bytes}),
+        json!({"action":"kv_delete_if","key":"key","condition":{"revision":"01"}}),
+        json!({"action":"kv_delete_if","key":"","condition":{"revision":"1"}}),
+    ] {
+        let response=app.clone().oneshot(Request::builder().method("POST").uri("/api/v1/fleets/alpha/resources/action")
+            .header("authorization","Bearer editor-test-token-with-32-or-more-bytes")
+            .header("content-type","application/json")
+            .body(Body::from(json!({"application":"missing","binding":"KV","operation_id":"invalid-edit","expected_identity":"namespace-a","command":command}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+    let (_, operations) = get(&app, "/api/v1/fleets/alpha/operations").await;
+    assert_eq!(operations["items"], json!([]));
+    domain.shutdown().await;
+}
+
+#[tokio::test]
+async fn conditional_kv_drafts_cannot_cross_a_rebound_namespace() {
+    let (dir, app, domain) = fixture().await;
+    domain.run(async {
+        let store = cellar::dev::open_local_bucket(&dir.path().join("alpha.sqlite")).unwrap();
+        let config: cellar::native_deploy::ApplicationConfig = serde_json::from_value(json!({
+            "script_name":"app", "application_version":"v1",
+            "bindings":[{"type":"kv","name":"KV","id":"namespace-b"}]
+        })).unwrap();
+        let manifest = config.manifest(vec![cellar::protocol::NativeArtifact {
+            target: cellar::native_deploy::current_target().into(), sha256:"a".repeat(64), bytes:1,
+        }]).unwrap();
+        let prefix = format!("deploy/app/{}", manifest.version);
+        store.put(&format!("{prefix}/manifest.json"), serde_json::to_vec(&manifest).unwrap()).await.unwrap();
+        store.put("deploy/app/current.json", serde_json::to_vec(&json!({"script_name":"app","version":manifest.version,"prefix":prefix,"rollout":{"percent":100}})).unwrap()).await.unwrap();
+    }).await.unwrap();
+    for command in [
+        json!({"action":"kv_get","key":"key"}),
+        json!({"action":"kv_edit","key":"key","edit":{"value_base64":"AA==","tag":"bytes","metadata":null,"expiration":{"mode":"never"},"condition":{"revision":"1"}}}),
+        json!({"action":"kv_delete_if","key":"key","condition":{"revision":"1"}}),
+    ] {
+        let response=app.clone().oneshot(Request::builder().method("POST").uri("/api/v1/fleets/alpha/resources/action")
+            .header("authorization","Bearer editor-test-token-with-32-or-more-bytes")
+            .header("content-type","application/json")
+            .body(Body::from(json!({"application":"app","binding":"KV","operation_id":"rebound","expected_identity":"namespace-a","command":command}).to_string())).unwrap()).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(serde_json::from_slice::<Value>(&body).unwrap()["error"]
+            .as_str()
+            .unwrap()
+            .contains("another resource"));
+    }
+    let (_, operations) = get(&app, "/api/v1/fleets/alpha/operations").await;
+    assert_eq!(operations["items"], json!([]));
     domain.shutdown().await;
 }

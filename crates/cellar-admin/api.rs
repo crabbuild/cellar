@@ -193,6 +193,8 @@ pub(crate) struct ResourceRequest {
     application: String,
     binding: String,
     operation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    expected_identity: Option<String>,
     command: ResourceAction,
 }
 
@@ -233,6 +235,14 @@ enum ResourceAction {
     },
     KvDelete {
         key: String,
+    },
+    KvEdit {
+        key: String,
+        edit: cellar::management::KvEdit,
+    },
+    KvDeleteIf {
+        key: String,
+        condition: cellar::management::RevisionCondition,
     },
     Queue {
         operation: QueueAction,
@@ -278,6 +288,35 @@ pub(crate) async fn resource_action(
     Json(request): Json<ResourceRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let fleet = fleet(&console, &principal, &id, request.command.permission())?;
+    if let ResourceAction::KvEdit { key, .. } | ResourceAction::KvDeleteIf { key, .. } =
+        &request.command
+    {
+        principal.require(&id, Permission::DataRead)?;
+        if request.expected_identity.is_none() {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                "Conditional KV edits require the inspected namespace identity.".into(),
+            ));
+        }
+        if key.is_empty() || key.len() > 512 {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                "key must contain 1–512 bytes".into(),
+            ));
+        }
+    }
+    match &request.command {
+        ResourceAction::KvEdit { edit, .. } => {
+            edit.validate()
+                .map_err(|error| ApiError(StatusCode::BAD_REQUEST, error.to_string()))?;
+        }
+        ResourceAction::KvDeleteIf { condition, .. } => {
+            condition
+                .validate()
+                .map_err(|error| ApiError(StatusCode::BAD_REQUEST, error.to_string()))?;
+        }
+        _ => {}
+    }
     // Writable SQL can return arbitrary rows as well as changing data.
     if matches!(
         request.command,
@@ -294,6 +333,13 @@ pub(crate) async fn resource_action(
         .iter()
         .find(|binding| binding.name == request.binding && binding.kind == request.command.kind())
         .ok_or_else(|| ApiError(StatusCode::NOT_FOUND, "Resource binding not found.".into()))?;
+    if request
+        .expected_identity
+        .as_ref()
+        .is_some_and(|identity| *identity != binding.identity)
+    {
+        return Err(ApiError(StatusCode::CONFLICT, "This binding now targets another resource. Copy your draft before reopening the workspace.".into()));
+    }
     let mut operation = if request.command.permission() == Permission::DataWrite {
         let fingerprint = format!(
             "{:x}",
@@ -361,7 +407,7 @@ pub(crate) async fn resource_action(
                 .kv_list(&binding.identity, &prefix, &after)
                 .await
         }
-        ResourceAction::KvGet { key } => fleet.client.kv_get(&binding.identity, &key).await,
+        ResourceAction::KvGet { key } => fleet.client.kv_inspect(&binding.identity, &key).await,
         ResourceAction::KvPut {
             key,
             value_base64,
@@ -377,6 +423,15 @@ pub(crate) async fn resource_action(
             Err(_) => Err(anyhow::anyhow!("Value must use valid base64 encoding")),
         },
         ResourceAction::KvDelete { key } => fleet.client.kv_delete(&binding.identity, &key).await,
+        ResourceAction::KvEdit { key, edit } => {
+            fleet.client.kv_edit(&binding.identity, &key, edit).await
+        }
+        ResourceAction::KvDeleteIf { key, condition } => {
+            fleet
+                .client
+                .kv_delete_if(&binding.identity, &key, condition)
+                .await
+        }
         ResourceAction::Queue { operation, limit } => {
             fleet
                 .client
@@ -389,7 +444,9 @@ pub(crate) async fn resource_action(
         // supplies a definite rejection, preserve ambiguity rather than retry.
         console.audit.finish(
             operation,
-            if result.is_ok() {
+            if result.as_ref().is_ok_and(|value| value["conflict"] == true) {
+                "rejected"
+            } else if result.is_ok() {
                 "succeeded"
             } else {
                 "outcome_unknown"
@@ -397,6 +454,7 @@ pub(crate) async fn resource_action(
         )?;
     }
     match result {
+        Ok(value) if value["conflict"] == true => Err(ApiError(StatusCode::CONFLICT, "This key changed or expired after it was inspected. Reload the latest value before saving or deleting.".into())),
         Ok(value) => Ok(Json(json!({"result": value, "operation": operation}))),
         Err(error) => Ok(Json(
             json!({"error": error.to_string(), "operation": operation}),

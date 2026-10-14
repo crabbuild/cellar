@@ -165,6 +165,15 @@ async fn binding(context: Context, invocation: Invocation) -> Result<Output> {
         );
         return Ok(response("restore checked"));
     }
+    if request.url.ends_with("/revision-writer") {
+        namespace
+            .put_text(&context, "conditional/sdk", "sdk", Default::default())
+            .await?;
+        namespace
+            .delete_many(&context, &["conditional/deleted-by-sdk".into()])
+            .await?;
+        return Ok(response("revision written"));
+    }
     assert!(namespace
         .get(&context, "missing", ReadType::Text)
         .await?
@@ -714,6 +723,16 @@ async fn run() -> Result<()> {
     assert_eq!(worker(&runtime, "large").await?.body, b"large checked");
     let prefix = cellar_logic::kv::BlobRef::v2_object_prefix(&scope());
     assert_eq!(bucket.list(&prefix).await?.len(), 1);
+    let bounded = operator(
+        &runtime,
+        json!({"op":"get","key":"large","max_bytes":1024*1024}),
+    )
+    .await?;
+    let bounded: Value = serde_json::from_slice(&bounded.body)?;
+    assert_eq!(bounded["result"]["valueOmitted"], true);
+    assert_eq!(bounded["result"]["size"], cellar_logic::kv::MAX_VALUE_BYTES);
+    assert!(bounded["result"].get("value").is_none());
+    assert_eq!(bounded["result"]["metadata"], "{\"large\":true}");
     let raw = operator(&runtime, json!({"op":"get","key":"large"})).await?;
     assert_eq!(raw.status, 200);
     let raw = serde_json::from_slice::<Value>(&raw.body)?;
@@ -850,6 +869,7 @@ async fn run() -> Result<()> {
         serde_json::from_slice::<Value>(&saved.body)?["result"]["value"],
         json!([255, 1])
     );
+    check_conditional_edits(&runtime).await?;
     runtime.swap_out_cell(&scope(), 1).await?;
     system_schema::assert_system_tables(
         &directory
@@ -859,10 +879,298 @@ async fn run() -> Result<()> {
             .join("ltx/e1/db.sqlite"),
         &["__sys_kv", "__sys_kv_meta"],
     )?;
+    // Prepare the pre-revision schema only while this private fixture is inactive.
+    // Reactivation must evolve it through the production namespace owner.
+    let old_db = rusqlite::Connection::open(
+        directory
+            .path()
+            .join("cells")
+            .join(scope())
+            .join("ltx/e1/db.sqlite"),
+    )?;
+    old_db.execute_batch("ALTER TABLE __sys_kv DROP COLUMN revision; DELETE FROM __sys_kv_meta WHERE name='revision';")?;
+    drop(old_db);
+    runtime.start_cell(scope(), 1, false).await?;
+    runtime.publish_cell(&scope(), 1)?;
+    let legacy = checked_operator(&runtime, json!({"op":"get","key":"operator"})).await?;
+    assert_eq!(legacy["value"], json!([255, 1]));
+    assert_eq!(legacy["metadata"], "{\"operator\":true}");
+    assert_eq!(legacy["revision"], "0");
+    assert_eq!(checked_operator(&runtime, json!({"op":"edit","key":"operator","value":"/wE=","tag":"bytes","metadata":"{\"operator\":true}","condition":{"revision":"0"},"expiration_mode":{"mode":"preserve"}})).await?["ok"], true);
+    assert_eq!(
+        checked_operator(&runtime, json!({"op":"get","key":"operator"})).await?["revision"],
+        "1"
+    );
+    runtime.swap_out_cell(&scope(), 1).await?;
     runtime.swap_out_cell("Caller:test", 1).await?;
     shutdown.send(true)?;
     router.await?;
     gate_router.await?;
     std::env::remove_var("CELLAR_TEST_KV");
+    Ok(())
+}
+
+// These requests execute real owner turns and pass through the same output gate
+// as SDK writes. No test mutates the active namespace's SQLite file.
+async fn checked_operator(runtime: &RuntimeManager, body: Value) -> Result<Value> {
+    let reply = operator(runtime, body).await?;
+    assert_eq!(
+        reply.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&reply.body)
+    );
+    Ok(serde_json::from_slice::<Value>(&reply.body)?["result"].clone())
+}
+
+async fn check_conditional_edits(runtime: &RuntimeManager) -> Result<()> {
+    let edit = |key: &str, revision: Value, value: &str, expiration: Value| {
+        json!({
+            "op":"edit","key":key,"condition":{"revision":revision},
+            "value":value,"tag":"bytes","metadata":"null","expiration_mode":expiration,
+        })
+    };
+    let never = json!({"mode":"never"});
+    let preserve = json!({"mode":"preserve"});
+    let expires = cellar::ownership_store::now_ms() + 60_000;
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/key",
+                Value::Null,
+                "AP8B",
+                json!({"mode":"at","timestamp_ms":expires})
+            )
+        )
+        .await?["ok"],
+        true
+    );
+    let first = checked_operator(runtime, json!({"op":"get","key":"conditional/key"})).await?;
+    assert_eq!(first["value"], json!([0, 255, 1]));
+    assert_eq!(
+        first["metadata"], "null",
+        "JSON null metadata is not absent metadata"
+    );
+    assert_eq!(first["expiration"], expires);
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit("conditional/key", Value::Null, "YQ==", never.clone())
+        )
+        .await?["conflict"],
+        true,
+        "create cannot overwrite a live key"
+    );
+    let revision = first["revision"].clone();
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/key",
+                revision.clone(),
+                "Ag==",
+                preserve.clone()
+            )
+        )
+        .await?["ok"],
+        true
+    );
+    let second = checked_operator(runtime, json!({"op":"get","key":"conditional/key"})).await?;
+    assert_ne!(second["revision"], revision);
+    assert_eq!(
+        second["expiration"], expires,
+        "preserve retains absolute expiry exactly"
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit("conditional/key", revision.clone(), "Aw==", never.clone())
+        )
+        .await?["conflict"],
+        true
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            json!({"op":"delete","keys":["conditional/key"],"condition":{"revision":revision}})
+        )
+        .await?["conflict"],
+        true
+    );
+    assert_eq!(checked_operator(runtime, json!({"op":"delete","keys":["conditional/key"],"condition":{"revision":second["revision"]}})).await?["ok"], true);
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit("conditional/key", Value::Null, "BA==", never.clone())
+        )
+        .await?["ok"],
+        true
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/key",
+                second["revision"].clone(),
+                "BQ==",
+                never.clone()
+            )
+        )
+        .await?["conflict"],
+        true,
+        "delete/recreate cannot authorize an old edit"
+    );
+
+    // Every writer must advance revisions, including SDK puts, bulk RPC puts,
+    // old CLI/operator puts and deletion performed through the SDK binding.
+    for key in ["conditional/sdk", "conditional/deleted-by-sdk"] {
+        checked_operator(runtime, edit(key, Value::Null, "AA==", never.clone())).await?;
+    }
+    let before_sdk = checked_operator(runtime, json!({"op":"get","key":"conditional/sdk"})).await?;
+    let before_delete = checked_operator(
+        runtime,
+        json!({"op":"get","key":"conditional/deleted-by-sdk"}),
+    )
+    .await?;
+    assert_eq!(
+        worker(runtime, "revision-writer").await?.body,
+        b"revision written"
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/sdk",
+                before_sdk["revision"].clone(),
+                "AA==",
+                preserve.clone()
+            )
+        )
+        .await?["conflict"],
+        true
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/deleted-by-sdk",
+                before_delete["revision"].clone(),
+                "AA==",
+                preserve.clone()
+            )
+        )
+        .await?["conflict"],
+        true
+    );
+    let reply = runtime.rpc(scope(), None, "__kvPut".into(), encode_rpc(&cellar::native::clone::StructuredValue::from_json(json!([{"entries":[{"key":"conditional/sdk","value":[9],"tag":"bytes"},{"key":"conditional/bulk","value":[8],"tag":"bytes"}]}]))?)?, None).await?;
+    assert!(matches!(
+        decode_rpc_result(&reply.data)?.root,
+        cellar::native::clone::Value::Undefined
+    ));
+    let bulk = checked_operator(runtime, json!({"op":"get","key":"conditional/sdk"})).await?;
+    assert_ne!(bulk["revision"], before_sdk["revision"]);
+    checked_operator(
+        runtime,
+        json!({"op":"put","key":"conditional/sdk","value":[7]}),
+    )
+    .await?;
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/sdk",
+                bulk["revision"].clone(),
+                "AA==",
+                never.clone()
+            )
+        )
+        .await?["conflict"],
+        true
+    );
+
+    // An unswept expired row counts as absent, and cannot preserve a live token.
+    let expires = cellar::ownership_store::now_ms() + 80;
+    checked_operator(
+        runtime,
+        edit(
+            "conditional/expires",
+            Value::Null,
+            "AA==",
+            json!({"mode":"at","timestamp_ms":expires}),
+        ),
+    )
+    .await?;
+    let expiring =
+        checked_operator(runtime, json!({"op":"get","key":"conditional/expires"})).await?;
+    cellar::asyncrt::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/expires",
+                expiring["revision"].clone(),
+                "AQ==",
+                preserve.clone()
+            )
+        )
+        .await?["conflict"],
+        true
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit("conditional/expires", Value::Null, "AQ==", never.clone())
+        )
+        .await?["ok"],
+        true
+    );
+
+    let blob = base64::Engine::encode(
+        &base64::engine::general_purpose::STANDARD,
+        vec![201; cellar_logic::kv::MAX_INLINE_VALUE_BYTES + 1],
+    );
+    checked_operator(
+        runtime,
+        edit("conditional/blob", Value::Null, &blob, never.clone()),
+    )
+    .await?;
+    let original = checked_operator(runtime, json!({"op":"get","key":"conditional/blob"})).await?;
+    assert_eq!(original["value"], blob);
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/blob",
+                original["revision"].clone(),
+                "AA==",
+                preserve
+            )
+        )
+        .await?["ok"],
+        true
+    );
+    assert_eq!(
+        checked_operator(
+            runtime,
+            edit(
+                "conditional/blob",
+                original["revision"].clone(),
+                &blob,
+                never
+            )
+        )
+        .await?["conflict"],
+        true
+    );
+    let persisted = checked_operator(runtime, json!({"op":"get","key":"conditional/key"})).await?;
+    runtime.swap_out_cell(&scope(), 1).await?;
+    runtime.start_cell(scope(), 1, false).await?;
+    runtime.publish_cell(&scope(), 1)?;
+    assert_eq!(
+        checked_operator(runtime, json!({"op":"get","key":"conditional/key"})).await?["revision"],
+        persisted["revision"],
+        "reactivation preserves the revision"
+    );
     Ok(())
 }

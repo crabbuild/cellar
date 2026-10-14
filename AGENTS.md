@@ -380,7 +380,15 @@ bucket require the returned drain report and an explicit execution-domain join;
 CLI hosts also join their dedicated core thread. A lost reply or failed receipt
 publication remains unknown. Audit reconciliation must preserve a terminal proof
 even when an earlier acceptance response arrives later.
-See `plans/003-fleet-dashboard.md` for implementation progress and release gates.
+KV console inspection and conditional edits live under `application/kv/inspection.rs`
+and `fleet/management/kv.rs`. Every namespace put assigns a persisted revision;
+compare it inside the owner transaction, including expiry after blob publication.
+Conditional console requests also pin the inspected binding identity across deployments.
+Console edits preserve exact expiry and storage tags, and distinguish absent
+metadata from JSON null. Definite revision conflicts are rejected; lost write
+replies remain unknown. Keep the existing unconditional SDK/CLI signatures.
+See `plans/003-fleet-dashboard.md` and `plans/004-sql-kv-workspaces.md` for
+implementation progress and release gates.
 
 For dashboard changes, also run:
 

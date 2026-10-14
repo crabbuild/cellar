@@ -18,6 +18,7 @@ mandatory captured-policy/cache-snapshot checks to the performance harness.
 | [001: Group framework files by component](001-component-layout.md) | P2 | M | MED | None | DONE |
 | [002: Embed Cellar behind Axum with integrated OpenAPI](002-axum-openapi-adapter.md) | P1 | L | HIGH | 001 | DONE |
 | [003: Fleet dashboard](003-fleet-dashboard.md) | P1 | L | HIGH | 002 | DONE |
+| [004: SQL and KV workspaces](004-sql-kv-workspaces.md) | P1 | L | HIGH | 003 | DONE |
 
 Plan 003 scopes the browser console for fleet, node and cell management, with
 SQL, KV, Queue, Workflow and Cron workspaces. It maps the UI to current owner

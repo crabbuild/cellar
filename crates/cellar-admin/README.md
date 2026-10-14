@@ -67,6 +67,24 @@ Schema and column browsing use the same enforced read-only console. Migration
 history pages read only approved bookkeeping tables, without creating absent tables.
 Queue previews cap payload bytes before loading message bodies and report truncation.
 
+KV console inspection caps values at 1 MiB before reading blob contents. Larger
+values report `valueOmitted`, size, metadata, expiry and revision. Conditional
+`kv_edit` and `kv_delete_if` require both data read and data write permissions.
+Conditional requests also carry the inspected binding identity; deployment
+rebinding is rejected before dispatch, so a draft cannot cross namespaces.
+A decimal-string revision identifies the inspected live key; `null` requires
+absence. All namespace puts, including SDK, bulk and older operator writers,
+assign a new persisted revision. The owner rechecks the condition in the write
+transaction, including expiration after asynchronous blob publication.
+`preserve` keeps the exact stored expiry; `never` clears it; `at` uses absolute
+Unix milliseconds. Metadata is JSON text or absent, preserving JSON `null`.
+Definite conflicts return HTTP 409 and audit `rejected`; transport failures retain
+`outcome_unknown`. Existing unconditional SDK and CLI signatures remain unchanged.
+The browser does not retry mutations automatically. Conditional editing requires
+all fleet owners to run the revision-aware framework. Mixed old/new framework
+ownership is not qualified: older runtimes can mutate values without advancing
+revisions. Complete the framework rollout before enabling these console edits.
+
 Workflow discovery reads a bounded page of retained application workflow cells
 through their owners. It reports continuation and unavailable observations, and
 may return an empty matching page with a continuation. History uses event IDs.
