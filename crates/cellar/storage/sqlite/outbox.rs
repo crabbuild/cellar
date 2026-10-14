@@ -15,8 +15,7 @@ const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
         ("__sys_outbox_lanes", "lane,binding,next_sequence,settled_through,status,retry_at_ms,attempts,last_error,dispatch_generation"),
         ("__sys_outbox", "lane,sequence,envelope,size,created_at_ms"),
         ("__sys_outbox_stats", "singleton,rows,bytes"),
-    ],
-    optional: &[
+
         ("__sys_outbox_seals", "lane,operation,terminal,state"),
         ("__sys_outbox_batch_limits", "lane,bytes,records"),
     ],
@@ -477,11 +476,11 @@ mod tests {
     }
 
     #[test]
-    fn legacy_migration_preserves_pending_envelopes_seals_and_deadlines() -> anyhow::Result<()> {
+    fn reopen_preserves_pending_envelopes_seals_and_deadlines() -> anyhow::Result<()> {
         let cells = Cells::default();
         let _installed = cells.install();
         let directory = tempfile::tempdir()?;
-        let path = open_cell(&directory, 1)?;
+        open_cell(&directory, 1)?;
         transaction_control(SCOPE, "start", false, "cells_tx_1").unwrap();
         put_json(SCOPE, "status", &serde_json::json!("confirmed"))?;
         send(&binding(), Limits::default())?;
@@ -513,12 +512,6 @@ mod tests {
         let work = work::installation(SCOPE, cellar_logic::work::Reason::Outbox)?;
         let original = serde_json::to_vec(&envelopes()?)?;
         close(SCOPE);
-        {
-            let c = Connection::open(&path)?;
-            c.execute_batch(
-                "DROP TABLE __sys_outbox_schema; DROP TABLE __sys_outbox_batch_limits;",
-            )?;
-        }
         open_cell(&directory, 2)?;
         assert_eq!(serde_json::to_vec(&envelopes()?)?, original);
         assert_eq!(
@@ -548,7 +541,7 @@ mod tests {
     }
 
     #[test]
-    fn inconsistent_legacy_accounting_cannot_be_marked_or_repaired() -> anyhow::Result<()> {
+    fn unmarked_state_cannot_be_marked_or_repaired() -> anyhow::Result<()> {
         let cells = Cells::default();
         let _installed = cells.install();
         let directory = tempfile::tempdir()?;

@@ -1263,12 +1263,9 @@ pub struct LtxRepl {
     /// SQLite VFS) instead of downloading the whole chain, and continue its
     /// chain from the cut. On unless `CELLAR_LTX_PAGED=0`.
     paged_restore: AtomicBool,
-    /// Whether every live lease in the fleet reads a paged epoch
-    /// (`cellar_logic::format`). Off until the fleet sampler has seen every
-    /// lease at `BUCKET_FORMAT`, so a node in a rolling update clones a whale
-    /// the way the old release does instead of writing an epoch the old
-    /// release cannot restore. `CELLAR_LTX_PAGED` is the operator's switch;
-    /// this one is the fleet's.
+    /// Whether every observed live lease advertises the current bucket layout.
+    /// Off until a complete fleet sample supplies that capability evidence.
+    /// `CELLAR_LTX_PAGED` is the operator switch; this is the fleet gate.
     paged_fleet: AtomicBool,
     /// The chain size, in bytes, from which a restore pages instead of
     /// cloning (`CELLAR_LTX_PAGED_MIN_MB`). Below it the clone is cheaper:

@@ -270,6 +270,7 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
                 return Err(error(ErrorCode::ConfigConflict,"configuration revision or live capacity conflicts"));
             }
         } else {
+            caller.require_provisioning()?;
             authorize(&desired,&caller,Action::Configure,None)?;
             if desired.revision!=1 { return Err(error(ErrorCode::ConfigConflict,"new streams start at revision one")); }
         }

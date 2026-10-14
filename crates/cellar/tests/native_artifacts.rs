@@ -12,7 +12,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 #[test]
-fn native_event_host_protocol_refuses_previous_executables() -> Result<()> {
+fn native_event_host_protocol_refuses_unsupported_executables() -> Result<()> {
     let mut native = cellar::protocol::NativeDeployment {
         host_protocol: 2,
         application_version: "test".into(),
@@ -46,6 +46,8 @@ async fn native_artifact_publication_install_and_source_refusal() -> Result<()> 
         "bindings":[{"type":"durable_object_namespace","name":"ACCOUNTS","class_name":"Account"}],
     }))?;
     let primary = config.manifest(vec![artifact.clone()])?;
+    assert_eq!(primary.schema_version, 1);
+    assert_eq!(primary.native.as_ref().unwrap().host_protocol, 1);
     assert!(primary.main_module.is_none());
     assert!(primary.modules.is_empty());
     let mut component = config.clone();

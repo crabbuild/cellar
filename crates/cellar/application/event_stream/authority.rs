@@ -29,6 +29,14 @@ pub struct Authority {
     pub(crate) action: Action,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) operator: Option<String>,
+    /// Initial resource creation is a trusted host provisioning operation,
+    /// separate from the administration grant of an existing resource.
+    #[serde(default, skip_serializing_if = "is_false")]
+    provision: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 impl Authority {
@@ -46,6 +54,7 @@ impl Authority {
             source: None,
             action: Action::Configure,
             operator: None,
+            provision: true,
         };
         authority.validate()?;
         Ok(authority)
@@ -60,6 +69,7 @@ impl Authority {
             source: None,
             action: Action::Resolve,
             operator: None,
+            provision: false,
         };
         authority.validate()?;
         Ok(authority)
@@ -84,6 +94,7 @@ impl Authority {
             source: Some(source),
             action: Action::Append,
             operator: None,
+            provision: false,
         };
         authority.validate()?;
         Ok(authority)
@@ -121,6 +132,7 @@ impl Authority {
             source,
             action,
             operator: None,
+            provision: false,
         })
     }
 
@@ -138,12 +150,22 @@ impl Authority {
             source: None,
             action,
             operator: Some(operator),
+            provision: false,
         };
         authority.validate()?;
         Ok(authority)
     }
 
     pub(crate) fn validate_operator_target(&self, scope: &str, method: &str) -> Result<()> {
+        if self.provision {
+            anyhow::ensure!(
+                (scope == super::catalog_scope(&self.resource)?
+                    && matches!(method, "__catalogConfigure" | "__catalogStatus"))
+                    || (scope == super::cell_scope(&self.resource)?
+                        && method == "__streamConfigure"),
+                "provisioning authority does not grant this RPC method"
+            );
+        }
         if self.operator.is_none() {
             return Ok(());
         }
@@ -179,6 +201,13 @@ impl Authority {
     pub(crate) fn validate(&self) -> Result<()> {
         self.resource.validate()?;
         anyhow::ensure!(
+            !self.provision
+                || (self.action == Action::Configure
+                    && self.source.is_none()
+                    && self.operator.is_none()),
+            "invalid resource provisioning authority"
+        );
+        anyhow::ensure!(
             self.operator.as_ref().is_none_or(|operator| {
                 !operator.is_empty()
                     && operator.len() <= 256
@@ -204,6 +233,86 @@ impl Authority {
             self.action != Action::Append || self.source.is_some(),
             "event append has no source identity"
         );
+        Ok(())
+    }
+
+    pub(crate) fn require_provisioning(&self) -> Result<()> {
+        self.validate()?;
+        if !self.provision {
+            return Err(super::error::error(
+                super::ErrorCode::Forbidden,
+                "initial resource creation requires trusted deployment or operator provisioning",
+            ));
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::application::event_stream::{Definition, Grant, Resource, Retention};
+
+    #[test]
+    fn proposed_grants_do_not_supply_resource_creation_authority() -> Result<()> {
+        let definition = Definition {
+            resource: Resource {
+                tenant: "tenant".into(),
+                application: "app".into(),
+                id: "00000000000000000000000000000001".into(),
+                name: "events".into(),
+                family: "events".into(),
+            },
+            revision: 1,
+            retention: Retention::Bounded,
+            max_bytes: 1024,
+            max_records: 10,
+            max_age_ms: 1000,
+            grants: vec![Grant {
+                id: "management".into(),
+                principal: "app".into(),
+                publish: false,
+                read: false,
+                subscriptions: Vec::new(),
+                administer: true,
+            }],
+            subscriptions: Vec::new(),
+        };
+        let provision = Authority::deployment("app", &definition)?;
+        provision.require_provisioning()?;
+        let mut ordinary = provision.clone();
+        ordinary.provision = false;
+        ordinary.source = Some("Order:source".into());
+        // The same proposed administrative grant is sufficient for the
+        // declaration's shape, but cannot authorize its own initial creation.
+        super::super::store::authorize(&definition, &ordinary, Action::Configure, None)?;
+        let denied = ordinary.require_provisioning().unwrap_err();
+        assert_eq!(
+            denied
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            super::super::ErrorCode::Forbidden
+        );
+        let mut encoded = serde_json::to_value(&ordinary)?;
+        assert!(encoded.get("provision").is_none());
+        let decoded: Authority = serde_json::from_value(encoded.clone())?;
+        assert!(decoded.require_provisioning().is_err());
+        encoded["provision"] = serde_json::json!(true);
+        assert!(serde_json::from_value::<Authority>(encoded)?
+            .validate()
+            .is_err());
+        let catalog = super::super::catalog_scope(&definition.resource)?;
+        let stream = super::super::cell_scope(&definition.resource)?;
+        provision.validate_operator_target(&catalog, "__catalogConfigure")?;
+        provision.validate_operator_target(&catalog, "__catalogStatus")?;
+        provision.validate_operator_target(&stream, "__streamConfigure")?;
+        assert!(provision
+            .validate_operator_target(&stream, "__streamAppend")
+            .is_err());
+        assert!(provision
+            .validate_operator_target(&catalog, "__catalogRetire")
+            .is_err());
         Ok(())
     }
 }

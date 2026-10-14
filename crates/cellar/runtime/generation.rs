@@ -343,6 +343,48 @@ impl Generation {
         &self.event_streams
     }
 
+    /// Prepare trusted host provisioning for an exact captured deployment
+    /// declaration. Hosts must route this request through their ordinary owner,
+    /// recovery and proof path. SDK bindings cannot supply this authority.
+    pub fn event_provisioning_request(
+        &self,
+        resource: &crate::application::event_stream::Resource,
+        operation: &str,
+        reply: tokio::sync::oneshot::Sender<anyhow::Result<crate::engine_api::RpcData>>,
+    ) -> anyhow::Result<crate::host_channels::RpcCallReq> {
+        use crate::application::event_stream as events;
+        use base64::Engine;
+        anyhow::ensure!(
+            operation.len() == 32
+                && operation
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "provisioning requires a canonical operation UUID"
+        );
+        let (script, definition) = self
+            .event_streams
+            .iter()
+            .find(|(_, definition)| definition.resource == *resource)
+            .ok_or_else(|| {
+                anyhow::anyhow!("resource is not a captured provisioning declaration")
+            })?;
+        let bytes = events::encoding::json(definition, events::MAX_DEFINITION_BYTES)?;
+        Ok(crate::host_channels::RpcCallReq {
+            authority: Some(events::authority::Authority::deployment(script, definition)?.into()),
+            request_id: Some(crate::engine_api::next_request_id()),
+            cancel: None,
+            scope: events::catalog_scope(resource)?,
+            name: Some(events::catalog_name(resource)?),
+            method: "__catalogConfigure".into(),
+            args: crate::application::encode_rpc(
+                &cellar_native::clone::StructuredValue::from_json(serde_json::json!([
+                    {"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}
+                ]))?,
+            )?,
+            reply,
+        })
+    }
+
     pub fn id(&self) -> GenerationId {
         self.id
     }

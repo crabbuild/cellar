@@ -76,26 +76,14 @@ turns together; that local evidence does not satisfy the fleet/release gates.
   and wake intent in the same transaction. Internal savepoints prevent caught
   emission errors from leaving partial state. Pending delivery prevents
   `delete_all`; an empty reset preserves protocol identity/history.
-- Outbox and inbox now have independent version-1 schema markers. SQLite
-  activation preflights these and the stream/catalog markers before base schema
-  writes. Known unmarked source/receipt layouts migrate within the activation
-  transaction, including source seal and adaptive batch-limit tables. Retained
-  events, incarnation, sequences, seal operation and work installation remain
-  unchanged. Unsupported/empty marker rows, incomplete layouts or inconsistent
-  accounting fail closed. A smaller host event/key/family policy refuses source
-  activation; reopening under compatible limits preserves the bytes and next
-  sequence. Hot emission and inbox acceptance do not rescan retained history.
-- Fleet format 3 records peer protocol 6, native host protocol 3 and event
-  delivery version 1. Ordinary startup refuses old markers. The explicit
-  `cellar fleet upgrade`/`wake_format::upgrade` path accepts only Cellar format 2,
-  requires confirmation of stopped writers/recovery processes and checks every
-  lease through bounded pages before its marker CAS. The dependency-free core
-  owns cutover admission. Its immutable operation/reason receipt resolves CAS
-  conflict or response loss without overwriting a competing intent. Cell,
-  lease, log and wake objects are preserved. Metadata/body reads are bounded.
-  Public Node policy rejects an old advertised protocol, and its readiness
-  predicate includes resource activation as well as the independent fleet
-  observation. Actual old-executable and complete fault qualification remain.
+- Outbox, inbox, stream and catalog schemas all have version-1 markers.
+  Activation rejects unmarked, unsupported or incomplete event layouts before
+  schema writes. Current-state reopening retains obligations and identities;
+  lower host limits refuse incompatible retained payloads.
+- Fleet, peer and native host markers stay at 1. Fresh marker creation is
+  concurrent and reopenable; unknown layouts fail closed. Development state is
+  recreated on hard cutover, with all participants rebuilt. No fleet upgrade
+  command or old-build compatibility qualification remains in scope.
 - Event encoding enforces a byte budget during serialization, before building
   the decoded payload, and bounds final envelope encoding inside the savepoint.
   Key limits apply before copying. Admission failures expose typed transaction,
@@ -212,7 +200,7 @@ cell factories and their internal maintenance handlers now exist. Configuration
 and consumption are available through programmatic native bindings. Native
 project/manifest metadata now survives publication and generation loading, and
 Node startup/adoption now performs owner-routed activation and binding readiness.
-The compatibility contracts are implemented but release qualification is incomplete, so
+The development contracts are implemented but release qualification is incomplete, so
 this does not constitute a released deployed primitive yet.
 
 ## Requirement audit
@@ -221,14 +209,14 @@ this does not constitute a released deployed primitive yet.
 | --- | --- | --- |
 | Short producer APIs and atomic emission | Source tables, `tx`/`emit`, bounded serializer, typed admission errors, native source test, storage rollback/capacity/reopen tests | Complete public error/overflow classification and adoption budgets |
 | Resource identity and authorization | Host RPC provenance, reserved classes, durable catalog reconciliation, independent receiver grants, receipt revocation, deletion/recreation and terminal UUID tombstones; validated native declarations/bindings; owner-routed startup/adoption with current-state proof and independent binding resolution | Friendly name-only resolution and complete administrative authority qualification |
-| Stream append/read and deduplication | Persisted destination schema, built-in factory, atomic producer watermark, bounded read API; duplicate acceptance after payload expiry; stream/catalog and source/inbox schema migrations; feature/format capability | Wider fault and adversarial qualification |
+| Stream append/read and deduplication | Persisted destination schema, built-in factory, atomic producer watermark, bounded read API; duplicate acceptance after payload expiry; version-1 stream/catalog and source/inbox schemas; feature/format capability | Wider fault and adversarial qualification |
 | Durable outbox delivery | Real destination integration, generation-fenced cleanup, blocked permanent errors, adaptive batch limits, host/lane reservations | Cancellation/routing/fairness qualification and operational controls |
 | Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling | Complete deadline/error/race matrix and production lifecycle/crash qualification |
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
 | Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, metadata reads and payload opt-in | Resource inventories, exported metrics, source destruction and broader control qualification |
-| Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer 6/native 3/fleet 3 and explicit audited format-2 upgrade; source/inbox migrations and incompatible source-policy refusal | Actual prior executable and full cutover fault qualification; destination/consumer policy-adoption matrix |
+| Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer/native/fleet/schema markers at 1; hard-cutover development policy and incompatible source-policy refusal | Fresh-state/reopen fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
 
@@ -270,12 +258,10 @@ without using the abandonment budget. Re-registering the class returns business
 execution to the application through ordinary generation movement. Wider crash,
 follower and cancellation qualification remains required.
 
-Exercise the implemented schema and compatibility contracts under real fleet
-faults and previous executables. The logical peer/fleet/native revisions are now
-6/3/3; physical LTX encoding and its paged-restore capability remain unchanged.
-Do not substitute a marker-parser test for actual previous-binary startup and
-owner exclusion. Qualify dropped marker CAS responses, interrupted migrations
-and the complete destination/consumer lower-host-policy matrix as well.
+Exercise fresh initialization, same-build reopening and current-layout admission
+under real fleet faults, including dropped marker CAS responses and the complete
+destination/consumer lower-host-policy matrix. Historical migrations and prior
+executables are outside the internal development policy.
 
 Remaining correctness audits include configuration retries during revocation,
 unknown/expired receipt classification after maintenance, long-poll cancellation
@@ -652,3 +638,55 @@ without code, lease, startup-deadline or drain-policy changes. The cause remains
 unproven. The local reload/replication diagnostic appears in successful runs as
 well and is not evidence of the cause. The full workspace gate is rerun before
 compiler/doc/example gates; the original failure remains part of the evidence.
+
+
+Catalog inventory work exposed an unmet creation requirement: proposed resource
+grants could authorize their own initial creation. The guard now requires a
+private provisioning claim from an exact trusted deployment declaration for both
+catalog and partition creation. SDK and resource-operator handles cannot mint it.
+`Generation::event_provisioning_request` prepares this request for a library host;
+it still needs ordinary owner/recovery/proof routing and is not readiness proof.
+The native fixture uses fresh state and explicitly checks SDK creation refusal.
+
+## Internal development policy (2026-10-13)
+
+The user superseded earlier compatibility milestones: every Cellar-owned protocol,
+format and schema marker stays at 1. Hard cutovers recreate development state and
+rebuild participants. No old-build compatibility qualification, schema migration,
+fleet upgrade command or upgrade receipt is required. Prior verification entries
+below/above describe historical work, not current compatibility promises. Current
+code removes those paths, retains creation authority and durability/ownership
+checks, and keeps upstream SQLite WAL/LTX codec identifiers unchanged.
+
+Catalog/source inventories, bounded exported metrics and the remaining actual
+crash, response-loss, recovery and capacity qualification remain open.
+The first full gate passed 78 library tests but refused three legacy fixtures:
+the source-recovery fixture seeded outbox tables without a marker, the inbox
+fixture deleted its marker before reopening, and the reset/replication fixture
+seeded stream/catalog tables without markers. These fixtures now initialize
+current version-1 state and retain their original recovery, rollback, deduplication,
+reset and replication assertions. No production validation was relaxed.
+An independently executed catalog regression also refused the fixture's stale
+serving bindings during declaration validation. Its valid trusted provisioning
+graph is now separate from the intentionally stale SDK serving graph; receiver
+revocation checks and declaration validation remain unchanged. Those regressions
+passed on the corrected fixtures. The native development rebuild/restart case
+passed in 804.77 seconds across its separate unchanged readiness deadlines.
+The full Cargo run then stopped at two outbound HTTP deadlines. The exact
+`native_egress-bc2323df6faa7849` executable passed all five tests in isolation,
+but a repeat overlapping the remaining runtime executables reproduced those
+timeouts. After runtime checks finished, four single-test and four whole-executable
+runs passed without code, timeout, lease or drain changes. The cause remains
+unproven; these results do not establish that compiler or system load caused it.
+The 65 remaining compiled workspace executables ran directly, including the
+corrected catalog regression and all 23 public Node tests. Only the tooling
+executable lacked `rustfmt` because that direct harness omitted Cargo from PATH;
+all six tooling cases passed after restoring the normal PATH. No uninterrupted
+full Cargo pass is claimed for this cutover. All final executables have passing
+results; the HTTP timing failures remain part of the evidence.
+All-target/all-feature Clippy passed with warnings denied. Final formatting
+checked 412 Rust files; documentation validated 35 documents, 6 flows and 370
+local references, and whitespace checks passed. All Cellar-owned protocol,
+format and schema markers are 1; upstream LTX/SQLite encoding and runtime
+revision/sequence counters retain their meanings. No development state outside
+private test fixtures was reset.

@@ -34,14 +34,16 @@ Outbox dispatch uses immutable stored principal/grant identity after source
 proof; current application bindings govern new emission, and receivers repeat
 authorization against durable resource grants. Outbox and inbox schemas have
 version-1 markers; activation rejects unsupported markers, inconsistent retained
-accounting and outbox events exceeding the captured host policy. Known unmarked
-layouts migrate transactionally without resetting identities, receipts or work.
-Fleet admission requires wake format 3, peer protocol 6 and native host protocol
-3. `cellar fleet upgrade` explicitly upgrades only a stopped Cellar format-2
-fleet, requires operator confirmation and no live node lease, and records an
-immutable CAS receipt while preserving cell/log/wake objects. Ordinary startup
-never performs that upgrade. Keep the remaining qualification gates explicit
-before release.
+accounting and outbox events exceeding the captured host policy. Cellar is in internal development: all Cellar-owned protocol, format and
+schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
+readers, layout migrations, version negotiation or fleet upgrade commands.
+Recreate development state and rebuild all participants when layouts change;
+mixed builds are unsupported. External codec versions (SQLite WAL and upstream
+LTX), package versions and runtime revision/sequence counters keep their meaning.
+Initial catalog/partition creation requires a host provisioning claim from an
+exact captured deployment declaration; proposed grants cannot authorize their
+own creation. Ordinary SDK configuration can only administer existing resources.
+Keep the remaining qualification gates explicit before release.
 
 Source diagnostics use `Storage::outbox` under the owning activation, with
 bounded metadata pages and source-incarnation continuations. Lane retry requires
@@ -55,13 +57,13 @@ audit and `cellar subscription` list/describe/pause/resume/reset/delete use sign
 `/streams/` ingress and delegated durable grants. Operator authority is limited
 to stream control methods, with optional provenance omitted from ordinary event
 packets. Subscription receipts retain the operator label and enforce it during
-replay/status; old SDK receipts default to no operator. Reads exclude bodies and
+replay/status; ordinary SDK receipts carry no operator. Reads exclude bodies and
 encoded envelopes unless explicitly requested. `cellar stream retire` and
 `retirement-status` route to the catalog; operator authority also permits only
 the matching catalog retirement and partition preflight/closure methods.
-Catalog schema 3 and stream schema 4 add nullable operator provenance, preserving
-legacy SDK receipts. Current markers require those columns before base schema
-mutation. Terminal retirement receipts retain the affected payload range after
+Catalog and stream schemas use version 1 with nullable operator provenance.
+Current markers require those columns before base schema mutation.
+Terminal retirement receipts retain the affected payload range after
 bounded cleanup. Subscription inventory uses a bounded primary-key range and includes retained
 deleted incarnations without lease tokens or payloads. Its `subs1` cursor is
 bound to the stream UUID; every page checks current administration authority.

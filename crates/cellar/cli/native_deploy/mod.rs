@@ -23,7 +23,6 @@ pub use images::ContainerProject;
 mod assets;
 pub mod cli;
 pub mod dev;
-mod fleet_format;
 pub use assets::AssetProject;
 
 pub fn current_target() -> &'static str {
@@ -224,7 +223,7 @@ impl ApplicationConfig {
             artifacts,
         };
         let mut manifest = Manifest {
-            schema_version: 3,
+            schema_version: 1,
             version: String::new(),
             script_name: self.script_name.clone(),
             main_module: None,

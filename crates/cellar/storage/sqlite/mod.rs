@@ -389,13 +389,13 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox::check_schema(c)?;
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
-    event_schema::check_version(c, "__sys_stream_schema", &[1, 2, 3, 4])?;
-    event_schema::check_version(c, "__sys_event_catalog_schema", &[1, 2, 3])?;
-    event_schema::retirement_operator(c, "__sys_stream_schema", 4, "__sys_stream_retirement")?;
+    event_schema::check_version(c, "__sys_stream_schema")?;
+    event_schema::check_version(c, "__sys_event_catalog_schema")?;
+    event_schema::retirement_operator(c, "__sys_stream_schema", 1, "__sys_stream_retirement")?;
     event_schema::retirement_operator(
         c,
         "__sys_event_catalog_schema",
-        3,
+        1,
         "__sys_event_catalog_receipts",
     )?;
     // Fresh schemas can skip the WAL-header fsync. Existing Cellar databases
@@ -4671,6 +4671,8 @@ mod system_schema_tests {
             scope,
             include_str!("../../application/event_stream/catalog.sql"),
         )?;
+        system_sql_schema(scope,"CREATE TABLE __sys_stream_schema(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL CHECK(version=1)); INSERT INTO __sys_stream_schema VALUES(1,1);
+            CREATE TABLE __sys_event_catalog_schema(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL CHECK(version=1)); INSERT INTO __sys_event_catalog_schema VALUES(1,1);")?;
         system_sql(scope,"INSERT INTO __sys_stream_producers(lane,source,incarnation,principal,grant_id,accepted_through,sealed) VALUES('preserved-lane','Producer:source','incarnation','principal','grant',7,1)",&[])?;
         system_sql(scope,"INSERT INTO __sys_event_catalog(id,name,lifecycle,operation,digest,operation_authority,retry_at_ms) VALUES('retired-id','retired','deleted','delete-operation','digest','{}',0)",&[])?;
         delete_all_with_alarm(scope, false)?;

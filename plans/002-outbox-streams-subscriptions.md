@@ -578,7 +578,7 @@ local transactions rather than cross-cell coordination.
 
 Live-name uniqueness excludes deleted resources so recreation can reserve the
 same human name under a new UUID. Resource and operation tombstones remain
-addressable by identity. Schema migrations preserve every identity, sequence,
+addressable by identity. Reopening the current layout preserves every identity, sequence,
 checkpoint, lease, and pending operation; unknown future versions fail closed.
 
 ### Optional consumer inbox
@@ -1249,9 +1249,10 @@ retirement. They require the current resource revision, immutable operation UUID
 bounded reason, explicit CLI confirmation, and either an external all-producer
 coordination procedure or a force/data-loss acknowledgment. Operator provenance
 is permitted only for catalog retirement/status and the matching partition
-preflight/closure methods, never configuration or append. Catalog schema 3 and
-stream schema 4 add nullable operator identity to retirement receipts; legacy SDK
-rows retain no operator. Current markers require these columns before base schema
+preflight/closure methods, never configuration or append. Catalog and
+stream schemas stay at version 1 and include nullable operator identity in
+retirement receipts. Ordinary SDK receipts carry no operator.
+Current markers require these columns before base schema
 mutation. Terminal results retain captured records/bytes and the exact retained
 payload range after cleanup; malformed or conflicting range/provenance echoes
 cannot finish the catalog receipt. Resource inventories and exported metrics
@@ -1268,34 +1269,15 @@ classes, and internal RPCs. It does not change LTX's physical encoding or
 introduce Celld compatibility. A dedicated feature/protocol revision identifies
 support for internal work reasons and event-stream ownership.
 
-Version one uses a coordinated fleet upgrade rather than claiming mixed-version
-ownership compatibility. Upgrade every eligible owner and recovery process,
-then enable the feature for the deployment. Reject old binaries joining or
-owning feature-enabled storage. Reuse the persisted fleet-format marker and
-deployment compatibility validation, extending their checked version contract
-as necessary; old code must fail closed, not ignore an unknown field and serve.
-
-The implementation profile uses `event-delivery-v1`, native host protocol 3,
-peer protocol 6 and fleet wake format 3. Fresh fleets record all three protocol
-capabilities in the marker. Ordinary startup refuses the prior format instead
-of inferring that existing owners understand internal event work. Compiled
-applications must be rebuilt for the new host protocol.
-
-The coordinated format-2 upgrade is an explicit administrative operation with
-a caller-supplied operation UUID, bounded reason and confirmation that every
-old writer and recovery process is stopped. A paginated lease scan additionally
-refuses any live node authority. The confirmation is the offline procedure's
-premise; the scan does not turn multiple object keys into a distributed fencing
-transaction. The upgrade conditionally replaces only the exact prior marker,
-retaining its immutable receipt. A conflicting or lost CAS response is resolved
-against the durable receipt; a rejected CAS is never reported as applied.
-Cell databases, ownership records, logs and wake entries remain intact.
-
-The CLI entry is `cellar fleet upgrade --operation UUID --reason TEXT
---confirm-stopped-writers` with the ordinary fleet storage flags. Repeating the
-same operation and arguments is idempotent; a reused operation with changed
-arguments fails. Starting a compiled node with an actor policy advertising the
-previous peer protocol also fails validation. Downgrade remains unsupported.
+Cellar is in internal development and has no backward compatibility contract.
+All Cellar-owned protocol, format and schema markers remain at version 1,
+including peer, native host, bucket/wake, catalog, stream, outbox and inbox.
+`event-delivery-v1` names the current feature. Breaking layout changes use a hard
+cutover: stop all participants, recreate development state, rebuild executables,
+and restart on the current build. Mixed builds, old-state migrations, fleet
+upgrade receipts and downgrade procedures are outside this development policy.
+External SQLite WAL/LTX codec identifiers and runtime revision/sequence counters
+are not Cellar compatibility versions and retain their existing meanings.
 
 The supported single-node configuration also supplies a bucket, replication,
 and durable wake discovery. A SQLite-only embedded node cannot admit deployed
@@ -1305,26 +1287,14 @@ Reject that configuration before resource provisioning or application admission.
 SQLite-only support requires a separately qualified local discovery and recovery
 path; treating a live process's timer cache as durable discovery is insufficient.
 
-Create system schemas on activation through versioned transactional migration.
-For existing cells, preserve application alarms and their wake installation
-sequence while initializing empty internal-work state. Enable the feature only
-after both application and maintenance paths understand the generalized wake
-projection. Test restart at each schema/configuration boundary.
-
-Source outbox and consumer inbox each have an independent schema marker.
-Known unmarked layouts from the unreleased implementation migrate within the
-activation transaction, including previously lazy seal and batch-limit tables.
-Migration preserves encoded events, source incarnation, producer sequences,
-seal operations, inbox digests and deadlines. Empty or unsupported marker rows,
-unknown layouts and inconsistent retained accounting fail closed; migration never
-repairs history by inventing progress or discarding obligations. Source
-activation also refuses retained events exceeding the host's event/key/family
+Create fresh system schemas transactionally on activation with version-1 markers.
+Reopening current state preserves application alarms, source incarnation,
+producer sequences, receipts, tombstones and internal work. Existing unmarked,
+unsupported or incomplete event layouts fail before schema mutation; recreate
+them rather than migrating. Inconsistent retained accounting fails closed.
+Source activation also refuses retained events exceeding the host event/key/family
 limits. Reinstating compatible limits permits recovery of those same bytes.
-
-Rollback to old binaries is unsupported once the feature marker is enabled.
-Disabling new publication does not make old owners safe while event metadata or
-internal work remains. A downgrade requires a separately designed export/drain
-procedure; no automatic downgrade is included here.
+Test fresh initialization, same-build reopening and schema/configuration boundaries.
 
 The current application outbox example remains runnable. Add a new native
 stream-backed example when the primitive ships, then update the guide to
@@ -1399,7 +1369,7 @@ may run behind the incompatible-feature gate in isolated development fleets.
 - Whole-source destruction rejects pending live destinations. Pending rows are
   discarded only under the explicit retired-destination contract; ordinary
   reset preserves source/inbox identity and cannot substitute for destruction.
-- Schema migration restart and unknown future versions; receipt and tombstone
+- Fresh schema initialization, reopening and unsupported markers; receipt and tombstone
   capacity; metadata as well as payload cleanup obeys bounded sweep admission.
 
 Model tests should enumerate short interleavings of commit, proof, wake, append,

@@ -697,7 +697,7 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
     let uses_sql = project.do_classes.iter().any(|class| class == SQL_CLASS);
     let python_runtime = project.python.is_some();
     let manifest = Manifest {
-        schema_version: if asset_reference.is_some() { 2 } else { 1 },
+        schema_version: 1,
         version: version.clone(),
         script_name: project.script_name.clone(),
         main_module: project.entry.as_ref().map(|_| module_name.clone()),

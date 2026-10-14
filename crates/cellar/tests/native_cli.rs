@@ -76,28 +76,6 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
         ensure!(!coordinated.status.success());
         ensure!(String::from_utf8(coordinated.stderr)?
             .contains("coordinated retirement requires --procedure TEXT"));
-        let fleet = Command::new(executable)
-            .args(["fleet", "upgrade", "--help"])
-            .output()?;
-        ensure!(
-            fleet.status.success(),
-            "fleet upgrade help failed: {fleet:?}"
-        );
-        let help = String::from_utf8(fleet.stdout)?;
-        ensure!(help.contains("--confirm-stopped-writers") && help.contains("protocol 3"));
-        let unconfirmed = Command::new(executable)
-            .args([
-                "fleet",
-                "upgrade",
-                "--operation",
-                "00000000000000000000000000000099",
-                "--reason",
-                "test incomplete coordination",
-            ])
-            .output()?;
-        ensure!(!unconfirmed.status.success());
-        ensure!(String::from_utf8(unconfirmed.stderr)?
-            .contains("all old writers and recovery processes are stopped"));
     }
     Ok(())
 }

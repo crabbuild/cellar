@@ -376,7 +376,7 @@ async fn node_activates_declarations_checks_adoption_and_processes_redelivery() 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn node_cutover_refuses_previous_storage_and_peer_protocol_before_admission() -> Result<()> {
+async fn node_refuses_unsupported_storage_and_peer_protocol_before_admission() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let core = Executor::new("event-cutover-core")?;
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
@@ -420,18 +420,15 @@ async fn node_cutover_refuses_previous_storage_and_peer_protocol_before_admissio
                 bucket.get("nodes/events.json").await?.unwrap().0.as_ref() == predecessor,
                 "format refusal overwrote predecessor authority"
             );
-            let upgrade = cellar::wake_format::Upgrade {
-                operation: "00000000000000000000000000000088".into(),
-                reason: "coordinated test upgrade".into(),
-                confirmed_stopped_writers: true,
-            };
-            cellar::wake_format::upgrade(&bucket, &upgrade).await?;
+            bucket.delete("wake/format.json").await?;
+            bucket.delete("nodes/events.json").await?;
+            cellar::wake_format::ensure_ready(&bucket).await?;
             Ok::<_, anyhow::Error>(())
         })
         .await??;
     operator.shutdown().await;
     let (mut config, services) = inputs("events", &data, &core, Some(bucket.clone()), 0).await?;
-    config.actor.core.peer_protocol = 5;
+    config.actor.core.peer_protocol = 2;
     ensure!(
         Node::start(
             config,
@@ -444,10 +441,10 @@ async fn node_cutover_refuses_previous_storage_and_peer_protocol_before_admissio
         "actor advertised an incompatible peer protocol"
     );
     let (config, services) = inputs("events", &data, &core, Some(bucket), 0).await?;
-    let node = Node::start(config, services, graph(1, false), applications("upgraded")?).await?;
+    let node = Node::start(config, services, graph(1, false), applications("fresh")?).await?;
     let sender = cellar::peer_auth::PeerAuth::new([11; 32], "previous-peer")?;
     let mut headers = sender.signed_headers("GET", "/peer/probe", &[], "events")?;
-    headers.insert(cellar::peer_auth::RESPONSE_VERSION_HEADER, "5".parse()?);
+    headers.insert(cellar::peer_auth::RESPONSE_VERSION_HEADER, "6".parse()?);
     let reply = client()?
         .get(format!(
             "http://{}/peer/probe",
@@ -461,9 +458,9 @@ async fn node_cutover_refuses_previous_storage_and_peer_protocol_before_admissio
         "previous peer admitted: {}",
         reply.status()
     );
-    ensure!(reply.headers()[cellar::peer_auth::RESPONSE_VERSION_HEADER] == "6");
-    // An otherwise authenticated current peer cannot negotiate the previous
-    // tunnel layout. This exercises the tunnel's own version gate separately.
+    ensure!(reply.headers()[cellar::peer_auth::RESPONSE_VERSION_HEADER] == "1");
+    // An otherwise authenticated peer with an unsupported tunnel version
+    // is refused by the tunnel gate independently.
     let headers = sender.signed_headers("GET", "/peer/tunnel", &[], "events")?;
     let reply = client()?
         .get(format!(

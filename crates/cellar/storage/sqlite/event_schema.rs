@@ -1,5 +1,4 @@
-//! Versioned event storage. Only known unmarked layouts from the unreleased
-//! implementation may migrate; a future marker cannot be overwritten by DDL.
+//! Internal-development event storage. Existing layouts require a version-1 marker.
 
 use crate::application::event_stream::{DeliveryError, ErrorCode};
 use rusqlite::Connection;
@@ -8,7 +7,6 @@ pub(super) struct Schema {
     pub marker: &'static str,
     pub ddl: &'static str,
     pub required: &'static [(&'static str, &'static str)],
-    pub optional: &'static [(&'static str, &'static str)],
 }
 
 pub(super) fn compatible(condition: bool, reason: &str) -> anyhow::Result<()> {
@@ -66,12 +64,25 @@ fn layout(connection: &Connection, table: &str, expected: &str) -> anyhow::Resul
     )
 }
 
-pub(super) fn check_version(
-    connection: &Connection,
-    marker: &str,
-    supported: &[i64],
-) -> anyhow::Result<bool> {
+pub(super) fn check_version(connection: &Connection, marker: &str) -> anyhow::Result<bool> {
     if !present(connection, marker)? {
+        let tables: &[&str] = match marker {
+            "__sys_stream_schema" => &[
+                "__sys_stream",
+                "__sys_stream_retirement",
+                "__sys_stream_subscriptions",
+            ],
+            "__sys_event_catalog_schema" => {
+                &["__sys_event_catalog", "__sys_event_catalog_receipts"]
+            }
+            _ => &[],
+        };
+        for table in tables {
+            compatible(
+                !present(connection, table)?,
+                "unmarked event schema; recreate development state",
+            )?;
+        }
         return Ok(false);
     }
     let (count, version): (i64, Option<i64>) = connection.query_row(
@@ -80,7 +91,7 @@ pub(super) fn check_version(
         |row| Ok((row.get(0)?, row.get(1)?)),
     )?;
     compatible(
-        count == 1 && version.is_some_and(|version| supported.contains(&version)),
+        count == 1 && version == Some(1),
         "unsupported or missing persisted event schema version",
     )?;
     Ok(true)
@@ -88,46 +99,35 @@ pub(super) fn check_version(
 
 impl Schema {
     pub(super) fn check(&self, connection: &Connection) -> anyhow::Result<bool> {
-        let marked = check_version(connection, self.marker, &[1])?;
+        let marked = check_version(connection, self.marker)?;
         if marked {
             layout(connection, self.marker, "singleton,version")?;
         }
         let mut required = 0;
-        let mut optional = 0;
         for (table, expected) in self.required {
             if present(connection, table)? {
                 layout(connection, table, expected)?;
                 required += 1;
             }
         }
-        for (table, expected) in self.optional {
-            if present(connection, table)? {
-                layout(connection, table, expected)?;
-                optional += 1;
-            }
-        }
-        let exists = marked || required != 0 || optional != 0;
+        let exists = marked || required != 0;
         compatible(
-            !exists || required == self.required.len(),
+            !exists || (marked && required == self.required.len()),
             "persisted event schema is incomplete",
-        )?;
-        compatible(
-            !marked || optional == self.optional.len(),
-            "versioned event schema lacks protocol tables",
         )?;
         Ok(exists)
     }
 
-    /// The caller owns a transaction/savepoint, so migration and its marker
+    /// The caller owns a transaction/savepoint, so initialization and its marker
     /// follow the surrounding emission, inbox, or activation rollback.
     pub(super) fn open(&self, connection: &Connection) -> anyhow::Result<()> {
         compatible(
             !connection.is_autocommit(),
-            "event schema migration requires a transaction",
+            "event schema initialization requires a transaction",
         )?;
         // Activation already validated marked layouts. Avoid rebuilding DDL
         // and walking retained records for every emission/inbox acceptance.
-        if check_version(connection, self.marker, &[1])? {
+        if check_version(connection, self.marker)? {
             return Ok(());
         }
         self.check(connection)?;
@@ -150,10 +150,10 @@ mod tests {
     #[test]
     fn marked_retirement_provenance_is_required_before_base_schema_changes() -> anyhow::Result<()> {
         for (marker, version, table) in [
-            ("__sys_stream_schema", 4, "__sys_stream_retirement"),
+            ("__sys_stream_schema", 1, "__sys_stream_retirement"),
             (
                 "__sys_event_catalog_schema",
-                3,
+                1,
                 "__sys_event_catalog_receipts",
             ),
         ] {
@@ -191,7 +191,7 @@ mod tests {
             "__sys_stream_schema",
             "__sys_event_catalog_schema",
         ] {
-            for version in [Some(999), None] {
+            for version in [Some(0), Some(2), Some(999), None] {
                 let connection = Connection::open_in_memory()?;
                 connection.execute_batch(&format!(
                     "CREATE TABLE business(value TEXT); INSERT INTO business VALUES('retained');

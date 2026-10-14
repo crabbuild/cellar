@@ -56,7 +56,10 @@ fn authorize_resource(db: &Storage, caller: &Authority, action: Action) -> Resul
         .ok_or_else(|| error(ErrorCode::NotInitialized, "catalog resource missing"))?;
     let encoded = match row.get("definition") {
         Some(SqlValue::Text(definition)) => definition.clone(),
-        _ => store::text(&row, "pending_definition")?,
+        _ => {
+            caller.require_provisioning()?;
+            store::text(&row, "pending_definition")?
+        }
     };
     let definition: Definition = serde_json::from_str(&encoded)?;
     store::authorize(&definition, caller, action, None)?;
@@ -464,6 +467,7 @@ async fn configure(context: &Context, body: &Value) -> Result<Value> {
             tx.system_sql("UPDATE __sys_event_catalog SET pending_definition=?,pending_authority=?,operation=?,digest=?,operation_authority=?,lifecycle='updating',retry_at_ms=? WHERE id=?",
                 &[serde_json::to_string(&desired)?.into(),serde_json::to_string(&caller)?.into(),operation.into(),digest.clone().into(),serde_json::to_string(&caller)?.into(),crate::asyncrt::wall_ms().into(),desired.resource.id.clone().into()])?;
         } else {
+            caller.require_provisioning()?;
             store::authorize(&desired,&caller,Action::Configure,None)?;
             if desired.revision!=1 { return Err(error(ErrorCode::ConfigConflict,"catalog creation requires revision one")); }
             let counts=tx.system_sql("SELECT count(*) AS n FROM __sys_event_catalog",&[])?;

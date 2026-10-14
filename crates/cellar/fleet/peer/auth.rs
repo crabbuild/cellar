@@ -14,10 +14,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// Protocol 6 carries authenticated event authority and generalized internal
-// work. Event-enabled ownership is never compatible with protocol-5 owners.
-pub const PROTOCOL_VERSION: u16 = 6;
-pub const PROTOCOL_VERSION_TEXT: &str = "6";
+// Internal development keeps protocol 1; all fleet participants use one build.
+pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION_TEXT: &str = "1";
 pub const RESPONSE_VERSION_HEADER: &str = "x-cells-peer-version";
 
 const SECRET_KEY: &str = "fleet/peer-auth.json";

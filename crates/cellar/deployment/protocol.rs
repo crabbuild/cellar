@@ -90,9 +90,8 @@ pub const SUPPORTED_DEPLOYMENT_FEATURES: &[&str] = &[
 pub const FEATURE_NATIVE_V1: &str = "native-v1";
 pub const FEATURE_EVENT_DELIVERY_V1: &str = "event-delivery-v1";
 
-// Protocol 3 requires generalized durable work and the versioned event schemas.
-// Older executables must be rebuilt before the coordinated fleet cutover.
-pub const NATIVE_HOST_PROTOCOL: u32 = 3;
+// Internal development keeps protocol 1 and rebuilds hosts on hard cutover.
+pub const NATIVE_HOST_PROTOCOL: u32 = 1;
 
 /// Native executable declarations; this is a host protocol version, not a
 /// dynamic Rust ABI. Application factories are linked into the executable.

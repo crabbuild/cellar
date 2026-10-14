@@ -200,5 +200,5 @@ HTTP command kinds `retire` and `retirement_status` use the catalog scope derive
 from the binding resource's tenant/application. `retire` carries the SDK
 `Retirement` shape, whose nested mode is coordinated or force. Operator authority
 permits catalog retirement/status and its partition preflight/closure, while
-configuration and append remain unavailable to this capability. Catalog schema
-3 and partition schema 4 preserve legacy rows while adding nullable provenance.
+configuration and append remain unavailable to this capability. Catalog and partition schemas stay at version 1 and include nullable provenance.
+Internal development uses hard cutovers with recreated state, without legacy migrations.

@@ -12,7 +12,6 @@ const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
         ),
         ("__sys_outbox_operation_stats", "singleton,rows"),
     ],
-    optional: &[],
 };
 
 pub(super) fn check_schema(connection: &Connection) -> anyhow::Result<bool> {

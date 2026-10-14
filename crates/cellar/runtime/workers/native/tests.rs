@@ -511,6 +511,7 @@ async fn source_recovery_retains_unavailable_application_alarms_without_consumin
                 let c = rusqlite::Connection::open(&path)?;
                 crate::storage::schema(&c)?;
                 c.execute_batch(include_str!("../../../storage/sqlite/outbox.sql"))?;
+                c.execute_batch("CREATE TABLE __sys_outbox_schema(singleton INTEGER PRIMARY KEY CHECK(singleton=1),version INTEGER NOT NULL CHECK(version=1)); INSERT INTO __sys_outbox_schema VALUES(1,1);")?;
                 c.execute(
                     "INSERT INTO __sys_event_source VALUES(1,?1,1)",
                     ["0".repeat(32)],

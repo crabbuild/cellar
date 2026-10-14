@@ -488,6 +488,20 @@ async fn replay(runtime: &RuntimeManager, captured: &Captured) -> Result<Value> 
     decode_rpc_result(&result.data)?.to_json()
 }
 
+async fn provision(
+    runtime: &RuntimeManager,
+    generation: &Generation,
+    resource: &Resource,
+    operation: &str,
+    owned: &Arc<tokio::sync::Mutex<BTreeSet<String>>>,
+) -> Result<Value> {
+    let (reply, _receiver) = tokio::sync::oneshot::channel();
+    let mut request = generation.event_provisioning_request(resource, operation, reply)?;
+    resident(runtime, &request.scope, owned).await?;
+    let result = runtime.rpc_from_host(&mut request).await?;
+    decode_rpc_result(&result.data)?.to_json()
+}
+
 fn event_graph(script: &str, bindings: Vec<Binding>) -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
         event_streams: Vec::new(),
@@ -582,39 +596,22 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         },
         std::collections::HashMap::from([(SCRIPT.into(), registry.clone())]),
     )?;
+    // Serving bindings intentionally contain stale permissions to exercise
+    // receiver-side grants. Trusted provisioning uses a separate valid host
+    // declaration, without admitting those stale bindings as declarations.
+    let mut provisioning_graph = event_graph(SCRIPT, vec![binding()]);
+    provisioning_graph.primary.event_streams = vec![definition(1, true)];
+    let provisioning_generation = Generation::build_native(
+        1,
+        provisioning_graph,
+        GenerationOptions {
+            node: "test".into(),
+            region: "test".into(),
+        },
+        std::collections::HashMap::from([(SCRIPT.into(), registry.clone())]),
+    )?;
     let directory = tempfile::tempdir()?;
     let resource = binding().resource;
-    let stream_name =
-        serde_json::to_string(&(&resource.tenant, &resource.application, &resource.id, 0u32))?;
-    let stream_id =
-        cellar_native::cell_id::for_name("cells:v1:event-stream:__EventStream", &stream_name);
-    let stream_scope = format!(
-        "{}:{}",
-        cellar::deploy::EVENT_STREAM_CLASS,
-        cellar_native::cell_id::encode_hex(&stream_id)
-    );
-    // Seed the unreleased v1 layout before any owner opens this private DB.
-    // Activation must migrate its unique name without resetting progress.
-    let legacy_path = directory
-        .path()
-        .join("cells")
-        .join(&stream_scope)
-        .join("ltx/e1/db.sqlite");
-    let filesystem = cellar::asyncrt::fs();
-    let legacy_parent = legacy_path.parent().unwrap().to_owned();
-    cellar::asyncrt::blocking(move || filesystem.create_dir_all(&legacy_parent)).await??;
-    let legacy = rusqlite::Connection::open(&legacy_path)?;
-    legacy.execute_batch(
-        "CREATE TABLE __sys_stream_subscriptions (
-        id TEXT PRIMARY KEY,name TEXT NOT NULL UNIQUE,generation TEXT NOT NULL,start TEXT NOT NULL,
-        checkpoint INTEGER NOT NULL,required INTEGER NOT NULL,state TEXT NOT NULL DEFAULT 'active',
-        next_lease_generation INTEGER NOT NULL DEFAULT 1,retry_at_ms INTEGER NOT NULL DEFAULT 0);",
-    )?;
-    legacy.execute("INSERT INTO __sys_stream_subscriptions(id,name,generation,start,checkpoint,required) VALUES(?1,'fulfillment',?2,?3,0,0)",
-        rusqlite::params!["00000000000000000000000000000091","00000000000000000000000000000092",serde_json::to_string(&Start::Earliest)?])?;
-    drop(legacy);
-    // A catalog's earlier schema may contain a creation committed before its
-    // partition RPC. Migration must preserve and reconcile that obligation.
     let catalog_name = serde_json::to_string(&(&resource.tenant, &resource.application))?;
     let catalog_id =
         cellar_native::cell_id::for_name("cells:v1:event-catalog:__EventCatalog", &catalog_name);
@@ -623,34 +620,6 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         cellar::deploy::EVENT_CATALOG_CLASS,
         cellar_native::cell_id::encode_hex(&catalog_id)
     );
-    let legacy_catalog_path = directory
-        .path()
-        .join("cells")
-        .join(&catalog_scope)
-        .join("ltx/e1/db.sqlite");
-    let filesystem = cellar::asyncrt::fs();
-    let legacy_parent = legacy_catalog_path.parent().unwrap().to_owned();
-    cellar::asyncrt::blocking(move || filesystem.create_dir_all(&legacy_parent)).await??;
-    let legacy_catalog = rusqlite::Connection::open(&legacy_catalog_path)?;
-    legacy_catalog.execute_batch("CREATE TABLE __sys_event_catalog (
-        id TEXT PRIMARY KEY,name TEXT NOT NULL,lifecycle TEXT NOT NULL,
-        definition TEXT,pending_definition TEXT,pending_authority TEXT,
-        operation TEXT NOT NULL,digest TEXT NOT NULL,operation_authority TEXT NOT NULL,
-        retry_at_ms INTEGER NOT NULL,attempts INTEGER NOT NULL DEFAULT 0,last_error TEXT);
-        CREATE UNIQUE INDEX __sys_event_catalog_live_name ON __sys_event_catalog(name) WHERE lifecycle!='deleted';
-        CREATE UNIQUE INDEX __sys_event_catalog_operation ON __sys_event_catalog(operation);
-        CREATE INDEX __sys_event_catalog_pending ON __sys_event_catalog(retry_at_ms,id) WHERE pending_definition IS NOT NULL;
-        CREATE TABLE __sys_event_catalog_schema(singleton INTEGER PRIMARY KEY,version INTEGER NOT NULL);
-        INSERT INTO __sys_event_catalog_schema VALUES(1,1);")?;
-    let definition_bytes = serde_json::to_vec(&definition(1, true))?;
-    use sha2::{Digest, Sha256};
-    let authority = serde_json::to_string(
-        &json!({"principal":SCRIPT,"grant":"orders-owner","resource":resource,"source":SOURCE,"action":"Configure"}),
-    )?;
-    legacy_catalog.execute("INSERT INTO __sys_event_catalog(id,name,lifecycle,pending_definition,pending_authority,operation,digest,operation_authority,retry_at_ms)
-        VALUES(?1,'orders','creating',?2,?3,'00000000000000000000000000000011',?4,?3,0)",
-        rusqlite::params![resource.id, String::from_utf8(definition_bytes.clone())?, authority, hex::encode(Sha256::digest(&definition_bytes))])?;
-    drop(legacy_catalog);
     let runtime = RuntimeManager::start(
         generation,
         RuntimeOptions {
@@ -724,17 +693,26 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         }
         while running.next().await.is_some() {}
     });
+    assert!(fetch(&runtime, "configure")
+        .await
+        .unwrap_err()
+        .to_string()
+        .contains("Forbidden"));
+    assert_eq!(
+        provision(
+            &runtime,
+            &provisioning_generation,
+            &binding().resource,
+            "00000000000000000000000000000011",
+            &owned
+        )
+        .await?["ok"]["state"],
+        "active"
+    );
     assert_eq!(fetch(&runtime, "configure").await?["state"], "active");
     assert_eq!(fetch(&runtime, "configure").await?["state"], "active");
-    let migrated = fetch(&runtime, "status").await?;
-    assert_eq!(
-        migrated["identity"]["id"],
-        "00000000000000000000000000000091"
-    );
-    assert_eq!(
-        migrated["identity"]["generation"],
-        "00000000000000000000000000000092"
-    );
+    let initial = fetch(&runtime, "status").await?;
+    assert_eq!(initial, fetch(&runtime, "status").await?);
     fetch(&runtime, "emit").await?;
     assert_eq!(fetch(&runtime, "seal").await?["error"], "PendingDelivery");
     fire(&runtime, SOURCE, 1).await?;
@@ -1284,6 +1262,34 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     );
     assert_eq!(fetch(&runtime, "retire").await?, terminal);
     assert_eq!(
+        fetch(&runtime, "new-configure?new=true").await?["error"],
+        "Forbidden"
+    );
+    let mut replacement_graph = event_graph(SCRIPT, vec![new_binding()]);
+    let mut replacement_definition = definition(1, true);
+    replacement_definition.resource = new_binding().resource;
+    replacement_graph.primary.event_streams = vec![replacement_definition];
+    let replacement_generation = Generation::build_native(
+        2,
+        replacement_graph,
+        GenerationOptions {
+            node: "test".into(),
+            region: "test".into(),
+        },
+        std::collections::HashMap::from([(SCRIPT.into(), registry.clone())]),
+    )?;
+    assert_eq!(
+        provision(
+            &runtime,
+            &replacement_generation,
+            &new_binding().resource,
+            "00000000000000000000000000000071",
+            &owned
+        )
+        .await?["ok"]["state"],
+        "active"
+    );
+    assert_eq!(
         fetch(&runtime, "new-configure?new=true").await?["state"],
         "active"
     );
@@ -1485,7 +1491,7 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     assert_eq!(
         destination.query_row("SELECT version FROM __sys_stream_schema", [], |row| row
             .get::<_, i64>(0))?,
-        4
+        1
     );
     assert_eq!(
         destination.query_row("SELECT count(*) FROM __sys_stream_operations", [], |row| {
@@ -1531,7 +1537,7 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
             [],
             |row| row.get::<_, i64>(0)
         )?,
-        3
+        1
     );
     assert_eq!(catalog.query_row("SELECT count(*) FROM __sys_event_catalog_receipts WHERE operation='00000000000000000000000000000011' AND result IS NOT NULL", [], |row| row.get::<_, i64>(0))?, 1);
     assert_eq!(

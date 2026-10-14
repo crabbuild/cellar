@@ -12,7 +12,6 @@ const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
         ),
         ("__sys_inbox_stats", "singleton,rows"),
     ],
-    optional: &[],
 };
 
 pub(super) fn check_schema(connection: &Connection) -> anyhow::Result<bool> {
@@ -177,10 +176,6 @@ mod tests {
         );
         transaction_control(SCOPE, "commit", false, "cells_tx_2").unwrap();
         close(SCOPE);
-        {
-            let connection = Connection::open(&path)?;
-            connection.execute_batch("DROP TABLE __sys_inbox_schema;")?;
-        }
         open_at_epoch(SCOPE, &path, 2, false, None, false)?;
         assert_eq!(
             with(SCOPE, |c| c.query_row(
