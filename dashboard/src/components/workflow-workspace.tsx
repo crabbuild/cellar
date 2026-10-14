@@ -1,3 +1,4 @@
+import { useSearchParams } from "react-router-dom"
 import { useState } from "react"
 import {
   WorkflowExecution,
@@ -58,7 +59,8 @@ export function WorkflowWorkspace({
   execute: (command: Command) => void
   confirm: (title: string, description: string, command: Command) => void
 }) {
-  const [instance, setInstance] = useState("")
+  const [search] = useSearchParams()
+  const [instance, setInstance] = useState(() => search.get("instance") ?? "")
   const [params, setParams] = useState("{}")
   const [eventType, setEventType] = useState("")
   const [cursor, setCursor] = useState("0")
@@ -336,10 +338,12 @@ export function WorkflowResults({
   value,
   pending,
   onNext,
+  target,
 }: {
   value: unknown
   pending: boolean
   onNext: (cursor: number) => void
+  target?: import("@/lib/resource").ResourceTarget
 }) {
   const result =
     value && typeof value === "object"
@@ -348,6 +352,11 @@ export function WorkflowResults({
   if (Array.isArray(result?.events)) {
     return (
       <WorkflowExecution
+        key={
+          (value as ExecutionHistory).scope ??
+          (value as ExecutionHistory).instanceId
+        }
+        target={target}
         history={value as ExecutionHistory}
         pending={pending}
         onNext={onNext}

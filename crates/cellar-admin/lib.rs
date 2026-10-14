@@ -67,6 +67,10 @@ pub fn router(console: Console) -> Result<Router> {
             "/fleets/{fleet}/applications/{application}/cron/nodes",
             get(cron::propagation),
         )
+        .route(
+            "/fleets/{fleet}/applications/{application}/cron/executions",
+            get(cron::executions),
+        )
         .route("/fleets/{fleet}/nodes", get(api::nodes))
         .route("/fleets/{fleet}/nodes/{node}", get(api::node))
         .route("/fleets/{fleet}/nodes/{node}/probe", post(api::probe))

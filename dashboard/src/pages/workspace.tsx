@@ -1,7 +1,7 @@
+import { mergeHistory } from "@/lib/workflow-inspection"
 import { lazy, Suspense, useState } from "react"
 import {
   WorkflowDefinition,
-  mergeHistory,
   type ExecutionHistory,
 } from "@/components/workflow-visual"
 import { Link, useParams } from "react-router-dom"
@@ -28,6 +28,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { CronExecutions } from "@/components/cron-executions"
 import { CronConfiguration } from "@/components/cron-configuration"
 import { CronPreview } from "@/components/cron-preview"
 import { QueueResults } from "@/components/resource-results"
@@ -98,6 +99,7 @@ function ResourceWorkspace({ kind }: { kind: string }) {
         body: JSON.stringify({
           application,
           binding,
+          expected_identity: resource?.identity,
           operation_id: crypto.randomUUID(),
           command,
         }),
@@ -250,6 +252,9 @@ function ResourceWorkspace({ kind }: { kind: string }) {
         {kind === "cron" ? (
           <CronConfiguration fleet={fleet} application={application} />
         ) : null}
+        {kind === "cron" ? (
+          <CronExecutions fleet={fleet} application={application} />
+        ) : null}
         {kind === "cron" ? <CronPreview fleet={fleet} /> : null}
         {kind === "cron" ? (
           <Card>
@@ -328,6 +333,12 @@ function ResourceWorkspace({ kind }: { kind: string }) {
             <CardContent>
               {kind === "workflows" ? (
                 <WorkflowResults
+                  target={{
+                    fleet,
+                    application,
+                    binding,
+                    identity: resource?.identity,
+                  }}
                   value={
                     Array.isArray(
                       (displayed.result as ExecutionHistory)?.events

@@ -8,6 +8,8 @@ import {
   Layers,
   Minus,
   Plus,
+  Pin,
+  PinOff,
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,6 +24,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { JsonView, Nothing, Status } from "@/components/console-ui"
 import { date } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import {
+  latestOccurrence,
+  stepInterval,
+  workflowGroupKey,
+} from "@/lib/workflow-inspection"
+import { elapsed } from "@/components/queue-message"
+import { WorkflowHistorySearch } from "@/components/workflow-search"
+import { WorkflowComparison } from "@/components/workflow-comparison"
+import type { ResourceTarget } from "@/lib/resource"
 
 export type Definition = {
   version: string
@@ -54,6 +65,7 @@ export type WorkflowEvent = {
   config?: unknown
   durationMs?: number
   eventType?: string
+  inspectionOmitted?: string[]
 }
 export type ExecutionHistory = {
   instanceId: string
@@ -62,50 +74,8 @@ export type ExecutionHistory = {
   definitions: Record<string, Snapshot>
   done: boolean
   clipped?: boolean
-}
-
-// Bound retained browser payloads as well as DOM work. Never mix instance histories.
-export function mergeHistory(
-  previous: ExecutionHistory | null,
-  page: ExecutionHistory
-): ExecutionHistory {
-  const append = page.cursor > 0 && previous?.instanceId === page.instanceId
-  const events = [
-    ...new Map(
-      [...(append ? previous.events : []), ...page.events].map((event) => [
-        event.eventId,
-        event,
-      ])
-    ).values(),
-  ].sort((a, b) => a.eventId - b.eventId)
-  let bytes = 0
-  let first = events.length
-  for (
-    let index = events.length - 1;
-    index >= 0 && events.length - index <= 256;
-    index--
-  ) {
-    bytes += JSON.stringify(events[index]).length
-    if (bytes > 16 * 1024 * 1024 && first < events.length) break
-    first = index
-  }
-  const retained = events.slice(first)
-  const definitions = {
-    ...(append ? previous.definitions : {}),
-    ...page.definitions,
-  }
-  const generations = new Set(retained.map((event) => event.generation))
-  return {
-    ...page,
-    cursor: append ? previous.cursor : page.cursor,
-    events: retained,
-    definitions: Object.fromEntries(
-      Object.entries(definitions).filter(([generation]) =>
-        generations.has(generation)
-      )
-    ),
-    clipped: first > 0 || (append && previous.clipped),
-  }
+  scope?: string
+  bindingIdentity?: string
 }
 
 export function WorkflowDefinition({
@@ -121,6 +91,7 @@ export function WorkflowDefinition({
 }) {
   const [selected, setSelected] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
+  const [showDurations, setShowDurations] = useState(true)
   const marker = useId().replaceAll(":", "")
   const nodes = definition?.nodes ?? []
   const edges = definition?.edges ?? []
@@ -147,12 +118,16 @@ export function WorkflowDefinition({
   }
   const unresolved = Math.max(0, ...levels.values()) + 1
   const rows = new Map<number, number>()
+  const nodeHeight = observations ? 110 : 84
   const positions = new Map(
     nodes.map((node) => {
       const level = levels.get(node.id) ?? unresolved
       const row = rows.get(level) ?? 0
       rows.set(level, row + 1)
-      return [node.id, { x: 24 + level * 280, y: 30 + row * 130 }] as const
+      return [
+        node.id,
+        { x: 24 + level * 280, y: 30 + row * (nodeHeight + 46) },
+      ] as const
     })
   )
   const width = Math.max(
@@ -161,7 +136,7 @@ export function WorkflowDefinition({
   )
   const height = Math.max(
     180,
-    ...[...positions.values()].map((position) => position.y + 110)
+    ...[...positions.values()].map((position) => position.y + nodeHeight + 26)
   )
   const active = nodes.find((node) => node.id === selected)
   const observed = (node: Definition["nodes"][number]) =>
@@ -230,6 +205,16 @@ export function WorkflowDefinition({
                 >
                   <Minus />
                 </Button>
+                {observations ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    aria-pressed={showDurations}
+                    onClick={() => setShowDurations((value) => !value)}
+                  >
+                    Duration overlays
+                  </Button>
+                ) : null}
                 <span className="text-xs tabular-nums">
                   {Math.round(zoom * 100)}%
                 </span>
@@ -278,11 +263,11 @@ export function WorkflowDefinition({
                         to = positions.get(edge.to)
                       if (!from || !to) return null
                       const x = from.x + 220,
-                        y = from.y + 42,
-                        targetY = to.y + 42
+                        y = from.y + nodeHeight / 2,
+                        targetY = to.y + nodeHeight / 2
                       const bend = x + Math.max(28, (to.x - x) / 2)
                       const detour = to.x <= from.x || to.x - from.x > 280
-                      const rail = Math.max(from.y, to.y) + 108
+                      const rail = Math.max(from.y, to.y) + nodeHeight + 24
                       const path = detour
                         ? `M${x},${y} L${x + 16},${y} L${x + 16},${rail} L${to.x - 16},${rail} L${to.x - 16},${targetY} L${to.x - 4},${targetY}`
                         : `M${x},${y} C${bend},${y} ${to.x - 28},${targetY} ${to.x - 4},${targetY}`
@@ -329,7 +314,11 @@ export function WorkflowDefinition({
                           "workflow-graph-node",
                           selected === node.id && "workflow-selected"
                         )}
-                        style={{ left: position.x, top: position.y }}
+                        style={{
+                          left: position.x,
+                          top: position.y,
+                          height: nodeHeight,
+                        }}
                         aria-pressed={selected === node.id}
                         onClick={() => setSelected(node.id)}
                       >
@@ -348,6 +337,18 @@ export function WorkflowDefinition({
                             </>
                           )}
                         </span>
+                        {observations && showDurations && node.step ? (
+                          <span className="workflow-duration-overlay">
+                            {(() => {
+                              const interval = stepInterval(
+                                latestOccurrence(observations, node.step!)
+                              )
+                              return interval.ms == null
+                                ? "Duration not recorded"
+                                : `${interval.complete ? "" : "Observed "}${elapsed(interval.ms)}`
+                            })()}
+                          </span>
+                        ) : null}
                       </button>
                     )
                   })}
@@ -438,13 +439,22 @@ export function WorkflowExecution({
   history,
   pending,
   onNext,
+  target,
+  compare = true,
 }: {
   history: ExecutionHistory
   pending: boolean
   onNext: (cursor: number) => void
+  target?: ResourceTarget
+  compare?: boolean
 }) {
   const [run, setRun] = useState("")
   const [selected, setSelected] = useState<number | null>(null)
+  const [pinned, setPinned] = useState<{
+    events: WorkflowEvent[]
+    instance: string
+  } | null>(null)
+  const [showDurations, setShowDurations] = useState(true)
   const generations = [
     ...new Set(history.events.map((event) => event.generation ?? "legacy")),
   ]
@@ -455,22 +465,24 @@ export function WorkflowExecution({
   const snapshot = generation ? history.definitions?.[generation] : undefined
   const groups = new Map<string, WorkflowEvent[]>()
   for (const event of events) {
-    const key = event.stepName
-      ? `${event.type.startsWith("rollback") ? "rollback" : "step"}:${event.stepName}:${event.count ?? 1}`
-      : `event:${event.eventId}`
+    const key = workflowGroupKey(event)
     groups.set(key, [...(groups.get(key) ?? []), event])
   }
   const selectedGroup =
     [...groups.values()].find((group) =>
       group.some((event) => event.eventId === selected)
     ) ?? [...groups.values()][0]
+  const inspectedGroup = pinned?.events ?? selectedGroup
   const selectedEvent =
-    selectedGroup?.find((event) => event.eventId === selected) ??
-    selectedGroup?.at(-1)
+    (pinned
+      ? pinned.events.at(-1)
+      : inspectedGroup?.find((event) => event.eventId === selected)) ??
+    inspectedGroup?.at(-1)
   const latestWith = (field: keyof WorkflowEvent) =>
-    [...(selectedGroup ?? [])]
+    [...(inspectedGroup ?? [])]
       .reverse()
       .find((event) => event[field] !== undefined)?.[field]
+  const interval = stepInterval(inspectedGroup ?? [])
   return (
     <section
       className="flex min-w-0 flex-col gap-4"
@@ -514,11 +526,37 @@ export function WorkflowExecution({
         . Event order shows observations, not dependencies between parallel
         activities.
       </p>
+      {target && compare ? (
+        <WorkflowHistorySearch
+          key={`${history.scope ?? history.instanceId}`}
+          instance={history.instanceId}
+          scope={history.scope}
+          target={{
+            ...target,
+            identity: history.bindingIdentity ?? target.identity,
+          }}
+          onPin={(event) =>
+            setPinned({ events: [event], instance: history.instanceId })
+          }
+        />
+      ) : null}
+      <Button
+        variant="outline"
+        className="w-fit"
+        size="sm"
+        aria-pressed={showDurations}
+        onClick={() => setShowDurations((value) => !value)}
+      >
+        Show durations
+      </Button>
       <Tabs defaultValue="path">
-        <TabsList>
+        <TabsList className="flex-wrap">
           <TabsTrigger value="path">Execution path</TabsTrigger>
           <TabsTrigger value="timeline">Activity timeline</TabsTrigger>
           <TabsTrigger value="definition">Run definition</TabsTrigger>
+          {compare ? (
+            <TabsTrigger value="compare">Compare runs and versions</TabsTrigger>
+          ) : null}
         </TabsList>
         <TabsContent value="path">
           <div className="workflow-execution-layout">
@@ -528,8 +566,7 @@ export function WorkflowExecution({
             >
               {[...groups].map(([key, group], index) => {
                 const last = group.at(-1)!
-                const first = group[0]
-                const duration = last.timestamp - first.timestamp
+                const duration = stepInterval(group)
                 return (
                   <li key={key}>
                     {index > 0 && (
@@ -564,8 +601,8 @@ export function WorkflowExecution({
                         {last.stepName
                           ? ` · attempt ${Math.max(...group.map((event) => event.attempt ?? 1))}`
                           : ""}
-                        {duration > 0
-                          ? ` · observed ${(duration / 1000).toFixed(2)} s`
+                        {showDurations
+                          ? ` · ${duration.label}: ${elapsed(duration.ms)}`
                           : ""}
                       </span>
                     </button>
@@ -576,6 +613,37 @@ export function WorkflowExecution({
             <aside className="workflow-inspector" aria-label="Step inspector">
               {selectedEvent ? (
                 <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <Badge variant={pinned ? "outline" : "secondary"}>
+                      {pinned ? "Pinned snapshot" : "Selected step"}
+                    </Badge>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setPinned(
+                          pinned
+                            ? null
+                            : {
+                                events: [...(selectedGroup ?? [])],
+                                instance: history.instanceId,
+                              }
+                        )
+                      }
+                    >
+                      {pinned ? (
+                        <PinOff data-icon="inline-start" />
+                      ) : (
+                        <Pin data-icon="inline-start" />
+                      )}
+                      {pinned ? "Unpin details" : "Pin step details"}
+                    </Button>
+                  </div>
+                  <p className="workspace-caption">
+                    {pinned?.instance ?? history.instanceId} ·{" "}
+                    {selectedEvent.generation ?? "Legacy generation"} ·{" "}
+                    {interval.label}: {elapsed(interval.ms)}
+                  </p>
                   <div className="flex flex-col gap-1">
                     <h3 className="text-base font-semibold">
                       {selectedEvent.stepName ?? "Workflow event"}
@@ -585,6 +653,13 @@ export function WorkflowExecution({
                       {date(selectedEvent.timestamp)}
                     </p>
                   </div>
+                  {selectedEvent.inspectionOmitted?.length ? (
+                    <p className="workspace-caption">
+                      Search result fields omitted to bound payload size:{" "}
+                      {selectedEvent.inspectionOmitted.join(", ")}. Load the
+                      event through history for its full recorded data.
+                    </p>
+                  ) : null}
                   <DataField
                     title="Input"
                     value={
@@ -607,9 +682,9 @@ export function WorkflowExecution({
                   />
                   <details>
                     <summary className="cursor-pointer text-sm">
-                      Attempts and activity ({selectedGroup?.length})
+                      Attempts and activity ({inspectedGroup?.length})
                     </summary>
-                    {selectedGroup?.map((event) => (
+                    {inspectedGroup?.map((event) => (
                       <div className="mt-3" key={event.eventId}>
                         <p className="text-xs">
                           #{event.eventId} · {event.type.replaceAll("_", " ")} ·{" "}
@@ -672,6 +747,39 @@ export function WorkflowExecution({
             snapshot. Older runs may have no recorded definition.
           </p>
         </TabsContent>
+        {compare ? (
+          <TabsContent value="compare">
+            <WorkflowComparison
+              history={history}
+              generation={generation}
+              target={
+                target
+                  ? {
+                      ...target,
+                      identity: history.bindingIdentity ?? target.identity,
+                    }
+                  : undefined
+              }
+              renderRun={(history, onNext, pending) => (
+                <WorkflowExecution
+                  key={`${history.instanceId}:${history.events[0]?.generation}`}
+                  history={history}
+                  pending={pending}
+                  onNext={onNext}
+                  compare={false}
+                />
+              )}
+              renderDefinition={(snapshot, events) => (
+                <WorkflowDefinition
+                  definition={snapshot?.definition}
+                  revision={snapshot?.revision}
+                  observations={events}
+                  title="Compared definition"
+                />
+              )}
+            />
+          </TabsContent>
+        ) : null}
       </Tabs>
       {!history.done && history.events.at(-1) && (
         <Button

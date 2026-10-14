@@ -1,3 +1,4 @@
+import { useRef, useState } from "react"
 import { Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -10,6 +11,10 @@ import {
 } from "@/components/ui/table"
 import { JsonView, Status } from "@/components/console-ui"
 import { bytes, date } from "@/lib/api"
+import {
+  QueueMessagePanel,
+  type QueueMessage,
+} from "@/components/queue-message"
 
 type RecordValue = Record<string, unknown>
 function object(value: unknown): RecordValue {
@@ -90,6 +95,11 @@ function ValuePreview({
   )
 }
 export function QueueResults({ value }: { value: unknown }) {
+  const messageTrigger = useRef<HTMLButtonElement | null>(null)
+  const [selected, setSelected] = useState<{
+    message: QueueMessage
+    observedAt?: number
+  } | null>(null)
   const result = object(value)
   const metrics =
     typeof result.backlogCount === "number" ? result : object(result.metrics)
@@ -141,8 +151,22 @@ export function QueueResults({ value }: { value: unknown }) {
             <TableBody>
               {array(result.messages).map((message, i) => (
                 <TableRow key={i}>
-                  <TableCell className="font-mono text-xs">
-                    {String(message.id)}
+                  <TableCell>
+                    <Button
+                      variant="link"
+                      onClick={(event) => {
+                        messageTrigger.current = event.currentTarget
+                        setSelected({
+                          message: message as unknown as QueueMessage,
+                          observedAt:
+                            typeof result.observedAt === "number"
+                              ? result.observedAt
+                              : undefined,
+                        })
+                      }}
+                    >
+                      {String(message.id)}
+                    </Button>
                   </TableCell>
                   <TableCell>
                     <Status label={String(message.state)} />
@@ -169,6 +193,12 @@ export function QueueResults({ value }: { value: unknown }) {
           </Table>
         </>
       ) : null}
+      <QueueMessagePanel
+        message={selected?.message ?? null}
+        observedAt={selected?.observedAt}
+        onClose={() => setSelected(null)}
+        returnFocus={() => messageTrigger.current?.focus()}
+      />
       <details>
         <summary className="cursor-pointer text-xs text-muted-foreground">
           Complete broker response

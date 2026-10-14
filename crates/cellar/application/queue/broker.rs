@@ -731,12 +731,12 @@ impl Broker {
                 limit += 1;
             }
         }
-        let rows=self.exec("SELECT id,body,content_type,size,enqueued_at,visible_at,attempts,lease_id,leased_until,purge_on_settle,dlq_target,dead_letter_source FROM __sys_queue_messages WHERE enqueued_at>? ORDER BY visible_at,seq LIMIT ?",&[self.retention_cutoff(at).into(),limit.into()])?;
+        let rows=self.exec("SELECT id,body,content_type,size,enqueued_at,visible_at,attempts,lease_id,lease_generation,leased_until,purge_on_settle,dlq_target,dlq_transfer_id,transfer_kind,dead_letter_source FROM __sys_queue_messages WHERE enqueued_at>? ORDER BY visible_at,seq LIMIT ?",&[self.retention_cutoff(at).into(),limit.into()])?;
         let messages=rows.iter().map(|row| {let lease=optional_text(row,"lease_id")?.is_some() && optional_number(row,"leased_until")?.is_some_and(|until|until>at);let target=optional_text(row,"dlq_target")?;
-            Ok(json!({"id":text(row,"id")?,"bodyBase64":base64::engine::general_purpose::STANDARD.encode(blob(row,"body")?),"contentType":text(row,"content_type")?,"size":number(row,"size")?,"enqueuedAt":number(row,"enqueued_at")?,"visibleAt":number(row,"visible_at")?,"attempts":number(row,"attempts")?,"state":if target.is_some(){"moving"}else if number(row,"purge_on_settle")?!=0{"purging"}else if lease{"leased"}else if number(row,"visible_at")?<=at{"visible"}else{"delayed"},"leasedUntil":if lease{optional_number(row,"leased_until")?}else{None},"transferTarget":target,"deadLetterSource":optional_text(row,"dead_letter_source")?}))
+            Ok(json!({"id":text(row,"id")?,"bodyBase64":base64::engine::general_purpose::STANDARD.encode(blob(row,"body")?),"contentType":text(row,"content_type")?,"size":number(row,"size")?,"enqueuedAt":number(row,"enqueued_at")?,"visibleAt":number(row,"visible_at")?,"attempts":number(row,"attempts")?,"state":if target.is_some(){"moving"}else if number(row,"purge_on_settle")?!=0{"purging"}else if lease{"leased"}else if number(row,"visible_at")?<=at{"visible"}else{"delayed"},"leasedUntil":if lease{optional_number(row,"leased_until")?}else{None},"transferTarget":target,"deadLetterSource":optional_text(row,"dead_letter_source")?,"deliveryAttempts":number(row,"attempts")?.saturating_add(i64::from(optional_text(row,"lease_id")?.is_some())),"lease":{"active":lease,"expiresAt":optional_number(row,"leased_until")?,"generation":number(row,"lease_generation")?},"provenance":{"sourceQueue":optional_text(row,"dead_letter_source")?,"transferId":optional_text(row,"dlq_transfer_id")?,"kind":optional_text(row,"transfer_kind")?,"targetQueue":target}}))
         }).collect::<Result<Vec<_>>>()?;
         Ok(if console {
-            json!({"messages":messages,"truncated":truncated,"byte_budget":512*1024})
+            json!({"messages":messages,"truncated":truncated,"byte_budget":512*1024,"observedAt":at})
         } else {
             json!({"messages":messages})
         })

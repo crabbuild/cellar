@@ -3141,16 +3141,37 @@ async fn handle_internal(
                 return Ok(peer_response(response(error.status(), error.message())));
             }
             let mut name = None;
+            let mut cron_history = false;
             for (key, value) in url::form_urlencoded::parse(
                 operator_query.as_deref().unwrap_or_default().as_bytes(),
             ) {
-                if key != "name" || name.is_some() || value.is_empty() {
+                if key == "inspection"
+                    && value == "cron_history_v1"
+                    && !cron_history
+                    && scope
+                        .split_once(':')
+                        .is_some_and(|(class, _)| class == cellar_logic::cron::RESERVED_CLASS)
+                {
+                    cron_history = true;
+                } else if key == "name" && name.is_none() && !value.is_empty() {
+                    name = Some(value.into_owned());
+                } else {
                     return Ok(peer_response(response(
                         StatusCode::BAD_REQUEST,
                         "{\"error\":\"invalid operator query\"}",
                     )));
                 }
-                name = Some(value.into_owned());
+            }
+            if cron_history {
+                if name.is_some() {
+                    return Ok(peer_response(response(
+                        StatusCode::BAD_REQUEST,
+                        "{\"error\":\"cron inspection does not accept a cell name\"}",
+                    )));
+                }
+                return Ok(peer_response(
+                    management::cron_history(app, scope, body.to_vec()).await,
+                ));
             }
             // A Queue needs its name before its constructor chooses a
             // consumer. The runtime also proves that this name hashes to the

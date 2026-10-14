@@ -89,7 +89,13 @@ pub const KV_CLASS: &str = cellar_logic::kv::RESERVED_CLASS;
 pub const QUEUE_CLASS: &str = cellar_logic::queue::RESERVED_CLASS;
 
 /// Every runtime-supplied Durable Object class.
-pub const RESERVED_CLASSES: &[&str] = &[SQL_CLASS, WORKFLOW_CLASS, KV_CLASS, QUEUE_CLASS];
+pub const RESERVED_CLASSES: &[&str] = &[
+    SQL_CLASS,
+    WORKFLOW_CLASS,
+    KV_CLASS,
+    QUEUE_CLASS,
+    cellar_logic::cron::RESERVED_CLASS,
+];
 
 /// The Durable Object class a script's workflow instances run as.
 ///

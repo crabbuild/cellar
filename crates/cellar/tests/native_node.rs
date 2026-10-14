@@ -1921,9 +1921,30 @@ async fn management_crons_report_pending_until_embedded_host_adopts() -> Result<
     initial.primary.crons = manifest.crons;
     let mut node = Node::start(config, services, initial, applications("cron", None)?).await?;
     ready(&node).await?;
+    let anonymous = reqwest::Client::new()
+        .post(format!(
+            "http://{}/do/.cron:embedded-node",
+            node.info().internal_address
+        ))
+        .json(&json!({"op":"history","query":{}}))
+        .send()
+        .await?;
+    ensure!(
+        anonymous.status() == reqwest::StatusCode::FORBIDDEN,
+        "anonymous cron inspection was not refused"
+    );
     let client = FleetClient::new(bucket.clone(), false);
     let saved = management
         .run(async {
+            let empty = client.cron_history("embedded-node", None, 50, None).await?;
+            ensure!(
+                empty["items"] == json!([]),
+                "future schedule fabricated execution history"
+            );
+            ensure!(
+                empty["active_alarm"].is_number(),
+                "inspection lost the active schedule observation"
+            );
             let before = client.cron_configuration("embedded-node").await?;
             let before_nodes = client
                 .cron_propagation("embedded-node", PageRequest::default())
@@ -1966,6 +1987,15 @@ async fn management_crons_report_pending_until_embedded_host_adopts() -> Result<
             ensure!(
                 adopted.items[0].observed_revision == saved.revision,
                 "node reported the wrong cron revision"
+            );
+            let empty = client.cron_history("embedded-node", None, 50, None).await?;
+            ensure!(
+                empty["items"] == json!([]),
+                "adoption fabricated a completed execution"
+            );
+            ensure!(
+                cellar::deploy::is_reserved_scope(".cron:embedded-node"),
+                "cron inspection exposed an anonymous cell route"
             );
             Ok::<_, anyhow::Error>(())
         })
@@ -2382,5 +2412,101 @@ async fn remote_workflow_deletion_preserves_gated_handler_completion() -> Result
         );
     }
     drop(cores);
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn signed_cron_history_forwards_without_arming_and_refuses_other_protocols() -> Result<()> {
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let management = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let bucket = management
+        .run(async {
+            let bucket = Bucket::open_dev(&directory.path().join("history-fleet.sqlite"))?;
+            bucket
+                .put(
+                    "fleet/peer-auth.json",
+                    json!({"version":1,"key":"0b".repeat(32)})
+                        .to_string()
+                        .into_bytes(),
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(bucket)
+        })
+        .await??;
+    let first_core = Executor::new("cron-history-owner")?;
+    let second_core = Executor::new("cron-history-entrance")?;
+    let (config, services) = inputs(
+        "history-owner",
+        &directory.path().join("owner"),
+        &first_core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph(), applications("history", None)?).await?;
+    ready(&owner).await?;
+    let (config, services) = inputs(
+        "history-entrance",
+        &directory.path().join("entrance"),
+        &second_core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let entrance = Node::start(config, services, graph(), applications("history", None)?).await?;
+    ready(&entrance).await?;
+    let auth = cellar::peer_auth::PeerAuth::new([0x0b; 32], "dashboard")?;
+    let http = client()?;
+    for node in [&owner, &entrance] {
+        let path = "/runtime/.cron:embedded-node?inspection=cron_history_v1";
+        let body = b"{}".to_vec();
+        let response = auth
+            .sign(
+                http.post(format!("http://{}{path}", node.info().internal_address))
+                    .body(body.clone()),
+                "POST",
+                path,
+                &body,
+                &node.info().node,
+            )?
+            .send()
+            .await?;
+        let status = response.status();
+        let value: serde_json::Value = response.json().await?;
+        ensure!(
+            status == reqwest::StatusCode::OK,
+            "cron history forwarding failed: {value}"
+        );
+        ensure!(
+            value["result"]["items"] == json!([]) && value["result"]["active_alarm"].is_null(),
+            "history armed an inactive schedule: {value}"
+        );
+    }
+    for query in [
+        "inspection=unsupported",
+        "inspection=cron_history_v1&name=other",
+    ] {
+        let path = format!("/runtime/.cron:embedded-node?{query}");
+        let body = b"{}".to_vec();
+        let response = auth
+            .sign(
+                http.post(format!("http://{}{path}", entrance.info().internal_address))
+                    .body(body.clone()),
+                "POST",
+                &path,
+                &body,
+                &entrance.info().node,
+            )?
+            .send()
+            .await?;
+        ensure!(
+            response.status() == reqwest::StatusCode::BAD_REQUEST,
+            "invalid history protocol was admitted"
+        );
+    }
+    stopped(owner).await?;
+    stopped(entrance).await?;
+    management.shutdown().await;
     Ok(())
 }
