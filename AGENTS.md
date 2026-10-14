@@ -555,6 +555,15 @@ CreateBucket 503s, injects separate no-retry conditional-write clients and remov
 its own server after complete node shutdown. Credentials stay outside saved
 configuration and ledgers. This adds network-store destination recovery evidence;
 it does not prove follower-only acknowledgment, store loss or physical-host loss.
+`capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
+append traffic is paused. Overflow must roll back business state and sequence.
+It audits before producer SIGKILL and before resumed retry, without source POST
+replay, then uses resumable reads and a slow required consumer to verify every
+acceptance, inbox effect and checkpoint. Unarmed peer errors must be forwarded
+unchanged so advertised batch limits reach the dispatcher. Saved evidence must
+pass the independent oracle and include complete final shutdown. RSS/residency
+and live local file sizes are observations, not aggregate/bucket physical metrics,
+memory SLOs, many-cold-source or long-soak qualification.
 `whole_fleet.py` explicitly selects bucket proofs, audits one accepted event with
 a proven unacked inbox effect plus one capacity-blocked source obligation, then
 SIGKILLs all three processes. It inventories/discards only its private node data

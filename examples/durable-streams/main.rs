@@ -28,11 +28,23 @@ fn graph(faults: bool) -> DeploymentGraph {
             ],
             src: String::new(),
             script_name: application::SCRIPT.into(),
-            do_classes: vec!["Order".into(), "Projection".into()],
-            bindings: vec![
-                ("ORDERS".into(), "Order".into()),
-                ("PROJECTIONS".into(), "Projection".into()),
-            ],
+            do_classes: if faults {
+                vec!["Order".into(), "Projection".into(), "Backlog".into()]
+            } else {
+                vec!["Order".into(), "Projection".into()]
+            },
+            bindings: if faults {
+                vec![
+                    ("ORDERS".into(), "Order".into()),
+                    ("PROJECTIONS".into(), "Projection".into()),
+                    ("BACKLOG".into(), "Backlog".into()),
+                ]
+            } else {
+                vec![
+                    ("ORDERS".into(), "Order".into()),
+                    ("PROJECTIONS".into(), "Projection".into()),
+                ]
+            },
             sql_bindings: Vec::new(),
             kv_bindings: Vec::new(),
             blob_bindings: Vec::new(),
@@ -64,6 +76,7 @@ struct FleetFixture {
     advertise: SocketAddr,
     declare: bool,
     fleet_durability: bool,
+    outbox_rows: Option<usize>,
 }
 
 #[derive(serde::Deserialize)]
@@ -241,6 +254,13 @@ fn main() -> Result<()> {
             data.join("node"),
         );
         config.runtime.max_stateless_requests = Some(128);
+        if let Some(rows) = fixture.as_ref().and_then(|fixture| fixture.outbox_rows) {
+            ensure!(
+                (1..=10000).contains(&rows),
+                "fixture outbox row limit must be between 1 and 10000"
+            );
+            config.cell_limits.events.max_outbox_rows = rows;
+        }
         config.runtime.max_cell_requests = 16;
         config.runtime.handler_budget = Duration::from_secs(10);
         config.maintenance.rebalance = false;

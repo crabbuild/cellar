@@ -7,6 +7,9 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 
+#[path = "backlog.rs"]
+mod backlog;
+
 pub const SCRIPT: &str = "stream-example";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -442,12 +445,16 @@ pub fn applications(faults: Option<Arc<FaultControls>>) -> Result<CompiledApplic
         let endpoints=faults.clone();
         let projections=faults.clone();
         let sources=faults.clone();
+        let backlog=faults.clone();
         Ok(Arc::new(Registry::new(move |context,invocation| {
             let endpoints=endpoints.clone();
             Box::pin(async move {
             let Invocation::Fetch(request) = invocation else {return Ok(Output::Done)};
             let url = url::Url::parse(&request.url)?;
             let path = url.path();
+            if endpoints.is_some() && path=="/__test/backlog" {
+                return Ok(Output::Http(context.namespace("BACKLOG")?.get_by_name("pending").fetch(&context,request).await?));
+            }
             if let Some(controls)=endpoints.as_ref().filter(|_|path=="/__test/phase" && request.method=="GET") {
                 let phase=controls.phase.lock().unwrap().clone();
                 return reply(&context,200,json!({"phase":phase}));
@@ -477,6 +484,7 @@ pub fn applications(faults: Option<Arc<FaultControls>>) -> Result<CompiledApplic
                 return reply(&context,200,serde_json::to_value(status)?);
             }
             reply(&context,404,json!({"routes":["POST /orders/ID?amount_cents=N","GET /orders/ID","GET /events","GET /subscription","GET /projection","POST /projection/retry","POST /projection/process"]}))
-        })}).cell("Order",move |_,_|Ok(Arc::new(Order{faults:sources.clone()})))?.cell("Projection",move |_,_|Ok(Arc::new(Projection{faults:projections.clone()})))?))
+        })}).cell("Order",move |_,_|Ok(Arc::new(Order{faults:sources.clone()})))?.cell("Projection",move |_,_|Ok(Arc::new(Projection{faults:projections.clone()})))?
+        .cell("Backlog",move |_,_|Ok(Arc::new(backlog::Backlog{faults:backlog.clone()})))?))
     })
 }

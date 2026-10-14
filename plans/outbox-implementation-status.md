@@ -1962,3 +1962,48 @@ patch and qualification manifest are retained at
 `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-bootstrap-diagnosis-lvy5ulth`.
 Other missing implementation and follower/power/store/physical-host, lifecycle,
 policy, cleanup and capacity/soak qualifications retain their full scope.
+
+## Selected offline source capacity qualification (2026-10-14)
+
+An opt-in Backlog cell commits many distinct commands into one source/lane. The
+fixture captures a bounded row quota, pauses actual append traffic and requires
+OutboxFull for the extra command. Its business write and next sequence roll back.
+Four audits verify every original command/receipt, pending accounting and producer
+identity before the offline soak, before SIGKILL, after recovery before retry and
+after complete delivery. No source POST replay repairs acknowledged state.
+
+The one-record required stream forces batch-limit adaptation and consumer-paced
+retention. Resumable cursors avoid rereading acknowledged history still retained
+until the next capacity sweep. Each accepted envelope is independently recorded;
+inbox effects are proved before redelivery, which adds zero effects, and exact
+checkpoint progression is checked. All replacement/surviving processes report
+complete preserving shutdown before the private RustFS server is removed.
+
+The initial eight-command probe exposed a harness cursor error and was retained
+as failed evidence. Its corrected SQLite case passed eight acceptances/effects
+and checkpoint 8. The first 64-command RustFS probe exposed another harness error:
+the proxy rejected unarmed StreamFull responses, hiding advertised batch limits
+from the producer. That probe was interrupted and is not qualification. The
+proxy now forwards unarmed errors unchanged, with a real socket regression;
+armed proven-response-loss cases still require success.
+
+The fresh RustFS case passed 64 commands, four audits, one producer SIGKILL, a
+30-second offline soak, 64 acceptances/effects, checkpoint 64 and complete final
+shutdown. Saved audit-only checks pass for both successful cases. Observed p95
+producer response was 96.3 ms; consumer redelivery-plus-ack was 598.5 ms. These
+are local case measurements, not performance guarantees. RSS, residency/cache
+and bounded live local SQLite/WAL/LTX file observations are saved; allocation
+does not measure unique physical extents or bucket bytes.
+
+Example build and focused all-feature Clippy-D passed; ordinary smoke, all 52
+Python oracle/proxy guards, 430-file formatting, docs (35/6/370), dependencies
+(401/no JavaScript engine) and whitespace checks pass. No framework Rust changes
+were made in this batch; this is not a new complete-workspace integration gate.
+All Cellar-owned markers remain 1, with internal hard cutover and no legacy readers.
+
+Private images, successful and failed evidence are retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-outbox-capacity-evidence-xjhtzzjh`.
+Example SHA-256: `b360d5a607778cd1e66c80497980626453f25d6df3ba96c5270e393e7f424a3b`.
+This qualifies one source/lane at its configured row quota on one machine. Many
+cold sources, long soaks, memory SLOs, compaction/restore capacity and the complete
+follower/power/store/physical-host, lifecycle and policy matrices remain open.

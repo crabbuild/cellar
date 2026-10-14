@@ -355,3 +355,37 @@ python3 examples/durable-streams/census_smoke.py \
 The driver checks a settled producer, a blocked producer absent from destination
 inventory and an empty cell across one-prefix pages. It rejects a foreign-class
 cursor and verifies explicit failed probes after complete node shutdown.
+
+## Offline source capacity and slow consumer
+
+`capacity.py` uses an opt-in `Backlog` cell so all commands share one outbox and
+producer lane. It pauses append traffic, fills the captured row quota, requires
+`OutboxFull` for one extra command and audits rollback of that command's business
+write and sequence. After a short offline soak, it SIGKILLs only the producer and
+audits all original commands and obligations before allowing delivery to resume.
+No source command is replayed to repair recovery.
+
+The required stream retains one record. The driver follows its resumable cursor,
+slows consumer processing and proves each inbox effect before redelivery and ack.
+It checks FIFO acceptance, unchanged envelopes, one effect per command, checkpoint
+progress and complete preserving shutdown. The proxy forwards capacity errors so
+the producer can learn the destination's batch limit. A separate saved-ledger
+oracle rejects lost state, partial quota writes, replay before audit and duplicate
+effects; the run cannot report success without that oracle passing.
+
+```sh
+python3 examples/durable-streams/capacity.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --count 64 --soak-seconds 30 --consumer-delay .1 \
+  --rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc \
+  --output /tmp/cellar-capacity-evidence
+python3 examples/durable-streams/capacity.py \
+  --audit /tmp/cellar-capacity-evidence/ledger.jsonl
+```
+
+Omit `--rustfs-image` for SQLite. Counts are bounded to 1–256. Resource samples
+record process RSS, actor residency/cache and live local file sizes, including
+SQLite/WAL/LTX families. File allocation is an observation, not a consistent
+snapshot, unique physical extent count or bucket storage total. This selected
+single-source case does not qualify many cold sources, long soaks, memory SLOs,
+compaction/restore capacity, follower-only proof or physical-host/power/store loss.

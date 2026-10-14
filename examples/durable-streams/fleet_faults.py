@@ -108,8 +108,11 @@ class PeerProxy:
                         reply = message(owner, response=True)
                         if reply is None:
                             return
-                        if targeted:
-                            require(reply["first"].split()[1] == b"200", "targeted RPC did not return a successful complete HTTP reply")
+                        successful = reply["first"].split()[1] == b"200"
+                        with proxy.lock:
+                            require(not targeted or not proxy.armed or successful,
+                                "armed RPC did not return a successful complete HTTP reply")
+                        if targeted and successful:
                             exchange = dict(method=method, scope=request["headers"][b"x-cells-scope"].decode(),
                                 request_sha256=hashlib.sha256(request["body"]).hexdigest(), response_sha256=hashlib.sha256(reply["body"]).hexdigest(),
                                 request=base64.b64encode(request["body"]).decode(), response=base64.b64encode(reply["body"]).decode())
@@ -166,13 +169,13 @@ class PeerProxy:
 
 
 class FleetProcess(Process):
-    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True):
+    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None):
         self.node = node
         data = root / "data" / node
         data.mkdir(parents=True, exist_ok=True)
         config = root / f"{label}-config.json"
         config.write_text(json.dumps(dict(node=node, bucket=store.config if store else str(root/"fleet.sqlite"), peer=f"{peer[0]}:{peer[1]}",
-            advertise=f"{advertise[0]}:{advertise[1]}", declare=declare, fleet_durability=fleet_durability)))
+            advertise=f"{advertise[0]}:{advertise[1]}", declare=declare, fleet_durability=fleet_durability,outbox_rows=outbox_rows)))
         self.log = root/f"{label}.log"
         self.output = self.log.open("xb")
         self.child = subprocess.Popen([str(binary),str(data),"0","--fleet-fixture",str(config)],
