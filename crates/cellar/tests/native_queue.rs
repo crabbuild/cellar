@@ -80,6 +80,7 @@ fn graph() -> DeploymentGraph {
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),
@@ -148,6 +149,19 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
         Invocation::Fetch(request) => {
             let producer = context.queue("Q")?;
             assert!(context.queue("missing").is_err());
+            if request.url.ends_with("/preview-budget") {
+                let queue = context.queue("GROUP")?;
+                for _ in 0..6 {
+                    queue
+                        .send(
+                            &context,
+                            Body::Bytes(vec![0xff; 128_000]),
+                            Default::default(),
+                        )
+                        .await?;
+                }
+                return Ok(response(json!("large messages queued")));
+            }
             if request.url.ends_with("/group") {
                 let producer = context.queue("GROUP")?;
                 let results = futures_util::future::join_all((0..64).map(|index| {
@@ -473,6 +487,9 @@ async fn run() -> Result<()> {
     assert_eq!(call_worker(&runtime, "basic").await?, "binding checked");
     let peek = operator(&runtime, Q, json!({"op":"peek"})).await?;
     assert_eq!(peek["messages"].as_array().unwrap().len(), 4);
+    let bounded = operator(&runtime, Q, json!({"op":"peek","console":true,"limit":100})).await?;
+    assert_eq!(bounded["messages"], peek["messages"]);
+    assert_eq!(bounded["truncated"], false);
     let ids = peek["messages"]
         .as_array()
         .unwrap()
@@ -684,6 +701,28 @@ async fn run() -> Result<()> {
         .queue_service(call.generation, &call.script, moved)
         .await?;
     settle(&runtime, Q, settlement(&call, result)).await?;
+    assert_eq!(
+        call_worker(&runtime, "preview-budget").await?,
+        "large messages queued"
+    );
+    let preview = operator(
+        &runtime,
+        GROUP,
+        json!({"op":"peek","console":true,"limit":100}),
+    )
+    .await?;
+    assert_eq!(preview["truncated"], true);
+    let messages = preview["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 3);
+    assert!(messages.iter().all(|message| message["size"] == 128_000));
+    // The limit applies before loading bodies and includes base64 expansion
+    // within the web transport's response cap. Preview never consumes messages.
+    assert!(serde_json::to_vec(&preview)?.len() < 1024 * 1024);
+    assert_eq!(
+        operator(&runtime, GROUP, json!({"op":"info"})).await?["backlogCount"],
+        6
+    );
+    operator(&runtime, GROUP, json!({"op":"purge"})).await?;
     let grouped = call_worker(&runtime, "group").await?;
     let counts = grouped
         .as_array()

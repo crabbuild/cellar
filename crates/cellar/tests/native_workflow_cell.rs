@@ -1,6 +1,6 @@
 //! Production native Workflow turns and persisted journals. No engine initialization.
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context as _, Result};
 use cellar::application::workflow::{
     Backoff, BatchCreateOptions, BindingSettings, CreateOptions, Delay, Duration as WfDuration,
     Event, InstanceEventType, RestartFrom, RestartOptions, Retention, Retries, RollbackOptions,
@@ -122,6 +122,7 @@ fn graph() -> DeploymentGraph {
                         error: None,
                     },
                     schedules: vec!["* * * * *".into()],
+                    definition: Some(serde_json::from_value(json!({"version":"orders-v1","nodes":[{"id":"first","label":"Prepare order","kind":"activity","step":"first"}],"edges":[]})).unwrap()),
                 },
             }],
             vars: vec![("SETTING".into(), "native".into())],
@@ -137,6 +138,7 @@ fn graph() -> DeploymentGraph {
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),
@@ -193,15 +195,19 @@ async fn workflow(
             let counted = signals.clone();
             let ctx = context.clone();
             let value = steps
-                .run("first", move |attempt| async move {
-                    assert_eq!(
-                        (attempt.count, attempt.attempt, attempt.retry_limit),
-                        (1, 1, 5.0)
-                    );
-                    counted.first.fetch_add(1, Ordering::SeqCst);
-                    note(&ctx, "first").await?;
-                    Ok(payload)
-                })
+                .run_with(
+                    "first",
+                    StepConfig::default().input(payload.clone()),
+                    move |attempt| async move {
+                        assert_eq!(
+                            (attempt.count, attempt.attempt, attempt.retry_limit),
+                            (1, 1, 5.0)
+                        );
+                        counted.first.fetch_add(1, Ordering::SeqCst);
+                        note(&ctx, "first").await?;
+                        Ok(payload)
+                    },
+                )
                 .await?;
             steps.sleep("nap", 5.0).await?;
             let received = steps
@@ -415,6 +421,7 @@ async fn workflow(
                     "secret",
                     StepConfig {
                         sensitive: true,
+                        input: Some(StructuredValue::from_json(json!({"token":"input-secret"}))?),
                         ..Default::default()
                     },
                     |_| async { StructuredValue::from_json(json!("secret-token")) },
@@ -884,7 +891,7 @@ async fn run() -> Result<()> {
         },
         std::collections::HashMap::from([
             (SCRIPT.into(), registry.clone()),
-            ("workflow-auxiliary".into(), registry),
+            ("workflow-auxiliary".into(), registry.clone()),
         ]),
     )?;
     let directory = tempfile::tempdir()?;
@@ -964,6 +971,93 @@ async fn run() -> Result<()> {
             let _ = gate.reply.send(Ok(()));
         }
     });
+    // The operator path uses the same durable controls and validates the
+    // declared binding and instance identity before changing state.
+    open(&runtime, &scope("console")).await?;
+    let console_request = |body: Value| cellar::engine_api::RuntimeFetch {
+        url: "http://cell/".into(),
+        method: "POST".into(),
+        body: body.to_string().into_bytes().into(),
+        headers: vec![],
+        request_id: Some(cellar::engine_api::next_request_id()),
+        order: None,
+        parent: None,
+    };
+    for command in [
+        json!({"operation":"start","params":{"from":"dashboard"}}),
+        json!({"operation":"pause"}),
+        json!({"operation":"status"}),
+        json!({"operation":"resume"}),
+        json!({"operation":"send_event","event_type":"approval","payload":{"approved":true}}),
+        json!({"operation":"history","cursor":0}),
+        json!({"operation":"terminate","rollback":false}),
+        json!({"operation":"restart"}),
+    ] {
+        let expected_generation = if command["operation"] == "start" {
+            None
+        } else {
+            let observed = runtime.fetch_cell(scope("console"),None,console_request(json!({"binding":"WF","instance":"console","command":{"operation":"status"}})),None).await?;
+            let observed: Value = serde_json::from_slice(&observed.body)?;
+            Some(
+                observed["result"]["generation"]
+                    .as_str()
+                    .context("missing workflow generation")?
+                    .to_string(),
+            )
+        };
+        let reply = runtime
+            .fetch_cell(
+                scope("console"),
+                None,
+                cellar::engine_api::RuntimeFetch {
+                    url: "http://cell/".into(),
+                    method: "POST".into(),
+                    body: serde_json::to_vec(
+                        &json!({"binding":"WF","instance":"console","command":command,"expected_generation":expected_generation}),
+                    )?
+                    .into(),
+                    headers: vec![],
+                    request_id: Some(cellar::engine_api::next_request_id()),
+                    order: None,
+                    parent: None,
+                },
+                None,
+            )
+            .await?;
+        assert_eq!(
+            reply.status,
+            200,
+            "operator refused {command}: {}",
+            String::from_utf8_lossy(&reply.body)
+        );
+        let result: Value = serde_json::from_slice(&reply.body)?;
+        if command["operation"] == "status" {
+            assert_eq!(result["result"]["status"], "paused");
+            assert_eq!(
+                result["result"]["definitionSnapshot"]["definition"]["version"],
+                "orders-v1"
+            );
+        }
+        if command["operation"] == "history" {
+            assert!(result["result"]["count"].as_u64().unwrap() > 0);
+            assert!(result["result"]["events"][0]["generation"].is_string());
+            assert!(!result["result"]["definitions"]
+                .as_object()
+                .unwrap()
+                .is_empty());
+        }
+    }
+    let reply = runtime.fetch_cell(scope("console"), None, cellar::engine_api::RuntimeFetch {
+        url:"http://cell/".into(),method:"POST".into(),
+        body:serde_json::to_vec(&json!({"binding":"WF","instance":"wrong-id","command":{"operation":"terminate"}}))?.into(),
+        headers:vec![],request_id:Some(cellar::engine_api::next_request_id()),order:None,parent:None,
+    },None).await?;
+    assert_eq!(reply.status, 400);
+    let stale = runtime.fetch_cell(scope("console"), None, console_request(json!({"binding":"WF","instance":"console","command":{"operation":"pause"},"expected_generation":"stale-generation"})),None).await?;
+    assert_eq!(stale.status, 400);
+    assert!(String::from_utf8_lossy(&stale.body).contains("generation changed"));
+    runtime.swap_out_cell(&scope("console"), 1).await?;
+
     assert_eq!(
         runtime.cron_cell(),
         Some(cellar_logic::cron::reserved_cell(SCRIPT))
@@ -1079,6 +1173,16 @@ async fn run() -> Result<()> {
     let sensitive = call(&runtime, "filtered", "sensitive").await?;
     assert_eq!(sensitive.as_array().unwrap().len(), 1);
     assert_eq!(sensitive[0]["output"], "[REDACTED]");
+    let reply = runtime.fetch_cell(scope("sensitive"), None, console_request(json!({"binding":"WF","instance":"sensitive","command":{"operation":"history","cursor":0}})),None).await?;
+    assert_eq!(reply.status, 200);
+    let sensitive_history: Value = serde_json::from_slice(&reply.body)?;
+    assert!(!String::from_utf8_lossy(&reply.body).contains("input-secret"));
+    assert!(sensitive_history["result"]["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["input"] == "[REDACTED]"));
+
     call(&runtime, "create", "rollback-held").await?;
     fire(&runtime, "rollback-held", 120).await?;
     let driving = runtime.clone();
@@ -1421,6 +1525,96 @@ async fn run() -> Result<()> {
             && ticket.channel == cellar_logic::Channel::CellRpc
             && ticket.position.is_some()
             && ticket.epoch == Some(1)));
+    // A deployment change must not rewrite a completed execution's diagram.
+    runtime.swap_out_cell(&scope("main"), 1).await?;
+    let mut next_graph = graph();
+    next_graph.primary.options.workflow_bindings[0]
+        .settings
+        .definition
+        .as_mut()
+        .unwrap()
+        .version = "orders-v2".into();
+    let next = Generation::build_native(
+        2,
+        next_graph,
+        GenerationOptions {
+            node: "test".into(),
+            region: "test".into(),
+        },
+        std::collections::HashMap::from([(SCRIPT.into(), registry.clone())]),
+    )?;
+    runtime.adopt(next);
+    runtime.start_cell(scope("main"), 1, true).await?;
+    runtime.publish_cell(&scope("main"), 1)?;
+    let observed = runtime
+        .fetch_cell(
+            scope("main"),
+            None,
+            console_request(
+                json!({"binding":"WF","instance":"main","command":{"operation":"status"}}),
+            ),
+            None,
+        )
+        .await?;
+    let observed: Value = serde_json::from_slice(&observed.body)?;
+    assert_eq!(
+        observed["result"]["definitionSnapshot"]["definition"]["version"],
+        "orders-v1"
+    );
+    let restarted = runtime.fetch_cell(scope("main"),None,console_request(json!({"binding":"WF","instance":"main","command":{"operation":"restart"},"expected_generation":observed["result"]["generation"]})),None).await?;
+    assert_eq!(restarted.status, 200);
+    let current = runtime
+        .fetch_cell(
+            scope("main"),
+            None,
+            console_request(
+                json!({"binding":"WF","instance":"main","command":{"operation":"status"}}),
+            ),
+            None,
+        )
+        .await?;
+    let current: Value = serde_json::from_slice(&current.body)?;
+    assert_eq!(
+        current["result"]["definitionSnapshot"]["definition"]["version"],
+        "orders-v2"
+    );
+    let mut cursor = 0;
+    let mut versions = std::collections::BTreeSet::new();
+    let mut recorded_input = false;
+    let mut recorded_output = false;
+    loop {
+        let reply = runtime.fetch_cell(scope("main"),None,console_request(json!({"binding":"WF","instance":"main","command":{"operation":"history","cursor":cursor}})),None).await?;
+        assert_eq!(reply.status, 200);
+        let page: Value = serde_json::from_slice(&reply.body)?;
+        for snapshot in page["result"]["definitions"].as_object().unwrap().values() {
+            versions.insert(
+                snapshot["definition"]["version"]
+                    .as_str()
+                    .unwrap()
+                    .to_string(),
+            );
+        }
+        let events = page["result"]["events"].as_array().unwrap();
+        for event in events {
+            assert!(event["generation"].is_string());
+            if event["stepName"] == "first" {
+                recorded_input |= event["input"]["encoding"] == "cellar_structured_clone";
+                recorded_output |= event["output"]["encoding"] == "cellar_structured_clone";
+            }
+        }
+        let Some(last) = events.last() else {
+            break;
+        };
+        cursor = last["eventId"].as_u64().unwrap();
+    }
+    assert_eq!(
+        versions,
+        std::collections::BTreeSet::from(["orders-v1".to_string(), "orders-v2".to_string()])
+    );
+    assert!(
+        recorded_input && recorded_output,
+        "structured values must not hide event metadata"
+    );
     shutdown.send(true)?;
     router.await??;
     adapter.await?;

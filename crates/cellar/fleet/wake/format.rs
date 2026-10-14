@@ -63,36 +63,59 @@ mod tests {
 
     #[tokio::test]
     async fn fresh_fleet_initialization_is_concurrent_and_reopenable() -> anyhow::Result<()> {
-        let directory = tempfile::tempdir()?;
-        let path = directory.path().join("store.sqlite");
-        let bucket = Bucket::open_dev(&path)?;
-        let results = futures_util::future::join_all((0..8).map(|_| ensure_ready(&bucket))).await;
-        for result in results {
-            result?;
-        }
-        let reopened = Bucket::open_dev(&path)?;
-        ensure_ready(&reopened).await?;
-        let marker = reopened.get(KEY).await?.unwrap().0;
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&marker)?["system"],
-            "cellar"
-        );
-        Ok(())
+        in_test_domain(async {
+            let directory = tempfile::tempdir()?;
+            let path = directory.path().join("store.sqlite");
+            let bucket = Bucket::open_dev(&path)?;
+            let results =
+                futures_util::future::join_all((0..8).map(|_| ensure_ready(&bucket))).await;
+            for result in results {
+                result?;
+            }
+            let reopened = Bucket::open_dev(&path)?;
+            ensure_ready(&reopened).await?;
+            let marker = reopened.get(KEY).await?.unwrap().0;
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&marker)?["system"],
+                "cellar"
+            );
+            Ok(())
+        })
+        .await
     }
 
     #[tokio::test]
     async fn cutover_refuses_unmarked_state_and_previous_markers() -> anyhow::Result<()> {
-        let directory = tempfile::tempdir()?;
-        let bucket = Bucket::open_dev(&directory.path().join("state.sqlite"))?;
-        bucket
-            .put("cells/Account:old/owner.json", b"{}".to_vec())
-            .await?;
-        assert!(ensure_ready(&bucket).await.is_err());
-        assert!(bucket.get(KEY).await?.is_none());
-        let old = Bucket::open_dev(&directory.path().join("old.sqlite"))?;
-        old.put(KEY, br#"{"format":2,"migrating":false}"#.to_vec())
-            .await?;
-        assert!(ensure_ready(&old).await.is_err());
-        Ok(())
+        in_test_domain(async {
+            let directory = tempfile::tempdir()?;
+            let bucket = Bucket::open_dev(&directory.path().join("state.sqlite"))?;
+            bucket
+                .put("cells/Account:old/owner.json", b"{}".to_vec())
+                .await?;
+            assert!(ensure_ready(&bucket).await.is_err());
+            assert!(bucket.get(KEY).await?.is_none());
+            let old = Bucket::open_dev(&directory.path().join("old.sqlite"))?;
+            old.put(KEY, br#"{"format":2,"migrating":false}"#.to_vec())
+                .await?;
+            assert!(ensure_ready(&old).await.is_err());
+            Ok(())
+        })
+        .await
+    }
+
+    async fn in_test_domain(
+        future: impl std::future::Future<Output = anyhow::Result<()>>,
+    ) -> anyhow::Result<()> {
+        // Other library tests install a process host on a runtime they later
+        // drop. These bucket fixtures must own their I/O independently.
+        #[cfg(not(cellar_internal_tests))]
+        {
+            let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+            let result = domain.run(future).await;
+            domain.shutdown().await;
+            result?
+        }
+        #[cfg(cellar_internal_tests)]
+        future.await
     }
 }

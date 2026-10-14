@@ -290,6 +290,23 @@ pub enum Phase {
     Fenced,
 }
 
+/// Bounded, advisory observation of a cell currently owned by this core.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedCellView {
+    pub scope: CellId,
+    pub epoch: Epoch,
+    pub phase: &'static str,
+    pub active_requests: usize,
+    pub alarm_at_ms: Option<i64>,
+    pub alarm_firing: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnedCellPage {
+    pub items: Vec<OwnedCellView>,
+    pub next_cursor: Option<CellId>,
+}
+
 /// One authority observation from one state-machine boundary.
 #[cfg(cellar_internal_tests)]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1036,6 +1053,39 @@ impl State {
 
     pub fn phase(&self, cell: &str) -> Option<&Phase> {
         self.cells.get(cell).map(|cell| &cell.phase)
+    }
+
+    /// Scan at most 100 routing records, retaining only locally owned cells.
+    /// Continuations advance over scanned records even when none is owned.
+    pub fn owned_cell_page(&self, after: Option<&str>, limit: usize) -> OwnedCellPage {
+        use std::ops::Bound::{Excluded, Unbounded};
+        let mut records = self
+            .cells
+            .range::<str, _>((Excluded(after.unwrap_or("")), Unbounded));
+        let mut items = Vec::new();
+        let mut last = None;
+        for (scope, cell) in records.by_ref().take(limit.clamp(1, 100)) {
+            last = Some(scope.clone());
+            if let Some(epoch) = cell.held_epoch {
+                let (alarm_at_ms, alarm_firing) = match &cell.alarm {
+                    Some(AlarmState::Armed { at_ms, .. }) => (Some(*at_ms), false),
+                    Some(AlarmState::Firing { at_ms, .. }) => (Some(*at_ms), true),
+                    None => (None, false),
+                };
+                items.push(OwnedCellView {
+                    scope: scope.clone(),
+                    epoch,
+                    phase: phase_name(&cell.phase),
+                    active_requests: self.active_cells.get(scope).copied().unwrap_or(0),
+                    alarm_at_ms,
+                    alarm_firing,
+                });
+            }
+        }
+        OwnedCellPage {
+            items,
+            next_cursor: if records.next().is_some() { last } else { None },
+        }
     }
 
     /// Return every cell phase for an opt-in transition observer.
@@ -6811,6 +6861,7 @@ fn event_mono_ms(event: &Event) -> Option<u64> {
         | Event::NodeLeaseCasCompleted { now_mono_ms, .. }
         | Event::RequestAt { now_mono_ms, .. }
         | Event::EvictRequested { now_mono_ms, .. }
+        | Event::EvictRequestedAtEpoch { now_mono_ms, .. }
         | Event::CapacityRequestAt { now_mono_ms, .. }
         | Event::HandoffRequestAt { now_mono_ms, .. }
         | Event::WebSocketRequestAt { now_mono_ms, .. }
@@ -7019,6 +7070,21 @@ pub fn on_event(state: &mut State, event: Event) -> Vec<Effect> {
         Event::Evict { cell } => state.evict(&cell, &mut effects),
         Event::EvictRequested { request, cell, .. } => {
             state.evict_requested(request, cell, &mut effects)
+        }
+        Event::EvictRequestedAtEpoch {
+            request,
+            cell,
+            epoch,
+            ..
+        } => {
+            if state.accepted_epoch(&cell) != Some(epoch) {
+                effects.push(Effect::EvictionAdmission {
+                    request,
+                    result: Err(EvictError::Refused(EvictRefusal::EpochChanged)),
+                });
+            } else {
+                state.evict_requested(request, cell, &mut effects);
+            }
         }
         Event::LoadSampled { load, now_mono_ms } => {
             state.load_sampled(load, now_mono_ms, &mut effects)

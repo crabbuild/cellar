@@ -1,0 +1,34 @@
+name: Cellar dashboard
+on:
+  push:
+    paths: ['dashboard/**', '.github/workflows/dashboard.yml']
+  pull_request:
+    paths: ['dashboard/**', '.github/workflows/dashboard.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24.13.1'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+      - uses: actions/upload-artifact@v6
+        if: failure()
+        with:
+          name: dashboard-browser-results
+          path: dashboard/test-results
+          retention-days: 7

@@ -62,6 +62,7 @@ pub(crate) struct Reachable {
     /// even when the cell moves between calls.
     entrances: Vec<Entrance>,
     subject: Subject,
+    max_response_bytes: Option<usize>,
 }
 
 impl Reachable {
@@ -72,10 +73,41 @@ impl Reachable {
         name: Option<&str>,
     ) -> anyhow::Result<Self> {
         let bucket = crate::fleet::bucket_client(fleet.bucket, fleet.endpoint, fleet.region)?;
-        let nodes = live_nodes(&bucket, fleet.unsafe_public_advertise, subject.source).await?;
+        Self::from_bucket(&bucket, fleet.unsafe_public_advertise, subject, scope, name).await
+    }
+
+    pub(crate) async fn from_bucket(
+        bucket: &Bucket,
+        unsafe_public_advertise: bool,
+        subject: Subject,
+        scope: String,
+        name: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            cellar_logic::cell::valid_cell_scope(&scope)
+                && crate::deploy::is_reserved_scope(&scope),
+            "invalid operator cell scope"
+        );
+        let nodes = live_nodes(bucket, unsafe_public_advertise, subject.source).await?;
+        Self::from_entrances(bucket, subject, scope, name, nodes).await
+    }
+
+    pub(crate) async fn from_entrances(
+        bucket: &Bucket,
+        subject: Subject,
+        scope: String,
+        name: Option<&str>,
+        nodes: Vec<(String, String)>,
+    ) -> anyhow::Result<Self> {
+        anyhow::ensure!(
+            cellar_logic::cell::valid_cell_scope(&scope)
+                && crate::deploy::is_reserved_scope(&scope),
+            "invalid operator cell scope"
+        );
+        anyhow::ensure!(!nodes.is_empty(), "no current routing entrance observed");
         // The same secret and the same source shape `cellar diagnose` uses.
         let auth = crate::peer_auth::PeerAuth::new(
-            crate::peer_auth::load_existing(&bucket).await?,
+            crate::peer_auth::load_existing(bucket).await?,
             subject.source,
         )?;
         let http = reqwest::Client::builder()
@@ -83,13 +115,14 @@ impl Reachable {
             // A migration on a large table is not a diagnostic ping, so this
             // budget is the handler budget's order rather than the probe's.
             .timeout(subject.timeout)
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .with_context(|| format!("build the {} client", subject.noun))?;
         let mut path = format!("/runtime/{scope}");
         if let Some(name) = name {
             // An operator command can be the first request to construct a
             // reserved cell. A later named binding call cannot repair the
-            // identity that the existing JavaScript instance already cached.
+            // identity that the existing activation already cached.
             path.push('?');
             path.push_str(
                 &url::form_urlencoded::Serializer::new(String::new())
@@ -101,6 +134,7 @@ impl Reachable {
             http,
             auth,
             subject,
+            max_response_bytes: None,
             entrances: nodes
                 .into_iter()
                 .map(|(node, addr)| Entrance {
@@ -110,6 +144,13 @@ impl Reachable {
                 })
                 .collect(),
         })
+    }
+
+    /// A web console must bound transport memory even if a peer predates
+    /// server-side result budgets. This does not imply a write was rolled back.
+    pub(crate) fn with_response_limit(mut self, limit: usize) -> Self {
+        self.max_response_bytes = Some(limit);
+        self
     }
 
     /// A lease outlives the node that wrote it, and a node that drains keeps
@@ -154,7 +195,10 @@ impl Reachable {
                 }
             };
             let status = response.status();
-            let text = response.text().await.context("read the reply")?;
+            let text = match self.max_response_bytes {
+                Some(limit) => bounded_reply(response, limit).await?,
+                None => response.text().await.context("read the reply")?,
+            };
             if status == reqwest::StatusCode::SERVICE_UNAVAILABLE
                 && text.contains("\"draining\"")
                 && !last
@@ -191,6 +235,21 @@ impl Reachable {
         }
         bail!("no node in the fleet answered{}", report(&refused))
     }
+}
+
+pub(crate) async fn bounded_reply(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> anyhow::Result<String> {
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response.chunk().await.context("read the operator reply")? {
+        anyhow::ensure!(
+            bytes.len().saturating_add(chunk.len()) <= limit,
+            "operator reply exceeds the dashboard byte limit; write outcome may be unknown"
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    String::from_utf8(bytes).context("operator reply is not UTF-8")
 }
 
 async fn live_nodes(

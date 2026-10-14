@@ -194,7 +194,7 @@ impl InstanceCell {
         }
     }
 
-    fn control(
+    pub(super) fn control(
         &self,
         context: &Context,
         method: &str,
@@ -231,6 +231,7 @@ impl InstanceCell {
                     }
                     let mut meta=data(json!({"workflowName":text(&argument,"workflowName")?,"instanceId":text(&argument,"instanceId")?,"generation":cellar_native::crypto::random_uuid()?,"createdMs":now(),"status":"queued"}))?;
                     for key in ["params","retention","locationHint","schedule"] {if let Some(value)=property(&argument,key)? {set(&mut meta,key,&value)?;}}
+                    super::definition::snapshot(context, transaction, &mut meta)?;
                     super::history::append(transaction,&mut meta,InstanceEventType::WorkflowQueued,data(json!({}))?)?;
                     transaction.put_clone(META,&meta)?;
                     transaction.set_alarm(now())?;
@@ -445,6 +446,7 @@ impl InstanceCell {
                     ] {
                         remove(&mut meta, key)?;
                     }
+                    super::definition::snapshot(context, transaction, &mut meta)?;
                     super::history::append(
                         transaction,
                         &mut meta,
@@ -543,6 +545,9 @@ impl Cell for InstanceCell {
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         Box::pin(async move {
             match invocation {
+                Invocation::Fetch(request) => {
+                    Ok(Output::Http(self.operator(&context, request.body).await))
+                }
                 Invocation::Alarm { .. } => {
                     let changed = self.changed.clone();
                     let result = super::replay::alarm(self, context).await;

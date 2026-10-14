@@ -779,7 +779,7 @@ pub fn start_presence_agent(runtime: PresenceRuntime) -> bool {
         }
     };
     let hostname = machine_hostname();
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         let mut consecutive_failures = 0_u32;
         loop {
             let started = Instant::now();
@@ -821,7 +821,7 @@ pub fn start_presence_agent(runtime: PresenceRuntime) -> bool {
                 }
             }
         }
-    });
+    }).detach();
     true
 }
 
@@ -1188,14 +1188,16 @@ async fn handle_explorer_request(
                 .map(|candidate| candidate.epoch);
             if let Some(epoch) = active_epoch {
                 let cell = cell.to_string();
-                match tokio::task::spawn_blocking(move || {
+                let inspection = match crate::asyncrt::try_blocking(move || {
                     let Some(snapshot) = replication.snapshot_active(&cell, epoch)? else {
                         return Ok(None);
                     };
                     inspect_snapshot(snapshot, &cell, table.as_deref(), "active").map(Some)
-                })
-                .await
-                {
+                }) {
+                    Ok(task) => task,
+                    Err(_) => return explorer_error(request_id, "node_stopping"),
+                };
+                match inspection.await {
                     Ok(Ok(Some(result))) => Ok(result),
                     Ok(Ok(None)) => {
                         return explorer_error(request_id, "active_snapshot_unavailable");
@@ -1225,11 +1227,13 @@ async fn handle_explorer_request(
                 match restored {
                     Ok(Some(snapshot)) => {
                         let cell = cell.to_string();
-                        match tokio::task::spawn_blocking(move || {
+                        let inspection = match crate::asyncrt::try_blocking(move || {
                             inspect_snapshot(snapshot, &cell, table.as_deref(), "replicated")
-                        })
-                        .await
-                        {
+                        }) {
+                            Ok(task) => task,
+                            Err(_) => return explorer_error(request_id, "node_stopping"),
+                        };
+                        match inspection.await {
                             Ok(result) => result,
                             Err(error) => Err(anyhow!("inspection task failed: {error}")),
                         }
@@ -1547,7 +1551,7 @@ pub fn start_deploy_agent(bucket: Bucket, reload: crate::generation::ReloadSende
             return false;
         }
     };
-    tokio::spawn(async move {
+    crate::asyncrt::spawn(async move {
         let client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
@@ -1609,7 +1613,8 @@ pub fn start_deploy_agent(bucket: Bucket, reload: crate::generation::ReloadSende
             }
             tokio::time::sleep(delay).await;
         }
-    });
+    })
+    .detach();
     true
 }
 
