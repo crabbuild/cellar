@@ -41,7 +41,7 @@ pub const LOG_BODY_CAP: usize = 8 * 1024;
 
 /// The schema is not frozen. Stamped on every object so a reader knows
 /// what contract the columns follow; the DuckDB page documents it.
-const SCHEMA_VERSION: &str = "v0-unstable";
+const SCHEMA_VERSION: &str = "1";
 
 /// Queue between the hot path and the pump; a full queue sheds, counted.
 /// The pump drains continuously and the size trigger bounds its batch, so

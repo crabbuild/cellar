@@ -25,9 +25,10 @@ file descriptor usage; the embedding host can supply a metrics sampler.
 Telemetry is off by default. `CELLAR_OTEL=1` selects the bucket sink;
 `CELLAR_OTEL=<collector base URL>` selects OTLP/http-protobuf.
 `CELLAR_OTEL_BUCKET`, retention/flush controls and standard sampler/exporter
-settings are resolved by the telemetry adapter. Its schema is `v0-unstable` at
-this baseline. The bounded exporter sheds telemetry when saturated and counts
-drops; absent spans do not prove absent application work. Never use sampled
+settings are resolved by the telemetry adapter. Its schema marker stays at `1`
+during internal development; layout changes require a hard cutover. The bounded
+exporter sheds telemetry when saturated and counts drops; absent spans do not
+prove absent application work. Never use sampled
 telemetry alone as the command receipt ledger.
 
 ## Proposed dashboard contract
