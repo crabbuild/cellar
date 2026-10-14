@@ -15,6 +15,24 @@ use futures_util::FutureExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(test)]
+#[path = "embedded_tests.rs"]
+mod tests;
+
+async fn build_generation(
+    backend: Backend,
+    id: crate::generation::GenerationId,
+    graph: DeploymentGraph,
+    options: GenerationOptions,
+) -> anyhow::Result<Generation> {
+    crate::asyncrt::try_blocking(move || backend.build(id, graph, options))?.await?
+}
+
+async fn sample_load() -> anyhow::Result<crate::host_services::HostMetricsSample> {
+    let services = crate::asyncrt::services();
+    Ok(crate::asyncrt::try_blocking(move || services.sample_metrics())?.await?)
+}
+
 /// Bounds initial lease establishment and predecessor recovery. Recovery must
 /// succeed before this node can install its lease, in either durability posture.
 #[derive(Clone, Debug)]
@@ -619,14 +637,13 @@ impl Node {
         self.domain
             .run(async move {
                 let id = runtime.next_generation_id();
-                let generation = crate::asyncrt::blocking(move || {
-                    Backend::Native(Arc::new(applications)).build(
-                        id,
-                        graph,
-                        GenerationOptions { node, region },
-                    )
-                })
-                .await??;
+                let generation = build_generation(
+                    Backend::Native(Arc::new(applications)),
+                    id,
+                    graph,
+                    GenerationOptions { node, region },
+                )
+                .await?;
                 event_resources::activate(app.clone(), &generation).await?;
                 // The candidate is retained through activation and moved only
                 // after its catalog and binding proofs pass.
@@ -788,10 +805,13 @@ async fn prepare(
         node: node.clone(),
         region: region.clone(),
     };
-    let generation = crate::asyncrt::blocking(move || {
-        Backend::Native(Arc::new(applications)).build(FIRST_GENERATION, graph, generation_options)
-    })
-    .await??;
+    let generation = build_generation(
+        Backend::Native(Arc::new(applications)),
+        FIRST_GENERATION,
+        graph,
+        generation_options,
+    )
+    .await?;
     generation.begin_event_activation();
     let runtime = RuntimeManager::start(
         generation,
@@ -900,8 +920,7 @@ async fn prepare(
         _ => None,
     };
     let channels = driver::Channels::install(websocket_rx);
-    let metrics = domain.services();
-    let sample = crate::asyncrt::blocking(move || metrics.sample_metrics()).await?;
+    let sample = sample_load().await?;
     actor.store_load_sample(sample);
     let (actor_exit_tx, actor_exit_rx) = mpsc::unbounded_channel();
     let actor_task = actor.spawn(domain, &core_executor, rx)?;
@@ -1000,9 +1019,15 @@ fn start_maintenance(
         tick.tick().await;
         loop {
             tick.tick().await;
-            let services = crate::asyncrt::services();
-            let sample = match crate::asyncrt::blocking(move || services.sample_metrics()).await {
+            let sample = match sample_load().await {
                 Ok(sample) => sample,
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::asyncrt::DomainClosed>()
+                        .is_some() =>
+                {
+                    return
+                }
                 Err(error) => {
                     tracing::warn!(%error, "node metrics sampling failed");
                     continue;

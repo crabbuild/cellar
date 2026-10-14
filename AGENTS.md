@@ -179,6 +179,14 @@ polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
 Queue leases and actor settlement share the host's captured operation deadline.
+Embedded bootstrap/adoption generation builds and metrics sampling use fallible
+blocking admission. Closing a domain can race a later effect in an already-entered
+poll; return `DomainClosed` without invoking the refused factory/sampler. Started
+blocking work still joins before releasing the node directory. Metrics maintenance
+ends on closed admission. Keep startup/directory deadlines and assertions intact;
+cancellation diagnostics independently distinguish retained locks from pending
+replacement bootstrap. A fixed admission panic does not by itself explain an
+observed bootstrap deadline failure.
 Lower-level library hosts pin a 15-second default on first use; configure actor
 policy before constructing generations to choose another budget. CLI startup
 captures its environment override before any generation can sample that budget.

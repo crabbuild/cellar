@@ -1917,3 +1917,48 @@ This removes periodic age work that cannot reclaim a protected prefix. It does
 not qualify hot-stream/large-metadata/wake fairness, complete clock/lease/config
 races, follower/power/store/physical-host loss or the remaining capacity/soak
 matrix. Aggregate/physical metrics and wider census remain implementation work.
+
+
+## Fallible bootstrap/adoption work admission (2026-10-14)
+
+Twenty more isolated original cancellation cases passed. The intermittent
+five-second timeout remains unreproduced and its cause unestablished. The
+public-node test now records an independent directory-lock probe before each
+replacement attempt and labels failure as an old held directory or pending
+replacement bootstrap. A diagnostic lock is released immediately; Node::start
+still performs its own exclusivity check. Factory join, caller executors,
+original five-second limit and every lifetime assertion remain intact.
+
+A separate deterministic regression exposed a concrete panic hazard: an
+ExecutionDomain::run poll can be admitted, then close before a later blocking
+effect in that same poll. Both embedded generation build and metrics sampling
+used infallible blocking admission and panicked with DomainClosed. The new test
+captures that exact boundary, requiring a typed refusal and zero application-
+factory/metrics-sampler invocations. Its first compile needed a test-only
+Generation error extraction correction because Generation lacks Debug. Once
+corrected, both old calls panic and the behavioral regression fails; that is
+the baseline signal, not the earlier compiler error.
+
+Private helpers now use try_blocking for bootstrap/adoption generation builds
+and initial/periodic metrics sampling. Closed admission returns an error before
+callbacks run; metrics maintenance ends on direct DomainClosed. Already-started
+blocking work remains owned and joined before releasing the node directory.
+No new task is allowed after closure, no deadline is increased and no durability,
+lease, readiness, binding or protocol/schema marker changes. All owned markers
+remain 1.
+
+The deterministic test passes after the fix, as do all 111 library cases and
+all 30 serial Node cases (275.51s), including the enhanced cancellation fixture,
+real event append/ack loss, catalog/source/subscription handoff, removed-class
+recovery, source destruction, generation adoption and complete shutdown proofs.
+Workspace/all-target/all-feature Clippy-D, 429-file formatting, documentation
+(35/6/370), dependencies (401/no JavaScript engine), all 44 saved fault-oracle
+guards and whitespace checks pass. This is not another full-workspace integration or complete release
+matrix pass. The earlier bootstrap timeout audit remains open; proving this
+admission panic does not prove it caused that timeout.
+
+Private twenty-run logs, selected baseline/fixed regression diagnostics, source
+patch and qualification manifest are retained at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-bootstrap-diagnosis-lvy5ulth`.
+Other missing implementation and follower/power/store/physical-host, lifecycle,
+policy, cleanup and capacity/soak qualifications retain their full scope.

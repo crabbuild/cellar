@@ -1368,8 +1368,29 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
     );
     *gate.0.lock().unwrap() = true;
     gate.1.notify_all();
+    let restart_phase = Mutex::new(String::from("waiting for directory release"));
+    let mut attempts = 0usize;
     let restarted = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
+            attempts += 1;
+            // Observe the old directory lock independently of replacement
+            // startup. This does not change its deadline or skip Node::start's
+            // own exclusivity check; release any diagnostic lock immediately.
+            let lock = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(directory.path().join("__sys_node.lock"))?;
+            let available = match lock.try_lock() {
+                Ok(()) => {
+                    lock.unlock()?;
+                    true
+                }
+                Err(std::fs::TryLockError::WouldBlock) => false,
+                Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+            };
+            *restart_phase.lock().unwrap() = format!(
+                "attempt {attempts}: directory independently available={available}, replacement startup pending"
+            );
             match start(
                 "replacement",
                 "replacement",
@@ -1383,13 +1404,17 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
             {
                 Ok(node) => return Ok::<_, anyhow::Error>(node),
                 Err(error) if error.to_string().contains("directory is already owned") => {
+                    *restart_phase.lock().unwrap() = format!(
+                        "attempt {attempts}: old work still retains directory"
+                    );
                     tokio::time::sleep(Duration::from_millis(10)).await
                 }
                 Err(error) => return Err(error),
             }
         }
     })
-    .await??;
+    .await
+    .with_context(||format!("cancelled bootstrap recovery deadline: {}",restart_phase.lock().unwrap()))??;
     stopped(restarted).await?;
     Ok(())
 }

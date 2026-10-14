@@ -1590,6 +1590,17 @@ Test executor rejection, shutdown at every network wait, cancelled long polls,
 and bounded maintenance fairness. Report unfinished work separately from
 unproven data and preserve evidence for the exact source/image/configuration.
 
+Embedded startup/adoption must also repeat effect admission within a running
+poll: domain closure may occur after that poll was admitted. Generation build
+and metrics sampling use fallible blocking admission; refused work returns
+`DomainClosed` and invokes neither the factory nor sampler. Previously started
+blocking work remains joined before node-directory release. A deterministic
+closed-poll regression proves refusal without panic; directory recovery retains
+its original deadline and independently diagnoses whether the old lock remains
+held or replacement startup is pending. That regression does not establish the
+cause of an earlier five-second bootstrap timeout; keep that failure's separate
+qualification audit open until reproduced and explained.
+
 Use the existing native transaction/queue/alarm suites as regression coverage;
 add dedicated native outbox, stream, and subscription integration targets. Run
 the repository formatting, dependency, documentation, locked build/test/doc,
