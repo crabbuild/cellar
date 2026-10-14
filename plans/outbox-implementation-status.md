@@ -1,10 +1,16 @@
 # Outbox implementation status
 
-Updated 2026-10-13. The goal remains the entire
+Updated 2026-10-14. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
 release. The native fixture now exercises source, catalog, stream, and consumer
 turns together; that local evidence does not satisfy the fleet/release gates.
+
+All Cellar-owned protocol, format and schema markers stay at 1 during internal
+development. Layout changes use hard cutovers with recreated state and rebuilt
+participants. Later sections retain historical verification notes; their old
+version numbers, migrations, legacy readers and fleet-upgrade tests describe
+removed implementations and are not current supported behavior.
 
 ## Current code
 
@@ -159,10 +165,10 @@ turns together; that local evidence does not satisfy the fleet/release gates.
   to it. Consumer handles retain their first resolved identity and include it
   in every fetch. Current consumer grants remain usable even when an unrelated
   administrative permission in the local binding is stale.
-- Stream schema version two transactionally migrates the earlier global unique
-  subscription-name constraint to live-name uniqueness, preserving identity,
-  progress, and leases. The native fixture seeds an old database and verifies
-  that migration, subsequent deletion/recreation, and durable audit capacity.
+- The version-1 stream schema uses live-name subscription uniqueness, preserving
+  retained deleted identities. Earlier development layouts require recreated
+  state; the native fixture exercises deletion/recreation and durable audit
+  capacity without a schema migration.
 - `tx.seal(&stream, operation)` requires an existing fully settled source lane.
   It disables emission and records a terminal seal obligation with wake intent
   atomically. The dispatcher proves and retries that obligation through the
@@ -184,13 +190,12 @@ turns together; that local evidence does not satisfy the fleet/release gates.
   allowing the live name to bind a new UUID. Lost closure replies reconcile
   through the same immutable operation; historical configuration replay cannot
   revive retired authority.
-- Stream schema version three adds retirement state. Catalog schema version
-  two migrates earlier pending configuration state and backfills immutable
+- Version-1 stream and catalog schemas contain retirement state and immutable
   operation receipts. Current catalog grant checks precede configuration and
   retirement receipt disclosure, including for the original operation caller.
   Duplicate coordinated retirement rechecks receipts after its async preflight.
-  Current stream/catalog versions are 4/3: nullable operator provenance preserves
-  legacy SDK receipt ownership, and missing current-version columns fail before
+  Nullable operator provenance distinguishes SDK and operator receipt ownership,
+  and missing current-layout columns fail before
   base schema mutation. Terminal catalog receipts retain the captured payload
   range and counters after bounded cleanup. Authenticated retirement/status CLI
   commands enforce revision, operation, caller and explicit destructive intent.
@@ -1051,3 +1056,46 @@ separate producer/destination/consumer hosts, followers, network/store/power
 faults, every commit/proof cut point, capacity soaks or the full release matrix.
 Those requirements, complete physical storage/aggregate metrics, whole-fleet
 inventory and guarded source destruction remain unfinished.
+
+
+## Terminal destination evidence for source destruction
+
+The catalog owner exposes exact-resource terminal evidence through a distinct
+read-only platform RPC capability, also used by `cellar stream retirement-proof
+--resource RESOURCE.json`. It checks the immutable UUID, namespace, family and
+name against the retained deleted catalog row and its matching committed
+retirement receipt. The response contains only scalar resource identity,
+operation, digest, terminal state and accepted revision. It does not read or
+return grant/configuration/payload bodies and cannot configure, publish, retire
+or inspect another namespace through the same capability. Platform verification
+continues after application and original administration grants are revoked.
+All Cellar-owned markers remain 1; no migration or mixed-build reader is added.
+
+This is a prerequisite, not an implementation of whole-source destruction.
+Closing emission and serving authority, capturing/rechecking lane generation,
+persisting verified evidence with an audited discard receipt, bounded cleanup,
+retained source tombstones and fresh-incarnation recreation remain unfinished.
+Destination watermarks are unchanged by this read-only operation.
+
+
+The targeted runtime gate passed 99 library cases, 6 artifact cases, the persisted
+stream fixture and 25 of 26 serial Node cases, including the extended catalog
+proof test. That test rejects live-resource evidence, revokes the original
+application/admin grants, verifies terminal evidence through the platform
+capability, rejects the revoked resource status grant and compares the exact
+proof after owner handoff. An unchanged stream-control case failed shutdown with
+`NodeLeaseExpired`; its exact isolated replay passed. The cause remains unproven,
+so this is not an uninterrupted full runtime pass. Initial CLI validation used
+an earlier binary while sources changed; the rebuilt CLI then exposed a new
+test's incorrect expectation of an error code for plain UUID validation. The
+assertion now checks the actual specific resource-incarnation error.
+
+Workspace all-target/all-feature Clippy passed with warnings denied. All 11
+workspace doctests passed with one existing ignored case. Formatting covers
+421 Rust files; docs check 35 documents, 6 flows and 370 references; the all-feature
+dependency check retains 401 packages without a JavaScript engine. This evidence
+does not qualify source destruction or the remaining complete release matrix.
+
+The final rebuilt CLI passes both existing test cases, including missing/invalid/
+oversized resource input and rejection of inventory/binding options before fleet
+access. No runtime deadline or shutdown assertion was weakened.

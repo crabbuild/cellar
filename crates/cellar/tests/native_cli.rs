@@ -107,6 +107,43 @@ fn stream_operator_cli_refuses_invalid_inputs_before_fleet_access() -> Result<()
         ensure!(String::from_utf8(output.stderr)?.contains(message));
     }
     let directory = tempfile::tempdir()?;
+    let missing = Command::new(executable)
+        .args(["stream", "retirement-proof"])
+        .output()?;
+    ensure!(!missing.status.success());
+    ensure!(String::from_utf8(missing.stderr)?.contains("retirement-proof requires --resource"));
+    for flag in [
+        "--tenant",
+        "--application",
+        "--cursor",
+        "--limit",
+        "--binding",
+    ] {
+        let output = Command::new(executable)
+            .args(["stream", "retirement-proof", flag, "ignored"])
+            .output()?;
+        ensure!(!output.status.success());
+        ensure!(
+            String::from_utf8(output.stderr)?.contains("invalid catalog retirement-proof option")
+        );
+    }
+    let mut resource = tempfile::NamedTempFile::new_in(directory.path())?;
+    resource.write_all(br#"{"tenant":"tenant","application":"app","name":"events","family":"events","id":"not-a-uuid"}"#)?;
+    let invalid = Command::new(executable)
+        .args(["stream", "retirement-proof", "--resource"])
+        .arg(resource.path())
+        .output()?;
+    ensure!(!invalid.status.success());
+    ensure!(String::from_utf8(invalid.stderr)?
+        .contains("stream resource incarnation must be 32 lowercase hexadecimal digits"));
+    let mut too_large = tempfile::NamedTempFile::new_in(directory.path())?;
+    too_large.write_all(&vec![b'x'; 4097])?;
+    let oversized = Command::new(executable)
+        .args(["stream", "retirement-proof", "--resource"])
+        .arg(too_large.path())
+        .output()?;
+    ensure!(!oversized.status.success());
+    ensure!(String::from_utf8(oversized.stderr)?.contains("operator input file exceeds"));
     let mut binding = tempfile::NamedTempFile::new_in(directory.path())?;
     binding.write_all(&serde_json::to_vec(&serde_json::json!({
             "environment":"EVENTS","resource":{"tenant":"tenant","application":"app","name":"events","id":"00000000000000000000000000000001","family":"events"},

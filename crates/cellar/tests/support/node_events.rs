@@ -1894,6 +1894,41 @@ async fn catalog_operator(
     Ok(response.json().await?)
 }
 
+async fn catalog_retirement_proof(
+    client: &reqwest::Client,
+    node: &Node,
+    resource: &Resource,
+) -> Result<serde_json::Value> {
+    let name = serde_json::to_string(&(&resource.tenant, &resource.application))?;
+    let id = cellar_native::cell_id::for_name("cells:v1:event-catalog:__EventCatalog", &name);
+    let path = format!(
+        "/catalogs/__EventCatalog:{}",
+        cellar_native::cell_id::encode_hex(&id)
+    );
+    let body = serde_json::to_vec(
+        &serde_json::json!({"namespace":{"tenant":resource.tenant,"application":resource.application},"cursor":null,"limit":1,"retired_resource":resource}),
+    )?;
+    let auth = PeerAuth::new([11; 32], "catalogs-operator")?;
+    let response = auth
+        .sign(
+            client
+                .post(format!("http://{}{path}", node.info().internal_address))
+                .body(body.clone()),
+            "POST",
+            &path,
+            &body,
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(
+        response.status() == 200,
+        "retirement evidence response {}",
+        response.status()
+    );
+    Ok(response.json().await?)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Result<()> {
     use serde_json::{json, Value};
@@ -1915,7 +1950,9 @@ async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Resu
         definition.resource.name = format!("extra-{ordinal}");
         declarations.primary.event_streams.push(definition);
     }
-    let owner = Node::start(config, services, declarations, applications("owner")?).await?;
+    let mut changing = graph(1, false);
+    changing.primary.event_streams = declarations.primary.event_streams.clone();
+    let mut owner = Node::start(config, services, declarations, applications("owner")?).await?;
     super::ready(&owner).await?;
     let (config, services) = inputs(
         "catalog-inventory-entrance",
@@ -1949,9 +1986,46 @@ async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Resu
     let mut retired = binding(true);
     retired.resource.id = format!("{:032x}", 3);
     retired.resource.name = "extra-3".into();
+    // Preserve an admin overlap for revision 2, then revoke both original
+    // resource grants. Platform retirement evidence must not depend on them.
+    let target = changing
+        .primary
+        .event_streams
+        .iter_mut()
+        .find(|definition| definition.resource.id == retired.resource.id)
+        .unwrap();
+    target.revision = 2;
+    let mut replacement = target
+        .grants
+        .iter()
+        .find(|grant| grant.administer)
+        .unwrap()
+        .clone();
+    replacement.id = "replacement-management".into();
+    target.grants.push(replacement);
+    let mut overlap = graph(1, false);
+    overlap.primary.event_streams = changing.primary.event_streams.clone();
+    owner.adopt(overlap, applications("owner")?).await?;
+    let target = changing
+        .primary
+        .event_streams
+        .iter_mut()
+        .find(|definition| definition.resource.id == retired.resource.id)
+        .unwrap();
+    target.revision = 3;
+    target
+        .grants
+        .retain(|grant| grant.id == "replacement-management");
+    owner.adopt(changing, applications("owner")?).await?;
+    let original = retired.clone();
+    retired.grant = "replacement-management".into();
+    ensure!(
+        catalog_retirement_proof(&client, &entrance, &retired.resource).await?["error"]["code"]
+            == "PendingDelivery"
+    );
     let request = Retirement {
         operation: "00000000000000000000000000000099".into(),
-        revision: 1,
+        revision: 3,
         reason: "catalog tombstone qualification".into(),
         mode: RetirementMode::Force {
             data_loss_acknowledgment: "explicitly retire this empty test stream".into(),
@@ -1984,6 +2058,20 @@ async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Resu
         }
     })
     .await??;
+    let proof = catalog_retirement_proof(&client, &entrance, &retired.resource).await?;
+    ensure!(proof["result"]["state"] == "deleted" && proof["result"]["revision"] == "3");
+    ensure!(proof["result"]["operation"] == "00000000000000000000000000000099");
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &original,
+            json!({"kind":"retirement_status","operation":"00000000000000000000000000000099"}),
+            "catalogs-operator"
+        )
+        .await?["error"]["code"]
+            == "Forbidden"
+    );
     stopped(owner)
         .await
         .context("catalog inventory owner handoff")?;
@@ -2000,13 +2088,21 @@ async fn catalog_inventory_pages_tombstones_and_recovers_owner_handoff() -> Resu
         }
     }
     ensure!(cursor.is_null() && records.len() == 3);
+    ensure!(
+        catalog_retirement_proof(&client, &entrance, &retired.resource).await? == proof,
+        "owner handoff changed terminal retirement proof"
+    );
     ensure!(records[0]["resource"]["id"] == resource().id);
     ensure!(
         records[2]["resource"]["id"] == format!("{:032x}", 3) && records[2]["state"] == "deleted"
     );
-    ensure!(records
-        .iter()
-        .all(|entry| entry["accepted_revision"] == "1" && entry["desired_revision"].is_null()));
+    ensure!(records.iter().all(|entry| entry["accepted_revision"]
+        == if entry["resource"]["id"] == retired.resource.id {
+            "3"
+        } else {
+            "1"
+        }
+        && entry["desired_revision"].is_null()));
     let encoded = serde_json::to_string(&records)?;
     ensure!(
         !encoded.contains("grants")

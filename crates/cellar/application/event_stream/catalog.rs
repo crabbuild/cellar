@@ -497,6 +497,9 @@ impl Cell for Catalog {
             let body = broker::body(&args)?;
             let result = match method.as_str() {
                 super::catalog_inventory::METHOD => super::catalog_inventory::list(&context, &body),
+                super::retirement_proof::METHOD => {
+                    super::retirement_proof::inspect(&context, &body)
+                }
                 "__catalogConfigure" => configure(&context, &body).await,
                 "__catalogRetire" => retire(&context, &body).await,
                 "__catalogRetirementStatus" => retirement_status(&context, &body),

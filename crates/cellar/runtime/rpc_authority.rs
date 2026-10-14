@@ -17,6 +17,8 @@ pub enum RpcAuthority {
 enum CatalogKind {
     #[serde(rename = "catalog-operator-v1")]
     Inventory,
+    #[serde(rename = "catalog-retirement-proof-v1")]
+    Retired { resource: event_stream::Resource },
 }
 
 /// Platform namespace inspection; an application resource grant cannot mint it.
@@ -30,6 +32,20 @@ pub struct CatalogAuthority {
 }
 
 impl CatalogAuthority {
+    pub(crate) fn retired(resource: event_stream::Resource, operator: String) -> Result<Self> {
+        let namespace = event_stream::CatalogNamespace {
+            tenant: resource.tenant.clone(),
+            application: resource.application.clone(),
+        };
+        let authority = Self {
+            kind: CatalogKind::Retired { resource },
+            namespace,
+            operator,
+        };
+        authority.validate()?;
+        Ok(authority)
+    }
+
     pub(crate) fn mint(
         namespace: event_stream::CatalogNamespace,
         operator: String,
@@ -45,6 +61,14 @@ impl CatalogAuthority {
 
     fn validate(&self) -> Result<()> {
         self.namespace.validate()?;
+        if let CatalogKind::Retired { resource } = &self.kind {
+            resource.validate()?;
+            anyhow::ensure!(
+                resource.tenant == self.namespace.tenant
+                    && resource.application == self.namespace.application,
+                "retirement proof authority names another namespace"
+            );
+        }
         anyhow::ensure!(
             !self.operator.is_empty() && self.operator.len() <= 256,
             "invalid catalog operator identity"
@@ -55,7 +79,12 @@ impl CatalogAuthority {
     pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
         self.validate()?;
         anyhow::ensure!(
-            scope == self.namespace.scope()? && method == event_stream::catalog_inventory::METHOD,
+            scope == self.namespace.scope()?
+                && method
+                    == match self.kind {
+                        CatalogKind::Inventory => event_stream::catalog_inventory::METHOD,
+                        CatalogKind::Retired { .. } => event_stream::retirement_proof::METHOD,
+                    },
             "catalog authority does not match its RPC target"
         );
         Ok(())
@@ -63,6 +92,13 @@ impl CatalogAuthority {
 
     pub(crate) fn namespace(&self) -> &event_stream::CatalogNamespace {
         &self.namespace
+    }
+
+    pub(crate) fn retired_resource(&self) -> Option<&event_stream::Resource> {
+        match &self.kind {
+            CatalogKind::Retired { resource } => Some(resource),
+            CatalogKind::Inventory => None,
+        }
     }
 }
 
@@ -164,6 +200,43 @@ pub(crate) fn validate_target(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retirement_proof_capability_is_resource_scoped_and_read_only() -> Result<()> {
+        let resource = event_stream::Resource {
+            tenant: "tenant".into(),
+            application: "app".into(),
+            id: "00000000000000000000000000000001".into(),
+            name: "events".into(),
+            family: "events".into(),
+        };
+        let authority = RpcAuthority::Catalog(CatalogAuthority::retired(
+            resource.clone(),
+            "platform".into(),
+        )?);
+        let scope = event_stream::catalog_scope(&resource)?;
+        authority.validate_target(&scope, event_stream::retirement_proof::METHOD)?;
+        for method in [
+            event_stream::catalog_inventory::METHOD,
+            "__catalogConfigure",
+            "__catalogRetire",
+            "__streamAppend",
+            "__streamRead",
+        ] {
+            assert!(authority.validate_target(&scope, method).is_err());
+        }
+        let decoded: RpcAuthority = serde_json::from_value(serde_json::to_value(&authority)?)?;
+        decoded.validate_target(&scope, event_stream::retirement_proof::METHOD)?;
+        let mut foreign = resource;
+        foreign.application = "other".into();
+        assert!(authority
+            .validate_target(
+                &event_stream::catalog_scope(&foreign)?,
+                event_stream::retirement_proof::METHOD
+            )
+            .is_err());
+        Ok(())
+    }
 
     #[test]
     fn catalog_authority_is_namespace_and_method_bound_without_resource_promotion() -> Result<()> {

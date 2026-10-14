@@ -110,6 +110,13 @@ grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle
 rows, including tombstones. `catalog1` continuations bind the namespace and tail.
 Catalog identity and accepted/desired revision columns commit with configuration
 state; the schema marker stays 1 and older layouts require recreated state.
+`cellar stream retirement-proof --resource RESOURCE.json` uses an exact-resource,
+read-only platform capability through the same catalog owner path. It requires
+a terminal identity and matching committed retirement receipt, returning scalar
+identity metadata without grants or event bodies. Resource grant revocation does
+not prevent platform verification; this capability cannot mutate resources.
+The proof is a prerequisite for guarded source destruction, whose closure,
+audited cleanup and source-incarnation tombstone protocol remain unfinished.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained

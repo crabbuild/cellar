@@ -251,3 +251,18 @@ from the binding resource's tenant/application. `retire` carries the SDK
 permits catalog retirement/status and its partition preflight/closure, while
 configuration and append remain unavailable to this capability. Catalog and partition schemas stay at version 1 and include nullable provenance.
 Internal development uses hard cutovers with recreated state, without legacy migrations.
+
+Fleet administrators can inspect terminal retirement evidence independently of
+the resource's current grants:
+
+```text
+cellar stream retirement-proof --resource RESOURCE.json --json [FLEET OPTIONS]
+```
+
+The resource file contains its exact `tenant`, `application`, `family`, `name`
+and UUID `id`. The catalog owner returns only that identity, terminal `deleted`
+state, retirement operation, digest and accepted revision after checking the
+matching committed retirement receipt. Live or unfinished retirement returns
+`PendingDelivery`. This read-only platform capability does not grant resource
+administration or source deletion. Guarded whole-source destruction remains
+unfinished.

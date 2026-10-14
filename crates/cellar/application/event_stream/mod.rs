@@ -22,6 +22,7 @@ mod lifecycle_store;
 mod producer;
 pub(crate) mod readiness;
 mod retirement;
+pub(crate) mod retirement_proof;
 mod retirement_store;
 mod schema;
 pub(crate) mod service;
@@ -46,6 +47,7 @@ pub use lifecycle::{
 };
 pub use producer::SealStatus;
 pub use retirement::{Retirement, RetirementMode, RetirementStatus};
+pub use retirement_proof::RetirementProof;
 pub use source_inventory::{SourceListOptions, SourcePage, SourceStatus};
 pub use statistics::{StreamObservation, StreamStats};
 pub use subscription::{Acknowledgment, Batch, BatchOptions, Receipt, Subscription};

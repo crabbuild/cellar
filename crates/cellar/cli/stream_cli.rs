@@ -25,6 +25,7 @@ cellar stream audit --binding BINDING.json [--after POSITION] [--limit N]
 cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --procedure TEXT --confirm-retire
 cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --force --data-loss TEXT --confirm-retire
 cellar stream retirement-status --binding BINDING.json --operation UUID
+cellar stream retirement-proof --resource RESOURCE.json [--json]
 cellar subscription list --binding BINDING.json [--cursor TOKEN] [--limit N]
 cellar subscription describe NAME --binding BINDING.json
 cellar subscription pause|resume NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT
@@ -310,8 +311,13 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
 }
 
 pub async fn run(arguments: Vec<String>, subscription: bool) -> Result<()> {
-    if !subscription && arguments.first().is_some_and(|verb| verb == "list") {
-        return catalog_cli::run(arguments.into_iter().skip(1).collect()).await;
+    if !subscription
+        && arguments
+            .first()
+            .is_some_and(|verb| matches!(verb.as_str(), "list" | "retirement-proof"))
+    {
+        let proof = arguments[0] == "retirement-proof";
+        return catalog_cli::run(arguments.into_iter().skip(1).collect(), proof).await;
     }
     let Some(options) = parse(arguments, subscription)? else {
         return Output::new(Format::Text).line(format_args!(
