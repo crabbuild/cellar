@@ -352,7 +352,7 @@ test("desktop and narrow layouts have no page overflow", async ({
   })
   await page.getByRole("button", { name: "Toggle Sidebar" }).click()
   await expect(
-    page.getByRole("link", { name: "Key-value", exact: true })
+    page.getByRole("link", { name: "KV", exact: true })
   ).toBeVisible()
 })
 
@@ -412,7 +412,7 @@ test("KV continuation retains the queried prefix and values decode as UTF-8", as
         },
       })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByLabel("Key prefix").fill("sessions/")
   await page.getByRole("button", { name: "List keys" }).click()
@@ -1209,7 +1209,7 @@ test("resource filtering has a recovery path and keyboard-visible navigation", a
   await expect(page.getByRole("link", { name: "Open workspace" })).toBeVisible()
   await page.getByLabel("Filter resources on this page").fill("commerce-api")
   await expect(page.getByRole("link", { name: "Open workspace" })).toBeVisible()
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await expect(
     page.getByRole("heading", { name: "Key-value", exact: true })
   ).toBeVisible()
@@ -1421,7 +1421,7 @@ test("KV drafts load value metadata expiry and preserve them through reviewed co
     }
     return route.fulfill({ json: { result: inspected } })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByLabel("Exact key").fill("sessions/customer")
   await page.getByRole("button", { name: "Read key", exact: true }).click()
@@ -1506,7 +1506,7 @@ test("KV conflicts keep the draft and require comparison before saving a new rev
           json: { result: { ok: true }, operation: { status: "succeeded" } },
         })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByLabel("Exact key").fill("key")
   await page.getByRole("button", { name: "Read key", exact: true }).click()
@@ -1579,7 +1579,7 @@ test("KV binary bytes, expiry modes, deletion and unsaved draft navigation are e
       json: { result: { ok: true }, operation: { status: "succeeded" } },
     })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByRole("button", { name: "List keys", exact: true }).click()
   await page.getByRole("button", { name: "binary", exact: true }).click()
@@ -1604,12 +1604,19 @@ test("KV binary bytes, expiry modes, deletion and unsaved draft navigation are e
   await expect(page.getByLabel("Value", { exact: true })).toHaveText("AP8C")
   await page.getByLabel("Expiration", { exact: true }).click()
   await page.getByRole("option", { name: "Expire at", exact: true }).click()
-  await page.getByLabel("Expiration date and time").fill("2099-04-05T12:30")
+  await page
+    .getByRole("button", { name: "Expiration date", exact: true })
+    .click()
+  const calendar = page.getByRole("dialog", { name: "Expiration calendar" })
+  await calendar.getByLabel("Choose the Year").selectOption("2099")
+  await calendar.getByLabel("Choose the Month").selectOption("3")
+  await calendar.getByRole("button", { name: /April 5th, 2099/ }).click()
+  await page.getByLabel("Expiration time", { exact: true }).fill("12:30:45")
   await page.getByRole("button", { name: "Review changes" }).click()
   await page.getByRole("button", { name: "Save changes" }).click()
   await expect(page.getByLabel("Value preview")).toBeVisible()
   const timestamp = await page.evaluate(() =>
-    new Date("2099-04-05T12:30:00").getTime()
+    new Date("2099-04-05T12:30:45").getTime()
   )
   expect(writes[0]).toMatchObject({
     action: "kv_edit",
@@ -1649,6 +1656,89 @@ test("KV binary bytes, expiry modes, deletion and unsaved draft navigation are e
   })
 })
 
+test.describe("KV expiration picker", () => {
+  test.use({ timezoneId: "America/Vancouver" })
+
+  test("calendar and time preserve partial edits, keyboard focus, seconds and local timezone on narrow screens", async ({
+    page,
+  }, testInfo) => {
+    await page.clock.install({ time: new Date("2026-10-14T20:00:00Z") })
+    await page.getByRole("link", { name: "KV", exact: true }).click()
+    await page.getByRole("link", { name: "Open workspace" }).click()
+    await page.getByRole("button", { name: "New key", exact: true }).click()
+    await page.getByLabel("Key", { exact: true }).fill("calendar-preview")
+    await page.getByLabel("Expiration", { exact: true }).click()
+    await page.getByRole("option", { name: "Expire at", exact: true }).click()
+    const time = page.getByLabel("Expiration time", { exact: true })
+    const date = page.getByRole("button", {
+      name: "Expiration date",
+      exact: true,
+    })
+    const review = page.getByRole("button", {
+      name: "Review changes",
+      exact: true,
+    })
+    await expect(time).toHaveValue("")
+    await time.fill("12:34:56")
+    await expect(review).toBeDisabled()
+    await expect(
+      page.getByText("Local time · America/Vancouver. Review shows UTC.")
+    ).toBeVisible()
+    await date.click()
+    const calendar = page.getByRole("dialog", { name: "Expiration calendar" })
+    await expect(
+      calendar.getByRole("button", { name: /October 13th, 2026/ })
+    ).toBeDisabled()
+    await expect(
+      calendar.getByRole("button", { name: /Today, .*October 14th, 2026/ })
+    ).toBeFocused()
+    await page.keyboard.press("Escape")
+    await expect(date).toBeFocused()
+    await date.press("Enter")
+    await expect(
+      calendar.getByRole("button", { name: /Today, .*October 14th, 2026/ })
+    ).toBeFocused()
+    await page.keyboard.press("ArrowRight")
+    await page.keyboard.press("Enter")
+    await expect(calendar).toHaveCount(0)
+    await expect(date).toContainText("Oct 15, 2026")
+    await expect(date).toBeFocused()
+    await expect(time).toHaveValue("12:34:56")
+    await expect(review).toBeEnabled()
+    await time.fill("")
+    await expect(date).toContainText("Oct 15, 2026")
+    await expect(review).toBeDisabled()
+    await time.fill("12:34:56")
+    await review.click()
+    await expect(page.getByRole("alertdialog")).toContainText(
+      "2026-10-15T19:34:56.000Z"
+    )
+    await page.keyboard.press("Escape")
+    await date.click()
+    await page.screenshot({
+      path: testInfo.outputPath("expiration-picker-desktop.png"),
+      animations: "disabled",
+    })
+    await page.keyboard.press("Escape")
+    await page.getByRole("radio", { name: "Dark theme", exact: true }).click()
+    await page.setViewportSize({ width: 390, height: 844 })
+    await date.click()
+    await expect(calendar).toBeVisible()
+    const bounds = await calendar.boundingBox()
+    expect(bounds!.x).toBeGreaterThanOrEqual(0)
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390)
+    expect(bounds!.y).toBeGreaterThanOrEqual(0)
+    expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(844)
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth)
+    ).toBeLessThanOrEqual(390)
+    await page.screenshot({
+      path: testInfo.outputPath("expiration-picker-mobile-dark.png"),
+      animations: "disabled",
+    })
+  })
+})
+
 test("KV ignores a stale read and bounds large values", async ({ page }) => {
   let release: (() => void) | undefined
   let oldStarted = false
@@ -1684,7 +1774,7 @@ test("KV ignores a stale read and bounds large values", async ({ page }) => {
       },
     })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByLabel("Exact key").fill("slow")
   await page.getByRole("button", { name: "Read key", exact: true }).click()
@@ -1731,7 +1821,7 @@ test("KV text drafts preserve UTF-8 BOM bytes and respect read-only grants", asy
       },
     })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByLabel("Exact key").fill("bom")
   await page.getByRole("button", { name: "Read key", exact: true }).click()
@@ -1815,7 +1905,7 @@ test("KV conflict recovery refuses an oversized latest value", async ({
       },
     })
   })
-  await page.getByRole("link", { name: "Key-value", exact: true }).click()
+  await page.getByRole("link", { name: "KV", exact: true }).click()
   await page.getByRole("link", { name: "Open workspace" }).click()
   await page.getByLabel("Exact key").fill("key")
   await page.getByRole("button", { name: "Read key", exact: true }).click()
