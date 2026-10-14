@@ -2007,3 +2007,54 @@ Example SHA-256: `b360d5a607778cd1e66c80497980626453f25d6df3ba96c5270e393e7f424a
 This qualifies one source/lane at its configured row quota on one machine. Many
 cold sources, long soaks, memory SLOs, compaction/restore capacity and the complete
 follower/power/store/physical-host, lifecycle and policy matrices remain open.
+
+## Many-source cold recovery reproducer: qualification fails (2026-10-14)
+
+`many_sources.py` adds one independently acknowledged command/event per Order
+cell and a saved oracle for distinct source/lane identities, protected acceptance,
+remaining pending obligations, no source replay, exact effects/checkpoints,
+resource limits and every final shutdown. A bounded opt-in `stream_rows` fixture
+setting leaves ordinary examples and protocol markers unchanged. Counts cap at
+192, stream rows at 20, residency at 128 and route cache at 256.
+
+The first probes exposed harness assumptions. Redelivery can include additional
+new records unless the protected window fills first. Source owners can move onto
+other fleet nodes; a proxy cannot pause their local appends. The current case
+therefore uses a full required-retention window for backpressure, accepts current
+fleet owners with original identities, and restarts all three processes. Every
+replacement is started before awaiting any readiness because fleet-mode recovery
+can need a peer's retained log. Cleanup continues after a failed drain and closes
+all owned processes/proxy/store/ledger; its regression verifies that behavior.
+
+The corrected 144-command RustFS audit proved eight protected acceptances and
+136 pending obligations before all three observed SIGKILLs. Source owners were
+distributed across producer/consumer/destination under residency pressure. All
+commands and receipts were independently audited before loss. The 30-second
+protected-backlog observation retains RSS/residency/cache/local-file samples.
+It does not prove successful recovery or consume any original event after loss.
+
+Both fresh concurrent-restart cases (eight commands/SQLite and 144/RustFS) fail
+resource activation with a peer SendRequest connection closed before completion.
+The SQLite failure reaches producer/consumer activation; RustFS has two ready
+replacements before the third fails. RustFS cleanup additionally reports one
+pending dispatch even though ingress/work/cells are drained and no drain deadline
+elapsed. The saved source/image/config/log evidence is a production failure
+reproducer. Do not increase readiness/operation/drain deadlines, replay commands,
+relax shutdown or switch durability modes to turn these cases green. Diagnosis
+must distinguish recovering follower-only listeners, stale pooled connections
+and ownership transitions. The earlier isolated bootstrap timeout remains a
+separate audit; this evidence does not establish its cause.
+
+Example build, focused all-feature Clippy-D, ordinary smoke, all 62 Python oracle/
+proxy/cleanup guards, 430-file formatting, docs (35/6/370), dependencies (401/no
+JavaScript engine) and whitespace checks pass. No full-workspace gate was rerun.
+Current many-source process qualification is explicitly failed, not complete.
+Earlier small producer-only probes and harness failures are retained separately
+and do not satisfy the current all-process case or release matrix.
+
+Evidence root:
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-many-source-evidence-jlt5pat1`.
+Example SHA-256: `e09dfaa99b5e7a8aa8a7c8e02789ea2b8bf08b0c937104aae764ea5a2f20748c`.
+The objective remains active with this recovery/admission failure at the next
+priority; the full implementation, qualification and requirement audit retain
+their existing scope.

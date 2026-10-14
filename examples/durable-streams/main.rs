@@ -10,10 +10,10 @@ use cellar::fleet::LoadedDeployment;
 use cellar::sdk::*;
 use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
-fn graph(faults: bool) -> DeploymentGraph {
+fn graph(faults: bool, stream_rows: Option<usize>) -> DeploymentGraph {
     let mut definition = application::definition();
     if faults {
-        definition.max_records = 1;
+        definition.max_records = stream_rows.unwrap_or(1) as i64;
     }
     DeploymentGraph::single(LoadedDeployment {
         event_streams: vec![definition],
@@ -77,6 +77,7 @@ struct FleetFixture {
     declare: bool,
     fleet_durability: bool,
     outbox_rows: Option<usize>,
+    stream_rows: Option<usize>,
 }
 
 #[derive(serde::Deserialize)]
@@ -313,7 +314,12 @@ fn main() -> Result<()> {
         #[cfg(unix)]
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
-        let mut deployment = graph(faults);
+        let stream_rows = fixture.as_ref().and_then(|fixture| fixture.stream_rows);
+        ensure!(
+            stream_rows.is_none_or(|rows| (1..=256).contains(&rows)),
+            "fixture stream rows must be between 1 and 256"
+        );
+        let mut deployment = graph(faults, stream_rows);
         if fixture.as_ref().is_some_and(|fixture| !fixture.declare) {
             deployment.primary.event_streams.clear();
         }

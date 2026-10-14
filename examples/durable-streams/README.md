@@ -389,3 +389,41 @@ SQLite/WAL/LTX families. File allocation is an observation, not a consistent
 snapshot, unique physical extent count or bucket storage total. This selected
 single-source case does not qualify many cold sources, long soaks, memory SLOs,
 compaction/restore capacity, follower-only proof or physical-host/power/store loss.
+
+## Many cold sources
+
+`many_sources.py` commits one event in each independent Order cell. Required
+retention fills the captured stream window and backpressures every append path,
+including local calls from a source that moves onto the destination node. It
+archives the full accepted prefix and checks every business command, receipt and
+remaining pending
+obligation before SIGKILL of all three fleet processes. Owners may move during
+pressure or wake recovery, so the audit accepts current owners within the fleet.
+After restart it observes the hosts and
+unchanged protected destination history, then starts consumption without reading or posting any source
+until the entire backlog has been accepted and consumed. Durable wakes must drive
+recovery. Final source inspection verifies original identities and settled lanes.
+
+The default 144 sources exceed one host's 128-resident limit. The eight-record
+required stream fills before each consumer retry/redelivery check so newly
+appended records cannot change that batch. Cross-source ordering follows actual
+destination offsets; no global command-order promise is assumed. The saved oracle
+checks distinct sources/lanes, contiguous acceptance, exact inbox receipts and
+effects, checkpoint progression, resource limits and complete shutdown.
+
+```sh
+python3 examples/durable-streams/many_sources.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --count 144 --stream-rows 8 --soak-seconds 30 \
+  --rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc \
+  --output /tmp/cellar-many-source-evidence
+python3 examples/durable-streams/many_sources.py \
+  --audit /tmp/cellar-many-source-evidence/ledger.jsonl
+```
+
+Counts are bounded to 2–192 and stream rows to 1–20, below the source count. Optional fixture limits
+change only the explicit test graph; the ordinary example remains unchanged.
+Host/local file observations have the same limits as `capacity.py`. This case
+uses the original application class and surviving local state/store. Removed-
+class recovery, compaction, follower-only proof, power/store/physical-host loss,
+long soaks and operational memory SLOs retain their separate qualification scope.

@@ -564,6 +564,16 @@ unchanged so advertised batch limits reach the dispatcher. Saved evidence must
 pass the independent oracle and include complete final shutdown. RSS/residency
 and live local file sizes are observations, not aggregate/bucket physical metrics,
 memory SLOs, many-cold-source or long-soak qualification.
+`many_sources.py` exercises independent Order sources beyond one host's resident
+limit. Required retention, rather than only a network proxy, backpressures local
+and remote appends even when source ownership moves. It archives the protected
+prefix, audits remaining obligations, SIGKILLs every fleet process and starts all
+replacements before waiting for readiness. No source requests occur before full
+consumption. Its saved oracle and cleanup-failure guard are mandatory. Current
+concurrent-restart SQLite/RustFS cases fail event activation on peer connection
+closure; RustFS also exposed a pending dispatch at shutdown. These are open
+production/release failures, not passing capacity evidence or a reason to relax
+readiness/durability/deadline/shutdown checks.
 `whole_fleet.py` explicitly selects bucket proofs, audits one accepted event with
 a proven unacked inbox effect plus one capacity-blocked source obligation, then
 SIGKILLs all three processes. It inventories/discards only its private node data
