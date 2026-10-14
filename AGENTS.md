@@ -539,6 +539,13 @@ CreateBucket 503s, injects separate no-retry conditional-write clients and remov
 its own server after complete node shutdown. Credentials stay outside saved
 configuration and ledgers. This adds network-store destination recovery evidence;
 it does not prove follower-only acknowledgment, store loss or physical-host loss.
+`whole_fleet.py` explicitly selects bucket proofs, audits one accepted event with
+a proven unacked inbox effect plus one capacity-blocked source obligation, then
+SIGKILLs all three processes. It inventories/discards only its private node data
+after every kill is observed and audits bucket-restored receipts/state before
+consumer replay. No source POST repairs recovery. Replay adds zero old effects;
+ack releases capacity for the pending event and final shutdown is complete.
+SQLite/RustFS results qualify this boundary, not follower-only/power/store loss.
 
 
 ## Change discipline

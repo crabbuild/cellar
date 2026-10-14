@@ -1526,6 +1526,18 @@ and RustFS modes pass with independently archived executable/ledger digests.
 This covers one process-loss cut point on those two backends; separate physical
 hosts, store/follower/ack/power loss and the complete matrix remain required.
 
+The independent `whole_fleet.py` case selects bucket proofs explicitly and
+audits one accepted event with a proven unacked consumer inbox effect plus a
+second acknowledged source obligation blocked by required-stream capacity.
+After observed SIGKILL of every process, it inventories and discards all three
+private local node directories. Replacement nodes must restore original source
+receipts, accepted event/effect and checkpoint before any consumer replay, with
+no source POST. Redelivery adds no repeated effect; acknowledgment releases the
+pending event and final checkpoint 2. Saved evidence checks complete loss/restart
+order and final shutdown. SQLite and RustFS runs qualify this selected whole-
+fleet bucket recovery boundary; follower-only proof, power/store loss and the
+remaining cut-point/capacity requirements retain their full scope.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

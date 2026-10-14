@@ -63,6 +63,7 @@ struct FleetFixture {
     peer: SocketAddr,
     advertise: SocketAddr,
     declare: bool,
+    fleet_durability: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -269,7 +270,9 @@ fn main() -> Result<()> {
                 peer_auth.clone(),
             )),
             log: LogOptions::default(),
-            fleet_durability: true,
+            fleet_durability: fixture
+                .as_ref()
+                .is_none_or(|fixture| fixture.fleet_durability),
         };
         let services = NodeServices {
             http_client: None,

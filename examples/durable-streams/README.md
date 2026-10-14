@@ -263,3 +263,36 @@ on a single machine, with the selected SQLite or RustFS S3 backend. It does not
 qualify separate physical hosts, follower loss, destination ack SIGKILL, object-
 store loss, power loss or the complete failure
 and capacity matrix.
+
+## Whole-fleet recovery from the bucket
+
+[whole_fleet.py](whole_fleet.py) starts three independent processes with explicit
+bucket durability (`fleet_durability: false` in the opt-in fixture). The first
+command is accepted and its inbox effect is proven but retried without ack.
+A second acknowledged source command remains pending behind the one-record
+required stream. The client audits both commands, event identity, retained
+effect and checkpoint before SIGKILLing every process. Only after all three
+kill exits are observed does it inventory and discard their private node data
+directories; the bucket, measuring ledger and logs remain.
+
+Replacement processes restore from that bucket. Before any source POST or
+consumer replay, the client checks the original source receipts, pending row,
+accepted event, consumer effect and checkpoint 0. Consumer replay must add zero
+effects. Its ack releases capacity, the second obligation dispatches without
+source-command replay, and the final projection has two distinct effects with
+checkpoint 2. Saved audit-only checks require all original/replacement process
+IDs, file-loss inventories, kill/discard/restart order and complete final shutdown.
+
+```sh
+python3 examples/durable-streams/whole_fleet.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc \
+  --output /tmp/cellar-whole-fleet-evidence
+python3 examples/durable-streams/whole_fleet.py \
+  --audit /tmp/cellar-whole-fleet-evidence/ledger.jsonl
+```
+
+Omit `--rustfs-image` for a private SQLite bucket. These runs prove bucket-mode
+recovery at this selected boundary on one machine. They do not qualify fleet
+follower-only proof, power or object-store loss, every commit/proof cut point,
+physical hosts, capacity or soaks.

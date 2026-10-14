@@ -237,6 +237,10 @@ three embedded nodes in one process, not the entire fleet fault matrix.
 The independent-process append-loss driver also runs on a fresh private RustFS
 S3 bucket; its passed case proves network-store recovery at that boundary, without
 qualifying store/follower loss or separate physical hosts.
+The whole-fleet driver also proves one bucket-mode recovery boundary on both
+backends after killing all three processes and discarding their local node data,
+with a pending source and proven unacked consumer effect. Wider cut points and
+follower-only/store/power faults remain required.
 
 Source destruction/recreation now has a durable closed-admission lifecycle,
 exact destination evidence, immutable loss receipts, source/work/lane fences,
@@ -1668,3 +1672,55 @@ using a network object store on the same machine. It does not establish
 follower-only proof, store loss, whole-fleet recovery without local data,
 physical-host/power loss, acknowledgment SIGKILL, source cleanup loss, every
 commit/proof cut point or capacity/soak qualification.
+
+
+## Whole-fleet bucket recovery after local data loss (2026-10-14)
+
+The opt-in standalone fleet configuration now captures `fleet_durability`
+explicitly. Ordinary walkthrough and the existing append-loss driver retain
+fleet mode; `whole_fleet.py` selects bucket mode on every initial/replacement
+node. No SDK production core, deadline, proof gate or version marker changes.
+The fixture JSON is internal and is regenerated on cutover.
+
+The new case starts independent destination/producer/consumer processes. It
+proves one accepted command and a retained consumer inbox effect, releases its
+batch without acknowledgment and commits a second source command blocked by
+required retention. A fsynced independent audit verifies both original source
+receipts, pending accounting, immutable accepted event/effect and checkpoint 0.
+Only then does the driver observe all three SIGKILL exits, inventory the stopped
+local files and remove the three private node data directories. Store data,
+source commands, measuring ledger and logs remain outside the discarded paths.
+
+Replacement nodes recover the catalog/stream, business source/outbox state and
+consumer inbox from the bucket. Before any source POST or consumer processing,
+a recovery audit requires the same receipts/event/effect, checkpoint 0 and one
+pending obligation. Source commands are never replayed in this case. Consumer
+redelivery must add zero effects; ack releases capacity for automatic pending
+source dispatch. Subsequent processing adds one new effect, final total 1100
+across two receipts and checkpoint 2. Every replacement returns complete
+preserving shutdown.
+
+Both RustFS S3 and SQLite bucket modes pass four saved independent audits, three
+actual SIGKILLs and three local node-directory discards. Audit-only rechecks pass.
+The eight new oracle guards reject incomplete/foreign process loss, premature or
+missing local discard/replacement, replay before audit, repeated effects, lost
+accepted event/effect/pending source, mutated commands, incomplete shutdown,
+wrong proof mode and premature/missing private store cleanup. All 35 original/new
+Python guards pass. The existing fleet-mode append/reply-loss case passes five
+audits on this image, and ordinary smoke passes. Focused all-feature example
+Clippy-D passes, formatting checks 426 Rust files, docs validate 35/6/370,
+dependencies remain 401 without a JavaScript engine, and whitespace checks pass.
+Production core is unchanged from the prior 394-case full workspace gate; no
+new complete-workspace run is claimed for this fixture/harness batch.
+
+Archived binary SHA-256
+`b813cd9d2e9451a2811f44ee801e49706cacb080da73fbaa9ab62a20dc276068`,
+ledgers, file inventories, logs and source/configuration manifest remain at
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-whole-fleet-evidence-oapnsvzs`.
+
+This proves bucket-only whole-fleet recovery with lost local node data at one
+selected boundary on one machine. The object store remains alive and both
+caller executors in killed nodes are lost abruptly. This does not prove fleet
+follower-only acknowledgments/recovery, object-store/power loss, separate
+physical hosts, every commit/proof cut point, independent ack SIGKILL, source
+cleanup loss or full lifecycle/capacity/soak qualification.
