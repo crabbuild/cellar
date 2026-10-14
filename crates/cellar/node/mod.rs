@@ -621,23 +621,37 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
         match req {
             FacetReq::Open { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Delete { reply, .. } => drop(reply.send(Err(error()))),
+            FacetReq::DeleteBatch { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Prove { reply, .. } => drop(reply.send(Err(error()))),
         }
         return;
     };
     match req {
         FacetReq::Open {
+            authority,
             root,
             epoch,
             names,
             reply,
-        } => drop(reply.send(runtime.open_facet(&root, epoch, &names).await)),
+        } => drop(
+            reply.send(
+                runtime
+                    .open_facet_authorized(&root, epoch, &names, authority.as_ref())
+                    .await,
+            ),
+        ),
         FacetReq::Delete {
             root,
             epoch,
             names,
             reply,
         } => drop(reply.send(runtime.delete_facet(&root, epoch, &names).await)),
+        FacetReq::DeleteBatch {
+            root,
+            epoch,
+            names,
+            reply,
+        } => drop(reply.send(runtime.delete_facet_batch(&root, epoch, &names).await)),
         FacetReq::Prove {
             stream,
             epoch,

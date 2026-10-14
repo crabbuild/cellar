@@ -1243,3 +1243,65 @@ kill and one effect. Its digest is
 evidence remains in `/private/tmp/cellar-source-lifecycle-before-send-20261014`.
 This requalifies ordinary generation-zero SDK behavior and that cut point; it is
 not source-destruction crash injection or independent facet-family qualification.
+
+
+## Independent source facet-family reclamation and isolation
+
+Top-level facet storage names now register in `__sys_cell_facet_names` before an
+SDK open. The registry follows the source database's proof/recovery, survives
+ordinary business reset and records children even when they are absent from the
+current process. Source cleanup reads one registry key, proves the closed source,
+then requests subtree deletion outside SQLite. The original source/operation/work
+snapshot is rechecked before removing that key; interrupted/partial cleanup keeps
+it available for recovery. The terminal source receipt is recorded only after
+all registered families have completed.
+
+The host serializes cleanup with begun opens through the root's opening lock and
+checks resident owner epoch before deletion. Each batch lists at most 101 replica
+objects and deletes at most 100 from one exact facet subtree. Local replicas and
+dirty tails are closed/credited through the original backend deletion path; the
+root database, its proof/receipt and sibling streams are preserved. Existing
+ordinary facet deletion retains its API. Local directory removal remains a
+separate filesystem cost requiring capacity qualification.
+
+Recreated sources derive physical facet names from producer incarnation and the
+logical user name. Public logical names, startup IDs and properties stay intact.
+A delayed cleanup cannot target a successor's differently qualified namespace.
+Native startup carries a captured source admission check into the host, including
+after waits and restore; a stale parent cannot materialize a child. The permit
+uses an opaque validator to avoid a recursive concrete channel/activation type.
+Ordinary activation retirement retains its existing diagnostic wording, separately
+from source-incarnation refusal. All owned markers stay 1; earlier outbox layouts
+missing the registry are refused before base-schema mutation and require recreated
+state, without migration.
+
+The real Node source tests now write both child and nested-child state before
+closure. The warm test verifies old local family removal and zero child values
+after same-activation source recreation. The owner-handoff case verifies that a
+new owner reclaims a registered child it never opened and that neither child nor
+nested state reappears after recreation. Original handle, pending-turn, source
+identity, loss-count, receipt and live-destination-watermark assertions remain.
+A backend test seeds 205 replica objects and verifies remaining counts 105, 5 and
+0 across three batches, while root/sibling/other-root objects retain their exact
+bytes. A delayed native startup test advances source admission and verifies its
+child file remains unopened.
+
+Early checks caught a shared-table initialization guard error, a borrowed request
+in the fixture and incorrect durable-namespace declaration of a facet class.
+The bootstrap regression caught changed activation-retirement wording; the
+original assertion/message is preserved rather than weakened. No deadlines,
+ownership/proof checks or shutdown assertions were loosened.
+
+The targeted runtime gate passes all 28 serial Node cases, 6 artifact cases,
+2 CLI cases and the stream, native facet and native outbox fixtures. The corrected
+library replay passes 101 cases, including bounded replica cleanup. Workspace
+all-target/all-feature Clippy passes with warnings denied, and all 11 workspace
+doctests pass with one existing ignored case. This is targeted source/facet
+qualification, not completion of cleanup crash/lease/policy races, large local
+filesystem/SQL-reset capacity, the full workspace runtime gate or the complete
+outbox/stream/subscription release matrix.
+
+Final library qualification includes the delayed source-startup refusal and passes
+all 101 cases. Final Clippy passes with warnings denied; formatting checks 422
+Rust files. Docs validate 35 documents, 6 flows and 370 references; dependencies
+retain 401 packages without a JavaScript engine; whitespace checks pass.

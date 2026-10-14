@@ -3491,6 +3491,40 @@ impl LtxRepl {
         Ok(())
     }
 
+    /// Delete at most 100 replica objects from exactly one facet subtree.
+    /// Source cleanup persists the name until an empty tail is observed.
+    pub(crate) async fn delete_streams_batch(&self, cell: &str) -> anyhow::Result<bool> {
+        use cellar_ltx::object_store::path::Path as ObjPath;
+        use futures_util::{StreamExt as _, TryStreamExt as _};
+        anyhow::ensure!(
+            cell.contains("/facets/"),
+            "source cleanup requires a facet subtree"
+        );
+        self.forget_deleted_tails(cell);
+        let base = ObjPath::from(format!("{}cells/{cell}", self.prefix));
+        let listed = self
+            .store
+            .list(Some(&base))
+            .take(101)
+            .map_ok(|meta| meta.location)
+            .try_collect::<Vec<_>>()
+            .await?;
+        let complete = listed.len() <= 100;
+        let mut deleted = self.store.delete_stream(
+            futures_util::stream::iter(listed.into_iter().take(100).map(Ok)).boxed(),
+        );
+        while let Some(result) = deleted.next().await {
+            result?;
+        }
+        if complete {
+            let local = self.watch.join(cell);
+            if self.ltx_host.filesystem().metadata(&local).is_ok() {
+                self.ltx_host.remove_dir_all(&local)?;
+            }
+        }
+        Ok(complete)
+    }
+
     /// Drop the undrained tails of a deleted stream and every stream below it.
     /// A tail names rows that the next activation folds into the bucket, so a
     /// kept tail restores deleted rows into a recreated facet of the same
@@ -5531,3 +5565,71 @@ impl Drop for LtxRepl {
 
 #[cfg(cellar_internal_tests)]
 include!(env!("CELLAR_INTERNAL_LTX_REPL_OBSERVERS"));
+
+#[cfg(test)]
+mod source_facet_cleanup_tests {
+    use super::*;
+    use futures_util::TryStreamExt;
+
+    #[tokio::test]
+    async fn cleanup_batches_preserve_root_and_sibling_replica_objects() -> anyhow::Result<()> {
+        let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+        let result = domain
+            .run(async {
+                use cellar_ltx::object_store::path::Path as ObjPath;
+                let directory = tempfile::tempdir()?;
+                let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+                let root = "Account:source";
+                let facet = format!("{root}/facets/{}", "a".repeat(32));
+                for ordinal in 0..205 {
+                    store
+                        .put(
+                            &ObjPath::from(format!("cells/{facet}/ltx/e1/{ordinal:04}")),
+                            b"x".as_slice().into(),
+                        )
+                        .await?;
+                }
+                let protected = [
+                    format!("cells/{root}/ltx/e1/root"),
+                    format!("cells/{root}/facets/{}/ltx/e1/sibling", "b".repeat(32)),
+                    format!("cells/{root}-other/facets/{}/ltx/e1/other", "a".repeat(32)),
+                ];
+                for key in &protected {
+                    store
+                        .put(&ObjPath::from(key.as_str()), b"keep".as_slice().into())
+                        .await?;
+                }
+                let backend = LtxRepl::start(
+                    directory.path(),
+                    ReplicaStorage::new(store.clone(), ReplicaStorageOptions::default())?,
+                    ReplicationOptions {
+                        flush_interval: Duration::ZERO,
+                        compaction: None,
+                        ..Default::default()
+                    },
+                )?;
+                let prefix = ObjPath::from(format!("cells/{facet}"));
+                for (remaining, complete) in [(105, false), (5, false), (0, true)] {
+                    assert_eq!(backend.delete_streams_batch(&facet).await?, complete);
+                    let objects = store.list(Some(&prefix)).try_collect::<Vec<_>>().await?;
+                    assert_eq!(objects.len(), remaining);
+                    for key in &protected {
+                        assert_eq!(
+                            store
+                                .get(&ObjPath::from(key.as_str()))
+                                .await?
+                                .bytes()
+                                .await?
+                                .as_ref(),
+                            b"keep"
+                        );
+                    }
+                }
+                assert!(backend.delete_streams_batch(root).await.is_err());
+                Ok::<_, anyhow::Error>(())
+            })
+            .await?;
+        domain.shutdown().await;
+        result
+    }
+}

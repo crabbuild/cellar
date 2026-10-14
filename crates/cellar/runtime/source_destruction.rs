@@ -385,6 +385,32 @@ pub(crate) async fn clean(context: &Context) -> Result<()> {
     if removed {
         return Ok(());
     }
+    let children = db.system_sql(
+        "SELECT name FROM __sys_cell_facet_names ORDER BY name LIMIT 1",
+        &[],
+    )?;
+    if let Some(child) = children.first() {
+        let name = text(child, "name")?;
+        db.sync().await?;
+        context.check_turn()?;
+        same_closure(&db, &captured)?;
+        let parent = crate::storage::storage_identity(&scope)?
+            .ok_or_else(|| error(ErrorCode::ConfigConflict, "source storage identity retired"))?;
+        let complete = crate::host_facets::delete_facet_files_batch(parent, name.clone())
+            .await
+            .map_err(anyhow::Error::msg)?;
+        context.check_turn()?;
+        return db.tx(|tx| {
+            same_closure(tx, &captured)?;
+            if complete {
+                tx.system_sql(
+                    "DELETE FROM __sys_cell_facet_names WHERE name=?",
+                    &[name.into()],
+                )?;
+            }
+            schedule(tx, crate::asyncrt::wall_ms())
+        });
+    }
     // Admission remains closed throughout this existing transactional business
     // reset, including an interruption before recording the terminal result.
     // SQL table-drop cost is separate from bounded event/inbox/lane reclamation.

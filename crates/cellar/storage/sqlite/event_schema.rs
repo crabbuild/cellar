@@ -51,7 +51,7 @@ pub(super) fn retirement_operator(
     )
 }
 
-fn layout(connection: &Connection, table: &str, expected: &str) -> anyhow::Result<()> {
+pub(super) fn layout(connection: &Connection, table: &str, expected: &str) -> anyhow::Result<()> {
     // Names come only from framework-owned static declarations.
     let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
     let columns = statement

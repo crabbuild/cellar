@@ -75,3 +75,7 @@ CREATE TABLE IF NOT EXISTS __sys_outbox_batch_limits (
     bytes INTEGER NOT NULL CHECK(typeof(bytes)='integer' AND bytes>0),
     records INTEGER NOT NULL CHECK(typeof(records)='integer' AND records>0)
 ) WITHOUT ROWID;
+
+CREATE TABLE IF NOT EXISTS __sys_cell_facet_names (
+    name TEXT PRIMARY KEY CHECK(length(CAST(name AS BLOB))<=256)
+) WITHOUT ROWID;

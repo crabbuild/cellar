@@ -187,6 +187,34 @@ pub(crate) fn delete_facet_files(
     }
 }
 
+/// A source cleanup event keeps its durable registry row until this batch
+/// reports completion. The root stream and its receipt are never deleted.
+pub(crate) async fn delete_facet_files_batch(
+    parent: storage::StorageIdentity,
+    name: String,
+) -> Result<bool, String> {
+    let mut names = parent.facet_path.clone();
+    names.push(name);
+    if let Some(sender) = FACET_TX.get() {
+        let (reply, receive) = tokio::sync::oneshot::channel();
+        sender
+            .send(FacetReq::DeleteBatch {
+                root: parent.root_scope,
+                epoch: parent.epoch,
+                names,
+                reply,
+            })
+            .map_err(|_| "the facet channel closed".to_string())?;
+        receive
+            .await
+            .map_err(|_| "the facet cleanup was dropped".to_string())?
+            .map_err(|error| format!("delete source facet storage: {error:#}"))
+    } else {
+        delete_standalone_facet_files(&parent, &names)?;
+        Ok(true)
+    }
+}
+
 fn delete_standalone_facet_files(
     parent: &storage::StorageIdentity,
     names: &[String],

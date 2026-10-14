@@ -136,6 +136,7 @@ async fn start(
     prepare_facet(
         FacetHost::Own(slot.clone()),
         FacetStart {
+            source_generation: 0,
             class_name: "Facet".into(),
             parent_scope: parent_scope.into(),
             owner: owner.into(),
@@ -490,9 +491,38 @@ pub(crate) async fn check_native_facet_lifecycles() -> Result<()> {
                 .clone()
         })
         .await;
+    let stale_source = crate::host_facets::prepare_native_facet(
+        FacetHost::Own(slot.clone()),
+        FacetStart {
+            source_generation: 0,
+            class_name: "Facet".into(),
+            parent_scope: root.into(),
+            owner: "source-late".into(),
+            name: "source-late".into(),
+            id_sc: encode(&id)?,
+            props_sc: encode(&props)?,
+            parent: parent.clone(),
+        },
+        authority.clone(),
+    );
+    let (unopened, _) = crate::host_facets::open_facet_file(&parent, "source-late", None)
+        .await
+        .map_err(anyhow::Error::msg)?;
+    authority.source_admission(1, true);
+    assert!(stale_source
+        .await
+        .err()
+        .unwrap()
+        .contains("source incarnation has retired"));
+    assert!(
+        asyncrt::fs().metadata(&unopened).is_err(),
+        "stale source opened a child after closure"
+    );
+    authority.source_admission(0, false);
     let late = crate::host_facets::prepare_native_facet(
         FacetHost::Own(slot.clone()),
         FacetStart {
+            source_generation: 0,
             class_name: "Facet".into(),
             parent_scope: root.into(),
             owner: "late".into(),
@@ -503,7 +533,7 @@ pub(crate) async fn check_native_facet_lifecycles() -> Result<()> {
         },
         authority.clone(),
     );
-    let (kept_file, _) = crate::host_facets::open_facet_file(&parent, "child")
+    let (kept_file, _) = crate::host_facets::open_facet_file(&parent, "child", None)
         .await
         .map_err(anyhow::Error::msg)?;
     assert!(asyncrt::fs().metadata(&kept_file).is_ok());

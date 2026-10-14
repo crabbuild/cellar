@@ -1050,12 +1050,10 @@ async fn call(
         )
         .send()
         .await?;
-    ensure!(
-        response.status() == 200,
-        "public node status {}",
-        response.status()
-    );
-    Ok(response.text().await?)
+    let status = response.status();
+    let body = response.text().await?;
+    ensure!(status == 200, "public node {path} status {status}: {body}");
+    Ok(body)
 }
 
 async fn ready(node: &Node) -> Result<()> {

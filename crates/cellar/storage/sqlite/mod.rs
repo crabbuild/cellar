@@ -424,6 +424,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
          (scope TEXT PRIMARY KEY, actor_name TEXT)",
             [],
         )?;
+        c.execute_batch("CREATE TABLE IF NOT EXISTS __sys_cell_facet_names(name TEXT PRIMARY KEY CHECK(length(CAST(name AS BLOB))<=256)) WITHOUT ROWID;")?;
         c.execute_batch(work::SCHEMA)?;
         outbox::restore_schema(c)?;
         outbox_control::restore_schema(c)?;
@@ -4263,6 +4264,7 @@ pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<
                     if matches!(
                         table.as_str(),
                         "__sys_cell_metadata"
+                            | "__sys_cell_facet_names"
                             | "__sys_cell_wake"
                             | "__sys_cell_alarm"
                             | "__sys_work"

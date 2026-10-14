@@ -25,6 +25,7 @@ const SCHEMA: super::event_schema::Schema = super::event_schema::Schema {
 pub(super) fn check_schema(connection: &Connection) -> anyhow::Result<bool> {
     let present = SCHEMA.check(connection)?;
     if present {
+        super::event_schema::layout(connection, "__sys_cell_facet_names", "name")?;
         for (index, expected) in [
             ("__sys_outbox_age", "created_at_ms"),
             ("__sys_outbox_lane_age", "lane,created_at_ms"),

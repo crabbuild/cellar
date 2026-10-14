@@ -125,9 +125,14 @@ explicit CLI intent; destruction also requires a loss acknowledgment. Retirement
 evidence commits before deletion; stale verification and dispatch replies cannot
 advance a replacement. Event/inbox/lane cleanup is batched, business reset uses its
 existing transaction, receipts/tombstones survive and recreation mints fresh
-producer identity. Independent facet-family cleanup/recreation isolation, large
-SQL reset capacity and the complete source fault/lease/policy matrix remain
-unfinished. Do not infer full release qualification from the base-database tests.
+producer identity. Source roots register top-level physical facet names durably before opening.
+Destruction retires child activations and reclaims registered subtrees in at most
+100 replica objects per host batch, keeping each registry row until completion.
+Recreated sources qualify facet storage names by producer incarnation; logical
+names and startup identity remain unchanged. Native opens carry a captured
+admission check across host waits and restore, and serialize with subtree cleanup.
+Large local-directory/SQL reset capacity and the complete source fault/lease/policy
+matrix remain unfinished. Do not infer full release qualification from the base-database tests.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained

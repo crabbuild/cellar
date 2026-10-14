@@ -87,6 +87,17 @@ impl Cell for Counter {
                 return Ok(Output::Done);
             };
             let path = url::Url::parse(&request.url)?.path().to_owned();
+            if path == "/source-facet" || path == "/nested-facet" {
+                let class = context.exported_cell_class("SourceFacetCounter")?;
+                let child = context
+                    .facets()?
+                    .get(&context, "persistent-child", move |_| {
+                        Box::pin(
+                            async move { Ok(cellar::application::facets::Startup::new(class)) },
+                        )
+                    })?;
+                return Ok(Output::Http(child.fetch(&context, request).await?));
+            }
             let db = context.storage()?;
             let events = context.stream::<Changed>("EVENTS")?;
             let body = if path == "/outbox-pending" {
@@ -293,6 +304,9 @@ fn applications_with_probe(
                     probe.fetch_add(1, Ordering::SeqCst);
                 }
                 Ok(Arc::new(Counter(label)))
+            })?
+            .cell("SourceFacetCounter", |_, _| {
+                Ok(Arc::new(SourceFacetCounter))
             })?,
         ))
     })
@@ -2318,6 +2332,8 @@ async fn source_destruction_requires_retired_destinations_and_recovers_closed_ad
     let inspected = operator(&client, &owner, &scope, &json!({"op":"inspect"}), "outbox").await?;
     ensure!(inspected["result"]["pending_rows"] == "1");
     let incarnation = inspected["result"]["incarnation"].clone();
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/source-facet").await? == "1");
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/nested-facet").await? == "1");
     let command = json!({"op":"destroy","change":{"source":scope,"incarnation":incarnation,
         "operation":"000000000000000000000000000000aa","reason":"source lifecycle qualification",
         "data_loss_acknowledgment":"discard this proven obligation only after its exact destination is retired"}});
@@ -2440,6 +2456,14 @@ async fn source_destruction_requires_retired_destinations_and_recovers_closed_ad
         operator(&client, &entrance, &scope, &command, "outbox").await?["result"] == deleted,
         "old destroy replay targeted successor"
     );
+    ensure!(
+        call(&client, &entrance, reqwest::Method::GET, "/source-facet").await? == "0",
+        "cold source cleanup restored an old child"
+    );
+    ensure!(
+        call(&client, &entrance, reqwest::Method::GET, "/nested-facet").await? == "0",
+        "cold source cleanup restored an old descendant"
+    );
     let old = operator(
         &client,
         &entrance,
@@ -2474,6 +2498,39 @@ impl Drop for SourceLifetimeDrop {
     }
 }
 
+struct SourceFacetCounter;
+
+impl Cell for SourceFacetCounter {
+    fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
+        Box::pin(async move {
+            let Invocation::Fetch(request) = invocation else {
+                return Ok(Output::Done);
+            };
+            if url::Url::parse(&request.url)?.path() == "/nested-facet" {
+                let class = context.exported_cell_class("SourceFacetCounter")?;
+                let facet = context.facets()?.get(&context, "nested", move |_| {
+                    Box::pin(async move { Ok(cellar::application::facets::Startup::new(class)) })
+                })?;
+                let mut child = request;
+                child.url = "http://source-facet/value".into();
+                return Ok(Output::Http(facet.fetch(&context, child).await?));
+            }
+            let db = context.storage()?;
+            let value = db
+                .get_json("facet_count")?
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0);
+            let value = if request.method == "POST" {
+                db.put_json("facet_count", &serde_json::json!(value + 1))?;
+                value + 1
+            } else {
+                value
+            };
+            Ok(super::response(value))
+        })
+    }
+}
+
 struct SourceLifetimeCell(Arc<SourceLifetimeProbe>);
 
 impl Cell for SourceLifetimeCell {
@@ -2481,6 +2538,21 @@ impl Cell for SourceLifetimeCell {
         Box::pin(async move {
             if let Invocation::Fetch(request) = &invocation {
                 match url::Url::parse(&request.url)?.path() {
+                    "/source-facet" | "/nested-facet" => {
+                        let class = context.exported_cell_class("SourceFacetCounter")?;
+                        let facet =
+                            context
+                                .facets()?
+                                .get(&context, "persistent-child", move |_| {
+                                    Box::pin(async move {
+                                        Ok(cellar::application::facets::Startup::new(class))
+                                    })
+                                })?;
+                        let Invocation::Fetch(request) = invocation else {
+                            unreachable!("matched fetch invocation")
+                        };
+                        return Ok(Output::Http(facet.fetch(&context, request).await?));
+                    }
                     "/remember-storage" => {
                         *self.0.saved.lock().unwrap() = Some(context.storage()?);
                         return Ok(super::response("saved".to_owned()));
@@ -2512,6 +2584,7 @@ impl Cell for SourceLifetimeCell {
 async fn source_destruction_fences_suspended_turns_retained_handles_and_preserves_live_watermarks(
 ) -> Result<()> {
     use serde_json::json;
+    use sha2::Digest;
     let directory = tempfile::tempdir()?;
     let core = Executor::new("source-lifetime-core")?;
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
@@ -2545,10 +2618,15 @@ async fn source_destruction_fences_suspended_turns_retained_handles_and_preserve
             })
             .cell("Account", move |_, _| {
                 Ok(Arc::new(SourceLifetimeCell(constructors.clone())))
+            })?
+            .cell("SourceFacetCounter", |_, _| {
+                Ok(Arc::new(SourceFacetCounter))
             })?,
         ))
     })?;
-    let node = Node::start(config, services, graph(1, false), apps).await?;
+    let declarations = graph(1, false);
+
+    let node = Node::start(config, services, declarations, apps).await?;
     super::ready(&node).await?;
     let client = client()?;
     let script = "embedded-node";
@@ -2587,6 +2665,8 @@ async fn source_destruction_fences_suspended_turns_retained_handles_and_preserve
         }
     })
     .await??;
+    ensure!(call(&client, &node, reqwest::Method::POST, "/source-facet").await? == "1");
+    ensure!(call(&client, &node, reqwest::Method::POST, "/nested-facet").await? == "1");
     ensure!(call(&client, &node, reqwest::Method::GET, "/remember-storage").await? == "saved");
     let inventory = stream_operator(
         &client,
@@ -2646,6 +2726,17 @@ async fn source_destruction_fences_suspended_turns_retained_handles_and_preserve
         .await???
         .status()
         .is_success());
+    let old_facet = sha2::Sha256::digest(b"persistent-child");
+    let old_path = directory
+        .path()
+        .join("node")
+        .join(&scope)
+        .join("facets")
+        .join(hex::encode(&old_facet[..16]));
+    ensure!(
+        !old_path.exists(),
+        "source cleanup retained its old local facet family"
+    );
     let after = stream_operator(
         &client,
         &node,
@@ -2675,6 +2766,14 @@ async fn source_destruction_fences_suspended_turns_retained_handles_and_preserve
         "old storage was not fenced by source generation"
     );
     ensure!(call(&client, &node, reqwest::Method::GET, "/").await? == "lifetime:0");
+    ensure!(
+        call(&client, &node, reqwest::Method::GET, "/source-facet").await? == "0",
+        "recreated source reopened old facet state"
+    );
+    ensure!(
+        call(&client, &node, reqwest::Method::GET, "/nested-facet").await? == "0",
+        "recreated source reopened nested facet state"
+    );
     stopped(node)
         .await
         .context("source lifetime complete shutdown")?;
