@@ -1516,7 +1516,7 @@ fn presence_request(
     let capabilities = crate::protocol::SUPPORTED_DEPLOYMENT_FEATURES
         .iter()
         .copied()
-        .chain(["sqlite-explorer-v1", "sqlite-explorer-v2"])
+        .chain(["sqlite-explorer-v1"])
         .collect::<Vec<_>>()
         .join(",");
     headers.insert(
