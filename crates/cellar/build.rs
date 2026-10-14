@@ -4,7 +4,7 @@ fn main() {
     std::io::stdout()
         .write_all(
             format!(
-                "cargo:rustc-env=CELLAR_NATIVE_TARGET={}\n",
+                "cargo:rerun-if-changed=build.rs\ncargo:rustc-env=CELLAR_NATIVE_TARGET={}\n",
                 std::env::var("TARGET").unwrap()
             )
             .as_bytes(),
