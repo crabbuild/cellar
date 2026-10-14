@@ -387,9 +387,43 @@ fn a_zero_route_cache_retains_authority_for_resident_and_dormant_cells() {
         assert_eq!(state.cached_routes(), 0);
     }
     assert_eq!(state.phase(cell), Some(&Phase::Resident { epoch: 8 }));
+    let observed = state.owned_cell_page(None, 1);
+    assert_eq!(observed.items.len(), 1);
+    assert_eq!(observed.items[0].scope, cell);
+    assert_eq!(observed.items[0].epoch, 8);
+    assert_eq!(observed.items[0].phase, "resident");
+    assert_eq!(state.owned_cell_page(Some(cell), 100).items.len(), 0);
     assert_eq!(state.owned_cells(), 1);
     on_event(&mut state, Event::ActivityFinished { request: 1 });
-    on_event(&mut state, Event::Evict { cell: cell.into() });
+    let rejected = on_event(
+        &mut state,
+        Event::EvictRequestedAtEpoch {
+            request: 900,
+            cell: cell.into(),
+            epoch: 7,
+            now_mono_ms: 1,
+        },
+    );
+    assert!(rejected.contains(&Effect::EvictionAdmission {
+        request: 900,
+        result: Err(cellar_logic::EvictError::Refused(
+            cellar_logic::EvictRefusal::EpochChanged
+        )),
+    }));
+    assert_eq!(state.phase(cell), Some(&Phase::Resident { epoch: 8 }));
+    let admitted = on_event(
+        &mut state,
+        Event::EvictRequestedAtEpoch {
+            request: 901,
+            cell: cell.into(),
+            epoch: 8,
+            now_mono_ms: 2,
+        },
+    );
+    assert!(admitted.contains(&Effect::EvictionAdmission {
+        request: 901,
+        result: Ok(cellar_logic::EvictionAdmission::Pending),
+    }));
     let Phase::EnsuringDurability { op, .. } = state.phase(cell).cloned().unwrap() else {
         panic!("eviction must prove durability");
     };
@@ -397,7 +431,11 @@ fn a_zero_route_cache_retains_authority_for_resident_and_dormant_cells() {
     let Phase::Cleaning { op, .. } = state.phase(cell).cloned().unwrap() else {
         panic!("eviction must stop the runtime");
     };
-    on_event(&mut state, Event::RuntimeStopped { op });
+    let finished = on_event(&mut state, Event::RuntimeStopped { op });
+    assert!(finished.contains(&Effect::EvictionFinished {
+        request: 901,
+        result: Ok(cellar_logic::EvictSuccess::Evicted),
+    }));
     assert_eq!(state.phase(cell), Some(&Phase::Dormant { epoch: 8 }));
     for id in 2..=202 {
         let op = request(&mut state, id, &format!("Account:failed-{id}"));

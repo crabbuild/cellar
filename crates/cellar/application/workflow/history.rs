@@ -200,6 +200,11 @@ pub(super) fn append(
         "instanceId",
         &data(json!(text(meta, "instanceId")?))?,
     )?;
+    set(
+        &mut fields,
+        "generation",
+        &data(json!(text(meta, "generation")?))?,
+    )?;
     set(&mut fields, "eventId", &data(json!(event_id))?)?;
     set(&mut fields, "timestamp", &data(json!(now()))?)?;
     storage.put_clone(&format!("{HISTORY}{event_id:020}"), &fields)?;
@@ -335,7 +340,7 @@ pub(super) fn step_change(
         .unwrap_or(1.0);
     let mut fields =
         data(json!({"stepName":name,"count":count.parse::<u64>()?,"attempt":attempt}))?;
-    for field in ["error", "config"] {
+    for field in ["error", "config", "input"] {
         if let Some(value) = property(new, field)? {
             set(&mut fields, field, &value)?;
         }

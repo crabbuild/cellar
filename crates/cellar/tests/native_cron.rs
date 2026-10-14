@@ -182,6 +182,7 @@ fn graph(expressions: Vec<String>) -> DeploymentGraph {
         assets: None,
         services: Vec::new(),
         crons: expressions,
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),
@@ -189,6 +190,14 @@ fn graph(expressions: Vec<String>) -> DeploymentGraph {
 }
 
 fn generation(id: u64, expressions: Vec<String>, signals: Arc<Signals>) -> Result<Generation> {
+    generation_from_graph(id, graph(expressions), signals)
+}
+
+fn generation_from_graph(
+    id: u64,
+    graph: DeploymentGraph,
+    signals: Arc<Signals>,
+) -> Result<Generation> {
     let registry = Registry::new(move |context, invocation| {
         Box::pin(worker(context, invocation, signals.clone()))
     })
@@ -197,7 +206,7 @@ fn generation(id: u64, expressions: Vec<String>, signals: Arc<Signals>) -> Resul
     })?;
     Generation::build_native(
         id,
-        graph(expressions),
+        graph,
         GenerationOptions {
             node: "test".into(),
             region: "test".into(),
@@ -483,7 +492,39 @@ async fn run() -> Result<()> {
     .await?;
     runtime.swap_out_cell(&scope, 1).await?;
     runtime.swap_out_cell(SINK, 1).await?;
-    let next = generation(3, Vec::new(), signals)?;
+    // Disabling the schedule must remove an already armed future occurrence.
+    let future_alarm = cellar::ownership_store::now_ms() as i64 + 60_000;
+    seed(&runtime, &data, &scope, future_alarm).await?;
+    assert_eq!(runtime.alarm(&scope), Some(future_alarm));
+    runtime.swap_out_cell(&scope, 1).await?;
+    let mut disabled = graph(Vec::new());
+    disabled.primary.cron_revision = Some("disabled-revision".into());
+    runtime.adopt(generation_from_graph(3, disabled, signals.clone())?);
+    runtime.start_cell(scope.clone(), 1, false).await?;
+    runtime.publish_cell(&scope, 1)?;
+    arm(&runtime, &scope).await?;
+    // The arm response can precede publication of the event driver's final
+    // alarm snapshot, just like the alarm turn checked above.
+    cellar::asyncrt::timeout(Duration::from_secs(2), async {
+        while runtime.alarm(&scope).is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert_eq!(
+        runtime.generation().cron_revision(),
+        Some("disabled-revision")
+    );
+    runtime.swap_out_cell(&scope, 1).await?;
+    let db = rusqlite::Connection::open(data.join(&scope).join("ltx/e1/db.sqlite"))?;
+    let remaining: u64 = db.query_row(
+        "SELECT count(*) FROM __sys_cell_alarm WHERE scope=? AND at_ms IS NOT NULL",
+        [&scope],
+        |row| row.get(0),
+    )?;
+    assert_eq!(remaining, 0, "empty override left a persisted alarm");
+    drop(db);
+    let next = generation(4, Vec::new(), signals)?;
     runtime.adopt(next);
     assert!(runtime.cron_cell().is_none());
     shutdown.send(true)?;

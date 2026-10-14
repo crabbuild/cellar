@@ -174,7 +174,7 @@ pub(crate) mod blob_store;
 pub mod node_lifecycle;
 #[path = "durability/log/mod.rs"]
 pub mod node_log;
-#[path = "cli/operator_cell.rs"]
+#[path = "fleet/operator.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]
 #[path = "observability/otlp.rs"]
@@ -440,3 +440,9 @@ pub fn worker_compat(metadata: &serde_json::Value) -> engine_api::Compat {
         ),
     }
 }
+
+#[path = "fleet/management/mod.rs"]
+pub mod management;
+
+#[path = "deployment/cron.rs"]
+mod deployment_cron;

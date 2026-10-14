@@ -426,3 +426,55 @@ async fn staged_assets_preserve_shared_protocol_and_refuse_incomplete_publicatio
     );
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dashboard_crons_compare_revisions_and_load_without_republishing_artifacts() -> Result<()> {
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let directory = tempfile::tempdir()?;
+        let cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(directory.path().join("assets")))?;
+        let executable = directory.path().join("application");
+        std::fs::write(&executable, b"schedule fixture executable")?;
+        let artifact = executable_identity(&executable, current_target())?;
+        let mut config: ApplicationConfig = serde_json::from_value(json!({"script_name":"scheduler","application_version":"v1","crons":["*/5 * * * *"]}))?;
+        let bucket = Bucket::open_dev(&directory.path().join("bucket.sqlite"))?;
+        let paths = BTreeMap::from([(artifact.sha256.clone(), executable)]);
+        Package { primary: config.manifest(vec![artifact.clone()])?, cohosted: vec![] }.publish(&bucket, &paths).await?;
+        let client = cellar::management::FleetClient::new(bucket.clone(), false);
+        let initial = client.cron_configuration("scheduler").await?;
+        assert!(initial.primary);
+        assert!(initial.revision.is_none());
+        assert_eq!(initial.expressions, ["*/5 * * * *"]);
+        assert!(client.update_crons("scheduler", "stale-deployment", None, vec![]).await.is_err());
+        assert!(client.update_crons("scheduler", &initial.deployment_revision, None, vec!["invalid".into()]).await.is_err());
+        let changed = client.update_crons("scheduler", &initial.deployment_revision, None, vec!["0 * * * *".into()]).await?;
+        assert!(changed.revision.is_some());
+        assert!(client.update_crons("scheduler", &initial.deployment_revision, None, vec![]).await.is_err());
+        let graph = DeploymentGraph::load(&bucket, "test".into(), &cache).await?;
+        assert_eq!(graph.primary.crons, changed.expressions);
+        assert_eq!(graph.primary.cron_revision, changed.revision);
+        let empty = client.update_crons("scheduler", &changed.deployment_revision, changed.revision.as_deref(), vec![]).await?;
+        let graph = DeploymentGraph::load(&bucket, "test".into(), &cache).await?;
+        assert!(graph.primary.crons.is_empty());
+        assert_eq!(graph.primary.cron_revision, empty.revision);
+        let application = cellar::application::Registry::new(|_, _| Box::pin(async { Ok(cellar::application::Output::Done) }));
+        let generation = Generation::build_native(1, graph, GenerationOptions { node: "test".into(), region: "test".into() }, std::collections::HashMap::from([("scheduler".into(), std::sync::Arc::new(application) as std::sync::Arc<dyn cellar::application::Application>)]))?;
+        assert_eq!(generation.cron_revision(), empty.revision.as_deref());
+        assert!(generation.cron_cell().is_some(), "an empty override retains the scheduler to clear old alarms");
+        // Cron declarations retain executable bytes but change the native manifest
+        // identity. Publishing them must supersede the previous override.
+        config.crons = vec!["0 12 * * *".into()];
+        let new_manifest = config.manifest(vec![artifact])?;
+        assert_ne!(new_manifest.version, cellar::fleet::read_current_pointer(&bucket).await?.version);
+        Package { primary: new_manifest, cohosted: vec![] }.publish(&bucket, &paths).await?;
+        let next = client.cron_configuration("scheduler").await?;
+        assert_eq!(next.expressions, config.crons);
+        assert!(next.revision.is_none());
+        assert!(client.update_crons("scheduler", &empty.deployment_revision, empty.revision.as_deref(), vec![]).await.is_err());
+        let graph = DeploymentGraph::load(&bucket, "test".into(), &cache).await?;
+        assert_eq!(graph.primary.crons, config.crons);
+        Ok::<_, anyhow::Error>(())
+    }).await?;
+    domain.shutdown().await;
+    result
+}

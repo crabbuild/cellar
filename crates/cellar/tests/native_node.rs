@@ -1543,6 +1543,555 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn management_authentication_generation_and_host_capabilities_are_enforced() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("management-test-core")?;
+    let node = start(
+        "managed-test",
+        "management",
+        directory.path(),
+        &core,
+        None,
+        None,
+        100,
+    )
+    .await?;
+    ready(&node).await?;
+    let http = client()?;
+    let url = format!("http://{}/peer/management", node.info().internal_address);
+    let unsigned = http.post(&url).body("{}").send().await?;
+    ensure!(
+        unsigned.status() == 401 || unsigned.status() == 403,
+        "unsigned management request accepted"
+    );
+    let auth = PeerAuth::new([11; 32], "console-test")?;
+    for (generation, action, status) in [
+        ("stale-generation", "state", 409),
+        (node.info().lease_generation.as_str(), "state", 200),
+        (node.info().lease_generation.as_str(), "reload", 409),
+    ] {
+        let payload =
+            serde_json::to_vec(&serde_json::json!({"generation":generation,"action":action}))?;
+        let response = auth
+            .sign(
+                http.post(&url).body(payload.clone()),
+                "POST",
+                "/peer/management",
+                &payload,
+                &node.info().node,
+            )?
+            .send()
+            .await?;
+        ensure!(
+            response.status().as_u16() == status,
+            "unexpected management status {}",
+            response.status()
+        );
+        if status == 200 {
+            let body: serde_json::Value = response.json().await?;
+            ensure!(
+                body["result"]["generation"] == node.info().lease_generation,
+                "generation crossed hosts"
+            );
+            ensure!(
+                body["result"]["authoritative"] == true,
+                "node did not report authority"
+            );
+            ensure!(
+                body["result"]["capabilities"]["reload"] == false,
+                "embedded host claimed a deployment watcher"
+            );
+        }
+    }
+    let payload = serde_json::to_vec(
+        &serde_json::json!({"generation":node.info().lease_generation,"action":{"evict":{"scope":"Account:missing","epoch":999}}}),
+    )?;
+    let response = auth
+        .sign(
+            http.post(&url).body(payload.clone()),
+            "POST",
+            "/peer/management",
+            &payload,
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(response.status() == 409, "absent epoch was admitted");
+    let body: serde_json::Value = response.json().await?;
+    ensure!(
+        body["error"] == "epoch_changed",
+        "wrong eviction refusal: {body}"
+    );
+    let response = http
+        .get(format!("http://{}/", node.info().public_address))
+        .send()
+        .await?;
+    ensure!(response.status().is_success(), "application request failed");
+    response.bytes().await?;
+    let payload = serde_json::json!({"generation":node.info().lease_generation,"action":{"cells":{"after":null,"limit":100}}}).to_string().into_bytes();
+    let response = auth
+        .sign(
+            http.post(&url).body(payload.clone()),
+            "POST",
+            "/peer/management",
+            &payload,
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(response.status() == 200, "owned-cell observation failed");
+    let body: serde_json::Value = response.json().await?;
+    let cells = body["result"]["items"]
+        .as_array()
+        .context("missing owned cells")?;
+    ensure!(cells.len() == 1, "expected one owned cell: {body}");
+    let payload = serde_json::json!({"generation":node.info().lease_generation,"action":{"evict":{"scope":cells[0]["scope"],"epoch":cells[0]["epoch"]}}}).to_string().into_bytes();
+    let response = auth
+        .sign(
+            http.post(&url).body(payload.clone()),
+            "POST",
+            "/peer/management",
+            &payload,
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    let status = response.status();
+    let body: serde_json::Value = response.json().await?;
+    ensure!(
+        status == 200 && body["result"]["completed"] == true,
+        "eviction did not complete: {body}"
+    );
+    stopped(node).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_resource_writes_survive_owner_handoff() -> Result<()> {
+    resource_writes_after_owner_stop(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_resource_writes_survive_forced_owner_closure() -> Result<()> {
+    resource_writes_after_owner_stop(true).await
+}
+
+async fn resource_writes_after_owner_stop(abrupt: bool) -> Result<()> {
+    use cellar::management::{FleetClient, QueueAction};
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let management = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let bucket = management
+        .run(async {
+            let bucket = Bucket::open_dev(&directory.path().join("management-fleet.sqlite"))?;
+            bucket
+                .put(
+                    "fleet/peer-auth.json",
+                    json!({"version":1,"key":"0b".repeat(32)})
+                        .to_string()
+                        .into_bytes(),
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(bucket)
+        })
+        .await??;
+    let core_a = Executor::new("management-fleet-a")?;
+    let core_b = Executor::new("management-fleet-b")?;
+    let resource_graph = || {
+        let mut graph = graph();
+        graph.primary.options.do_classes.extend([
+            cellar::deploy::SQL_CLASS.into(),
+            cellar::deploy::KV_CLASS.into(),
+            cellar::deploy::QUEUE_CLASS.into(),
+        ]);
+        graph
+            .primary
+            .options
+            .sql_bindings
+            .push(("DB".into(), "dashboard-db".into()));
+        graph
+            .primary
+            .options
+            .kv_bindings
+            .push(("KV".into(), "dashboard-kv".into()));
+        graph
+            .primary
+            .options
+            .queue_bindings
+            .push(cellar::engine_api::QueueBinding {
+                environment: "Q".into(),
+                queue: "dashboard-queue".into(),
+                delivery_delay: 0,
+            });
+        graph
+    };
+    let (config, services) = inputs(
+        "dashboard-a",
+        &directory.path().join("a"),
+        &core_a,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let a = Node::start(config, services, resource_graph(), applications("a", None)?).await?;
+    let (config, services) = inputs(
+        "dashboard-b",
+        &directory.path().join("b"),
+        &core_b,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let b = Node::start(config, services, resource_graph(), applications("b", None)?).await?;
+    ready(&a).await?;
+    ready(&b).await?;
+    let client = FleetClient::new(bucket, false);
+    let owner=management.run(async {
+        client.sql("dashboard-db","CREATE TABLE receipts(id TEXT PRIMARY KEY); INSERT INTO receipts VALUES ('ack-before-handoff')",false).await?;
+        client.kv_put("dashboard-kv","receipt",b"ack-before-handoff".to_vec(),None,None).await?;
+        let paused=client.queue("dashboard-queue",QueueAction::Pause,10).await?;
+        ensure!(paused["paused"]==true,"queue pause was not acknowledged");
+        client.cell(&cellar::engine_api::sql_cell_scope("dashboard-db")).await?.owner.context("SQL owner absent")
+    }).await??;
+    let (previous, remaining) = if owner == "dashboard-a" {
+        (a, b)
+    } else {
+        ensure!(owner == "dashboard-b", "unexpected owner {owner}");
+        (b, a)
+    };
+    if abrupt {
+        ensure!(
+            matches!(previous.cancel().await?, NodeOutcome::Cancelled),
+            "forced close fabricated graceful proof"
+        );
+        // The private fixture uses a one-second node lease. Recovery must
+        // wait for that authority to expire; no shutdown release was supplied.
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+    } else {
+        stopped(previous).await?;
+    }
+    management
+        .run(async {
+            let result = client
+                .sql("dashboard-db", "SELECT id FROM receipts ORDER BY id", true)
+                .await?;
+            ensure!(
+                result["results"][0]["rows"] == json!([["ack-before-handoff"]]),
+                "acknowledged SQL receipt lost: {result}"
+            );
+            let value = client.kv_get("dashboard-kv", "receipt").await?;
+            ensure!(
+                value["value"] == json!(b"ack-before-handoff".to_vec()),
+                "acknowledged KV value lost: {value}"
+            );
+            ensure!(
+                client
+                    .queue("dashboard-queue", QueueAction::Info, 10)
+                    .await?["paused"]
+                    == true,
+                "queue pause lost"
+            );
+            client
+                .sql(
+                    "dashboard-db",
+                    "INSERT INTO receipts VALUES ('ack-after-handoff')",
+                    false,
+                )
+                .await?;
+            let result = client
+                .sql("dashboard-db", "SELECT count(*) FROM receipts", true)
+                .await?;
+            ensure!(
+                result["results"][0]["rows"] == json!([[2]]),
+                "successor did not accept SQL write"
+            );
+            client.kv_delete("dashboard-kv", "receipt").await?;
+            client
+                .queue("dashboard-queue", QueueAction::Resume, 10)
+                .await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    stopped(remaining).await?;
+    management.shutdown().await;
+    ensure!(
+        core_a.handle().spawn(async { 1 }).await? == 1
+            && core_b.handle().spawn(async { 2 }).await? == 2,
+        "caller executors did not survive"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_crons_report_pending_until_embedded_host_adopts() -> Result<()> {
+    use cellar::management::{FleetClient, PageRequest};
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let management = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (bucket, manifest, prefix) = management.run(async {
+        let bucket = Bucket::open_dev(&directory.path().join("cron-fleet.sqlite"))?;
+        bucket.put("fleet/peer-auth.json", json!({"version":1,"key":"0b".repeat(32)}).to_string().into_bytes()).await?;
+        let config: cellar::native_deploy::ApplicationConfig = serde_json::from_value(json!({
+            "script_name":"embedded-node","application_version":"test","cells":["Account"],
+            "bindings":[{"type":"durable_object_namespace","name":"ACCOUNTS","class_name":"Account"}],
+            "crons":["0 0 1 1 *"]
+        }))?;
+        let artifact = cellar::native_deploy::executable_identity(&std::env::current_exe()?, cellar::native_deploy::current_target())?;
+        let manifest = config.manifest(vec![artifact])?;
+        let prefix = format!("deploy/embedded-node/{}",manifest.version);
+        bucket.put(&format!("{prefix}/manifest.json"), serde_json::to_vec(&manifest)?).await?;
+        let pointer = json!({"script_name":"embedded-node","version":manifest.version,"prefix":prefix,"rollout":{"percent":100}});
+        for key in ["deploy/embedded-node/current.json", "deploy/current.json"] {
+            bucket.put(key,serde_json::to_vec(&pointer)?).await?;
+        }
+        Ok::<_, anyhow::Error>((bucket,manifest,prefix))
+    }).await??;
+    let core = Executor::new("cron-management-core")?;
+    let (config, services) = inputs(
+        "cron-node",
+        &directory.path().join("node"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let mut initial = graph();
+    initial.primary.native = manifest.native;
+    initial.primary.version = manifest.version;
+    initial.primary.prefix = prefix;
+    initial.primary.crons = manifest.crons;
+    let mut node = Node::start(config, services, initial, applications("cron", None)?).await?;
+    ready(&node).await?;
+    let client = FleetClient::new(bucket.clone(), false);
+    let saved = management
+        .run(async {
+            let before = client.cron_configuration("embedded-node").await?;
+            let before_nodes = client
+                .cron_propagation("embedded-node", PageRequest::default())
+                .await?;
+            ensure!(
+                before_nodes.items.len() == 1 && before_nodes.items[0].status == "adopted",
+                "initial schedule observation did not match declarations"
+            );
+            let saved = client
+                .update_crons("embedded-node", &before.deployment_revision, None, vec![])
+                .await?;
+            let pending = client
+                .cron_propagation("embedded-node", PageRequest::default())
+                .await?;
+            ensure!(
+                pending.items.len() == 1 && pending.items[0].status == "pending",
+                "embedded host silently adopted an external configuration write"
+            );
+            Ok::<_, anyhow::Error>(saved)
+        })
+        .await??;
+    let graph = management
+        .run(async {
+            let cache = cellar::sdk::AssetCache::new(cellar::sdk::AssetCacheOptions::new(
+                directory.path().join("assets"),
+            ))?;
+            DeploymentGraph::load(&bucket, "cron-node".into(), &cache).await
+        })
+        .await??;
+    node.adopt(graph, applications("cron", None)?).await?;
+    management
+        .run(async {
+            let adopted = client
+                .cron_propagation("embedded-node", PageRequest::default())
+                .await?;
+            ensure!(
+                adopted.items.len() == 1 && adopted.items[0].status == "adopted",
+                "node did not report adopted configuration"
+            );
+            ensure!(
+                adopted.items[0].observed_revision == saved.revision,
+                "node reported the wrong cron revision"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    stopped(node).await?;
+    management.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn management_stop_receipts_distinguish_draining_joined_and_incomplete_work() -> Result<()> {
+    use cellar::management::{FleetClient, NodeAction, StopMode};
+    use serde_json::json;
+    let directory = tempfile::tempdir()?;
+    let management = ExecutionDomain::new(tokio::runtime::Handle::current());
+    for scenario in ["handoff", "preserve", "cancel", "deadline"] {
+        let bucket = management
+            .run(async {
+                let bucket =
+                    Bucket::open_dev(&directory.path().join(format!("{scenario}.sqlite")))?;
+                bucket
+                    .put(
+                        "fleet/peer-auth.json",
+                        json!({"version":1,"key":"0b".repeat(32)})
+                            .to_string()
+                            .into_bytes(),
+                    )
+                    .await?;
+                Ok::<_, anyhow::Error>(bucket)
+            })
+            .await??;
+        let core = Executor::new("stop-receipt-core")?;
+        let (mut config, services) = inputs(
+            scenario,
+            &directory.path().join(scenario),
+            &core,
+            Some(bucket.clone()),
+            0,
+        )
+        .await?;
+        if scenario == "deadline" {
+            config.shutdown = ShutdownPolicy {
+                total_ms: 300,
+                token_wait_ms: 0,
+                no_progress_ms: 150,
+            };
+        }
+        let (events, mut received) = mpsc::unbounded_channel();
+        let signals = Arc::new(BackgroundSignals {
+            events,
+            first: Semaphore::new(0),
+            nested: Semaphore::new(0),
+        });
+        let compiled = if scenario == "preserve" {
+            applications("preserve", None)?
+        } else {
+            background_applications(signals.clone())?
+        };
+        let node = Node::start(config, services, graph(), compiled).await?;
+        ready(&node).await?;
+        let http = client()?;
+        call(&http, &node, reqwest::Method::POST, "/receipt-write").await?;
+        if scenario != "preserve" {
+            background_event(&mut received, "entered").await?;
+        }
+        let generation = node.info().lease_generation.clone();
+        let peer_address = node.info().internal_address;
+        let client = FleetClient::new(bucket, false);
+        let mode = if scenario == "preserve" {
+            StopMode::Preserve
+        } else {
+            StopMode::Handoff
+        };
+        management
+            .run(async {
+                let result = client
+                    .node_action(
+                        scenario,
+                        &generation,
+                        NodeAction::Stop {
+                            operation_id: "stop-1".into(),
+                            mode,
+                        },
+                    )
+                    .await?;
+                ensure!(
+                    result["receipt"]["phase"] == "accepted",
+                    "stop did not return acceptance"
+                );
+                ensure!(
+                    result["receipt"]["domain_joined"] == false,
+                    "acceptance claimed joined work"
+                );
+                if scenario == "handoff" {
+                    let receipt = client
+                        .stop_receipt(scenario, &generation, "stop-1")
+                        .await?
+                        .unwrap();
+                    ensure!(
+                        !receipt.domain_joined && receipt.phase != "complete",
+                        "pending application work was reported complete"
+                    );
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+        if scenario == "handoff" {
+            signals.first.add_permits(1);
+            signals.nested.add_permits(1);
+            background_event(&mut received, "nested").await?;
+            background_event(&mut received, "written").await?;
+        }
+        let outcome = tokio::time::timeout(Duration::from_secs(15), async {
+            if scenario == "cancel" {
+                node.cancel().await
+            } else {
+                node.run_until(std::future::pending::<ShutdownMode>()).await
+            }
+        })
+        .await??;
+        if scenario == "cancel" {
+            ensure!(
+                matches!(outcome, NodeOutcome::Cancelled),
+                "cancelled node fabricated a stopped outcome"
+            );
+        }
+        management
+            .run(async {
+                let receipt = client
+                    .stop_receipt(scenario, &generation, "stop-1")
+                    .await?
+                    .unwrap();
+                ensure!(
+                    receipt.domain_joined,
+                    "final receipt was published before join"
+                );
+                match scenario {
+                    "handoff" | "preserve" => {
+                        ensure!(
+                            receipt.phase == "complete",
+                            "expected complete stop receipt: {receipt:?}"
+                        );
+                        ensure!(
+                            receipt
+                                .proof
+                                .as_ref()
+                                .is_some_and(|proof| proof.complete(mode)),
+                            "stop has incomplete proof"
+                        );
+                    }
+                    "cancel" => ensure!(
+                        receipt.phase == "failed" && receipt.proof.is_none(),
+                        "forced closure fabricated graceful proof: {receipt:?}"
+                    ),
+                    "deadline" => ensure!(
+                        receipt.phase == "incomplete"
+                            && receipt
+                                .proof
+                                .as_ref()
+                                .is_some_and(|proof| proof.drain_timed_out
+                                    && !proof.application_work_drained),
+                        "deadline erased pending work: {receipt:?}"
+                    ),
+                    _ => unreachable!(),
+                }
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+        ensure!(
+            http.get(format!("http://{peer_address}/peer/probe"))
+                .send()
+                .await
+                .is_err(),
+            "finished node retained its peer listener"
+        );
+        ensure!(
+            core.handle().spawn(async { 7 }).await? == 7,
+            "node stopped the caller executor"
+        );
+    }
+    management.shutdown().await;
+    Ok(())
+}
+
 struct AlarmResident;
 
 impl Cell for AlarmResident {

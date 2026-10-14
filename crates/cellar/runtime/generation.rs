@@ -303,6 +303,8 @@ pub struct Generation {
     pub(crate) version: String,
     pub(crate) prefix: String,
     pub(crate) script_name: String,
+    pub(crate) cron_revision: Option<String>,
+    pub(crate) primary_crons: Vec<String>,
     pub(crate) stateless: crate::runtime::StatelessRuntime,
     pub(crate) services: HashMap<String, crate::runtime::StatelessRuntime>,
     pub(crate) cell_configs: HashMap<String, Arc<WorkerConfig>>,
@@ -328,6 +330,11 @@ impl Generation {
 
     pub fn version(&self) -> &str {
         &self.version
+    }
+
+    /// The schedule override this generation adopted, if any.
+    pub fn cron_revision(&self) -> Option<&str> {
+        self.cron_revision.as_deref()
     }
 
     pub fn prefix(&self) -> &str {
@@ -562,6 +569,8 @@ impl Generation {
         let primary_script = primary.script_name.clone();
         let version = primary.version.clone();
         let prefix = primary.prefix.clone();
+        let cron_revision = primary.cron_revision.clone();
+        let primary_crons = primary.crons.clone();
         let mut all_containers = Vec::new();
         let mut all_container_images = Vec::new();
         let mut fence_image = None;
@@ -669,7 +678,8 @@ impl Generation {
             // Cron is runtime-supplied, not a manifest class. Its alarm calls
             // the primary script's scheduled handler with that script's bindings.
             if is_primary
-                && (!config.crons.is_empty()
+                && (cron_revision.is_some()
+                    || !config.crons.is_empty()
                     || config
                         .workflow_bindings
                         .iter()
@@ -693,6 +703,8 @@ impl Generation {
             version,
             prefix,
             script_name: primary_script,
+            cron_revision,
+            primary_crons,
             stateless,
             services: service_pools,
             cell_configs,

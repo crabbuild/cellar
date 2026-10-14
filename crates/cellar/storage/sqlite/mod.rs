@@ -16,7 +16,9 @@ use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+mod console;
 pub(crate) mod wake_record;
+pub(crate) use console::{sql_console, sql_console_migrations};
 
 /// Read the alarm and its identity before releasing the source's SQLite lock.
 pub(crate) fn alarm_snapshot(scope: &str) -> anyhow::Result<cellar_logic::wake::AlarmSnapshot> {
@@ -2402,7 +2404,7 @@ unsafe fn sql_step_to_done(
     budget: &mut usize,
 ) -> Result<SqlStepped, String> {
     let reject_overflow = keep.is_none();
-    let row_limit = crate::application::limits::current().sql.max_rows;
+    let row_limit = console::row_limit();
     let keep = keep.unwrap_or(row_limit);
     let column_count = rusqlite::ffi::sqlite3_column_count(statement);
     let mut stepped = SqlStepped {
@@ -2548,7 +2550,7 @@ unsafe fn sql_run_statements(
     check_sql_rename(input).map_err(failure)?;
     let database = connection.handle();
     let started_in_transaction = rusqlite::ffi::sqlite3_get_autocommit(database) == 0;
-    let mut budget = crate::application::limits::current().sql.max_result_bytes;
+    let mut budget = console::byte_limit();
     let mut source_ptr = source.as_ptr();
     let mut count = 0_u64;
     let mut results = Vec::new();

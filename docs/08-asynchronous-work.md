@@ -158,3 +158,55 @@ budget. Sources: [Queue](../crates/cellar/application/queue.rs),
 [Workflow](../crates/cellar/application/workflow.rs),
 [replay](../crates/cellar/application/workflow/replay.rs),
 [alarms](../crates/cellar/application/storage.rs), [cron](../crates/cellar/application/cron.rs).
+## Visual definitions and execution inspection
+
+Workflow bindings may include a `definition` alongside their compiled class.
+This is an explicit diagram supplied by the builder, not executable workflow
+code or an automatically inferred control-flow graph:
+
+```json
+{
+  "version": "reports-v1",
+  "nodes": [
+    {"id": "prepare", "label": "Prepare report", "kind": "activity", "step": "prepare-report"},
+    {"id": "publish", "label": "Publish report", "kind": "activity", "step": "publish-report"}
+  ],
+  "edges": [{"from": "prepare", "to": "publish", "label": "ready"}]
+}
+```
+
+Supported node kinds are `start`, `activity`, `decision`, `parallel`, `sleep`,
+`wait` and `end`. A node's optional `step` maps to an exact durable step name;
+branch labels describe possible paths. Repeated step occurrences are distinct
+in execution history. Definitions allow 128 nodes, 256 edges and 64 KiB encoded
+JSON. IDs and step mappings must be unique and edge endpoints must exist.
+Bindings aliasing the same workflow name must agree on its definition.
+Definitions are visible to fleet metadata readers; do not put secrets in them.
+See the [workflow example](../examples/workflow/project.json) for a full diagram.
+
+Creation and restart snapshot the receiving activation's definition and SHA-256
+content digest into the instance's SQLite state in the same transaction as the
+queued event. Each new history event includes its execution generation. Later
+deployments cannot change those snapshots; a restarted execution captures the
+then-loaded definition. The dashboard separates runs, displays their retained
+snapshots and keeps the current binding definition available before any run.
+A declared version is a human label; the digest distinguishes edited content
+with the same label. This does not pin an executable or implement side-by-side
+code versions. Continue to preserve replay compatibility for running instances.
+
+The inspector shows recorded workflow parameters, results, step outputs, retries,
+waits, errors and compensation events. To record a step input explicitly, pass
+`StepConfig::default().input(value)` to `step.run_with`. Closure captures are not
+inspected, and omitted inputs appear as **Not recorded**. `sensitive: true`
+redacts this inspection input as well as the step output in history. It does not
+redact independently supplied workflow parameters or values returned as the
+workflow's final result. Apply the same care to those values and error messages.
+Non-JSON structured values retain an encoded structured-clone representation
+without obscuring the surrounding event metadata.
+
+History is paged through the owner and remains subject to instance retention;
+snapshots are removed when the instance is cleaned up or deleted. Legacy events
+without generation metadata remain explicitly unversioned. The browser retains
+up to 256 events and a bounded payload window, reports clipped/partial history,
+and shows observed event order without inventing dependencies between parallel
+activities. Loading another page never replays workflow work.

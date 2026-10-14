@@ -307,6 +307,7 @@ async fn run() -> Result<()> {
         assets: None,
         services: vec![],
         crons: vec![],
+        cron_revision: None,
         containers: vec![],
         fence_image: None,
         container_images: Vec::new(),

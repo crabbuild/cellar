@@ -6,10 +6,15 @@ use super::*;
 pub struct BindingSettings {
     pub default_retention: Retention,
     pub schedules: Vec<String>,
+    /// Optional versioned documentation for the compiled workflow.
+    pub definition: Option<Definition>,
 }
 
 impl BindingSettings {
     pub fn validate(&self) -> Result<()> {
+        if let Some(definition) = &self.definition {
+            definition.validate()?;
+        }
         for duration in [
             &self.default_retention.success,
             &self.default_retention.error,
@@ -35,6 +40,7 @@ impl BindingSettings {
         let settings: Self = serde_json::from_value(json!({
             "default_retention": value.get("default_retention").cloned().unwrap_or(json!({})),
             "schedules": value.get("schedules").cloned().unwrap_or(json!([])),
+            "definition": value.get("definition").cloned().unwrap_or(json!(null)),
         }))?;
         settings.validate()?;
         Ok(settings)

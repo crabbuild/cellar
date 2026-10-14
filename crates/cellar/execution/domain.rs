@@ -389,18 +389,7 @@ impl ExecutionDomain {
 
     /// Poll host work in this domain, returning authority loss if it closes.
     pub async fn run<F: Future>(&self, future: F) -> Result<F::Output, DomainClosed> {
-        let mut scoped = ScopedFuture::new(self.inner.clone(), future);
-        scoped.registration = Some(self.inner.owner.register_task(false)?);
-        let mut future = Box::pin(scoped);
-        let mut closed = Box::pin(self.inner.owner.closed_notice.notified());
-        poll_fn(|context| {
-            if self.is_closed() || closed.as_mut().poll(context).is_ready() {
-                Poll::Ready(Err(DomainClosed))
-            } else {
-                future.as_mut().poll(context).map(Ok)
-            }
-        })
-        .await
+        run_scoped(self.inner.clone(), future).await
     }
 
     pub fn spawn<T, F>(&self, future: F) -> Result<TaskHandle<T>, DomainClosed>
@@ -1112,4 +1101,39 @@ pub mod rng {
     }
 
     impl CryptoRng for Stream {}
+}
+
+/// The CLI invokes this outside any entered root before exiting its process.
+pub(crate) async fn shutdown_process_domain() {
+    if let Some(inner) = PROCESS_DOMAIN.get() {
+        ExecutionDomain {
+            inner: inner.clone(),
+        }
+        .shutdown()
+        .await;
+    }
+}
+
+/// A CLI root on its dedicated core thread must wake and drop on process closure.
+pub(crate) async fn run_in_process_domain<F: Future>(future: F) -> Result<F::Output, DomainClosed> {
+    let domain = PROCESS_DOMAIN.get().cloned().ok_or(DomainClosed)?;
+    run_scoped(domain, future).await
+}
+
+async fn run_scoped<F: Future>(
+    domain: Arc<ProductionDomain>,
+    future: F,
+) -> Result<F::Output, DomainClosed> {
+    let mut scoped = ScopedFuture::new(domain.clone(), future);
+    scoped.registration = Some(domain.owner.register_task(false)?);
+    let mut future = Box::pin(scoped);
+    let mut closed = Box::pin(domain.owner.closed_notice.notified());
+    poll_fn(|context| {
+        if domain.owner.closed.load(Ordering::Acquire) || closed.as_mut().poll(context).is_ready() {
+            Poll::Ready(Err(DomainClosed))
+        } else {
+            future.as_mut().poll(context).map(Ok)
+        }
+    })
+    .await
 }

@@ -80,6 +80,7 @@ pub fn graph(config: &AppConfig) -> DeploymentGraph {
         assets: None,
         services: vec![("REPORTS".into(), SCRIPT.into(), Some("Reports".into()))],
         crons: vec!["*/1 * * * *".into()],
+        cron_revision: None,
         containers: config
             .container_image
             .as_ref()

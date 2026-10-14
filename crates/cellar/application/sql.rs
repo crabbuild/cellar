@@ -414,7 +414,28 @@ impl DatabaseCell {
                 "invalid request body",
             ))),
             Ok(body) => {
-                if let Some(migration) = body.get("migrate") {
+                if let Some(console) = body.get("console") {
+                    #[derive(serde::Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct ConsoleQuery {
+                        sql: String,
+                        readonly: bool,
+                    }
+                    serde_json::from_value::<ConsoleQuery>(console.clone())
+                        .map_err(anyhow::Error::from)
+                        .and_then(|query| self.0.sql_console(&query.sql, query.readonly))
+                        .and_then(|response| serde_json::to_value(response).map_err(Into::into))
+                } else if let Some(history) = body.get("console_migrations") {
+                    #[derive(serde::Deserialize)]
+                    #[serde(deny_unknown_fields)]
+                    struct History {
+                        table: String,
+                        after: u64,
+                    }
+                    serde_json::from_value::<History>(history.clone())
+                        .map_err(anyhow::Error::from)
+                        .and_then(|query| self.0.sql_console_migrations(&query.table, query.after))
+                } else if let Some(migration) = body.get("migrate") {
                     self.migrate(
                         js_string(migration.get("name")),
                         js_string(migration.get("sql")),

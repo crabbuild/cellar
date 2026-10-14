@@ -525,11 +525,21 @@ pub enum Message {
         cell: String,
         reply: EvictionReply,
     },
+    EvictAtEpoch {
+        cell: String,
+        epoch: u64,
+        reply: EvictionReply,
+    },
     InvalidateRemote {
         cell: String,
         node: String,
         epoch: u64,
         reply: oneshot::Sender<()>,
+    },
+    OwnedCells {
+        after: Option<String>,
+        limit: usize,
+        reply: oneshot::Sender<cellar_logic::OwnedCellPage>,
     },
     Snapshot {
         reply: oneshot::Sender<(String, Vec<cellar_logic::DrainPin>, SwapCensus)>,
@@ -1691,6 +1701,21 @@ impl AppHandle {
             .map_err(|_| EvictError::Failed(EvictFailure::ReplyLost))?
     }
 
+    /// Evict only the observed ownership epoch, checked atomically by the core.
+    pub async fn evict_at_epoch(
+        &self,
+        cell: CellId,
+        epoch: u64,
+    ) -> Result<EvictSuccess, EvictError> {
+        let (reply, receive) = oneshot::channel();
+        self.tx
+            .send(Message::EvictAtEpoch { cell, epoch, reply })
+            .map_err(|_| EvictError::Failed(EvictFailure::ActorUnavailable))?;
+        receive
+            .await
+            .map_err(|_| EvictError::Failed(EvictFailure::ReplyLost))?
+    }
+
     pub async fn invalidate_remote(&self, cell: String, node: String, epoch: u64) {
         let (reply, receive) = oneshot::channel();
         if self
@@ -1705,6 +1730,24 @@ impl AppHandle {
         {
             let _ = receive.await;
         }
+    }
+
+    pub async fn owned_cells(
+        &self,
+        after: Option<String>,
+        limit: usize,
+    ) -> anyhow::Result<cellar_logic::OwnedCellPage> {
+        let (reply, receive) = oneshot::channel();
+        self.tx
+            .send(Message::OwnedCells {
+                after,
+                limit,
+                reply,
+            })
+            .map_err(|_| anyhow::anyhow!("actor stopped"))?;
+        receive
+            .await
+            .context("actor stopped before observing owned cells")
     }
 
     pub async fn snapshot(&self) -> String {
@@ -3017,7 +3060,9 @@ impl Actor {
                     out,
                 );
             }
-            Message::Evict { reply, .. } if self.preserving => {
+            Message::Evict { reply, .. } | Message::EvictAtEpoch { reply, .. }
+                if self.preserving =>
+            {
                 let _ = reply.send(Err(EvictError::Refused(EvictRefusal::NodeUnavailable)));
             }
             Message::Evict { cell, reply } => {
@@ -3032,6 +3077,19 @@ impl Actor {
                     out,
                 );
             }
+            Message::EvictAtEpoch { cell, epoch, reply } => {
+                let request = crate::asyncrt::next_core_request();
+                self.pending_evictions.insert(request, reply);
+                self.drive(
+                    Event::EvictRequestedAtEpoch {
+                        request,
+                        cell,
+                        epoch,
+                        now_mono_ms: crate::asyncrt::mono_ms(),
+                    },
+                    out,
+                );
+            }
             Message::InvalidateRemote {
                 cell,
                 node,
@@ -3040,6 +3098,13 @@ impl Actor {
             } => {
                 self.drive(Event::InvalidateRemote { cell, node, epoch }, out);
                 let _ = reply.send(());
+            }
+            Message::OwnedCells {
+                after,
+                limit,
+                reply,
+            } => {
+                let _ = reply.send(self.state.owned_cell_page(after.as_deref(), limit));
             }
             Message::Snapshot { reply } => {
                 let generations = self

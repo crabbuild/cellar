@@ -27,7 +27,11 @@
 mod batch;
 mod cell;
 mod configuration;
+mod definition;
 mod history;
+pub use definition::{Definition, DefinitionEdge, DefinitionKind, DefinitionNode};
+mod operator;
+pub use operator::OperatorAction;
 mod replay;
 mod rollback;
 mod stream;

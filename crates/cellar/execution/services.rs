@@ -84,6 +84,7 @@ pub struct HostServices {
     facets: Arc<dyn crate::host_facets::FacetService>,
     containers: Arc<crate::container::ContainerService>,
     node_load: OnceLock<Arc<LiveLoad>>,
+    node_operations: OnceLock<Arc<crate::daemon::operations::NodeOperations>>,
     peer_probe: OnceLock<Arc<crate::peer_probe::PeerProbeSigner>>,
     metrics_override: OnceLock<Option<Arc<MetricsSampler>>>,
     actor_options: OnceLock<crate::actor::ActorOptions>,
@@ -111,6 +112,7 @@ impl HostServices {
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            node_operations: OnceLock::new(),
             peer_probe: OnceLock::new(),
             metrics_override: OnceLock::new(),
             actor_options: OnceLock::new(),
@@ -139,6 +141,7 @@ impl HostServices {
             facets: Arc::new(crate::host_facets::FacetRegistry::default()),
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
+            node_operations: OnceLock::new(),
             peer_probe: OnceLock::new(),
             metrics_override: OnceLock::new(),
             actor_options: OnceLock::new(),
@@ -163,6 +166,19 @@ impl HostServices {
 
     pub(crate) fn application_work_registry(&self) -> Arc<ApplicationWork> {
         self.application_work.clone()
+    }
+
+    pub(crate) fn configure_node_operations(
+        &self,
+        operations: Arc<crate::daemon::operations::NodeOperations>,
+    ) -> anyhow::Result<()> {
+        self.node_operations
+            .set(operations)
+            .map_err(|_| anyhow::anyhow!("node operation reporter is already configured"))
+    }
+
+    pub(crate) fn node_operations(&self) -> Option<Arc<crate::daemon::operations::NodeOperations>> {
+        self.node_operations.get().cloned()
     }
 
     pub(crate) fn channels(&self) -> &crate::host_channels::HostChannels {
@@ -221,6 +237,12 @@ impl HostServices {
             );
         }
         Ok(())
+    }
+
+    pub(crate) fn actor_process_generation(&self) -> Option<&str> {
+        self.actor_options
+            .get()
+            .map(|options| options.generation.as_str())
     }
 
     /// Install this host's signing key; another host may use a different key.

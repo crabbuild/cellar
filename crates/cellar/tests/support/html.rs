@@ -31,6 +31,7 @@ pub fn graph(script: &str, source: &str, classes: Vec<String>) -> DeploymentGrap
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),

@@ -16,6 +16,67 @@
         "default_retention": {
           "success_retention": "7 days",
           "error_retention": "30 days"
+        },
+        "definition": {
+          "version": "reports-v1",
+          "nodes": [
+            {
+              "id": "start",
+              "label": "Report requested",
+              "kind": "start"
+            },
+            {
+              "id": "prepare-report",
+              "label": "Prepare report",
+              "kind": "activity",
+              "step": "prepare-report"
+            },
+            {
+              "id": "render-report",
+              "label": "Render report stream",
+              "kind": "activity",
+              "step": "render-report"
+            },
+            {
+              "id": "delivery-delay",
+              "label": "Delivery delay",
+              "kind": "sleep",
+              "step": "delivery-delay"
+            },
+            {
+              "id": "publish-report",
+              "label": "Publish report",
+              "kind": "activity",
+              "step": "publish-report"
+            },
+            {
+              "id": "end",
+              "label": "Report ready",
+              "kind": "end"
+            }
+          ],
+          "edges": [
+            {
+              "from": "start",
+              "to": "prepare-report"
+            },
+            {
+              "from": "prepare-report",
+              "to": "render-report"
+            },
+            {
+              "from": "render-report",
+              "to": "delivery-delay"
+            },
+            {
+              "from": "delivery-delay",
+              "to": "publish-report"
+            },
+            {
+              "from": "publish-report",
+              "to": "end"
+            }
+          ]
         }
       },
       {

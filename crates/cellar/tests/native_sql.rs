@@ -46,6 +46,7 @@ fn graph() -> DeploymentGraph {
         assets: None,
         services: Vec::new(),
         crons: Vec::new(),
+        cron_revision: None,
         containers: Vec::new(),
         fence_image: None,
         container_images: Vec::new(),
@@ -532,6 +533,65 @@ async fn run_native_sql_test() -> Result<()> {
         json!([[42]])
     );
     assert!(result.observed_position.is_some());
+    // The console's read permission is enforced during SQLite preparation,
+    // including CTEs and PRAGMAs, rather than by inspecting SQL prefixes.
+    for sql in [
+        "CREATE TABLE forbidden(x)",
+        "WITH v(x) AS (SELECT 99) INSERT INTO data(id) SELECT x FROM v",
+        "PRAGMA user_version = 77",
+        "SELECT 1; DELETE FROM data",
+        "SELECT * FROM __sys_sql_migrations",
+    ] {
+        let response = operator(
+            &runtime,
+            serde_json::to_vec(&json!({"console":{"sql":sql,"readonly":true}}))?,
+        )
+        .await?;
+        assert_eq!(response.status, 400, "read-only accepted {sql}");
+    }
+    for sql in [
+        "SELECT 42 AS n",
+        "PRAGMA table_info(data)",
+        "WITH v(x) AS (SELECT 1) SELECT * FROM v",
+    ] {
+        let response = operator(
+            &runtime,
+            serde_json::to_vec(&json!({"console":{"sql":sql,"readonly":true}}))?,
+        )
+        .await?;
+        assert_eq!(
+            response.status, 200,
+            "read-only refused {sql}: {:?}",
+            response.body
+        );
+    }
+    for sql in [
+        "WITH RECURSIVE v(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM v) SELECT sum(x) FROM v",
+        "WITH RECURSIVE v(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM v WHERE x<1001) SELECT x FROM v",
+        "SELECT zeroblob(1048577)",
+    ] {
+        let response = operator(&runtime, serde_json::to_vec(&json!({"console":{"sql":sql,"readonly":true}}))?).await?;
+        assert_eq!(response.status, 400, "console budget accepted {sql}");
+    }
+    let response = operator(
+        &runtime,
+        serde_json::to_vec(
+            &json!({"console":{"sql":"SELECT count(*) FROM data","readonly":true}}),
+        )?,
+    )
+    .await?;
+    assert_eq!(
+        response.status, 200,
+        "a bounded read must release its progress handler"
+    );
+    let response = operator(&runtime, serde_json::to_vec(&json!({"console":{"sql":"CREATE TABLE console_rollback(x); SELECT * FROM missing_table","readonly":false}}))?).await?;
+    assert_eq!(response.status, 400);
+    let response = operator(&runtime, serde_json::to_vec(&json!({"console":{"sql":"SELECT count(*) FROM sqlite_schema WHERE name = 'console_rollback'","readonly":true}}))?).await?;
+    assert_eq!(
+        serde_json::from_slice::<Value>(&response.body)?["result"]["results"][0]["rows"],
+        json!([[0]])
+    );
+
     let migrated = operator(
         &runtime,
         serde_json::to_vec(
@@ -541,6 +601,43 @@ async fn run_native_sql_test() -> Result<()> {
     .await?;
     assert_eq!(migrated.status, 200);
     assert!(migrated.write_position.is_some());
+    let history = operator(
+        &runtime,
+        serde_json::to_vec(
+            &json!({"console_migrations":{"table":"__sys_sql_migrations","after":0}}),
+        )?,
+    )
+    .await?;
+    assert_eq!(history.status, 200);
+    let history: Value = serde_json::from_slice(&history.body)?;
+    assert!(history["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["name"] == "cli.sql"));
+    let missing = operator(
+        &runtime,
+        serde_json::to_vec(
+            &json!({"console_migrations":{"table":"__sys_sql_migrations_uncreated","after":0}}),
+        )?,
+    )
+    .await?;
+    assert_eq!(missing.status, 200);
+    assert_eq!(
+        serde_json::from_slice::<Value>(&missing.body)?["result"]["exists"],
+        false
+    );
+    let missing = operator(&runtime, serde_json::to_vec(&json!({"console":{"sql":"SELECT count(*) FROM sqlite_schema WHERE name='__sys_sql_migrations_uncreated'","readonly":true}}))?).await?;
+    assert_eq!(
+        serde_json::from_slice::<Value>(&missing.body)?["result"]["results"][0]["rows"],
+        json!([[0]])
+    );
+    let forbidden = operator(
+        &runtime,
+        serde_json::to_vec(&json!({"console_migrations":{"table":"__sys_kv","after":0}}))?,
+    )
+    .await?;
+    assert_eq!(forbidden.status, 400);
     let bad = operator(
         &runtime,
         serde_json::to_vec(&json!({"exec":{"sql":"SELECT * FROM missing_cli_table"}}))?,

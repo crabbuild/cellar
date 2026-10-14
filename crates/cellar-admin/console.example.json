@@ -1,0 +1,24 @@
+{
+  "listen": "127.0.0.1:4174",
+  "assets": "../../dashboard/dist",
+  "audit": "console-audit.sqlite",
+  "origins": ["http://127.0.0.1:4174", "http://127.0.0.1:5173"],
+  "fleets": [
+    {
+      "id": "development",
+      "name": "Development",
+      "environment": "Development",
+      "bucket": "s3://your-cellar-bucket",
+      "region": "us-east-1"
+    }
+  ],
+  "users": [
+    {
+      "id": "builder",
+      "token_env": "CELLAR_DASHBOARD_TOKEN",
+      "grants": {
+        "development": ["metadata_read", "data_read", "data_write", "operate", "configure"]
+      }
+    }
+  ]
+}

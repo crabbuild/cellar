@@ -115,9 +115,16 @@ pub struct StepConfig {
     pub timeout: Option<Duration>,
     pub sensitive: bool,
     pub rollback: bool,
+    /// Explicit inspection input; closures are not introspected. Sensitive steps redact it.
+    pub input: Option<StructuredValue>,
 }
 
 impl StepConfig {
+    pub fn input(mut self, input: StructuredValue) -> Self {
+        self.input = Some(input);
+        self
+    }
+
     pub fn retries(mut self, retries: Retries) -> Self {
         self.retries = Some(retries);
         self
@@ -602,6 +609,15 @@ impl Step {
                     "sensitive": config.sensitive,
                     "config": config_value(&config, &context)?,
                 }))?;
+                if let Some(input) = &config.input {
+                    check_value(input, "the step inspection input")?;
+                    let input = if config.sensitive {
+                        data(json!("[REDACTED]"))?
+                    } else {
+                        input.clone()
+                    };
+                    set(&mut running, "input", &input)?;
+                }
                 if let Some(pending) = record
                     .as_ref()
                     .map(|r| property(r, "pendingStream"))
