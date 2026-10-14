@@ -242,6 +242,11 @@ this does not constitute a released deployed primitive yet.
 
 ## Next implementation step
 
+The current audit prioritizes complete typed host/routing failure classification,
+then aggregate metrics and wider inventories, alongside the full release matrix.
+The bounded/canonical Stream::read acceptance gap found by that audit is repaired
+below; it does not close the complete client/codec/subscription response audit.
+
 Investigate the observed cancelled-bootstrap deadline/DomainClosed failure; isolated
 repeats and a complete node replay pass, but its cause remains unestablished.
 
@@ -2171,3 +2176,92 @@ They do not close general wake fairness, every failed-startup/shutdown/network
 cut, the prior pending-dispatch failure's full audit, follower/power/store/physical-
 host loss, broader capacity/SLO accounting or the full design requirement audit.
 All Cellar-owned markers remain 1 and the full goal remains active.
+
+## Current contract audit: implementation and evidence kept separate (2026-10-14)
+
+This is a working audit of the complete design, not a completion claim. Historical
+test notes above prove only their stated source/image/configuration and boundary.
+The CI-equivalent workspace library/integration run passed 411 tests across 99
+executables against `d9ab3d8`, before the subsequent read-decoder fix. The
+compatibility instruction in the storage-model paragraph is corrected: all owned
+markers remain 1 and development layouts use hard cutovers without migrations.
+
+| Contract item | Current authoritative implementation/evidence | Completion limit or missing evidence |
+| --- | --- | --- |
+| One cell transaction; root/savepoint rollback; caught emit failure consumes no identity | `application/storage/outbox.rs`, `storage/sqlite/outbox.rs`, native_outbox and storage rollback/capacity tests | Full transaction-view escape, abandoned async transaction and unfinished write-cursor cut matrix still needs explicit qualification |
+| Encode once under a byte budget; immutable bytes and source/lane identity | event_stream encoding, SQLite outbox, opaque base64 transport, exact peer-retry ledgers | Independent identity test vectors and every overflow/adversarial decoder case require audit; no global producer-order promise |
+| Source accepted only after data and discovery; explicit sync covers both | outbox dispatch sync, wake projection/arm gates, source-before-send forensic harness | Every commit/publication/proof cut, follower-only proof and power/store loss remain open |
+| No task alone owns delivery; removed-class recovery | persistent work generations, owner restore and recovery worker, native removed-class test; many-source all-process ledgers | Every owner isolation/expiry/source/facet recovery cut is not proven by these selected cases |
+| Receiver authentication plus durable publish/read/consume/admin grants | host-minted Authority, runtime RPC provenance, catalog/store authorization and native revocation tests | Complete cross-tenant, revocation/reconciliation/adoption race matrix is not yet qualified |
+| Creation cannot authorize itself; configuration intent, stable operation, proof and current-state readiness | catalog reconciliation, deployment resource validation, event_resources, creation-authority regression | Complete interrupted create/update and multi-resource failed-adoption cuts remain open |
+| Name selection resolves a UUID once; old handles cannot attach to recreation | name_resolution, BindingConfig/readiness pinning, named-binding Node test | Wider concurrent name/adoption/revocation scenarios remain unqualified |
+| Atomic contiguous append and durable dedup beyond retention | store append, cellar-logic decisions, retained producer watermarks, native stream and actual append reply-loss cases | Complete duplicate suffix/digest/offset exhaustion and follower-only/physical-host loss matrix remains open |
+| Per-lane reservations, generation-fenced settlement and adaptive batches | bounded dispatcher/service and stored receiver hints; capacity harness | General cancellation/routing/fairness and all stale-completion interleavings remain open |
+| Raw read cursor is independent of subscriptions and validates every returned batch | bounded/canonical server read plus repaired client acceptance, nine decoder regressions and native stream integration | Scope/identity/budget/continuity checks are qualified locally; complete codec and hostile-peer response matrix remain open |
+| Fetch identity, lease authority, checkpoint and retention share one transaction | subscription_store and cellar-logic lease policies, native stream integration | Lost fetch reply, expiry/ack/extend/retry races and lost-wake/long-poll cancellation matrix not fully qualified |
+| Exact ack and absolute extension; lost reply does not duplicate effects or progress | subscription receipts and actual embedded/independent ack-loss ledgers | Other consumer/follower/owner-loss cuts and full deadline/logical-clock matrix remain open |
+| Unknown event schemas remain inspectable without automatic settlement | raw Envelope and fallible typed decode API | Audit all read/fetch envelope validation and hostile replies independently of decoder implementation |
+| Local inbox effect/receipt atomicity, digest conflict, explicit bounded pruning | SQLite inbox and native/process projection cases | Two-consumer receipt race and every proof/pruning/crash boundary remain open; external effects require application idempotency |
+| Bounded/required retention, lease protection, explicit cursor expiry, poison-event handling | stream retention/store and lifecycle controls; required one/eight-record capacity cases | Complete policy/clock/lease/maintenance interleavings and large protected metadata capacity remain open |
+| No automatic correctness receipt/watermark expiry; explicit seal and tombstones | producer seal, subscription operations, catalog/stream retirement schemas | Metadata exhaustion and long-outage/recreation/late-packet full matrix remain open |
+| Source destruction closes authority, proves terminal destinations and retains loss evidence | source_destruction, retirement proofs, native lifecycle and bounded facet cleanup tests | Every abrupt cleanup/lease/grant/policy cut and large SQL/directory reset capacity remain open |
+| Ordinary reset preserves source, inbox and destination protocol state | SQLite reset preservation and PendingDelivery refusal tests | Full reset-vs-in-flight destruction/adoption interleavings remain unqualified |
+| Startup/adoption readiness and finite owned work; no unproven output on closed admission | event_resources, wake_discovery and gated reply tests; untraced 144/192-source recoveries | General wake fairness, every failed-startup/shutdown/network wait and the prior pending-dispatch audit remain open |
+| Supported host and hard-cutover compatibility contract | bucket-backed activation gate and version-1 markers; unsupported-layout and host-policy refusal tests | Qualified SQLite-only recovery/discovery is absent; external codecs and sequence/revision counters are separate |
+| Typed caller, pressure, consumer and authority outcomes | DeliveryError/ErrorCode plus local policy failures | **Implementation gap:** the named OwnershipLost/Ambiguous codes are absent from ErrorCode; host routing errors can remain generic; complete mapping audit is required |
+| All envelope/metadata transport allocations stay within captured/hard budgets | bounded encoding, receiver budgets, subscription batch checks, repaired read acceptance, structured RPC ceiling | Complete codec/response-validation audit is not yet complete; global transport ceiling and caller decode budgets are separate |
+| Logical bytes plus physical storage headroom/accounting | per-source/stream counters, SQLite page observations and live local file samples | Full WAL/LTX/bucket/filesystem accounting and restore/compaction headroom are not implemented/qualified as a complete profile |
+| Export authoritative backlog, blocked lanes, offsets, leases, lag and retention gauges with bounded labels | fixed host operation metrics and owner-sampled source/stream/subscription diagnostics | **Implementation gap:** aggregate authoritative host/fleet gauges are missing; diagnostics and reservation gauges do not substitute for them |
+| Bounded operators and complete resource/source inventories | signed source/stream/subscription controls, namespace catalog inventory, root census and destination watermarks | **Implementation gap:** fleet catalog namespace/facet/historical-source census is incomplete; pages are live observations, not drain proof/snapshot |
+| Native declarations, feature validation, same local development protocol and examples | deployment adapters/Node activation, durable-streams native application and process harnesses | Complete packaging/dev-policy matrix and deployment/operator examples still need audit against the current SDK |
+| Enumerate commit/proof/wake/append/lease/ack/retention/ownership interleavings | decision-core tests plus dedicated native and process cases | Full short-interleaving model enumeration and independent invariant coverage are not demonstrated |
+| Exact release crash matrix across supported proof modes/backends | saved single/independent/all-process cases with original receipts and pre-replay audits | Follower-only, isolated/expired owner, storage/power/physical-host faults and all specified cut points remain unqualified |
+| Capacity, lifecycle and operational release gates | selected row-quota, slow required consumer and many-source short-soak cases | Transaction/append profiles, long soaks, compaction/restore, general fairness, physical memory/storage SLOs and assigned operational owners remain incomplete |
+
+Priority follows correctness and missing scope: complete typed failure
+classification and aggregate/inventory implementation. Continue the original
+failure/capacity/lifecycle qualification matrix and final requirement audit; no
+single table row or passing scoped case closes the entire goal.
+
+## Refreshed workspace gate and bounded read acceptance (2026-10-14)
+
+The CI-equivalent command `cargo test --workspace --all-features --lib --tests
+--locked -- --test-threads=1` passes 411 tests across 99 test executables on
+`d9ab3d8`, with zero failed/ignored cases. It includes the real Cargo development
+workflow, compiled daemon lifecycle, Node/event integrations, Axum durability/SSE/
+WebSocket ownership, decision core, storage and formatter tests. This is evidence
+for that exact pre-decoder-fix source state, not the entire release fault matrix.
+
+The contract audit found that Stream::read trusted server-side budgets and used
+direct integer parsing. Extracting the existing acceptance path and adding six
+tests produced five behavioral failures: noncanonical positions, excessive batch
+count, skipped offsets/next cursor, foreign envelope identity and ignored requested
+position. A test-only borrow error was corrected before this behavioral baseline;
+it is not counted as reproduction evidence.
+
+The client now clamps outgoing budgets to captured host and hard protocol limits,
+validates the requested cursor, and independently checks canonical decimal
+metadata, resource scope, retained interval and contiguous offset advancement.
+Returned count is checked before per-record processing; encoded size is checked
+against event and remaining batch budgets before base64 allocation. Decoded size
+and checked total accounting apply afterward. Source incarnation/scope, positive
+sequence/version, timestamp, family/key limits, rederived lane and logical event ID
+are validated before returning records. Wrong identity or malformed input cannot
+create a valid next cursor. Read-only replay still changes no checkpoint and raw
+unknown application event versions remain inspectable with original encoded bytes.
+
+Nine acceptance regressions cover these failures, i64-end/above-binary64 positions,
+unrestricted policy's hard record ceiling, invalid encoding and zero event version.
+All 130 library cases and the native stream delivery/retention/revocation integration
+pass, as do the rebuilt ordinary stream example and all 62 Python guards. The
+post-change gate is scoped accordingly; the earlier 411-test workspace run must
+not be relabeled as testing this later source. Full codec/subscription response
+validation, typed OwnershipLost/Ambiguous mapping, aggregate metrics and broader
+inventories remain work, along with the existing crash/lifecycle/capacity matrix.
+
+Evidence root:
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-outbox-workspace-audit-4eom26wk`.
+Example SHA-256: `5c46eae8349018dfa73a307bc8bd466b10e9a0bd9f001081eaf631b38a5594e5`.
+The design's remaining migration sentence is corrected to the authorized internal
+hard-cutover policy. All Cellar-owned markers stay 1; full completion remains
+unproven and the goal is active.

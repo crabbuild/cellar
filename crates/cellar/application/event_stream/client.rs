@@ -163,61 +163,164 @@ impl<E> Stream<E> {
                 "cursor belongs to another resource",
             ));
         }
+        if let Some(cursor) = cursor {
+            cursor.validate()?;
+        }
+        let limits = crate::application::limits::current().events;
+        let options = ReadOptions {
+            max_records: options.max_records.min(limits.batch_records()),
+            max_bytes: options.max_bytes.min(limits.batch_bytes()),
+        };
         let args = cellar_native::clone::StructuredValue::from_json(json!([{
             "next":cursor.map(|cursor|cursor.next.to_string()),"max_records":options.max_records,"max_bytes":options.max_bytes
         }]))?;
         let value =
             super::call_bound(context, &self.binding, Action::Read, "__streamRead", args).await?;
-        let resource = value["resource"]
-            .as_str()
-            .ok_or_else(|| error(ErrorCode::InvalidRequest, "read response has no identity"))?;
-        if resource != self.resource().id {
-            return Err(error(
-                ErrorCode::InvalidCursor,
-                "read response resource mismatch",
-            ));
-        }
-        let number = |key: &str| -> Result<i64> {
-            Ok(value[key]
-                .as_str()
-                .ok_or_else(|| {
-                    error(
-                        ErrorCode::InvalidRequest,
-                        "read response integer is missing",
-                    )
-                })?
-                .parse()?)
-        };
-        let mut records = Vec::new();
-        for row in value["records"].as_array().ok_or_else(|| {
-            error(
-                ErrorCode::InvalidRequest,
-                "read response records are missing",
-            )
-        })? {
-            let offset = row["offset"]
-                .as_str()
-                .ok_or_else(|| error(ErrorCode::InvalidRequest, "read offset is missing"))?
-                .parse()?;
-            let encoded = row["envelope"]
-                .as_str()
-                .ok_or_else(|| error(ErrorCode::InvalidRequest, "read envelope is missing"))?;
-            let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
-            records.push(Record {
-                offset,
-                event: serde_json::from_slice(&bytes)?,
-                encoded: bytes,
-            });
-        }
-        Ok(Page {
-            records,
-            next: Cursor {
-                resource: self.resource().id.clone(),
-                partition: 0,
-                next: number("next")?,
-            },
-            earliest: number("earliest")?,
-            end: number("end")?,
-        })
+        accept_page(self.resource(), cursor, options, limits, value)
     }
 }
+
+fn accept_page(
+    expected: &super::Resource,
+    requested: Option<&Cursor>,
+    options: ReadOptions,
+    limits: cellar_logic::event_stream::Limits,
+    value: serde_json::Value,
+) -> Result<Page> {
+    let resource = value["resource"]
+        .as_str()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "read response has no identity"))?;
+    if resource != expected.id {
+        return Err(error(
+            ErrorCode::InvalidCursor,
+            "read response resource mismatch",
+        ));
+    }
+    let earliest = super::subscription_store::integer(&value, "earliest")?;
+    let end = super::subscription_store::integer(&value, "end")?;
+    let next = super::subscription_store::integer(&value, "next")?;
+    if let Some(cursor) = requested {
+        cursor.validate()?;
+        if cursor.resource != expected.id {
+            return Err(error(
+                ErrorCode::InvalidCursor,
+                "requested cursor resource mismatch",
+            ));
+        }
+    }
+    let first = requested.map_or(earliest, |cursor| cursor.next);
+    if earliest <= 0
+        || end < earliest
+        || first < earliest
+        || first > end
+        || next < first
+        || next > end
+    {
+        return Err(error(
+            ErrorCode::InvalidCursor,
+            "read response cursor interval conflicts",
+        ));
+    }
+    let rows = value["records"].as_array().ok_or_else(|| {
+        error(
+            ErrorCode::InvalidRequest,
+            "read response records are missing",
+        )
+    })?;
+    let count = options.max_records.min(limits.batch_records());
+    let budget = options.max_bytes.min(limits.batch_bytes());
+    if count == 0 || budget == 0 {
+        return Err(error(
+            ErrorCode::InvalidRequest,
+            "read budgets must be positive",
+        ));
+    }
+    if rows.len() > count {
+        return Err(error(
+            ErrorCode::PayloadTooLarge,
+            "read response exceeds record budget",
+        ));
+    }
+    let mut records = Vec::new();
+    let mut position = first;
+    let mut total = 0usize;
+    for row in rows {
+        let offset = super::subscription_store::integer(row, "offset")?;
+        if offset != position || offset >= end {
+            return Err(error(
+                ErrorCode::InvalidCursor,
+                "read response skipped or repeated an offset",
+            ));
+        }
+        let encoded = row["envelope"]
+            .as_str()
+            .ok_or_else(|| error(ErrorCode::InvalidRequest, "read envelope is missing"))?;
+        let maximum = limits.event_bytes().min(budget.saturating_sub(total));
+        if encoded.len() > maximum.div_ceil(3) * 4 {
+            return Err(error(
+                ErrorCode::PayloadTooLarge,
+                "encoded read event exceeds receiver budget",
+            ));
+        }
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid read envelope encoding"))?;
+        if bytes.len() > maximum {
+            return Err(error(
+                ErrorCode::PayloadTooLarge,
+                "read response exceeds byte budget",
+            ));
+        }
+        total = total
+            .checked_add(bytes.len())
+            .ok_or_else(|| error(ErrorCode::PayloadTooLarge, "read response byte overflow"))?;
+        let event: Envelope = serde_json::from_slice(&bytes)
+            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid read event envelope"))?;
+        super::store::validate_id(&event.source_incarnation)
+            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid read source incarnation"))?;
+        if !cellar_logic::cell::valid_cell_scope(&event.source)
+            || event.sequence <= 0
+            || event.version == 0
+            || event.created_at_ms < 0
+            || event.family != expected.family
+            || event.key.len() > limits.max_key_bytes
+            || event.family.len() > limits.max_family_bytes
+            || event.lane
+                != super::lane_identity(expected, &event.source, &event.source_incarnation)?
+            || event.id != format!("v1:{}:{}", event.lane, event.sequence)
+        {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "read event identity conflicts with stream",
+            ));
+        }
+        position = position
+            .checked_add(1)
+            .ok_or_else(|| error(ErrorCode::InvalidCursor, "read cursor overflow"))?;
+        records.push(Record {
+            offset,
+            event,
+            encoded: bytes,
+        });
+    }
+    if next != position || (records.is_empty() && first != end) {
+        return Err(error(
+            ErrorCode::InvalidCursor,
+            "read response cursor does not match delivered history",
+        ));
+    }
+    Ok(Page {
+        records,
+        next: Cursor {
+            resource: expected.id.clone(),
+            partition: 0,
+            next,
+        },
+        earliest,
+        end,
+    })
+}
+
+#[cfg(test)]
+#[path = "client_tests.rs"]
+mod tests;
