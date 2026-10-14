@@ -964,3 +964,44 @@ full workspace runtime gate and remaining release matrix are not superseded.
 Complete aggregate export, stream physical/logical byte/offset and retention
 observations, whole-fleet discovery, source destruction and actual process/
 response-loss/follower/ownership/capacity release qualification remain open.
+
+## Stream retention observations
+
+Adds typed `Stream::stats` and owner-routed stream describe observations under
+current administration grants: retained rows/bytes, earliest/end offsets, sample
+time, active leases, expired subscriptions, oldest retained append age, deletion
+frontier, protected bytes and age-expired bytes blocked against deletion. Typed
+SDK/operator acceptance checks identity and metric consistency. Metadata is
+bounded by the definition's 128-subscription cap; frontier/timestamp indexes and
+exact offset reads avoid event-range aggregation.
+
+Private modulo-2^63 byte-prefix positions measure exact retained windows below
+the modulus without imposing a lifetime byte-admission ceiling. They are not
+delivery identity counters; offsets and sequences remain checked/non-wrapping.
+Byte accounting commits with append and survives prefix deletion/retirement.
+Restore validates contiguous offsets, encoded sizes, timestamp order and byte
+positions before base-schema mutation. The schema remains 1 and old layouts
+require recreated development state without migration.
+
+SQLite allocated/used page observations use a fixed framework helper after
+activation checks. They are explicitly not WAL, local LTX, bucket, or filesystem
+allocated-block measurements; complete physical usage and aggregate export
+remain unfinished. Logical retention observations cannot substitute for those
+remaining storage/capacity requirements.
+
+The first gate passed existing library/CLI/artifact/outbox and core checks but
+failed the new stream/Node description paths because SQLite denied the allocation
+pragma query. It was moved to the fixed storage boundary helper rather than
+broadening public pragma permissions. The persisted stream replay passed,
+including age-blocked lease retention, required-checkpoint protection, empty
+streams and post-reclamation observations. New metadata guard cases passed for
+wrap, prefix reclamation, inconsistent counts/positions/times and missing layouts/
+indexes, preserving business state before schema mutation. The corrected gate
+passed 97 library cases, 2 core cases, 6 artifact, 2 CLI, 1 persisted stream,
+1 native outbox and all 26 serial Node cases (230.76 seconds). Workspace
+all-target/all-feature Clippy passed with warnings denied. All 11 workspace
+doctests passed with one existing ignored case. Formatting checked 420 Rust
+files; docs validated 35 documents, 6 flows and 370 references; dependency checks
+retained 401 packages without a JavaScript engine; whitespace checks passed.
+This is targeted qualification, not completion of the earlier failed full
+workspace runtime gate or the remaining process-fault/capacity matrix.

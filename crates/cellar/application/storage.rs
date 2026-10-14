@@ -431,6 +431,12 @@ impl Storage {
         crate::storage::sql_database_size(self.scope()?).map_err(anyhow::Error::msg)
     }
 
+    pub(crate) fn sqlite_allocation(&self) -> Result<(i64, i64)> {
+        let (allocated, used) =
+            crate::storage::sql_page_usage(self.scope()?).map_err(anyhow::Error::msg)?;
+        Ok((i64::try_from(allocated)?, i64::try_from(used)?))
+    }
+
     /// Execute complete SQL statements and retain the unfinished suffix for
     /// incremental import, using SQLite's existing tokenizer.
     pub fn sql_ingest(&self, input: &str) -> Result<(String, u64, u64)> {

@@ -390,6 +390,7 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
     outbox_control::check_schema(c)?;
     inbox::check_schema(c)?;
     event_schema::check_version(c, "__sys_stream_schema")?;
+    event_schema::stream_state(c)?;
     event_schema::check_version(c, "__sys_event_catalog_schema")?;
     event_schema::retirement_operator(c, "__sys_stream_schema", 1, "__sys_stream_retirement")?;
     event_schema::retirement_operator(
@@ -2204,6 +2205,16 @@ pub fn sql_database_size(scope: &str) -> Result<u64, String> {
         })
     })
     .unwrap_or_else(|| Err(format!("no db for {scope}")))
+}
+
+/// Framework-only allocation observation. Public SQL pragma permissions stay
+/// unchanged; the SDK adapter must first check its captured activation scope.
+pub(crate) fn sql_page_usage(scope: &str) -> Result<(u64, u64), String> {
+    require_sql_healthy(scope)?;
+    with(scope,|connection|without_sql_authorizer(connection,||{
+        connection.query_row("SELECT page_count*page_size,(page_count-freelist_count)*page_size FROM pragma_page_count(),pragma_freelist_count(),pragma_page_size()",[],|row|Ok((row.get(0)?,row.get(1)?)))
+            .map_err(|error|error.to_string())
+    })).unwrap_or_else(||Err(format!("no db for {scope}")))
 }
 
 // ---- SQL -------------------------------------------------------------------

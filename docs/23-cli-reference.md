@@ -147,6 +147,13 @@ encoded envelope, and returns a resumable `cursor`; `--payload` includes bodies.
 Read, audit, source and subscription inventory pages contain at most 100 records.
 `--max-bytes` bounds copied event bytes to at most 256 KiB. History expiration returns `CursorExpired`.
 
+Stream description includes owner-sampled lease, age, and retention observations.
+`protected_bytes` covers all payload pinned by required checkpoints/live leases;
+`retention_blocked_bytes` covers its age-expired subset. SQLite allocated/used
+page bytes are separate from retained payload bytes, WAL, LTX and bucket storage.
+All integer metrics use decimal strings. The SDK equivalent is
+`stream.stats(&context)`; grants and response resource identity are checked.
+
 Subscription inventory includes every retained incarnation, including deleted
 records, ordered by subscription UUID. It returns identity/generation, lifecycle,
 checkpoint, retry deadline and lease range/expiry; it excludes lease tokens and

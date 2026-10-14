@@ -550,14 +550,16 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
                 return Err(failure.into());
             }
             let mut offset=number(&current,"next_offset")?;
+            let mut byte_position=number(&current,"byte_position")?;
             for (envelope,raw) in decoded.iter().skip(plan.skip) {
                 let next=offset.checked_add(1).ok_or_else(||error(ErrorCode::StreamFull,"stream offsets exhausted"))?;
-                tx.system_sql("INSERT INTO __sys_stream_events VALUES(?,?,?,?,?,?)",
-                    &[offset.into(),lane.into(),envelope.sequence.into(),SqlValue::Blob(raw.clone()),(raw.len() as i64).into(),now.into()])?;
+                byte_position=cellar_logic::event_stream::advance_byte_position(byte_position,raw.len() as i64)?;
+                tx.system_sql("INSERT INTO __sys_stream_events VALUES(?,?,?,?,?,?,?)",
+                    &[offset.into(),lane.into(),envelope.sequence.into(),SqlValue::Blob(raw.clone()),(raw.len() as i64).into(),now.into(),byte_position.into()])?;
                 offset=next;
             }
-            tx.system_sql("UPDATE __sys_stream SET next_offset=?,rows=rows+?,bytes=bytes+?,logical_ms=? WHERE singleton=1",
-                &[offset.into(),count.into(),size.into(),now.into()])?;
+            tx.system_sql("UPDATE __sys_stream SET next_offset=?,rows=rows+?,bytes=bytes+?,logical_ms=?,byte_position=? WHERE singleton=1",
+                &[offset.into(),count.into(),size.into(),now.into(),byte_position.into()])?;
         }
         tx.system_sql("INSERT INTO __sys_stream_producers(lane,source,incarnation,principal,grant_id,accepted_through) VALUES(?,?,?,?,?,?)
             ON CONFLICT(lane) DO UPDATE SET accepted_through=excluded.accepted_through",

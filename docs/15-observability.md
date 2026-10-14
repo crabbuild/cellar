@@ -88,6 +88,29 @@ indexes, and earlier layouts. The schema marker remains 1; recreate development
 state on this cutover. These source observations are not fleet totals or
 additional series in the host `/event-metrics` export.
 
+`stream.stats(&context)` and `cellar stream describe` expose owner-routed stream
+observations under current administration grants. Retained `rows`/`bytes` and
+earliest/end offsets accompany sampled time, active leases, expired subscriptions,
+oldest retained append age and retention protection. `protected_bytes` counts
+all payload bytes pinned by required checkpoints or live leases;
+`retention_blocked_bytes` counts the age-expired subset pinned against deletion.
+The description does not expire leases or advance durable logical time.
+
+Timestamp/frontier reads use indexes or exact offsets; byte differences use
+retained prefix bookkeeping rather than payload-range sums. Live metadata is
+bounded by the definition's 128-subscription limit. Byte positions are internal
+bookkeeping modulo `2^63`; the
+retained byte window is strictly smaller than that ring, so differences remain
+exact across wrap without imposing a lifetime admission ceiling. Offset and
+sequence identities continue to use checked, non-wrapping counters.
+
+`sqlite_allocated_bytes` reports SQLite's current page allocation including free
+pages and metadata; `sqlite_used_bytes` excludes freelist pages. These fields
+are not WAL, local LTX, bucket, or filesystem allocated-block usage. Complete
+physical-storage observations and fleet aggregation remain unfinished. Restore
+checks retained byte/offset/timestamp accounting before base-schema mutation.
+The schema marker remains 1; earlier layouts require recreated development state.
+
 ## Proposed dashboard contract
 
 | View | Signals to collect | Operator decision |

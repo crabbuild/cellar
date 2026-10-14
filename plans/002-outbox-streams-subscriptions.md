@@ -1224,6 +1224,21 @@ development-state hard cutover, without migration. Operator page acceptance
 verifies source/lane identity, reason cardinality, totals and age consistency.
 These are source observations; complete host/fleet aggregate export remains open.
 
+Owner-routed `Stream::stats` and stream describe now expose payload rows/bytes,
+earliest/end offsets, active leases, expired subscriptions, retained append age,
+protection frontier, protected bytes and age-expired bytes blocked by retention.
+Typed SDK/operator acceptance verifies identity and metric consistency. Live
+metadata is bounded by the definition's 128-subscription cap; required-checkpoint
+and timestamp indexes plus exact offset reads avoid event-range aggregation.
+Private modulo-2^63 byte-prefix positions measure exact retained spans because
+admission bounds a retained window below the modulus. These are bookkeeping,
+not sequence/offset identities, and do not add a lifetime byte-admission ceiling.
+Restore verifies byte positions, contiguous offsets, encoded sizes and timestamp
+order before base-schema mutation. The schema stays 1 with a hard cutover.
+SQLite allocated/used page bytes are explicitly separate from physical WAL,
+local LTX, bucket and filesystem allocation; that full physical profile and
+fleet aggregation remain required work.
+
 Owner-routed CLI/API operations provide outbox list/inspect/retry, stream
 describe/read, subscription describe/pause/resume/reset, and lifecycle operation
 status. Reset/destruction reports the exact incarnation and affected range and

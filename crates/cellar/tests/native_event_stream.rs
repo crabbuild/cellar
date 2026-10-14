@@ -201,6 +201,11 @@ impl Cell for Producer {
                 };
                 return Ok(response(value));
             }
+            if url.path() == "/stats" {
+                return Ok(response(serde_json::to_value(
+                    orders.stats(&context).await?,
+                )?));
+            }
             let value = if matches!(
                 url.path(),
                 "/retire"
@@ -729,6 +734,13 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         .unwrap()
         .remove("observed_ms");
     assert_eq!(stable_initial, repeated);
+    let empty_stats = fetch(&runtime, "stats").await?;
+    assert_eq!(empty_stats["rows"], "0");
+    assert_eq!(empty_stats["observation"]["protected_bytes"], "0");
+    assert_eq!(
+        empty_stats["observation"]["oldest_retained_age_ms"],
+        Value::Null
+    );
     fetch(&runtime, "emit").await?;
     assert_eq!(fetch(&runtime, "seal").await?["error"], "PendingDelivery");
     fire(&runtime, SOURCE, 1).await?;
@@ -757,6 +769,20 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     let second_id = "00000000000000000000000000000022";
     let first_batch = fetch(&runtime, &next(first_id, "fulfillment")).await?;
     let receipt = first_batch["receipt"].as_str().unwrap();
+    let stream_stats = fetch(&runtime, "stats").await?;
+    assert_eq!(stream_stats["observation"]["active_leases"], "1");
+    assert_eq!(stream_stats["observation"]["protected_records"], "1");
+    assert_eq!(
+        stream_stats["observation"]["protected_bytes"],
+        stream_stats["bytes"]
+    );
+    assert!(
+        stream_stats["observation"]["sqlite_allocated_bytes"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()?
+            > 0
+    );
     let lag = fetch(&runtime, "status").await?;
     assert_eq!(lag["observation"]["lag_records"], "1");
     assert_eq!(lag["observation"]["retained_lag_records"], "1");
@@ -854,6 +880,15 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         .is_err());
     // A live lease protects retained bytes even past their age target.
     fire(&runtime, &recorded.scope, 2).await?;
+    let age_blocked = fetch(&runtime, "stats").await?;
+    assert_eq!(
+        age_blocked["observation"]["retention_blocked_bytes"],
+        age_blocked["bytes"]
+    );
+    assert_eq!(
+        age_blocked["observation"]["protected_bytes"],
+        age_blocked["bytes"]
+    );
     assert_eq!(
         fetch(&runtime, "read").await?["events"]
             .as_array()
@@ -891,6 +926,11 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         lost_history["observation"]["oldest_retained_age_ms"],
         Value::Null
     );
+    let reclaimed = fetch(&runtime, "stats").await?;
+    assert_eq!(reclaimed["rows"], "0");
+    assert_eq!(reclaimed["bytes"], "0");
+    assert_eq!(reclaimed["observation"]["protected_bytes"], "0");
+    assert_eq!(reclaimed["observation"]["expired_subscriptions"], "1");
     fetch(&runtime, "revoke").await?;
     assert_eq!(
         replay(&runtime, &recorded).await?["error"]["code"],
@@ -936,6 +976,9 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     let pressured = fetch(&runtime, "read").await?;
     assert_eq!(pressured["events"].as_array().unwrap().len(), 1);
     assert_eq!(pressured["events"][0]["sequence"], "3");
+    let pinned = fetch(&runtime, "stats").await?;
+    assert_eq!(pinned["observation"]["protected_records"], "1");
+    assert_eq!(pinned["observation"]["protected_bytes"], pinned["bytes"]);
     fetch(&runtime, "retry").await?;
     fire(&runtime, SOURCE, 7).await?;
     assert_eq!(fetch(&runtime, "read").await?["events"][0]["sequence"], "3");

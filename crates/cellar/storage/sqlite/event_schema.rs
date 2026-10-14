@@ -97,6 +97,92 @@ pub(super) fn check_version(connection: &Connection, marker: &str) -> anyhow::Re
     Ok(true)
 }
 
+/// Refuse earlier development layouts before any base-schema mutation.
+pub(super) fn stream_state(connection: &Connection) -> anyhow::Result<()> {
+    if !check_version(connection, "__sys_stream_schema")? {
+        return Ok(());
+    }
+    layout(connection,"__sys_stream","singleton,definition,revision,lifecycle,next_offset,earliest_offset,bytes,rows,logical_ms,config_operation,config_digest,config_principal,config_grant,byte_position")?;
+    layout(
+        connection,
+        "__sys_stream_events",
+        "offset,lane,sequence,envelope,size,append_ms,byte_position",
+    )?;
+    for (index, expected) in [
+        ("__sys_stream_events_age", "append_ms,offset"),
+        ("__sys_stream_required_frontier", "checkpoint"),
+        ("__sys_stream_subscription_state", "state,id"),
+    ] {
+        let columns = connection
+            .prepare("SELECT name FROM pragma_index_info(?1) ORDER BY seqno")?
+            .query_map([index], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        compatible(
+            columns.join(",") == expected,
+            "stream observation index missing; recreate development state",
+        )?;
+    }
+    let state = connection.prepare("SELECT earliest_offset,next_offset,rows,bytes,byte_position FROM __sys_stream WHERE singleton=1")?
+        .query_map([],|row|Ok((row.get::<_,i64>(0)?,row.get::<_,i64>(1)?,row.get::<_,i64>(2)?,row.get::<_,i64>(3)?,row.get::<_,i64>(4)?)))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    let Some(&(earliest, end, expected_rows, expected_bytes, tail)) = state.first() else {
+        return Ok(());
+    };
+    compatible(
+        earliest > 0
+            && end >= earliest
+            && expected_rows == end - earliest
+            && expected_bytes >= 0
+            && tail >= 0,
+        "invalid retained stream accounting",
+    )?;
+    let mut offset = earliest;
+    let mut bytes = 0i64;
+    let mut prior = None;
+    let mut previous_ms = None;
+    let mut statement=connection.prepare("SELECT offset,size,length(envelope),append_ms,byte_position FROM __sys_stream_events ORDER BY offset")?;
+    let mut records = statement.query([])?;
+    while let Some(row) = records.next()? {
+        let actual: i64 = row.get(0)?;
+        let size: i64 = row.get(1)?;
+        let length: i64 = row.get(2)?;
+        let append_ms: i64 = row.get(3)?;
+        let position: i64 = row.get(4)?;
+        compatible(
+            actual == offset
+                && size > 0
+                && size == length
+                && append_ms >= 0
+                && position >= 0
+                && previous_ms.is_none_or(|previous| previous <= append_ms),
+            "invalid retained stream event metadata",
+        )?;
+        if let Some(previous) = prior {
+            compatible(
+                cellar_logic::event_stream::advance_byte_position(previous, size)? == position,
+                "stream byte positions conflict with retained events",
+            )?;
+        }
+        bytes = bytes.checked_add(size).ok_or_else(|| {
+            DeliveryError::new(
+                ErrorCode::UnsupportedProtocol,
+                "stream byte accounting overflow",
+            )
+        })?;
+        offset = offset.checked_add(1).ok_or_else(|| {
+            DeliveryError::new(
+                ErrorCode::UnsupportedProtocol,
+                "stream offset accounting overflow",
+            )
+        })?;
+        prior = Some(position);
+        previous_ms = Some(append_ms);
+    }
+    compatible(
+        offset == end && bytes == expected_bytes && prior.is_none_or(|last| last == tail),
+        "stream counters conflict with retained events",
+    )
+}
+
 impl Schema {
     pub(super) fn check(&self, connection: &Connection) -> anyhow::Result<bool> {
         let marked = check_version(connection, self.marker)?;
@@ -146,6 +232,76 @@ impl Schema {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn retained_stream() -> anyhow::Result<Connection> {
+        let c = Connection::open_in_memory()?;
+        c.execute_batch(include_str!("../../application/event_stream/schema.sql"))?;
+        c.execute_batch("CREATE TABLE __sys_stream_schema(singleton INTEGER PRIMARY KEY,version INTEGER);INSERT INTO __sys_stream_schema VALUES(1,1);CREATE TABLE business(value TEXT);INSERT INTO business VALUES('retained');")?;
+        c.execute("INSERT INTO __sys_stream(singleton,definition,revision,lifecycle,next_offset,earliest_offset,bytes,rows,logical_ms,config_operation,config_digest,config_principal,config_grant,byte_position) VALUES(1,'{}',1,'active',3,1,10,2,100,'operation','digest','principal','grant',6)",[])?;
+        c.execute(
+            "INSERT INTO __sys_stream_events VALUES(1,'lane',1,?1,3,100,?2)",
+            rusqlite::params![b"aaa".as_slice(), i64::MAX],
+        )?;
+        c.execute(
+            "INSERT INTO __sys_stream_events VALUES(2,'lane',2,?1,7,100,6)",
+            [b"bbbbbbb".as_slice()],
+        )?;
+        Ok(c)
+    }
+
+    #[test]
+    fn retained_byte_windows_survive_wrap_prefix_reclamation_and_restore() -> anyhow::Result<()> {
+        let c = retained_stream()?;
+        stream_state(&c)?;
+        super::super::schema(&c)?;
+        c.execute_batch("DELETE FROM __sys_stream_events WHERE offset=1;UPDATE __sys_stream SET earliest_offset=2,rows=1,bytes=7;")?;
+        stream_state(&c)?;
+        assert_eq!(cellar_logic::event_stream::byte_distance(i64::MAX, 6)?, 7);
+        c.execute_batch("DELETE FROM __sys_stream_events;UPDATE __sys_stream SET earliest_offset=next_offset,rows=0,bytes=0;")?;
+        stream_state(&c)?;
+        assert_eq!(
+            c.query_row("SELECT byte_position FROM __sys_stream", [], |row| row
+                .get::<_, i64>(0))?,
+            6
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stream_observation_layout_and_accounting_fail_before_base_mutation() -> anyhow::Result<()> {
+        for mutation in [
+            "ALTER TABLE __sys_stream DROP COLUMN byte_position",
+            "UPDATE __sys_stream SET bytes=9",
+            "UPDATE __sys_stream_events SET byte_position=7 WHERE offset=2",
+            "UPDATE __sys_stream_events SET append_ms=50 WHERE offset=2",
+            "DROP INDEX __sys_stream_events_age",
+        ] {
+            let c = retained_stream()?;
+            c.execute_batch(mutation)?;
+            let before: i64 = c.query_row("PRAGMA schema_version", [], |row| row.get(0))?;
+            let failure = super::super::schema(&c).unwrap_err();
+            assert_eq!(
+                failure.downcast_ref::<DeliveryError>().unwrap().code,
+                ErrorCode::UnsupportedProtocol,
+                "{mutation}"
+            );
+            assert_eq!(
+                c.query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))?,
+                before
+            );
+            assert_eq!(
+                c.query_row("SELECT count(*) FROM __sys_stream_events", [], |row| row
+                    .get::<_, i64>(0))?,
+                2
+            );
+            assert_eq!(
+                c.query_row("SELECT value FROM business", [], |row| row
+                    .get::<_, String>(0))?,
+                "retained"
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn marked_retirement_provenance_is_required_before_base_schema_changes() -> anyhow::Result<()> {

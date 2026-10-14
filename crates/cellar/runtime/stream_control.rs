@@ -217,6 +217,12 @@ impl Request {
     }
 
     pub(crate) fn project(&self, mut reply: Value) -> Result<Value> {
+        if matches!(self.command, Command::Describe) {
+            if let Some(value) = reply.get("ok") {
+                let stats: events::StreamStats = serde_json::from_value(value.clone())?;
+                stats.validate(&self.binding.resource)?;
+            }
+        }
         if let Command::Subscription { name } = &self.command {
             if let Some(value) = reply.get("ok") {
                 let status: events::SubscriptionStatus = serde_json::from_value(value.clone())?;

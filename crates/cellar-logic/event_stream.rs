@@ -426,6 +426,24 @@ pub fn deletion_frontier(
     Ok(through)
 }
 
+/// Byte bookkeeping uses a ring of size 2^63. A retained window is bounded
+/// by i64::MAX bytes, so its distance is unique across any number of turns.
+/// These positions are not sequence/offset identities and are never exposed
+/// as delivery authority. Wrapping avoids a lifetime byte-admission ceiling.
+pub fn advance_byte_position(position: i64, bytes: i64) -> Result<i64, Failure> {
+    if position < 0 || bytes < 0 {
+        return Err(Failure::InvalidLimits);
+    }
+    Ok(((position as u64 + bytes as u64) & i64::MAX as u64) as i64)
+}
+
+pub fn byte_distance(start: i64, end: i64) -> Result<i64, Failure> {
+    if start < 0 || end < 0 {
+        return Err(Failure::InvalidLimits);
+    }
+    Ok(((end as u64).wrapping_sub(start as u64) & i64::MAX as u64) as i64)
+}
+
 /// Source revision captured by an operator before requesting a lane retry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProducerRevision {
@@ -500,6 +518,21 @@ pub fn admit_operation(receipt: OperationReceipt) -> Result<bool, OperationRefus
 #[cfg(test)]
 mod lag_tests {
     use super::*;
+
+    #[test]
+    fn byte_positions_measure_retained_windows_across_wrap_without_identity_rollover() {
+        let start = i64::MAX - 3;
+        let end = advance_byte_position(start, 10).unwrap();
+        assert_eq!(end, 6);
+        assert_eq!(byte_distance(start, end).unwrap(), 10);
+        assert_eq!(advance_byte_position(0, i64::MAX).unwrap(), i64::MAX);
+        let end = advance_byte_position(i64::MAX, i64::MAX).unwrap();
+        assert_eq!(byte_distance(i64::MAX, end).unwrap(), i64::MAX);
+        assert_eq!(byte_distance(end, end).unwrap(), 0);
+        assert!(advance_byte_position(-1, 1).is_err());
+        assert!(advance_byte_position(0, -1).is_err());
+        assert!(byte_distance(-1, 0).is_err());
+    }
 
     #[test]
     fn lag_distinguishes_lost_history_and_handles_exhausted_offsets() {

@@ -888,6 +888,16 @@ async fn stream_operator_routes_controls_preserves_receipts_and_checks_revocatio
     )
     .await?;
     ensure!(described["result"]["rows"] == "1");
+    ensure!(described["result"]["observation"]["protected_bytes"] == "0");
+    ensure!(described["result"]["observation"]["active_leases"] == "0");
+    ensure!(
+        described["result"]["observation"]["sqlite_allocated_bytes"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()?
+            > 0
+    );
+    ensure!(described["result"]["observation"]["oldest_retained_age_ms"].is_string());
     let read = json!({"kind":"read","cursor":null,"limit":1,"max_bytes":4096,"payload":false});
     let page = stream_operator(&client, &entrance, &reader, read.clone(), "streams").await?;
     ensure!(page["result"]["records"][0]["event"]["payload"].is_null());

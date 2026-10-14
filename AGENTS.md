@@ -96,6 +96,14 @@ event ranges. Current blocked reasons clear on retry or accepted delivery.
 Restore validates accounting and requires its indexes/triggers. The schema
 marker stays 1; prior development layouts require recreated state. SDK/operator
 page acceptance checks scope, lane identity, totals, reason set and ages.
+`Stream::stats`/stream describe expose current offsets, payload bytes, lease/age
+and exact protected/age-blocked retention bytes under administration authority.
+Byte-prefix positions are internal ring bookkeeping, not delivery identity;
+a retained window stays smaller than its modulus and offsets never wrap.
+Restore audits contiguous offsets, sizes, timestamp order and byte positions
+before base-schema mutation. SQLite allocation observations use a fixed framework
+helper after activation checks; public pragma permissions stay unchanged. Full
+WAL/LTX/bucket physical usage and aggregate export remain unfinished.
 Catalog inventory uses `cellar stream list` with a separate
 fleet-administration namespace capability and `/catalogs/` ingress; resource
 grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle

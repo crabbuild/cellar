@@ -11,7 +11,8 @@ CREATE TABLE IF NOT EXISTS __sys_stream (
     config_operation TEXT NOT NULL,
     config_digest TEXT NOT NULL,
     config_principal TEXT NOT NULL,
-    config_grant TEXT NOT NULL
+    config_grant TEXT NOT NULL,
+    byte_position INTEGER NOT NULL DEFAULT 0 CHECK(typeof(byte_position)='integer' AND byte_position>=0)
 );
 CREATE TABLE IF NOT EXISTS __sys_stream_events (
     offset INTEGER PRIMARY KEY CHECK(offset>0),
@@ -19,7 +20,8 @@ CREATE TABLE IF NOT EXISTS __sys_stream_events (
     sequence INTEGER NOT NULL CHECK(sequence>0),
     envelope BLOB NOT NULL,
     size INTEGER NOT NULL CHECK(size>0),
-    append_ms INTEGER NOT NULL,
+    append_ms INTEGER NOT NULL CHECK(typeof(append_ms)='integer' AND append_ms>=0),
+    byte_position INTEGER NOT NULL CHECK(typeof(byte_position)='integer' AND byte_position>=0),
     UNIQUE(lane,sequence)
 );
 CREATE INDEX IF NOT EXISTS __sys_stream_events_age ON __sys_stream_events(append_ms,offset);
@@ -44,6 +46,8 @@ CREATE TABLE IF NOT EXISTS __sys_stream_subscriptions (
     retry_at_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS __sys_stream_subscription_checkpoint ON __sys_stream_subscriptions(required,checkpoint);
+CREATE INDEX IF NOT EXISTS __sys_stream_required_frontier ON __sys_stream_subscriptions(checkpoint) WHERE required=1 AND state!='deleted';
+CREATE INDEX IF NOT EXISTS __sys_stream_subscription_state ON __sys_stream_subscriptions(state,id);
 CREATE UNIQUE INDEX IF NOT EXISTS __sys_stream_subscription_live_name ON __sys_stream_subscriptions(name) WHERE state!='deleted';
 CREATE TABLE IF NOT EXISTS __sys_stream_leases (
     subscription TEXT PRIMARY KEY,

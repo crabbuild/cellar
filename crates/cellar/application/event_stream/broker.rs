@@ -1,5 +1,4 @@
 use super::{
-    authority::Action,
     error::{error, ErrorCode},
     store, subscription_store,
 };
@@ -159,50 +158,81 @@ impl Cell for Broker {
             let result = async {
                 let body = body(&args)?;
                 match method.as_str() {
-                    "__streamConfigure" => { let result=store::initialize(&context, &body); if result.is_ok() {self.notify();} result },
-                    "__streamAppend" => { let result=store::append(&context, &body); if result.is_ok() {self.notify();} result },
-                    "__streamSeal" => super::producer::accept_seal(&context,&body),
-                    "__streamRetirementCheck" => super::retirement_store::check(&context,&body),
-                    "__streamRetire" => {let result=super::retirement_store::close(&context,&body);if result.is_ok(){self.notify();}result},
-                    "__streamRead" => store::read(&context, &body),
-                    "__streamResolve" => store::resolve(&context, &body),
-                    "__streamNext" => self.next(&context,&body).await,
-                    "__streamAck" => {
-                        let services = context.io.host_services();
-                        let timer = services.events().metrics.timer(crate::event_metrics::Histogram::Ack, services.domain_token());
-                        let result=subscription_store::ack(&context,&body);
-                        timer.finish(result.is_ok());
-                        if let Ok(value) = &result {
-                            if value["status"] == "already_acknowledged" { services.events().metrics.increment(crate::event_metrics::Counter::AckReplayed, 1); }
+                    "__streamConfigure" => {
+                        let result = store::initialize(&context, &body);
+                        if result.is_ok() {
                             self.notify();
                         }
                         result
-                    },
-                    "__streamRetry" => { let result=subscription_store::retry(&context,&body); if result.is_ok() {self.notify();} result },
-                    "__streamExtend" => subscription_store::extend(&context,&body),
-                    "__streamSubscriptionStatus" => super::lifecycle_store::status(&context,&body),
-                    "__streamSubscriptions" => super::inventory::list(&context,&body),
-                    "__streamSources" => super::source_inventory::list(&context,&body),
-                    "__streamSubscriptionChange" => {let result=super::lifecycle_store::change(&context,&body);if result.is_ok(){self.notify();}result},
-                    "__streamAudit" => super::lifecycle_store::audit(&context,&body),
-                    "__streamOperationStatus" => super::lifecycle_store::operation_status(&context,&body),
-                    "__streamDescribe" => {
-                        let caller = store::authority(&context, Action::Administer)?;
-                        let (definition, row) = store::load(&context.storage()?)?;
-                        store::authorize(&definition, &caller, Action::Administer, None)?;
-                        Ok(
-                            json!({"resource":definition.resource,"revision":definition.revision.to_string(),
-                            "earliest":store::number(&row,"earliest_offset")?.to_string(),
-                            "end":store::number(&row,"next_offset")?.to_string(),
-                            "rows":store::number(&row,"rows")?.to_string(),"bytes":store::number(&row,"bytes")?.to_string()}),
-                        )
                     }
+                    "__streamAppend" => {
+                        let result = store::append(&context, &body);
+                        if result.is_ok() {
+                            self.notify();
+                        }
+                        result
+                    }
+                    "__streamSeal" => super::producer::accept_seal(&context, &body),
+                    "__streamRetirementCheck" => super::retirement_store::check(&context, &body),
+                    "__streamRetire" => {
+                        let result = super::retirement_store::close(&context, &body);
+                        if result.is_ok() {
+                            self.notify();
+                        }
+                        result
+                    }
+                    "__streamRead" => store::read(&context, &body),
+                    "__streamResolve" => store::resolve(&context, &body),
+                    "__streamNext" => self.next(&context, &body).await,
+                    "__streamAck" => {
+                        let services = context.io.host_services();
+                        let timer = services.events().metrics.timer(
+                            crate::event_metrics::Histogram::Ack,
+                            services.domain_token(),
+                        );
+                        let result = subscription_store::ack(&context, &body);
+                        timer.finish(result.is_ok());
+                        if let Ok(value) = &result {
+                            if value["status"] == "already_acknowledged" {
+                                services
+                                    .events()
+                                    .metrics
+                                    .increment(crate::event_metrics::Counter::AckReplayed, 1);
+                            }
+                            self.notify();
+                        }
+                        result
+                    }
+                    "__streamRetry" => {
+                        let result = subscription_store::retry(&context, &body);
+                        if result.is_ok() {
+                            self.notify();
+                        }
+                        result
+                    }
+                    "__streamExtend" => subscription_store::extend(&context, &body),
+                    "__streamSubscriptionStatus" => super::lifecycle_store::status(&context, &body),
+                    "__streamSubscriptions" => super::inventory::list(&context, &body),
+                    "__streamSources" => super::source_inventory::list(&context, &body),
+                    "__streamSubscriptionChange" => {
+                        let result = super::lifecycle_store::change(&context, &body);
+                        if result.is_ok() {
+                            self.notify();
+                        }
+                        result
+                    }
+                    "__streamAudit" => super::lifecycle_store::audit(&context, &body),
+                    "__streamOperationStatus" => {
+                        super::lifecycle_store::operation_status(&context, &body)
+                    }
+                    "__streamDescribe" => super::statistics::describe(&context),
                     _ => Err(error(
                         ErrorCode::UnsupportedProtocol,
                         "unknown stream operation",
                     )),
                 }
-            }.await;
+            }
+            .await;
             if result
                 .as_ref()
                 .err()
