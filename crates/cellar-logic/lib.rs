@@ -1140,6 +1140,11 @@ impl State {
         self.shed_reason
     }
 
+    /// Captured resource policy for diagnostics; this does not confer authority.
+    pub fn pressure_config(&self) -> pressure::PressureConfig {
+        self.config.pressure
+    }
+
     /// Whether this node is currently shedding, for peers ranking it as a
     /// placement target. A node that says no while walking down invites the
     /// work it is trying to get rid of.
@@ -6020,7 +6025,7 @@ impl State {
         // most of the node and pin it at its ceiling -- trading a real
         // admission failure for a saved activation. Under pressure the node
         // takes the wake.
-        if self.alarm_is_imminent(cell) && !self.shedding && !self.draining {
+        if self.alarm_is_imminent(cell) && !self.shedding && !self.draining && self.has_capacity() {
             return Err(EvictRefusal::AlarmImminent);
         }
         if self.is_active(id) {

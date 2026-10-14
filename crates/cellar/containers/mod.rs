@@ -1059,7 +1059,8 @@ impl ContainerEngine {
             "Env": [format!("CELLAR_NFT={rules}")],
             "Cmd": ["sh", "-c", "printf '%s' \"$CELLAR_NFT\" | nft -f -"],
             "Labels": { "cellar.node": self.node, "cellar.host": self.names.key, "cellar.fence": "1" },
-            "HostConfig": { "NetworkMode": "host", "CapAdd": ["NET_ADMIN"] },
+            "HostConfig": { "NetworkMode": "host", "CapAdd": ["NET_ADMIN"],
+                "NanoCpus": 62500000u64, "Memory": 16777216u64, "MemorySwap": 16777216u64 },
         });
         let created = self
             .docker

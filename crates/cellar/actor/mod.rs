@@ -30,6 +30,7 @@ mod effects;
 pub(crate) use config::capture_operation_deadline_from_environment;
 pub use config::ActorOptions;
 mod local_request;
+mod output_proofs;
 mod production;
 pub use cellar_logic::{EvictCancellation, EvictError, EvictFailure, EvictRefusal, EvictSuccess};
 pub use effects::StepOutput;
@@ -2021,6 +2022,7 @@ pub struct Actor {
     validate_invariants: bool,
     /// Keep a sample for `/state` even without a bucket to publish it to.
     live_load: Arc<crate::ownership_store::LiveLoad>,
+    output_proofs: Arc<output_proofs::OutputProofs>,
     /// The shed reason last reported to the log, so a latch that holds for
     /// minutes is reported once rather than on every sample.
     logged_shed_reason: Option<&'static str>,
@@ -2592,6 +2594,7 @@ impl Actor {
             stops: 0,
             lease_spec,
             live_load,
+            output_proofs: Arc::default(),
             logged_shed_reason: None,
             validate_invariants: cfg!(debug_assertions),
             fence,
@@ -3915,7 +3918,10 @@ impl Actor {
                 position,
             } => {
                 if let Some(runtime) = self.host.clone() {
+                    let proofs = self.output_proofs.clone();
+                    proofs.start();
                     out.spawn_scoped(async move {
+                        let started = crate::asyncrt::mono_us();
                         // The replicator reports the position it actually
                         // proved durable and which mechanism proved it; the
                         // core acks only if the position covers this write,
@@ -3932,6 +3938,10 @@ impl Actor {
                                     (Err(Failure::Ambiguous), cellar_logic::ProofSource::Bucket)
                                 }
                             };
+                        proofs.finish(
+                            result.is_ok().then_some(source),
+                            crate::asyncrt::mono_us().saturating_sub(started),
+                        );
                         CompletedEffect::plain(Event::DurableReached { op, result, source })
                     });
                 } else {
@@ -4309,7 +4319,7 @@ impl Actor {
             .collect::<Vec<_>>()
             .join(",");
         format!(
-            "{{\"ownership\":{:?},\"owned_cells\":{},\"occupied\":{},\"cached_routes\":{},\"quiescing\":{},\"evicting\":{},\"releasing\":{},\"adopting\":{},\"restoring\":{},\"activating\":{},\"activation_waiting\":{},\"capacity_waiting\":{},\"phases\":{{{}}},\"handed_off\":{},\"handoff_failed\":{},\"rebalanced\":{},\"rebalance_failed\":{},\"remote_route_refreshes\":{},\"shedding\":{},\"rss_bytes\":{},\"in_use_bytes\":{},\"allocator\":{},\"libc_malloc\":{},\"cgroup_working_set_bytes\":{},\"cgroup_current_bytes\":{},\"node_load\":{},\"residents\":[{}],\"published\":[{}],\"publishes\":{},\"stops\":{}}}",
+            "{{\"ownership\":{:?},\"owned_cells\":{},\"occupied\":{},\"cached_routes\":{},\"quiescing\":{},\"evicting\":{},\"releasing\":{},\"adopting\":{},\"restoring\":{},\"activating\":{},\"activation_waiting\":{},\"capacity_waiting\":{},\"phases\":{{{}}},\"handed_off\":{},\"handoff_failed\":{},\"rebalanced\":{},\"rebalance_failed\":{},\"remote_route_refreshes\":{},\"shedding\":{},\"rss_bytes\":{},\"in_use_bytes\":{},\"allocator\":{},\"libc_malloc\":{},\"cgroup_working_set_bytes\":{},\"cgroup_current_bytes\":{},\"node_load\":{},\"residents\":[{}],\"published\":[{}],\"publishes\":{},\"stops\":{},\"output_proofs\":{},\"pressure_config\":{}}}",
             self.ownership.name(),
             self.state.owned_cells(),
             self.state.occupied(),
@@ -4349,7 +4359,10 @@ impl Actor {
             residents,
             published,
             self.publishes,
-            self.stops
+            self.stops,
+            self.output_proofs.snapshot(),
+            serde_json::json!({"high_bytes":self.state.pressure_config().high_bytes,
+                               "rss_hard_bytes":self.state.pressure_config().rss_hard_bytes})
         )
     }
 

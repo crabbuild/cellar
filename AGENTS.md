@@ -85,6 +85,7 @@ crates/
   cellar-logic/           Dependency-free decision core
   cellar-ltx/             SQLite WAL capture, LTX codecs, restore, and compaction
   cellar-native/          Owned values, structured clone, crypto, and web primitives
+  cellar-fleetcare/        Field-service app, embedded/daemon hosts and open-loop client
 examples/                 Compiled Rust applications and project configurations
 dashboard/                Vite, React and shadcn/ui browser management console
 docs/                     Builder/team guides, evidence, decisions, and SVG explorer
@@ -307,7 +308,12 @@ curl http://127.0.0.1:9876/counters/alpha
 
 `tools/perf/README.md` describes isolated Docker/Colima validation of the
 embedded `sdk::Node` path, actual RustFS recovery, rolling handoffs and returned
-shutdown proofs. Its separate `faults.py` driver exercises process failures
+shutdown proofs. `python3 tools/perf/fleetcare.py` builds the separate
+`cellar-fleetcare` application and runs its 10,000-cell read/write matrix in
+embedded and daemon modes with Bucket and Fleet durability. Use
+`--profile smoke --suite smoke` for a short functional check; the default
+standard suite additionally verifies crash, store outage and cold recovery.
+Its separate `faults.py` driver exercises process failures
 during writes with an application receipt ledger. Verify acknowledged receipts
 before replaying ambiguous requests; otherwise retry can hide lost writes.
 The driver's final audit rechecks saved ledgers from each verification stage.

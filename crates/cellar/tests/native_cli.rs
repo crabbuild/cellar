@@ -64,6 +64,7 @@ async fn standalone_host_adopts_cron_configuration_and_joins_before_stop_receipt
         .env("CELLAR_WATCH", directory.path().join("runtime"))
         .env("CELLAR_NODE", "console-cli")
         .env("CELLAR_DEPLOY_POLL_S", "1")
+        .env("CELLAR_SHUTDOWN_REPORT_JSON", "1")
         .env("RUST_LOG", "error")
         .args([
             "--no-control-plane",
@@ -156,7 +157,27 @@ async fn standalone_host_adopts_cron_configuration_and_joins_before_stop_receipt
     result.map_err(|error| {
         // Read harness diagnostics after its execution domain has joined.
         #[allow(clippy::disallowed_methods)]
-        let log = std::fs::read_to_string(log_path).unwrap_or_default();
+        let log = std::fs::read_to_string(&log_path).unwrap_or_default();
         anyhow::anyhow!("{error:#}\nprivate host log:\n{log}")
-    })
+    })?;
+    // The process harness reads its log after the node and reporting domains join.
+    #[allow(clippy::disallowed_methods)]
+    let log = std::fs::read_to_string(&log_path)?;
+    let report = log
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .find(|value| value["event"] == "daemon_node_stopped")
+        .context("standalone exit omitted its JSON shutdown report")?;
+    ensure!(
+        report["outcome"] == "stopped"
+            && report["mode"] == "handoff"
+            && report["ingress_drained"] == true
+            && report["application_work_drained"] == true
+            && report["cells_drained"] == true
+            && report["local_durability_closed"] == true
+            && report["drain_timed_out"] == false
+            && report["deadline_elapsed"] == false,
+        "standalone JSON report has incomplete proof: {report}"
+    );
+    Ok(())
 }

@@ -1620,6 +1620,35 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 {
                     return Err(anyhow::Error::new(crate::engine_api::CellOverloaded));
                 }
+                if !response.status().is_success()
+                    && response
+                        .headers()
+                        .get(HANDLER_FAILURE_HEADER)
+                        .is_some_and(|v| v == "1")
+                {
+                    // Only a gated handler failure carries this marker. Gate
+                    // rejection remains opaque below, so an SDK control must
+                    // never interpret an unproven mutation as its completion.
+                    let collecting =
+                        Limited::new(response.into_body(), MAX_PEER_CONTROL_BODY_BYTES).collect();
+                    let collected = match cancel.as_mut() {
+                        Some(cancel) => crate::asyncrt::select_biased! {
+                            "an RPC cancellation wins an undelivered handler error";
+                            _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
+                            collected = collecting => collected,
+                        },
+                        None => collecting.await,
+                    };
+                    let body = collected
+                        .map_err(|error| anyhow::anyhow!("remote RPC error body: {error}"))?
+                        .to_bytes();
+                    let body = String::from_utf8_lossy(&body);
+                    return Err(anyhow::Error::new(RemoteHandlerFailure(
+                        body.strip_prefix(HANDLER_FAILURE_PREFIX)
+                            .unwrap_or(&body)
+                            .to_owned(),
+                    )));
+                }
                 anyhow::ensure!(
                     response.status().is_success(),
                     "remote RPC failed with {}",
@@ -2406,7 +2435,9 @@ pub(crate) async fn dispatch_forwarded_rpc(
                     .await;
                 match completed.result {
                     Ok(outcome) => Ok(outcome.data),
-                    Err(LocalRequestFailure::Handler(error)) => Err(error),
+                    Err(LocalRequestFailure::Handler(error)) => {
+                        return peer_response(internal_do_worker_error(error));
+                    }
                     Err(LocalRequestFailure::OutputGate { verdict, handler }) => {
                         return peer_gate_failure(verdict, handler.as_ref());
                     }
@@ -3838,6 +3869,7 @@ async fn async_main(
     );
     let local_cache_max_bytes = local_cache_max_bytes_from_environment()?;
     let shutdown_policy = crate::node_lifecycle::ShutdownPolicy::from_env()?;
+    let shutdown_report_json = crate::env_vars::flag("CELLAR_SHUTDOWN_REPORT_JSON", false)?;
     let fail_publish_once = std::env::var_os("CELLAR_TEST_FAIL_PUBLISH_ONCE").is_some();
     let ingress = crate::startup::bind_ingress_listener(&settings.listen).await?;
     let internal =
@@ -4985,7 +5017,7 @@ async fn async_main(
     )
     .await;
     #[cfg(not(cellar_internal_tests))]
-    {
+    let outcome = {
         crate::asyncrt::shutdown_process_domain().await;
         // Joining a host thread belongs to the CLI boundary, after its domain
         // has dropped the tracked core root. Keep the directory lock until then.
@@ -4999,14 +5031,17 @@ async fn async_main(
                 .joined(&outcome, tokio::runtime::Handle::current())
                 .await;
         }
-        // Process ownership belongs to this command-line adapter alone.
-        exit_flushed(outcome?.cli_exit_code());
-    }
+        outcome
+    };
     #[cfg(cellar_internal_tests)]
-    {
-        drop(core_thread);
-        exit_flushed(outcome?.cli_exit_code());
+    drop(core_thread);
+    let outcome = outcome?;
+    if shutdown_report_json {
+        crate::cli_output::Output::new(crate::cli_output::Format::Text)
+            .line(format_args!("{}", outcome.cli_report()))?;
     }
+    // Process ownership belongs to this command-line adapter alone.
+    exit_flushed(outcome.cli_exit_code());
 }
 
 use crate::machine::{
