@@ -499,8 +499,13 @@ The serial Node suite also places destination, producer and consumer in distinct
 execution domains. A real loopback peer tunnel proxy captures a proven append
 reply, holds it through an independent source/destination audit and closes both
 sockets. Retry bytes and acceptance match exactly; one destination offset and
-one inbox-protected effect survive. This is actual network reply loss between
-embedded nodes, not separate-process/host, SIGKILL or power qualification.
+one inbox-protected effect survive. The same proxy can lose a proven acknowledgment
+reply: the consumer stores the exact batch receipt atomically alongside its
+retained inbox effect before proof, then replays unchanged receipt bytes after
+independently auditing checkpoint 1 and no live lease. Replay returns
+`AlreadyAcknowledged` without another effect or checkpoint change. This is actual
+network reply loss between embedded nodes, not separate-process/host, SIGKILL or
+power qualification.
 `examples/durable-streams/before_send.py` holds the source's actual input gate,
 proves its command/obligation and SIGKILLs before the first dispatch attempt.
 Copy the killed SQLite family and audit zero attempts before restarting, then

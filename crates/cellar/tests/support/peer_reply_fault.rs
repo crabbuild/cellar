@@ -1,18 +1,16 @@
-//! Real peer tunnel proxy: capture a complete append reply, then lose it.
+//! Real peer tunnel proxy: capture a complete event RPC reply, then lose it.
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::{ensure, Result};
 use std::net::SocketAddr;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{oneshot, Semaphore};
 
 #[derive(Clone, Debug)]
 pub(super) struct Exchange {
+    pub method: String,
     pub scope: String,
     pub request: Vec<u8>,
     pub response: Vec<u8>,
@@ -20,7 +18,7 @@ pub(super) struct Exchange {
 }
 
 pub(super) struct Capture {
-    pub armed: AtomicBool,
+    armed: Mutex<Option<&'static str>>,
     pub entered: Semaphore,
     pub release: Semaphore,
     pub exchanges: Mutex<Vec<Exchange>>,
@@ -29,11 +27,17 @@ pub(super) struct Capture {
 impl Default for Capture {
     fn default() -> Self {
         Self {
-            armed: AtomicBool::new(false),
+            armed: Mutex::new(None),
             entered: Semaphore::new(0),
             release: Semaphore::new(0),
             exchanges: Mutex::new(Vec::new()),
         }
+    }
+}
+
+impl Capture {
+    pub fn arm(&self, method: &'static str) {
+        *self.armed.lock().unwrap() = Some(method);
     }
 }
 
@@ -207,13 +211,24 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
         let Some(reply) = message(&mut owner, true).await? else {
             break;
         };
-        if request.header("x-cells-rpc-method") == Some("__streamAppend") {
+        let method = request.header("x-cells-rpc-method");
+        if matches!(method, Some("__streamAppend" | "__streamAck")) {
+            let method = method.unwrap();
             ensure!(
                 reply.head.starts_with(b"HTTP/1.1 200 "),
-                "append did not produce a successful HTTP reply"
+                "event RPC did not produce a successful HTTP reply"
             );
-            let dropped = capture.armed.swap(false, Ordering::AcqRel);
+            let dropped = {
+                let mut armed = capture.armed.lock().unwrap();
+                if *armed == Some(method) {
+                    armed.take();
+                    true
+                } else {
+                    false
+                }
+            };
             capture.exchanges.lock().unwrap().push(Exchange {
+                method: method.into(),
                 scope: request.header("x-cells-scope").unwrap_or_default().into(),
                 request: request.body.clone(),
                 response: reply.body.clone(),

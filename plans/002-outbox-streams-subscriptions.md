@@ -1488,11 +1488,15 @@ The serial Node suite additionally tests a proven destination append reply lost
 on the actual authenticated peer tunnel between independently started embedded
 nodes. It audits known command payload/identity, pending source accounting and
 exact destination envelope before dropping the captured reply. Retry bytes and
-acceptance match, with one offset, one inbox effect and checkpoint 1. Distinct
-node domains/data directories and complete shutdown are asserted. This extends
+acceptance match, with one offset, one inbox effect and checkpoint 1. It then
+loses a proven acknowledgment reply. The consumer's saved exact receipt and
+inbox effect pass proof together; checkpoint/lease are audited before dropping
+the reply. Retrying the original receipt bytes returns `AlreadyAcknowledged`
+without advancing effects or checkpoint twice. Distinct node domains/data
+directories and complete shutdown are asserted. This extends
 local network response-loss evidence; it does not satisfy separate physical
-hosts/process loss, persistent measuring-ledger or remaining ack/follower/power
-and cut-point qualification.
+hosts/process loss, persistent measuring-ledger or the remaining follower/power and cut-point
+qualification.
 
 ### Capacity and lifecycle qualification
 

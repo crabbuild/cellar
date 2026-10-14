@@ -214,44 +214,49 @@ this does not constitute a released deployed primitive yet.
 | --- | --- | --- |
 | Short producer APIs and atomic emission | Source tables, `tx`/`emit`, bounded serializer, typed admission errors, native source test, storage rollback/capacity/reopen tests | Complete public error/overflow classification and adoption budgets |
 | Resource identity and authorization | Host RPC provenance, reserved classes, durable catalog reconciliation, independent receiver grants, receipt revocation, deletion/recreation and terminal UUID tombstones; validated native declarations/bindings; owner-routed startup/adoption with current-state proof and independent binding resolution | Friendly name-only resolution and complete administrative authority qualification |
-| Stream append/read and deduplication | Persisted destination schema, built-in factory, atomic producer watermark, bounded read API; duplicate acceptance after payload expiry; version-1 stream/catalog and source/inbox schemas; feature/format capability | Wider fault and adversarial qualification |
+| Stream append/read and deduplication | Persisted destination schema, built-in factory, atomic producer watermark, bounded read API; duplicate acceptance after payload expiry; exact-byte append retry after a proven peer reply is lost; version-1 stream/catalog and source/inbox schemas; feature/format capability | Wider fault, separate-host/storage and adversarial qualification |
 | Durable outbox delivery | Real destination integration, generation-fenced cleanup, blocked permanent errors, adaptive batch limits, host/lane reservations | Cancellation/routing/fairness qualification and operational controls |
-| Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling | Complete deadline/error/race matrix and production lifecycle/crash qualification |
+| Subscriptions and settlement | Durable leases/checkpoints/ack receipts; same-fetch replay, busy competitors, retry, absolute extension, bounded long polling; proven ack reply loss and unchanged receipt replay return `AlreadyAcknowledged` with one effect/checkpoint | Complete deadline/error/race matrix and production lifecycle/crash qualification |
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
-| Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
+| Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, source destruction crash/lease/policy and SQL-reset capacity qualification, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
-| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in | Whole-fleet inventories, exported metrics, source destruction and broader control qualification |
+| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in; guarded source destruction/recreation, exact terminal evidence, retained loss receipts, bounded remote/local facet cleanup and incarnation fencing; namespace catalog inventory and fixed-cardinality event metrics | Whole-fleet inventories, aggregate owner-state/physical metrics and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer/native/fleet/schema markers at 1; hard-cutover development policy and incompatible source-policy refusal | Fresh-state/reopen fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
 
 ## Next implementation step
 
-Broaden activation qualification to missing/revoked external bindings at startup,
-cancellation/deadline failures, configuration retries during revocation and
-actual fleet routing. The current Node regression covers proven startup,
-delivery and inbox redelivery, failed candidate binding resolution, serving
-generation preservation, valid adoption, retirement and historic-receipt refusal.
-It retains the full existing shutdown assertion and explicitly verifies that a
-failed unsupported startup releases its directory for immediate reuse. Friendly
-name-only resource configuration remains separate from resolved UUID bindings.
+Complete the remaining release fault matrix across independent processes/physical
+hosts and supported storage backends, including followers, expired/isolated owners,
+source cleanup cut points, grant/policy races and whole-fleet recovery. Keep saved
+independent measuring ledgers and audit before replay at every ambiguous boundary.
+The process harness and before-first-send SIGKILL case supply scoped single-node
+SQLite-bucket evidence. The real peer proxy adds append/ack response loss across
+three embedded nodes in one process, not the entire fleet fault matrix.
 
-Continue exported bounded metrics and whole-fleet source/resource inventory and
-lifecycle controls. Subscription, destination-observed source and namespace
-catalog listings are implemented in the current work below. Catalog inventory
-uses a separate platform capability; resource grants remain resource-scoped. Source
-inspection, guarded retry, operation status and audit now have authenticated owner-routed HTTP/CLI
-entry points. Subscription
-administration, producer sealing and stream retirement are implemented, but
-operator integration and production proof/failure coverage remain part of the
-full goal. Audited whole-source destruction is still absent. It must verify
-terminal retirement of every pending destination and fence the captured source
-incarnation before discarding obligations; never add a sequence-skipping API as
-a substitute for that protocol.
+Source destruction/recreation now has a durable closed-admission lifecycle,
+exact destination evidence, immutable loss receipts, source/work/lane fences,
+registered facet cleanup and fresh producer/facet identities. Explicit replay
+resumes outage-delayed cleanup; remote and local removal counts are bounded.
+Qualify abrupt loss, lease/grant/policy changes and large business SQL reset,
+and measure physical SQLite/WAL/LTX/bucket growth and maintenance fairness.
+Cold wakes, hot streams, compaction/restore, lag/backpressure, memory and offline
+soaks retain their full capacity scope.
+
+Finish whole-fleet discovery, aggregate owner-state/physical metrics, friendly
+name-only binding resolution, the complete policy/error/adoption matrix and
+qualified SQLite-only recovery inventory. Current subscription, accepted-source
+and namespace catalog listings are bounded live views; accepted-source inventory
+is not a census of undispatched producers or an all-producer drain proof.
+Fixed-cardinality host event observations are not cold-cell authoritative gauges.
+Run the full workspace/release gates and audit every design requirement before
+claiming completion. Historical verification notes below do not replace current
+requirement-by-requirement evidence.
 
 Retain the source operator's separate host-minted authority and owner RPC/tunnel
-path when extending controls. Source retirement/destruction still needs its
-own audited lifecycle protocol, rather than a raw delete or generation skip.
+path when extending controls. Never substitute raw deletion or a sequence skip
+for the audited lifecycle.
 Qualify source operator cancellation, real response truncation and stale-owner
 routing beyond the current two-node handoff test. Cold activation now has a
 separate framework recovery pool for restored sources whose class is absent.
@@ -1415,3 +1420,43 @@ process, with in-process measurement snapshots and a persistent SQLite bucket.
 It does not qualify independent physical hosts/process failures, saved fsynced
 measuring ledgers, destination ack response loss, follower loss, power loss or
 all other commit/proof cut points. Those release requirements remain open.
+
+
+## Proven subscription acknowledgment reply loss
+
+The real peer reply proxy now selects an armed RPC method and records method,
+exact scope and opaque request/response bytes. Its helper was renamed to
+`peer_reply_fault.rs`; it continues forwarding the original authenticated tunnel
+and framing. Capturing an append does not consume an armed acknowledgment fault,
+and vice versa. The original append-loss assertions are retained in the combined
+three-node case.
+
+After one proven inbox effect and explicit batch retry, the consumer redelivers
+without repeating the effect. In that same inbox transaction it saves the exact
+new batch receipt, then `db.sync` proves the receipt/effect before acknowledgment.
+The proxy captures a complete successful `acknowledged` response from the real
+destination. Independent status reads verify checkpoint 1 and no live lease
+while that reply is held. Only then does the proxy close sockets. The consumer
+reports reply loss or the transport's safe `AlreadyAcknowledged` replay; a
+premature successful acknowledgment is refused by the test boundary.
+
+Before explicitly replaying the receipt, the measuring client inspects the
+retained processed total. `/ack-stored` uses the SDK's public subscription ack
+method with the persisted original receipt, adding no local effect or new batch
+fetch. Captured replay request bytes match exactly, including subscription UUID,
+incarnation, generation, token and range; the reply is `AlreadyAcknowledged`.
+A subsequent empty processing call retains one effect and checkpoint 1. Original
+independent-host factory probes, exact append acceptance, runtime deadlines,
+complete node shutdown and joined proxy connection assertions remain intact.
+A compile check caught the held HTTP future retaining the consumer through its
+shutdown move; explicit future completion/drop fixes that test ownership.
+
+The focused combined case and all 29 serial Node cases pass (216.22 seconds
+for the full run). Workspace/all-target/all-feature Clippy passes with warnings
+denied; formatting checks 424 Rust files, docs validate 35 documents/6 flows/370
+references, dependencies retain 401 packages without a JavaScript engine and
+whitespace checks pass. This is actual append/ack network response-loss evidence between embedded
+nodes over a persistent SQLite bucket, with in-process measurement snapshots.
+It does not complete independent process/physical-host failures, fsynced saved
+measuring ledgers, follower/isolated-owner/expired-lease/power loss, all commit/proof
+cut points, capacity or the full workspace release gate.

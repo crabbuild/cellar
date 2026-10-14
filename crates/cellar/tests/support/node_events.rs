@@ -1,8 +1,8 @@
 //! Actual node routing and proof gates, including staged adoption and inbox
 //! redelivery. No synthetic successful-gate adapter is installed here.
 
-#[path = "append_reply_fault.rs"]
-mod append_reply_fault;
+#[path = "peer_reply_fault.rs"]
+mod peer_reply_fault;
 
 #[path = "source_cleanup_fault.rs"]
 mod source_cleanup_fault;
@@ -213,7 +213,27 @@ impl Cell for Counter {
                     .records
                     .len()
                     .to_string()
-            } else if path == "/process-retry" || path == "/process-ack" {
+            } else if path == "/processed" {
+                db.get_json("processed")?
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(0)
+                    .to_string()
+            } else if path == "/ack-stored" {
+                let receipt: Receipt = serde_json::from_value(
+                    db.get_json("ack_receipt")?
+                        .context("stored acknowledgment receipt missing")?,
+                )?;
+                format!(
+                    "{:?}",
+                    events
+                        .subscription("projection")?
+                        .ack(&context, &receipt)
+                        .await?
+                )
+            } else if path == "/process-retry"
+                || path == "/process-ack"
+                || path == "/process-lost-ack"
+            {
                 let subscription = events.subscription("projection")?;
                 if let Some(batch) = subscription
                     .next(
@@ -235,10 +255,23 @@ impl Cell for Counter {
                                     .unwrap_or(0);
                                 tx.put_json("processed", &serde_json::json!(prior + value))?;
                             }
+                            if path == "/process-lost-ack" {
+                                tx.put_json(
+                                    "ack_receipt",
+                                    &serde_json::to_value(batch.receipt())?,
+                                )?;
+                            }
                             Ok(())
                         })?;
                     }
                     db.sync().await?;
+                    if path == "/process-lost-ack" {
+                        let result = match batch.ack(&context).await {
+                            Ok(value) => format!("{value:?}"),
+                            Err(_) => "reply-lost".into(),
+                        };
+                        return Ok(super::response(result));
+                    }
                     if path == "/process-retry" {
                         batch.retry(&context, 0).await?;
                     } else {
@@ -2911,7 +2944,7 @@ async fn source_destruction_fences_suspended_turns_retained_handles_and_preserve
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn lost_proven_append_reply_retries_exact_bytes_without_duplicate_acceptance() -> Result<()> {
+async fn lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effects() -> Result<()> {
     use base64::Engine;
     use serde_json::json;
     let directory = tempfile::tempdir()?;
@@ -2925,7 +2958,7 @@ async fn lost_proven_append_reply_retries_exact_bytes_without_duplicate_acceptan
         0,
     )
     .await?;
-    let proxy = append_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
+    let proxy = peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
     config.identity.advertise = proxy.address.to_string();
     let destination_constructors = Arc::new(AtomicUsize::new(0));
     let destination = Node::start(
@@ -2969,7 +3002,7 @@ async fn lost_proven_append_reply_retries_exact_bytes_without_duplicate_acceptan
     )
     .await?;
     super::ready(&producer).await?;
-    proxy.capture.armed.store(true, Ordering::Release);
+    proxy.capture.arm("__streamAppend");
     ensure!(call(&client, &producer, reqwest::Method::POST, "/write").await? == "producer:1");
     tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
         .await??
@@ -3108,6 +3141,130 @@ async fn lost_proven_append_reply_retries_exact_bytes_without_duplicate_acceptan
         .await?
             == "1"
     );
+    let before_ack = stream_operator(
+        &client,
+        &destination,
+        &binding(true),
+        json!({"kind":"subscription","name":"projection"}),
+        "audit",
+    )
+    .await?;
+    ensure!(before_ack["result"]["checkpoint"] == "0");
+    proxy.capture.arm("__streamAck");
+    let mut acknowledging = Box::pin(call(
+        &client,
+        &consumer,
+        reqwest::Method::POST,
+        "/process-lost-ack?source=projection",
+    ));
+    cellar::asyncrt::select! {
+        result = &mut acknowledging => anyhow::bail!("acknowledgment finished before the proxy proof boundary: {result:?}"),
+        entered = tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire()) => entered??.forget(),
+    }
+    let lost_ack = proxy
+        .capture
+        .exchanges
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|exchange| exchange.method == "__streamAck")
+        .cloned()
+        .collect::<Vec<_>>();
+    ensure!(lost_ack.len() == 1 && lost_ack[0].dropped && lost_ack[0].scope == stream_scope()?);
+    let ack_request = cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
+        lost_ack[0].request.clone().into(),
+    ))?
+    .to_json()?;
+    let receipt = Receipt::decode(
+        ack_request[0]["receipt"]
+            .as_str()
+            .context("captured acknowledgment receipt missing")?,
+    )?;
+    let receipt_identity = serde_json::to_value(&receipt)?;
+    ensure!(
+        receipt_identity["resource"] == resource().id
+            && receipt_identity["name"] == "projection"
+            && receipt_identity["first"] == "1"
+            && receipt_identity["last"] == "1"
+    );
+    let ack_reply = cellar::application::decode_rpc_result(
+        &cellar::engine_api::RpcData::Structured(lost_ack[0].response.clone().into()),
+    )?
+    .to_json()?;
+    ensure!(
+        ack_reply["ok"]["status"] == "acknowledged",
+        "lost ack was not committed/proven: {ack_reply}"
+    );
+    let proven_ack = stream_operator(
+        &client,
+        &destination,
+        &binding(true),
+        json!({"kind":"subscription","name":"projection"}),
+        "audit",
+    )
+    .await?;
+    ensure!(
+        proven_ack["result"]["checkpoint"] == "1" && proven_ack["result"]["lease"].is_null(),
+        "acknowledgment was not durable before losing its reply: {proven_ack}"
+    );
+    proxy.capture.release.add_permits(1);
+    let outcome = tokio::time::timeout(Duration::from_secs(5), &mut acknowledging).await??;
+    drop(acknowledging);
+    ensure!(
+        outcome == "reply-lost" || outcome == "AlreadyAcknowledged",
+        "unexpected ack loss outcome: {outcome}"
+    );
+    // Inspect the original proven effect before deliberately retrying its saved
+    // receipt. No next-batch call or fresh local effect can conceal ack loss.
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::GET,
+            "/processed?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/ack-stored?source=projection"
+        )
+        .await?
+            == "AlreadyAcknowledged"
+    );
+    let ack_attempts = proxy
+        .capture
+        .exchanges
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|exchange| exchange.method == "__streamAck")
+        .cloned()
+        .collect::<Vec<_>>();
+    ensure!(
+        ack_attempts.len() >= 2
+            && ack_attempts
+                .iter()
+                .filter(|exchange| exchange.dropped)
+                .count()
+                == 1
+    );
+    for attempt in &ack_attempts {
+        ensure!(
+            attempt.scope == lost_ack[0].scope && attempt.request == lost_ack[0].request,
+            "acknowledgment retry replaced the original receipt or changed its bytes"
+        );
+    }
+    let replayed =
+        cellar::application::decode_rpc_result(&cellar::engine_api::RpcData::Structured(
+            ack_attempts.last().unwrap().response.clone().into(),
+        ))?
+        .to_json()?;
+    ensure!(replayed["ok"]["status"] == "already_acknowledged");
     ensure!(
         call(
             &client,
@@ -3118,6 +3275,7 @@ async fn lost_proven_append_reply_retries_exact_bytes_without_duplicate_acceptan
         .await?
             == "1"
     );
+
     ensure!(
         consumer_constructors.load(Ordering::Acquire) == 1,
         "consumer was not independently hosted"
