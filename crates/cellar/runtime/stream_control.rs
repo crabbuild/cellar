@@ -217,6 +217,17 @@ impl Request {
     }
 
     pub(crate) fn project(&self, mut reply: Value) -> Result<Value> {
+        if let Command::Subscription { name } = &self.command {
+            if let Some(value) = reply.get("ok") {
+                let status: events::SubscriptionStatus = serde_json::from_value(value.clone())?;
+                status.validate()?;
+                anyhow::ensure!(
+                    status.identity.resource == self.binding.resource.id
+                        && status.identity.name == *name,
+                    "subscription response names another target"
+                );
+            }
+        }
         if let Command::Subscriptions { cursor, limit } = &self.command {
             if let Some(page) = reply.get("ok") {
                 let page: SubscriptionPage = serde_json::from_value(page.clone())?;
@@ -345,7 +356,25 @@ mod tests {
             "binding":{"environment":"ADMIN","resource":{"tenant":"tenant","application":"app","name":"events","family":"events","id":"00000000000000000000000000000001"},"principal":"app","grant":"management","administer":true},
             "command":{"kind":"subscriptions","cursor":null,"limit":2}
         }))?;
-        let record = json!({"identity":{"resource":request.binding.resource.id,"name":"projection","id":"00000000000000000000000000000002","generation":"00000000000000000000000000000003"},"state":"active","required":false,"checkpoint":"0","earliest":"1","end":"1","retry_at_ms":"0","lease":null});
+        let record = json!({"identity":{"resource":request.binding.resource.id,"name":"projection","id":"00000000000000000000000000000002","generation":"00000000000000000000000000000003"},"state":"active","required":false,"checkpoint":"0","earliest":"1","end":"1","retry_at_ms":"0","lease":null,"observation":{"observed_ms":"100","lag_records":"0","retained_lag_records":"0","oldest_retained_age_ms":null,"history_expired":false,"lease_active":false}});
+        let single = Request {
+            binding: request.binding.clone(),
+            command: Command::Subscription {
+                name: "projection".into(),
+            },
+        };
+        single.project(json!({"ok":record.clone()}))?;
+        for (key, invalid) in [
+            ("name", json!("other")),
+            ("resource", json!("00000000000000000000000000000004")),
+        ] {
+            let mut forged = record.clone();
+            forged["identity"][key] = invalid;
+            assert!(single.project(json!({"ok":forged})).is_err());
+        }
+        let mut forged = record.clone();
+        forged["observation"]["lease_active"] = json!(true);
+        assert!(single.project(json!({"ok":forged})).is_err());
         let page = json!({"resource":request.binding.resource.id,"records":[record.clone()],"cursor":null});
         request.project(json!({"ok":page.clone()}))?;
         for invalid in [

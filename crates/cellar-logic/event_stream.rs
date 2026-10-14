@@ -270,6 +270,34 @@ pub fn retire(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SubscriptionLag {
+    pub records: i64,
+    pub retained_records: i64,
+    pub first_retained: i64,
+    pub history_expired: bool,
+}
+
+/// Unacknowledged offset distance includes lost history; retained lag does not.
+/// Streams have contiguous offsets and delete only a prefix.
+pub fn subscription_lag(
+    earliest: i64,
+    end: i64,
+    checkpoint: i64,
+) -> Result<SubscriptionLag, Failure> {
+    if earliest <= 0 || end < earliest || checkpoint < 0 || checkpoint >= end {
+        return Err(Failure::InvalidCursor);
+    }
+    let next = checkpoint + 1;
+    let first_retained = next.max(earliest);
+    Ok(SubscriptionLag {
+        records: end - next,
+        retained_records: end - first_retained,
+        first_retained,
+        history_expired: next < earliest,
+    })
+}
+
 pub fn cursor(earliest: i64, next: i64, requested: i64) -> Result<(), Failure> {
     if earliest <= 0 || next < earliest || requested > next || requested <= 0 {
         return Err(Failure::InvalidCursor);
@@ -466,5 +494,31 @@ pub fn admit_operation(receipt: OperationReceipt) -> Result<bool, OperationRefus
             Err(OperationRefusal::Capacity)
         }
         OperationReceipt::New { .. } => Ok(true),
+    }
+}
+
+#[cfg(test)]
+mod lag_tests {
+    use super::*;
+
+    #[test]
+    fn lag_distinguishes_lost_history_and_handles_exhausted_offsets() {
+        let lag = subscription_lag(5, 8, 2).unwrap();
+        assert_eq!(lag.records, 5);
+        assert_eq!(lag.retained_records, 3);
+        assert_eq!(lag.first_retained, 5);
+        assert!(lag.history_expired);
+        let empty = subscription_lag(i64::MAX, i64::MAX, i64::MAX - 1).unwrap();
+        assert_eq!(empty.records, 0);
+        assert_eq!(empty.retained_records, 0);
+        assert!(!empty.history_expired);
+        let full = subscription_lag(1, i64::MAX, 0).unwrap();
+        assert_eq!(full.records, i64::MAX - 1);
+        assert_eq!(full.retained_records, i64::MAX - 1);
+        for (earliest, end, checkpoint) in
+            [(0, 1, 0), (2, 1, 0), (1, 1, -1), (1, i64::MAX, i64::MAX)]
+        {
+            assert!(subscription_lag(earliest, end, checkpoint).is_err());
+        }
     }
 }

@@ -1203,6 +1203,15 @@ these observations are neither durable receipts nor a dormant-cell census.
 Authoritative backlog, blocked-reason, stream byte/offset, lease, lag and
 retention-blocked gauges remain implementation requirements.
 
+Subscription status and inventory now also expose owner-sampled lag records,
+retained lag records, oldest retained unread append age and live-lease status.
+The dependency-free core derives offset distances without losing expired
+history; the owner reads at most one indexed timestamp per returned subscription.
+Sample time clamps to durable logical time without changing it or expiring a
+lease. No retained unread record means null age, even with positive lost-history
+lag. SDK/operator acceptance verifies the observation against offsets and lease
+expiry. These are bounded diagnostics, not aggregate host/fleet metric gauges.
+
 Owner-routed CLI/API operations provide outbox list/inspect/retry, stream
 describe/read, subscription describe/pause/resume/reset, and lifecycle operation
 status. Reset/destruction reports the exact incarnation and affected range and

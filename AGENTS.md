@@ -83,6 +83,12 @@ export operation counters, histograms and live reservation gauges without
 resource identities or payload labels. Timers retain their creating domain.
 These observations are not a receipt ledger or cold-cell state census;
 authoritative backlog, lease, lag and retention gauges remain unfinished.
+Subscription status and bounded inventory carry owner-sampled lag/lease
+observations. Logical unread offsets include lost history; retained unread age
+is null when no unread payload remains. A read clamps to the durable clock but
+does not advance it or expire leases. Each returned row adds at most one primary-
+key timestamp lookup; SDK/operator acceptance checks observation consistency.
+This diagnostic coverage does not supply aggregate metric gauges.
 Catalog inventory uses `cellar stream list` with a separate
 fleet-administration namespace capability and `/catalogs/` ingress; resource
 grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle

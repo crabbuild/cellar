@@ -41,7 +41,7 @@ pub use error::{DeliveryError, ErrorCode};
 pub use inventory::{SubscriptionListOptions, SubscriptionPage};
 pub use lifecycle::{
     AuditPage, AuditRecord, Change, ChangeAction, LeaseSummary, LifecycleReceipt, OffsetRange,
-    SubscriptionIdentity, SubscriptionStatus,
+    SubscriptionIdentity, SubscriptionObservation, SubscriptionStatus,
 };
 pub use producer::SealStatus;
 pub use retirement::{Retirement, RetirementMode, RetirementStatus};

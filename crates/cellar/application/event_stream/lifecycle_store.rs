@@ -3,7 +3,7 @@ use super::{
     error::error,
     lifecycle::{
         AuditPage, AuditRecord, Change, ChangeAction, LeaseSummary, LifecycleReceipt, OffsetRange,
-        SubscriptionIdentity, SubscriptionStatus,
+        SubscriptionIdentity, SubscriptionObservation, SubscriptionStatus,
     },
     store, subscription_store, Definition, ErrorCode,
 };
@@ -97,16 +97,71 @@ pub(crate) fn status(context: &Context, body: &Value) -> Result<Value> {
             generation:store::number(&row,"generation")?,first:store::number(&row,"first_offset")?,
             last:store::number(&row,"last_offset")?,expires_ms:store::number(&row,"expires_ms")?,
         })).transpose()?;
-    Ok(serde_json::to_value(SubscriptionStatus {
-        identity: identity(&definition, &sub)?,
-        state: store::text(&sub, "state")?,
-        required: store::number(&sub, "required")? != 0,
-        checkpoint: store::number(&sub, "checkpoint")?,
-        earliest: store::number(&row, "earliest_offset")?,
-        end: store::number(&row, "next_offset")?,
-        retry_at_ms: store::number(&sub, "retry_at_ms")?,
+    let now = observation_time(&row)?;
+    Ok(serde_json::to_value(snapshot(
+        &db,
+        &definition,
+        &row,
+        &sub,
         lease,
-    })?)
+        now,
+    )?)?)
+}
+
+pub(crate) fn observation_time(stream: &SqlRow) -> Result<i64> {
+    Ok(crate::asyncrt::wall_ms()
+        .max(store::number(stream, "logical_ms")?)
+        .max(0))
+}
+
+/// One indexed metadata lookup per subscription, without payloads or scans of
+/// its unread range. The owning cell serializes these synchronous observations.
+pub(crate) fn snapshot(
+    db: &Storage,
+    definition: &Definition,
+    stream: &SqlRow,
+    sub: &SqlRow,
+    lease: Option<LeaseSummary>,
+    now: i64,
+) -> Result<SubscriptionStatus> {
+    let checkpoint = store::number(sub, "checkpoint")?;
+    let earliest = store::number(stream, "earliest_offset")?;
+    let end = store::number(stream, "next_offset")?;
+    let lag = cellar_logic::event_stream::subscription_lag(earliest, end, checkpoint)?;
+    let oldest_retained_age_ms = if lag.retained_records > 0 {
+        let rows = db.system_sql(
+            "SELECT append_ms FROM __sys_stream_events WHERE offset=?",
+            &[lag.first_retained.into()],
+        )?;
+        let row = rows
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("retained subscription lag record missing"))?;
+        let append_ms = store::number(row, "append_ms")?;
+        anyhow::ensure!(append_ms >= 0, "invalid retained append timestamp");
+        Some(now.saturating_sub(append_ms).max(0))
+    } else {
+        None
+    };
+    let status = SubscriptionStatus {
+        identity: identity(definition, sub)?,
+        state: store::text(sub, "state")?,
+        required: store::number(sub, "required")? != 0,
+        checkpoint,
+        earliest,
+        end,
+        retry_at_ms: store::number(sub, "retry_at_ms")?,
+        observation: SubscriptionObservation {
+            observed_ms: now,
+            lag_records: lag.records,
+            retained_lag_records: lag.retained_records,
+            oldest_retained_age_ms,
+            history_expired: lag.history_expired,
+            lease_active: lease.as_ref().is_some_and(|lease| lease.expires_ms > now),
+        },
+        lease,
+    };
+    status.validate()?;
+    Ok(status)
 }
 
 fn state(state: &str) -> Result<policy::State> {

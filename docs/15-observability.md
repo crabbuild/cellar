@@ -58,6 +58,19 @@ lease, subscription-lag or retention-blocked gauges. Current reservation counts
 are not cold-cell or fleet totals. The complete event metrics profile remains
 under implementation.
 
+Owner-routed subscription status and inventory expose an `observation` with
+sample time, unread offset distance (`lag_records`), retained unread count,
+oldest retained unread age since append, lost-history flag and lease activity.
+All integer values use decimal strings. The sample clamps time to the stream's
+durable logical clock but does not advance that clock or mutate a lease.
+An expired stored lease remains visible with `lease_active: false`.
+
+Retention can leave positive lag with no retained records. In that case,
+`history_expired` is true and `oldest_retained_age_ms` is null; the missing
+history's age is unknown. These diagnostics are authorized owner observations,
+not series in the host metric export or fleet totals. Inventory uses a bounded
+primary-key page plus at most one indexed timestamp lookup per returned row.
+
 ## Proposed dashboard contract
 
 | View | Signals to collect | Operator decision |

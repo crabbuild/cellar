@@ -148,6 +148,14 @@ new lower UUIDs require a fresh traversal. The receiver checks the current
 administration grant on every page, including continuation after owner handoff.
 The SDK equivalent is `stream.subscriptions(&context, SubscriptionListOptions)`.
 
+Status and inventory also return `observation`: sampled owner time, lag in
+unacknowledged offsets, retained unread records, oldest retained unread age,
+`history_expired`, and `lease_active`. Age is measured since append; it is null
+when no unread record remains retained. Lost offsets still count toward lag.
+An expired lease can remain stored with `lease_active: false`. The diagnostic
+read does not expire leases or advance the stream's durable logical clock.
+Integers are canonical decimal strings; inventory pages share a sample time.
+
 Catalog listing requires fleet administration through a separate namespace
 capability; a stream administration grant cannot list its tenant/application.
 It returns bounded identity/lifecycle metadata, current operation and accepted/

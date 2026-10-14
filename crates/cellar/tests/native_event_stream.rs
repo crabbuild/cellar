@@ -712,7 +712,23 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     assert_eq!(fetch(&runtime, "configure").await?["state"], "active");
     assert_eq!(fetch(&runtime, "configure").await?["state"], "active");
     let initial = fetch(&runtime, "status").await?;
-    assert_eq!(initial, fetch(&runtime, "status").await?);
+    assert_eq!(initial["observation"]["lag_records"], "0");
+    assert_eq!(
+        initial["observation"]["oldest_retained_age_ms"],
+        Value::Null
+    );
+    let mut repeated = fetch(&runtime, "status").await?;
+    let mut stable_initial = initial.clone();
+    // Observation time advances; all durable status fields must remain equal.
+    repeated["observation"]
+        .as_object_mut()
+        .unwrap()
+        .remove("observed_ms");
+    stable_initial["observation"]
+        .as_object_mut()
+        .unwrap()
+        .remove("observed_ms");
+    assert_eq!(stable_initial, repeated);
     fetch(&runtime, "emit").await?;
     assert_eq!(fetch(&runtime, "seal").await?["error"], "PendingDelivery");
     fire(&runtime, SOURCE, 1).await?;
@@ -741,6 +757,12 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     let second_id = "00000000000000000000000000000022";
     let first_batch = fetch(&runtime, &next(first_id, "fulfillment")).await?;
     let receipt = first_batch["receipt"].as_str().unwrap();
+    let lag = fetch(&runtime, "status").await?;
+    assert_eq!(lag["observation"]["lag_records"], "1");
+    assert_eq!(lag["observation"]["retained_lag_records"], "1");
+    assert_eq!(lag["observation"]["history_expired"], false);
+    assert_eq!(lag["observation"]["lease_active"], true);
+    assert!(lag["observation"]["oldest_retained_age_ms"].is_string());
     assert_eq!(
         fetch(&runtime, &next(first_id, "fulfillment")).await?["receipt"],
         receipt
@@ -810,6 +832,14 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         fetch(&runtime, &format!("ack?receipt={second_receipt}")).await?["status"],
         "AlreadyAcknowledged"
     );
+    let caught_up = fetch(&runtime, "status").await?;
+    assert_eq!(caught_up["observation"]["lag_records"], "0");
+    assert_eq!(caught_up["observation"]["retained_lag_records"], "0");
+    assert_eq!(
+        caught_up["observation"]["oldest_retained_age_ms"],
+        Value::Null
+    );
+    assert_eq!(caught_up["observation"]["lease_active"], false);
     let analytics = fetch(&runtime, &next(first_id, "analytics")).await?;
     let analytics_receipt = analytics["receipt"].as_str().unwrap();
     assert!(runtime
@@ -853,6 +883,14 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         .as_array()
         .unwrap()
         .is_empty());
+    let lost_history = fetch(&runtime, "status?subscription=analytics").await?;
+    assert_eq!(lost_history["observation"]["lag_records"], "1");
+    assert_eq!(lost_history["observation"]["retained_lag_records"], "0");
+    assert_eq!(lost_history["observation"]["history_expired"], true);
+    assert_eq!(
+        lost_history["observation"]["oldest_retained_age_ms"],
+        Value::Null
+    );
     fetch(&runtime, "revoke").await?;
     assert_eq!(
         replay(&runtime, &recorded).await?["error"]["code"],
@@ -933,6 +971,9 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         .await?["error"],
         "LeaseExpired"
     );
+    let expired_observation = fetch(&runtime, "status").await?;
+    assert_eq!(expired_observation["observation"]["lease_active"], false);
+    assert!(expired_observation["lease"].is_object());
     let redelivery = fetch(
         &runtime,
         &next("00000000000000000000000000000026", "fulfillment"),

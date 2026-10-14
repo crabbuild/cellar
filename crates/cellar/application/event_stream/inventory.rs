@@ -115,7 +115,7 @@ impl SubscriptionPage {
             ));
         }
         for record in &self.records {
-            record.identity.validate()?;
+            record.validate()?;
             if record.identity.resource != resource
                 || record.identity.id <= previous
                 || !matches!(
@@ -203,6 +203,7 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
     let rows = db.system_sql("SELECT s.*,l.generation AS lease_generation,l.first_offset AS lease_first,l.last_offset AS lease_last,l.expires_ms AS lease_expires FROM __sys_stream_subscriptions s LEFT JOIN __sys_stream_leases l ON l.subscription=s.id WHERE s.id>? ORDER BY s.id LIMIT ?",
         &[after.into(),(options.max_records as i64+1).into()])?;
     let more = rows.len() > options.max_records;
+    let now = super::lifecycle_store::observation_time(&stream)?;
     let mut records = Vec::new();
     for row in rows.into_iter().take(options.max_records) {
         let lease = if !matches!(
@@ -218,16 +219,14 @@ pub(crate) fn list(context: &Context, body: &Value) -> Result<Value> {
         } else {
             None
         };
-        records.push(SubscriptionStatus {
-            identity: super::lifecycle_store::identity(&definition, &row)?,
-            state: store::text(&row, "state")?,
-            required: store::number(&row, "required")? != 0,
-            checkpoint: store::number(&row, "checkpoint")?,
-            earliest: store::number(&stream, "earliest_offset")?,
-            end: store::number(&stream, "next_offset")?,
-            retry_at_ms: store::number(&row, "retry_at_ms")?,
+        records.push(super::lifecycle_store::snapshot(
+            &db,
+            &definition,
+            &stream,
+            &row,
             lease,
-        });
+            now,
+        )?);
     }
     let cursor = if more {
         Some(

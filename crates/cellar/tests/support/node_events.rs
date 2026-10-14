@@ -1106,6 +1106,9 @@ async fn subscription_inventory_pages_tombstones_and_recovers_owner_handoff() ->
         .lease
         .as_ref()
         .is_some_and(|lease| lease.first == 1 && lease.last == 1));
+    ensure!(leased.observation.lag_records == 1 && leased.observation.retained_lag_records == 1);
+    ensure!(leased.observation.lease_active && !leased.observation.history_expired);
+    ensure!(leased.observation.oldest_retained_age_ms.is_some());
     let (config, services) = inputs(
         "inventory-entrance",
         &directory.path().join("entrance"),
@@ -1164,6 +1167,12 @@ async fn subscription_inventory_pages_tombstones_and_recovers_owner_handoff() ->
             .map(|record| record.identity.id.as_str())
             .collect::<Vec<_>>()
     );
+    for record in &records {
+        ensure!(record["observation"]["lag_records"] == "1");
+        ensure!(record["observation"]["retained_lag_records"] == "1");
+        ensure!(record["observation"]["oldest_retained_age_ms"].is_string());
+        ensure!(record["observation"]["history_expired"] == false);
+    }
     let encoded = serde_json::to_string(&records)?;
     ensure!(
         !encoded.contains("token") && !encoded.contains("payload") && !encoded.contains("envelope")

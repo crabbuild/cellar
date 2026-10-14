@@ -887,3 +887,38 @@ and the dependency graph remains 401 packages without a JavaScript engine.
 All 11 workspace doctests passed.
 No persistent marker or compatibility path is added. This is targeted
 qualification; the complete runtime, fault and capacity matrix remains open.
+
+## Subscription owner observations
+
+Owner-routed subscription status and bounded administration inventory now include
+sample time, logical unread offset distance, retained unread record count, oldest
+retained unread append age, lost-history state and lease activity. Core arithmetic
+handles the full signed offset range. Owner time clamps to the durable logical
+clock without advancing it or expiring leases; each returned row adds at most
+one primary-key timestamp lookup without payload copies or unread-range scans.
+All integer fields use canonical decimal strings. SDK/operator acceptance checks
+lag/age/lease consistency and target identity; retained deleted incarnations
+remain inventory entries. The internal development markers remain 1, with no
+legacy response fallback.
+
+The core lag regression passed for empty streams, lost history, maximum offsets
+and invalid checkpoints. The persisted stream fixture passed new assertions for
+lease activity, acknowledgment clearing lag, retention leaving positive unread
+lag with null retained age, and an expired stored lease remaining visible as
+inactive. All 26 serial Node cases passed (233.93 seconds), including lag/age assertions
+across real owner handoff and the original revocation, tombstone, payload-exclusion
+and complete shutdown gates. Final source qualification passed 91 library cases,
+the core lag test, workspace all-target/all-feature Clippy with warnings denied,
+and 11 workspace doctests (one existing ignored case). Formatting checked 419
+Rust files; documentation validated 35 documents, 6 flows and 370 references;
+dependency checks retained 401 packages without a JavaScript engine, and
+whitespace checks passed. All 2 CLI and 6 artifact smoke checks passed.
+The latest published-head CI run (`51be79a`) could not start because its annotation
+reports failed account payments or a spending-limit restriction. No CI success
+or new uninterrupted full workspace runtime pass is claimed.
+
+This adds authoritative per-subscription diagnostics, not aggregate gauges in
+`/event-metrics` or a fleet/cold-cell census. Outbox oldest age and bounded blocked
+reasons, stream physical/logical byte and offset observations, retention-blocked
+bytes, aggregate lease/lag gauges, whole-fleet discovery, source destruction and
+the full release fault/capacity matrix remain unfinished.

@@ -44,6 +44,27 @@ pub struct LeaseSummary {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct SubscriptionObservation {
+    /// Sampled owner time, clamped to the durable logical clock. A read does
+    /// not advance that clock or expire/delete a lease.
+    #[serde(with = "super::decimal")]
+    pub observed_ms: i64,
+    /// Unacknowledged offsets, including history already removed by retention.
+    #[serde(with = "super::decimal")]
+    pub lag_records: i64,
+    #[serde(with = "super::decimal")]
+    pub retained_lag_records: i64,
+    /// Age since append of the first retained unacknowledged record. None
+    /// means there is no retained unread record, not that lost history is new.
+    #[serde(with = "super::decimal::optional")]
+    pub oldest_retained_age_ms: Option<i64>,
+    pub history_expired: bool,
+    /// Whether the retained lease has not expired at this sample's time.
+    pub lease_active: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SubscriptionStatus {
     pub identity: SubscriptionIdentity,
     pub state: String,
@@ -57,6 +78,48 @@ pub struct SubscriptionStatus {
     #[serde(with = "super::decimal")]
     pub retry_at_ms: i64,
     pub lease: Option<LeaseSummary>,
+    pub observation: SubscriptionObservation,
+}
+
+impl SubscriptionStatus {
+    pub(crate) fn validate(&self) -> Result<()> {
+        self.identity.validate()?;
+        let lag =
+            cellar_logic::event_stream::subscription_lag(self.earliest, self.end, self.checkpoint)
+                .map_err(|_| error(ErrorCode::InvalidRequest, "invalid subscription offsets"))?;
+        let observation = &self.observation;
+        if !matches!(
+            self.state.as_str(),
+            "active" | "paused" | "expired" | "deleted"
+        ) || observation.observed_ms < 0
+            || observation.lag_records != lag.records
+            || observation.retained_lag_records != lag.retained_records
+            || observation.history_expired != lag.history_expired
+            || observation.oldest_retained_age_ms.is_some() != (lag.retained_records > 0)
+            || observation
+                .oldest_retained_age_ms
+                .is_some_and(|age| age < 0 || age > observation.observed_ms)
+            || observation.lease_active
+                != self
+                    .lease
+                    .as_ref()
+                    .is_some_and(|lease| lease.expires_ms > observation.observed_ms)
+            || self.lease.as_ref().is_some_and(|lease| {
+                lease.generation <= 0
+                    || lease.first <= self.checkpoint
+                    || lease.last < lease.first
+                    || lease.last >= self.end
+                    || lease.expires_ms < 0
+            })
+            || (self.state == "deleted" && self.lease.is_some())
+        {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "invalid subscription observation",
+            ));
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -169,6 +232,7 @@ impl<E> Subscription<E> {
         )
         .await?;
         let status: SubscriptionStatus = serde_json::from_value(value)?;
+        status.validate()?;
         self.check_identity(&status.identity)?;
         Ok(status)
     }
@@ -235,5 +299,37 @@ impl<E> Stream<E> {
         )
         .await?;
         Ok(serde_json::from_value(value)?)
+    }
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use super::*;
+
+    #[test]
+    fn observation_acceptance_rejects_inconsistent_metrics_and_keeps_decimal_precision(
+    ) -> Result<()> {
+        let value = json!({"identity":{"resource":"00000000000000000000000000000001","name":"projection","id":"00000000000000000000000000000002","generation":"00000000000000000000000000000003"},"state":"expired","required":false,"checkpoint":"0","earliest":i64::MAX.to_string(),"end":i64::MAX.to_string(),"retry_at_ms":"0","lease":null,"observation":{"observed_ms":i64::MAX.to_string(),"lag_records":(i64::MAX-1).to_string(),"retained_lag_records":"0","oldest_retained_age_ms":null,"history_expired":true,"lease_active":false}});
+        let status: SubscriptionStatus = serde_json::from_value(value.clone())?;
+        status.validate()?;
+        assert_eq!(serde_json::to_value(status)?, value);
+        for (key, invalid) in [
+            ("lag_records", json!("0")),
+            ("retained_lag_records", json!("1")),
+            ("oldest_retained_age_ms", json!("0")),
+            ("history_expired", json!(false)),
+            ("lease_active", json!(true)),
+            ("observed_ms", json!("-1")),
+        ] {
+            let mut invalid_value = value.clone();
+            invalid_value["observation"][key] = invalid;
+            assert!(serde_json::from_value::<SubscriptionStatus>(invalid_value)?
+                .validate()
+                .is_err());
+        }
+        let mut noncanonical = value;
+        noncanonical["observation"]["lag_records"] = json!("01");
+        assert!(serde_json::from_value::<SubscriptionStatus>(noncanonical).is_err());
+        Ok(())
     }
 }
