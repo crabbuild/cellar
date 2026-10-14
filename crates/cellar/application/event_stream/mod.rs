@@ -24,6 +24,7 @@ mod retirement;
 mod retirement_store;
 mod schema;
 pub(crate) mod service;
+mod source_inventory;
 mod store;
 mod subscription;
 mod subscription_store;
@@ -40,6 +41,7 @@ pub use lifecycle::{
 };
 pub use producer::SealStatus;
 pub use retirement::{Retirement, RetirementMode, RetirementStatus};
+pub use source_inventory::{SourceListOptions, SourcePage, SourceStatus};
 pub use subscription::{Acknowledgment, Batch, BatchOptions, Receipt, Subscription};
 
 pub(crate) async fn call_bound(

@@ -215,7 +215,7 @@ this does not constitute a released deployed primitive yet.
 | Recovery and ownership | Source reopen; live subscription lease survives broker eviction/reopen; bucket-backed owner handoff and removed-class recovery preserve delivery, receipts and business state; existing output/wake protocols reused | Wider follower/owner-loss, source/destination/consumer crash and response-loss qualification |
 | Retention and backpressure | Both modes, lease exclusion, bounded sweeps, optional cursor expiry; required-consumer pressure resumes after ack; coordinated/forced retirement and catalog tombstones | Complete lifecycle limits, audited whole-source destruction, scalable blocked-retention wake policy and capacity evidence |
 | Consumer inbox | Atomic storage helper, digest conflict, capacity, rollback, reopen and bounded pruning tests; actual bucket-backed Node processing/retry/ack suppresses duplicate effects; runnable producer/consumer example verifies retained receipts across preserving restart | Complete proof/crash qualification |
-| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, metadata reads and payload opt-in | Resource inventories, exported metrics, source destruction and broader control qualification |
+| Operational controls | Source retry/seal and pending-reset protection; signed owner-routed source/stream/subscription CLI/API, guarded pause/resume/reset/delete and catalog retirement/status, immutable operation receipts, bounded subscription and destination-observed source inventory, metadata reads and payload opt-in | Catalog/fleet inventories, exported metrics, source destruction and broader control qualification |
 | Compatibility and deployment | Native metadata/feature validation, binding validation under host limits, generalized wake projection; activation/readiness and failed-adoption preservation; peer/native/fleet/schema markers at 1; hard-cutover development policy and incompatible source-policy refusal | Fresh-state/reopen fault qualification; destination/consumer policy-adoption matrix |
 | Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
@@ -269,7 +269,8 @@ and waiter limits, permanent versus transient error mapping, incompatible lower
 host policies, destructive source operations, control-message allocation bounds, and
 maintenance scheduling for protected old history. Keep adapter effects separate
 from pure protocol decisions. Source and destination tables currently use hex
-text identities; the design's final schema/migration choices still require review.
+text identities; the final schema still requires review. Layout changes use
+development hard cutovers without migration machinery.
 Normalized native projects currently supply explicit resolved UUIDs in
 `Definition` and `Binding`; a friendly name-only configuration still needs
 catalog resolution. Resource definition capture alone must not be mistaken for
@@ -690,3 +691,95 @@ local references, and whitespace checks passed. All Cellar-owned protocol,
 format and schema markers are 1; upstream LTX/SQLite encoding and runtime
 revision/sequence counters retain their meanings. No development state outside
 private test fixtures was reset.
+
+
+## Destination source inventory (implemented; qualification incomplete)
+
+Adds SDK `Stream::sources`, signed `sources` operator commands and `cellar stream
+sources`. Pages require current resource administration and expose only observed
+producer lane, source/incarnation, captured principal/grant, accepted sequence
+watermark and seal state. A primary-key range bounds SQL to 101 rows, pages to
+100 records, and namespace-bound `sources1` continuations to 256 bytes. Receivers
+and clients validate lane derivation, ordering, continuation tail, metadata bounds
+and canonical decimal watermarks. Payloads, bearer tokens and source retry state
+are absent. This is not an undispatched-source census or all-producer drain proof.
+
+All-target/all-feature workspace check and documentation validation passed.
+Eight focused source tests passed, including namespace-bound cursors, page-tail
+validation, large decimal watermarks, forged lane identity and sensitive field
+rejection. The focused public Node/CLI gate passed for retained seals after payload
+expiry, real two-node owner handoff and administration revocation during pagination.
+Its test uses actual bucket-backed Node services and unchanged proof/shutdown
+checks; a zero-event source seal is not fabricated through the SDK. No
+protocol/schema version bump.
+Catalog-wide/fleet-wide inventory, exported metrics, audited whole-source
+destruction and the remaining actual failure/capacity matrix stay in scope.
+
+
+The initial Node/CLI gate passed both CLI tests and 23 existing Node tests, but
+the new inventory test reproduced an incomplete entrance-node handoff drain.
+Diagnostics showed its source seal was locally accepted, zero owned/occupied
+cells, and two terminal adoption operations still waiting for pacing permits.
+The core records terminal failed acknowledgements only after ownership release,
+but the driver extended its stall window only for successful acknowledgements.
+With more cells than release slots, completion of a failed first batch was not
+recognized as progress and the next batch was cut off.
+
+The core now exposes settled handoff count (successes plus terminal failures);
+the driver uses that count for progress while retaining the original absolute
+shutdown deadline, admission gates, durability proofs, and successful-adoption
+count. Seven core routing tests passed, including terminal-only counting, paced
+continuation and duplicate/stale reply exclusion. The unchanged full drain
+assertion now passes: all 24 public Node and both CLI tests passed, including
+source metadata after payload expiry, owner handoff, grant revocation, and the
+absolute-deadline regression. Temporary warning diagnostics are removed.
+The build script now declares its sole file input, build.rs, so unrelated test
+file edits do not trigger Cargo's default package-wide build-script rerun.
+Broader workspace qualification was attempted before this milestone was pushed;
+its failures and independent replays are recorded below.
+
+The follow-up marker audit found telemetry's `v0-unstable` metadata and the KV
+large-value `v2` reference/object prefix. They now use `1` and `v1` respectively,
+with matching producer, reader, collector and test callers. Epoch fencing and
+collection rules are unchanged. Existing development KV blobs require recreation;
+there is no old-reference reader, migration or dual-prefix collector. That
+workspace suite was compiled before these two marker edits; its results do not
+qualify the final codec changes. The existing KV integration was rerun afterward.
+
+The broader all-feature Cargo run failed dev's unchanged 600-second first-build
+readiness stage, two outbound HTTP cases, three external ingress cases and the
+facet case. The all-feature Node binary reported five failures and then stopped
+producing terminal results for its remaining event cases for over ten minutes.
+It was terminated so `--no-fail-fast` could continue other executables; this is a
+failed, incomplete gate. A one-second OS stack sample collected data but stalled
+while resolving symbols and supplied no usable diagnosis. Memory compression and
+other compilation were observed, but neither establishes the cause. No test
+deadline, fencing rule or shutdown assertion was weakened. Exact-binary replay
+and final marker qualification followed, as recorded below.
+The later replication case failed with `Resource temporarily unavailable` and
+Axum errors, host-parity, lifecycle and SDK-events suites also failed startup or
+ingress checks. The full command exited 101 with ten failing targets. Passing
+individual replication checks earlier in that run do not establish a passing
+replication suite. An exact-binary serial Node replay followed independently
+with unchanged per-operation deadlines and drain proofs.
+The exact all-feature Node executable then passed all 24 tests in isolation with
+serial test scheduling (194.28 seconds), including the five prior failures, the
+source-inventory regression and all drain assertions. This scheduling comparison
+does not prove the cause or turn the failed concurrent run into a pass.
+Serial exact-binary replays also passed external ingress (5), facets (1), Axum
+errors (1), host parity (4), lifecycle (2) and SDK events (1). Outbound HTTP
+retained both deadline failures (3/5 passed); the supplied-credential replication
+case again returned OS error 35 (3/4 passed). These two failures remain
+reproducible in isolation. The dev build case was not repeated in this replay.
+Final KV, CLI and artifact tests rebuilt the snapshot containing the
+telemetry/KV version-1 edits with bounded compiler concurrency and passed (one
+KV case, two CLI cases and six artifact cases). The KV integration retains its
+large-value restore, orphan cleanup, failed deletion, concurrent sweep/put and
+later-epoch protection assertions under the `v1` reference/object layout.
+
+Final all-target/all-feature Clippy passed with warnings denied, and all 11
+workspace doctests passed. Formatting checked 413 Rust files; documentation
+validated 35 documents, 6 flows and 370 references. The all-feature dependency
+graph retains 401 reachable packages with no JavaScript engine; whitespace checks
+passed. These successes do not supersede the failed/incomplete broad runtime gate
+or establish full release qualification.

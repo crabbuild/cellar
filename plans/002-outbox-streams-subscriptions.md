@@ -1255,8 +1255,20 @@ retirement receipts. Ordinary SDK receipts carry no operator.
 Current markers require these columns before base schema
 mutation. Terminal results retain captured records/bytes and the exact retained
 payload range after cleanup; malformed or conflicting range/provenance echoes
-cannot finish the catalog receipt. Resource inventories and exported metrics
+cannot finish the catalog receipt. Catalog/fleet inventories and exported metrics
 remain future work; the full release qualification gates still apply.
+
+Destination source inventory is exposed as `Stream::sources` and `cellar stream
+sources`. Signed command kind `sources` requires current resource administration
+on every page and exposes only producer scope/incarnation, lane identity,
+captured principal/grant, accepted sequence watermark and terminal seal state.
+A primary-key range reads at most 101 rows for a 100-record page. Its bounded
+`sources1` cursor binds the tenant/application/stream target and exact page tail;
+SDK/operator response validation rederives lane identity and preserves decimal
+watermarks through `i64::MAX`. Retained producer metadata survives payload expiry.
+Pages are live observations, not a snapshot or an inventory of undispatched
+sources. They cannot prove that every producer is drained. Catalog and fleet-wide
+inventories, source destruction and exported metrics remain separate requirements.
 
 Development mode uses the same source/stream/subscription protocol against local
 storage. It must exercise discovery, retries, and retained state on restart;

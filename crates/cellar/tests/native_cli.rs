@@ -49,6 +49,7 @@ fn default_cli_builds_rust_and_retains_fleet_operator_commands() -> Result<()> {
                 help.contains("--binding BINDING.json")
                     && help.contains("--confirm-reset")
                     && help.contains("--payload")
+                    && help.contains("cellar stream sources")
             );
         }
         for action in ["reset", "delete"] {
@@ -117,6 +118,19 @@ fn stream_operator_cli_refuses_invalid_inputs_before_fleet_access() -> Result<()
     ] {
         let output = Command::new(executable)
             .args(["subscription", "list", "--binding"])
+            .arg(binding.path())
+            .args([flag, value])
+            .output()?;
+        ensure!(!output.status.success());
+        ensure!(String::from_utf8(output.stderr)?.contains(message));
+    }
+    for (flag, value, message) in [
+        ("--limit", "101", "invalid source list bounds"),
+        ("--limit", "0", "invalid source list bounds"),
+        ("--cursor", "sources1.%%%", "InvalidCursor"),
+    ] {
+        let output = Command::new(executable)
+            .args(["stream", "sources", "--binding"])
             .arg(binding.path())
             .args([flag, value])
             .output()?;

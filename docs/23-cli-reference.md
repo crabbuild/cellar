@@ -117,6 +117,7 @@ that grant; its current durable permissions are checked by the receiver.
 A fleet signature and supplied permission flags cannot restore a revoked grant.
 
 ```text
+cellar stream sources --binding BINDING.json [--cursor TOKEN] [--limit N] [FLEET OPTIONS]
 cellar stream describe --binding BINDING.json --json [FLEET OPTIONS]
 cellar stream read --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
 cellar stream read --binding BINDING.json --cursor TOKEN --payload --json [FLEET OPTIONS]
@@ -131,10 +132,10 @@ cellar subscription reset NAME --binding BINDING.json --expected IDENTITY.json -
 cellar subscription delete NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --confirm-delete [--force] [FLEET OPTIONS]
 ```
 
-Reads require a read grant. Describe, audit, status and subscription controls
+Reads require a read grant. Describe, source inventory, audit, status and subscription controls
 require an administration grant. Read defaults to event metadata, removes the
 encoded envelope, and returns a resumable `cursor`; `--payload` includes bodies.
-Read, audit and subscription inventory pages contain at most 100 records.
+Read, audit, source and subscription inventory pages contain at most 100 records.
 `--max-bytes` bounds copied event bytes to at most 256 KiB. History expiration returns `CursorExpired`.
 
 Subscription inventory includes every retained incarnation, including deleted
@@ -145,6 +146,17 @@ from the stream-read cursor. Pages are live observations rather than a snapshot:
 new lower UUIDs require a fresh traversal. The receiver checks the current
 administration grant on every page, including continuation after owner handoff.
 The SDK equivalent is `stream.subscriptions(&context, SubscriptionListOptions)`.
+
+Source inventory lists destination-observed producer lanes, ordered by lane digest.
+Each record contains the source scope/incarnation, captured principal/grant,
+accepted sequence watermark and terminal seal state. Watermarks use decimal
+strings. Records remain visible after payload expiry while producer metadata is
+retained. This list excludes event bodies, bearer tokens and source-side retry
+state; it cannot discover sources whose obligations have not reached the stream
+or prove an all-producer drain. Pages read at most 101 rows to return at most 100
+records and check current administration authority on every continuation.
+The `sources1` cursor binds tenant, application and stream identity; live pages
+are not a snapshot. The SDK equivalent is `stream.sources(&context, SourceListOptions)`.
 
 Save the subscription description's `identity` object to `IDENTITY.json` before
 a change. A changed resource, subscription ID or generation refuses the change.
@@ -160,13 +172,14 @@ not an independently verified human account identity.
 The HTTP equivalent is `POST /streams/SCOPE` on the internal listener with
 `{"binding": BINDING, "command": COMMAND}`. The scope is derived from the exact
 stream resource identity. Command kinds are `describe`, `read`, `subscription`,
-`subscriptions`, `change`, `status`, and `audit`. Inventory uses `cursor` (null for the first
+`subscriptions`, `sources`, `change`, `status`, and `audit`. Inventory uses `cursor` (null for the first
 page) and `limit`. A change carries the SDK `Change` shape. Signed
 method/path/body verification precedes authority minting. Operator RPC authority
 is restricted to these stream methods and cannot configure a catalog or append
 events. Requests and binding files are bounded to 16 KiB, expected identity
 files to 4 KiB and replies to 1 MiB. This surface remains under implementation;
-resource inventories and exported metrics are outstanding.
+catalog-wide and whole-fleet source inventories, lifecycle controls and exported
+metrics are outstanding.
 
 Stream retirement uses the same binding and administration grant, but routes to
 the resource's catalog scope. Save `stream describe`'s revision before starting:

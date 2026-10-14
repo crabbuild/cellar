@@ -14,6 +14,7 @@ use std::io::Read;
 use std::time::Duration;
 
 const HELP: &str = "cellar stream describe --binding BINDING.json
+cellar stream sources --binding BINDING.json [--cursor TOKEN] [--limit N]
 cellar stream read --binding BINDING.json [--cursor TOKEN] [--limit N] [--max-bytes N] [--payload]
 cellar stream status --binding BINDING.json --operation UUID
 cellar stream audit --binding BINDING.json [--after POSITION] [--limit N]
@@ -32,6 +33,8 @@ Read returns metadata; --payload explicitly includes event bodies. Pages contain
 at most 100 records and reads copy at most 256 KiB of retained event bytes.
 Subscription lists include retained deleted incarnations, ordered by UUID.
 Their stream-scoped cursor observes live pages, not a stable snapshot.
+Source lists show destination-observed producer lanes and retained seals; they
+cannot discover undispatched sources or prove that every producer is drained.
 Save describe's identity object before a subscription change. Reset/delete
 require explicit destructive intent. Exact change replay requires the same
 identity, arguments, operation and operator label. Use stream status or audit
@@ -84,7 +87,13 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
             } else {
                 matches!(
                     verb.as_str(),
-                    "describe" | "read" | "status" | "audit" | "retire" | "retirement-status"
+                    "describe"
+                        | "sources"
+                        | "read"
+                        | "status"
+                        | "audit"
+                        | "retire"
+                        | "retirement-status"
                 )
             },
         "unknown stream/subscription command {verb}"
@@ -170,14 +179,14 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
             "--procedure" if !subscription && verb == "retire" => procedure = Some(value(&flag)?),
             "--data-loss" if !subscription && verb == "retire" => data_loss = Some(value(&flag)?),
             "--cursor"
-                if (!subscription && verb == "read")
+                if (!subscription && matches!(verb.as_str(), "read" | "sources"))
                     || (subscription && verb == "list")
                     || (change && verb == "reset") =>
             {
                 cursor = Some(value(&flag)?)
             }
             "--limit"
-                if (!subscription && matches!(verb.as_str(), "read" | "audit"))
+                if (!subscription && matches!(verb.as_str(), "read" | "audit" | "sources"))
                     || (subscription && verb == "list") =>
             {
                 limit = value(&flag)?.parse().context("invalid --limit")?
@@ -225,6 +234,7 @@ fn parse(arguments: Vec<String>, subscription: bool) -> Result<Option<Options>> 
     } else {
         match verb.as_str() {
             "describe" => Command::Describe,
+            "sources" => Command::Sources { cursor, limit },
             "read" => Command::Read {
                 cursor,
                 limit,

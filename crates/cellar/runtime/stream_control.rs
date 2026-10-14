@@ -1,8 +1,8 @@
 //! Bounded operator commands mapped to the existing stream owner protocol.
 
 use crate::application::event_stream::{
-    self as events, authority::Action, Binding, Change, Cursor, Retirement,
-    SubscriptionListOptions, SubscriptionPage,
+    self as events, authority::Action, Binding, Change, Cursor, Retirement, SourceListOptions,
+    SourcePage, SubscriptionListOptions, SubscriptionPage,
 };
 use anyhow::Result;
 use base64::Engine;
@@ -34,6 +34,10 @@ pub(crate) enum Command {
         name: String,
     },
     Subscriptions {
+        cursor: Option<String>,
+        limit: usize,
+    },
+    Sources {
         cursor: Option<String>,
         limit: usize,
     },
@@ -95,6 +99,18 @@ impl Request {
                 (
                     Action::Administer,
                     "__streamSubscriptions",
+                    json!({"cursor":cursor,"max_records":limit}),
+                )
+            }
+            Command::Sources { cursor, limit } => {
+                SourceListOptions {
+                    cursor: cursor.clone(),
+                    max_records: *limit,
+                }
+                .validate(&self.binding.resource)?;
+                (
+                    Action::Administer,
+                    "__streamSources",
                     json!({"cursor":cursor,"max_records":limit}),
                 )
             }
@@ -213,6 +229,18 @@ impl Request {
                 )?;
             }
         }
+        if let Command::Sources { cursor, limit } = &self.command {
+            if let Some(page) = reply.get("ok") {
+                let page: SourcePage = serde_json::from_value(page.clone())?;
+                page.validate(
+                    &self.binding.resource,
+                    &SourceListOptions {
+                        cursor: cursor.clone(),
+                        max_records: *limit,
+                    },
+                )?;
+            }
+        }
         if let Command::Read { payload, .. } = self.command {
             if let Some(page) = reply.get_mut("ok") {
                 let page = page
@@ -273,6 +301,27 @@ impl Request {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_projection_refuses_forged_lanes_and_sensitive_extra_fields() -> Result<()> {
+        let request: Request = serde_json::from_value(json!({
+            "binding":{"environment":"ADMIN","resource":{"tenant":"tenant","application":"app","name":"events","family":"events","id":"00000000000000000000000000000001"},"principal":"app","grant":"management","administer":true},
+            "command":{"kind":"sources","cursor":null,"limit":1}
+        }))?;
+        let incarnation = "00000000000000000000000000000002";
+        let lane = events::lane_identity(&request.binding.resource, "Order:source", incarnation)?;
+        let page = json!({"resource":request.binding.resource.id,"records":[{"lane":lane,"source":"Order:source","incarnation":incarnation,"principal":"app","grant":"publisher","accepted_through":i64::MAX.to_string(),"sealed":true}],"cursor":null});
+        request.project(json!({"ok":page.clone()}))?;
+        for field in ["payload", "token", "envelope"] {
+            let mut invalid = page.clone();
+            invalid["records"][0][field] = json!("must not leak");
+            assert!(request.project(json!({"ok":invalid})).is_err());
+        }
+        let mut invalid = page;
+        invalid["records"][0]["source"] = json!("Order:other");
+        assert!(request.project(json!({"ok":invalid})).is_err());
+        Ok(())
+    }
 
     #[test]
     fn read_projection_rejects_malformed_or_foreign_pages() -> Result<()> {

@@ -40,6 +40,9 @@ readers, layout migrations, version negotiation or fleet upgrade commands.
 Recreate development state and rebuild all participants when layouts change;
 mixed builds are unsupported. External codec versions (SQLite WAL and upstream
 LTX), package versions and runtime revision/sequence counters keep their meaning.
+Telemetry exports use schema marker `1`; KV large-value references and object
+prefixes use `v1` with ownership epochs. Recreate earlier development blobs on
+cutover; readers and collectors accept only the current layout.
 Initial catalog/partition creation requires a host provisioning claim from an
 exact captured deployment declaration; proposed grants cannot authorize their
 own creation. Ordinary SDK configuration can only administer existing resources.
@@ -52,7 +55,7 @@ old replies; the dependency-free core owns that decision. `cellar outbox`
 inspect/retry/status/audit uses fleet-HMAC ingress, a distinct source RPC
 capability and the original owner/output/discovery gates. Retry operation
 receipts and bounded audit pages live in an independent version-1 source
-control schema and survive business reset. `cellar stream` describe/read/status/
+control schema and survive business reset. `cellar stream` describe/read/sources/status/
 audit and `cellar subscription` list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited
 to stream control methods, with optional provenance omitted from ordinary event
@@ -67,8 +70,13 @@ Terminal retirement receipts retain the affected payload range after
 bounded cleanup. Subscription inventory uses a bounded primary-key range and includes retained
 deleted incarnations without lease tokens or payloads. Its `subs1` cursor is
 bound to the stream UUID; every page checks current administration authority.
-Pages are live observations, not a snapshot. Catalog stream/source inventories
-and exported event metrics remain unfinished.
+Pages are live observations, not a snapshot. Destination source inventory uses
+`Stream::sources`/`cellar stream sources`, a bounded producer primary-key range,
+and a `sources1` cursor bound to tenant/application/stream identity. It shows
+accepted watermarks and retained seals, including after payload expiry, without
+payloads or tokens. It is not a census of undispatched sources or an all-producer
+drain proof. Each page repeats current administration checks. Catalog and
+whole-fleet source inventories and exported event metrics remain unfinished.
 
 Cold source recovery can use a separate framework-only worker pool when its
 application class is absent. It accepts only restored epochs with retained
@@ -259,6 +267,9 @@ existing identity, default-policy, and explicit environment adapters.
    Both stop modes drain complete event drivers, including post-response
    background work and queued SDK calls, before changing cell lifecycle.
    Progress may extend the stall window, never the absolute stop deadline.
+   Handoff progress counts terminal adoption completions, including failed
+   acknowledgements after ownership release; retry attempts are not progress.
+   Successful adoption telemetry remains separate from that completion count.
    Forced cancellation supplies no graceful durability proof; report incomplete
    drain phases through `ShutdownReport` and return `NodeOutcome` to library
    callers. Process exits belong to the CLI boundary.

@@ -179,6 +179,7 @@ impl Authority {
                         method,
                         "__streamDescribe"
                             | "__streamSubscriptions"
+                            | "__streamSources"
                             | "__streamSubscriptionStatus"
                             | "__streamSubscriptionChange"
                             | "__streamAudit"

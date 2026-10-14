@@ -2,7 +2,7 @@
 //! redelivery. No synthetic successful-gate adapter is installed here.
 
 use super::{call, client, inputs, stopped, Executor};
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -89,7 +89,18 @@ impl Cell for Counter {
             let path = url::Url::parse(&request.url)?.path().to_owned();
             let db = context.storage()?;
             let events = context.stream::<Changed>("EVENTS")?;
-            let body = if path == "/subscription-inventory" {
+            let body = if path == "/outbox-pending" {
+                db.outbox(&OutboxOptions::default())?
+                    .pending_rows
+                    .to_string()
+            } else if path == "/source-inventory" {
+                serde_json::to_string(
+                    &context
+                        .stream::<Changed>("ADMIN_EVENTS")?
+                        .sources(&context, SourceListOptions::default())
+                        .await?,
+                )?
+            } else if path == "/subscription-inventory" {
                 serde_json::to_string(
                     &context
                         .stream::<Changed>("ADMIN_EVENTS")?
@@ -267,7 +278,13 @@ fn applications_with_probe(
                     let Invocation::Fetch(request) = invocation else {
                         return Ok(Output::Done);
                     };
-                    let account = context.namespace("ACCOUNTS")?.get_by_name("events");
+                    let url = url::Url::parse(&request.url)?;
+                    let source = url
+                        .query_pairs()
+                        .find(|(name, _)| name == "source")
+                        .map(|(_, source)| source.into_owned())
+                        .unwrap_or_else(|| "events".into());
+                    let account = context.namespace("ACCOUNTS")?.get_by_name(&source);
                     Ok(Output::Http(account.fetch(&context, request).await?))
                 })
             })
@@ -1184,6 +1201,204 @@ async fn subscription_inventory_pages_tombstones_and_recovers_owner_handoff() ->
             == "Forbidden"
     );
     stopped(entrance).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn source_inventory_preserves_observed_watermarks_seals_and_owner_handoff() -> Result<()> {
+    use serde_json::{json, Value};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("source-inventory-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (config, services) = inputs(
+        "source-inventory-owner",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let mut declarations = graph(1, false);
+    declarations.primary.event_streams[0].max_age_ms = 500;
+    let owner = Node::start(config, services, declarations, applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    let empty: SourcePage = serde_json::from_str(
+        &call(&client, &owner, reqwest::Method::GET, "/source-inventory").await?,
+    )?;
+    ensure!(empty.records.is_empty() && empty.cursor.is_none());
+    for name in ["alpha", "bravo", "charlie"] {
+        ensure!(
+            call(
+                &client,
+                &owner,
+                reqwest::Method::POST,
+                &format!("/write?source={name}")
+            )
+            .await?
+                == "owner:1"
+        );
+    }
+    for name in ["alpha", "bravo", "charlie"] {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if call(
+                    &client,
+                    &owner,
+                    reqwest::Method::GET,
+                    &format!("/outbox-pending?source={name}"),
+                )
+                .await?
+                    == "0"
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+    }
+    call(&client, &owner, reqwest::Method::POST, "/seal?source=alpha").await?;
+    let sdk = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let page: SourcePage = serde_json::from_str(
+                &call(&client, &owner, reqwest::Method::GET, "/source-inventory").await?,
+            )?;
+            if page.records.len() == 3 && page.records.iter().filter(|row| row.sealed).count() == 1
+            {
+                return Ok::<_, anyhow::Error>(page);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    ensure!(
+        sdk.records
+            .iter()
+            .filter(|row| row.accepted_through == 1)
+            .count()
+            == 3
+    );
+    ensure!(sdk
+        .records
+        .iter()
+        .all(|row| row.principal == "embedded-node" && row.grant == "application"));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if call(&client, &owner, reqwest::Method::GET, "/events").await? == "0" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    let retained: SourcePage = serde_json::from_str(
+        &call(&client, &owner, reqwest::Method::GET, "/source-inventory").await?,
+    )?;
+    ensure!(serde_json::to_value(&retained.records)? == serde_json::to_value(&sdk.records)?);
+    let (config, services) = inputs(
+        "source-inventory-entrance",
+        &directory.path().join("entrance"),
+        &core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let entrance = Node::start(config, services, external, applications("entrance")?).await?;
+    super::ready(&entrance).await?;
+    let admin = binding(true);
+    let first = stream_operator(
+        &client,
+        &entrance,
+        &admin,
+        json!({"kind":"sources","cursor":null,"limit":1}),
+        "events-operator",
+    )
+    .await?;
+    let mut records = first["result"]["records"].as_array().unwrap().clone();
+    ensure!(records.len() == 1);
+    let saved_cursor = first["result"]["cursor"].clone();
+    ensure!(saved_cursor.is_string());
+    let mut false_admin = binding(false);
+    false_admin.administer = true;
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &false_admin,
+            json!({"kind":"sources","cursor":null,"limit":1}),
+            "events-operator"
+        )
+        .await?["error"]["code"]
+            == "Forbidden"
+    );
+    stopped(owner)
+        .await
+        .context("source inventory owner handoff")?;
+    let mut cursor = saved_cursor.clone();
+    for _ in 0..4 {
+        let page = stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            json!({"kind":"sources","cursor":cursor,"limit":1}),
+            "events-operator",
+        )
+        .await?;
+        let rows = page["result"]["records"].as_array().unwrap();
+        ensure!(rows.len() <= 1);
+        records.extend(rows.iter().cloned());
+        cursor = page["result"]["cursor"].clone();
+        if cursor.is_null() {
+            break;
+        }
+    }
+    ensure!(cursor.is_null() && records.len() == 3);
+    let expected = serde_json::to_value(&sdk.records)?;
+    ensure!(
+        Value::Array(records.clone()) == expected,
+        "source inventory changed during owner handoff"
+    );
+    let encoded = serde_json::to_string(&records)?;
+    ensure!(
+        !encoded.contains("payload") && !encoded.contains("envelope") && !encoded.contains("token")
+    );
+    let path = format!("/streams/{}", stream_scope()?);
+    let body = serde_json::to_vec(
+        &json!({"binding":admin,"command":{"kind":"sources","cursor":"subs1.%%%","limit":1}}),
+    )?;
+    let auth = PeerAuth::new([11; 32], "events-operator")?;
+    let response = auth
+        .sign(
+            client
+                .post(format!("http://{}{path}", entrance.info().internal_address))
+                .body(body.clone()),
+            "POST",
+            &path,
+            &body,
+            &entrance.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(response.status() == reqwest::StatusCode::BAD_REQUEST);
+    ensure!(response.text().await?.contains("InvalidCursor"));
+    ensure!(call(&client, &entrance, reqwest::Method::POST, "/revoke-admin").await? == "active");
+    ensure!(
+        stream_operator(
+            &client,
+            &entrance,
+            &admin,
+            json!({"kind":"sources","cursor":saved_cursor,"limit":1}),
+            "events-operator"
+        )
+        .await?["error"]["code"]
+            == "Forbidden"
+    );
+    stopped(entrance)
+        .await
+        .context("source inventory entrance shutdown")?;
     Ok(())
 }
 
