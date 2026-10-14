@@ -75,7 +75,7 @@ const groups: {
     label: "Data & storage",
     links: [
       { path: "sql", label: "SQL databases", icon: Database },
-      { path: "kv", label: "Key-value", icon: Braces },
+      { path: "kv", label: "KV", icon: Braces },
     ],
   },
   {

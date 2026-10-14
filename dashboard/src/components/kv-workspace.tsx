@@ -42,6 +42,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { CodeEditor } from "@/components/code-editor"
+import { DateTimePicker } from "@/components/date-time-picker"
 import { CopyValue, Feedback } from "@/components/console-ui"
 import { ApiError, bytes, date } from "@/lib/api"
 import {
@@ -721,24 +722,16 @@ export default function KvWorkspace({
                         : `Exact expiry retained: ${expiryDescription(draft.original.expiration)}`
                       : draft.expiry === "never"
                         ? "The saved key will have no expiration."
-                        : "Choose a local date and time; review shows its UTC timestamp."}
+                        : "Choose when this key should expire."}
                   </FieldDescription>
                 </Field>
                 {draft.expiry === "at" ? (
-                  <Field>
-                    <FieldLabel htmlFor="kv-expire-at">
-                      Expiration date and time
-                    </FieldLabel>
-                    <Input
-                      id="kv-expire-at"
-                      type="datetime-local"
-                      step="1"
-                      value={draft.at}
-                      onChange={(event) =>
-                        setDraft({ ...draft, at: event.target.value })
-                      }
-                    />
-                  </Field>
+                  <DateTimePicker
+                    id="kv-expire-at"
+                    label="Expiration"
+                    value={draft.at}
+                    onChange={(at) => setDraft({ ...draft, at })}
+                  />
                 ) : null}
               </FieldGroup>
             ) : (
