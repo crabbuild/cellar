@@ -44,6 +44,7 @@ pub(crate) enum Action {
     Kv(Vec<String>),
     Queue(Vec<String>),
     Outbox(Vec<String>),
+    Event(Vec<String>),
     Stream(Vec<String>),
     Subscription(Vec<String>),
     Blob(Vec<String>),
@@ -89,6 +90,7 @@ pub(crate) fn action_from_process_with_application(
             "sql" => return Ok(Action::Sql(arguments)),
             "kv" => return Ok(Action::Kv(arguments)),
             "queue" => return Ok(Action::Queue(arguments)),
+            "event" => return Ok(Action::Event(arguments)),
             "outbox" => return Ok(Action::Outbox(arguments)),
             "stream" => return Ok(Action::Stream(arguments)),
             "subscription" => return Ok(Action::Subscription(arguments)),
@@ -290,6 +292,7 @@ USAGE:
   cellar sql execute DATABASE --command SQL [PROJECT] --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar kv get|put|delete|list|info NAMESPACE --bucket [s3://|gs://|az://]NAME[/PREFIX]
   cellar queue info|peek|purge|pause|resume|redrive QUEUE --bucket [s3://|gs://|az://]NAME[/PREFIX]
+  cellar event metrics --max-roots N [FLEET OPTIONS]
   cellar outbox census [CLASS] --limit N [FLEET OPTIONS]
   cellar stream describe|read|status|audit --binding BINDING.json [FLEET OPTIONS]
   cellar subscription describe|pause|resume|reset|delete NAME --binding BINDING.json [FLEET OPTIONS]

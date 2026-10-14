@@ -1244,8 +1244,23 @@ cursor expiration and due-discovery listing failures. Timers retain their
 original host domain on cancellation. Integer counters and sums saturate and
 JSON encodes them as decimal strings. Reservation gauges are live host state;
 these observations are neither durable receipts nor a dormant-cell census.
-Authoritative backlog, blocked-reason, stream byte/offset, lease, lag and
-retention-blocked gauges remain implementation requirements.
+Authoritative fleet root-state gauges are collected by `cellar event metrics`
+through signed scope/method-bound `POST /event-state/SCOPE` owner RPCs. The
+collector walks at most 100 provider prefixes per page with four probes at a
+time, within a root/page cap (default 10,000; hard cap 100,000). Owner queries
+read indexed source counters and at most 129 live subscription metadata rows.
+They do not expire leases or change checkpoints. Retained retired stream
+partitions remain readable and have a separate count. Scope, complete fixed
+gauge sets, canonical decimals and accounting are checked before accumulation;
+checked u128 sums preserve wide counts and ages use maxima.
+
+Failed/duplicate/invalid probes, failed/repeated listing tokens or an exhausted
+bound make collection incomplete and produce a failed exit. Incomplete
+Prometheus contains coverage only; JSON has gauges=null with separate partial
+observed_gauges. Complete means a successful live root-directory traversal,
+not a snapshot or drain proof. Root SQLite pages count once per sample; facet/
+WAL/LTX/bucket physical allocation, historical producer inventory and resident-
+host aggregate gauges remain implementation/qualification requirements.
 
 Subscription status and inventory now also expose owner-sampled lag records,
 retained lag records, oldest retained unread append age and live-lease status.

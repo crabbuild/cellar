@@ -103,7 +103,8 @@ Fixed-cardinality event observations belong to each host execution domain.
 export operation counters, histograms and live reservation gauges without
 resource identities or payload labels. Timers retain their creating domain.
 These observations are not a receipt ledger or cold-cell state census;
-authoritative backlog, lease, lag and retention gauges remain unfinished.
+resident host aggregate gauges remain unfinished. Fleet root-state collection is
+available through `cellar event metrics` and signed `POST /event-state/SCOPE`.
 Subscription status and bounded inventory carry owner-sampled lag/lease
 observations. Logical unread offsets include lost history; retained unread age
 is null when no unread payload remains. A read clamps to the durable clock but
@@ -659,3 +660,22 @@ smoke is `census_smoke.py`; keep census scope distinct from destination watermar
 This guide follows the organizational approach of
 [Crab's AGENTS.md](https://raw.githubusercontent.com/crabbuild/crab/refs/heads/main/AGENTS.md),
 with Cellar's architecture and commands derived from this repository.
+
+
+Fleet root metrics use a separate scope/method-bound platform StateAuthority and
+`runtime/event_state.rs`, under ordinary owner/output/discovery gates. Native
+sampling bypasses application invocation, including removed-class recovery, and
+reads indexed source counters and at most 129 live subscription metadata rows.
+Deleted stream partitions remain observable and have a separate retired count.
+Source/stream gauges and root SQLite allocation are canonical decimals; aggregate
+sums use checked u128 and ages take maxima. All owned markers remain 1.
+`cellar event metrics` scans at most 100 provider prefixes per page and probes four
+owners concurrently, within its max-roots/page bound (default 10,000; cap 100,000).
+Duplicate/invalid prefixes, failed probes, failed/repeated listing tokens or an
+exhausted bound make collection incomplete. Incomplete Prometheus emits coverage
+only; JSON puts partial values in observed_gauges with gauges=null and a failed
+exit. Complete means a successful live root-directory traversal, never a snapshot
+or drain proof. IDs are absent from global labels. It does not include facet
+SQLite/WAL/LTX/bucket physical bytes, historical producer incarnations, or resident
+host gauges. `census_smoke.py` also exercises actual RustFS CLI state collection,
+protected/undispatched state, caps and unavailable owners. Keep these scopes explicit.

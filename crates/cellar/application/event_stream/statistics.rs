@@ -113,8 +113,14 @@ impl<E> Stream<E> {
 pub(crate) fn describe(context: &Context) -> Result<Value> {
     let caller = store::authority(context, Action::Administer)?;
     let db = context.storage()?;
-    let (definition, row) = store::load(&db)?;
+    let (definition, _) = store::load(&db)?;
     store::authorize(&definition, &caller, Action::Administer, None)?;
+    Ok(serde_json::to_value(sample(context)?)?)
+}
+
+pub(crate) fn sample(context: &Context) -> Result<StreamStats> {
+    let db = context.storage()?;
+    let (definition, row) = store::load_state(&db)?;
     let now = super::lifecycle_store::observation_time(&row)?;
     let earliest = store::number(&row, "earliest_offset")?;
     let end = store::number(&row, "next_offset")?;
@@ -214,7 +220,7 @@ pub(crate) fn describe(context: &Context) -> Result<Value> {
         },
     };
     stats.validate(&definition.resource)?;
-    Ok(serde_json::to_value(stats)?)
+    Ok(stats)
 }
 
 #[cfg(test)]

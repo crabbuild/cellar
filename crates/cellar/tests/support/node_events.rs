@@ -795,6 +795,32 @@ async fn retirement_operator_coordinates_or_forces_and_recovers_terminal_receipt
         })
         .await??;
         ensure!(terminal["result"]["operator"] == "events-operator");
+        let path = format!("/event-state/{}", stream_scope()?);
+        let auth = PeerAuth::new([11; 32], "retired-state-observer")?;
+        let observed = auth
+            .sign(
+                client
+                    .post(format!("http://{}{path}", entrance.info().internal_address))
+                    .body("{}"),
+                "POST",
+                &path,
+                b"{}",
+                &entrance.info().node,
+            )?
+            .send()
+            .await?;
+        ensure!(
+            observed.status() == 200,
+            "retired partition state became unavailable"
+        );
+        let sample: cellar::event_state::StateSample =
+            serde_json::from_value(observed.json::<serde_json::Value>().await?["result"].clone())?;
+        let values = sample.values(&stream_scope()?)?;
+        ensure!(
+            values[&cellar::event_state::Gauge::RetiredStreams] == 1
+                && values[&cellar::event_state::Gauge::StreamRows] == 0
+        );
+
         // Bounded retention can reclaim an acknowledged event before closure.
         // The terminal range always corresponds to actual retained records.
         let records: i64 = terminal["result"]["records"].as_str().unwrap().parse()?;
@@ -1839,6 +1865,37 @@ async fn removed_source_class_recovers_delivery_and_control_without_application_
     let mut node =
         Node::start(config, services, recovery_graph(), recovery_applications()?).await?;
     super::ready(&node).await?;
+    // The first direct source inspection after restart is the platform sample:
+    // no Account implementation exists to help it recover this cold backlog.
+    let sample_path = format!("/event-state/{scope}");
+    let sample_auth = PeerAuth::new([11; 32], "cold-state-observer")?;
+    let reply = sample_auth
+        .sign(
+            client
+                .post(format!(
+                    "http://{}{sample_path}",
+                    node.info().internal_address
+                ))
+                .body("{}"),
+            "POST",
+            &sample_path,
+            b"{}",
+            &node.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(
+        reply.status() == 200,
+        "cold removed-class state sample failed"
+    );
+    let sample: cellar::event_state::StateSample =
+        serde_json::from_value(reply.json::<serde_json::Value>().await?["result"].clone())?;
+    let sampled = sample.values(&scope)?;
+    ensure!(
+        sampled[&cellar::event_state::Gauge::Sources] == 1
+            && sampled[&cellar::event_state::Gauge::OutboxRows] == 1
+            && sampled[&cellar::event_state::Gauge::BlockedForbidden] == 1
+    );
     let state = operator(
         &client,
         &node,
@@ -2271,7 +2328,50 @@ async fn event_metrics_export_tracks_real_work_and_keeps_hosts_isolated() -> Res
         }
     })
     .await??;
+    let state_path = format!("/event-state/{}", stream_scope()?);
+    let state_url = format!("http://{}{state_path}", owner.info().internal_address);
+    ensure!(client.post(&state_url).body("{}").send().await?.status() == 401);
+    let state_auth = PeerAuth::new([11; 32], "state-operator")?;
+    let observed = state_auth
+        .sign(
+            client.post(&state_url).body("{}"),
+            "POST",
+            &state_path,
+            b"{}",
+            &owner.info().node,
+        )?
+        .send()
+        .await?;
+    ensure!(observed.status() == 200, "signed owner state sample failed");
+    let sample: cellar::event_state::StateSample =
+        serde_json::from_value(observed.json::<serde_json::Value>().await?["result"].clone())?;
+    let gauges = sample.values(&stream_scope()?)?;
+    use cellar::event_state::Gauge;
+    ensure!(
+        gauges[&Gauge::Streams] == 1
+            && gauges[&Gauge::StreamRows] == 1
+            && gauges[&Gauge::SubscriptionLagRecords] == 1
+            && gauges[&Gauge::ActiveLeases] == 0
+    );
     ensure!(call(&client, &owner, reqwest::Method::POST, "/process-ack").await? == "1");
+    let observed = state_auth
+        .sign(
+            client.post(&state_url).body("{}"),
+            "POST",
+            &state_path,
+            b"{}",
+            &owner.info().node,
+        )?
+        .send()
+        .await?;
+    let after: cellar::event_state::StateSample =
+        serde_json::from_value(observed.json::<serde_json::Value>().await?["result"].clone())?;
+    let gauges = after.values(&stream_scope()?)?;
+    ensure!(
+        gauges[&Gauge::SubscriptionLagRecords] == 0
+            && gauges[&Gauge::ActiveLeases] == 0
+            && gauges[&Gauge::StreamEndOffset] == 2
+    );
     let snapshot = owner.services().event_metrics();
     ensure!(
         metric(&snapshot, "cellar_event_ack_calls_total") == 1

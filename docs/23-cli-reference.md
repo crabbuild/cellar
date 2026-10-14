@@ -68,6 +68,29 @@ as the command result. Do not place secrets in committed command examples.
 See [operations](17-operations.md), [security](14-security-tenancy.md), and
 [packaging implementation](../crates/cellar/cli/native_deploy/cli.rs).
 
+## Fleet event state metrics
+
+```text
+cellar event metrics --max-roots 10000 --json [FLEET OPTIONS]
+cellar event metrics --max-roots 10000 [FLEET OPTIONS]
+```
+
+The collector samples source backlog/blocked reasons, stream rows/bytes/offsets,
+retention protection, live leases, subscription lag and root SQLite page allocation
+through signed owner RPCs. It walks bounded root-directory pages with four probes
+at a time. The default root/page cap is 10,000; the hard cap is 100,000. Cold
+inspection can restore cells and progress existing work. Stream counts include
+retained retired partitions, reported separately by `retired_streams`.
+
+JSON gauges are exact decimal strings. Ages take the maximum; other values sum,
+including stream offsets (diagnostic sums, not a resumable cursor). Default output
+is Prometheus text with fixed names and no resource/cell/subscription labels.
+Incomplete collection exits unsuccessfully: JSON has `gauges: null` and separate
+partial `observed_gauges`; Prometheus emits coverage metrics only. Check complete
+coverage before using fleet totals. A successful live directory traversal is not
+a snapshot or drain proof. Facet/WAL/LTX/bucket allocation, historical producer
+inventory and resident-host aggregate gauges remain separate work.
+
 ## Outbox source controls
 
 The event primitive remains under implementation; the

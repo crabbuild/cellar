@@ -170,6 +170,8 @@ pub use cellar_native as native;
 pub mod blob_cli;
 #[path = "storage/blob/mod.rs"]
 pub(crate) mod blob_store;
+#[path = "cli/event_cli.rs"]
+pub mod event_cli;
 #[path = "node/lifecycle.rs"]
 pub mod node_lifecycle;
 #[path = "durability/log/mod.rs"]
@@ -179,9 +181,11 @@ pub mod outbox_cli;
 #[path = "cli/stream_cli.rs"]
 pub mod stream_cli;
 
-#[doc(hidden)]
 #[path = "observability/event_metrics.rs"]
 pub mod event_metrics;
+#[doc(hidden)]
+#[path = "observability/event_state.rs"]
+pub mod event_state;
 #[path = "cli/operator_cell.rs"]
 pub(crate) mod operator_cell;
 #[doc(hidden)]

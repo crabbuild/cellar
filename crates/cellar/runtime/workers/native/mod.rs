@@ -641,7 +641,12 @@ impl NativeWorker {
                 return (None, Vec::new());
             }
         };
+        let mut state_authority = None;
         let source_authority = match authority {
+            Some(crate::runtime::RpcAuthority::State(authority)) => {
+                state_authority = Some(authority);
+                None
+            }
             Some(crate::runtime::RpcAuthority::Source(authority)) => Some(authority),
             Some(crate::runtime::RpcAuthority::Event(authority)) => {
                 context.event_authority = Some(authority);
@@ -659,6 +664,7 @@ impl NativeWorker {
         };
         context.io.framework_source.store(
             source_authority.is_some()
+                || state_authority.is_some()
                 || work
                     .as_ref()
                     .is_some_and(|work| work.reason == cellar_logic::work::Reason::Outbox),
@@ -698,6 +704,12 @@ impl NativeWorker {
         context.io.begin_cpu_turn();
         let handler = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             || -> Result<HandlerFuture<Output>> {
+                if let Some(authority) = state_authority {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        crate::runtime::event_state::invoke(context, invocation, authority).await
+                    }));
+                }
                 if let Some(authority) = source_authority {
                     let context = context.clone();
                     return Ok(Box::pin(async move {

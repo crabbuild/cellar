@@ -8,10 +8,53 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum RpcAuthority {
+    State(StateAuthority),
     Event(event_stream::Authority),
     Source(SourceAuthority),
     Catalog(CatalogAuthority),
     Name(event_stream::name_resolution::NameAuthority),
+}
+
+#[doc(hidden)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StateAuthority {
+    kind: StateKind,
+    scope: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+enum StateKind {
+    #[serde(rename = "event-state-v1")]
+    Sample,
+}
+
+impl StateAuthority {
+    pub(crate) fn mint(scope: String) -> Result<Self> {
+        let authority = Self {
+            kind: StateKind::Sample,
+            scope,
+        };
+        authority.validate()?;
+        Ok(authority)
+    }
+
+    fn validate(&self) -> Result<()> {
+        anyhow::ensure!(
+            cellar_logic::cell::valid_cell_scope(&self.scope) && self.scope.contains(':'),
+            "invalid state sample scope"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
+        self.validate()?;
+        anyhow::ensure!(
+            scope == self.scope && method == super::event_state::METHOD,
+            "state authority is scope/method bound"
+        );
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -156,6 +199,7 @@ impl SourceAuthority {
 impl RpcAuthority {
     pub(crate) fn validate(&self) -> Result<()> {
         match self {
+            Self::State(authority) => authority.validate(),
             Self::Event(authority) => authority.validate(),
             Self::Source(authority) => authority.validate(),
             Self::Catalog(authority) => authority.validate(),
@@ -166,6 +210,7 @@ impl RpcAuthority {
     pub(crate) fn validate_target(&self, scope: &str, method: &str) -> Result<()> {
         self.validate()?;
         match self {
+            Self::State(authority) => authority.validate_target(scope, method),
             Self::Event(authority) => {
                 event_stream::validate_target(scope, authority)?;
                 authority.validate_operator_target(scope, method)
@@ -192,7 +237,9 @@ pub(crate) fn validate_target(
         Some(authority) => authority.validate_target(scope, method),
         None => {
             anyhow::ensure!(
-                !event_stream::is_event_scope(scope) && method != super::source_control::METHOD,
+                !event_stream::is_event_scope(scope)
+                    && method != super::source_control::METHOD
+                    && method != super::event_state::METHOD,
                 "framework RPC requires host authority"
             );
             Ok(())
@@ -209,6 +256,23 @@ impl From<event_stream::name_resolution::NameAuthority> for RpcAuthority {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_sample_capability_cannot_authorize_another_scope_or_mutation() -> Result<()> {
+        let authority = RpcAuthority::State(StateAuthority::mint("Order:one".into())?);
+        authority.validate_target("Order:one", super::super::event_state::METHOD)?;
+        assert!(authority
+            .validate_target("Order:two", super::super::event_state::METHOD)
+            .is_err());
+        assert!(authority
+            .validate_target("Order:one", super::super::source_control::METHOD)
+            .is_err());
+        assert!(validate_target(None, "Order:one", super::super::event_state::METHOD).is_err());
+        let round_trip: RpcAuthority = serde_json::from_value(serde_json::to_value(authority)?)?;
+        round_trip.validate_target("Order:one", super::super::event_state::METHOD)?;
+        assert!(StateAuthority::mint("Order:one/facets/one".into()).is_err());
+        Ok(())
+    }
 
     #[test]
     fn retirement_proof_capability_is_resource_scoped_and_read_only() -> Result<()> {

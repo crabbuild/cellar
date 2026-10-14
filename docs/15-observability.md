@@ -145,3 +145,22 @@ not a suitable universal alert threshold. Sources:
 [telemetry](../crates/cellar/observability/telemetry.rs),
 [metrics](../crates/cellar/execution/services.rs),
 [outcomes](../crates/cellar/node/lifecycle.rs).
+
+
+## Fleet durable state collection
+
+`cellar event metrics` exports current owner-sampled source/stream/lease/lag/
+retention gauges across a bounded root-directory traversal. Its signed state RPC
+capability is scope/method bound and cannot authorize mutations. Owner reads use
+indexed metadata under the same activation, output and discovery gates as other
+RPCs; they do not expire leases or change checkpoints. Cold inspection may restore
+cells and progress existing durable work. Root SQLite pages count once per sample;
+facet, WAL, LTX, object-store and filesystem allocation remain outside this profile.
+
+Require collection_complete=1 before treating Prometheus values as fleet totals.
+On failed/duplicate/invalid probes, listing failure or a cap, the exporter emits
+coverage only. JSON retains partial observed_gauges separately and gauges is null;
+the CLI returns a failed exit. Successful traversal is a live observation across
+sample times, not a cross-fleet snapshot or all-producer drain proof. Resident-host
+aggregate gauges, physical storage profiles and full historical/facet census
+remain release requirements.

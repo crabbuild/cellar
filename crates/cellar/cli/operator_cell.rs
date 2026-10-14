@@ -75,6 +75,14 @@ impl Reachable {
         Self::open_route(fleet, subject, scope, name, "runtime").await
     }
 
+    pub(crate) async fn open_state(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "event-state").await
+    }
+
     pub(crate) async fn open_source(
         fleet: Fleet<'_>,
         subject: Subject,
@@ -136,8 +144,12 @@ impl Reachable {
             http,
             auth,
             subject,
-            reply_limit: matches!(route, "outbox" | "streams" | "catalogs")
-                .then_some(crate::runtime::source_control::MAX_REPLY_BYTES),
+            reply_limit: if route == "event-state" {
+                Some(crate::runtime::event_state::MAX_REPLY_BYTES)
+            } else {
+                matches!(route, "outbox" | "streams" | "catalogs")
+                    .then_some(crate::runtime::source_control::MAX_REPLY_BYTES)
+            },
             entrances: nodes
                 .into_iter()
                 .map(|(node, addr)| Entrance {

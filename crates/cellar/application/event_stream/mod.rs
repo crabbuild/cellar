@@ -29,7 +29,7 @@ mod retirement_store;
 mod schema;
 pub(crate) mod service;
 mod source_inventory;
-mod statistics;
+pub(crate) mod statistics;
 mod store;
 mod subscription;
 mod subscription_store;

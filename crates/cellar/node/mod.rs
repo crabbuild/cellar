@@ -56,6 +56,7 @@ mod embedded;
 mod event_failure;
 mod event_metrics;
 mod event_resources;
+mod event_state;
 mod ingress;
 mod source_operator;
 mod stream_operator;
@@ -3155,6 +3156,9 @@ async fn handle_internal(
         // `RESERVED_CLASSES` inherits both. (The pre-v5 `/__sql/` alias died
         // with the v0.4.0 stop-the-world upgrade; the CLI in this tree sends
         // `/runtime/`.)
+        _ if path.starts_with("/event-state/") && app.runtime.is_some() => {
+            event_state::handle(&app, request).await
+        }
         _ if path.starts_with("/outbox/") && app.runtime.is_some() => {
             source_operator::handle(&app, request).await
         }
@@ -3785,6 +3789,7 @@ async fn async_main(
         Action::Sql(arguments) => return crate::sql_cli::run(arguments).await,
         Action::Kv(arguments) => return crate::kv_cli::run(arguments).await,
         Action::Queue(arguments) => return crate::queue_cli::run(arguments).await,
+        Action::Event(arguments) => return crate::event_cli::run(arguments).await,
         Action::Outbox(arguments) => return crate::outbox_cli::run(arguments).await,
         Action::Stream(arguments) => return crate::stream_cli::run(arguments, false).await,
         Action::Subscription(arguments) => return crate::stream_cli::run(arguments, true).await,

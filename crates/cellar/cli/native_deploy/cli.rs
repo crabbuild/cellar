@@ -11,6 +11,7 @@ pub fn main() -> Result<()> {
                 | "sql"
                 | "kv"
                 | "queue"
+                | "event"
                 | "outbox"
                 | "stream"
                 | "subscription"

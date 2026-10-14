@@ -2212,7 +2212,7 @@ markers remain 1 and development layouts use hard cutovers without migrations.
 | Typed caller, pressure, consumer and authority outcomes | DeliveryError/ErrorCode plus local policy failures | Host RPC now retains OwnershipLost/Ambiguous plus local/peer phase classification; complete SDK preflight, codec, timeout and cancellation mapping audit is still required |
 | All envelope/metadata transport allocations stay within captured/hard budgets | bounded encoding, receiver budgets, subscription batch checks, repaired read acceptance, structured RPC ceiling | Complete codec/response-validation audit is not yet complete; global transport ceiling and caller decode budgets are separate |
 | Logical bytes plus physical storage headroom/accounting | per-source/stream counters, SQLite page observations and live local file samples | Full WAL/LTX/bucket/filesystem accounting and restore/compaction headroom are not implemented/qualified as a complete profile |
-| Export authoritative backlog, blocked lanes, offsets, leases, lag and retention gauges with bounded labels | fixed host operation metrics and owner-sampled source/stream/subscription diagnostics | **Implementation gap:** aggregate authoritative host/fleet gauges are missing; diagnostics and reservation gauges do not substitute for them |
+| Export authoritative backlog, blocked lanes, offsets, leases, lag and retention gauges with bounded labels | fixed host operation metrics and owner-sampled source/stream/subscription diagnostics | Fleet root collector now exports checked owner-sampled durable gauges with coverage refusal; resident-host gauges, full physical profile and historical/facet inventories remain gaps |
 | Bounded operators and complete resource/source inventories | signed source/stream/subscription controls, namespace catalog inventory, root census and destination watermarks | **Implementation gap:** fleet catalog namespace/facet/historical-source census is incomplete; pages are live observations, not drain proof/snapshot |
 | Native declarations, feature validation, same local development protocol and examples | deployment adapters/Node activation, durable-streams native application and process harnesses | Complete packaging/dev-policy matrix and deployment/operator examples still need audit against the current SDK |
 | Enumerate commit/proof/wake/append/lease/ack/retention/ownership interleavings | decision-core tests plus dedicated native and process cases | Full short-interleaving model enumeration and independent invariant coverage are not demonstrated |
@@ -2329,3 +2329,77 @@ Debug-bound assertion error was corrected before this gate; it is not a behavior
 baseline. These host outcomes do not complete the full SDK preflight/codec/timeout/
 cancellation mapping audit, aggregate gauges, complete inventories, physical
 storage accounting or the remaining fault/capacity/lifecycle release matrix.
+
+
+## Owner-routed fleet state collection (2026-10-14)
+
+`cellar event metrics` now collects current durable outbox rows/bytes/age and
+fixed blocked reasons, stream rows/bytes/offset sums, protection/retention bytes,
+live leases, expired/live subscriptions, logical/retained lag and oldest retained
+unread age. Root SQLite page allocation is counted once per observed root. Stream
+partition counts include retained retired instances, with a separate retired count.
+The platform StateAuthority is exact-scope/method bound, authenticated through
+fleet ingress, and cannot authorize an application invocation or mutation. Native
+sampling runs under the original owner's activation/output/discovery gates and
+works through the framework handler, including removed-class recovery. It shares
+the existing indexed stream observation calculations; metadata work remains bounded
+by 128 live subscriptions with exact timestamp reads. Sampling never advances a
+checkpoint, expires a lease or changes durable logical time.
+
+The collector uses bounded provider pages (100 prefixes) and four concurrent
+probes. Its root/page cap defaults to 10,000 and cannot exceed 100,000. Duplicate
+or invalid directory entries, failed probes, failed/repeated listing tokens and
+caps remain explicit incomplete coverage. No unreadable state becomes a successful
+zero total: incomplete Prometheus emits coverage only; JSON uses gauges=null and
+separate observed_gauges, and the CLI exits unsuccessfully. Complete means a
+successful live root traversal, not a consistent fleet snapshot or drain proof.
+Global labels contain no resource/cell/subscription identities. Canonical decimal
+samples, complete fixed metric sets and accounting are checked before any total
+changes; sums use checked u128, and age metrics take maxima.
+
+Qualification is recorded after the final source/binary gates below. Earlier
+140-library/31-Node results predate the last retired-partition, incomplete-output
+and collection-acceptance refinements; they are not relabeled as final evidence.
+The new path does not complete resident-host aggregate gauges, facet/WAL/LTX/
+bucket/filesystem physical profiles, historical producer/fleet namespace inventory,
+or the original fault/capacity/lifecycle/release matrix. All owned markers stay 1.
+
+
+Final library checks pass 140 cases; the first broad Node gate passes 30 cases but
+fails the existing cross-fleet admitted-write drain case with NodeLeaseExpired.
+The same test passes isolated with unchanged one-second lease/eight-second shutdown
+limits. Its cause is not established; concurrent compilation is an observation,
+not proof of scheduling causality. Preserve the failed gate alongside the pending
+complete no-build replay and targeted latest cold-first assertion. Do not relax
+lease, readiness, durability or shutdown checks to conceal this failure.
+
+
+The complete no-build replay passes all 31 Node cases in 292.42 seconds, including
+the unchanged fleet-drain case. The latest targeted removed-class test also passes
+in 48.37 seconds: the platform sample is the first direct source inspection after
+restart and observes one source, one pending row and one Forbidden-blocked lane
+without an Account implementation. Metrics authentication and lag-after-ack plus
+ordinary/forced retired-partition sampling are covered by the Node gate. The
+original lease-expiry failure remains unestablished, not erased by these passes.
+Workspace/all-target/all-feature Clippy-D, 440-file formatting, 62 Python guards,
+docs (35/6/370), dependency inspection (401/no JavaScript engine) and whitespace
+checks pass. No fresh full-workspace release-matrix claim is made.
+
+Archived CLI/example binaries pass the expanded RustFS census/metrics exercise.
+The independent commands leave one capacity-blocked source obligation and one
+protected stream record. Complete collection sees five roots, two producers, one
+pending outbox row, one stream row, one record of logical/retained lag and exact
+protected-byte accounting. A one-root cap yields incomplete coverage and gauges=null;
+after both processes stop, all five state probes are unavailable, authoritative
+gauges remain null and Prometheus omits backlog series rather than emitting zero.
+The original source census, signed source inventory, shutdown/store cleanup and
+independent measuring ledger checks remain. These are selected same-machine RustFS
+process observations, not every backend, long-soak/fairness or power/store-loss
+qualification. Complete live traversal is not a snapshot or drain proof.
+
+Evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-state-qualification-1omyqbhf`.
+CLI SHA-256: `09970a182fa3f7f96ce58797b5e03c62328284ba8fcb4629c794df53676d94f0`.
+Example SHA-256: `c270b64106215dc050ec96122ba90f6cecf094ed5b2e83aa1501cf21c1b0e76a`.
+All Cellar-owned markers remain 1. Remaining resident-host metrics, physical
+profiles, broad historical/facet/namespace inventories, SDK outcome/codec audits
+and the complete failure/capacity/lifecycle/release requirements keep the goal active.

@@ -64,6 +64,24 @@ def exercise(cellar,binary,root,image):
         require(len(pages)>1 and pages[0]["next"],"test did not exercise provider continuation")
         denied=command(class_name="Projection",cursor=pages[0]["next"],success=False)
         require("another fleet/class" in denied.stderr,"foreign-class cursor was accepted")
+        def metrics(max_roots=10000,success=True,json_output=True):
+            args=[str(cellar),"event","metrics","--bucket","s3://"+store.config["name"],
+                "--endpoint",store.config["endpoint"],"--max-roots",str(max_roots)]
+            if json_output:args.append("--json")
+            reply=subprocess.run(args,env=env,capture_output=True,text=True,timeout=60)
+            require((reply.returncode==0)==success,"CLI state metric outcome differed: "+reply.stderr)
+            return reply
+        state=json.loads(metrics().stdout)
+        require(state["complete"] and state["directory_exhausted"] and state["unavailable"]==0,"fleet state collection incomplete")
+        expected=dict(sources="2",outbox_rows="1",streams="1",stream_rows="1",active_leases="0",subscriptions="1",
+            subscription_lag_records="1",subscription_retained_lag_records="1",protected_records="1")
+        for key,value in expected.items():require(state["gauges"][key]==value,"fleet state gauge disagreed with original commands: "+key)
+        require(int(state["gauges"]["outbox_bytes"])>0 and state["gauges"]["protected_bytes"]==state["gauges"]["stream_bytes"],"logical pending/protected accounting was lost")
+        capped=json.loads(metrics(max_roots=1,success=False).stdout)
+        require(not capped["complete"] and not capped["directory_exhausted"] and capped["observed"]==1 and capped["gauges"] is None,"bounded collection claimed complete fleet gauges")
+        text=metrics(json_output=False).stdout
+        require("cellar_event_fleet_outbox_rows 1" in text and "cellar_event_fleet_collection_complete 1" in text and "Order:" not in text and "resource=" not in text,"Prometheus gauges leaked identities or lost backlog")
+        ledger.record("fleet_state_metrics_qualified",state=state,capped=capped,prometheus=text)
         # Stop every node but retain the bucket: failure must still print all
         # candidates, never claim zero pending rows or a complete census.
         for process in reversed(processes):process.stop()
@@ -72,6 +90,11 @@ def exercise(cellar,binary,root,image):
         require(not unavailable_page["complete_probes"] and len(unavailable_page["records"])==3
             and all(row["status"]=="unavailable" and "pending_rows" not in row for row in unavailable_page["records"]),
             "unavailable owners were silently reported empty")
+        missing=json.loads(metrics(success=False).stdout)
+        require(not missing["complete"] and missing["observed"]==0 and missing["unavailable"]>0 and missing["gauges"] is None,"unavailable owners became zero fleet gauges")
+        missing_text=metrics(success=False,json_output=False).stdout
+        require("cellar_event_fleet_collection_complete 0" in missing_text and "cellar_event_fleet_outbox_rows" not in missing_text,"incomplete Prometheus scrape published fake zero backlog")
+        ledger.record("fleet_state_metrics_unavailable",state=missing,prometheus=missing_text)
         ledger.record("census_qualified",pages=pages,unavailable=unavailable_page)
         summary=dict(status="passed",pages=len(pages),sources=2,undispatched_sources=1,empty_cells=1,unavailable_probes=3,
             binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),cellar_sha256=hashlib.sha256(cellar.read_bytes()).hexdigest(),output=str(root))
