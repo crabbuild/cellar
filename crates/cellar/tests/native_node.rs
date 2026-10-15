@@ -1346,14 +1346,35 @@ async fn public_nodes_adopt_compiled_generations_and_force_close_without_process
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined(
 ) -> Result<()> {
+    cancelled_bootstrap_case().await
+}
+
+#[test]
+fn cancelled_bootstrap_observation_does_not_consume_the_only_host_blocking_worker() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()?
+        .block_on(async {
+            // Keep the original five-second entry and restart deadlines. This
+            // outer bound also catches an observer queued behind the factory
+            // whose release it is supposed to authorize.
+            tokio::time::timeout(Duration::from_secs(30), cancelled_bootstrap_case())
+                .await
+                .context("bounded-host cancellation fixture did not complete")?
+        })
+}
+
+async fn cancelled_bootstrap_case() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let core = Executor::new("application-core")?;
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
     let _release_on_failure = ReleaseFactoryOnDrop(gate.clone());
-    let (entered, received) = std::sync::mpsc::channel();
+    let (entered, mut received) = mpsc::unbounded_channel();
     let factory_gate = gate.clone();
     let apps = CompiledApplications::default().register("embedded-node", "test", move || {
-        entered.send(())?;
+        entered.send(std::time::Instant::now())?;
         let (lock, notify) = &*factory_gate;
         let mut released = lock.lock().unwrap();
         while !*released {
@@ -1374,13 +1395,12 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
     let (config, services) = inputs("cancelled", directory.path(), &core, None, 0).await?;
     let first_poll = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let polled = first_poll.clone();
+    let entry_deadline = std::time::Instant::now() + Duration::from_secs(5);
     let mut startup = tokio::spawn(async move {
         polled.store(true, std::sync::atomic::Ordering::Release);
         Node::start(config, services, graph(), apps).await
     });
-    let entry = tokio::task::spawn_blocking(move || received.recv_timeout(Duration::from_secs(5)))
-        .await
-        .context("factory-entry observer task failed")?;
+    let entry = factory_entry_before_deadline(&mut received, entry_deadline).await;
     if let Err(error) = entry {
         let polled = first_poll.load(std::sync::atomic::Ordering::Acquire);
         // Observe completion before probing the lock. Keep any returned node
@@ -1473,6 +1493,38 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
     .await
     .with_context(||format!("cancelled bootstrap recovery deadline: {}",restart_phase.lock().unwrap()))??;
     stopped(restarted).await?;
+    Ok(())
+}
+
+async fn factory_entry_before_deadline(
+    received: &mut mpsc::UnboundedReceiver<std::time::Instant>,
+    deadline: std::time::Instant,
+) -> Result<()> {
+    // The observer must not occupy the blocking executor it is measuring.
+    // Preserve the actual entry time too: a scheduler-delayed receiver must
+    // not accept a late entry just because its message is already queued.
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    let entered = tokio::time::timeout(remaining, received.recv())
+        .await?
+        .context("factory-entry channel closed before observation")?;
+    ensure!(
+        entered <= deadline,
+        "factory entered after its observation deadline"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn factory_entry_observation_keeps_its_deadline_for_queued_notifications() -> Result<()> {
+    let deadline = std::time::Instant::now() - Duration::from_secs(1);
+    let (sent, mut received) = mpsc::unbounded_channel();
+    sent.send(deadline - Duration::from_millis(1))?;
+    factory_entry_before_deadline(&mut received, deadline).await?;
+    sent.send(deadline + Duration::from_millis(1))?;
+    let error = factory_entry_before_deadline(&mut received, deadline)
+        .await
+        .unwrap_err();
+    ensure!(error.to_string().contains("after its observation deadline"));
     Ok(())
 }
 

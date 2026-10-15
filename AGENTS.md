@@ -257,6 +257,14 @@ ends on closed admission. Keep startup/directory deadlines and assertions intact
 cancellation diagnostics independently distinguish retained locks from pending
 replacement bootstrap. A fixed admission panic does not by itself explain an
 observed bootstrap deadline failure.
+The cancellation fixture must observe factory entry without consuming the host
+blocking pool it measures. Use an async entry notification with the actual
+factory-entry Instant and preserve its five-second cutoff even when receiver
+polling is delayed. A one-blocking-worker variant retains the original entry,
+restart, directory-retention and join assertions. Queued notification coverage
+rejects late entry; it does not reject timely entry merely observed later. This
+fixes reproduced observer starvation, not the historical startup/lease failures
+whose causes remain unestablished.
 Lower-level library hosts pin a 15-second default on first use; configure actor
 policy before constructing generations to choose another budget. CLI startup
 captures its environment override before any generation can sample that budget.

@@ -1805,6 +1805,16 @@ held or replacement startup is pending. That regression does not establish the
 cause of an earlier five-second bootstrap timeout; keep that failure's separate
 qualification audit open until reproduced and explained.
 
+Factory-entry observation must also stay independent of the blocking executor
+that runs application factories. The native cancellation fixture uses an async
+notification carrying the actual entry Instant and keeps the original five-
+second entry and restart limits. Queued entry notifications must respect the
+actual entry cutoff even if the receiver polls late. A host with one blocking
+worker must still prove that cancelled startup retains its directory until the
+started factory joins, then permits immediate replacement and complete shutdown.
+Observer starvation in that constrained fixture is not proof of the cause of an
+earlier failure on a host using its default blocking-pool capacity.
+
 Use the existing native transaction/queue/alarm suites as regression coverage;
 add dedicated native outbox, stream, and subscription integration targets. Run
 the repository formatting, dependency, documentation, locked build/test/doc,

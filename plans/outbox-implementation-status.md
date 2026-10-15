@@ -22,8 +22,9 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable correctness priorities are the observed startup/shutdown
-failures and remaining stale settlement/reply interleavings, followed by physical store/host loss and the
+The next actionable proof work is stale settlement/reply interleavings across
+source-control transitions. The startup/shutdown cause audit remains open and
+must resume on recurrence, followed by physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
 boundaries; they do not complete the follower-proof failure matrix.
@@ -52,7 +53,55 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: cold destination append recovery before automatic retry
+## Current follow-up: independent factory-entry observation
+
+The historical startup/shutdown failures remain unresolved. The unchanged full
+Node suite passes all 48 cases (353.06s). An immutable unchanged executable also
+passes 100 isolated replays: 34 cancelled-bootstrap, 33 explicit-policy and 33
+failed-predecessor recovery cases. These passing replays do not establish or
+repair the earlier failure causes.
+
+A separate deterministic fixture defect is now reproduced: the entry observer
+uses `spawn_blocking` plus a blocking channel receive on the same host pool that
+must execute the application factory. With one blocking worker, the observer
+prevents factory entry, or can itself queue behind a factory awaiting its release.
+Three before-fix runs fail at the original entry cutoff (5.32s/5.27s/5.30s),
+reporting startup polled, directory held and startup still pending. The final
+before-fix run uses the same new bounded-host test as the fixed source. This
+constraint differs from the original fixture's default blocking-pool capacity;
+it does not prove that starvation caused the historical failures.
+
+The observer now awaits an async channel, leaving the factory's host blocking
+worker available. The factory records its actual entry Instant. A five-second
+entry cutoff is captured before startup, so a receiver delayed until after the
+cutoff cannot accept a genuinely late entry merely because its message is queued.
+Timely entry observed later remains valid. The original restart cutoff, directory
+retention, factory join, node drain and caller-executor assertions are unchanged.
+The new one-worker variant has a separate 30-second outer watchdog to terminate
+an observer queued behind the held factory; neither original five-second limit
+is raised. A queued-notification test checks both sides of the actual cutoff.
+
+Both cancellation cases pass together (1.01s), the queued-deadline guard passes,
+and ten repeated runs of both cancellation cases pass (20 cases). The final
+unchanged-budget serial Node suite passes all 50 cases (359.22s), including
+explicit-policy, predecessor recovery, real event delivery and complete drain.
+Workspace/all-target/all-feature check and Clippy with warnings denied pass,
+as do seven artifact/three CLI tests and all 127 Python guards. Formatting
+checks 509 Rust files; docs validate 36 documents/6 flows/386 references; the
+dependency check finds 403 packages with no JavaScript engine. Whitespace checks
+pass. Local checks use Rust 1.97.0/aarch64 macOS. Only the native fixture and
+documentation change; production runtime/SDK code and all owned markers remain
+unchanged. The historical timeout, explicit-policy closure and predecessor-
+shutdown expiry audits remain open.
+
+Next qualify delayed delivery settlement against source-control generation
+changes. Continue retaining the original startup failure diagnostics and resume
+that cause investigation when new evidence distinguishes it from fixture
+starvation. Physical host/store/power, unrestricted placement, lifecycle,
+capacity and operational release gates remain incomplete. The full goal remains
+the entire design.
+
+## 2026-10-15 cold destination append recovery before automatic retry
 
 `fleet_faults.py --follower-only --restart-followers` now extends the original
 append cut to loss of every original process and recovery from retained follower
