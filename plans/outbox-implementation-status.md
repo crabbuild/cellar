@@ -22,11 +22,11 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are remaining live old-owner execution during
-takeover, follower-only destination append/fetch/ack proof, follower disk and
-physical store/host loss, and remaining lifecycle/capacity cuts. The current
-process fixture adds the selected follower-only source acknowledgment boundary;
-it does not complete the follower-proof failure matrix.
+The next correctness priorities are follower-only destination fetch/ack proof,
+remaining live old-owner execution during takeover, follower disk and physical
+store/host loss, and remaining lifecycle/capacity cuts. The current process
+fixtures cover selected follower-only source acknowledgment and destination
+append boundaries; they do not complete the follower-proof failure matrix.
 PRs #41 and #42 cover selected lost-fetch handoff and unproven-ack forced
 closure cases; neither is independent-process evidence. The process harnesses
 already cover append, ack and whole-fleet loss at selected boundaries; the
@@ -52,7 +52,52 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: returning proof after a recorded recovery refusal
+## Current follow-up: follower-only destination append recovery
+
+`fleet_faults.py --follower-only` selects real fleet durability for the original
+destination and explicit bucket proofs for producer/consumer leader writes.
+It waits for an installed destination follower ensemble, arms the existing
+replica-publication refusal, and measures destination LTX plus the original
+session's log objects before the command. A complete successful append reply is
+held while an independent audit verifies the original event and source's pending
+obligation. The proof gate requires a refused stream LTX upload, the fleet-ack
+marker and unchanged destination/session bucket bytes.
+
+After SIGKILL, the harness inventories and deletes only the destination's private
+data, observes actual old lease expiry and checks unchanged bucket data again.
+It keeps the original source RPC waiting through replacement startup and a saved
+audit of the original accepted envelope, pending source, empty inbox and checkpoint
+zero. Only then is the held reply dropped and retry released. The exact append
+request/response bytes must repeat; one accepted offset, one inbox effect and
+checkpoint one survive the retry/redelivery. Every surviving process joins with
+complete preserving shutdown. The separate proof auditor runs before each
+dependent boundary as well as during the full saved-ledger audit.
+
+The first measuring run failed because dropping the original response before
+recovery allowed a retry to take a new route after authority expiry and settle
+the source before audit. That run does not qualify recovery and is retained as
+a harness failure, not a production loss bug. Holding the original response
+through recovery closes that measuring race without changing runtime policies,
+timeouts or assertions. An oracle mutation now rejects early response loss.
+
+Final follower-only runs pass on SQLite and private RustFS S3; ordinary SQLite
+append-loss also passes. All use the existing current executable with SHA-256
+`44d5806b33ca9b3d82231a53596535878565b36b68985a21ff0ff9e3524ce9e2`.
+The 106 Python guards pass, including refusal of bucket bypass through LTX or
+node-log objects, missing proof stages, retained local data, stale authority and
+early response loss. Production Rust and owned markers remain unchanged.
+Formatting (506 Rust files), docs (36 documents/6 flows/386 references), dependency
+audit (403 packages/no JavaScript engine) and whitespace checks also pass. The
+current runtime binary's earlier Rust suites remain separate evidence; this
+Python/documentation slice does not rerun or supersede them.
+
+This qualifies one destination append boundary with live retained followers on
+one machine, not follower disk loss, independent physical hosts, power/store
+loss or every commit/proof cut. Destination follower-only fetch/ack and live
+stale-owner execution are next, with unexplained startup and lifecycle/capacity
+gates still open. The full goal remains incomplete.
+
+## 2026-10-15 returning proof after a recorded recovery refusal
 
 The selected acceptance gate is recovery availability when a valid follower
 witness returns after the predecessor has already recorded missing proof.

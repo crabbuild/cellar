@@ -83,7 +83,7 @@ class PeerProxy:
         self.armed = False
         self.paused = False
         self.capture = None
-        self.entered, self.release = threading.Event(), threading.Event()
+        self.entered, self.release, self.lost = threading.Event(), threading.Event(), threading.Event()
         self.errors = []
         self.outage = False
         proxy = self
@@ -126,6 +126,7 @@ class PeerProxy:
                                 proxy.entered.set()
                                 require(proxy.release.wait(20), "measuring client did not release the original proof boundary")
                                 proxy.ledger.record(proxy.label+"_reply_lost", request_sha256=exchange["request_sha256"])
+                                proxy.lost.set()
                                 self.request.shutdown(socket.SHUT_RDWR)
                                 return
                             proxy.ledger.record(proxy.label+"_reply_forwarded", exchange=exchange)
@@ -273,6 +274,7 @@ def audit_evidence(path):
     known_effects = set()
     pids, restarted, stopped = None, None, set()
     store, removed = None, False
+    follower_only = False
     for line in path.read_text().splitlines():
         row = json.loads(line); event=row["event"]
         if event=="network_store_started":
@@ -299,6 +301,8 @@ def audit_evidence(path):
             require(pids is None, "multiple fleet initializations")
             pids=row["pids"]
             require(set(pids)=={"producer","destination","consumer"} and len(set(pids.values()))==3, "fixture processes were not independent")
+        elif event=="destination_proof_armed":
+            follower_only=True
         elif event=="destination_restarted":
             require(restarted is None and kills==1 and not resumed and row["pid"] not in pids.values(), "restart did not replace the killed destination")
             restarted=row["pid"]
@@ -321,7 +325,7 @@ def audit_evidence(path):
             expected={"before-destination-loss":(1,[],0),"recovered-before-retry":(1,[],0),"accepted-after-retry":(0,[],0),"final":(0,["cross"],1)}
             snapshot=row["snapshot"]
             if label=="before-destination-loss":require(held is not None and kills==0 and not resumed, "pre-kill audit did not precede process loss")
-            elif label=="recovered-before-retry":require(kills==1 and drops==1 and restarted is not None and not resumed, "recovery audit did not precede retry")
+            elif label=="recovered-before-retry":require(kills==1 and (drops==1 or follower_only and drops==0) and restarted is not None and not resumed, "recovery audit did not precede retry")
             elif label in ("accepted-after-retry","final"):
                 require(resumed and forwarded>=1 and "recovered-before-retry" in passed, "post-retry audit preceded proven recovery")
                 if label=="final":require("accepted-after-retry" in passed, "final audit preceded append settlement")
@@ -371,10 +375,13 @@ def audit_evidence(path):
         and held is not None and kills==1 and drops==1 and restarted is not None and resumed and forwarded>=1
         and stopped=={"producer","destination","consumer"}, "incomplete fleet fault evidence")
     require(store is None or removed,"network store cleanup evidence missing")
-    return dict(audits=len(passed),independent_processes=3,destination_sigkills=kills,response_drops=drops,identical_retries=forwarded,backend="s3" if store else "sqlite")
+    result = dict(audits=len(passed),independent_processes=3,destination_sigkills=kills,response_drops=drops,identical_retries=forwarded,backend="s3" if store else "sqlite")
+    from destination_proof import audit_proof
+    result.update(audit_proof(path))
+    return result
 
 
-def exercise(binary, root, rustfs_image=None):
+def exercise(binary, root, rustfs_image=None, follower_only=False):
     require(os.name=="posix", "fleet qualification requires SIGKILL")
     root.mkdir(parents=True,exist_ok=False)
     ledger=Ledger(root,commands=(("cross",725,1),)); processes=[]; proxy=None
@@ -382,25 +389,38 @@ def exercise(binary, root, rustfs_image=None):
     try:
         if store:store.start()
         destination_peer=free_address(); proxy=PeerProxy(destination_peer,ledger)
-        destination=FleetProcess(binary,root,"destination","destination-initial",destination_peer,proxy.address,True,store)
+        destination=FleetProcess(binary,root,"destination","destination-initial",destination_peer,proxy.address,True,store,
+            replica_fault=follower_only,node_lease_ms=1000 if follower_only else None)
         processes.append(destination); origins={"destination":destination.ready()}
         require(read(origins["destination"],"/__test/events")["records"]==[], "destination not initially empty")
         for node in ("producer","consumer"):
             peer=free_address()
-            process=FleetProcess(binary,root,node,node,peer,peer,False,store)
+            process=FleetProcess(binary,root,node,node,peer,peer,False,store,fleet_durability=not follower_only,
+                node_lease_ms=1000 if follower_only else None)
             processes.append(process);origins[node]=process.ready()
         ledger.record("fleet_started",pids={node:process.child.pid for node,process in zip(("destination","producer","consumer"),processes)})
         require(read(origins["producer"],"/orders/cross")["host"]=="producer", "source was placed on another process")
         require(read(origins["consumer"],"/__test/projection-receipts")["host"]=="consumer", "consumer was placed on another process")
+        proof = None
+        if follower_only:
+            from destination_proof import DestinationProof
+            proof = DestinationProof(root, store, ledger)
+            proof.arm()
         proxy.arm(); ledger.issue(origins["producer"],"cross")
         require(proxy.entered.wait(5), "append proof boundary was not reached")
         audit(ledger,origins,"before-destination-loss",1,[],0)
+        if proof:proof.accepted(proxy.capture)
         destination.crash(ledger,"destination-after-proven-append")
-        proxy.release.set()
-        destination=FleetProcess(binary,root,"destination","destination-recovered",destination_peer,proxy.address,True,store)
+        if proof:proof.discard()
+        if not proof:proxy.release.set()
+        destination=FleetProcess(binary,root,"destination","destination-recovered",destination_peer,proxy.address,True,store,
+            node_lease_ms=1000 if follower_only else None)
         processes.append(destination);origins["destination"]=destination.ready()
         ledger.record("destination_restarted", pid=destination.child.pid)
         audit(ledger,origins,"recovered-before-retry",1,[],0)
+        if proof:proof.recovered()
+        proxy.release.set()
+        require(proxy.lost.wait(5), "original append response was not dropped")
         proxy.resume("recovered-before-retry")
         eventually(lambda:read(origins["producer"],"/orders/cross"),lambda state:state["outbox"]["pending_rows"]=="0")
         audit(ledger,origins,"accepted-after-retry",0,[],0)
@@ -431,7 +451,8 @@ def exercise(binary, root, rustfs_image=None):
         proxy.close();proxy=None
         if store:store.close()
         summary=dict(audit_evidence(ledger.path),status="passed",binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-            scope="three independent loopback processes sharing a private "+("RustFS S3" if store else "SQLite")+" bucket; proven destination append reply loss and destination SIGKILL",output=str(root))
+            scope="three independent loopback processes sharing a private "+("RustFS S3" if store else "SQLite")+" bucket; proven destination append reply loss and destination SIGKILL",
+            follower_only=follower_only,output=str(root))
         (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
         print(json.dumps(summary),flush=True)
     finally:
@@ -449,6 +470,7 @@ if __name__=="__main__":
     target.add_argument("--binary",type=Path);target.add_argument("--audit",type=Path)
     parser.add_argument("--output",type=Path)
     parser.add_argument("--rustfs-image",help="start a fresh private Docker RustFS server instead of the SQLite bucket")
+    parser.add_argument("--follower-only",action="store_true",help="refuse destination replica uploads and delete its local data before recovery")
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
-    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-stream-fleet-parent-"))/"evidence").resolve(),args.rustfs_image)
+    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-stream-fleet-parent-"))/"evidence").resolve(),args.rustfs_image,args.follower_only)

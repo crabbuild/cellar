@@ -1658,6 +1658,17 @@ and RustFS modes pass with independently archived executable/ledger digests.
 This covers one process-loss cut point on those two backends; separate physical
 hosts, store/follower/ack/power loss and the complete matrix remain required.
 
+Its `--follower-only` mode requires an installed real destination ensemble,
+refused stream replica uploads and unchanged destination LTX/session-log bucket
+objects across the append and through leader loss. Producer/consumer leader
+writes explicitly use bucket proof. It deletes destination-local data after
+SIGKILL and observes actual authority expiry. The original successful reply
+remains held through a saved recovery audit, preventing retry through a new
+route from repairing the measured prefix. Only then is that reply lost and the
+identical append retried. Original envelope/offset, one inbox effect/checkpoint
+and full shutdown are required. This selected SQLite/RustFS cut does not qualify
+follower-disk, fetch/ack, physical-host, power/store or every proof failure.
+
 The independent `whole_fleet.py` case selects bucket proofs explicitly and
 audits one accepted event with a proven unacked consumer inbox effect plus a
 second acknowledged source obligation blocked by required-stream capacity.

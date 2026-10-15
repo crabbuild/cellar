@@ -271,6 +271,35 @@ qualify separate physical hosts, follower loss, destination ack SIGKILL, object-
 store loss, power loss or the complete failure
 and capacity matrix.
 
+Add `--follower-only` to qualify an append accepted solely on follower proof.
+This mode uses 1000ms node leases, fleet durability on the original destination
+and explicit bucket proofs for producer/consumer leader writes. It waits for
+the destination ensemble, refuses destination replica uploads and requires an
+actual refused stream LTX write plus unchanged stream LTX and original-session
+log objects in the bucket. After SIGKILL it deletes the destination's private
+data and observes actual lease expiry. Followers keep their retained data.
+
+The original append reply stays held through the recovery audit, so the source
+cannot retry through a new owner and repair the prefix being measured. Only
+after the original envelope, pending source, empty inbox and checkpoint zero
+are audited does the harness drop the reply and release identical retries.
+One effect/checkpoint and complete shutdown are required. The extra saved-ledger
+checks live in [destination_proof.py](destination_proof.py) and reject bucket
+bypass, missing proof, early retry, local-data survival and stale authority.
+
+```sh
+python3 examples/durable-streams/fleet_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --output /tmp/cellar-destination-follower-evidence
+python3 examples/durable-streams/fleet_faults.py \
+  --audit /tmp/cellar-destination-follower-evidence/ledger.jsonl
+```
+
+The same mode accepts `--rustfs-image` with a pinned digest. It covers the
+selected destination append cut with live followers; follower disk loss,
+follower-only fetch/ack, physical hosts, power/store loss and the full matrix
+remain unqualified. The ordinary mode retains its existing proof/lease defaults.
+
 ## Whole-fleet recovery from the bucket
 
 [whole_fleet.py](whole_fleet.py) starts three independent processes with explicit

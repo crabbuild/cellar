@@ -671,6 +671,17 @@ completion. The all-fleet `--peer-proof fleet` variant remains unqualified: a
 private S3 case deleted the destination's sole follower witness with the producer
 disk and refused startup. Preserve that failed trace and do not treat the
 source-only proof case as its fix or general disk/power qualification.
+`fleet_faults.py --follower-only` instead isolates destination append proof with
+bucket-backed producer/consumer leaders and the destination replica refusal.
+Require unchanged destination LTX and original-session log objects, an actual
+refused upload and installed fleet-ack marker. Delete destination-local data
+after SIGKILL and observe old authority expiry. Keep the original append reply
+held until the recovery prefix is independently audited: dropping it earlier
+allows retries to acquire another route and repair that prefix. Then drop the
+reply, release identical retries and verify one envelope/offset, effect and
+checkpoint plus full joins. destination_proof.py enforces the extra proof gates
+before dependent work and in saved evidence. This covers live retained followers;
+destination fetch/ack, follower disk and physical host/power/store cuts remain.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST
