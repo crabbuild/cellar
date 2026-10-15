@@ -227,6 +227,41 @@ enum MetadataLoss {
     ReplacedAfterCapture,
 }
 
+async fn replacement_inputs(
+    directory: &std::path::Path,
+    core: &Executor,
+    bucket: cellar::bucket::Bucket,
+    same_name: bool,
+) -> Result<(NodeConfig, NodeServices, DeploymentGraph)> {
+    let (mut config, services) = inputs(
+        if same_name {
+            "refusal-destination"
+        } else {
+            "refusal-replacement"
+        },
+        &directory.join("replacement"),
+        core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    config.actor.lease_ttl_ms = 120_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(120);
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    external.primary.options.stream_bindings.clear();
+    Ok((config, services, external))
+}
+
+async fn delivery_proxy(
+    config: &mut NodeConfig,
+    services: &NodeServices,
+) -> Result<peer_reply_fault::Proxy> {
+    let proxy = peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
+    config.identity.advertise = proxy.address.to_string();
+    Ok(proxy)
+}
+
 async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Result<()> {
     let missing_metadata = matches!(
         loss,
@@ -251,7 +286,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     let replacement_core = Executor::new("refusal-clock-replacement")?;
     let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
-    // Select the same-name node as the measured successor. Other real peers
+    // Select the replacement node as the measured successor. Other real peers
     // retain their read, lease, follower and recovery services; only their
     // conditional writes to this cell's owner key are refused during the cut.
     let peer_claim = PublicationFault::with_prefixes(
@@ -312,14 +347,12 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         0,
     )
     .await?;
-    if same_name {
-        services
-            .fleet
-            .as_mut()
-            .context("source fleet missing")?
-            .bucket
-            .cas_store = peer_claim.clone();
-    }
+    services
+        .fleet
+        .as_mut()
+        .context("source fleet missing")?
+        .bucket
+        .cas_store = peer_claim.clone();
     config.actor.lease_ttl_ms = 120_000;
     config.startup.recovery_retry_backoff = Duration::from_secs(120);
     let operation_budget = Duration::from_millis(config.actor.core.operation_deadline_ms.unwrap());
@@ -337,14 +370,12 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             0,
         )
         .await?;
-        if same_name {
-            services
-                .fleet
-                .as_mut()
-                .context("witness fleet missing")?
-                .bucket
-                .cas_store = peer_claim.clone();
-        }
+        services
+            .fleet
+            .as_mut()
+            .context("witness fleet missing")?
+            .bucket
+            .cas_store = peer_claim.clone();
         config.actor.lease_ttl_ms = 120_000;
         config.startup.recovery_retry_backoff = Duration::from_secs(120);
         let mut external = graph(1, false);
@@ -449,6 +480,21 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             && obligation["lanes"][0]["revision"]["next_sequence"] == "3"
             && obligation["lanes"][0]["revision"]["settled_through"] == "1"
     );
+    // Keep the producer separate from the selected stream owner, including
+    // concurrent cold startup. Co-located dispatch is valid but bypasses the
+    // peer submission boundary this fixture measures.
+    let producer_scope = obligation["lanes"][0]["revision"]["source"]
+        .as_str()
+        .context("original producer scope missing")?
+        .to_owned();
+    let producer_claim = PublicationFault::with_prefixes(
+        bucket.cas_store.clone(),
+        format!("{}cells/{producer_scope}/own.json", bucket.prefix),
+        Vec::new(),
+    );
+    producer_claim.block();
+    let mut replacement_bucket = bucket.clone();
+    replacement_bucket.cas_store = producer_claim;
     offset.store(expiry_cut - wall(), Ordering::SeqCst);
     proxy.capture.request_release.add_permits(1);
     tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
@@ -553,9 +599,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         .is_err());
     drop(old_services);
     std::fs::remove_dir_all(&destination_data)?;
-    if same_name {
-        peer_claim.block();
-    }
+    peer_claim.block();
     if followers {
         ensure!(
             replicas(&observer, &bucket).await? == baseline,
@@ -565,6 +609,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     // Retained-proof cuts change only expiry after the old domain joins.
     // The separate metadata-loss cut deletes that proof root deliberately;
     // admission must remain blocked until its original fields return.
+    let mut cold_replacement = None;
     let old_lease = if missing_metadata {
         observer
             .run(async {
@@ -612,7 +657,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             "follower shutdown repaired the old-owner payload prefix"
         );
         let prior = expire_joined_owner(&observer, &bucket).await?;
-        let (mut source_config, source_services) = inputs(
+        let (mut source_config, mut source_services) = inputs(
             "refusal-source",
             &directory.path().join("source"),
             &source_core,
@@ -622,7 +667,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         .await?;
         source_config.actor.lease_ttl_ms = 120_000;
         source_config.startup.recovery_retry_backoff = Duration::from_secs(120);
-        let (mut witness_config, witness_services) = inputs(
+        let (mut witness_config, mut witness_services) = inputs(
             "refusal-witness",
             &directory.path().join("witness"),
             &witness_core,
@@ -632,12 +677,39 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         .await?;
         witness_config.actor.lease_ttl_ms = 120_000;
         witness_config.startup.recovery_retry_backoff = Duration::from_secs(120);
+        source_services
+            .fleet
+            .as_mut()
+            .context("cold source fleet missing")?
+            .bucket
+            .cas_store = peer_claim.clone();
+        witness_services
+            .fleet
+            .as_mut()
+            .context("cold witness fleet missing")?
+            .bucket
+            .cas_store = peer_claim.clone();
         let mut source_graph = graph(1, false);
         source_graph.primary.event_streams.clear();
         let mut witness_graph = graph(1, false);
         witness_graph.primary.event_streams.clear();
-        // Both cold follower servers must exist before either startup can wait
-        // for a binding's predecessor recovery. No original domain survives.
+        // Start both cold follower servers and the selected successor together.
+        // Binding activation needs that successor; only it may claim the stream.
+        // No original domain survives and no activation deadline is changed.
+        let (mut config, services, external) = replacement_inputs(
+            directory.path(),
+            &replacement_core,
+            replacement_bucket.clone(),
+            false,
+        )
+        .await?;
+        let successor_proxy = delivery_proxy(&mut config, &services).await?;
+        let start_replacement = Box::pin(Node::start(
+            config,
+            services,
+            external,
+            applications("replacement")?,
+        ));
         let start_source = Box::pin(Node::start(
             source_config,
             source_services,
@@ -650,7 +722,12 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             witness_graph,
             applications("witness")?,
         ));
-        let (source_result, witness_result) = tokio::join!(start_source, start_witness);
+        let (source_result, witness_result, replacement_result) =
+            tokio::join!(start_source, start_witness, start_replacement);
+        cold_replacement = Some((
+            replacement_result.context("start cold recovery successor")?,
+            successor_proxy,
+        ));
         source = source_result.context("restart retained cold source/follower")?;
         let node = witness_result.context("restart retained cold witness")?;
         super::super::ready(&source).await?;
@@ -674,149 +751,146 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         wall() < expires,
         "ordinary UTC could repair the future clock before recovery audit"
     );
-    let (mut config, mut services) = inputs(
-        if same_name {
-            "refusal-destination"
-        } else {
-            "refusal-replacement"
-        },
-        &directory.path().join("replacement"),
-        &replacement_core,
-        Some(bucket.clone()),
-        0,
-    )
-    .await?;
-    config.actor.lease_ttl_ms = 120_000;
-    config.startup.recovery_retry_backoff = Duration::from_secs(120);
-    let mut external = graph(1, false);
-    external.primary.event_streams.clear();
-    external.primary.options.stream_bindings.clear();
-    let cut = after_capture.then(|| {
-        RootReadCut::new(
-            bucket.store.clone(),
-            format!("{}nodes/refusal-destination.json", bucket.prefix),
-        )
-    });
-    if let Some(cut) = cut.as_ref() {
-        services
-            .fleet
-            .as_mut()
-            .context("replacement fleet missing")?
-            .lease_bucket
-            .store = cut.clone();
-        config.startup.recovery_attempts = 1;
-    }
-    let boot = Box::pin(Node::start(
-        config,
-        services,
-        external,
-        applications("replacement")?,
-    ));
-    let mut replacement_node = if let Some(cut) = cut.as_ref() {
-        let proof_before = follower_proof(directory.path(), &old_lease)?;
-        let replacement_root = replaced_after_capture.then(|| {
-            let mut root = old_lease.clone();
-            root["lineage"] = json!("ffffffffffffffffffffffffffffffff");
-            root.as_object_mut().unwrap().remove("log");
-            root
-        });
-        let erase = async {
-            tokio::time::timeout(Duration::from_secs(5), cut.entered.acquire())
-                .await??
-                .forget();
-            ensure!(
-                cut.snapshot()? == old_lease,
-                "startup captured another root than the retained proof"
-            );
-            observer
-                .run(async {
-                    let key = "nodes/refusal-destination.json";
-                    if let Some(replacement_root) = replacement_root.as_ref() {
-                        let (_, token) = bucket
-                            .get(key)
-                            .await?
-                            .context("captured root disappeared before replacement")?;
-                        ensure!(
-                            bucket
-                                .put_cas(key, serde_json::to_vec(replacement_root)?, Some(&token))
-                                .await?
-                                .is_some(),
-                            "captured root changed before controlled replacement"
-                        );
-                    } else {
-                        bucket.delete(key).await?;
-                        ensure!(bucket.get(key).await?.is_none());
-                    }
-                    Ok::<_, anyhow::Error>(())
-                })
-                .await??;
-            cut.release.add_permits(1);
-            Ok::<_, anyhow::Error>(())
-        };
-        let (result, erased) = tokio::join!(boot, erase);
-        erased?;
-        let error = match result {
-            Err(error) => error,
-            Ok(node) => {
-                let view = status(&client, &node).await;
-                let actual = owner(&observer, &bucket).await?;
-                stopped(node).await?;
-                anyhow::bail!("root loss after capture admitted a successor: {view:?}; {first_owner} -> {actual}");
-            }
-        };
-        let boundary = if replaced_after_capture {
-            "own node lineage changed before recovery"
-        } else {
-            "missing retained node lease after lineage capture"
-        };
-        ensure!(
-            format!("{error:#}").contains(boundary),
-            "startup refused at another boundary: {error:#}"
-        );
-        if let Some(replacement_root) = replacement_root.as_ref() {
-            observer
-                .run(async {
-                    let (bytes, _) = bucket
-                        .get("nodes/refusal-destination.json")
-                        .await?
-                        .context("replacement root disappeared")?;
-                    ensure!(
-                        serde_json::from_slice::<Value>(&bytes)? == *replacement_root,
-                        "startup overwrote the replacement root"
-                    );
-                    Ok::<_, anyhow::Error>(())
-                })
-                .await??;
-        }
-        ensure!(
-            owner(&observer, &bucket).await? == first_owner,
-            "failed startup replaced the original cell owner"
-        );
-        ensure!(
-            replicas(&observer, &bucket).await? == baseline,
-            "failed startup changed the original payload prefix"
-        );
-        ensure!(
-            follower_proof(directory.path(), &old_lease)? == proof_before,
-            "failed startup changed retained follower proof"
-        );
-        restore_metadata(&observer, &bucket, &old_lease, replaced_after_capture).await?;
-        let (mut config, services) = inputs(
-            "refusal-destination",
-            &directory.path().join("replacement"),
+    let (mut replacement_node, mut successor_proxy) = if let Some(pair) = cold_replacement {
+        pair
+    } else {
+        let (mut config, mut services, external) = replacement_inputs(
+            directory.path(),
             &replacement_core,
-            Some(bucket.clone()),
-            0,
+            replacement_bucket.clone(),
+            same_name,
         )
         .await?;
-        config.actor.lease_ttl_ms = 120_000;
-        config.startup.recovery_retry_backoff = Duration::from_secs(120);
-        let mut external = graph(1, false);
-        external.primary.event_streams.clear();
-        external.primary.options.stream_bindings.clear();
-        Node::start(config, services, external, applications("replacement")?).await?
-    } else {
-        boot.await?
+        let cut = after_capture.then(|| {
+            RootReadCut::new(
+                bucket.store.clone(),
+                format!("{}nodes/refusal-destination.json", bucket.prefix),
+            )
+        });
+        if let Some(cut) = cut.as_ref() {
+            services
+                .fleet
+                .as_mut()
+                .context("replacement fleet missing")?
+                .lease_bucket
+                .store = cut.clone();
+            config.startup.recovery_attempts = 1;
+        }
+        let mut successor_proxy = delivery_proxy(&mut config, &services).await?;
+        let boot = Box::pin(Node::start(
+            config,
+            services,
+            external,
+            applications("replacement")?,
+        ));
+        let replacement_node = if let Some(cut) = cut.as_ref() {
+            let proof_before = follower_proof(directory.path(), &old_lease)?;
+            let replacement_root = replaced_after_capture.then(|| {
+                let mut root = old_lease.clone();
+                root["lineage"] = json!("ffffffffffffffffffffffffffffffff");
+                root.as_object_mut().unwrap().remove("log");
+                root
+            });
+            let erase = async {
+                tokio::time::timeout(Duration::from_secs(5), cut.entered.acquire())
+                    .await??
+                    .forget();
+                ensure!(
+                    cut.snapshot()? == old_lease,
+                    "startup captured another root than the retained proof"
+                );
+                observer
+                    .run(async {
+                        let key = "nodes/refusal-destination.json";
+                        if let Some(replacement_root) = replacement_root.as_ref() {
+                            let (_, token) = bucket
+                                .get(key)
+                                .await?
+                                .context("captured root disappeared before replacement")?;
+                            ensure!(
+                                bucket
+                                    .put_cas(
+                                        key,
+                                        serde_json::to_vec(replacement_root)?,
+                                        Some(&token)
+                                    )
+                                    .await?
+                                    .is_some(),
+                                "captured root changed before controlled replacement"
+                            );
+                        } else {
+                            bucket.delete(key).await?;
+                            ensure!(bucket.get(key).await?.is_none());
+                        }
+                        Ok::<_, anyhow::Error>(())
+                    })
+                    .await??;
+                cut.release.add_permits(1);
+                Ok::<_, anyhow::Error>(())
+            };
+            let (result, erased) = tokio::join!(boot, erase);
+            erased?;
+            let error = match result {
+                Err(error) => error,
+                Ok(node) => {
+                    let view = status(&client, &node).await;
+                    let actual = owner(&observer, &bucket).await?;
+                    stopped(node).await?;
+                    anyhow::bail!("root loss after capture admitted a successor: {view:?}; {first_owner} -> {actual}");
+                }
+            };
+            let boundary = if replaced_after_capture {
+                "own node lineage changed before recovery"
+            } else {
+                "missing retained node lease after lineage capture"
+            };
+            ensure!(
+                format!("{error:#}").contains(boundary),
+                "startup refused at another boundary: {error:#}"
+            );
+            if let Some(replacement_root) = replacement_root.as_ref() {
+                observer
+                    .run(async {
+                        let (bytes, _) = bucket
+                            .get("nodes/refusal-destination.json")
+                            .await?
+                            .context("replacement root disappeared")?;
+                        ensure!(
+                            serde_json::from_slice::<Value>(&bytes)? == *replacement_root,
+                            "startup overwrote the replacement root"
+                        );
+                        Ok::<_, anyhow::Error>(())
+                    })
+                    .await??;
+            }
+            ensure!(
+                owner(&observer, &bucket).await? == first_owner,
+                "failed startup replaced the original cell owner"
+            );
+            ensure!(
+                replicas(&observer, &bucket).await? == baseline,
+                "failed startup changed the original payload prefix"
+            );
+            ensure!(
+                follower_proof(directory.path(), &old_lease)? == proof_before,
+                "failed startup changed retained follower proof"
+            );
+            restore_metadata(&observer, &bucket, &old_lease, replaced_after_capture).await?;
+            successor_proxy.capture.expect_upstream_close();
+            successor_proxy.stop().await?;
+            let (mut config, services, external) = replacement_inputs(
+                directory.path(),
+                &replacement_core,
+                replacement_bucket.clone(),
+                true,
+            )
+            .await?;
+            successor_proxy = delivery_proxy(&mut config, &services).await?;
+            Node::start(config, services, external, applications("replacement")?).await?
+        } else {
+            boot.await?
+        };
+        (replacement_node, successor_proxy)
     };
     super::super::ready(&replacement_node).await?;
     if missing_metadata {
@@ -845,23 +919,20 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                     Ok::<_, anyhow::Error>(())
                 })
                 .await??;
+            successor_proxy.capture.expect_upstream_close();
             stopped(replacement_node)
                 .await
                 .context("join refused same-name node before returning old metadata")?;
             restore_metadata(&observer, &bucket, &old_lease, true).await?;
-            let (mut config, services) = inputs(
-                "refusal-destination",
-                &directory.path().join("replacement"),
+            successor_proxy.stop().await?;
+            let (mut config, services, external) = replacement_inputs(
+                directory.path(),
                 &replacement_core,
-                Some(bucket.clone()),
-                0,
+                replacement_bucket.clone(),
+                true,
             )
             .await?;
-            config.actor.lease_ttl_ms = 120_000;
-            config.startup.recovery_retry_backoff = Duration::from_secs(120);
-            let mut external = graph(1, false);
-            external.primary.event_streams.clear();
-            external.primary.options.stream_bindings.clear();
+            successor_proxy = delivery_proxy(&mut config, &services).await?;
             replacement_node =
                 Node::start(config, services, external, applications("replacement")?).await?;
             super::super::ready(&replacement_node).await?;
@@ -873,6 +944,15 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         .await
         .context("audit current replacement clock")?;
     let next_owner = owner(&observer, &bucket).await?;
+    ensure!(
+        next_owner["node"]
+            == if same_name {
+                "refusal-destination"
+            } else {
+                "refusal-replacement"
+            },
+        "recovery did not use the measured successor: {next_owner}"
+    );
     ensure!(
         (if same_name {
             next_owner["node"] == first_owner["node"]
@@ -932,6 +1012,56 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         ),
         "old receipt advanced after recovery: {stale}"
     );
+    let producer_owner = observer
+        .run(async {
+            let (bytes, _) = bucket
+                .get(&format!("cells/{producer_scope}/own.json"))
+                .await?
+                .context("recovered producer owner missing")?;
+            Ok::<_, anyhow::Error>(serde_json::from_slice::<Value>(&bytes)?)
+        })
+        .await??;
+    ensure!(
+        producer_owner["node"] != next_owner["node"],
+        "co-located dispatch cannot qualify a peer submission: {producer_owner}"
+    );
+    // Backpressure and recovery can leave a legitimate retry up to 60s away.
+    // Select the next automatic submission before obtaining a fresh lease;
+    // no source row, retry policy, clock or ordinary call budget is changed.
+    successor_proxy.capture.hold_requests(&["__streamAppend"]);
+    let retry_wait = Instant::now();
+    let arrival = tokio::time::timeout(
+        Duration::from_secs(60) + operation_budget,
+        successor_proxy.capture.request_entered.acquire(),
+    )
+    .await;
+    if arrival.is_err() {
+        let cutoff_utc = wall();
+        let source_view = pending(&client, &source).await;
+        let destination_view = status(&client, &replacement_node).await;
+        let actual_owner = owner(&observer, &bucket).await;
+        anyhow::bail!("next automatic append did not reach the recovered owner by the original phase deadline; source={source_view:?}; destination={destination_view:?}; owner={actual_owner:?}; cutoff_utc={cutoff_utc}");
+    }
+    arrival??.forget();
+    let retry_wait_ms = retry_wait.elapsed().as_millis();
+    let retry_held = Instant::now();
+    let held = successor_proxy
+        .capture
+        .held_requests
+        .lock()
+        .unwrap()
+        .clone();
+    ensure!(
+        held.len() == 1
+            && held[0].method == "__streamAppend"
+            && held[0].scope == stream_scope()?
+            && cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
+                held[0].body.clone().into(),
+            ))?
+            .to_json()?
+                == request,
+        "automatic recovery retry changed the original append"
+    );
     let replay = fetch(
         &client,
         &source,
@@ -954,6 +1084,12 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         settle(&client, &source, "projection", "ack", &replacement, 0).await?
             == json!({"status":"Acknowledged"})
     );
+    let retry_held_ms = retry_held.elapsed().as_millis();
+    ensure!(
+        retry_held.elapsed() < operation_budget,
+        "fresh fetch and acknowledgment exceeded the original pending append budget"
+    );
+    successor_proxy.capture.request_release.add_permits(1);
     let mut delivery_observation = Value::Null;
     let delivered = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -1004,7 +1140,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     eprintln!(
         "CLOCK_REFUSAL_EVIDENCE {}",
         json!({"proof":if followers {"followers"}else{"bucket"},"old_owner":first_owner,"successor":next_owner,
-        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
+        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"retry_wait_ms":retry_wait_ms,"retry_held_ms":retry_held_ms,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
     );
     stopped(source)
         .await
@@ -1012,9 +1148,11 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     if let Some(node) = witness {
         stopped(node).await.context("join refusal witness")?;
     }
+    successor_proxy.capture.expect_upstream_close();
     stopped(replacement_node)
         .await
         .context("join refusal replacement")?;
+    successor_proxy.stop().await?;
     proxy.stop().await?;
     observer.shutdown().await;
     for executor in [

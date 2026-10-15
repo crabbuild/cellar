@@ -736,7 +736,9 @@ guarantee for arbitrary historical client requests would require additional
 unbounded receipts and is outside this contract.
 
 Transient routing, capacity, timeout, and availability errors schedule bounded
-exponential backoff with injected jitter. Authorization, deleted destination,
+exponential backoff with injected jitter, capped at 60 seconds. Acknowledgment
+can free destination capacity without notifying remote sources; their pending
+lanes keep the saved retry schedule. Authorization, deleted destination,
 unsupported protocol, sequence gaps, and corrupt payload errors block the lane
 with a visible reason. Blocked lanes retain rows and a low-frequency retry wake;
 an administrative retry can bring that deadline forward after repair. Later

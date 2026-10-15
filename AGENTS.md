@@ -123,6 +123,21 @@ as well as per-cell uploads. The bundle loop's first tick can otherwise win
 with legitimate Bucket proof before Fleet credit; a 1ms fixture-only flush probe
 exposes that route. Preserve real metadata CAS, reads and loss diagnostics;
 BundleFault excludes only the selected session's bundle PUTs, never supplies proof.
+Clock-refusal recovery fixtures select the next automatic append at the real
+successor peer proxy before fetching a fresh lease and acknowledging retained
+history. Select that successor with the existing owner-key CAS-only peer fault
+in every cut, including cold restarts, and assert its name. Otherwise a source
+can legitimately claim the stream and dispatch locally without visiting the proxy.
+Start both cold followers and the selected successor concurrently so binding
+activation can resolve it; keep all startup futures heap-pinned and retain the
+original activation deadlines. Exclude producer ownership on that successor
+with a producer-owner-key CAS-only fault and assert distinct owners: cold
+recovery can otherwise validly co-locate the outbox and stream and bypass the
+peer boundary. Required-history backpressure can save a retry up to 60s away;
+ack does not notify a remote producer to advance that deadline. Bound phase selection by
+that policy plus the original call budget, compare the entire original request,
+release within the ordinary 3s held interval and keep the 5s settlement check.
+Do not use operator retry, row repair or mutation replay to select this phase.
 Keep implemented behavior separate from release qualification. Passing reruns
 do not close unexplained failures or substitute for missing fault cases.
 Outbox dispatch uses immutable stored principal/grant identity after source

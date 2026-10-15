@@ -24,20 +24,20 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice targets root loss after startup reads its retained lineage
-but before predecessor recovery reads the folded proof. The new native cut
-reproduces unsafe epoch-two admission and revival of a proven expired lease.
-Identity capture now retains whether a root was present; the second read must
-find that root before recovery, collection or lease installation can proceed.
-Qualify erasure and replacement at that cut with unchanged original owner,
-bucket payload and follower bytes, then return the saved metadata and audit
-recovery before receipt reuse. The prior lineage and failed-route fixes remain.
-One focused run also times out at the original five-second post-ack delivery
-observation in the older same-name case. The next investigation must capture
-source retry/attempt state and destination acceptance at that cut; passing
-repeats do not explain it. Then exercise loss during predecessor recovery and
-the transition from proven recovery to lease installation, metadata rollback
-and the independent-process clock-refusal matrix. The full proof/fault matrix remains open.
+The current slice corrects a demonstrated timing assumption in the intermittent
+five-second post-ack delivery observation. A controlled delay before acknowledgment reproduces that timeout
+with a persisted source retry still 21.292s in the future, an acknowledged first
+record and no second acceptance. This establishes a timing defect in the fixture;
+the original failure lacked that snapshot, so its exact cause is not asserted.
+The fixture now selects the next automatic append at a real peer submission
+barrier before obtaining and acknowledging a fresh lease. It releases the unchanged
+append within the original three-second budget and retains the five-second
+settlement observation. Production backoff and source state are unchanged.
+All three paired delay controls and all seven final focused cases pass; the
+final serial Node run passes all 65 cases. Workspace and tooling checks pass.
+Next exercise loss during predecessor recovery and the transition from proven
+recovery to lease installation, metadata rollback and the independent-process
+clock-refusal matrix. The full proof/fault matrix remains open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -68,6 +68,88 @@ development. Layout changes use hard cutovers with recreated state and rebuilt
 participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
+
+## Current follow-up: delivery after recovery backpressure
+
+The preserved 79d5a8b Node executable passes 50 additional isolated same-name
+metadata-loss cases; those repeats do not establish the earlier timeout's cause.
+A separate one-variable probe waits 15s after the recovered-prefix audit and
+before acknowledgment. Its second run reproduces the original five-second
+post-ack assertion (25.23s overall). At the cutoff, source attempts are 10,
+dispatch generation is 11, the original event remains pending, last error is
+StreamFull, and retry_at_ms is 21.292s in the future. Destination checkpoint is
+1, end is 2 and the lease is absent. Thus this reproduction is a legitimate
+saved retry delay, not overdue work or an already accepted event waiting for
+source settlement. No operation budget or dispatch policy changes in the probe;
+its source is restored byte-for-byte. The initial run did not capture this state,
+so these findings do not retroactively prove its exact scheduling path.
+
+The corrected fixture advertises a real proxy for the chosen replacement, then
+holds its next automatic __streamAppend after auditing the original recovered
+prefix and stale receipt. The phase wait is bounded by the existing 60s maximum
+retry plus the original 3s operation budget. Only after a real submission arrives
+does it obtain a fresh lease and acknowledge the retained first event. Require
+that work to finish inside the original 3s held-request interval, compare the
+complete decoded append with the original captured request, and release that
+same request. The original five-second settlement observation, source identity,
+envelope, inbox and checkpoint assertions remain. No source replay, operator
+rearm, row repair, shorter backoff or synthetic proof is introduced.
+
+All three paired 15s controls pass (45.77s, 54.14s and 43.46s overall).
+They wait 23.418s, 32.003s and 19.154s for actual automatic submissions and hold
+those requests only 54ms, 80ms and 43ms while fetching and acknowledging. The
+complete original append, source identity, inbox effects and final checkpoint 2
+survive each control. Both temporary probes restore source byte-for-byte; the
+final fixture has no injected delay. Final qualification passes below.
+The first final focused group passes four cases but three foreign-name cases
+expire at the proxy phase gate. A live, read-only inspection during the follower
+case records refusal-source as the actual epoch-two owner, also present in its
+local stream database path. Local dispatch cannot visit the replacement proxy.
+The pre-existing owner-key CAS-only selection fault previously applied only to
+same-name cases. Apply it to all seven cases and to cold source/witness restarts,
+then explicitly require the chosen successor. Only those peers' conditional
+writes to the one stream owner key are refused; reads, node leases, metadata
+proof and follower services stay real. Preserve the failed executable, source,
+logs and live owner snapshot. This fixture failure is not a recovery defect. The next group passes six cases
+and refuses cold-source activation: with peer claims excluded, activation needs
+the selected successor that the fixture had started only afterward. Start both
+cold follower servers and that successor in one heap-pinned three-way join;
+preserve the original activation deadlines and complete each readiness check.
+That change passes activation, but the cold case still times out at the dispatch
+phase gate in a subsequent six-pass/one-failure group. Retain that failure and
+capture source retry state, destination acceptance and actual owner at the
+unchanged phase cutoff before identifying its cause. No production scheduler
+or retry-policy change is justified by that observation alone.
+The cutoff snapshot then shows attempts advancing to 10 with StreamFull, a
+future retry and the intended stream owner: automatic dispatch is running.
+An independent repeat inspects both real owner records while the gate is held;
+the producer is on the same replacement (producer epoch 3, stream epoch 2).
+Its local appends correctly bypass the peer proxy. Exclude only the replacement's
+conditional writes to that producer owner key and assert distinct source/stream
+owners before selecting the next submission. Other peers may still own/recover
+the producer; no source or stream data is edited. The original diagnostic run
+and repeat remain preserved. These are corrections to remote-phase fixture
+selection, not production routing, retry or recovery changes.
+
+This is native domain evidence; recovery/install interleavings, metadata rollback,
+process clock-refusal and physical fault qualification remain open.
+
+Final focused qualification passes all seven cases (65.69s). The final serial
+Node suite passes all 65 cases (497.11s). The saved focused/full executable
+SHA256 matches: 007f275618a0c35b98b77f4baced37bc893768fb78b76330afaf6bc83973487a.
+The changed Rust source remains byte-identical throughout both runs. This
+follow-up changes one native fixture and documentation; production sources
+remain those qualified at 79d5a8b. Workspace all-target/all-feature check passes
+(383.24s), as does Clippy with warnings denied (45.31s). All seven artifact and
+three CLI cases pass; formatting checks 516 Rust files. Docs validate 36 documents,
+six flows and 388 references; the dependency audit checks 403 packages without a
+JavaScript engine. All 129 Python guards pass. Hosted run 38813621162 executes
+zero steps because GitHub reports failed payments or an exhausted spending limit;
+hosted Rust 1.98.1 qualification remains unavailable. Local Rust is 1.97.0 on
+aarch64 macOS. Independent-process drivers have not been rerun for the new
+session namespace. The earlier sample did not capture causality state; these
+controls address demonstrated timing/placement assumptions without claiming
+complete startup/recovery availability or a physical-fault qualification.
 
 ## Current follow-up: missing node lease recovery evidence
 

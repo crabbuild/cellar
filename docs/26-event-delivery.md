@@ -231,7 +231,10 @@ business calls.
 ## Operate the whole path
 
 Required subscriptions protect their unacknowledged history and can backpressure
-producers. Bounded history can expire lagging readers. Choose this policy before
+producers. After acknowledgment frees capacity, producers resume on their saved
+retry schedule; acknowledgment does not immediately wake a remote producer.
+Transient delivery failures use jittered exponential backoff capped at 60 seconds.
+Bounded history can expire lagging readers. Choose this policy before
 deployment, monitor backlog and lag, and define how to rebuild a consumer whose
 history has expired. Correctness receipts and watermarks do not expire
 automatically. Retiring resources and destroying sources require explicit controls.
