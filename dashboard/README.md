@@ -114,7 +114,6 @@ framework version. Removed schedules retain inspection access without rearming.
 
 See [inspector implementation and verification](../plans/005-resource-inspectors.md).
 
-
 ## Events and delivery workspaces
 
 Outboxes lists candidate root cells without probing every cell. Open a source
@@ -138,9 +137,10 @@ requires `data_write`. Reviews pin the subscription UUID and generation, require
 a reason and describe checkpoint/retention consequences. An active lease can
 reject a change. Forced subscription deletion is an explicit additional choice.
 The native durable receipt is bound to a server-derived console actor. A lost
-reply retains its operation ID for **Check receipt**. Reconciliation matches the exact recorded request,
-including its reason and expected identity; the console never replays
-the mutation automatically. The Operations page links to receipt lookup, including after a workspace reload.
+reply retains its operation ID for **Check receipt**. Reconciliation matches the
+exact recorded request, including its reason and expected identity; the console
+never replays the mutation automatically. The Operations page links to receipt
+lookup, including after a workspace reload.
 Receipt lookup does not inspect delivery lanes or repeat a mutation. Operation
 history pages are owner observations.
 
