@@ -5,7 +5,9 @@
 //! to the embedding management service.
 
 mod crons;
+mod events;
 pub use crons::CronConfiguration;
+pub use events::{EventStreamAction, OutboxAction};
 mod inventory;
 mod kv;
 pub use kv::{EditExpiration, KvEdit, RevisionCondition};
@@ -19,7 +21,9 @@ mod routing;
 mod workflows;
 pub use crate::application::workflow::OperatorAction as WorkflowAction;
 
-pub use inventory::{ApplicationView, BindingView, CellView, NodeView, Page, PageRequest};
+pub use inventory::{
+    ApplicationView, BindingView, CellView, EventBindingView, NodeView, Page, PageRequest,
+};
 
 use crate::bucket::Bucket;
 use crate::operator_cell::{Reachable, Subject};

@@ -47,24 +47,25 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: PR #34
+## Current follow-up: startup observations
 
-[PR #27](https://github.com/crabbuild/cellar/pull/27) is merged.
-[PR #34](https://github.com/crabbuild/cellar/pull/34) remains a draft. Rust source
-at 69b191d fixes the reproduced activation stack overflow with a heap-pinned
-dispatch boundary and strengthens the unbound-publication assertion to a typed
-InvalidRequest. Latest local results: 218 library cases, native stream/outbox,
-37/39 Node cases, workspace Clippy-D, and the real durable-stream example smoke
-pass. Rustdoc succeeds with seven private-link warnings in unchanged files.
+[PR #27](https://github.com/crabbuild/cellar/pull/27) and
+[PR #34](https://github.com/crabbuild/cellar/pull/34) are merged. The activation
+stack fix and SDK contracts are on main. The follow-up contains fixture-only
+startup failure diagnostics and this evidence ledger; production Rust is unchanged.
+Local library (218 cases), stream/outbox, Clippy-D and example smoke gates pass.
+The earlier combined Node run passed 37/39; the diagnostic Node run passes 39/39.
+Their conditions and evidence remain separate below. Rustdoc succeeds with seven
+private-link warnings in unchanged files.
 
-The two Node failures are cancelled-bootstrap factory entry timeout and a
-closed-domain error in the explicit-policy test's child. Both pass unchanged in
-isolation and all six repeated isolated attempts pass; their causes remain
-unestablished. They are not repaired by the activation stack fix. Local results
-use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles. GitHub CI
-did not start on the checked c7be23d run because of account billing/spending
-limits. Complete backend, ownership, fault, capacity and release gates remain
-open. Historical sections below retain their exact source/evidence scope.
+The two earlier Node failures were cancelled-bootstrap factory entry timeout and
+a closed-domain error in the explicit-policy test's child. Both pass unchanged
+in isolation and all six repeated isolated attempts pass; their causes remain
+unestablished. They are not repaired by the activation stack fix or diagnostics.
+Local results use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles.
+GitHub CI did not start on the checked c7be23d run because of account billing/
+spending limits. Complete backend, ownership, fault, capacity and release gates
+remain open. Historical sections retain their exact source/evidence scope.
 
 ## Current code
 
@@ -3118,3 +3119,21 @@ captured symbols-disabled, nonincremental dev/test profile. Formatting checks
 Clippy passes with all targets/features and warnings denied. Complete SDK outcome
 auditing and broader backend, ownership,
 fault, capacity and release gates remain open.
+
+## Startup failure observation boundaries (2026-10-15)
+
+The startup fixtures use one-second leases and five-second entry/readiness waits.
+Failure-only diagnostics now report whether the cancelled-bootstrap startup future
+completed (including its error) or remains pending at entry timeout. The policy
+child labels node start, readiness and drain stages; on closed-domain readiness
+failure it polls the supervisor completion once without waiting or changing the
+failed result. Its wrapper reports a child failure without assuming configuration
+was consulted. Original deadlines, assertions and public node policies are intact.
+
+The diagnostic Node suite passes all 39 cases in 288.58s, with RUST_BACKTRACE=1
+and no other task-owned checks scheduled during runtime. This is an observation,
+not proof that compiler overlap or any particular startup race caused the prior
+failures. Earlier 37/39 failure evidence remains retained. Workspace/all-target/
+all-feature Clippy-D for this test-only change passes in 2m32s. No production Rust
+changed since 69b191d. The factory-entry and closed-domain root-cause audits remain
+open.
