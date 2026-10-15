@@ -12,6 +12,25 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
+## Current follow-up: PR #34
+
+[PR #27](https://github.com/crabbuild/cellar/pull/27) is merged.
+[PR #34](https://github.com/crabbuild/cellar/pull/34) remains a draft. Rust source
+at 69b191d fixes the reproduced activation stack overflow with a heap-pinned
+dispatch boundary and strengthens the unbound-publication assertion to a typed
+InvalidRequest. Latest local results: 218 library cases, native stream/outbox,
+37/39 Node cases, workspace Clippy-D, and the real durable-stream example smoke
+pass. Rustdoc succeeds with seven private-link warnings in unchanged files.
+
+The two Node failures are cancelled-bootstrap factory entry timeout and a
+closed-domain error in the explicit-policy test's child. Both pass unchanged in
+isolation and all six repeated isolated attempts pass; their causes remain
+unestablished. They are not repaired by the activation stack fix. Local results
+use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles. GitHub CI
+did not start on the checked c7be23d run because of account billing/spending
+limits. Complete backend, ownership, fault, capacity and release gates remain
+open. Historical sections below retain their exact source/evidence scope.
+
 ## Current code
 
 - `Storage::tx` delegates to the existing synchronous savepoint machinery.
@@ -3030,3 +3049,12 @@ bounded three-round repeated isolated probe is running. Preserve the failed
 full-suite evidence separately from passing replays. PR34 remains a draft and
 these startup/recovery audits remain open; no all-green Node or release claim
 is made. No worker stack, timeout, lease or assertion was enlarged or weakened.
+
+
+The three-round unchanged-binary startup probe completes with all six attempts
+passing (cancelled bootstrap: 6.189/0.867/0.872s; explicit policy: 13.539/11.773/
+11.947s). These do not explain or erase the failed full suite. The rebuilt real
+cellar-example-streams executable also passes examples/durable-streams/smoke.py:
+atomic producer, resumable read, inbox redelivery, acknowledgment and preserving
+restart. This qualifies the documented local walkthrough, not the complete
+backend/crash/ownership/release matrix.
