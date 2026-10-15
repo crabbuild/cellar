@@ -1,7 +1,8 @@
 import { lazy, Suspense, useState } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom"
-import { Box, KeyRound, Network, Server, Workflow } from "lucide-react"
+import { Box, KeyRound, Server, Workflow } from "lucide-react"
+import { CellarMark } from "@/components/cellar-mark"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import {
@@ -150,9 +151,7 @@ function Login({
     <div className="login-shell">
       <aside className="login-story">
         <div className="brand">
-          <span className="brand-mark">
-            <Network />
-          </span>
+          <CellarMark />
           <span>
             cellar<span className="brand-caption">FLEET CONSOLE</span>
           </span>
