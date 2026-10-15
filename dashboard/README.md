@@ -113,3 +113,46 @@ to its workflow instance and does not claim workflow completion. The owner retai
 framework version. Removed schedules retain inspection access without rearming.
 
 See [inspector implementation and verification](../plans/005-resource-inspectors.md).
+
+## Events and delivery workspaces
+
+Outboxes lists candidate root cells without probing every cell. Open a source
+scope to inspect up to 25 lanes, exact backlog counts, oldest pending age,
+blocked reasons, incarnation and dispatch revision. Retry requires `data_read`
+and `operate`, pins the inspected revision, and records a reason. It never skips
+or removes events. A lane with no pending payload rows can still retry a pending
+or blocked producer seal.
+
+Event streams and Subscriptions list deployed stream bindings. Name selectors
+resolve through bounded catalog pages; the server rechecks the selected UUID's
+full identity and derives authority from the current deployment. Declarations
+and catalog entries are not activation or delivery proof. Statistics, producer
+watermarks, subscription inventory and lifecycle history require the binding's
+`administer` capability. Browsing events requires its `read` capability. Reads
+return up to 25 events / 256 KiB and exclude payloads until explicitly requested;
+they never consume or acknowledge events.
+
+Subscription pause/resume requires `data_read` and `operate`; reset/delete also
+requires `data_write`. Reviews pin the subscription UUID and generation, require
+a reason and describe checkpoint/retention consequences. An active lease can
+reject a change. Forced subscription deletion is an explicit additional choice.
+The native durable receipt is bound to a server-derived console actor. A lost
+reply retains its operation ID for **Check receipt**. Reconciliation matches the
+exact recorded request, including its reason and expected identity; the console
+never replays the mutation automatically. The Operations page links to receipt
+lookup, including after a workspace reload.
+Receipt lookup does not inspect delivery lanes or repeat a mutation. Operation
+history pages are owner observations.
+
+Cells expose root event-state gauges. Nodes expose signed host counters,
+cumulative duration histograms and current dispatch/waiter reservations, pinned
+to the observed process generation. Host counters reset on restart and cannot
+be attributed to individual cells. No cross-fleet aggregate or drain proof is
+inferred from these observations. Cold inspection can activate a cell and
+progress existing work. All counters and offsets remain decimal strings in the
+browser to preserve 64-bit precision. Requested event payloads are delivered as
+JSON text and rendered without a browser numeric conversion, preserving large
+application integer values too.
+
+See [event console implementation and verification](../plans/006-event-console.md)
+and [primitive qualification status](../plans/outbox-implementation-status.md).

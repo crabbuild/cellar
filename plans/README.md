@@ -33,6 +33,7 @@ mandatory captured-policy/cache-snapshot checks to the performance harness.
 | [003: Fleet dashboard](003-fleet-dashboard.md) | P1 | L | HIGH | 002 | DONE |
 | [004: SQL and KV workspaces](004-sql-kv-workspaces.md) | P1 | L | HIGH | 003 | DONE |
 | [005: Queue, workflow and schedule inspectors](005-resource-inspectors.md) | P1 | M | HIGH | 004 | DONE |
+| [006: Outbox, event stream and subscription console](006-event-console.md) | P1 | L | HIGH | 005 | DONE |
 
 Plan 003 scopes the browser console for fleet, node and cell management, with
 SQL, KV, Queue, Workflow and Cron workspaces. It maps the UI to current owner

@@ -676,8 +676,8 @@ Conditional console requests also pin the inspected binding identity across depl
 Console edits preserve exact expiry and storage tags, and distinguish absent
 metadata from JSON null. Definite revision conflicts are rejected; lost write
 replies remain unknown. Keep the existing unconditional SDK/CLI signatures.
-See `plans/003-fleet-dashboard.md`, `plans/004-sql-kv-workspaces.md`, and
-`plans/005-resource-inspectors.md` for
+See `plans/003-fleet-dashboard.md`, `plans/004-sql-kv-workspaces.md`,
+`plans/005-resource-inspectors.md`, and `plans/006-event-console.md` for
 implementation progress and release gates.
 
 For dashboard changes, also run:

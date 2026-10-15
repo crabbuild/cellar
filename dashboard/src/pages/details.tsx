@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router-dom"
+import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { ArrowLeft, Radio } from "lucide-react"
 import { toast } from "sonner"
@@ -28,6 +28,12 @@ import {
   type Cell,
   type Node,
 } from "@/lib/api"
+import {
+  CellOutbox,
+  CellEventState,
+  NodeEvents,
+} from "@/components/cell-events"
+import { Nothing } from "@/components/console-ui"
 import { NodeCells } from "@/components/node-cells"
 import { NodeControls } from "@/components/node-controls"
 import { CellControls } from "@/components/cell-controls"
@@ -36,7 +42,10 @@ import { useSession } from "@/lib/session"
 
 export default function Details({ kind }: { kind: "nodes" | "cells" }) {
   const { fleet = "", id = "" } = useParams()
-  const { token } = useSession()
+  const { token, session } = useSession()
+  const [params, setParams] = useSearchParams()
+  const tab = params.get("tab") ?? "overview"
+  const canRead = session.grants[fleet]?.includes("data_read")
   const data = useApi<Node | Cell>(
     fleetPath(fleet, `/${kind}/${encodeURIComponent(id)}`)
   )
@@ -74,9 +83,17 @@ export default function Details({ kind }: { kind: "nodes" | "cells" }) {
       </PageHeading>
       <Feedback loading={data.isPending} error={data.error}>
         {record ? (
-          <Tabs defaultValue="overview">
+          <Tabs value={tab} onValueChange={(tab) => setParams({ tab })}>
             <TabsList variant="line">
               <TabsTrigger value="overview">Overview</TabsTrigger>
+              {kind === "cells" &&
+                "scope" in record &&
+                !["event_stream", "event_catalog"].includes(record.kind) && (
+                  <TabsTrigger value="outbox">Outbox</TabsTrigger>
+                )}
+              <TabsTrigger value="events">
+                {kind === "cells" ? "Event state" : "Event activity"}
+              </TabsTrigger>
               <TabsTrigger value="observation">Observation data</TabsTrigger>
             </TabsList>
             <TabsContent value="overview">
@@ -195,6 +212,42 @@ export default function Details({ kind }: { kind: "nodes" | "cells" }) {
                     node={record}
                   />
                 </>
+              )}
+            </TabsContent>
+            <TabsContent value="outbox">
+              {canRead && "scope" in record ? (
+                <CellOutbox
+                  key={`${fleet}:${record.scope}`}
+                  fleet={fleet}
+                  scope={record.scope}
+                />
+              ) : (
+                <Nothing
+                  title="Event inspection requires data access"
+                  description="Ask your console administrator for data_read access to this fleet."
+                />
+              )}
+            </TabsContent>
+            <TabsContent value="events">
+              {canRead ? (
+                "scope" in record ? (
+                  <CellEventState
+                    key={`${fleet}:${record.scope}`}
+                    fleet={fleet}
+                    scope={record.scope}
+                  />
+                ) : (
+                  <NodeEvents
+                    key={`${fleet}:${record.id}:${record.generation}`}
+                    fleet={fleet}
+                    node={record}
+                  />
+                )
+              ) : (
+                <Nothing
+                  title="Event inspection requires data access"
+                  description="Ask your console administrator for data_read access to this fleet."
+                />
               )}
             </TabsContent>
             <TabsContent value="observation">
