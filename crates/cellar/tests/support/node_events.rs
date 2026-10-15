@@ -10,6 +10,9 @@ mod source_cleanup_fault;
 #[path = "event_owner_outage.rs"]
 mod event_owner_outage;
 
+#[path = "event_late_reply.rs"]
+mod event_late_reply;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};

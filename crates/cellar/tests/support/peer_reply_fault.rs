@@ -6,7 +6,13 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::sync::{oneshot, Semaphore};
+use tokio::sync::{oneshot, watch, Semaphore};
+
+#[derive(Clone, Copy)]
+enum Fault {
+    Drop,
+    Delay,
+}
 
 #[derive(Clone, Debug)]
 pub(super) struct Exchange {
@@ -15,12 +21,16 @@ pub(super) struct Exchange {
     pub request: Vec<u8>,
     pub response: Vec<u8>,
     pub dropped: bool,
+    pub delayed: bool,
 }
 
 pub(super) struct Capture {
-    armed: Mutex<Option<&'static str>>,
+    armed: Mutex<Option<(&'static str, Fault)>>,
+    paused: watch::Sender<bool>,
     pub entered: Semaphore,
     pub release: Semaphore,
+    pub blocked: Semaphore,
+    pub released: Semaphore,
     pub exchanges: Mutex<Vec<Exchange>>,
 }
 
@@ -28,8 +38,11 @@ impl Default for Capture {
     fn default() -> Self {
         Self {
             armed: Mutex::new(None),
+            paused: watch::channel(false).0,
             entered: Semaphore::new(0),
             release: Semaphore::new(0),
+            blocked: Semaphore::new(0),
+            released: Semaphore::new(0),
             exchanges: Mutex::new(Vec::new()),
         }
     }
@@ -37,7 +50,17 @@ impl Default for Capture {
 
 impl Capture {
     pub fn arm(&self, method: &'static str) {
-        *self.armed.lock().unwrap() = Some(method);
+        *self.armed.lock().unwrap() = Some((method, Fault::Drop));
+    }
+
+    /// Hold one complete append reply, then stop new append submissions until
+    /// the test explicitly permits replay after its successor audit.
+    pub fn delay_append(&self) {
+        *self.armed.lock().unwrap() = Some(("__streamAppend", Fault::Delay));
+    }
+
+    pub fn resume_appends(&self) {
+        self.paused.send_replace(false);
     }
 }
 
@@ -210,6 +233,15 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
     let mut client = BufReader::new(socket);
     let mut owner = BufReader::new(TcpStream::connect(target).await?);
     while let Some(request) = message(&mut client, false).await? {
+        let mut paused = capture.paused.subscribe();
+        if request.header("x-cells-rpc-method") == Some("__streamAppend")
+            && *paused.borrow_and_update()
+        {
+            capture.blocked.add_permits(1);
+            while *paused.borrow_and_update() {
+                paused.changed().await?;
+            }
+        }
         request.write(owner.get_mut()).await?;
         let Some(reply) = message(&mut owner, true).await? else {
             break;
@@ -221,22 +253,51 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
                 reply.head.starts_with(b"HTTP/1.1 200 "),
                 "event RPC did not produce a successful HTTP reply"
             );
-            let dropped = {
+            let fault = {
                 let mut armed = capture.armed.lock().unwrap();
-                if *armed == Some(method) {
-                    armed.take();
-                    true
+                if armed.as_ref().is_some_and(|(target, _)| *target == method) {
+                    armed.take().map(|(_, fault)| fault)
                 } else {
-                    false
+                    None
                 }
             };
+            let dropped = matches!(fault, Some(Fault::Drop));
+            let delayed = matches!(fault, Some(Fault::Delay));
             capture.exchanges.lock().unwrap().push(Exchange {
                 method: method.into(),
                 scope: request.header("x-cells-scope").unwrap_or_default().into(),
                 request: request.body.clone(),
                 response: reply.body.clone(),
                 dropped,
+                delayed,
             });
+            if delayed {
+                capture.paused.send_replace(true);
+                capture.entered.add_permits(1);
+                capture.release.acquire().await?.forget();
+                let result = reply.write(client.get_mut()).await;
+                capture.released.add_permits(1);
+                // The old node may already have joined and closed this socket.
+                // A late transport failure is expected; unrelated proxy errors
+                // must still fail the test rather than disappear as cancellation.
+                if let Err(failure) = result {
+                    let closed = failure
+                        .downcast_ref::<std::io::Error>()
+                        .is_some_and(|error| {
+                            matches!(
+                                error.kind(),
+                                std::io::ErrorKind::BrokenPipe
+                                    | std::io::ErrorKind::ConnectionReset
+                                    | std::io::ErrorKind::ConnectionAborted
+                                    | std::io::ErrorKind::NotConnected
+                            )
+                        });
+                    if !closed {
+                        return Err(failure);
+                    }
+                }
+                return Ok(());
+            }
             if dropped {
                 capture.entered.add_permits(1);
                 capture.release.acquire().await?.forget();

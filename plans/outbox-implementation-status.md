@@ -3123,3 +3123,44 @@ unchanged from the 40-case pass. Formatting checks 499 Rust files; docs check
 without a JavaScript engine. Final workspace/all-target/all-feature Clippy passes with warnings denied
 (4m03s). Its initial failure was the regression test returning an awaitable receiver from
 an async block. No lint suppression, policy change or assertion relaxation was used.
+
+## Late append reply across source-owner fencing
+
+The peer fault proxy now supports a separate delayed-reply mode. It captures a
+complete successful append response, pauses subsequent append submissions before
+they reach the stream, and exposes separate release controls for the old response
+and new submissions. Existing drop-reply behavior remains a distinct mode.
+
+`event_late_reply::late_proven_append_reply_cannot_settle_a_fenced_source_successor`
+uses independent destination/source/successor executors and real authenticated
+peer RPC. It records the original business command, envelope and proven append
+acceptance while the source obligation is still pending. Removing only the test
+source's node lease drives a real `NodeLeaseMissing` fence and joined domain.
+The source fixture uses the same 5-second authority-readback window as the
+existing missing-lease regression; operation/readiness/shutdown budgets are not
+extended. A binding-only successor recovers the original incarnation, lane,
+sequence and pending row before append replay is allowed.
+
+The old response is then released while new append submissions remain paused.
+The successor must still show one pending row, next sequence two and settled
+watermark zero. Resuming submissions must produce byte-identical request and
+acceptance replies, exactly one retained stream record, one inbox effect and
+checkpoint one. All final node shutdowns and the proxy must join. A transport
+close on the old socket is expected after fencing; unrelated proxy errors fail.
+
+The focused case passes in 11.21s. The initial non-cloneable deployment-graph
+fixture compile error is retained separately and is not production evidence.
+All 41 serial Node cases pass (342.05s), including the previous drop-reply,
+storage-outage and catalog tests. Formatting checks 500 Rust files and workspace/
+all-target/all-feature Clippy passes with warnings denied (31.10s). Docs validate
+36 documents/6 flows/386 references and dependency audit checks 403 packages
+without a JavaScript engine. Whitespace checks pass.
+Production Rust and version-1 markers are unchanged from a62a244; its 219-library
+and native stream/outbox results retain that exact production-source scope.
+
+This covers delayed append response delivery after a source domain has joined.
+It does not qualify an old owner still executing during concurrent takeover,
+lease/ack completions across destination takeover, physical network isolation,
+follower-only proof or the full crash/storage-loss matrix. These remain higher
+priority than SDK polish or more aggregate metrics. Earlier intermittent startup
+and shutdown failures retain their separate unestablished-cause audits.
