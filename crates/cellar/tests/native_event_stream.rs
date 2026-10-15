@@ -104,6 +104,15 @@ fn view_grant() -> Grant {
     grant
 }
 
+fn local_consumer_binding() -> Binding {
+    let mut binding = view_binding();
+    binding.environment = "LOCAL_CONSUMER".into();
+    binding.read = false;
+    binding.administer = false;
+    binding.subscriptions = vec!["fulfillment".into()];
+    binding
+}
+
 fn new_binding() -> Binding {
     let mut binding = binding();
     binding.environment = "ORDERS_NEW".into();
@@ -155,6 +164,56 @@ impl Cell for Producer {
             } else {
                 orders
             };
+            if url.path() == "/preflight" {
+                let consumer = context.stream::<Order>("LOCAL_CONSUMER")?;
+                let code = |failure: anyhow::Error| -> Result<String> {
+                    Ok(failure
+                        .downcast_ref::<DeliveryError>()
+                        .ok_or_else(|| anyhow!("untyped preflight failure: {failure}"))?
+                        .code
+                        .as_str()
+                        .into())
+                };
+                let read = code(
+                    consumer
+                        .read(&context, None, ReadOptions::default())
+                        .await
+                        .unwrap_err(),
+                )?;
+                let configure = code(
+                    consumer
+                        .configure(
+                            &context,
+                            &definition(1, true),
+                            "00000000000000000000000000000075",
+                        )
+                        .await
+                        .unwrap_err(),
+                )?;
+                let mut invalid = definition(1, true);
+                invalid.max_bytes = 0;
+                let invalid_definition = code(
+                    orders
+                        .configure(&context, &invalid, "00000000000000000000000000000075")
+                        .await
+                        .unwrap_err(),
+                )?;
+                let missing_name = code(consumer.subscription("").err().unwrap())?;
+                let oversized_name = code(consumer.subscription(&"x".repeat(129)).err().unwrap())?;
+                let denied_subscription = code(consumer.subscription("analytics").err().unwrap())?;
+                let invalid_fetch = code(
+                    consumer
+                        .subscription("fulfillment")?
+                        .next_with_id(&context, "invalid", BatchOptions::default())
+                        .await
+                        .err()
+                        .unwrap(),
+                )?;
+                return Ok(response(json!({"read":read,"configure":configure,
+                    "definition":invalid_definition,"missing_name":missing_name,
+                    "oversized_name":oversized_name,"subscription":denied_subscription,
+                    "fetch":invalid_fetch})));
+            }
             if matches!(
                 url.path(),
                 "/next" | "/ack" | "/retry-batch" | "/extend" | "/status" | "/change" | "/audit"
@@ -604,6 +663,7 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         vec![
             binding(),
             view_binding(),
+            local_consumer_binding(),
             new_binding(),
             new_admin_binding(),
         ],
@@ -714,6 +774,17 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
         }
         while running.next().await.is_some() {}
     });
+    // Before any destination is provisioned, these SDK refusals must remain
+    // typed and must not submit an RPC or activate a catalog/partition.
+    assert_eq!(
+        fetch(&runtime, "preflight").await?,
+        json!({
+            "read":"Forbidden", "configure":"Forbidden", "definition":"InvalidRequest",
+            "missing_name":"InvalidRequest", "oversized_name":"InvalidRequest",
+            "subscription":"Forbidden", "fetch":"InvalidRequest"
+        })
+    );
+    assert_eq!(*owned.lock().await, BTreeSet::from([SOURCE.to_owned()]));
     assert!(fetch(&runtime, "configure")
         .await
         .unwrap_err()
@@ -1496,6 +1567,7 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
             vec![
                 binding(),
                 view_binding(),
+                local_consumer_binding(),
                 new_binding(),
                 new_admin_binding(),
             ],

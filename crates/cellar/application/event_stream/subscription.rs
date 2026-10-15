@@ -136,14 +136,18 @@ pub struct Batch<E> {
 impl<E> Stream<E> {
     pub fn subscription(&self, name: &str) -> Result<Subscription<E>> {
         self.check_domain()?;
-        if name.is_empty()
-            || name.len() > 128
-            || (!self.binding.administer
-                && !self
-                    .binding
-                    .subscriptions
-                    .iter()
-                    .any(|allowed| allowed == name))
+        if name.is_empty() || name.len() > 128 {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "invalid subscription name",
+            ));
+        }
+        if !self.binding.administer
+            && !self
+                .binding
+                .subscriptions
+                .iter()
+                .any(|allowed| allowed == name)
         {
             return Err(error(
                 ErrorCode::Forbidden,
