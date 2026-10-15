@@ -134,8 +134,23 @@ old replies; the dependency-free core owns that decision. `cellar outbox`
 inspect/retry/status/audit uses fleet-HMAC ingress, a distinct source RPC
 capability and the original owner/output/discovery gates. Retry operation
 receipts and bounded audit pages live in an independent version-1 source
-control schema and survive business reset. `cellar stream` describe/read/sources/status/
-audit and `cellar subscription` list/describe/pause/resume/reset/delete use signed
+control schema and survive business reset.
+
+`event_late_reply.rs` qualifies operator retry while a real append acceptance or
+Forbidden reply is held. Preserve the source's ordinary operation budget and
+prove its old RPC is still pending at the control cut. After releasing that reply,
+require a blocked newer submission before inspecting pending state; socket-write
+completion alone does not prove the old callback finished. Current generation,
+rows, status and error must survive, and operation-receipt replay cannot rearm
+again. Host counters only establish phase boundaries; signed source inspection,
+stream history, original request/envelope bytes and inbox effects supply state
+evidence. A targeted negative control disabled only the generation check and
+exposed stale settlement and stale blocking; any such probe must restore
+production bytes before qualification. These are embedded-node/domain cuts,
+not process/power proof.
+
+`cellar stream` describe/read/sources/status/audit and `cellar subscription`
+list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited
 to stream control methods, with optional provenance omitted from ordinary event
 packets. Subscription receipts retain the operator label and enforce it during

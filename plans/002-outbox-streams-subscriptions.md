@@ -1093,6 +1093,7 @@ current writer epoch.
 | Destination accepts but reply is lost | Retry returns accepted high-water mark without another append |
 | Source cleanup commits but its proof is lost | Recovery either keeps cleanup or repeats delivery safely |
 | Owner changes while a send is in flight | Old completion cannot mutate new activation; late packet deduplicates at destination |
+| Operator retry advances dispatch generation while a send is in flight | Old success cannot settle retried rows; old refusal cannot re-block them; replaying the retained retry receipt cannot advance dispatch again |
 | Fetch lease commits but reply is lost | Same request UUID recovers live batch; otherwise lease expiry permits redelivery |
 | Consumer commits local effects, then crashes before ack | Batch redelivers; retained inbox receipt suppresses repeated local effect |
 | Ack commits but reply is lost | Matching ack receipt makes retry succeed; reconnect begins after checkpoint |
@@ -1814,6 +1815,21 @@ worker must still prove that cancelled startup retains its directory until the
 started factory joins, then permits immediate replacement and complete shutdown.
 Observer starvation in that constrained fixture is not proof of the cause of an
 earlier failure on a host using its default blocking-pool capacity.
+
+Native delayed-reply cases also qualify guarded operator retry on a live source.
+Hold a real accepted append or Forbidden reply, commit retry through signed
+source control, and prove the original RPC remains pending. Restore publication
+authority for the refusal case through ordinary resource configuration. Release
+the old reply, then require a blocked fresh submission before state inspection;
+socket-write completion alone does not prove the old callback ran. Stay within
+the original operation deadline, retain the newer pending revision/status/error,
+and preserve the original request bytes, envelope, sequence and single inbox
+effect after replay. Operation-receipt replay cannot rearm again. Host counters
+only establish callback phases; signed source/stream state supplies the ledger
+evidence. A negative control that disables only the generation check must expose
+both stale settlement and stale blocking, with production bytes restored before
+qualification. These are embedded-node/domain cuts on a private bucket, not
+independent-process or physical-failure qualification.
 
 Use the existing native transaction/queue/alarm suites as regression coverage;
 add dedicated native outbox, stream, and subscription integration targets. Run

@@ -22,8 +22,9 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable proof work is stale settlement/reply interleavings across
-source-control transitions. The startup/shutdown cause audit remains open and
+The next actionable proof work is subscription expiry/reset/extend racing
+acknowledgments and competing consumers. Other source-control reply transitions
+remain unqualified. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
@@ -53,7 +54,64 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: independent factory-entry observation
+## Current follow-up: delayed append replies race guarded operator retry
+
+Two native cases now hold an actual append acceptance or actual Forbidden reply
+while the same live source accepts a signed operator retry. The refusal comes
+from durable publication-grant revocation; ordinary resource configuration
+restores that grant before retry. There is no synthetic reply or proof adapter.
+Source incarnation, lane and producer sequence remain the original identity.
+
+The operator commits a higher dispatch generation while the original RPC is
+still pending. Fixed-cardinality host observations confirm that phase, without
+being used as receipts. After releasing the old response, require a fresh
+submission blocked at the peer proxy: that barrier proves the old callback
+finished and released its lane reservation. Socket-write completion alone is
+insufficient. The whole old-callback cut must stay inside the source's unchanged
+operation budget; a timeout or domain closure cannot qualify this boundary.
+
+Signed inspection must find one pending row, next sequence two, settlement zero,
+the newer generation and pending status without a stale blocked reason/error.
+The old acceptance cannot settle it; the old refusal cannot overwrite retry.
+Replaying the original operator receipt must leave the current revision unchanged.
+Only then may the new request proceed, retaining the original append bytes and
+event/envelope identity, producing one stream offset and one inbox effect despite
+redelivery. Final progress must be next sequence two/settlement one; the retained
+retry receipt must still replay without rearming. Both nodes return complete
+drain reports and the proxy joins; their core executors are separate and caller-
+owned.
+
+Both cases pass on the unchanged dispatcher (13.58s). A targeted negative control
+temporarily disables only its dispatch-generation comparison. Both tests fail
+at the fresh-submission barrier: the accepted reply incorrectly settles the lane
+to zero pending rows; the Forbidden reply incorrectly marks it blocked. The
+negative runtime takes 13.85s. Production source bytes are restored exactly
+before qualification, and both restored cases pass (11.24s). These intentional
+mutation failures validate test sensitivity; they are not bugs claimed in the
+unchanged implementation. The existing generation guard is essential and already
+correct at these cuts.
+
+The serial Node suite passes all 52 cases (365.04s). After reusing expected
+canonical decimal strings to resolve comparison-allocation lint errors, the two
+final focused cases pass again (10.11s) and workspace/all-target/all-feature
+Clippy passes with warnings denied. The string checks are preserved; no lint is
+suppressed. Workspace check, seven artifact/three CLI tests, all 127 Python
+guards, formatting (509 Rust files), docs (36 documents/6 flows/386 references),
+dependency checks (403 packages/no JavaScript engine) and whitespace checks pass.
+Local validation uses Rust 1.97.0/aarch64 macOS; hosted toolchain qualification
+is separate. Runtime/SDK behavior and all owned version-one markers remain
+unchanged; changes are native qualification and operator documentation.
+These are separate embedded nodes/execution domains
+and core executors with a real loopback proxy/private SQLite bucket. They do not
+qualify independent processes, physical host/store loss, delayed seals, other
+source lifecycle transitions or the full release matrix.
+
+Next qualify subscription expiry/reset/extend against acknowledgment and competing
+consumers. Preserve the separate historical startup/shutdown cause audit and all
+remaining lifecycle, capacity and operational gates. The full goal remains the
+entire design.
+
+## 2026-10-15 independent factory-entry observation
 
 The historical startup/shutdown failures remain unresolved. The unchanged full
 Node suite passes all 48 cases (353.06s). An immutable unchanged executable also

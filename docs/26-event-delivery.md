@@ -214,6 +214,13 @@ drain proofs. Save operation IDs and expected revisions for mutations; query
 status after a lost response. Diagnostics omit payloads and lease tokens by
 default. Fleet root metrics report coverage failures rather than inventing totals.
 
+After repairing a blocked lane, retry against its freshly inspected revision.
+Retry fences attempts already in flight: their later success or refusal cannot
+clear or block the retried work. Reuse the same operation ID, reason and expected
+revision when resolving an ambiguous retry response; replay returns its retained
+receipt and does not schedule another attempt, even after delivery completes.
+That receipt proves the retry obligation, not destination acceptance.
+
 Start with the [executable walkthrough](../examples/durable-streams/README.md).
 Its smoke test checks publication, retry, preserving restart, inbox suppression
 and acknowledgment. Its process-fault harnesses retain independent ledgers and
