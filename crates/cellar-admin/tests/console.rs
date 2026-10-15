@@ -72,6 +72,19 @@ async fn fixture_with_cells(
                 principals: vec![
                     principal,
                     Principal::new(
+                        "operator".into(),
+                        "operator-test-token-with-32-or-more-bytes",
+                        BTreeMap::from([(
+                            "alpha".into(),
+                            vec![
+                                Permission::MetadataRead,
+                                Permission::DataRead,
+                                Permission::Operate,
+                            ],
+                        )]),
+                    )
+                    .unwrap(),
+                    Principal::new(
                         "editor".into(),
                         "editor-test-token-with-32-or-more-bytes",
                         BTreeMap::from([(
@@ -703,5 +716,151 @@ async fn execution_inspection_requires_data_read_before_lookup() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    domain.shutdown().await;
+}
+
+async fn event_request(app: &Router, path: &str, token: &str, body: Value) -> (StatusCode, Value) {
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("authorization", format!("Bearer {token}"))
+                .header("content-type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    (status, serde_json::from_slice(&bytes).unwrap())
+}
+
+#[tokio::test]
+async fn event_permissions_and_bounds_apply_before_dispatch() {
+    let (_dir, app, domain) = fixture().await;
+    let operation = "a".repeat(32);
+    let outbox = "/api/v1/fleets/alpha/cells/Customer:one/outbox";
+    let stream = "/api/v1/fleets/alpha/streams/missing/EVENTS/action";
+    let inspect =
+        json!({"operation_id":operation,"action":{"kind":"inspect","limit":25,"cursor":null}});
+    assert_eq!(
+        event_request(&app, outbox, TOKEN, inspect.clone()).await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        event_request(
+            &app,
+            outbox,
+            "editor-test-token-with-32-or-more-bytes",
+            json!({"operation_id":operation,"action":{"kind":"inspect","limit":101,"cursor":null}})
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let expected = json!({"resource":"b".repeat(32),"name":"projection","id":"c".repeat(32),"generation":"d".repeat(32)});
+    let change = json!({"operation_id":operation,"resource_id":"b".repeat(32),"action":{"kind":"change","expected":expected,"action":{"kind":"pause"},"reason":"pause for maintenance"}});
+    assert_eq!(
+        event_request(
+            &app,
+            stream,
+            "editor-test-token-with-32-or-more-bytes",
+            change.clone()
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        event_request(
+            &app,
+            "/api/v1/fleets/beta/streams/missing/EVENTS/action",
+            "operator-test-token-with-32-or-more-bytes",
+            change.clone()
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    // A browser may never submit a delegated grant or choose its signed operator.
+    let mut forged = change.clone();
+    forged["operator"] = json!("administrator");
+    assert_eq!(
+        event_request(
+            &app,
+            stream,
+            "operator-test-token-with-32-or-more-bytes",
+            forged
+        )
+        .await
+        .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut reset = change.clone();
+    reset["action"]["action"] =
+        json!({"kind":"reset","cursor":{"resource":"b".repeat(32),"partition":0,"next":"1"}});
+    assert_eq!(
+        event_request(
+            &app,
+            stream,
+            "operator-test-token-with-32-or-more-bytes",
+            reset
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    // Valid pause intent is persisted before a missing deployment is looked up.
+    let (status, first) = event_request(
+        &app,
+        stream,
+        "operator-test-token-with-32-or-more-bytes",
+        change.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(first["operation"]["status"], "outcome_unknown");
+    assert!(first["failure"]
+        .as_str()
+        .unwrap()
+        .contains("application not found"));
+    let (_, repeated) = event_request(
+        &app,
+        stream,
+        "operator-test-token-with-32-or-more-bytes",
+        change.clone(),
+    )
+    .await;
+    assert_eq!(repeated["replayed"], true);
+    assert!(repeated.get("failure").is_none());
+    let mut changed = change;
+    changed["action"]["reason"] = json!("different request");
+    assert_eq!(
+        event_request(
+            &app,
+            stream,
+            "operator-test-token-with-32-or-more-bytes",
+            changed
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    domain.shutdown().await;
+}
+
+#[tokio::test]
+async fn event_state_and_host_metrics_require_data_read_before_lookup() {
+    let (_dir, app, domain) = fixture().await;
+    for path in [
+        "/api/v1/fleets/alpha/cells/missing:one/event-state",
+        "/api/v1/fleets/alpha/nodes/missing/event-metrics?generation=old",
+        "/api/v1/fleets/alpha/streams/missing/EVENTS/resources?limit=50",
+    ] {
+        assert_eq!(get(&app, path).await.0, StatusCode::FORBIDDEN);
+    }
     domain.shutdown().await;
 }

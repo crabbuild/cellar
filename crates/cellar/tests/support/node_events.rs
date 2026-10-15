@@ -3791,3 +3791,225 @@ async fn named_bindings_resolve_grants_and_pin_uuid_across_recreation() -> Resul
         .context("named binding owner complete shutdown")?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn console_event_adapters_use_signed_owner_routes_and_guarded_receipts() -> Result<()> {
+    use cellar::management::{EventStreamAction, FleetClient, OutboxAction};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("console-events-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    bucket
+        .put(
+            "fleet/peer-auth.json",
+            serde_json::to_vec(&json!({"version":1,"key":"0b".repeat(32)}))?,
+        )
+        .await?;
+    let graph = graph(1, false);
+    // The console reads the same deployed declarations, never browser-supplied grants.
+    let manifest = json!({
+        "schema_version": 1,
+        "version": "v1",
+        "script_name": "embedded-node",
+        "main_module": null,
+        "native": {"host_protocol": 1, "application_version": "v1", "artifacts": []},
+        "do_classes": ["Account", "__EventStream", "__EventCatalog"],
+        "sqlite_classes": ["Account", "__EventStream", "__EventCatalog"],
+        "modules": [],
+        "required_features": ["event-delivery-v1"],
+        "raw_metadata": {"stream_bindings": graph.primary.options.stream_bindings},
+    });
+    bucket
+        .put(
+            "deploy/embedded-node/v1/manifest.json",
+            serde_json::to_vec(&manifest)?,
+        )
+        .await?;
+    bucket
+        .put(
+            "deploy/embedded-node/current.json",
+            serde_json::to_vec(&json!({
+                "version": "v1",
+                "prefix": "deploy/embedded-node/v1",
+                "rollout": {"percent": 100},
+            }))?,
+        )
+        .await?;
+    let (config, services) = inputs(
+        "console-events",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let owner = Node::start(config, services, graph, applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if call(&client, &owner, reqwest::Method::GET, "/events").await? == "1" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    let scope = format!(
+        "Account:{}",
+        cellar_native::cell_id::encode_hex(&cellar_native::cell_id::for_name(
+            "cells:v1:13:embedded-node:Account",
+            "events"
+        ))
+    );
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    domain
+        .run(async {
+            let console = FleetClient::new(bucket.clone(), false);
+            let page = console
+                .outbox(
+                    &scope,
+                    OutboxAction::Inspect {
+                        limit: 25,
+                        cursor: None,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(page["incarnation"].is_string());
+            let revision: OutboxRevision =
+                serde_json::from_value(page["lanes"][0]["revision"].clone())?;
+            let operation = "f".repeat(32);
+            let receipt = console
+                .outbox(
+                    &scope,
+                    OutboxAction::Retry {
+                        expected: revision,
+                        reason: "verify signed console retry".into(),
+                    },
+                    "console-operator",
+                    &operation,
+                )
+                .await?;
+            ensure!(receipt["operator"] == "console-operator");
+            ensure!(
+                console
+                    .outbox(
+                        &scope,
+                        OutboxAction::Status {
+                            operation: operation.clone()
+                        },
+                        "console-operator",
+                        ""
+                    )
+                    .await?
+                    == receipt
+            );
+            ensure!(console
+                .outbox(
+                    &scope,
+                    OutboxAction::Status { operation },
+                    "another-operator",
+                    ""
+                )
+                .await
+                .is_err());
+            console.cell_event_state(&scope).await?.values(&scope)?;
+            let stats = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Describe,
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(stats["resource"]["id"] == resource().id);
+            let subscriptions = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Subscriptions {
+                        cursor: None,
+                        limit: 25,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            let identity: SubscriptionIdentity =
+                serde_json::from_value(subscriptions["records"][0]["identity"].clone())?;
+            let operation = "e".repeat(32);
+            let receipt = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Change {
+                        expected: identity,
+                        action: ChangeAction::Pause,
+                        reason: "inspect console receipt".into(),
+                    },
+                    "console-operator",
+                    &operation,
+                )
+                .await?;
+            ensure!(receipt["state"] == "paused");
+            ensure!(
+                console
+                    .event_stream(
+                        "embedded-node",
+                        "ADMIN_EVENTS",
+                        &resource().id,
+                        EventStreamAction::Status { operation },
+                        "console-operator",
+                        ""
+                    )
+                    .await?
+                    == receipt
+            );
+            let read = console
+                .event_stream(
+                    "embedded-node",
+                    "EVENTS",
+                    &resource().id,
+                    EventStreamAction::Read {
+                        cursor: None,
+                        limit: 25,
+                        max_bytes: 262144,
+                        payload: false,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(read["records"][0]["event"].get("payload").is_none());
+            ensure!(console
+                .event_stream(
+                    "embedded-node",
+                    "EVENTS",
+                    &"0".repeat(32),
+                    EventStreamAction::Describe,
+                    "console-operator",
+                    ""
+                )
+                .await
+                .is_err());
+            let metrics = console
+                .node_event_metrics("console-events", &owner.info().lease_generation)
+                .await?;
+            ensure!(metrics["metrics"]["counters"].is_array());
+            ensure!(console
+                .node_event_metrics("console-events", "stale-generation")
+                .await
+                .is_err());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    domain.shutdown().await;
+    stopped(owner).await?;
+    Ok(())
+}

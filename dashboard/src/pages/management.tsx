@@ -235,12 +235,16 @@ export function ApplicationDetail() {
                     {data.data.bindings.map((binding) => (
                       <TableRow key={binding.name}>
                         <TableCell>
-                          {["sql", "kv", "queue", "workflow"].includes(
-                            binding.kind
-                          ) ? (
+                          {[
+                            "sql",
+                            "kv",
+                            "queue",
+                            "workflow",
+                            "event_stream",
+                          ].includes(binding.kind) ? (
                             <Link
                               className="text-link"
-                              to={`/fleets/${encodeURIComponent(fleet)}/${binding.kind === "queue" ? "queues" : binding.kind === "workflow" ? "workflows" : binding.kind}/${encodeURIComponent(id)}/${encodeURIComponent(binding.name)}`}
+                              to={`/fleets/${encodeURIComponent(fleet)}/${binding.kind === "event_stream" ? "streams" : binding.kind === "queue" ? "queues" : binding.kind === "workflow" ? "workflows" : binding.kind}/${encodeURIComponent(id)}/${encodeURIComponent(binding.name)}`}
                             >
                               {binding.name}
                             </Link>
@@ -251,7 +255,9 @@ export function ApplicationDetail() {
                         <TableCell>
                           <Badge variant="outline">{binding.kind}</Badge>
                         </TableCell>
-                        <TableCell>{binding.identity}</TableCell>
+                        <TableCell>
+                          {binding.identity || binding.event?.resource.name}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

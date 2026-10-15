@@ -98,6 +98,20 @@ export function NodeCells({ fleet, node }: { fleet: string; node: Node }) {
                         >
                           {cell.scope}
                         </Link>
+                        <div className="mt-1 flex gap-3 text-xs">
+                          <Link
+                            className="text-link"
+                            to={`/fleets/${encodeURIComponent(fleet)}/cells/${encodeURIComponent(cell.scope)}?tab=outbox`}
+                          >
+                            Outbox
+                          </Link>
+                          <Link
+                            className="text-link"
+                            to={`/fleets/${encodeURIComponent(fleet)}/cells/${encodeURIComponent(cell.scope)}?tab=events`}
+                          >
+                            Event state
+                          </Link>
+                        </div>
                       </TableCell>
                       <TableCell>{cell.epoch}</TableCell>
                       <TableCell>

@@ -103,7 +103,7 @@ impl AuditStore {
             .lock()
             .map_err(|_| anyhow::anyhow!("audit store unavailable"))?;
         connection.execute(
-                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action != 'stop' OR status NOT IN ('succeeded','incomplete','failed'))",
+                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change') OR status NOT IN ('succeeded','incomplete','failed'))",
                 params![
                     status,
                     finished,
@@ -149,6 +149,25 @@ impl AuditStore {
         Ok(())
     }
 
+    pub(crate) fn reconcile_event(
+        &self,
+        fleet: &str,
+        actor: &str,
+        id: &str,
+        target: &str,
+        action: &str,
+    ) -> Result<()> {
+        ensure!(
+            matches!(action, "outbox_retry" | "subscription_change"),
+            "invalid event audit action"
+        );
+        self.0.lock().map_err(|_| anyhow::anyhow!("audit store unavailable"))?.execute(
+            "UPDATE operations SET status='succeeded',finished_at=? WHERE fleet=? AND actor=? AND id=? AND target=? AND action=?",
+            params![now(),fleet,actor,id,target,action],
+        )?;
+        Ok(())
+    }
+
     pub fn list(&self, fleet: &str) -> Result<Vec<Operation>> {
         let connection = self
             .0
@@ -181,4 +200,51 @@ fn now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis() as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_receipts_reconcile_exact_actor_target_and_survive_late_errors() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let audit = AuditStore::open(&directory.path().join("audit.sqlite"))?;
+        let Begin::Started(mut operation) = audit.begin(
+            "event-one",
+            "fleet",
+            "alice",
+            "outbox/Order:one",
+            "outbox_retry",
+            "request",
+        )?
+        else {
+            anyhow::bail!("new intent expected")
+        };
+        audit.reconcile_event(
+            "fleet",
+            "bob",
+            "event-one",
+            "outbox/Order:one",
+            "outbox_retry",
+        )?;
+        audit.reconcile_event(
+            "fleet",
+            "alice",
+            "event-one",
+            "outbox/Order:other",
+            "outbox_retry",
+        )?;
+        assert_eq!(audit.list("fleet")?[0].status, "outcome_unknown");
+        audit.reconcile_event(
+            "fleet",
+            "alice",
+            "event-one",
+            "outbox/Order:one",
+            "outbox_retry",
+        )?;
+        audit.finish(&mut operation, "outcome_unknown")?;
+        assert_eq!(operation.status, "succeeded");
+        Ok(())
+    }
 }

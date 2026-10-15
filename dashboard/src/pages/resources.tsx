@@ -7,6 +7,8 @@ import {
   Database,
   Layers3,
   Workflow,
+  Radio,
+  Users,
 } from "lucide-react"
 import {
   Card,
@@ -32,6 +34,20 @@ import {
 import { fleetPath, useApi, type Application, type Page } from "@/lib/api"
 
 const definitions = {
+  streams: {
+    title: "Event streams",
+    description:
+      "Browse retained events, producer watermarks and delivery state through deployed bindings.",
+    kind: "event_stream",
+    icon: Radio,
+  },
+  subscriptions: {
+    title: "Subscriptions",
+    description:
+      "Choose a stream binding to inspect subscriber lag, checkpoints and leases.",
+    kind: "event_stream",
+    icon: Users,
+  },
   sql: {
     title: "SQL databases",
     description: "Query durable data through the database cell that owns it.",
@@ -154,7 +170,11 @@ function ResourceList({ kind }: { kind: keyof typeof definitions }) {
                 </CardHeader>
                 <CardContent>
                   <p className="font-mono text-xs break-all">
-                    {resource.identity}
+                    {resource.identity ||
+                      ("event" in resource
+                        ? resource.event?.resource.name
+                        : "") ||
+                      "Name-resolved resource"}
                   </p>
                   <div className="mt-4">
                     <Badge variant="outline">
@@ -167,7 +187,11 @@ function ResourceList({ kind }: { kind: keyof typeof definitions }) {
                 <CardFooter>
                   <Button variant="ghost" size="sm" asChild>
                     <Link
-                      to={`${encodeURIComponent(resource.app.name)}/${encodeURIComponent(resource.name)}`}
+                      to={
+                        kind === "subscriptions"
+                          ? `/fleets/${encodeURIComponent(fleet)}/streams/${encodeURIComponent(resource.app.name)}/${encodeURIComponent(resource.name)}?view=subscriptions`
+                          : `${encodeURIComponent(resource.app.name)}/${encodeURIComponent(resource.name)}`
+                      }
                     >
                       Open workspace
                       <ArrowUpRight data-icon="inline-end" />
