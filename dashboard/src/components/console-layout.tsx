@@ -20,7 +20,6 @@ import {
   LogOut,
   Monitor,
   Moon,
-  Network,
   Server,
   Settings2,
   Sun,
@@ -57,6 +56,7 @@ import { Separator } from "@/components/ui/separator"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { useTheme } from "@/components/theme-provider"
 import { useSession } from "@/lib/session"
+import { CellarMark } from "@/components/cellar-mark"
 
 const groups: {
   label: string
@@ -186,9 +186,7 @@ export function ConsoleLayout() {
       <Sidebar>
         <SidebarHeader>
           <Link to={`/fleets/${fleet}/overview`} className="brand">
-            <span className="brand-mark">
-              <Network />
-            </span>
+            <CellarMark />
             <span>
               cellar<span className="brand-caption">Fleet console</span>
             </span>
