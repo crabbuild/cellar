@@ -6,6 +6,41 @@ The feature is under implementation and is not ready for normal deployment or
 release. The native fixture now exercises source, catalog, stream, and consumer
 turns together; that local evidence does not satisfy the fleet/release gates.
 
+## Current priorities and readiness
+
+The core bucket-backed producer-to-consumer path works in the exercised cases:
+atomic emission, durable dispatch/deduplication, resumable reads, leased fetch,
+inbox effects, acknowledgment and preserving restart. It is **not fully release
+qualified**. Do not use a green SDK suite as evidence for untested ownership or
+storage failures. The ordered list below supersedes historical next-step notes.
+
+| Order | Critical gap | Kind | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout and explicit-policy closed-domain failure with the stage diagnostics from PR #36; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
+| 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
+| 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
+| 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The next correctness slice is event-specific isolated/expired-owner coverage:
+retain an original source obligation and leased consumer batch, isolate their
+owner, observe the real typed fence, audit successor recovery before replay,
+and verify old dispatch/ack completions cannot advance replacement state. Existing
+generic cell isolation evidence and orderly event handoffs do not close it.
+This is an acceptance target, not a claim that this scenario has run.
+
+SQLite-only event deployment remains explicitly unsupported until local recovery
+inventory/discovery exists and is qualified. Multi-partition streams, push
+consumer runners and exactly-once external effects are outside the first-release
+contract, not missing implementations of its promised behavior. External effects
+still require destination idempotency or reconciliation.
+
+Each continuation must select the highest actionable correctness risk, record
+the work and evidence gained, and leave its acceptance gate open until satisfied.
+SDK work takes precedence only when it addresses unsafe replay, authorization,
+acknowledgment or another concrete correctness risk. No new loss/corruption bug
+is asserted merely because its failure case is not yet qualified.
+
 All Cellar-owned protocol, format and schema markers stay at 1 during internal
 development. Layout changes use hard cutovers with recreated state and rebuilt
 participants. Later sections retain historical verification notes; their old
