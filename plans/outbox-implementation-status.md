@@ -49,7 +49,46 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: independent-process fetch loss
+## Current follow-up: resume an expired source owner
+
+The independent process harness now pauses the producer at its real input gate
+after source proof and before first dispatch. It observes SIGSTOP via waitpid,
+archives the stable source family, reads actual authority expiry from the private
+bucket, and starts a distinct successor. Before SIGCONT, direct owner metadata
+must show a higher epoch and an actual healthy owner; that owner must settle the
+original command/event while the consumer still has no effect/checkpoint.
+
+The original process resumes within its unchanged 10-second invocation budget,
+then must emit the specific NodeLeaseExpired fencing report, exit with failure,
+return no successful original response, and emit no graceful-stop report. Its
+old source database must retain the original receipt, pending row and zero
+attempts/settlement. A second successor audit precedes any command retry or
+consumer effect. Command retry is duplicate with the same receipt; consumption
+adds one effect and checkpoint one. Survivors and the private S3 server join.
+
+The initial actual SQLite run reached all behavior gates but failed archive
+revalidation: opening a WAL database read-only had created an empty WAL/SHM
+family in the saved image. A focused regression reproduced that mutation before
+the fix. New forensic inspection queries disposable copies and never opens the
+measured archive itself. Failed original evidence is retained rather than edited.
+Final shared-helper SQLite and private RustFS S3 runs pass (3.30s/8.01s);
+the existing before-first-send SIGKILL regression passes (1.63s), and ordinary
+smoke passes (1.50s). Both show genuine NodeLeaseExpired after resume and unchanged source
+semantics, with independent higher-epoch ownership and event digests. Python
+guards pass 83 cases. Workspace/all-target/all-feature Clippy passes with
+warnings denied (22.67s); formatting checks 504 Rust files, docs validate 36
+documents/6 flows/386 references, and dependency audit checks 403 packages
+without a JavaScript engine. Whitespace checks pass. Verification uses Rust
+1.97.0/aarch64 macOS with symbols-disabled, nonincremental profiles.
+
+This is bucket-only proof with explicit 1000ms node authority. It qualifies a
+paused owner resumed with a held invocation before first dispatch, not every
+in-flight stale SQL/write/reply cut, physical partition, power/store loss or
+follower-only proof. Existing handler/stream budgets and owned version-one
+markers remain unchanged. Wider release qualification and the unexplained
+startup/recovery failures remain open.
+
+## 2026-10-15 independent-process fetch loss
 
 The existing separate-process harness is extended for __streamNext, with an
 opt-in example route using next_with_id and proven inbox/saved receipt writes.
@@ -93,7 +132,6 @@ object-store persistence loss, physical hosts or concurrently executing owners.
 All owned markers remain one; no compatibility readers or migrations are added.
 
 ## 2026-10-15 unproven acknowledgment and forced owner closure
-## Current follow-up: unproven acknowledgment and forced owner closure
 
 The native unproven-ack fixture decorates the destination's real ReplicaStorage
 client for the exact stream LTX prefix and selects bucket-only proof through

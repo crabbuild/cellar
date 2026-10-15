@@ -378,6 +378,38 @@ These are independent loopback processes on one machine. They do not qualify
 power loss, failed object-store persistence, follower-only proof, physical host
 isolation or an old owner still executing during takeover.
 
+## Resume an expired source owner
+
+[resumed_owner.py](resumed_owner.py) uses four independent loopback processes
+and explicit bucket proof. The original producer holds its real input gate after
+proving one source obligation but before first dispatch. The measuring client
+observes SIGSTOP, archives that stable SQLite family, reads actual node-authority
+expiry from the private store, and starts a different successor process. Before
+SIGCONT, the successor must own a higher epoch and settle the original event.
+
+The old process must resume within the original 10-second invocation budget and
+report `NodeLeaseExpired`, with no graceful-stop report and no successful original
+response. Its archived old business/outbox image must still show the same receipt,
+one pending record, zero dispatch attempts and zero settlement. A second successor
+audit must precede command retry or consumer processing. The duplicate command
+retains its receipt, and the consumer applies one effect with checkpoint one.
+
+```sh
+python3 examples/durable-streams/resumed_owner.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --output /tmp/cellar-resumed-owner-evidence
+python3 examples/durable-streams/resumed_owner.py \
+  --audit /tmp/cellar-resumed-owner-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc` for a fresh private S3 store.
+Node leases are explicitly 1000ms; handler and stream lifetimes are unchanged.
+Forensic queries use disposable copies: even read-only WAL connections can create
+empty WAL/SHM files, so the measured archive itself is never opened by SQLite.
+This case qualifies a resumed expired owner with a held invocation/first dispatch.
+It does not qualify physical partitions, power/store loss, follower-only proof,
+or every in-flight write/reply interleaving while an old owner is running.
+
 ## Discover sources from the fleet
 
 `cellar outbox census Order --limit 100 --json [FLEET OPTIONS]` lists root source

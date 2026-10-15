@@ -612,6 +612,15 @@ Run both modes on SQLite and private RustFS when changing this boundary, plus
 the Python guard suite. They do not qualify follower-only, power/store loss or
 concurrently executing old owners. The optional fixture authority setting must
 not change existing harness/default runtime policy.
+`resumed_owner.py` verifies real SIGSTOP/authority expiry/successor claim/SIGCONT
+with bucket proofs on SQLite and private RustFS. Before resume, the successor
+must settle the original source under a higher epoch. The old process must
+report NodeLeaseExpired before the original handler budget, fail its held
+response, and retain zero old dispatch attempts/settlement. Audit before every
+command/consumer replay, with complete survivor shutdown. Inspect archived
+SQLite families only through disposable copies; read-only WAL opens can create
+empty sidecars. These selected process cuts do not establish every stale-write,
+physical partition, power/store-loss or follower-only proof requirement.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST

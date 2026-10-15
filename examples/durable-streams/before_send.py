@@ -81,6 +81,19 @@ def capture_crash_image(root, phase):
 
 
 def inspect_crash_image(archive, scope):
+    # Even a read-only WAL connection can create empty WAL/SHM sidecars. Query
+    # a disposable family and leave the measured archive's bytes untouched.
+    with tempfile.TemporaryDirectory(prefix="cellar-source-image-read-") as directory:
+        working = Path(directory)
+        for name in ("db.sqlite", "db.sqlite-wal", "db.sqlite-shm"):
+            source = archive/name
+            require(not source.is_symlink(), "forensic family contains a symlink")
+            if source.exists():
+                shutil.copy2(source, working/name)
+        return inspect_crash_family(working, scope)
+
+
+def inspect_crash_family(archive, scope):
     # SHM read marks are mutable even on a read-only connection; they are not
     # durable state. Authenticate the archived database and WAL, then inspect
     # only this copied family. Never open the node's current SQLite files.

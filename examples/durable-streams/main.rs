@@ -358,6 +358,21 @@ fn main() -> Result<()> {
                 ShutdownMode::Preserve
             })
             .await?;
+        if faults {
+            if let NodeOutcome::Fenced { code, reason } = &outcome {
+                let reason = match reason {
+                    FenceReason::NodeLeaseExpired => "node_lease_expired",
+                    FenceReason::NodeLeaseMissing => "node_lease_missing",
+                    FenceReason::NodeLeaseMismatch => "node_lease_mismatch",
+                };
+                cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(
+                    format_args!(
+                        "{}",
+                        serde_json::json!({"outcome":"fenced","fence_code":code,"reason":reason})
+                    ),
+                )?;
+            }
+        }
         let NodeOutcome::Stopped(report) = outcome else {
             anyhow::bail!("node failed: {outcome:?}");
         };
