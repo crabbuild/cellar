@@ -1755,6 +1755,20 @@ audit and one consumer effect. SQLite and private RustFS S3 qualify only these
 selected client-outage cuts, not physical partition/power/store loss, follower-
 only proofs or every stale settlement/reply interleaving.
 
+Destination ack/fetch process drivers also support combining `--follower-only`
+with `--restart-followers`. Require SIGKILL of every original process, immutable
+archives of the original destination ensemble's committed CLB1/CLE1 batches and
+unchanged destination LTX/session-log bucket data before any replacement starts.
+Delete destination-local state, retain peer disks and require expired leases,
+new PIDs/generations and a saved recovered prefix before replay. Ack must retain
+checkpoint one and the exact stored receipt; live fetch must retain the exact
+lease/reply, while expired fetch obtains higher authority after original expiry.
+Returning witnesses can acquire stream ownership; preserve the measuring gate
+on their advertised routes too. Complete process/proxy/store joins and offline
+archive reinspection are required. These selected cold retained-disk cuts do not
+qualify lost witness disks, cold pending appends, consumer-local replay or physical
+host/power/store failures.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

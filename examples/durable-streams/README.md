@@ -445,6 +445,29 @@ python3 examples/durable-streams/ack_faults.py \
   --follower-only --output /tmp/cellar-ack-follower-evidence
 ```
 
+Add `--restart-followers` to those ack/fetch commands to recover from **cold
+retained follower disks**. It requires `--follower-only`. After the proven reply
+is lost, all original processes are SIGKILLed. The measuring client archives the
+original destination ensemble's checksum-protected CLB1/CLE1 batches and checks
+that neither stream LTX nor that destination session's log objects repaired the
+bucket prefix. It deletes the destination's private data while preserving both
+peer disks. All replacements start before readiness waits; old leases must expire
+and peer process IDs/node generations must change.
+
+The saved recovery audit must prove the original event and subscription state
+before request replay. A returning witness can become stream owner, so every
+advertised replacement route retains the paused exact-byte measuring proxy.
+Ack recovers checkpoint one and replays the exact saved receipt without new
+fetch/effect. Live fetch retains the exact lease/reply; expired fetch waits for
+the original lease and obtains higher authority before stable replay. Offline
+audit reopens both archived batch inventories and refuses changed bytes or
+incomplete cleanup. Unit oracles use synthetic custody metadata; the process
+runs supply the actual retained batch and state evidence.
+
+These cases preserve follower disks on one machine. They do not qualify missing
+witness disks, cold pending-append recovery, consumer-local replay, physical host
+or power loss. The original live-follower modes remain separate cases.
+
 ## Resume an expired source owner
 
 [resumed_owner.py](resumed_owner.py) uses four independent loopback processes

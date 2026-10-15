@@ -85,6 +85,7 @@ def audit_evidence(path, complete=True):
     store = None
     removed = False
     startup_retries = 0
+    peer_restarts = {}
     for line in path.read_text().splitlines():
         row = json.loads(line)
         event = row["event"]
@@ -229,6 +230,8 @@ def audit_evidence(path, complete=True):
             require(killed and dropped and pending is None and replacement is None and row["pid"] not in pids.values() and not resumed,
                     "fetch restart preceded loss or reused a process")
             replacement = row["pid"]
+        elif event == "destination_follower_process_started":
+            peer_restarts[row["node"]] = row["pid"]  # The independent disk auditor validates authority/custody.
         elif event == "retry_blocked":
             require(held is not None and not resumed and row["request_sha256"] == held["request_sha256"], "blocked fetch retry changed bytes")
         elif event == "retry_resumed":
@@ -256,12 +259,13 @@ def audit_evidence(path, complete=True):
             require("final" in passed and row["node"] in ROLES - stopped and row["exit_code"] == 0
                     and len(row["reports"]) == 1 and all(row["reports"][0].get(key) is True
                         for key in ("ingress_drained", "application_work_drained", "cells_drained")), "incomplete fetch shutdown")
-            require(row["pid"] == (replacement if row["node"] == "destination" else pids[row["node"]]), "fetch shutdown names another process")
+            require(row["pid"] == (replacement if row["node"] == "destination" else peer_restarts.get(row["node"], pids[row["node"]])), "fetch shutdown names another process")
             stopped.add(row["node"])
         elif event == "network_store_removed":
             require(store is not None and not removed and stopped == ROLES and row["container"] == store["container"], "fetch store removed before shutdown")
             removed = True
-        elif event in ("destination_proof_armed", "destination_follower_accepted", "destination_proof_discarded", "destination_follower_recovered"):
+        elif event in ("destination_proof_armed", "destination_follower_accepted", "destination_proof_discarded", "destination_follower_recovered",
+                       "destination_follower_process_killed", "destination_followers_retained", "destination_follower_process_ready"):
             pass  # The independent proof auditor validates these before return.
         else:
             require(False, f"unknown fetch evidence event: {event}")
@@ -274,12 +278,13 @@ def audit_evidence(path, complete=True):
                 backend="s3" if store else "sqlite", lease_state=mode, **audit_proof(path,complete=complete,operation="fetch"))
 
 
-def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=False):
+def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=False, restart_followers=False):
     require(os.name == "posix", "fetch process qualification requires SIGKILL")
+    require(not restart_followers or follower_only, "cold followers require follower-only destination proof")
     root.mkdir(parents=True, exist_ok=False)
     node_lease_ms = 1000 if lease_state == "live" else 30000
     ledger = Ledger(root, commands=(("cross", 725, 1),))
-    processes, proxy = [], None
+    processes, proxy, cold = [], None, None
     store = NetworkStore(root, ledger, rustfs_image) if rustfs_image else None
     try:
         if store:
@@ -305,7 +310,7 @@ def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=
         proof = None
         if follower_only:
             from destination_proof import DestinationProof
-            proof = DestinationProof(root, store, ledger, operation="fetch", node_lease_ms=node_lease_ms)
+            proof = DestinationProof(root, store, ledger, operation="fetch", node_lease_ms=node_lease_ms, restart_followers=restart_followers)
             proof.arm()
         path = f"/projection/fetch?fetch_id={FETCH_ID}"
         proxy.arm()
@@ -323,16 +328,26 @@ def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=
             result = future.result(timeout=15)
             ledger.record("fetch_outcome", attempt=1, result=result)
             require(result["status"] == "Ambiguous" and result["fresh_effects"] == 0, "consumer did not observe fetch reply loss")
+        if restart_followers:
+            from destination_disks import ColdFollowers
+            cold = ColdFollowers(proof, binary, processes)
+            cold.stop()
         if proof:
             proof.discard()
+        if cold:
+            cold.start()
         destination = FleetProcess(binary, root, "destination", "destination-recovered", peer, proxy.address, True, store, node_lease_ms=node_lease_ms)
         processes.append(destination)
         origins["destination"] = destination.ready()
         ledger.record("fetch_destination_restarted", pid=destination.child.pid)
+        if cold:
+            cold.ready(origins)
         audit(ledger, origins, "recovered-before-replay")
         if proof:
             proof.recovered()
         proxy.resume("recovered-before-replay")
+        if cold:
+            cold.resume()
         attempt = 1
         for label in ("effect-proven", "effect-replayed"):
             for _ in range(10):
@@ -355,25 +370,33 @@ def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=
         ledger.record("fetch_acknowledged", status=result["status"])
         audit(ledger, origins, "final")
         proxy.outage = True
+        if cold:
+            cold.quiesce()
         for process in reversed(processes):
             process.stop_recorded(ledger)
         proxy.close()
         proxy = None
+        if cold:
+            cold.close()
         if store:
             store.close()
         summary = dict(audit_evidence(ledger.path), status="passed", binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
                        output=str(root), scope="three independent loopback processes; lost proven fetch plus destination SIGKILL; explicit live/expired lease replay",
-                       follower_only=follower_only)
+                       follower_only=follower_only, restart_followers=restart_followers)
         (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary), flush=True)
     finally:
         if proxy:
             proxy.release.set()
             proxy.outage = True
+        if cold:
+            cold.quiesce()
         for process in reversed(processes):
             process.stop()
         if proxy:
             proxy.close()
+        if cold:
+            cold.close()
         if store:
             store.close()
         ledger.close()
@@ -388,8 +411,9 @@ if __name__ == "__main__":
     parser.add_argument("--rustfs-image")
     parser.add_argument("--lease-state", choices=("live", "expired"), default="live")
     parser.add_argument("--follower-only", action="store_true", help="refuse destination replica uploads and delete its local data before recovery")
+    parser.add_argument("--restart-followers", action="store_true", help="also SIGKILL all original peers and recover from retained follower disks; requires --follower-only")
     args = parser.parse_args()
     if args.audit:
         print(json.dumps(audit_evidence(args.audit.resolve())), flush=True)
     else:
-        exercise(args.binary.resolve(), (args.output or Path(tempfile.mkdtemp(prefix="cellar-fetch-fault-parent-")) / "evidence").resolve(), args.rustfs_image, args.lease_state, args.follower_only)
+        exercise(args.binary.resolve(), (args.output or Path(tempfile.mkdtemp(prefix="cellar-fetch-fault-parent-")) / "evidence").resolve(), args.rustfs_image, args.lease_state, args.follower_only, args.restart_followers)

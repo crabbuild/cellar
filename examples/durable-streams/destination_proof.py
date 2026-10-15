@@ -89,13 +89,15 @@ def audit_proof(path, complete=True, operation="append"):
             require(recovered is not None, "fetch replay concealed follower proof recovery")
     if complete:
         require(armed is None or recovered is not None, "incomplete destination follower proof evidence")
-    return dict(destination_follower_recoveries=int(recovered is not None))
+    from destination_disks import audit_disks
+    return dict(destination_follower_recoveries=int(recovered is not None), **audit_disks(path, complete=complete))
 
 
 class DestinationProof:
-    def __init__(self, root, store, ledger, operation="append", node_lease_ms=1000):
+    def __init__(self, root, store, ledger, operation="append", node_lease_ms=1000, restart_followers=False):
         self.root, self.store, self.ledger = root, store, ledger
         self.operation, self.node_lease_ms = operation, node_lease_ms
+        self.restart_followers = restart_followers
         self.data = root / "data/destination"
 
     def arm(self):
@@ -109,7 +111,8 @@ class DestinationProof:
             os.fsync(marker.fileno())
         self.ledger.record("destination_proof_armed", scope=self.scope, lease=lease,
             owner=authority(self.root, self.store, self.scope), objects=replica_inventory(self.root, self.store),
-            proof_mode="fleet", peer_proof="bucket", replica_fault_node="destination", node_lease_ms=self.node_lease_ms)
+            proof_mode="fleet", peer_proof="bucket", replica_fault_node="destination", node_lease_ms=self.node_lease_ms,
+            restart_followers=self.restart_followers)
         audit_proof(self.ledger.path, complete=False, operation=self.operation)
 
     def accepted(self, exchange):

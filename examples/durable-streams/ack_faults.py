@@ -35,7 +35,7 @@ def audit(ledger,origins,label,effects,checkpoint):
 def audit_evidence(path):
     operations=None;pids=None;replacement=None;held=None;killed=False;dropped=False;resumed=False
     snapshots={};passed=set();forwarded=0;stopped=set();store=None;removed=False;replay=None;original_seen=False
-    ambiguities=0;interrupted_audits=0
+    ambiguities=0;interrupted_audits=0;peer_restarts={}
     for line in path.read_text().splitlines():
         row=json.loads(line);event=row["event"]
         if event=="plan":
@@ -117,6 +117,8 @@ def audit_evidence(path):
         elif event=="ack_destination_restarted":
             require(killed and dropped and original_seen and replacement is None and row["pid"] not in pids.values() and not resumed,"ack restart did not replace killed process")
             replacement=row["pid"]
+        elif event=="destination_follower_process_started":
+            peer_restarts[row["node"]]=row["pid"]  # Validated by the independent disk/proof auditor.
         elif event=="retry_blocked":
             require(held is not None and not resumed and row["request_sha256"]==held["request_sha256"],"blocked ack replay changed bytes")
         elif event=="retry_resumed":
@@ -143,7 +145,7 @@ def audit_evidence(path):
         elif event=="fleet_process_stopped":
             require("final" in passed and row["node"] not in stopped and row["exit_code"]==0 and len(row["reports"])==1
                 and all(row["reports"][0].get(key) is True for key in ("ingress_drained","application_work_drained","cells_drained")),"incomplete ack fleet shutdown")
-            require(row["pid"]==(replacement if row["node"]=="destination" else pids.get(row["node"])),"ack shutdown names another process")
+            require(row["pid"]==(replacement if row["node"]=="destination" else peer_restarts.get(row["node"],pids.get(row["node"]))),"ack shutdown names another process")
             stopped.add(row["node"])
         elif event=="network_store_removed":
             require(store is not None and not removed and stopped==set(pids) and row["container"]==store["container"],"ack store removed before complete shutdown")
@@ -157,10 +159,11 @@ def audit_evidence(path):
         backend="s3" if store else "sqlite",**audit_proof(path,operation="ack"))
 
 
-def exercise(binary,root,rustfs_image=None,follower_only=False):
+def exercise(binary,root,rustfs_image=None,follower_only=False,restart_followers=False):
     require(os.name=="posix","ack process qualification requires SIGKILL")
+    require(not restart_followers or follower_only,"cold followers require follower-only destination proof")
     root.mkdir(parents=True,exist_ok=False)
-    ledger=Ledger(root,commands=(("cross",725,1),));processes=[];proxy=None
+    ledger=Ledger(root,commands=(("cross",725,1),));processes=[];proxy=None;cold=None
     store=NetworkStore(root,ledger,rustfs_image) if rustfs_image else None
     try:
         if store:store.start()
@@ -180,7 +183,7 @@ def exercise(binary,root,rustfs_image=None,follower_only=False):
         proof=None
         if follower_only:
             from destination_proof import DestinationProof
-            proof=DestinationProof(root,store,ledger,operation="ack")
+            proof=DestinationProof(root,store,ledger,operation="ack",restart_followers=restart_followers)
             proof.arm()
         proxy.arm()
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
@@ -194,14 +197,21 @@ def exercise(binary,root,rustfs_image=None,follower_only=False):
             result=future.result(timeout=15)
             require(result["status"]=="reply_lost" and result["fresh_effects"]==1,"consumer did not observe ack reply loss")
             ledger.record("original_ack_response",status=result["status"],fresh_effects=result["fresh_effects"])
+        if restart_followers:
+            from destination_disks import ColdFollowers
+            cold=ColdFollowers(proof,binary,processes)
+            cold.stop()
         if proof:proof.discard()
+        if cold:cold.start()
         destination=FleetProcess(binary,root,"destination","destination-recovered",peer,proxy.address,True,store,
             node_lease_ms=1000 if follower_only else None)
         processes.append(destination);origins["destination"]=destination.ready()
         ledger.record("ack_destination_restarted",pid=destination.child.pid)
+        if cold:cold.ready(origins)
         audit(ledger,origins,"recovered-before-replay",["cross"],1)
         if proof:proof.recovered()
         proxy.resume("recovered-before-replay")
+        if cold:cold.resume()
         deadline=time.monotonic()+60;interruptions=0
         while True:
             require(time.monotonic()<deadline,"stored ack transport did not recover")
@@ -217,18 +227,22 @@ def exercise(binary,root,rustfs_image=None,follower_only=False):
         ledger.record("stored_ack_replayed",status=result["status"])
         audit(ledger,origins,"final",["cross"],1)
         proxy.outage=True
+        if cold:cold.quiesce()
         for process in reversed(processes):process.stop_recorded(ledger)
         proxy.close();proxy=None
+        if cold:cold.close()
         if store:store.close()
         summary=dict(audit_evidence(ledger.path),status="passed",binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),output=str(root),
             scope="three independent loopback processes; proven ack reply loss and destination SIGKILL; persisted receipt replay without new fetch",
-            follower_only=follower_only)
+            follower_only=follower_only,restart_followers=restart_followers)
         (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
         print(json.dumps(summary),flush=True)
     finally:
         if proxy:proxy.release.set();proxy.outage=True
+        if cold:cold.quiesce()
         for process in reversed(processes):process.stop()
         if proxy:proxy.close()
+        if cold:cold.close()
         if store:store.close()
         ledger.close()
 
@@ -239,6 +253,7 @@ if __name__=="__main__":
     target.add_argument("--binary",type=Path);target.add_argument("--audit",type=Path)
     parser.add_argument("--output",type=Path);parser.add_argument("--rustfs-image")
     parser.add_argument("--follower-only",action="store_true",help="refuse destination replica uploads and delete its local data before recovery")
+    parser.add_argument("--restart-followers",action="store_true",help="also SIGKILL all original peers and recover from retained follower disks; requires --follower-only")
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
-    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-ack-fault-parent-"))/"evidence").resolve(),args.rustfs_image,args.follower_only)
+    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-ack-fault-parent-"))/"evidence").resolve(),args.rustfs_image,args.follower_only,args.restart_followers)

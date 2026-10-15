@@ -22,7 +22,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are destination follower-disk recovery, remaining
+The next correctness priorities are cold destination append recovery, remaining
 stale settlement/reply interleavings, physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
@@ -52,7 +52,59 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: independent-process live source takeover
+## Current follow-up: cold destination acknowledgment and fetch recovery
+
+The ack/fetch process drivers now accept `--follower-only --restart-followers`.
+All original processes are SIGKILLed after an actual proven destination reply
+and pre-loss audit. The original destination ensemble's committed CLB1/CLE1
+batches are archived with checksum/range inspection; stream LTX and original
+destination-session log bucket objects must remain unchanged with all original
+memory gone. Destination-local data is deleted. Peer disks are preserved and
+rechecked before their independent replacement processes start.
+
+`destination_disks.py` requires old lease expiry, distinct process IDs and new
+peer node generations. Every replacement starts before readiness waits, since
+recovery can need another peer's still-activating listener. A saved recovery
+prefix must precede request replay. Ack recovers checkpoint one, no lease and
+the original inbox receipt before AlreadyAcknowledged replay. Live fetch retains
+the original lease/response; expired fetch keeps its original 30-second node/
+stream timing and obtains higher lease authority before stable replay. Both
+fetches apply one effect and acknowledge only the saved receipt. Complete
+survivor/proxy/store joins and offline archive-byte reinspection remain required.
+
+An initial S3 live-fetch run recovered the exact lease and one effect but failed
+the evidence gate because ownership moved to the restarted producer, bypassing
+the destination-only measuring proxy. This was a missing harness observation,
+not an observed lost event or duplicate effect. The harness now places paused
+method-specific proxies on both returning peers' advertised routes too. The
+assertion and exact-byte comparison remain unchanged. A final S3 ack run owned
+by the returning producer exercises that route and passes. The failed trace is
+retained; passing reruns do not explain unrelated historical failures.
+
+All six final cold-disk cases pass: ack/live-fetch/expired-fetch on SQLite
+(4.52s/4.48s/33.27s) and private pinned RustFS S3 (6.02s/5.95s/34.84s). They use
+the unchanged immutable executable SHA-256
+`931d05edf72aff8740efb1db608c6b17ef7147a4a96663378190260c8082fcfd`.
+The 124 Python guards include missing/reordered custody, stale/reused process
+authority, changed witness files/epochs, bucket repair, early replay and archive
+mutation. Unit custody fixtures are synthetic; only process runs supply actual
+disk/state evidence. Core runtime/SDK Rust code and owned markers are unchanged.
+Ordinary ack, live-fetch and live-follower append cases pass too; all nine saved
+ledgers pass offline audit. Formatting (509 Rust files), documentation (36
+documents/6 flows/386 references), dependency checks (403 packages/no JavaScript
+engine) and whitespace checks pass. No new Rust build/test claims are made for
+this Python/documentation change; the unchanged executable comes from the prior
+Rust 1.97.0/aarch64 macOS qualification.
+
+These are selected cold retained-disk destination ack/fetch cuts among processes
+on one machine. Cold pending-append recovery is next: its unsettled source can
+otherwise repair missing acceptance automatically, so it needs an independent
+pre-replay gate. Missing follower disks, consumer-local replay, other stale
+settlement/reply interleavings and physical host/store/power, startup-cause,
+lifecycle, capacity and operational gates remain open. The full goal remains
+incomplete.
+
+## 2026-10-15 independent-process live source takeover
 
 `live_owner.py` extends the embedded running-poll case to four independent
 processes on one machine. A private producer-only `owner_fault` configuration

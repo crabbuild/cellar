@@ -717,6 +717,19 @@ after expiry. Ack must recover checkpoint one and the exact saved inbox receipt
 before AlreadyAcknowledged replay. Every consumer effect stays unique. These
 cases retain live follower disks; other commit/proof cuts, follower disk and
 physical host/power/store loss remain separate qualification.
+For ack/fetch, `--follower-only --restart-followers` additionally kills every
+original process, archives the destination ensemble's current CLB1/CLE1 batches
+and checks unchanged destination LTX/session-log bucket data with all memory gone.
+Delete only destination-local data; keep the original witness disks unchanged.
+Start all replacements before awaiting readiness, require expired old leases,
+new PIDs/generations and a saved recovered prefix before any request replay.
+`destination_disks.py` checks custody during execution and rechecks archived bytes
+offline. Returning witnesses may acquire stream ownership, so their advertised
+routes also need paused exact-byte reply proxies until the recovery audit passes.
+Require exact live receipt/reply or higher post-expiry lease authority, original
+stored ack replay, unique effects and complete process/proxy/store joins.
+This qualifies selected cold retained-disk ack/fetch cuts, not witness-disk loss,
+cold pending-append recovery, consumer-local replay, or physical host/power faults.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST
