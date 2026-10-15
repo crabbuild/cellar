@@ -1475,11 +1475,14 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     )?;
     runtime.adopt(adopted);
     reopen_source(&runtime).await?;
-    assert!(fetch(&runtime, "emit?new=true")
-        .await
-        .unwrap_err()
-        .to_string()
-        .contains("no event stream binding"));
+    let unbound = fetch(&runtime, "emit?new=true").await.unwrap_err();
+    assert_eq!(
+        unbound
+            .downcast_ref::<DeliveryError>()
+            .ok_or_else(|| anyhow!("unbound publication lost its typed outcome: {unbound:#}"))?
+            .code,
+        cellar::sdk::event_stream::ErrorCode::InvalidRequest,
+    );
     fire(&runtime, SOURCE, 17).await?;
     let delivered = captured.lock().unwrap().as_ref().unwrap().clone();
     assert_eq!(

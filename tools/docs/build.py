@@ -36,6 +36,7 @@ GUIDES = [
     ("cli-reference", "CLI reference and operator boundaries", "Verified packaging syntax and authenticated operator families.", "builder platform operations"),
     ("glossary", "Shared glossary", "Precise language for authority, durability and lifecycle.", "builder platform operations team"),
     ("documentation-maintenance", "Maintain the documentation library", "Source provenance, generated visuals and integrity checks.", "team"),
+    ("event-delivery", "Outbox, streams and subscriptions", "Atomic publication, resumable consumption, typed outcomes and operations.", "builder platform operations"),
 ]
 
 # Six steps per flow keep diagrams readable. Failure edges are simplified
@@ -77,15 +78,15 @@ FLOWS = [
              ("Qualify and roll out", "Team / supervisor", "Run compatibility, security, capacity, failure and restore gates on the exact candidate. The process supervisor starts nodes and advances a gradual rollout."),
              ("Observe and retain", "Release / SRE", "Require readiness, business probes and complete drain proofs. Keep a compatible prior artifact and record the evidence-backed operating envelope.")],
          fail_at=4, failure=("Release gate fails", "Stop promotion", "Halt rollout and preserve the candidate evidence. Roll back only when data, workflow and peer compatibility are proven; otherwise contain and correct forward.")),
-    dict(id="async", title="Asynchronous delivery", guide="08-asynchronous-work.md", kind="Proposed application pattern · replay-safe effects",
+    dict(id="async", title="Asynchronous delivery", guide="26-event-delivery.md", kind="Framework event delivery · under development",
          steps=[
-             ("Persist business intent", "Cell transaction", "Record the state change and uniquely identified async intent together. An outbox is an application pattern, not an automatically created Cellar table."),
-             ("Schedule or dispatch", "Alarm / Queue / Workflow", "Choose the durable mechanism and track retry budgets. wait_until alone is event-owned work rather than a crash-survival mechanism."),
-             ("Recognize a replay", "Consumer / participant", "Check a stable ID and request digest. Duplicate delivery must not blindly repeat a business mutation or external side effect."),
-             ("Perform the effect", "External receiver", "Use the same receiver-side idempotency key or a reconciliation protocol. SQLite and an external service do not share one atomic transaction."),
-             ("Record the outcome", "Durable receipt", "Persist the effect result and local completion state. A response lost after the effect is an ambiguous outcome to reconcile."),
-             ("Settle and reconcile", "Application", "Acknowledge or finish the step only according to its contract. Monitor overdue work, poison messages, retry exhaustion and unresolved receipts.")],
-         fail_at=3, failure=("Effect result uncertain", "Retry same ID", "A crash can occur after the receiver performs an effect but before the local receipt. Reconcile the receiver or retry the same key; do not generate a new effect ID.")),
+             ("Commit state and event", "Source cell", "db.tx stores business changes and tx.emit inserts the bound stream obligation together. Output gates prove a recoverable obligation, not completed delivery."),
+             ("Prove and append", "Framework dispatch", "Durable wakes resume delivery. The stream appends a contiguous source prefix and retains deduplication watermarks; proven acceptance permits source cleanup."),
+             ("Lease a batch", "Named subscription", "next returns bounded records and an exact receipt without advancing the checkpoint. Caller-owned invocations or supervision drive the consumer."),
+             ("Commit local effects", "Consumer transaction", "tx.inbox.accept and business effects commit together. Retained receipts suppress repeated local effects; external receivers still need idempotency."),
+             ("Prove consumer state", "Storage sync", "db.sync proves local effects before changing the remote checkpoint. A failed or lost result does not establish rollback."),
+             ("Acknowledge exact receipt", "Subscription checkpoint", "batch.ack settles the exact lease. After response loss, reuse its receipt. Required retention protects unacknowledged records and can backpressure sources.")],
+         fail_at=4, failure=("Result uncertain", "Reconcile saved identity", "Retain the command, fetch or exact acknowledgment receipt. Audit before replay; a committed inbox receipt can suppress a repeated local effect. Full failure qualification remains open.")),
     dict(id="shutdown", title="Graceful shutdown", guide="17-operations.md", kind="Framework behavior · both stop modes",
          steps=[
              ("Close public admission", "Ingress", "Request Handoff for a leaving logical node or Preserve for a same-node restart. Stop accepting new public work while retaining accepted events."),

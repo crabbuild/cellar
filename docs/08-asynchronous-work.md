@@ -24,6 +24,9 @@ released production guarantee.
 | Workflow | Multi-step durable business process | Stable replay and external-effect idempotency |
 | Cron | Periodically create/check work | Invocation is not proof of one completed business job |
 
+For the complete producer/consumer contract and outcome handling, see
+[outbox, streams and subscriptions](26-event-delivery.md).
+
 ## Cell alarms
 
 Use `Storage::set_alarm` with an absolute millisecond timestamp and handle

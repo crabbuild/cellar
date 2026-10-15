@@ -1,5 +1,20 @@
-//! Durable event resource handles. Handles are minted by a bound application
-//! context and retain the execution domain that granted their authority.
+//! Transactional outbox, durable event streams and resumable subscriptions.
+//!
+//! Resolve a typed [`Stream`] with [`Context::stream`], then use
+//! [`crate::sdk::Storage::tx`] and `tx.emit(&stream, event)` to commit business
+//! state and a delivery obligation in one cell database. Successful source
+//! output proves the recoverable obligation; stream acceptance is asynchronous.
+//!
+//! [`Stream::subscription`] creates a named consumer handle. Fetching a
+//! [`Batch`] leases records without advancing its checkpoint. Commit local
+//! effects together with inbox receipts, call [`crate::sdk::Storage::sync`],
+//! then [`Batch::ack`]. Retained inbox receipts suppress repeated local effects;
+//! external effects require receiver idempotency or reconciliation.
+//!
+//! Handles retain their resolved resource incarnation and execution domain.
+//! Durable bindings currently require a bucket-backed host, replication and
+//! durable wake discovery. The implementation remains under development;
+//! broader fleet, failure and capacity qualification is incomplete.
 
 use super::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -310,10 +325,12 @@ impl<E> Stream<E> {
                 "stream handle belongs to another execution domain",
             ));
         }
-        anyhow::ensure!(
-            self.services.accepts_work(),
-            "stream execution domain is closed"
-        );
+        if !self.services.accepts_work() {
+            return Err(error::error(
+                ErrorCode::Unavailable,
+                "stream execution domain is closed",
+            ));
+        }
         Ok(())
     }
 }
@@ -326,7 +343,12 @@ impl Context {
             .stream_bindings
             .iter()
             .find(|binding| binding.environment == name)
-            .ok_or_else(|| anyhow::anyhow!("no event stream binding named {name}"))?;
+            .ok_or_else(|| {
+                error::error(
+                    ErrorCode::InvalidRequest,
+                    "event stream binding is not declared",
+                )
+            })?;
         let binding = self.worker_config.event_readiness.binding(binding)?;
         if binding.resource.family != E::FAMILY {
             return Err(error::error(

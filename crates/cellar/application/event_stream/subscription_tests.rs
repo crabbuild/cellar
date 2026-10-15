@@ -312,3 +312,32 @@ fn retry_acceptance_requires_canonical_deadline_consistent_with_delay() -> Resul
     }
     Ok(())
 }
+
+#[test]
+fn acknowledgment_acceptance_preserves_definitive_statuses_and_refuses_unknown_success(
+) -> Result<()> {
+    for (status, expected) in [
+        ("acknowledged", Acknowledgment::Acknowledged),
+        ("already_acknowledged", Acknowledgment::AlreadyAcknowledged),
+        ("obsolete", Acknowledgment::Obsolete),
+    ] {
+        assert_eq!(accept_acknowledgment(&json!({"status":status}))?, expected);
+    }
+    for value in [
+        json!({}),
+        json!({"status":"private-invalid-status"}),
+        json!({"status":null}),
+        json!([]),
+    ] {
+        let failure = accept_acknowledgment(&value).unwrap_err();
+        assert_eq!(
+            failure
+                .downcast_ref::<super::super::DeliveryError>()
+                .unwrap()
+                .code,
+            ErrorCode::Ambiguous
+        );
+        assert!(!format!("{failure:#}").contains("private-invalid-status"));
+    }
+    Ok(())
+}

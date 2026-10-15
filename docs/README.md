@@ -54,6 +54,7 @@ Documents can contain all three, with that distinction made in their text.
 | [23 · CLI reference](23-cli-reference.md) | Verified command syntax and operator surfaces | Platform | Reference |
 | [24 · Glossary](24-glossary.md) | Shared domain language | Architecture | Reference |
 | [25 · Documentation maintenance](25-documentation-maintenance.md) | Update rules, visual tooling and verification | Documentation | Practice |
+| [26 · Event delivery](26-event-delivery.md) | Outbox, durable streams, resumable subscriptions and outcomes | Application / SRE | Guide / practice |
 | [Sources and evidence](sources.md) | Baseline, implementation links, validation limitations | Release owner | Reference |
 | [Architecture decisions](adr/README.md) | Documented constraints and future decisions | Architecture | Decisions |
 | [Application brief](templates/application-brief.md) | Define boundaries and measurable requirements | Application | Template |

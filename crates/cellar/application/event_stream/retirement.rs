@@ -142,7 +142,11 @@ impl<E> Stream<E> {
             json!([{"request":encoded}]),
         )
         .await?;
-        accept_status(self.resource(), request.operation.as_str(), value)
+        super::error::submitted_result(accept_status(
+            self.resource(),
+            request.operation.as_str(),
+            value,
+        ))
     }
 
     pub async fn retirement_status(

@@ -103,11 +103,11 @@ async fn rpc(
                 method,
                 "activation exchange started"
             );
-            let (_, result) = futures_util::future::join(
-                super::dispatch_rpc_call(app.clone(), request),
-                receiver,
-            )
-            .await;
+            // Dispatch retains the routing/execution/deadline state machine.
+            // Keep it off each enclosing activation/startup future's inline
+            // state so unoptimized polling fits a normal executor stack.
+            let dispatch = Box::pin(super::dispatch_rpc_call(app.clone(), request));
+            let (_, result) = futures_util::future::join(dispatch, receiver).await;
             tracing::debug!(
                 event = "event_activation_exchange",
                 phase = "completed",

@@ -12,6 +12,25 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
+## Current follow-up: PR #34
+
+[PR #27](https://github.com/crabbuild/cellar/pull/27) is merged.
+[PR #34](https://github.com/crabbuild/cellar/pull/34) remains a draft. Rust source
+at 69b191d fixes the reproduced activation stack overflow with a heap-pinned
+dispatch boundary and strengthens the unbound-publication assertion to a typed
+InvalidRequest. Latest local results: 218 library cases, native stream/outbox,
+37/39 Node cases, workspace Clippy-D, and the real durable-stream example smoke
+pass. Rustdoc succeeds with seven private-link warnings in unchanged files.
+
+The two Node failures are cancelled-bootstrap factory entry timeout and a
+closed-domain error in the explicit-policy test's child. Both pass unchanged in
+isolation and all six repeated isolated attempts pass; their causes remain
+unestablished. They are not repaired by the activation stack fix. Local results
+use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles. GitHub CI
+did not start on the checked c7be23d run because of account billing/spending
+limits. Complete backend, ownership, fault, capacity and release gates remain
+open. Historical sections below retain their exact source/evidence scope.
+
 ## Current code
 
 - `Storage::tx` delegates to the existing synchronous savepoint machinery.
@@ -2879,3 +2898,163 @@ ownership/process-fault cut. Earlier native startup/drain/analytics failures kee
 their separate unestablished-cause audits. All markers remain 1 and the full goal
 remains active; next prioritize whole-operation request/head/local cancellation
 and the remaining physical metrics/inventory/backend/capacity release work.
+
+
+## One deadline across entered event RPC dispatch (2026-10-14)
+
+Current source gives node event/control RPC dispatch one immutable operation
+budget across routing, retry/invalidation, local execution/output-gate waiting,
+request submission, response head and body. Cancellation is selected once around
+the operation and wins ready-result/deadline ties. Explicit never-connected/stale
+verdicts update submission certainty; pre-invocation timeout/cancellation is
+Unavailable, exhausted known-stale ownership is OwnershipLost, and a possibly
+submitted mutation is Ambiguous. Deadline/cancellation verdicts do not carry the
+activation network retry tag and do not undo prior commits. Existing typed
+handler/host outcomes remain intact. A local request owns its activity before
+its wait future is polled, so refusal/drop cannot leave a routed activity behind.
+The peer abort guard is still disarmed after a proven response head.
+
+Eight new tests cover unpolled expired waits, refusal/route certainty, modeled
+post-submission effects/drop, cancellation/deadline/result ties, existing outcomes
+and maximum budgets, actual LocalRequest activity release, and actual dispatcher
+routing timeout with its CancelRoute message. The modeled atomic effect is not
+SQLite durability evidence. Initial Clippy catches fixture type setup errors
+(RpcData versus gated RpcOutcome, and an unwrap_err Debug bound); tests are
+corrected to the actual API without changing production contracts. Qualification
+is pending. SDK source egress-gate/channel-queue waits and every physical/process/
+ownership/cancellation cut remain separate work; this entered-dispatch budget
+does not establish complete end-to-end SDK qualification. All markers remain 1.
+
+
+The SDK source RPC now captures its host operation budget before egress proof and
+retains it through channel submission and result waiting. A pending proof timeout
+returns Unavailable without submitting; queued-result timeout returns Ambiguous
+and cancels that exact request. Two source-domain regressions exercise a held
+real GateReq and an unconsumed real RpcCallReq. These are added after the initial
+node compilation attempt; qualification of the combined source remains pending.
+The node captures a later host budget, while the earlier source cancellation
+bounds source-originated calls; no monotonic timestamp is serialized or compared
+across hosts. Ordinary RPC does not gain an event deadline. All markers remain 1.
+
+
+Event RPC deadline budgets include the canonical, nonnegative `__streamNext`
+wait when it is within the captured host polling policy, plus the host transport
+budget. That combined absolute deadline is captured once per source/entered-node
+operation and is never reset at response headers or a retry. This preserves
+empty-poll results when the default 30-second wait exceeds the 15-second transport
+budget. Budget inspection accepts at most 16 KiB and bounded structured objects/
+values/depth, reads only the array/body/wait field without alias expansion, and
+never grants extra time to malformed or over-policy waits. Two parser regressions
+cover JSON and structured arguments, canonicality, caps and saturating addition.
+The source changed during the earlier build; fresh qualification is required.
+All Cellar-owned markers remain 1.
+
+
+## Product contract and developer entry points (2026-10-15)
+
+PR #27 is merged. Follow-up work uses codex/event-delivery-product on the merged
+main baseline, preserving the pending node/source deadline changes above. The
+new docs/26-event-delivery.md is the developer entry point: source atomicity,
+stream reads versus leased consumption, inbox/proof-before-ack, replay identities,
+retention pressure, typed outcomes, and owner-routed operations. It is registered
+in the offline catalog and linked from SDK/storage/work/example documentation.
+The stale application-owned-outbox flow now describes the implemented framework
+path and explicitly retains its under-development status. Search, flow selection,
+step navigation, failure details, guide target and the regenerated PNG were
+checked in an isolated agent-browser session. Documentation checks pass for
+36 documents/6 flows/386 local references; dependency checks cover 403 packages
+with no JavaScript engine, and 62 Python fault-harness guards pass.
+
+ErrorCode::as_str and Display use canonical wire names; DeliveryError documents
+is_permanent as automatic outbox lane blocking, not universal retry authority.
+Missing bindings return typed InvalidRequest and closed domains Unavailable. A
+new regression checks canonical names and typed errors under application context.
+Rust selected tests, workspace Clippy and rustdoc remain live or queued; source
+changed after the intermediate build began, so it cannot qualify the final patch.
+The branch remains a draft until final-source validation passes. Full backend,
+ownership, fault, capacity, physical metrics and release gates remain open.
+All Cellar-owned markers remain 1.
+
+
+## Submitted mutation acceptance outcomes (2026-10-15)
+
+A current-source audit found that inner success-body validation could report
+InvalidRequest, StaleReceipt or ConfigConflict after an operation may already
+have committed. The SDK now applies a shared submitted_result boundary only
+after call_bound/call_authorized has accepted a success branch. Configuration,
+retirement, subscription lifecycle change, fetch, acknowledgment, retry and lease
+extension classify invalid success metadata as generic Ambiguous. Their local
+preflight checks and valid broker error branches retain their original codes
+and metadata; read-only observers retain their existing validation behavior.
+No body/validator context is reflected through this new error boundary.
+Three regressions cover unknown acknowledgment statuses, known settlement
+results, definitive broker refusals, successful null values and private-detail
+removal. Formatting 498 and whitespace pass; Rust/Clippy/rustdoc remain pending.
+The older intermediate compile began before this change and cannot qualify it.
+All Cellar-owned markers remain 1.
+
+
+The developer-guide outcome audit compares its handling table against all 33
+current ErrorCode variants. Eight omitted outcomes now have explicit guidance:
+initialization, invalid cursor, too-small batch, unsupported protocol, subscription
+and operation capacity, unknown operations and pending delivery. Replay guidance
+retains fetch/operation identity; capacity guidance preserves correctness metadata,
+and unsupported layouts use the version-1 hard cutover policy. This is a docs-only
+follow-up: Rust source remains identical to c7be23d for queued validation.
+
+
+## Final-source validation and activation stack diagnosis (2026-10-15)
+
+A fresh target avoids the measured dependency-directory scan bottleneck. Local
+qualification uses Rust 1.97.0/aarch64 macOS, incremental 0, debug symbols 0 and
+split-debuginfo off with normal dev/test assertions. Prior generated artifacts
+are retained, and all intentionally interrupted builds remain unqualified.
+The first fresh run passes all 218 library cases in 16.69s, then the stream fixture
+fails an obsolete string assertion for an unbound producer after adoption. The
+fixture now requires DeliveryError::InvalidRequest; its corrected complete stream
+case passes in 11.67s. Native outbox passes in 0.70s. Workspace/all-target/all-feature
+Clippy-D passes; rustdoc succeeds with seven private-link warnings in files
+unchanged by this PR. These are pre-stack-fix results, not final qualification.
+
+The full 39-case Node binary aborts at catalog inventory after its first 10 cases
+pass. The unchanged isolated catalog case also aborts with stack overflow. The
+crash report has a flat activation/startup poll chain. Offline disassembly shows
+activate_inner reserving 209680 bytes in its poll frame. The candidate moves the
+joined dispatch_rpc_call future behind Box::pin; no task, deadline, assertion or
+worker-stack limit changes. The same isolated case passes in 6.81s, and its
+activation poll frame reserves 25168 bytes under the same toolchain/profile.
+The before binary/hash, crash report, both failed logs and before/after assembly
+are retained separately. Existing catalog integration is the regression seam.
+No fixed future-size assertion is added across platforms/toolchains.
+
+The complete selected 259-case suite, workspace Clippy-D and rustdoc are now
+running/queued against this candidate; it is not yet published or fully qualified.
+This stack diagnosis does not establish the causes of earlier bootstrap, drain,
+analytics-receipt or predecessor-recovery failures. All owned markers remain 1.
+
+
+The candidate completes the selected run with 218 library cases passing (14.05s),
+stream integration passing (32.07s), and 37/39 Node cases passing (314.14s). Native
+outbox is run directly from the freshly built binary after Cargo stops on the
+Node failures and passes (1.84s). Workspace/all-target/all-feature Clippy-D passes
+(6m29s), and current-source rustdoc succeeds (4m43s) with the same seven private-link
+warnings in unchanged files. The formerly crashing catalog test passes inside
+the full serial Node suite as well as in isolation.
+
+Two startup cases remain failures: cancelled bootstrap times out waiting for
+factory entry, and the explicit-policy test's child returns execution domain is
+closed. The same unchanged binary passes those cases separately in 3.23s and
+15.16s; these replays do not establish either failure's cause or repair. A
+bounded three-round repeated isolated probe is running. Preserve the failed
+full-suite evidence separately from passing replays. PR34 remains a draft and
+these startup/recovery audits remain open; no all-green Node or release claim
+is made. No worker stack, timeout, lease or assertion was enlarged or weakened.
+
+
+The three-round unchanged-binary startup probe completes with all six attempts
+passing (cancelled bootstrap: 6.189/0.867/0.872s; explicit policy: 13.539/11.773/
+11.947s). These do not explain or erase the failed full suite. The rebuilt real
+cellar-example-streams executable also passes examples/durable-streams/smoke.py:
+atomic producer, resumable read, inbox redelivery, acknowledgment and preserving
+restart. This qualifies the documented local walkthrough, not the complete
+backend/crash/ownership/release matrix.

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+/// Machine-readable event outcome. A code alone never authorizes replay of a
+/// business command; retain that operation's identity or exact receipt.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ErrorCode {
     TransactionRequired,
@@ -38,6 +40,45 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
+    /// The exact spelling used in event RPC and diagnostic JSON.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TransactionRequired => "TransactionRequired",
+            Self::WrongDomain => "WrongDomain",
+            Self::EventFamilyMismatch => "EventFamilyMismatch",
+            Self::OutboxFull => "OutboxFull",
+            Self::Unavailable => "Unavailable",
+            Self::OwnershipLost => "OwnershipLost",
+            Self::Ambiguous => "Ambiguous",
+            Self::Forbidden => "Forbidden",
+            Self::NotInitialized => "NotInitialized",
+            Self::ConfigConflict => "ConfigConflict",
+            Self::DestinationDeleted => "DestinationDeleted",
+            Self::SequenceGap => "SequenceGap",
+            Self::PayloadTooLarge => "PayloadTooLarge",
+            Self::InvalidRequest => "InvalidRequest",
+            Self::StreamFull => "StreamFull",
+            Self::ProducerLimit => "ProducerLimit",
+            Self::CursorExpired => "CursorExpired",
+            Self::InvalidCursor => "InvalidCursor",
+            Self::BatchTooSmall => "BatchTooSmall",
+            Self::UnsupportedProtocol => "UnsupportedProtocol",
+            Self::SubscriptionLimit => "SubscriptionLimit",
+            Self::SubscriptionPaused => "SubscriptionPaused",
+            Self::SubscriptionReset => "SubscriptionReset",
+            Self::LeaseBusy => "LeaseBusy",
+            Self::LeaseExpired => "LeaseExpired",
+            Self::StaleReceipt => "StaleReceipt",
+            Self::AckObsolete => "AckObsolete",
+            Self::InboxFull => "InboxFull",
+            Self::TooManyWaiters => "TooManyWaiters",
+            Self::OperationLimit => "OperationLimit",
+            Self::OperationUnknown => "OperationUnknown",
+            Self::ProducerSealed => "ProducerSealed",
+            Self::PendingDelivery => "PendingDelivery",
+        }
+    }
+
     pub(crate) const BLOCKED_REASONS: [Self; 7] = [
         Self::Forbidden,
         Self::DestinationDeleted,
@@ -50,6 +91,12 @@ impl ErrorCode {
 
     pub(crate) fn is_permanent(self) -> bool {
         Self::BLOCKED_REASONS.contains(&self)
+    }
+}
+
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 
@@ -70,6 +117,11 @@ impl DeliveryError {
         }
     }
 
+    /// Whether automatic outbox dispatch stops this lane until repair.
+    ///
+    /// This is not a general retry policy for SDK calls. For example, an
+    /// ambiguous result may already have committed, and a revoked grant can be
+    /// repaired even though it stops automatic delivery.
     pub fn is_permanent(&self) -> bool {
         self.code.is_permanent()
     }
@@ -77,7 +129,7 @@ impl DeliveryError {
 
 impl std::fmt::Display for DeliveryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}: {}", self.code, self.message)
+        write!(f, "{}: {}", self.code, self.message)
     }
 }
 
@@ -96,6 +148,12 @@ fn ambiguous_reply() -> anyhow::Error {
         ErrorCode::Ambiguous,
         "event RPC returned an invalid result after submission",
     )
+}
+
+/// Apply only to acceptance of an already-submitted mutation's success body.
+/// Broker error branches and local preflight failures must bypass this helper.
+pub(super) fn submitted_result<T>(result: anyhow::Result<T>) -> anyhow::Result<T> {
+    result.map_err(|_| ambiguous_reply())
 }
 
 pub(crate) fn decode_reply(data: &crate::engine_api::RpcData) -> anyhow::Result<serde_json::Value> {

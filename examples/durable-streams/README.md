@@ -12,6 +12,9 @@ implemented SDK and one private bucket-backed node. It does not certify a
 production fleet or the complete crash/ownership/response-loss matrix; see the
 [implementation status](../../plans/outbox-implementation-status.md).
 
+The [event delivery guide](../../docs/26-event-delivery.md) explains the SDK
+contract, error handling, replay identities and operating model.
+
 ## How it works
 
 [application.rs](application.rs) defines `OrderConfirmed`, a typed `Event` whose
