@@ -330,7 +330,8 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
         }
         Ok::<_, anyhow::Error>(())
     })
-    .await??;
+    .await
+    .context("wait for first event before delayed ack")??;
     let accepted = history(&client, &destination).await?;
     ensure!(accepted[0]["event"]["payload"] == json!({"value":1}) && accepted[0]["offset"] == "1");
     ensure!(
@@ -354,7 +355,7 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
     ));
     cellar::asyncrt::select! {
         result = &mut acknowledging => anyhow::bail!("ack finished before its held proof boundary: {result:?}"),
-        entered = tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire()) => entered??.forget(),
+        entered = tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire()) => entered.context("wait for proven ack capture")??.forget(),
     }
     let ack = proxy
         .capture
@@ -403,7 +404,8 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
         Duration::from_secs(10),
         destination.run_until(std::future::pending()),
     )
-    .await??;
+    .await
+    .context("wait for destination authority fence and join")??;
     ensure!(
         outcome
             == NodeOutcome::Fenced {
@@ -451,10 +453,12 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
 
     proxy.capture.release.add_permits(1);
     tokio::time::timeout(Duration::from_secs(5), proxy.capture.released.acquire())
-        .await??
+        .await
+        .context("wait for held ack release")??
         .forget();
-    let original_outcome =
-        tokio::time::timeout(Duration::from_secs(5), &mut acknowledging).await??;
+    let original_outcome = tokio::time::timeout(Duration::from_secs(5), &mut acknowledging)
+        .await
+        .context("wait for original ack caller after held reply release")??;
     drop(acknowledging);
     ensure!(
         matches!(original_outcome.as_str(), "Acknowledged" | "Ambiguous"),
@@ -493,7 +497,8 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
         }
         Ok::<_, anyhow::Error>(())
     })
-    .await??;
+    .await
+    .context("wait for second event after destination takeover")??;
     ensure!(
         call(
             &client,
