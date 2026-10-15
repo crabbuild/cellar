@@ -3058,3 +3058,68 @@ cellar-example-streams executable also passes examples/durable-streams/smoke.py:
 atomic producer, resumable read, inbox redelivery, acknowledgment and preserving
 restart. This qualifies the documented local walkthrough, not the complete
 backend/crash/ownership/release matrix.
+
+## Storage-isolated event owner qualification
+
+The next correctness gate now has an event-specific native scenario in
+`tests/support/event_owner_outage.rs`. A node-specific fault client refuses new
+ordinary/CAS writes, reads, deletes and listings. Its fixed small pagination
+adapter is test infrastructure only. An independent healthy client and executor
+serve the successor; the old client remains isolated through the final audit.
+
+Before the outage, the test proves event one, its consumer inbox effect and live
+lease, then retains event two behind a revoked publish grant. It requires the
+real `NodeLeaseExpired` outcome, closed host admission and a live caller executor.
+Before any retry, the successor must recover the exact source incarnation/lane
+revision, pending row, business count, accepted envelope, effect and checkpoint.
+A still-live lease must retain its original generation/range/expiry. After natural
+lease expiry, redelivery must preserve the inbox effect count; the original
+receipt must return `StaleReceipt` against the replacement lease without advancing
+the checkpoint. Fresh ack, authorized grant repair and explicit outbox retry then
+complete both events with checkpoint two and the independently expected sum three.
+
+The focused case passes in 15.32s on Rust 1.97.0/aarch64 macOS with the existing
+symbols-disabled/nonincremental profiles. The initial import collision and two
+fixture declaration failures are retained separately: a successor binding must
+respect the revoked grant, and an existing administrative revision cannot be
+reissued under a different deployment operation. The final successor only binds
+to the existing resource; it does not reconfigure state to make recovery pass.
+The full pre-fix serial Node run passes 37/40 in 394.99s, including the new case.
+Failures are stop-receipt HTTP connection loss, catalog handoff, and producer
+lease expiry during the lost-append/ack test's final shutdown. The first and third
+causes remain unestablished; passing replay cannot close them.
+
+This is injected local object-store unavailability followed by an expired-owner
+recovery. It does not qualify physical network isolation, a concurrent takeover
+while the old process remains running, delayed in-flight completion fencing,
+follower-only proof, power/store destruction, every commit/proof cut or the
+unresolved intermittent startup failures. Those correctness gates remain ahead
+of cosmetic SDK or additional metrics work. Production Rust and owned version-1
+markers are unchanged.
+
+### Confirmed wake-publication admission panic
+
+The catalog failure includes an actual `DomainClosed` panic through
+`wake_entry::launch_arm_gate`: a transaction finishes in an already-entered poll
+after its host domain closes, then calls infallible `asyncrt::spawn` for discovery.
+A deterministic regression closes the domain inside its entered poll and calls
+that same launcher. Before the fix it reproduces the same panic in 0.04s; the
+initial compile/setup failures above are not this production reproduction.
+
+The launcher now uses `try_spawn`. Refusal drops the publication sender but still
+returns its receiver, so the real output-gate collector fails. It cannot turn
+missing discovery proof into a successful response or an absent gate. Started
+publication remains domain-owned and tracked. This fixes the proven panic path,
+not the cause of the domain's closure or every startup/lease failure. Final-source
+qualification passes 219 library cases (14.08s), native stream (11.59s), all
+40 serial Node cases (307.60s) and native outbox (2.09s). The deterministic
+regression passes after the fix and all three previously failed integration
+cases pass in this run. Only the wake-admission panic has a reproduced cause and
+specific repair; the stop-receipt connection loss and producer shutdown expiry
+remain cause audits. After a test-only return-container correction for `async_yields_async`, all 219
+library cases pass again (11.34s). Production code and Node fixture bytes remain
+unchanged from the 40-case pass. Formatting checks 499 Rust files; docs check
+36 documents/6 flows/386 references and the dependency audit checks 403 packages
+without a JavaScript engine. Final workspace/all-target/all-feature Clippy passes with warnings denied
+(4m03s). Its initial failure was the regression test returning an awaitable receiver from
+an async block. No lint suppression, policy change or assertion relaxation was used.

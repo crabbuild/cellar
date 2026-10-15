@@ -110,7 +110,10 @@ pub(crate) fn launch_arm_gate(
     alarm.at_ms()?;
     let cell = cell.to_string();
     let (tx, rx) = tokio::sync::oneshot::channel();
-    asyncrt::spawn(async move {
+    // A transaction can finish inside a poll that closure has already entered.
+    // Refusal drops the sender and leaves a failed proof gate, never a panic
+    // or a missing gate that could be mistaken for discovery coverage.
+    if let Ok(task) = asyncrt::try_spawn(async move {
         let gate = services.wake_entry().gate.get().unwrap();
         let result = gate
             .flusher
@@ -118,7 +121,51 @@ pub(crate) fn launch_arm_gate(
             .await
             .map_err(|error| format!("setAlarm wake entry: {error:#}"));
         let _ = tx.send(result);
-    })
-    .detach();
+    }) {
+        task.detach();
+    }
     Some(rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn closing_inside_an_entered_poll_refuses_discovery_without_panicking(
+    ) -> anyhow::Result<()> {
+        let directory = tempfile::tempdir()?;
+        let bucket = crate::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let domain = asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+        let gates = domain
+            .run(async {
+                set_arm_gate(ArmGate {
+                    bucket,
+                    flusher: Arc::new(crate::wake::WakeFlusher::new()),
+                });
+                domain.close();
+                let gate = launch_arm_gate(
+                    "Order:closing",
+                    cellar_logic::wake::AlarmSnapshot::committed(
+                        Some(100),
+                        cellar_logic::wake::AlarmSource {
+                            id: cellar_logic::wake::PublicationId {
+                                epoch: 1,
+                                sequence: 1,
+                            },
+                            position: 1,
+                        },
+                    ),
+                )
+                .expect("refused discovery must still hold the output gate");
+                vec![gate]
+            })
+            .await?;
+        assert!(
+            crate::host_turn::await_arm_gates(gates).await.is_err(),
+            "refused publication fabricated discovery proof"
+        );
+        domain.shutdown().await;
+        Ok(())
+    }
 }
