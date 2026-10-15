@@ -621,6 +621,21 @@ command/consumer replay, with complete survivor shutdown. Inspect archived
 SQLite families only through disposable copies; read-only WAL opens can create
 empty sidecars. These selected process cuts do not establish every stale-write,
 physical partition, power/store-loss or follower-only proof requirement.
+`follower_faults.py` selects real fleet durability, backpressures a source behind
+required retention and refuses only producer replica uploads through an opt-in
+ObjectStore decorator. Both put and multipart initiation must fail; this adapter
+never supplies proof or changes lease/catalog/wake clients. Before producer
+SIGKILL, independently inventory exact source bucket LTX bytes across the command
+and observe a refused source upload plus original receipt/pending obligation.
+Archive the killed source database/WAL through the shared immutable inspector;
+the recovered accepted envelope must match its pending envelope digest.
+Delete only the killed leader's private node data, observe actual authority
+expiry and require a distinct successor/higher epoch to recover the original
+receipt/obligation before any consumer effect or acknowledgment. Never replay a
+source POST to repair this test. Runtime prefix and complete offline audits plus
+survivor joins are mandatory. This selected source cut does not qualify follower
+disk loss, destination append/fetch/ack follower-only cuts or physical host/power
+loss. Existing fixtures keep their default proof/lease policies.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST

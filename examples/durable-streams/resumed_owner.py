@@ -25,17 +25,21 @@ from fleet_faults import FleetProcess, NetworkStore, free_address
 
 # The measuring client reads only its private test store, independently of nodes.
 def store_json(root, store, key):
+    return json.loads(store_read(root, store, key))
+
+
+def store_read(root, store, key, query=""):
     if store is None:
         with sqlite3.connect((root / "fleet.sqlite").resolve().as_uri() + "?mode=ro", uri=True) as db:
             row = db.execute("SELECT body FROM __sys_local_objects WHERE key=?", (key,)).fetchone()
             require(row is not None, "measured authority object missing")
-            return json.loads(row[0])
+            return row[0]
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     day, host = stamp[:8], store.config["endpoint"].removeprefix("http://")
     path = "/" + store.config["name"] + "/" + urllib.parse.quote(key, safe="/")
     payload = hashlib.sha256(b"").hexdigest()
     signed = "host;x-amz-content-sha256;x-amz-date"
-    canonical = f"GET\n{path}\n\nhost:{host}\nx-amz-content-sha256:{payload}\nx-amz-date:{stamp}\n\n{signed}\n{payload}"
+    canonical = f"GET\n{path}\n{query}\nhost:{host}\nx-amz-content-sha256:{payload}\nx-amz-date:{stamp}\n\n{signed}\n{payload}"
     scope = f"{day}/us-east-1/s3/aws4_request"
     signing = ("AWS4" + store.secret).encode()
     for component in (day, "us-east-1", "s3", "aws4_request"):
@@ -44,8 +48,11 @@ def store_json(root, store, key):
     signature = hmac.new(signing, text.encode(), hashlib.sha256).hexdigest()
     headers = {"x-amz-content-sha256": payload, "x-amz-date": stamp,
                "Authorization": f"AWS4-HMAC-SHA256 Credential={store.access}/{scope}, SignedHeaders={signed}, Signature={signature}"}
-    with urllib.request.urlopen(urllib.request.Request(store.config["endpoint"] + path, headers=headers), timeout=5) as reply:
-        return json.load(reply)
+    target = store.config["endpoint"] + path + ("?" + query if query else "")
+    with urllib.request.urlopen(urllib.request.Request(target, headers=headers), timeout=5) as reply:
+        body = reply.read((16 << 20) + 1)
+        require(len(body) <= 16 << 20, "private store observation exceeded bounded body")
+        return body
 
 
 def authority(root, store, scope):

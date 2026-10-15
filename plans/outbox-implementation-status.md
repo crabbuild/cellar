@@ -22,9 +22,12 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are live old-owner execution during takeover,
-follower-only proof, physical store/host loss and remaining lifecycle/capacity
-cuts. PRs #41 and #42 cover selected lost-fetch handoff and unproven-ack forced
+The next correctness priorities are remaining live old-owner execution during
+takeover, follower-only destination append/fetch/ack proof, follower disk and
+physical store/host loss, and remaining lifecycle/capacity cuts. The current
+process fixture adds the selected follower-only source acknowledgment boundary;
+it does not complete the follower-proof failure matrix.
+PRs #41 and #42 cover selected lost-fetch handoff and unproven-ack forced
 closure cases; neither is independent-process evidence. The process harnesses
 already cover append, ack and whole-fleet loss at selected boundaries; the
 current slice extends them to fetch loss with live/expired leases. Earlier
@@ -49,7 +52,63 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: resume an expired source owner
+## Current follow-up: follower-only source acceptance
+
+The selected risk is an acknowledged source state/outbox transaction existing
+only on the fleet log when the leader loses all local state. The new
+`follower_faults.py` uses real independent fleet processes and an opt-in replica
+ObjectStore decorator. Only producer replica put and multipart initiation are
+refused; ownership/catalog/discovery clients remain healthy and no adapter can
+mint durability credit. Required retention keeps the second command's outbox
+row pending behind the first event.
+
+Acceptance requires an original successful source response, independently
+unchanged source LTX bucket bytes across that command, a real refused source
+upload, an installed fleet ensemble/ack marker and the original receipt plus
+pending row before SIGKILL. The measuring client inventories/deletes only the
+killed producer's local directory after archiving its stable pending database/WAL,
+observes actual old node-authority expiry and
+starts a distinct successor. Reads must recover the same receipt, source
+incarnation/sequence and obligation under a higher epoch before any consumer
+effect or acknowledgment. No source POST replay is permitted. Consumption then
+must preserve the archived pending envelope digest and apply exactly two inbox
+effects and checkpoint two; all survivors and the
+private server must join completely. Saved prefix audits gate further work and
+the complete offline oracle rejects bucket bypass, premature replay, missing
+local-data loss, live authority takeover or incomplete shutdown.
+
+The initial SQLite run reached successful follower-only acceptance and audited
+the pending source before SIGKILL, but its first recovery read hit the still-live
+killed producer route and received ConnectionRefused. The measuring driver now
+observes actual persisted node-lease expiry before starting takeover; it does
+not swallow the error, lengthen production deadlines or replay the command.
+The original failed ledger is retained separately from passing evidence.
+
+The source-proof case passes on both SQLite and the private Docker RustFS S3
+backend, with four saved audits each and exact pending-envelope recovery.
+Shared measuring-client changes also pass both resumed-owner backend cases and
+the ordinary streams smoke test. The Python oracle suite passes 93 cases;
+workspace/all-target/all-feature Clippy passes with warnings denied. Formatting
+checks 505 Rust files, native artifact/CLI suites pass 7/3 cases, docs validate
+36 documents/6 flows/386 references, and the dependency audit checks 403 reachable
+packages with no JavaScript engine. Verification uses Rust 1.97.0 on aarch64
+macOS with symbols-disabled, nonincremental profiles; CI's configured toolchain
+is not claimed as locally exercised. A style lint in the new fixture constructor
+was corrected before the passing Clippy run. Refusal-journal writes serialize on
+the owning blocking executor so concurrent source uploads cannot interleave
+saved JSON evidence.
+
+This is selected source acceptance/local-leader-data-loss evidence. It does not
+qualify follower disk loss, destination append/fetch/ack follower-only boundaries,
+physical host/power loss, every stale owner interleaving, earlier unexplained
+startup/recovery failures or the full capacity/lifecycle matrix. Owned markers
+stay at one, with no compatibility layer.
+The next source-proof gate restarts the acknowledging follower process from its
+disk while leader-local data is absent; then expand destination follower-only
+cuts. An ensemble that remains live cannot by itself qualify follower restart
+or physical disk persistence.
+
+## 2026-10-15 resume an expired source owner
 
 The independent process harness now pauses the producer at its real input gate
 after source proof and before first dispatch. It observes SIGSTOP via waitpid,
