@@ -57,6 +57,13 @@ behavior and unqualified correctness boundaries at the start of each turn.
 Prioritize loss, duplicate effects, fencing and recovery failures before API
 polish or additional metrics. State the selected risk and its acceptance gate;
 report what changed, exact verification and the highest remaining blocker.
+Retained Storage handles must check the installed I/O context's domain as well
+as activation identity. Ordinary access and commit recheck open-domain admission
+inside an already-entered poll; forced closure cannot rely only on the next turn
+to refuse new work. Preserve original-connection rollback/retirement cleanup
+after closure. storage_authority_tests.rs covers wrong-domain access and closure
+between business/outbox writes and commit. These local SDK regressions do not
+qualify an old process still executing across full fleet takeover.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained

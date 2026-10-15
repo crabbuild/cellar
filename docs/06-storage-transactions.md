@@ -6,6 +6,11 @@ lazy cursors, SQL, transactions, alarms and an explicit `sync` durability wait.
 The SQL binding is a separate bound database surface; do not confuse it with
 direct access to the current cell's SQLite state.
 
+Retained handles also require their original execution domain. Ordinary storage
+access and commit recheck admission even within an already-entered callback.
+Forced domain closure refuses new access and rolls back an unfinished transaction
+at commit; cleanup may still roll back through the original connection.
+
 ![Local atomicity and distributed coordination](diagrams/cell-boundaries.svg)
 
 For the complete producer/consumer contract and outcome handling, see

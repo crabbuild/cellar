@@ -80,7 +80,7 @@ FLOWS = [
          fail_at=4, failure=("Release gate fails", "Stop promotion", "Halt rollout and preserve the candidate evidence. Roll back only when data, workflow and peer compatibility are proven; otherwise contain and correct forward.")),
     dict(id="async", title="Asynchronous delivery", guide="26-event-delivery.md", kind="Framework event delivery · under development",
          steps=[
-             ("Commit state and event", "Source cell", "db.tx stores business changes and tx.emit inserts the bound stream obligation together. Output gates prove a recoverable obligation, not completed delivery."),
+             ("Commit state and event", "Source cell", "db.tx and tx.emit share one transaction. Access and commit recheck domain admission; forced closure rolls back the unfinished transaction. Output gates prove recoverable intent."),
              ("Prove and append", "Framework dispatch", "Durable wakes resume delivery. The stream appends a contiguous source prefix and retains deduplication watermarks; proven acceptance permits source cleanup."),
              ("Lease a batch", "Named subscription", "next returns bounded records and an exact receipt without advancing the checkpoint. Caller-owned invocations or supervision drive the consumer."),
              ("Commit local effects", "Consumer transaction", "tx.inbox.accept and business effects commit together. Retained receipts suppress repeated local effects; external receivers still need idempotency."),

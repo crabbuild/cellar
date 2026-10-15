@@ -52,7 +52,57 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: follower-only subscription fetch and ack recovery
+## Current follow-up: retained storage admission inside an executing turn
+
+The stale-owner audit found a concrete SDK admission gap. `Context::storage`
+checked domain admission when creating a handle, but retained `Storage` handles
+only checked activation/source identity. A callback already executing while its
+domain closes could continue synchronous access and commit an open transaction.
+An installed original I/O context also let a retained handle write while another
+execution domain was temporarily entered.
+
+Two focused native regressions fail before the fix: the wrong-domain write
+returns success, and domain closure after business/outbox writes still permits
+commit (0.02s). These are actual storage-boundary failures, not fixture decoding
+or bootstrap errors. Storage now independently compares the installed I/O
+context's services with the current domain. Ordinary access and commit additionally
+require open-domain admission. Cleanup retains original activation/connection
+identity without requiring open admission, so rollback can undo the unfinished
+transaction after closure. No new business authority is granted by cleanup.
+
+Both regressions pass after the fix (0.03s): retained KV/SQL/cursor access and new
+transactions refuse after closure; the unfinished transaction rolls back both
+business state and its second event, retaining the earlier event, producer next
+sequence and settlement watermark. Owned markers remain one, with no
+compatibility path or schema change.
+
+Broader validation passes all 229 library tests, 47 native Node tests (100.46s),
+seven artifact tests, three CLI tests and the native event-stream, outbox, SQL,
+storage and transaction suites. Workspace/all-target/all-feature check and
+Clippy with warnings denied pass, as do formatting (507 Rust files), 111 Python
+guards, docs (36 documents/6 flows/386 references), the dependency audit
+(403 packages/no JavaScript engine) and whitespace checks. The SDK guides, API
+map, example and generated asynchronous flow/2x preview describe the admission
+boundary; the preview was rendered and inspected.
+
+A rebuilt executable, archived with SHA-256
+`617bfe9ac441dfeb07fdf3d96e3152f4358a0848002f395380dc5e8aab11f165`,
+passes eleven process runs: ordinary stream smoke, resumed-owner fencing and
+follower-only append/ack/live-fetch/expired-fetch on both SQLite and private
+RustFS S3. All ten saved fault ledgers pass offline audit. The checks use
+Rust 1.97.0 on aarch64 macOS; CI's configured toolchain is not claimed as locally
+exercised. These passing reruns do not establish the causes of earlier intermittent
+startup failures or close their separate gates.
+
+This closes the reproduced local SDK gap, not the full live stale-owner process
+matrix. An SQLite statement already admitted before concurrent closure and
+output/durability gates retain their existing semantics; this change does not
+claim preemption or rollback of a previously committed result. Qualifying an old
+process still executing across takeover remains the highest correctness work,
+followed by destination follower-disk and other commit/proof/lifecycle/capacity
+cuts. The full goal remains incomplete.
+
+## 2026-10-15 follower-only subscription fetch and ack recovery
 
 `ack_faults.py --follower-only` and `fetch_faults.py --follower-only` share the
 destination proof gate from the append case, with operation-specific held replies,

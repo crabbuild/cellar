@@ -228,6 +228,10 @@ Required invariants:
   is reported explicitly rather than silently skipped.
 - Old activation completions cannot mutate new activation state. Already-sent
   packets may arrive late and are handled by destination deduplication.
+- Retained storage handles require the original execution domain as well as
+  activation identity. Ordinary access and transaction commit must recheck
+  admission if forced closure occurs inside an already-entered callback.
+  Rollback cleanup retains only the original connection authority after closure.
 - Missing durability evidence cannot be converted into an empty restored state.
   A log with possible fleet acknowledgments needs a complete follower witness;
   expiry or prolonged unreachability does not authorize abandoning its writes.

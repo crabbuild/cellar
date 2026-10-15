@@ -89,6 +89,14 @@ successful response passes the source output proof gates. The stream or consumer
 may still be unavailable. An operation that updates a separate SQL binding must
 emit inside that database's owning cell to share the atomic boundary.
 
+Retained storage handles stay bound to their execution domain and activation.
+Storage access and transaction commit recheck admission, including when forced
+domain closure happens inside an already-entered synchronous callback. A refused
+commit rolls back business changes and emitted events together. Rollback cleanup
+can still use the original connection after closure; it grants no new business
+or delivery authority. Local writes already executed before closure remain
+subject to the ordinary durability and discovery gates.
+
 Application commands still need stable command IDs and digest-checked receipts.
 A retried business request can otherwise emit twice. Stream append deduplication
 protects retries of the same stored obligation, not repeated business commands.

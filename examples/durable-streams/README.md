@@ -60,6 +60,10 @@ inside the transaction. Framework dispatch proves the source obligation and
 appends it asynchronously. A successful business response establishes durable
 state and a recoverable obligation, not completed delivery.
 
+Storage access and commit retain the original activation/domain authority.
+Forced domain closure inside the callback refuses commit and rolls back state
+and the emitted obligation together; retaining a storage handle cannot bypass it.
+
 The `Projection` cell calls `subscription.next` with explicit batch/byte budgets
 and zero wait. For every record, one transaction records
 `tx.inbox("order-projection-v1").accept(record)` and increments local totals.
