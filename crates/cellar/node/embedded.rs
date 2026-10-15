@@ -416,6 +416,39 @@ impl Drop for NodeDirectory {
     }
 }
 
+async fn wait_for_event_activation(
+    readiness: &crate::application::event_stream::readiness::Readiness,
+    domain: &ExecutionDomain,
+    mut supervisor: tokio::task::JoinHandle<anyhow::Result<NodeOutcome>>,
+) -> anyhow::Result<tokio::task::JoinHandle<anyhow::Result<NodeOutcome>>> {
+    // The driver can exit before activation is first polled, before its Pending
+    // guard exists. Retaining the generation also retains the readiness sender,
+    // so waiting only on that latch cannot observe the supervisor's exit.
+    let completion = crate::asyncrt::select! {
+        result = readiness.wait() => {
+            if let Err(error) = result {
+                domain.close();
+                let _ = supervisor.await;
+                return Err(error.context("node event resource activation failed"));
+            }
+            // Readiness and completion can both be ready in this poll. A
+            // completed supervisor must never become a successful Node handle.
+            if !supervisor.is_finished() {
+                return Ok(supervisor);
+            }
+            supervisor.await
+        },
+        result = &mut supervisor => result,
+    };
+    domain.close();
+    match completion.context("node supervisor task failed during event resource activation")? {
+        Err(error) => Err(error.context("node stopped during event resource activation")),
+        Ok(outcome) => {
+            anyhow::bail!("node startup ended during event resource activation: {outcome:?}")
+        }
+    }
+}
+
 impl Node {
     /// Start the full production runtime on the supplied executors. Local
     /// directories are exclusive through completion, including failed or
@@ -583,11 +616,8 @@ impl Node {
             .as_ref()
             .expect("embedded node has a runtime")
             .generation();
-        if let Err(error) = generation.event_readiness.wait().await {
-            domain.close();
-            let _ = supervisor.await;
-            return Err(error.context("node event resource activation failed"));
-        }
+        let supervisor =
+            wait_for_event_activation(&generation.event_readiness, &domain, supervisor).await?;
         // Transfer domain ownership to the handle; do not close it when the
         // successful startup guard is retired.
         startup_guard.0 = None;
