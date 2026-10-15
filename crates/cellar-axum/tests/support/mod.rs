@@ -138,6 +138,7 @@ pub async fn start_configured(
         let (node, ingress) = Node::start_external(
             config,
             ExternalNodeServices {
+                wall_clock: None,
                 http_client: None,
                 host_executor: executor.clone(),
                 core_executor: executor,
@@ -176,6 +177,7 @@ pub async fn start_configured(
         let node = Node::start(
             config,
             NodeServices {
+                wall_clock: None,
                 http_client: None,
                 host_executor: executor.clone(),
                 core_executor: executor,

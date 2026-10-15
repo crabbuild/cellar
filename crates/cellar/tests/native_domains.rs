@@ -91,6 +91,55 @@ async fn domains_route_identical_cell_names_to_their_own_host_across_tasks() -> 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn domain_wall_clocks_follow_tasks_without_changing_monotonic_timers() -> Result<()> {
+    use std::sync::atomic::AtomicI64;
+    let sample = Arc::new(AtomicI64::new(90_000));
+    let selected = sample.clone();
+    let first = ExecutionDomain::with_wall_clock(
+        tokio::runtime::Handle::current(),
+        Arc::new(move || selected.load(Ordering::SeqCst)),
+    );
+    let second =
+        ExecutionDomain::with_wall_clock(tokio::runtime::Handle::current(), Arc::new(|| 120_000));
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        first.run(async {
+            assert_eq!(asyncrt::wall_ms(), 90_000);
+            second
+                .run(async {
+                    assert_eq!(asyncrt::wall_ms(), 120_000);
+                    assert_eq!(asyncrt::spawn(async { asyncrt::wall_ms() }).await?, 120_000);
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await??;
+            assert_eq!(asyncrt::wall_ms(), 90_000);
+            sample.store(40_000, Ordering::SeqCst);
+            assert_eq!(
+                asyncrt::spawn(async {
+                    tokio::task::yield_now().await;
+                    asyncrt::wall_ms()
+                })
+                .await?,
+                40_000
+            );
+            assert_eq!(asyncrt::blocking(asyncrt::wall_ms).await?, 40_000);
+            let mono = asyncrt::mono_ms();
+            sample.store(-10, Ordering::SeqCst);
+            asyncrt::sleep(Duration::from_millis(10)).await;
+            assert_eq!(asyncrt::wall_ms(), 0);
+            assert!(asyncrt::mono_ms() >= mono + 10);
+            Ok::<_, anyhow::Error>(())
+        }),
+    )
+    .await???;
+    assert!(asyncrt::wall_ms() > 1_000_000_000_000);
+    first.shutdown().await;
+    assert_eq!(second.run(async { asyncrt::wall_ms() }).await?, 120_000);
+    second.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cancellation_guards_keep_their_owner_when_dropped_in_another_domain() -> Result<()> {
     let first = ExecutionDomain::new(tokio::runtime::Handle::current());
     let second = ExecutionDomain::new(tokio::runtime::Handle::current());

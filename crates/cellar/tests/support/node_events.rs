@@ -25,6 +25,9 @@ mod event_running_owner;
 #[path = "event_settlement_race.rs"]
 mod event_settlement_race;
 
+#[path = "event_clock_retention.rs"]
+mod event_clock_retention;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};

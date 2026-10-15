@@ -29,6 +29,7 @@ identify their implementation at the documented source baseline.
 | Services / egress | `service::Fetcher`, `Context::service`, outbound `fetch`, structured RPC and signals | [services](../crates/cellar/application/service.rs) |
 | HTTP values | `http::Response`, URL and outbound request/body helpers | [HTTP](../crates/cellar/application/http.rs) |
 | Host HTTP configuration | `HttpPolicy`, `HttpClientFactory`; `NodeConfig::http`, `NodeServices::http_client`, `HostServices::configure_http` | [HTTP policy](../crates/cellar/transport/http/policy.rs), [host services](../crates/cellar/execution/services.rs) |
+| Host wall clock | `WallClock`, `ExecutionDomain::with_wall_clock`; `NodeServices::wall_clock`, `ExternalNodeServices::wall_clock` | [Execution domain](../crates/cellar/execution/domain.rs), [Node](../crates/cellar/node/embedded.rs) |
 | Blob objects | `blob::Bucket`, `ObjectBody`, ranges, conditionals, multipart, metadata/checksums | [Blob](../crates/cellar/application/blob.rs) |
 | Host asset storage | `AssetCache`, `AssetCacheOptions`, `AssetResolver`, `FileSystem`; explicit cache passed to `DeploymentGraph::load` | [asset cache](../crates/cellar/runtime/assets/cache.rs), [filesystem](../crates/cellar-ltx/src/host.rs) |
 | Assets / cache / rewrite | `assets`, `cache`, `html_rewriter` modules | [assets](../crates/cellar/application/assets.rs), [cache](../crates/cellar/application/cache.rs), [rewriter](../crates/cellar/application/html_rewriter.rs) |

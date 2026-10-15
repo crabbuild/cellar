@@ -274,6 +274,7 @@ pub fn run(application_config: crate::config::AppConfig) -> Result<()> {
             no_progress_ms: shutdown_ms.min(25_000),
         };
         let services = NodeServices {
+            wall_clock: None,
             http_client: None,
             host_executor: host.handle().clone(),
             core_executor: core.handle().clone(),

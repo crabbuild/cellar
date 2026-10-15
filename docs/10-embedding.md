@@ -19,8 +19,8 @@ process signals and exit handling to the caller.
    [configuration](11-configuration.md) for backend and protocol ceilings.
 3. Supply `NodeServices`: executor handles, listeners, peer HTTP client,
    `PeerAuth`, `PeerProbeSigner`, optional `NodeFleet`, container engine and
-   metrics sampler, and optional SDK HTTP client factory. Node and peer-auth
-   identity must agree.
+   metrics sampler, optional UTC clock, and optional SDK HTTP client factory.
+   Node and peer-auth identity must agree.
 4. Provide a `DeploymentGraph` and `CompiledApplications` whose factories match
    the graph. Configure policy before generations are built.
 5. Await `Node::start`, then supervise with `run_until` and inspect the outcome.
@@ -51,6 +51,16 @@ each redirect mode's policy after the factory callback and retains invocation
 subrequest accounting. Lower-level hosts call `HostServices::configure_http`
 before their first fetch. HTTP configuration stays fixed across generations;
 closing the domain releases cached pools and prevents reconstruction.
+
+Set `NodeServices::wall_clock` and `ExternalNodeServices::wall_clock` to
+`None` for system UTC. Supply `Some(Arc<WallClock>)` to capture a
+caller-owned provider before bootstrap. It returns UTC milliseconds, may move
+backward, and must sample quickly without blocking; negative samples clamp to
+zero. Tasks, blocking work and cleanup retain their originating node's clock.
+It affects runtime wall time, including ownership, alarms and stream expiry.
+Monotonic deadlines/timers and peer signature timestamps retain their separate
+host clocks. Keep fleet UTC sources consistent. Lower-level hosts use
+`ExecutionDomain::with_wall_clock`; this never installs a process-wide override.
 
 Build a bucket-backed graph with an explicit `AssetCache`:
 

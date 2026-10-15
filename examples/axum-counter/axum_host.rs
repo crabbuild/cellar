@@ -61,6 +61,7 @@ async fn main() -> Result<()> {
     let (mut node, ingress) = Node::start_external(
         config,
         ExternalNodeServices {
+            wall_clock: None,
             http_client: None,
             host_executor: executor.clone(),
             core_executor: executor,

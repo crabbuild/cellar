@@ -998,6 +998,7 @@ async fn inputs(
     config.maintenance.load_sample_period = Duration::from_millis(50);
     config.generation_max_age = Duration::ZERO;
     let services = NodeServices {
+        wall_clock: None,
         http_client: None,
         host_executor: tokio::runtime::Handle::current(),
         core_executor: core.handle(),

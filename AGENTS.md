@@ -274,6 +274,21 @@ handlers and body producers retain SDK event authority; only the node driver
 polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
+NodeServices/ExternalNodeServices capture an optional `wall_clock` before
+bootstrap; use None for system UTC. Standalone domains use
+ExecutionDomain::with_wall_clock. The provider belongs to ProductionDomain and
+follows scoped tasks, blocking work and cleanup; it is never a process override.
+Negative samples clamp to zero. Monotonic deadlines/timers and peer signature
+timestamps retain their separate host clocks. Keep fleet UTC sources consistent.
+`event_clock_retention.rs` moves only the destination clock: live leases must pin
+aged capacity, required checkpoints must keep pinning after expiry, and rollback
+plus joined owner handoff must retain observed expiry before any mutation can
+repair state. It uses explicit 120s node TTL/recovery backoff to avoid turning a
+31s wall step into an unrelated authority expiry, preserving ordinary 30s stream
+leases and 3s operation budgets. Audit source obligations and accepted bytes
+before reclaim/replay; bounded-history loss requires an explicit reset. These
+native domain cuts do not qualify physical clock faults or all rejected-operation
+time observations.
 Queue leases and actor settlement share the host's captured operation deadline.
 Embedded bootstrap/adoption generation builds and metrics sampling use fallible
 blocking admission. Closing a domain can race a later effect in an already-entered
@@ -842,6 +857,12 @@ smoke is `census_smoke.py`; keep census scope distinct from destination watermar
 
 
 ## Change discipline
+
+Create PRs against `main`, including work that depends on pending PRs. Record
+dependencies and oldest-first merge order in their descriptions. Do not use a
+deletable feature branch as a PR base: GitHub can close its dependent PRs when
+that branch is deleted. Squash merges can still require synchronizing later
+branches; preserve reviewed file contents when repairing ancestry.
 
 The dashboard is an optional management application, separate from native cell
 execution. Browser JavaScript does not authorize adding a JavaScript engine to

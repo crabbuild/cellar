@@ -346,6 +346,7 @@ fn main() -> Result<()> {
                 .is_none_or(|fixture| fixture.fleet_durability),
         };
         let services = NodeServices {
+            wall_clock: None,
             http_client: None,
             host_executor: host.handle().clone(),
             core_executor: core.handle().clone(),

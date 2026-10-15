@@ -1587,6 +1587,15 @@ may run behind the incompatible-feature gate in isolated development fleets.
   receipts cannot reset progress again; same-database inbox redelivery must keep
   one effect. This native-node cut does not qualify separate processes, clock
   rollback, retention reclamation or independent worker databases.
+- Native clock qualification uses a caller-owned per-domain UTC provider,
+  captured through NodeServices/ExternalNodeServices before bootstrap. Default
+  hosts keep system UTC; monotonic budgets/timers and peer signature time remain
+  separate. With actual owner/proof paths, a live lease must pin aged capacity,
+  required checkpoints must retain protection after expiry, and observed expiry
+  must survive rollback plus owner handoff before replay. Audit pending producer
+  obligations, exact records and inbox effects; bounded-history loss needs an
+  explicit reset. Selected subscription/maintenance cases do not qualify time
+  observations in rejected appends/configuration or physical clock faults.
 - Inbox receipt rollback, digest conflict, capacity, pruning contract, repeated
   batch with partial prior local commits, and two consumers racing on a receipt.
 - Same host with multiple execution domains: no policy, grants, tasks, or

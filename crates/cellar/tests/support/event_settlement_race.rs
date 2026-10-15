@@ -36,7 +36,7 @@ pub(super) async fn lease_call(context: Context, url: &str) -> Result<Output> {
     Ok(super::super::response(serde_json::to_string(&value)?))
 }
 
-async fn status(client: &reqwest::Client, node: &Node) -> Result<Value> {
+pub(super) async fn status(client: &reqwest::Client, node: &Node) -> Result<Value> {
     Ok(stream_operator(
         client,
         node,
@@ -48,7 +48,12 @@ async fn status(client: &reqwest::Client, node: &Node) -> Result<Value> {
         .clone())
 }
 
-async fn fetch(client: &reqwest::Client, node: &Node, id: &str, worker: &str) -> Result<Value> {
+pub(super) async fn fetch(
+    client: &reqwest::Client,
+    node: &Node,
+    id: &str,
+    worker: &str,
+) -> Result<Value> {
     Ok(serde_json::from_str(
         &call(
             client,
@@ -60,7 +65,7 @@ async fn fetch(client: &reqwest::Client, node: &Node, id: &str, worker: &str) ->
     )?)
 }
 
-async fn settle(
+pub(super) async fn settle(
     client: &reqwest::Client,
     node: &Node,
     worker: &str,

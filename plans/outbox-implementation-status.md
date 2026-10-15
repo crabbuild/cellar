@@ -22,9 +22,10 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable correctness work is durable clock rollback and retention
-racing lease expiry/settlement, including required checkpoint protection. Other
-source-control reply transitions remain unqualified. The startup/shutdown cause audit remains open and
+The next actionable correctness work is clock observations in rejected append
+and failed configuration paths, followed by the remaining retention/lease and
+source-control transitions. Selected subscription rollback/handoff and required
+checkpoint cases below do not close that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
@@ -54,7 +55,57 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: subscription settlement races
+## Current follow-up: domain clocks and retention across rollback
+
+Native domains now accept a captured WallClock provider, and both node service
+structs expose optional wall_clock infrastructure before bootstrap. None keeps
+system UTC. Providers follow scoped polls, tasks, blocking work and cleanup;
+negative samples clamp to zero. Monotonic budgets/timers and peer signature
+clock/entropy keep their separate host boundaries. All native/example/adapter
+call sites explicitly select the default. This is an internal source API
+cutover; add the field when rebuilding hosts. Owned markers remain 1.
+
+Two real-node cases use a destination-only clock step with the ordinary 30s
+stream lease and 3s operation policy. Their explicit 120s node TTL and matching
+recovery backoff keep the 31s wall step separate from authority expiry; startup,
+shutdown and invocation deadlines are not raised. With one-record capacity and
+10s age, a live lease must preserve the exact aged record and the producer's
+second pending obligation, including a recorded StreamFull refusal. Observe
+expiry through ordinary extension, roll the clock back, then audit read-only
+status before new mutations. Durable logical time and inactive old authority
+must survive joined handoff to a different, higher-epoch owner with system UTC.
+
+Bounded mode reclaims the old prefix, expires its optional subscription and
+requires an audited reset reporting the skipped offset. Required mode preserves
+original records and backpressure after expiry/handoff; a new higher lease
+replays exact bytes without repeating the retained inbox effect. Its ack releases
+capacity for the original second obligation. Both modes finish checkpoint two,
+producer next sequence three/settled two, one plus two inbox effects and complete
+node/observer drain with usable caller core executors.
+
+The standalone domain clock test passes, including nested domains, async/blocking
+inheritance, rollback, nonnegative samples and independent monotonic waits.
+Initial node attempts failed fixture TTL/backoff validation and an incorrect
+outbox diagnostic path, before the intended qualification. After correcting those
+fixture assumptions, both node cases pass (11.58s); these failures are not claimed
+product defects. Final focused domain/external/node cases pass
+(0.11s/0.68s/16.98s). Full workspace/all-feature library and integration tests pass
+(1450.84s), including all 57 serial Node cases (417.43s). The saved Node executable
+has matching pre/post-run SHA256
+ae8bb37b7847c2e9285a80519fc943ac2415146c370db7c40ec57b0c68f1fc83.
+Workspace doctests pass (11 executed, one existing ignored); no-default-feature
+Axum tests and counter binary check pass. Workspace/all-target/all-feature check
+and Clippy with warnings denied pass. Formatting checks 511 Rust files; docs
+validate 36 documents/6 flows/388 references; the dependency audit checks 403
+packages without a JavaScript engine. All 127 Python guards and whitespace checks
+pass. Local Rust 1.97.0/aarch64 macOS; hosted toolchain qualification is separate.
+
+Additional time-observation paths, including rejected appends and failed
+configuration, physical clock/store failures and the remaining release gates are
+still unqualified. Historical startup/shutdown causes remain unresolved; passing
+workspace reruns do not establish their cause.
+
+## 2026-10-15 subscription settlement races
 
 Three real-node cases hold the original signed acknowledgment and extension
 requests before forwarding them to the stream owner. Separate consumer cells
