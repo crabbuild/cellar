@@ -1680,6 +1680,16 @@ effect, and only the saved receipt advances the checkpoint. Runtime results and
 backend scope belong in the implementation status; the complete matrix remains
 required.
 
+The independent `resumed_owner.py` case pauses a producer after a proven source
+commit but before dispatch, observes actual authority expiry and a higher-epoch
+successor's accepted event, and resumes the old process. It must fence for
+NodeLeaseExpired within the original invocation budget and leave its old source
+receipt/obligation/attempt counters unchanged. Forensic DB/WAL archives are read
+through disposable copies and rechecked before final qualification. Successor
+state is audited before command replay or consumption. This selected paused/
+resumed process cut does not replace the remaining stale-operation, physical
+partition, follower-only and power/store-loss matrix.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry
