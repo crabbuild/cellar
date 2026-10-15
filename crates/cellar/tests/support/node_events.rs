@@ -16,6 +16,9 @@ mod event_late_reply;
 #[path = "event_fetch_reply.rs"]
 mod event_fetch_reply;
 
+#[path = "event_unproven_ack.rs"]
+mod event_unproven_ack;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
