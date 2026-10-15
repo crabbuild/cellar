@@ -24,6 +24,9 @@ import {
   Settings2,
   Sun,
   Workflow,
+  Radio,
+  Send,
+  Users,
   type LucideIcon,
 } from "lucide-react"
 import {
@@ -84,6 +87,14 @@ const groups: {
       { path: "queues", label: "Queues", icon: Layers3 },
       { path: "workflows", label: "Workflows", icon: Workflow },
       { path: "cron", label: "Cron schedules", icon: Clock3 },
+    ],
+  },
+  {
+    label: "Events & delivery",
+    links: [
+      { path: "outboxes", label: "Outboxes", icon: Send },
+      { path: "streams", label: "Event streams", icon: Radio },
+      { path: "subscriptions", label: "Subscriptions", icon: Users },
     ],
   },
   {

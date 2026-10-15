@@ -3,9 +3,10 @@
 # Cellar dashboard service
 
 The dashboard implements [the v1 scope](../../plans/003-fleet-dashboard.md): fleet,
-node and cell exploration; SQL, KV, queue, workflow and cron management; and
-durable node stop receipts. The plan records local verification and deployment
-limits. No hosted service or infrastructure provisioning is included.
+node and cell exploration; SQL, KV, queue, workflow and cron management; event
+delivery workspaces; and durable node stop receipts. The plans record local
+verification and deployment limits. No hosted service or infrastructure
+provisioning is included.
 
 The `cellar-dashboard` process serves a Vite/React/shadcn browser app and a
 same-origin authenticated API. It observes fleet metadata and uses Cellar's
@@ -50,11 +51,11 @@ explicit principal provisioning.
 cargo test -p cellar-admin --locked
 ```
 
-The nine API tests cover fleet isolation, authorization, origin rejection,
-10,000-cell pagination, durable operation deduplication and stop reconciliation.
-Seventeen browser fixture tests cover navigation, permissions, resource controls,
-ambiguous stop outcomes, responsive views and keyboard focus. Native tests verify
-SQL/KV/Queue state across graceful handoff and forced owner closure; shutdown
+API tests cover fleet isolation, authorization, origin rejection, 10,000-cell
+pagination, event permissions, durable operation deduplication and receipt
+reconciliation. Browser fixture tests cover navigation, permissions, resource
+controls, ambiguous outcomes, responsive views and keyboard focus. Native tests
+verify SQL/KV/Queue state across graceful handoff and forced owner closure; shutdown
 receipts cover handoff, preserve, cancellation and deadline expiry. A standalone
 process test verifies cron adoption and a joined stop receipt. See the plan for
 the complete verification record and test-environment limits.
@@ -160,6 +161,26 @@ availability is unknown, not that the fleet is empty.
 Library callers supply `Console::domain`, construct storage clients within that
 domain, and keep its executor alive until `domain.shutdown().await` completes.
 Each request enters the domain explicitly; no global Cellar host is installed.
+
+## Event delivery
+
+Cells expose outbox lanes and root event-state gauges; node pages expose
+generation-pinned host event metrics. Stream workspaces resolve deployed
+bindings and provide bounded catalog discovery, non-consuming event reads,
+producer watermarks and subscription inspection. Payload reads are explicit;
+payload JSON text and decimal-string counters preserve large integer values.
+
+Reads require `data_read`. Outbox retry and subscription pause/resume additionally
+require `operate`; subscription reset/delete also require `data_write`.
+Stream actions recheck the current binding's read/administer capability and
+native grant. Mutation reviews pin the observed source revision or subscription
+identity and require a reason. Native receipts use a principal-bound operator
+identity and reconcile only the exact locally recorded request. The Operations
+page links to receipt lookup after navigation or reload; lookup never replays a
+mutation. Cold inspection can activate a cell and progress existing work.
+
+See [console scope and verification](../../plans/006-event-console.md) and the
+[SDK event-delivery contract](../../docs/26-event-delivery.md).
 
 ## Node stop receipts
 

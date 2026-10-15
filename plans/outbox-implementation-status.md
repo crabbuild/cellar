@@ -6,30 +6,66 @@ The feature is under implementation and is not ready for normal deployment or
 release. The native fixture now exercises source, catalog, stream, and consumer
 turns together; that local evidence does not satisfy the fleet/release gates.
 
+## Current priorities and readiness
+
+The core bucket-backed producer-to-consumer path works in the exercised cases:
+atomic emission, durable dispatch/deduplication, resumable reads, leased fetch,
+inbox effects, acknowledgment and preserving restart. It is **not fully release
+qualified**. Do not use a green SDK suite as evidence for untested ownership or
+storage failures. The ordered list below supersedes historical next-step notes.
+
+| Order | Critical gap | Kind | Acceptance gate |
+| --- | --- | --- | --- |
+| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout and explicit-policy closed-domain failure with the stage diagnostics from PR #36; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
+| 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
+| 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
+| 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The next correctness slice is event-specific isolated/expired-owner coverage:
+retain an original source obligation and leased consumer batch, isolate their
+owner, observe the real typed fence, audit successor recovery before replay,
+and verify old dispatch/ack completions cannot advance replacement state. Existing
+generic cell isolation evidence and orderly event handoffs do not close it.
+This is an acceptance target, not a claim that this scenario has run.
+
+SQLite-only event deployment remains explicitly unsupported until local recovery
+inventory/discovery exists and is qualified. Multi-partition streams, push
+consumer runners and exactly-once external effects are outside the first-release
+contract, not missing implementations of its promised behavior. External effects
+still require destination idempotency or reconciliation.
+
+Each continuation must select the highest actionable correctness risk, record
+the work and evidence gained, and leave its acceptance gate open until satisfied.
+SDK work takes precedence only when it addresses unsafe replay, authorization,
+acknowledgment or another concrete correctness risk. No new loss/corruption bug
+is asserted merely because its failure case is not yet qualified.
+
 All Cellar-owned protocol, format and schema markers stay at 1 during internal
 development. Layout changes use hard cutovers with recreated state and rebuilt
 participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: PR #34
+## Current follow-up: startup observations
 
-[PR #27](https://github.com/crabbuild/cellar/pull/27) is merged.
-[PR #34](https://github.com/crabbuild/cellar/pull/34) remains a draft. Rust source
-at 69b191d fixes the reproduced activation stack overflow with a heap-pinned
-dispatch boundary and strengthens the unbound-publication assertion to a typed
-InvalidRequest. Latest local results: 218 library cases, native stream/outbox,
-37/39 Node cases, workspace Clippy-D, and the real durable-stream example smoke
-pass. Rustdoc succeeds with seven private-link warnings in unchanged files.
+[PR #27](https://github.com/crabbuild/cellar/pull/27) and
+[PR #34](https://github.com/crabbuild/cellar/pull/34) are merged. The activation
+stack fix and SDK contracts are on main. The follow-up contains fixture-only
+startup failure diagnostics and this evidence ledger; production Rust is unchanged.
+Local library (218 cases), stream/outbox, Clippy-D and example smoke gates pass.
+The earlier combined Node run passed 37/39; the diagnostic Node run passes 39/39.
+Their conditions and evidence remain separate below. Rustdoc succeeds with seven
+private-link warnings in unchanged files.
 
-The two Node failures are cancelled-bootstrap factory entry timeout and a
-closed-domain error in the explicit-policy test's child. Both pass unchanged in
-isolation and all six repeated isolated attempts pass; their causes remain
-unestablished. They are not repaired by the activation stack fix. Local results
-use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles. GitHub CI
-did not start on the checked c7be23d run because of account billing/spending
-limits. Complete backend, ownership, fault, capacity and release gates remain
-open. Historical sections below retain their exact source/evidence scope.
+The two earlier Node failures were cancelled-bootstrap factory entry timeout and
+a closed-domain error in the explicit-policy test's child. Both pass unchanged
+in isolation and all six repeated isolated attempts pass; their causes remain
+unestablished. They are not repaired by the activation stack fix or diagnostics.
+Local results use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles.
+GitHub CI did not start on the checked c7be23d run because of account billing/
+spending limits. Complete backend, ownership, fault, capacity and release gates
+remain open. Historical sections retain their exact source/evidence scope.
 
 ## Current code
 
@@ -3164,3 +3200,45 @@ lease/ack completions across destination takeover, physical network isolation,
 follower-only proof or the full crash/storage-loss matrix. These remain higher
 priority than SDK polish or more aggregate metrics. Earlier intermittent startup
 and shutdown failures retain their separate unestablished-cause audits.
+## Local SDK preflight standardization
+
+PR #34 is merged. PR #36 separately contains startup-failure diagnostics; its
+39/39 Node run does not establish the causes of the two earlier intermittent
+failures. Its correction to the current-status summary is independent of this
+SDK change.
+
+Authority minting now returns `Forbidden` for principal/permission refusal and
+`InvalidRequest` for malformed bindings or a missing append source. Configure
+returns `InvalidRequest` for an invalid definition. Subscription construction
+separates invalid names from valid names without a local grant. Receiver grant
+checks and submitted-result ambiguity are unchanged; owned markers stay at 1.
+The developer guide documents the local-refusal contract.
+
+Before destination provisioning, the native source fixture checks seven typed
+refusals and verifies that no catalog or stream partition activates. Local
+verification passes 218 library cases (9.82s), native stream (11.91s) and native
+outbox (0.65s). Compilation takes 7m29s with Rust 1.97.0/aarch64 macOS and the
+captured symbols-disabled, nonincremental dev/test profile. Formatting checks
+498 Rust files; documentation checks 36 documents/6 flows/386 references; the
+403-package dependency audit remains free of JavaScript engines. Workspace
+Clippy passes with all targets/features and warnings denied. Complete SDK outcome
+auditing and broader backend, ownership,
+fault, capacity and release gates remain open.
+
+## Startup failure observation boundaries (2026-10-15)
+
+The startup fixtures use one-second leases and five-second entry/readiness waits.
+Failure-only diagnostics now report whether the cancelled-bootstrap startup future
+completed (including its error) or remains pending at entry timeout. The policy
+child labels node start, readiness and drain stages; on closed-domain readiness
+failure it polls the supervisor completion once without waiting or changing the
+failed result. Its wrapper reports a child failure without assuming configuration
+was consulted. Original deadlines, assertions and public node policies are intact.
+
+The diagnostic Node suite passes all 39 cases in 288.58s, with RUST_BACKTRACE=1
+and no other task-owned checks scheduled during runtime. This is an observation,
+not proof that compiler overlap or any particular startup race caused the prior
+failures. Earlier 37/39 failure evidence remains retained. Workspace/all-target/
+all-feature Clippy-D for this test-only change passes in 2m32s. No production Rust
+changed since 69b191d. The factory-entry and closed-domain root-cause audits remain
+open.

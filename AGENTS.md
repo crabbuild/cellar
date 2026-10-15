@@ -52,6 +52,13 @@ does not roll back resource changes already committed. Deployed event bindings
 require a bucket-backed node or fleet with replication and durable wake discovery;
 SQLite-only embedded nodes reject activation until a local recovery inventory
 is implemented and qualified.
+When continuing outbox/stream/subscription work, reassess critical bugs, missing
+behavior and unqualified correctness boundaries at the start of each turn.
+Prioritize loss, duplicate effects, fencing and recovery failures before API
+polish or additional metrics. State the selected risk and its acceptance gate;
+report what changed, exact verification and the highest remaining blocker.
+Keep implemented behavior separate from release qualification. Passing reruns
+do not close unexplained failures or substitute for missing fault cases.
 Outbox dispatch uses immutable stored principal/grant identity after source
 proof; current application bindings govern new emission, and receivers repeat
 authorization against durable resource grants. Outbox and inbox schemas have
@@ -676,8 +683,8 @@ Conditional console requests also pin the inspected binding identity across depl
 Console edits preserve exact expiry and storage tags, and distinguish absent
 metadata from JSON null. Definite revision conflicts are rejected; lost write
 replies remain unknown. Keep the existing unconditional SDK/CLI signatures.
-See `plans/003-fleet-dashboard.md`, `plans/004-sql-kv-workspaces.md`, and
-`plans/005-resource-inspectors.md` for
+See `plans/003-fleet-dashboard.md`, `plans/004-sql-kv-workspaces.md`,
+`plans/005-resource-inspectors.md`, and `plans/006-event-console.md` for
 implementation progress and release gates.
 
 For dashboard changes, also run:
