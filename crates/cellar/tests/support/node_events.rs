@@ -7,6 +7,12 @@ mod peer_reply_fault;
 #[path = "source_cleanup_fault.rs"]
 mod source_cleanup_fault;
 
+#[path = "event_owner_outage.rs"]
+mod event_owner_outage;
+
+#[path = "event_late_reply.rs"]
+mod event_late_reply;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
@@ -218,6 +224,27 @@ impl Cell for Counter {
                     .and_then(|value| value.as_i64())
                     .unwrap_or(0)
                     .to_string()
+            } else if path == "/retry-outbox" {
+                db.retry_outbox()?;
+                "retried".into()
+            } else if path == "/ack-original" {
+                let receipt: Receipt = serde_json::from_value(
+                    db.get_json("original_ack_receipt")?
+                        .context("original receipt missing")?,
+                )?;
+                match events
+                    .subscription("projection")?
+                    .ack(&context, &receipt)
+                    .await
+                {
+                    Ok(value) => format!("{value:?}"),
+                    Err(failure) => failure
+                        .downcast_ref::<DeliveryError>()
+                        .context("original receipt refusal was untyped")?
+                        .code
+                        .as_str()
+                        .into(),
+                }
             } else if path == "/ack-stored" {
                 let receipt: Receipt = serde_json::from_value(
                     db.get_json("ack_receipt")?
@@ -233,6 +260,7 @@ impl Cell for Counter {
             } else if path == "/process-retry"
                 || path == "/process-ack"
                 || path == "/process-lost-ack"
+                || path == "/process-save"
             {
                 let subscription = events.subscription("projection")?;
                 if let Some(batch) = subscription
@@ -255,7 +283,15 @@ impl Cell for Counter {
                                     .unwrap_or(0);
                                 tx.put_json("processed", &serde_json::json!(prior + value))?;
                             }
-                            if path == "/process-lost-ack" {
+                            if path == "/process-save"
+                                && tx.get_json("original_ack_receipt")?.is_none()
+                            {
+                                tx.put_json(
+                                    "original_ack_receipt",
+                                    &serde_json::to_value(batch.receipt())?,
+                                )?;
+                            }
+                            if path == "/process-lost-ack" || path == "/process-save" {
                                 tx.put_json(
                                     "ack_receipt",
                                     &serde_json::to_value(batch.receipt())?,
@@ -277,6 +313,12 @@ impl Cell for Counter {
                             ),
                         };
                         return Ok(super::response(result));
+                    }
+                    if path == "/process-save" {
+                        return Ok(super::response(
+                            db.get_json("processed")?
+                                .context("processed effects missing")?,
+                        ));
                     }
                     if path == "/process-retry" {
                         batch.retry(&context, 0).await?;
