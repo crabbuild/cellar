@@ -318,7 +318,8 @@ impl FleetClient {
                 ensure!(
                     reply["operation"] == *operation
                         && reply["operator"] == operator
-                        && reply["expected"]["source"] == scope,
+                        && reply["expected"]["source"] == scope
+                        && reply["rearmed"].is_boolean(),
                     "invalid outbox operation receipt"
                 );
             }

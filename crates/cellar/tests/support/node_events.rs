@@ -3986,7 +3986,42 @@ async fn console_event_adapters_use_signed_owner_routes_and_guarded_receipts() -
                     "",
                 )
                 .await?;
+            ensure!(read["records"]
+                .as_array()
+                .is_some_and(|records| records.len() == 1));
             ensure!(read["records"][0]["event"].get("payload").is_none());
+            let payload = console
+                .event_stream(
+                    "embedded-node",
+                    "EVENTS",
+                    &resource().id,
+                    EventStreamAction::Read {
+                        cursor: None,
+                        limit: 25,
+                        max_bytes: 262144,
+                        payload: true,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(payload["records"][0]["event"]["payload"]["value"] == 1);
+            let after_read = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Subscription {
+                        name: "projection".into(),
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(
+                after_read["checkpoint"] == receipt["checkpoint"],
+                "inspection acknowledged events"
+            );
             ensure!(console
                 .event_stream(
                     "embedded-node",

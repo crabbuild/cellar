@@ -23,7 +23,7 @@ operator labels are bound to the console principal and fleet. Keep decimal
 strings exact in the browser. Reads are bounded and do not consume or acknowledge
 events; payload inspection is explicit. Mutations are audited before dispatch,
 are never automatically replayed, and retain ambiguous outcomes until a matching
-owner receipt is inspected. No provisioning, source destruction, forced stream
+owner receipt is inspected and matches the complete recorded request. No provisioning, source destruction, forced stream
 retirement, background polling or aggregate-fleet completeness claims are added.
 
 The underlying primitive remains under development. UI fixtures do not qualify
@@ -38,6 +38,10 @@ Rendered desktop subscription, mobile outbox and dark mobile stream views inspec
 formatter check also pass. Exact u64 values,
 explicit payload requests, guarded reset offsets, permissions, bounded pagination
 and lost-response receipt recovery have browser coverage.
+
+GitHub Actions could not start because of account runner/billing limits. Local
+Rust tests are being rerun with debug symbols disabled to reduce build I/O; test
+assertions and debug assertions are unchanged.
 
 Pending: Rust management/API tests, the real-node owner-route test, native CLI
 regressions and the complete workspace check. Real-node testing uses a

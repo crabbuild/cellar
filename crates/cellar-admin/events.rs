@@ -55,10 +55,14 @@ fn intent(
     body: &impl Serialize,
 ) -> anyhow::Result<Begin> {
     operation_id(id)?;
-    let fingerprint = format!("{:x}", Sha256::digest(serde_json::to_vec(body)?));
+    let fingerprint = fingerprint(body)?;
     console
         .audit
         .begin(id, fleet, &principal.id, target, action, &fingerprint)
+}
+
+fn fingerprint(body: &impl Serialize) -> anyhow::Result<String> {
+    Ok(format!("{:x}", Sha256::digest(serde_json::to_vec(body)?)))
 }
 
 pub(crate) async fn outbox(
@@ -126,9 +130,23 @@ pub(crate) async fn outbox(
             && receipt["expected"]["source"] == scope
             && receipt["rearmed"].is_boolean()
         {
-            console
-                .audit
-                .reconcile_event(&fleet, &principal.id, &id, &target, "outbox_retry")?;
+            let original: OutboxRequest = serde_json::from_value(json!({
+                "operation_id": id,
+                "action": {"kind": "retry", "expected": receipt["expected"], "reason": receipt["reason"]},
+            })).map_err(anyhow::Error::from)?;
+            if !console.audit.reconcile_event(
+                &fleet,
+                &principal.id,
+                &id,
+                &target,
+                "outbox_retry",
+                &fingerprint(&original)?,
+            )? {
+                return Err(anyhow::anyhow!(
+                    "Receipt does not match the recorded request; outcome remains unknown"
+                )
+                .into());
+            }
         }
     }
     event_reply(result, operation)
@@ -205,13 +223,24 @@ pub(crate) async fn stream(
             && receipt["previous"]["resource"] == body.resource_id
             && receipt["current"]["resource"] == body.resource_id
         {
-            console.audit.reconcile_event(
+            let original: StreamRequest = serde_json::from_value(json!({
+                "operation_id": id,
+                "resource_id": body.resource_id,
+                "action": {"kind": "change", "expected": receipt["previous"], "action": receipt["action"], "reason": receipt["reason"]},
+            })).map_err(anyhow::Error::from)?;
+            if !console.audit.reconcile_event(
                 &fleet,
                 &principal.id,
                 &id,
                 &target,
                 "subscription_change",
-            )?;
+                &fingerprint(&original)?,
+            )? {
+                return Err(anyhow::anyhow!(
+                    "Receipt does not match the recorded request; outcome remains unknown"
+                )
+                .into());
+            }
         }
     }
     event_reply(result, operation)

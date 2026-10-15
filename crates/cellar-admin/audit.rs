@@ -156,16 +156,17 @@ impl AuditStore {
         id: &str,
         target: &str,
         action: &str,
-    ) -> Result<()> {
+        fingerprint: &str,
+    ) -> Result<bool> {
         ensure!(
             matches!(action, "outbox_retry" | "subscription_change"),
             "invalid event audit action"
         );
-        self.0.lock().map_err(|_| anyhow::anyhow!("audit store unavailable"))?.execute(
-            "UPDATE operations SET status='succeeded',finished_at=? WHERE fleet=? AND actor=? AND id=? AND target=? AND action=?",
-            params![now(),fleet,actor,id,target,action],
+        let changed = self.0.lock().map_err(|_| anyhow::anyhow!("audit store unavailable"))?.execute(
+            "UPDATE operations SET status='succeeded',finished_at=? WHERE fleet=? AND actor=? AND id=? AND target=? AND action=? AND fingerprint=?",
+            params![now(),fleet,actor,id,target,action,fingerprint],
         )?;
-        Ok(())
+        Ok(changed == 1)
     }
 
     pub fn list(&self, fleet: &str) -> Result<Vec<Operation>> {
@@ -227,6 +228,7 @@ mod tests {
             "event-one",
             "outbox/Order:one",
             "outbox_retry",
+            "request",
         )?;
         audit.reconcile_event(
             "fleet",
@@ -234,7 +236,16 @@ mod tests {
             "event-one",
             "outbox/Order:other",
             "outbox_retry",
+            "request",
         )?;
+        assert!(!audit.reconcile_event(
+            "fleet",
+            "alice",
+            "event-one",
+            "outbox/Order:one",
+            "outbox_retry",
+            "different-request"
+        )?);
         assert_eq!(audit.list("fleet")?[0].status, "outcome_unknown");
         audit.reconcile_event(
             "fleet",
@@ -242,6 +253,7 @@ mod tests {
             "event-one",
             "outbox/Order:one",
             "outbox_retry",
+            "request",
         )?;
         audit.finish(&mut operation, "outcome_unknown")?;
         assert_eq!(operation.status, "succeeded");
