@@ -102,7 +102,12 @@ leases before actor/log construction. Retained roots preserve that lineage;
 a missing root starts a fresh lineage and cannot certify existing owned cells.
 Own-name claim/reconciliation, output/release/GC gates and remote lease routing
 must compare lineage as well as node name. Recovery checks the expected lineage
-against the same root read used for its folded proof decision. Keep metadata
+against the same root read used for its folded proof decision. Identity capture
+also retains whether a root was present. Startup cannot treat a later absence
+as first boot: require that retained root before predecessor GC or lease install.
+The native root-read cut holds actual response bytes/token, erases or replaces
+the root, and requires refusal with owner, payload and follower bytes unchanged;
+returning the original metadata must recover before receipt reuse. Keep metadata
 rollback and physical loss qualification separate from retained-root evidence.
 Delayed-reply fixtures retain the exact removed root atomically in their private
 SQLite store, assert NodeLeaseMissing and full join, then restore its proof fields
@@ -113,6 +118,11 @@ leader-local data and exclude bucket data before recovery, and check SQL state
 before any replay. A prior blocked diagnostic is history; current valid evidence
 can permit recovery without rewriting that history. This native-domain fixture
 does not substitute for the independent-process destination failure matrix.
+Follower-only native log fixtures must exclude node-session bundle publication
+as well as per-cell uploads. The bundle loop's first tick can otherwise win
+with legitimate Bucket proof before Fleet credit; a 1ms fixture-only flush probe
+exposes that route. Preserve real metadata CAS, reads and loss diagnostics;
+BundleFault excludes only the selected session's bundle PUTs, never supplies proof.
 Keep implemented behavior separate from release qualification. Passing reruns
 do not close unexplained failures or substitute for missing fault cases.
 Outbox dispatch uses immutable stored principal/grant identity after source

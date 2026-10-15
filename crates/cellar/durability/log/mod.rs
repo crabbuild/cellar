@@ -4444,9 +4444,13 @@ impl NodeLogManager {
         if self.predecessors_clean.load(Ordering::SeqCst) {
             return Ok(());
         }
-        // This node may never have booted before. Unlike recovery of an
-        // explicitly named predecessor, first boot has no lease to require.
+        // Only identity capture which observed no root can treat absence as
+        // first boot. Losing a retained root cannot erase its recovery duty.
         let prior = read_node_record(&self.bucket, &self.node).await?;
+        anyhow::ensure!(
+            prior.is_some() || !self.ownership.retained_root_required(),
+            "missing retained node lease after lineage capture; recovery is unproven"
+        );
         if let Some(folded) = prior
             .map(|(wire, token)| {
                 anyhow::ensure!(

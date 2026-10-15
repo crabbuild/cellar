@@ -3,6 +3,8 @@
 #[path = "support/log_recovery.rs"]
 mod log_recovery;
 
+#[path = "support/log_bundle_fault.rs"]
+mod log_bundle_fault;
 use anyhow::{ensure, Context as _, Result};
 use bytes::Bytes;
 use cellar::bucket::Bucket;
@@ -19,6 +21,7 @@ use cellar::sdk::{
 };
 use cellar_logic::{CasGuard, LeaseCasOutcome, NodeLeaseRecord};
 use futures_util::TryStreamExt;
+use log_bundle_fault::BundleFault;
 use object_store::{
     throttle::{ThrottleConfig, ThrottledStore},
     ObjectStore,
@@ -176,6 +179,7 @@ struct Pair {
     transport: Arc<Transport>,
     bucket: Arc<Bucket>,
     session: String,
+    bundle_fault: Arc<BundleFault>,
 }
 
 async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> Result<Pair> {
@@ -231,6 +235,12 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         streams: AtomicUsize::new(0),
     });
     let session = ownership.log_session()?;
+    let bundle_fault = BundleFault::new(
+        bucket.store.clone(),
+        format!("{}log/{session}/bundle/", bucket.prefix),
+    );
+    let mut log_bucket = (*bucket).clone();
+    log_bucket.store = bundle_fault.clone();
     let (replica, log, owner) = domain
         .run(async {
             let store: Arc<dyn ObjectStore> = Arc::new(ThrottledStore::new(
@@ -258,7 +268,7 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
             )?;
             let log = Arc::new(NodeLogManager::new(
                 &session,
-                bucket.clone(),
+                Arc::new(log_bucket),
                 Arc::new(OwnLog {
                     ownership,
                     nudge: Box::new(move || {
@@ -285,6 +295,7 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         transport,
         bucket,
         session,
+        bundle_fault,
     })
 }
 
@@ -303,19 +314,26 @@ async fn write(pair: &Pair, value: i64, fresh: bool) -> Result<()> {
                     prior: None,
                 })
                 .await?;
-            let connection = rusqlite::Connection::open(activated.path)?;
+            let connection = rusqlite::Connection::open(&activated.path)?;
             connection.execute_batch("CREATE TABLE IF NOT EXISTS accounts(value INTEGER)")?;
             connection.execute("INSERT INTO accounts VALUES (?1)", [value])?;
             drop(connection);
-            ensure!(
-                tokio::time::timeout(
-                    Duration::from_secs(5),
-                    pair.replica.ltx().handoff_wait(CELL, 1),
-                )
-                .await??
-                    == cellar_logic::ProofSource::Fleet,
-                "real follower fsyncs must prove the write while bucket uploads are delayed"
-            );
+            let proof = tokio::time::timeout(
+                Duration::from_secs(5),
+                pair.replica.ltx().handoff_wait(CELL, 1),
+            ).await??;
+            if proof != cellar_logic::ProofSource::Fleet {
+                let tail = pair.transport.follower_domain.run(pair.transport.follower.tail(&TailReq { leader: pair.session.clone() })).await??;
+                let wal = std::fs::metadata(format!("{}-wal", activated.path.display())).map(|metadata| metadata.len());
+                let local = rusqlite::Connection::open_with_flags(&activated.path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                let rows: (i64, i64) = local.query_row("SELECT count(*),sum(value) FROM accounts", [], |row| Ok((row.get(0)?,row.get(1)?)))?;
+                let bundles = pair.bucket.list(&format!("log/{}/", pair.session)).await?.into_iter().map(|object| object.location.to_string()).collect::<Vec<_>>();
+                anyhow::ensure!(bundles.len() <= 100, "fixture bundle inventory exceeded bound");
+                anyhow::bail!("real follower fsyncs must prove the write while bucket uploads are delayed: proof={proof:?}; wal={wal:?}; rows={rows:?}; follower_range={:?}; follower_entries={}; bundle_paths={bundles:?}", tail.range, tail.entries.len());
+            }
+            if pair.bundle_fault.refused() > 0 {
+                eprintln!("FOLLOWER_ONLY_PROOF session={} refused_bundles={} proof={proof:?}", pair.session, pair.bundle_fault.refused());
+            }
             Ok::<_, anyhow::Error>(())
         })
         .await??;

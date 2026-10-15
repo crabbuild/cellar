@@ -2,6 +2,7 @@
 //! proof, remove the old owner's disk, and audit recovery before receipt reuse.
 
 use super::event_clock_retention::{history, number, owner, pending, wall};
+use super::event_root_read::{follower_proof, RootReadCut};
 use super::event_settlement_race::{fetch, settle, status};
 use super::event_unproven_ack::PublicationFault;
 use super::*;
@@ -182,36 +183,66 @@ async fn restore_metadata(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss() -> Result<()> {
-    run(false, false, false, false).await
+    run(false, false, MetadataLoss::None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload() -> Result<()>
 {
-    run(true, false, false, false).await
+    run(true, false, MetadataLoss::None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_cold_followers_recover_before_any_receipt_replay() -> Result<()> {
-    run(true, true, false, false).await
+    run(true, true, MetadataLoss::None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn missing_destination_lease_refuses_admission_until_proof_metadata_returns() -> Result<()> {
-    run(true, false, true, false).await
+    run(true, false, MetadataLoss::BeforeForeign).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn same_name_restart_cannot_recover_from_a_fresh_lineage_after_root_loss() -> Result<()> {
-    run(true, false, true, true).await
+    run(true, false, MetadataLoss::BeforeSameName).await
 }
 
-async fn run(
-    followers: bool,
-    cold_followers: bool,
-    missing_metadata: bool,
-    same_name: bool,
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn root_loss_after_lineage_capture_refuses_boot_until_original_proof_returns() -> Result<()> {
+    run(true, false, MetadataLoss::AfterCapture).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn root_replacement_after_lineage_capture_refuses_boot_until_original_proof_returns(
 ) -> Result<()> {
+    run(true, false, MetadataLoss::ReplacedAfterCapture).await
+}
+
+#[derive(Clone, Copy)]
+enum MetadataLoss {
+    None,
+    BeforeForeign,
+    BeforeSameName,
+    AfterCapture,
+    ReplacedAfterCapture,
+}
+
+async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Result<()> {
+    let missing_metadata = matches!(
+        loss,
+        MetadataLoss::BeforeForeign | MetadataLoss::BeforeSameName
+    );
+    let same_name = matches!(
+        loss,
+        MetadataLoss::BeforeSameName
+            | MetadataLoss::AfterCapture
+            | MetadataLoss::ReplacedAfterCapture
+    );
+    let after_capture = matches!(
+        loss,
+        MetadataLoss::AfterCapture | MetadataLoss::ReplacedAfterCapture
+    );
+    let replaced_after_capture = matches!(loss, MetadataLoss::ReplacedAfterCapture);
     let directory = tempfile::tempdir()?;
     let destination_data = directory.path().join("destination");
     let destination_core = Executor::new("refusal-clock-destination")?;
@@ -548,6 +579,16 @@ async fn run(
                 Ok::<_, anyhow::Error>(saved)
             })
             .await??
+    } else if after_capture {
+        observer
+            .run(async {
+                let (bytes, _) = bucket
+                    .get("nodes/refusal-destination.json")
+                    .await?
+                    .context("retained root missing before capture")?;
+                Ok::<_, anyhow::Error>(serde_json::from_slice::<Value>(&bytes)?)
+            })
+            .await??
     } else if cold_followers {
         let old_source_services = source.services();
         stopped(source)
@@ -633,7 +674,7 @@ async fn run(
         wall() < expires,
         "ordinary UTC could repair the future clock before recovery audit"
     );
-    let (mut config, services) = inputs(
+    let (mut config, mut services) = inputs(
         if same_name {
             "refusal-destination"
         } else {
@@ -650,8 +691,133 @@ async fn run(
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
     external.primary.options.stream_bindings.clear();
-    let mut replacement_node =
-        Node::start(config, services, external, applications("replacement")?).await?;
+    let cut = after_capture.then(|| {
+        RootReadCut::new(
+            bucket.store.clone(),
+            format!("{}nodes/refusal-destination.json", bucket.prefix),
+        )
+    });
+    if let Some(cut) = cut.as_ref() {
+        services
+            .fleet
+            .as_mut()
+            .context("replacement fleet missing")?
+            .lease_bucket
+            .store = cut.clone();
+        config.startup.recovery_attempts = 1;
+    }
+    let boot = Box::pin(Node::start(
+        config,
+        services,
+        external,
+        applications("replacement")?,
+    ));
+    let mut replacement_node = if let Some(cut) = cut.as_ref() {
+        let proof_before = follower_proof(directory.path(), &old_lease)?;
+        let replacement_root = replaced_after_capture.then(|| {
+            let mut root = old_lease.clone();
+            root["lineage"] = json!("ffffffffffffffffffffffffffffffff");
+            root.as_object_mut().unwrap().remove("log");
+            root
+        });
+        let erase = async {
+            tokio::time::timeout(Duration::from_secs(5), cut.entered.acquire())
+                .await??
+                .forget();
+            ensure!(
+                cut.snapshot()? == old_lease,
+                "startup captured another root than the retained proof"
+            );
+            observer
+                .run(async {
+                    let key = "nodes/refusal-destination.json";
+                    if let Some(replacement_root) = replacement_root.as_ref() {
+                        let (_, token) = bucket
+                            .get(key)
+                            .await?
+                            .context("captured root disappeared before replacement")?;
+                        ensure!(
+                            bucket
+                                .put_cas(key, serde_json::to_vec(replacement_root)?, Some(&token))
+                                .await?
+                                .is_some(),
+                            "captured root changed before controlled replacement"
+                        );
+                    } else {
+                        bucket.delete(key).await?;
+                        ensure!(bucket.get(key).await?.is_none());
+                    }
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await??;
+            cut.release.add_permits(1);
+            Ok::<_, anyhow::Error>(())
+        };
+        let (result, erased) = tokio::join!(boot, erase);
+        erased?;
+        let error = match result {
+            Err(error) => error,
+            Ok(node) => {
+                let view = status(&client, &node).await;
+                let actual = owner(&observer, &bucket).await?;
+                stopped(node).await?;
+                anyhow::bail!("root loss after capture admitted a successor: {view:?}; {first_owner} -> {actual}");
+            }
+        };
+        let boundary = if replaced_after_capture {
+            "own node lineage changed before recovery"
+        } else {
+            "missing retained node lease after lineage capture"
+        };
+        ensure!(
+            format!("{error:#}").contains(boundary),
+            "startup refused at another boundary: {error:#}"
+        );
+        if let Some(replacement_root) = replacement_root.as_ref() {
+            observer
+                .run(async {
+                    let (bytes, _) = bucket
+                        .get("nodes/refusal-destination.json")
+                        .await?
+                        .context("replacement root disappeared")?;
+                    ensure!(
+                        serde_json::from_slice::<Value>(&bytes)? == *replacement_root,
+                        "startup overwrote the replacement root"
+                    );
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await??;
+        }
+        ensure!(
+            owner(&observer, &bucket).await? == first_owner,
+            "failed startup replaced the original cell owner"
+        );
+        ensure!(
+            replicas(&observer, &bucket).await? == baseline,
+            "failed startup changed the original payload prefix"
+        );
+        ensure!(
+            follower_proof(directory.path(), &old_lease)? == proof_before,
+            "failed startup changed retained follower proof"
+        );
+        restore_metadata(&observer, &bucket, &old_lease, replaced_after_capture).await?;
+        let (mut config, services) = inputs(
+            "refusal-destination",
+            &directory.path().join("replacement"),
+            &replacement_core,
+            Some(bucket.clone()),
+            0,
+        )
+        .await?;
+        config.actor.lease_ttl_ms = 120_000;
+        config.startup.recovery_retry_backoff = Duration::from_secs(120);
+        let mut external = graph(1, false);
+        external.primary.event_streams.clear();
+        external.primary.options.stream_bindings.clear();
+        Node::start(config, services, external, applications("replacement")?).await?
+    } else {
+        boot.await?
+    };
     super::super::ready(&replacement_node).await?;
     if missing_metadata {
         let refused = status(&client, &replacement_node).await;
@@ -788,14 +954,24 @@ async fn run(
         settle(&client, &source, "projection", "ack", &replacement, 0).await?
             == json!({"status":"Acknowledged"})
     );
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while pending(&client, &source).await?["pending_rows"] != "0" {
+    let mut delivery_observation = Value::Null;
+    let delivered = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            delivery_observation = pending(&client, &source).await?;
+            if delivery_observation["pending_rows"] == "0" {
+                break;
+            }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         Ok::<_, anyhow::Error>(())
     })
-    .await
-    .context("pending original obligation must deliver after acknowledgment")??;
+    .await;
+    if delivered.is_err() {
+        let cutoff_utc = wall();
+        let destination_view = status(&client, &replacement_node).await;
+        anyhow::bail!("pending original obligation must deliver after acknowledgment: original five-second deadline elapsed; last_source={delivery_observation}; destination={destination_view:?}; cutoff_utc={cutoff_utc}");
+    }
+    delivered??;
     let second = fetch(
         &client,
         &source,
@@ -828,7 +1004,7 @@ async fn run(
     eprintln!(
         "CLOCK_REFUSAL_EVIDENCE {}",
         json!({"proof":if followers {"followers"}else{"bucket"},"old_owner":first_owner,"successor":next_owner,
-        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
+        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
     );
     stopped(source)
         .await

@@ -28,6 +28,9 @@ mod event_settlement_race;
 #[path = "event_clock_retention.rs"]
 mod event_clock_retention;
 
+#[path = "event_root_read.rs"]
+mod event_root_read;
+
 #[path = "event_refusal_clock.rs"]
 mod event_refusal_clock;
 

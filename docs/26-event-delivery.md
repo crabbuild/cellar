@@ -259,6 +259,9 @@ cell and node root carries that lineage; log sessions and follower directories
 use node/lineage/process-generation. Reusing a node name after deleting its root
 creates a fresh lineage and refuses the existing cell. Preserving restarts reuse
 the retained lineage and recover the previous process session before admission.
+If identity capture observed a root, its later disappearance cannot become first
+boot. Startup refuses before collecting predecessor proof or installing a lease;
+changing the lineage between those reads also refuses.
 Do not delete node lease objects as a recovery or garbage-collection procedure.
 Returning metadata must preserve the original lineage, generation, ensemble and
 acknowledgment history. Metadata rollback, independent-process and physical

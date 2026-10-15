@@ -24,19 +24,20 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current correctness slice binds ownership and recovery to a persistent node
-lineage, closing the reproduced same-name admission bypass below. It also drops
-a failed remote route after an ambiguous result without replaying that request.
-Qualify the changed identity and cache boundaries, then exercise root loss or
-replacement between identity capture, predecessor recovery and lease install.
-Require recovery from valid evidence or refusal before existing-cell admission;
-this startup interleaving has not been reproduced or qualified in the cases
-below. Source inspection makes the absent-root cut the next concrete probe:
-lineage capture does not retain whether it observed a root, while predecessor
-startup still permits an optional own root. Require a regression at that exact
-interleaving before claiming continuity across concurrent root loss. Follow it with the independent-process clock-refusal matrix, retention/
-lease and source-control transitions. The prior refused-mutation clock defect is fixed;
-its complete proof/fault matrix remains open.
+The current slice targets root loss after startup reads its retained lineage
+but before predecessor recovery reads the folded proof. The new native cut
+reproduces unsafe epoch-two admission and revival of a proven expired lease.
+Identity capture now retains whether a root was present; the second read must
+find that root before recovery, collection or lease installation can proceed.
+Qualify erasure and replacement at that cut with unchanged original owner,
+bucket payload and follower bytes, then return the saved metadata and audit
+recovery before receipt reuse. The prior lineage and failed-route fixes remain.
+One focused run also times out at the original five-second post-ack delivery
+observation in the older same-name case. The next investigation must capture
+source retry/attempt state and destination acceptance at that cut; passing
+repeats do not explain it. Then exercise loss during predecessor recovery and
+the transition from proven recovery to lease installation, metadata rollback
+and the independent-process clock-refusal matrix. The full proof/fault matrix remains open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -210,6 +211,89 @@ ignored. Documentation validates 36 documents, six flows and 388 references;
 dependency audit checks 403 packages without a JavaScript engine. All 129
 Python evidence guards pass. Local Rust remains 1.97.0/aarch64 macOS; this does
 not supply hosted Rust 1.98.1 qualification or independent-process evidence.
+
+
+## Current follow-up: root continuity during startup
+
+Hold the first actual own-root GET response, including its original bytes and
+object token, after the store has read it. The old destination is joined and
+its disk removed; actual followers retain the proven clock-only StreamFull
+update and both destination replica and session-bundle publication were blocked.
+Delete the root before releasing that unchanged response to lineage capture.
+The pre-fix implementation admits epoch two under the old lineage and returns
+success with the expired subscription lease active. It loses the proven future
+clock. This reproduces in 7.77s and repeats in 7.86s from the saved executable
+(SHA256 b8676ebf5e773976d6e154718e674df54767e011a39d0ec07206f19b16c7fde8).
+
+Lineage capture remembered the identity but discarded whether it came from a
+retained root. The subsequent optional own-root read mistook the erasure for
+first boot, skipped predecessor recovery and installed a no-log successor.
+A captured retained-root requirement now refuses that second missing read before
+GC or the clean latch. First boot still permits an absent root; preserving
+restarts still recover from their retained metadata. No wire, schema or marker
+changes; every Cellar-owned marker remains 1.
+
+The regression requires startup refusal and complete directory release, with
+unchanged original cell owner, bucket payload and bounded exact follower-file
+bytes. Returning the saved metadata changes only expiry after join; the restart
+must recover the proven clock, inactive lease, exact history, pending producer
+identity, inbox effects and checkpoint before receipt reuse. A companion cut
+replaces the root with a different lineage and no folded log after capture;
+it must preserve that replacement record and the original proof while refusing.
+The private read barrier supplies no metadata, witness or success verdict.
+An initial focused run passes six cases and times out in the older same-name
+case while waiting for the pending second event after acknowledgment. Its
+original five-second observation deadline remains unchanged. An isolated repeat,
+a diagnostic seven-case run and ten isolated repeats pass; they do not establish
+the failure's cause. The failure now retains the last source snapshot and UTC
+at the original cutoff, then samples destination state read-only. Distinguish a
+future persisted retry, delayed settlement after acceptance and overdue work
+before changing production behavior or the fixture's phase boundary.
+
+The initial log-boundary run also fails before the metadata cut because its
+write reports Bucket rather than Fleet proof. A same-runtime repeat and 50
+isolated diagnostic repeats pass. Source inspection finds that only per-cell
+uploads were delayed: the bundle loop's initial tick could still upload through
+a plain node-log bucket. Changing only the private fixture's flush interval to
+1ms reproduces the exact proof-selection failure: live WAL (28,872 bytes), local
+rows (1,11), one committed follower entry and a published session bundle.
+
+The fixture now rejects only that session's bundle PUTs; metadata CAS, reads,
+retained-object injection and loss diagnostics remain real. Under the same 1ms
+control, seven bundle writes are actually refused and Fleet proof succeeds,
+followed by the original missing-root refusal and retained-witness recovery.
+Both timing probes restore source byte-for-byte; production and final fixture
+intervals/deadlines are unchanged. The original full boundary failure did not
+record its object inventory; the paired control establishes and excludes the
+uncontrolled bundle route without claiming a physical-fault qualification.
+
+These are native domain/store cuts, not independent-process or physical-fault
+qualification. The post-ack availability failure, recovery/install interleavings
+and metadata rollback stay open.
+
+
+
+### Qualification of the startup root-continuity fix
+
+The seven focused clock/recovery cases pass (61.01s). The final serial Node run
+passes all 65 tests (511.94s), including both new capture cuts and the older
+same-name case. Focused/full-start/full-end executable SHA256 is
+04de23236e977a3cf15552f28969e87f5011863170996845f56d8fcea46688fd.
+All seven changed Rust files remain byte-identical through that final focused
+and Node qualification. The 15 decision-core and 239 library cases also pass;
+production sources match their hashes from those earlier phases. The diagnostic
+and bundle-exclusion additions affect only test sources. Actor, external ingress,
+log and log-protocol boundary suites pass (six actor, six ingress, seven log,
+five protocol cases). All seven artifact and three CLI cases pass. Workspace
+all-target/all-feature check (81.99s), Clippy with warnings denied (91.90s), and
+formatting of 516 Rust files pass. Workspace doc tests pass: 11 passed and one
+existing Axum example ignored. Docs validate 36 documents, six flows and 388
+local references; dependency audit checks 403 packages without a JavaScript
+engine. All 129 Python evidence guards pass. Local Rust is 1.97.0/aarch64 macOS;
+hosted Rust 1.98.1 and independent-process/physical qualification remain separate.
+The initial post-ack observation failure remains unexplained; these passing
+results do not close it.
+
 
 ## Current follow-up: proven and unproven clock-only refusals
 

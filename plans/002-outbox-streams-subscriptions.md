@@ -1960,7 +1960,10 @@ All Cellar-owned markers remain 1.
 ### Node identity and recovery continuity
 
 A durable owner records node name, persistent node lineage and writer epoch.
-The node lease retains the same lineage across process generations. A new root
+The node lease retains the same lineage across process generations. Identity
+capture also retains whether a root was observed. A later absent root cannot
+turn a preserving restart into first boot; predecessor recovery must refuse
+before collection or lease installation when the required root is missing. A new root
 uses a random 128-bit lineage; a reused name cannot certify cells belonging to
 a displaced lineage. Recovery compares the owner lineage with the same lease
 read used to decide whether its folded log is complete. Own-node shortcuts,

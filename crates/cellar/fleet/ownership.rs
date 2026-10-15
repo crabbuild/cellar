@@ -368,6 +368,11 @@ impl std::fmt::Display for LeaseCasError {
     }
 }
 
+struct PreparedNodeLineage {
+    value: String,
+    retained_root: bool,
+}
+
 /// The production-compatible conditional object store used by ownership
 /// effects. A failed write is reported to the core as ambiguous unless the
 /// store definitively returned HTTP 412, or the attempt provably wrote no
@@ -377,7 +382,7 @@ pub struct BucketOwnership {
     lease_bucket: Bucket,
     node: String,
     probe_public_key: String,
-    lineage: std::sync::OnceLock<String>,
+    lineage: std::sync::OnceLock<PreparedNodeLineage>,
     live: Arc<LiveLoad>,
     lease_ttl_ms: u64,
     /// The shared fleet sample's interval and maximum age, the balancing
@@ -518,15 +523,21 @@ impl BucketOwnership {
                         wire.node == self.node,
                         "node lineage root identity mismatch"
                     );
-                    wire.lineage
+                    PreparedNodeLineage {
+                        value: wire.lineage,
+                        retained_root: true,
+                    }
                 }
                 None => {
                     let mut bytes = [0u8; 16];
                     rand::RngCore::fill_bytes(&mut crate::asyncrt::rng("node_lineage"), &mut bytes);
-                    bytes
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect::<String>()
+                    PreparedNodeLineage {
+                        value: bytes
+                            .iter()
+                            .map(|byte| format!("{byte:02x}"))
+                            .collect::<String>(),
+                        retained_root: false,
+                    }
                 }
             };
             let _ = self.lineage.set(lineage);
@@ -545,7 +556,15 @@ impl BucketOwnership {
     }
 
     pub fn lineage(&self) -> Option<&str> {
-        self.lineage.get().map(String::as_str)
+        self.lineage.get().map(|prepared| prepared.value.as_str())
+    }
+
+    /// A root observed during identity capture cannot become first boot if
+    /// it disappears before predecessor recovery reads its folded proof.
+    pub(crate) fn retained_root_required(&self) -> bool {
+        self.lineage
+            .get()
+            .is_some_and(|prepared| prepared.retained_root)
     }
 
     /// The lease lifetime this fleet renews on, used to decide which node
