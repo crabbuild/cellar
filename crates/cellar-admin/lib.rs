@@ -5,6 +5,7 @@ mod api;
 mod audit;
 mod auth;
 mod cron;
+mod events;
 mod nodes;
 
 pub use audit::{AuditStore, Operation};
@@ -58,6 +59,23 @@ pub fn router(console: Console) -> Result<Router> {
     let state = Arc::new(console);
     let api = Router::new()
         .route("/session", get(api::session))
+        .route("/fleets/{fleet}/cells/{scope}/outbox", post(events::outbox))
+        .route(
+            "/fleets/{fleet}/cells/{scope}/event-state",
+            get(events::state),
+        )
+        .route(
+            "/fleets/{fleet}/nodes/{node}/event-metrics",
+            get(events::metrics),
+        )
+        .route(
+            "/fleets/{fleet}/streams/{application}/{binding}/resources",
+            get(events::resources),
+        )
+        .route(
+            "/fleets/{fleet}/streams/{application}/{binding}/action",
+            post(events::stream),
+        )
         .route("/fleets/{fleet}/cron/preview", post(cron::preview))
         .route(
             "/fleets/{fleet}/applications/{application}/cron",

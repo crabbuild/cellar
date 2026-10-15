@@ -157,7 +157,7 @@ impl Reachable {
         Self::from_entrances_route(bucket, subject, scope, name, nodes, "runtime").await
     }
 
-    async fn from_entrances_route(
+    pub(crate) async fn from_entrances_route(
         bucket: &Bucket,
         subject: Subject,
         scope: String,
@@ -226,6 +226,20 @@ impl Reachable {
     pub(crate) fn with_response_limit(mut self, limit: usize) -> Self {
         self.max_response_bytes = Some(limit);
         self
+    }
+
+    /// Bind durable operator receipts to the authenticated console principal.
+    /// The host supplies this label; request bodies cannot choose it.
+    pub(crate) async fn with_operator(
+        mut self,
+        bucket: &Bucket,
+        operator: &str,
+    ) -> anyhow::Result<Self> {
+        self.auth = crate::peer_auth::PeerAuth::new(
+            crate::peer_auth::load_existing(bucket).await?,
+            operator,
+        )?;
+        Ok(self)
     }
 
     /// The signed query is refused by old entrances before dispatch. New

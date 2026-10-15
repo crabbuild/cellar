@@ -53,6 +53,7 @@ export type Binding = {
   identity: string
   scope: string | null
   schedules: string[]
+  event?: import("@/lib/events").EventBinding | null
   definition?: Definition | null
 }
 export type Application = {

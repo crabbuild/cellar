@@ -82,6 +82,17 @@ pub struct BindingView {
     pub scope: Option<String>,
     pub schedules: Vec<String>,
     pub definition: Option<crate::application::workflow::Definition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<EventBindingView>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EventBindingView {
+    pub resource: crate::application::event_stream::ResourceConfig,
+    pub publish: bool,
+    pub read: bool,
+    pub administer: bool,
+    pub subscriptions: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -96,7 +107,10 @@ pub struct ApplicationView {
 }
 
 impl FleetClient {
-    pub async fn application(&self, name: &str) -> Result<ApplicationView> {
+    pub(super) async fn application_manifest(
+        &self,
+        name: &str,
+    ) -> Result<(crate::protocol::Manifest, String, String)> {
         ensure!(
             !name.is_empty()
                 && name.len() <= 128
@@ -121,6 +135,11 @@ impl FleetClient {
             manifest.script_name == name && manifest.version == pointer.version,
             "application identity or version mismatch"
         );
+        Ok((manifest, revision, pointer.prefix))
+    }
+
+    pub async fn application(&self, name: &str) -> Result<ApplicationView> {
+        let (manifest, revision, prefix) = self.application_manifest(name).await?;
         let primary = self
             .bucket
             .get("deploy/current.json")
@@ -130,7 +149,7 @@ impl FleetClient {
         Ok(application_view(
             &manifest,
             revision,
-            primary.is_some_and(|current| current.prefix == pointer.prefix),
+            primary.is_some_and(|current| current.prefix == prefix),
         ))
     }
 
@@ -314,6 +333,8 @@ fn cell_view(scope: &str) -> CellView {
         Some(crate::deploy::SQL_CLASS) => "sql",
         Some(crate::deploy::KV_CLASS) => "kv",
         Some(crate::deploy::QUEUE_CLASS) => "queue",
+        Some(crate::deploy::EVENT_STREAM_CLASS) => "event_stream",
+        Some(crate::deploy::EVENT_CATALOG_CLASS) => "event_catalog",
         Some(cellar_logic::cron::RESERVED_CLASS) => "cron",
         Some(class) if crate::deploy::is_workflow_class(class) => "workflow",
         _ => "application",
@@ -335,12 +356,46 @@ fn application_view(
     primary: bool,
 ) -> ApplicationView {
     // Never serialize raw_metadata: it also holds plain-text secret bindings.
-    let bindings = manifest.raw_metadata["bindings"]
+    let mut bindings: Vec<BindingView> = manifest.raw_metadata["bindings"]
         .as_array()
         .into_iter()
         .flatten()
         .filter_map(binding_view)
         .collect();
+    for value in manifest.raw_metadata["stream_bindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .take(128)
+    {
+        let Ok(binding) = serde_json::from_value::<crate::application::event_stream::BindingConfig>(
+            value.clone(),
+        ) else {
+            continue;
+        };
+        if binding.validate().is_err() || binding.principal != manifest.script_name {
+            continue;
+        }
+        let identity = binding.resource.id.clone().unwrap_or_default();
+        let scope = binding.explicit().ok().and_then(|binding| {
+            crate::application::event_stream::cell_scope(&binding.resource).ok()
+        });
+        bindings.push(BindingView {
+            name: binding.environment,
+            kind: "event_stream".into(),
+            identity,
+            scope,
+            schedules: Vec::new(),
+            definition: None,
+            event: Some(EventBindingView {
+                resource: binding.resource,
+                publish: binding.publish,
+                read: binding.read,
+                administer: binding.administer,
+                subscriptions: binding.subscriptions,
+            }),
+        });
+    }
     ApplicationView {
         name: manifest.script_name.clone(),
         version: manifest.version.clone(),
@@ -396,6 +451,7 @@ fn binding_view(value: &Value) -> Option<BindingView> {
             .filter_map(Value::as_str)
             .map(str::to_owned)
             .collect(),
+        event: None,
     })
 }
 
@@ -403,6 +459,28 @@ fn binding_view(value: &Value) -> Option<BindingView> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn stream_metadata_excludes_grants_and_keeps_named_selectors() -> Result<()> {
+        let manifest: crate::protocol::Manifest = serde_json::from_value(json!({
+            "schema_version":1,"version":"v1","script_name":"app","main_module":null,
+            "do_classes":[],"sqlite_classes":[],"modules":[],
+            "raw_metadata":{"stream_bindings":[{"environment":"EVENTS","resource":{"tenant":"team","application":"app","name":"events","family":"changed"},"principal":"app","grant":"private-grant-marker","publish":true,"read":true,"administer":true,"subscriptions":[]}]}
+        }))?;
+        let view = application_view(&manifest, "revision".into(), true);
+        assert_eq!(view.bindings.len(), 1);
+        assert_eq!(view.bindings[0].kind, "event_stream");
+        assert!(view.bindings[0].scope.is_none());
+        assert!(view.bindings[0]
+            .event
+            .as_ref()
+            .unwrap()
+            .resource
+            .id
+            .is_none());
+        assert!(!serde_json::to_string(&view)?.contains("private-grant-marker"));
+        Ok(())
+    }
 
     #[test]
     fn metadata_excludes_secrets_and_keeps_shared_identity() {

@@ -104,7 +104,9 @@ impl<E> Stream<E> {
         operation: &str,
     ) -> Result<Configuration> {
         self.check_domain()?;
-        definition.validate()?;
+        definition
+            .validate()
+            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid stream definition"))?;
         super::store::validate_id(operation)?;
         if !definition.resource.same_identity(self.resource()) {
             return Err(error(

@@ -47,6 +47,12 @@ type BindingType = {
 }
 
 const bindingTypes: Record<string, BindingType> = {
+  event_stream: {
+    label: "Event stream",
+    icon: Network,
+    group: "Background work",
+    route: "streams",
+  },
   sql: {
     label: "SQL database",
     icon: Database,

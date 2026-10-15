@@ -23,6 +23,8 @@ const Overview = lazy(() => import("@/pages/overview"))
 const Inventory = lazy(() => import("@/pages/inventory"))
 const Details = lazy(() => import("@/pages/details"))
 const Resources = lazy(() => import("@/pages/resources"))
+const Outboxes = lazy(() => import("@/pages/outboxes"))
+const EventStreamWorkspace = lazy(() => import("@/pages/event-stream"))
 const Workspace = lazy(() => import("@/pages/workspace"))
 const Operations = lazy(() =>
   import("@/pages/management").then((module) => ({
@@ -117,6 +119,19 @@ export default function App() {
                         />
                       </Route>
                     ))}
+                    <Route path="outboxes" element={<Outboxes />} />
+                    <Route
+                      path="streams"
+                      element={<Resources kind="streams" />}
+                    />
+                    <Route
+                      path="subscriptions"
+                      element={<Resources kind="subscriptions" />}
+                    />
+                    <Route
+                      path="streams/:application/:binding"
+                      element={<EventStreamWorkspace />}
+                    />
                     <Route path="operations" element={<Operations />} />
                     <Route path="settings" element={<Settings />} />
                   </Route>

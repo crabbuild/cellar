@@ -3833,3 +3833,358 @@ async fn named_bindings_resolve_grants_and_pin_uuid_across_recreation() -> Resul
         .context("named binding owner complete shutdown")?;
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn console_event_adapters_use_signed_owner_routes_and_guarded_receipts() -> Result<()> {
+    use cellar::management::{EventStreamAction, FleetClient, OutboxAction};
+    use serde_json::json;
+
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("console-events-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let graph = domain
+        .run(async {
+            bucket
+                .put(
+                    "fleet/peer-auth.json",
+                    serde_json::to_vec(&json!({"version":1,"key":"0b".repeat(32)}))?,
+                )
+                .await?;
+            let graph = graph(1, false);
+            // The console reads the same deployed declarations, never browser-supplied grants.
+            let manifest = json!({
+                "schema_version": 1,
+                "version": "v1",
+                "script_name": "embedded-node",
+                "main_module": null,
+                "native": {"host_protocol": 1, "application_version": "v1", "artifacts": []},
+                "do_classes": ["Account", "__EventStream", "__EventCatalog"],
+                "sqlite_classes": ["Account", "__EventStream", "__EventCatalog"],
+                "modules": [],
+                "required_features": ["event-delivery-v1"],
+                "raw_metadata": {"stream_bindings": graph.primary.options.stream_bindings},
+            });
+            bucket
+                .put(
+                    "deploy/embedded-node/v1/manifest.json",
+                    serde_json::to_vec(&manifest)?,
+                )
+                .await?;
+            bucket
+                .put(
+                    "deploy/embedded-node/current.json",
+                    serde_json::to_vec(&json!({
+                        "version": "v1",
+                        "prefix": "deploy/embedded-node/v1",
+                        "rollout": {"percent": 100},
+                    }))?,
+                )
+                .await?;
+            Ok::<_, anyhow::Error>(graph)
+        })
+        .await??;
+    let (mut config, services) = inputs(
+        "console-events",
+        &directory.path().join("owner"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    // Use the SDK's normal operation budget for resource activation and console
+    // routing. Container fsync latency can exceed the fixture's short expiry budget.
+    config.actor.core.operation_deadline_ms = Some(15_000);
+    config.actor.lease_ttl_ms = 30_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(30);
+    config.startup.bootstrap_timeout = Duration::from_secs(60);
+    config.shutdown = ShutdownPolicy {
+        total_ms: 40_000,
+        token_wait_ms: 0,
+        no_progress_ms: 25_000,
+    };
+    let owner = Node::start(config, services, graph, applications("owner")?).await?;
+    super::ready(&owner).await?;
+    let client = client()?;
+    ensure!(call(&client, &owner, reqwest::Method::POST, "/write").await? == "owner:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if call(&client, &owner, reqwest::Method::GET, "/events").await? == "1" {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    let scope = format!(
+        "Account:{}",
+        cellar_native::cell_id::encode_hex(&cellar_native::cell_id::for_name(
+            "cells:v1:13:embedded-node:Account",
+            "events"
+        ))
+    );
+    domain
+        .run(async {
+            let console = FleetClient::new(bucket.clone(), false);
+            let page = console
+                .outbox(
+                    &scope,
+                    OutboxAction::Inspect {
+                        limit: 25,
+                        cursor: None,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(page["incarnation"].is_string());
+            let revision: OutboxRevision =
+                serde_json::from_value(page["lanes"][0]["revision"].clone())?;
+            let operation = "f".repeat(32);
+            let receipt = console
+                .outbox(
+                    &scope,
+                    OutboxAction::Retry {
+                        expected: revision,
+                        reason: "verify signed console retry".into(),
+                    },
+                    "console-operator",
+                    &operation,
+                )
+                .await?;
+            ensure!(receipt["operator"] == "console-operator");
+            ensure!(
+                console
+                    .outbox(
+                        &scope,
+                        OutboxAction::Status {
+                            operation: operation.clone()
+                        },
+                        "console-operator",
+                        ""
+                    )
+                    .await?
+                    == receipt
+            );
+            ensure!(console
+                .outbox(
+                    &scope,
+                    OutboxAction::Status { operation },
+                    "another-operator",
+                    ""
+                )
+                .await
+                .is_err());
+            console.cell_event_state(&scope).await?.values(&scope)?;
+            let stats = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Describe,
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(stats["resource"]["id"] == resource().id);
+            let subscriptions = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Subscriptions {
+                        cursor: None,
+                        limit: 25,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            let identity: SubscriptionIdentity =
+                serde_json::from_value(subscriptions["records"][0]["identity"].clone())?;
+            let operation = "e".repeat(32);
+            let receipt = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Change {
+                        expected: identity,
+                        action: ChangeAction::Pause,
+                        reason: "inspect console receipt".into(),
+                    },
+                    "console-operator",
+                    &operation,
+                )
+                .await?;
+            ensure!(receipt["state"] == "paused");
+            ensure!(
+                console
+                    .event_stream(
+                        "embedded-node",
+                        "ADMIN_EVENTS",
+                        &resource().id,
+                        EventStreamAction::Status { operation },
+                        "console-operator",
+                        ""
+                    )
+                    .await?
+                    == receipt
+            );
+            let read = console
+                .event_stream(
+                    "embedded-node",
+                    "EVENTS",
+                    &resource().id,
+                    EventStreamAction::Read {
+                        cursor: None,
+                        limit: 25,
+                        max_bytes: 262144,
+                        payload: false,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(read["records"]
+                .as_array()
+                .is_some_and(|records| records.len() == 1));
+            ensure!(read["records"][0]["event"].get("payload").is_none());
+            let payload = console
+                .event_stream(
+                    "embedded-node",
+                    "EVENTS",
+                    &resource().id,
+                    EventStreamAction::Read {
+                        cursor: None,
+                        limit: 25,
+                        max_bytes: 262144,
+                        payload: true,
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(payload["records"][0]["event"]["payload"]["value"] == 1);
+            let after_read = console
+                .event_stream(
+                    "embedded-node",
+                    "ADMIN_EVENTS",
+                    &resource().id,
+                    EventStreamAction::Subscription {
+                        name: "projection".into(),
+                    },
+                    "console-operator",
+                    "",
+                )
+                .await?;
+            ensure!(
+                after_read["checkpoint"] == receipt["checkpoint"],
+                "inspection acknowledged events"
+            );
+            ensure!(console
+                .event_stream(
+                    "embedded-node",
+                    "EVENTS",
+                    &"0".repeat(32),
+                    EventStreamAction::Describe,
+                    "console-operator",
+                    ""
+                )
+                .await
+                .is_err());
+            let (bytes, _) = bucket
+                .get("deploy/embedded-node/v1/manifest.json")
+                .await?
+                .context("manifest")?;
+            let base: serde_json::Value = serde_json::from_slice(&bytes)?;
+            for (version, name, resolves) in
+                [("v2", "counter", true), ("v3", "another-stream", false)]
+            {
+                let mut manifest = base.clone();
+                manifest["version"] = json!(version);
+                manifest["raw_metadata"]["stream_bindings"][1]["resource"]["id"] =
+                    serde_json::Value::Null;
+                manifest["raw_metadata"]["stream_bindings"][1]["resource"]["name"] = json!(name);
+                let prefix = format!("deploy/embedded-node/{version}");
+                bucket
+                    .put(
+                        &format!("{prefix}/manifest.json"),
+                        serde_json::to_vec(&manifest)?,
+                    )
+                    .await?;
+                bucket
+                    .put(
+                        "deploy/embedded-node/current.json",
+                        serde_json::to_vec(
+                            &json!({"version":version,"prefix":prefix,"rollout":{"percent":100}}),
+                        )?,
+                    )
+                    .await?;
+                let observed = console
+                    .event_stream(
+                        "embedded-node",
+                        "ADMIN_EVENTS",
+                        &resource().id,
+                        EventStreamAction::Describe,
+                        "console-operator",
+                        "",
+                    )
+                    .await;
+                if resolves {
+                    ensure!(observed?["resource"]["id"] == resource().id);
+                    let catalog = console
+                        .event_resources("embedded-node", "ADMIN_EVENTS", None, 25)
+                        .await?;
+                    ensure!(catalog
+                        .records
+                        .iter()
+                        .any(|entry| entry.resource.id == resource().id));
+                } else {
+                    ensure!(
+                        observed.is_err(),
+                        "named selector accepted another resource identity"
+                    );
+                }
+            }
+            let metrics = console
+                .node_event_metrics("console-events", &owner.info().lease_generation)
+                .await?;
+            ensure!(metrics["metrics"]["counters"].is_array());
+            ensure!(console
+                .node_event_metrics("console-events", "stale-generation")
+                .await
+                .is_err());
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    domain.shutdown().await;
+    let services = owner.services();
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(45),
+        owner.run_until(async { ShutdownMode::Handoff }),
+    )
+    .await??;
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected console node outcome {outcome:?}")
+    };
+    ensure!(
+        report.ingress_drained
+            && report.application_work_drained
+            && report.cells_drained
+            && report.pending_application_events == 0
+            && report.pending_dispatches == 0
+            && report.log_quiesced
+            && report.local_durability_closed
+            && !report.drain_timed_out
+            && !report.deadline_elapsed,
+        "incomplete console node drain {report:?}"
+    );
+    ensure!(
+        services
+            .configure_metrics(Arc::new(HostMetricsSample::default))
+            .is_err(),
+        "console node retained authority"
+    );
+    Ok(())
+}
