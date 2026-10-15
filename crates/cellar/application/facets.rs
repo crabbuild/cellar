@@ -176,6 +176,7 @@ struct Starting {
 }
 
 struct Record {
+    storage_name: String,
     name: String,
     owner: String,
     aborted: Mutex<Option<Arc<StructuredValue>>>,
@@ -191,6 +192,7 @@ struct Entries {
 }
 
 pub(crate) struct State {
+    source_generation: u64,
     activation: Weak<Activation>,
     slot: Weak<crate::pool::Slot>,
     scope: String,
@@ -254,6 +256,7 @@ impl Context {
             stored
                 .get_or_insert_with(|| {
                     Arc::new(State {
+                        source_generation: self.io.source_generation,
                         activation: Arc::downgrade(activation),
                         slot: Arc::downgrade(&slot),
                         scope: activation.scope.clone(),
@@ -281,7 +284,37 @@ impl State {
                 .is_some_and(|current| Arc::ptr_eq(current, &activation)),
             "facet handle belongs to another cell activation"
         );
+        anyhow::ensure!(
+            self.source_generation
+                == activation
+                    .resources
+                    .source_generation
+                    .load(Ordering::Acquire),
+            "facet manager belongs to a retired source incarnation"
+        );
         Ok(activation)
+    }
+}
+
+impl State {
+    fn storage_name(&self, context: &Context, name: &str) -> Result<String> {
+        if context.facet().is_some() || self.source_generation == 0 {
+            return Ok(name.into());
+        }
+        let rows = context.storage()?.system_sql(
+            "SELECT incarnation FROM __sys_event_source WHERE singleton=1",
+            &[],
+        )?;
+        let incarnation = match rows.first().and_then(|row| row.get("incarnation")) {
+            Some(super::storage::SqlValue::Text(value)) => value,
+            _ => return Err(anyhow!("recreated source lacks its durable incarnation")),
+        };
+        use sha2::Digest;
+        let encoded = serde_json::to_vec(&("source-facet-v1", incarnation, name))?;
+        Ok(format!(
+            "source-{}",
+            hex::encode(sha2::Sha256::digest(encoded))
+        ))
     }
 }
 
@@ -389,8 +422,19 @@ impl Facets {
                 record,
             });
         }
+        let storage_name = self.0.storage_name(context, &name)?;
+        if context.facet().is_none() {
+            context.storage()?.tx(|tx| {
+                tx.system_sql(
+                    "INSERT OR IGNORE INTO __sys_cell_facet_names(name) VALUES(?)",
+                    &[storage_name.clone().into()],
+                )?;
+                Ok(())
+            })?;
+        }
         entries.next += 1;
         let record = Arc::new(Record {
+            storage_name,
             name: name.clone(),
             owner: format!("{}:{}", self.0.owner, entries.next),
             aborted: Mutex::new(None),
@@ -445,6 +489,7 @@ impl Facets {
         let prepared = (|| -> Result<_> {
             let authority = self.0.check(context)?;
             valid_name(name)?;
+            let storage_name = self.0.storage_name(context, name)?;
             let parent = crate::storage::storage_lifecycle_identity(&self.0.scope)
                 .ok_or_else(|| anyhow!("facet parent storage has retired"))?;
             let owner = self
@@ -473,14 +518,33 @@ impl Facets {
                 .insert(name.into(), (serial, completion.clone()));
             drop(entries);
             Ok((
-                authority, parent, owner, pin, record, previous, sender, completion, serial,
+                authority,
+                parent,
+                owner,
+                pin,
+                record,
+                previous,
+                sender,
+                completion,
+                serial,
+                storage_name,
             ))
         })();
-        let (authority, parent, owner, pin, record, previous, sender, completion, serial) =
-            match prepared {
-                Ok(prepared) => prepared,
-                Err(error) => return Box::pin(async move { Err(error) }),
-            };
+        let (
+            authority,
+            parent,
+            owner,
+            pin,
+            record,
+            previous,
+            sender,
+            completion,
+            serial,
+            storage_name,
+        ) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) => return Box::pin(async move { Err(error) }),
+        };
         let state = Arc::downgrade(&self.0);
         let slot = self.0.slot.clone();
         let scope = self.0.scope.clone();
@@ -499,10 +563,10 @@ impl Facets {
                                 &started.class.name,
                                 &scope,
                                 &record.owner,
-                                &name,
+                                &record.storage_name,
                             );
                             let mut path = parent.facet_path.clone();
-                            path.push(name.clone());
+                            path.push(record.storage_name.clone());
                             host_facets::abort_facet(
                                 host,
                                 scope,
@@ -514,7 +578,7 @@ impl Facets {
                     }
                 }
                 if delete {
-                    delete_native_facet(owner, authority, parent, name.clone()).await?;
+                    delete_native_facet(owner, authority, parent, storage_name.clone()).await?;
                 }
                 Ok::<(), anyhow::Error>(())
             };
@@ -608,10 +672,11 @@ impl Facet {
             let prepared = host_facets::prepare_native_facet(
                 host,
                 FacetStart {
+                    source_generation: facet.state.source_generation,
                     class_name: started.class.name.clone(),
                     parent_scope: facet.state.scope.clone(),
                     owner: facet.record.owner.clone(),
-                    name: facet.record.name.clone(),
+                    name: facet.record.storage_name.clone(),
                     id_sc: started.id.clone(),
                     props_sc: (*started.class.props).clone(),
                     parent,
@@ -670,10 +735,11 @@ impl Facet {
             let prepared = host_facets::prepare_native_facet(
                 host,
                 FacetStart {
+                    source_generation: facet.state.source_generation,
                     class_name: started.class.name.clone(),
                     parent_scope: facet.state.scope.clone(),
                     owner: facet.record.owner.clone(),
-                    name: facet.record.name.clone(),
+                    name: facet.record.storage_name.clone(),
                     id_sc: started.id.clone(),
                     props_sc: (*started.class.props).clone(),
                     parent,

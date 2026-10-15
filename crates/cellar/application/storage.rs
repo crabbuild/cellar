@@ -4,15 +4,24 @@ use super::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 
 mod cursor;
+mod inbox;
+mod outbox;
+mod outbox_inspection;
 mod transaction;
 pub use cellar_native::sql::Value as SqlValue;
 pub use cursor::{KvCursor, SqlCursor, SqlRow};
+pub use inbox::Inbox;
+pub use outbox_inspection::{
+    OutboxBlocked, OutboxLane, OutboxObservation, OutboxOptions, OutboxPage, OutboxRevision,
+};
 pub(crate) use transaction::Current as TransactionCurrent;
 use transaction::Transaction;
 
 #[derive(Default)]
 pub(crate) struct Resources {
     pub(crate) retired: AtomicBool,
+    pub(crate) source_generation: AtomicU64,
+    pub(crate) source_closed: AtomicBool,
     pub(crate) failure: Mutex<Option<String>>,
     pub(crate) input_gates: Mutex<Vec<std::sync::Weak<crate::native_worker::InputGate>>>,
     turns: Mutex<Vec<std::sync::Weak<crate::native_worker::WakeTurn>>>,
@@ -59,6 +68,19 @@ impl Activation {
         }
         let turns = std::mem::take(&mut *self.resources.turns.lock().unwrap());
         for wake in turns.into_iter().filter_map(|turn| turn.upgrade()) {
+            futures_util::task::ArcWake::wake_by_ref(&wake);
+        }
+    }
+
+    pub(crate) fn source_admission(&self, generation: u64, closed: bool) {
+        self.resources
+            .source_generation
+            .store(generation, Ordering::Release);
+        self.resources
+            .source_closed
+            .store(closed, Ordering::Release);
+        let turns = self.resources.turns.lock().unwrap();
+        for wake in turns.iter().filter_map(|turn| turn.upgrade()) {
             futures_util::task::ArcWake::wake_by_ref(&wake);
         }
     }
@@ -114,6 +136,7 @@ pub struct ListOptions {
 pub struct Storage(
     pub(super) Arc<Activation>,
     pub(super) Option<Arc<Transaction>>,
+    pub(super) u64,
 );
 
 impl TryFrom<crate::storage::StoredValue> for StoredClone {
@@ -150,6 +173,54 @@ impl StoredClone {
 }
 
 impl Storage {
+    pub(crate) fn clear_current_work(&self, reason: cellar_logic::work::Reason) -> Result<()> {
+        if let Some(installation) = crate::storage::work::current(self.scope()?, reason)? {
+            self.clear_work(installation)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn schedule_work(
+        &self,
+        reason: cellar_logic::work::Reason,
+        at_ms: i64,
+    ) -> Result<()> {
+        let scope = self.scope()?;
+        if let Some(effective) = crate::storage::work::set(scope, reason, at_ms)? {
+            if effective >= 0 {
+                crate::host_gates::spawn_arm_gate(
+                    scope,
+                    effective,
+                    crate::host_io::installed_context(),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn clear_work(
+        &self,
+        installation: cellar_logic::work::Installation,
+    ) -> Result<bool> {
+        let scope = self.scope()?;
+        let (cleared, effective) = crate::storage::work::clear(scope, installation)?;
+        if let Some(effective) = effective.filter(|deadline| *deadline >= 0) {
+            crate::host_gates::spawn_arm_gate(
+                scope,
+                effective,
+                crate::host_io::installed_context(),
+            );
+        }
+        Ok(cleared)
+    }
+
+    pub(crate) fn work_installation(
+        &self,
+        reason: cellar_logic::work::Reason,
+    ) -> Result<Option<cellar_logic::work::Installation>> {
+        crate::storage::work::installation(self.scope()?, reason)
+    }
+
     pub(crate) fn system_sql(&self, query: &str, bindings: &[SqlValue]) -> Result<Vec<SqlRow>> {
         crate::storage::system_sql(self.scope()?, query, bindings)
     }
@@ -206,6 +277,15 @@ impl Storage {
                 && crate::storage::activation_epoch(&self.0.scope) == Some(self.0.epoch)
                 && !self.0.resources.retired.load(Ordering::Acquire),
             "native storage belongs to another cell or a retired activation"
+        );
+        anyhow::ensure!(
+            cellar_logic::event_stream::source_admitted(
+                self.2,
+                self.0.resources.source_generation.load(Ordering::Acquire),
+                self.0.resources.source_closed.load(Ordering::Acquire),
+                io.framework_source.load(Ordering::Acquire)
+            ),
+            "source business admission is closed or its incarnation has changed"
         );
         self.0.drain_resources();
         Ok(&self.0.scope)
@@ -368,7 +448,9 @@ impl Storage {
 
     /// The compatibility flag chooses whether deleteAll also removes alarms.
     pub fn delete_all(&self) -> Result<()> {
-        crate::storage::delete_all_with_alarm(self.scope()?, self.0.delete_all_deletes_alarm)
+        let scope = self.scope()?;
+        crate::storage::delete_all_with_alarm(scope, self.0.delete_all_deletes_alarm)?;
+        crate::native_worker::refresh_wake_gate(scope)
     }
 
     pub fn sync(&self) -> HandlerFuture<()> {
@@ -390,6 +472,12 @@ impl Storage {
         crate::storage::sql_database_size(self.scope()?).map_err(anyhow::Error::msg)
     }
 
+    pub(crate) fn sqlite_allocation(&self) -> Result<(i64, i64)> {
+        let (allocated, used) =
+            crate::storage::sql_page_usage(self.scope()?).map_err(anyhow::Error::msg)?;
+        Ok((i64::try_from(allocated)?, i64::try_from(used)?))
+    }
+
     /// Execute complete SQL statements and retain the unfinished suffix for
     /// incremental import, using SQLite's existing tokenizer.
     pub fn sql_ingest(&self, input: &str) -> Result<(String, u64, u64)> {
@@ -405,6 +493,8 @@ impl Storage {
     }
 
     pub fn delete_alarm(&self) -> Result<()> {
-        crate::storage::delete_alarm(self.scope()?)
+        let scope = self.scope()?;
+        crate::storage::delete_alarm(scope)?;
+        crate::native_worker::refresh_wake_gate(scope)
     }
 }

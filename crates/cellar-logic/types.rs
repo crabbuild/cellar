@@ -212,8 +212,8 @@ pub struct CapacityPeer {
     /// The share of fleet ownership this peer wants, relative to the other
     /// weights. `None` from a peer that predates rebalancing.
     pub placement_weight: Option<u64>,
-    /// The newest bucket format this peer reads (`crate::format`). `None`
-    /// from a peer that predates the field, which reads format 1.
+    /// Current bucket layout this peer reads (`crate::format`). Missing capability
+    /// does not authorize paged-epoch writes.
     pub bucket_format: Option<u16>,
     pub resident_cells: usize,
     pub host_websockets: usize,

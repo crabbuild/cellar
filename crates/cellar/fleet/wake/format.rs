@@ -1,34 +1,54 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-//! Initialize a fresh Cellar fleet's durable wake format. No Celld import.
+//! Internal-development fleet admission. State from other layouts is recreated.
 use crate::bucket::Bucket;
-use anyhow::ensure;
+use anyhow::{ensure, Context};
 
 const KEY: &str = "wake/format.json";
+const MAX_FORMAT_BYTES: usize = 8 << 10;
+pub const FORMAT: u8 = 1;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FormatRecord {
     system: String,
     format: u8,
+    peer_protocol: u16,
+    native_host_protocol: u32,
+    event_delivery: u8,
 }
 
-fn decode(bytes: &[u8]) -> anyhow::Result<()> {
-    let record: FormatRecord = serde_json::from_slice(bytes)?;
+fn current() -> FormatRecord {
+    FormatRecord {
+        system: "cellar".into(),
+        format: FORMAT,
+        peer_protocol: crate::peer_auth::PROTOCOL_VERSION,
+        native_host_protocol: crate::protocol::NATIVE_HOST_PROTOCOL,
+        event_delivery: 1,
+    }
+}
+
+fn decode(bytes: &[u8]) -> anyhow::Result<FormatRecord> {
+    let record: FormatRecord = serde_json::from_slice(bytes)
+        .context("unsupported fleet format; recreate development state")?;
     ensure!(
-        record.system == "cellar" && record.format == 2,
-        "unsupported wake format; start Cellar with fresh fleet storage"
+        record.system == "cellar"
+            && record.format == FORMAT
+            && record.peer_protocol == crate::peer_auth::PROTOCOL_VERSION
+            && record.native_host_protocol == crate::protocol::NATIVE_HOST_PROTOCOL
+            && record.event_delivery == 1,
+        "unsupported fleet format; recreate development state"
     );
-    Ok(())
+    Ok(record)
 }
 
-/// Concurrent starters can initialize the same fresh fleet. A confirmed
-/// Cellar marker also resolves a lost conditional-write response.
+/// Concurrent fresh starters and a lost create reply converge on the same
+/// marker. Other layouts are refused and require recreated development state.
 pub async fn ensure_ready(bucket: &Bucket) -> anyhow::Result<()> {
     let result = initialize(bucket).await;
     if result.is_err() {
-        if let Some((bytes, _)) = bucket.get(KEY).await? {
+        if let Some((bytes, _)) = bucket.get_bounded(KEY, MAX_FORMAT_BYTES).await? {
             decode(&bytes)?;
             return Ok(());
         }
@@ -37,23 +57,25 @@ pub async fn ensure_ready(bucket: &Bucket) -> anyhow::Result<()> {
 }
 
 async fn initialize(bucket: &Bucket) -> anyhow::Result<()> {
-    if let Some((bytes, _)) = bucket.get(KEY).await? {
-        return decode(&bytes);
+    if let Some((bytes, _)) = bucket.get_bounded(KEY, MAX_FORMAT_BYTES).await? {
+        decode(&bytes)?;
+        return Ok(());
     }
     for prefix in ["cells/", "nodes/", "wake/entries/", "wake/retired/"] {
-        ensure!(bucket.objects_page(prefix, None, 1).await?.objects.is_empty(),
-            "uninitialized fleet contains state under {prefix}; Cellar requires a hard cutover to fresh storage");
+        ensure!(bucket.objects_page(prefix,None,1).await?.objects.is_empty(),
+            "uninitialized fleet contains state under {prefix}; Cellar refuses to infer a storage format");
     }
-    bucket
-        .put_cas(
-            KEY,
-            serde_json::to_vec(&FormatRecord {
-                system: "cellar".into(),
-                format: 2,
-            })?,
-            None,
-        )
-        .await?;
+    if bucket
+        .put_cas(KEY, serde_json::to_vec(&current())?, None)
+        .await?
+        .is_none()
+    {
+        let (bytes, _) = bucket
+            .get_bounded(KEY, MAX_FORMAT_BYTES)
+            .await?
+            .context("fleet format create was rejected without a readable marker")?;
+        decode(&bytes)?;
+    }
     Ok(())
 }
 
@@ -76,8 +98,11 @@ mod tests {
             ensure_ready(&reopened).await?;
             let marker = reopened.get(KEY).await?.unwrap().0;
             assert_eq!(
-                serde_json::from_slice::<serde_json::Value>(&marker)?["system"],
-                "cellar"
+                serde_json::from_slice::<serde_json::Value>(&marker)?,
+                serde_json::json!({
+                    "system":"cellar", "format":1, "peer_protocol":1,
+                    "native_host_protocol":1, "event_delivery":1
+                })
             );
             Ok(())
         })

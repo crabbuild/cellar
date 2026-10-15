@@ -21,6 +21,10 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+#[path = "turn_tests.rs"]
+mod tests;
+
 /// An engine's private roots and operation resolvers. Compiled Rust turns
 /// have no attachment; host lifetime and gate decisions remain shared.
 pub(crate) trait TurnEngine: std::any::Any + Send + Sync {
@@ -67,6 +71,7 @@ pub enum CellJob {
         order: Option<CallOrder>,
     },
     Rpc {
+        authority: Option<crate::runtime::RpcAuthority>,
         request_id: Option<RequestId>,
         scope: String,
         name: Option<String>,
@@ -375,7 +380,7 @@ pub(crate) fn send_answer_after_arm_gates<T: Send + 'static>(
         .wake_entry()
         .drop_next_gated_reply_task
         .swap(false, Ordering::AcqRel);
-    asyncrt::spawn(async move {
+    let task = asyncrt::try_spawn(async move {
         #[cfg(cellar_internal_tests)]
         if drop_task {
             return;
@@ -458,8 +463,13 @@ pub(crate) fn send_answer_after_arm_gates<T: Send + 'static>(
             }
         };
         let _ = completed.send(completion);
-    })
-    .detach();
+    });
+    if let Ok(task) = task {
+        task.detach();
+    }
+    // Refused admission drops the future (reply/value/gates) in its owner.
+    // Retain the closed completion so the driver observes failure, never a
+    // successful gate release or an unproven reply after domain closure.
     Some(GatedReplyRx {
         completion,
         cancel: Some(cancel),
@@ -569,6 +579,7 @@ pub(crate) struct AlarmClaim {
     /// The instant the dispatch was judged due against, so the outcome is
     /// recorded against the same one.
     pub(crate) now_ms: i64,
+    pub(crate) counts_against_limit: bool,
 }
 
 pub struct InFlight {
@@ -751,7 +762,7 @@ impl InFlight {
                 scope,
                 false,
                 claim.now_ms,
-                counts_against_limit,
+                counts_against_limit && claim.counts_against_limit,
             );
         }
     }

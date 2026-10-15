@@ -243,14 +243,29 @@ where
         policy.local_cache_prune_period,
     );
     local_cache_prune.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let generation = app.runtime.as_ref().map(|runtime| runtime.generation());
+    let mut resources_ready = generation.as_ref().is_none_or(|generation| {
+        generation.event_streams().is_empty() && generation.event_bindings().is_empty()
+    });
+    let activation_app = app.clone();
+    let mut activation = std::pin::pin!(async move {
+        if let Some(generation) = generation {
+            event_resources::activate(activation_app, &generation).await?;
+        }
+        Ok::<(), anyhow::Error>(())
+    });
     let shutdown_mode = loop {
         crate::asyncrt::select! {
+            activated = &mut activation, if !resources_ready => {
+                activated?;
+                resources_ready = true;
+            }
             connection = async {
                 match &listener {
                     Some(listener) => listener.accept().await,
                     None => std::future::pending().await,
                 }
-            } => {
+            }, if resources_ready => {
                 let (stream, _) = connection?;
                 connections.push(serve_http_connection(
                     stream,
@@ -272,7 +287,7 @@ where
                     connection_grace,
                 ));
             }
-            call = receive_ingress(&mut external_ingress), if external_ingress.is_some() => {
+            call = receive_ingress(&mut external_ingress), if resources_ready && external_ingress.is_some() => {
                 match call {
                     Some(call) => ingress_calls.push(Box::pin(call.dispatch(app.clone()))),
                     None => external_ingress = None,
@@ -787,7 +802,7 @@ where
     // deadline. A deadline-cut cell keeps its durable owner record and follows
     // the same lease-expiry recovery path as an abrupt process loss.
     let mut stall_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
-    let mut handed_off = 0;
+    let mut settled_handoffs = 0;
     let mut process_deadline_fired = false;
     let mut handoff = tokio::time::interval(std::time::Duration::from_millis(50));
     let mut containers_reaped = false;
@@ -809,9 +824,9 @@ where
             .await
             .and_then(Result::ok);
             if shutdown_mode == ShutdownMode::Handoff
-                && status.is_some_and(|status| status.handed_off > handed_off)
+                && status.is_some_and(|status| status.settled_handoffs > settled_handoffs)
             {
-                handed_off = status.expect("checked drain status").handed_off;
+                settled_handoffs = status.expect("checked drain status").settled_handoffs;
                 stall_deadline = bounded_stall_deadline(stall_window, handoff_deadline);
             }
             // A drain that makes progress can outlive the token TTL, so the
@@ -1050,6 +1065,7 @@ where
                 releasing = status.releasing,
                 adopting = status.adopting,
                 handed_off = status.handed_off,
+                settled_handoffs = status.settled_handoffs,
                 drain_state,
                 "the shutdown handoff made no progress"
             ),

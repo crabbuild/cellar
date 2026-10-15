@@ -49,11 +49,21 @@ use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, oneshot, watch};
 
+mod catalog_operator;
 mod driver;
 #[cfg(not(cellar_internal_tests))]
 mod embedded;
+mod event_failure;
+mod event_inventory;
+mod event_metrics;
+mod event_reply;
+mod event_resources;
+mod event_state;
 mod ingress;
 pub(crate) mod operations;
+mod source_operator;
+mod stream_operator;
+mod wake_discovery;
 #[cfg(not(cellar_internal_tests))]
 pub use embedded::*;
 #[cfg(not(cellar_internal_tests))]
@@ -396,16 +406,48 @@ impl std::fmt::Display for StalePeerRoute {
 
 impl std::error::Error for StalePeerRoute {}
 
+/// Identifies a failed remote RPC exchange without authorizing general replay.
+#[derive(Debug)]
+struct RemoteRpcTransportFailure;
+
+impl std::fmt::Display for RemoteRpcTransportFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("remote RPC transport failed")
+    }
+}
+
+impl std::error::Error for RemoteRpcTransportFailure {}
+
+fn remote_rpc_failure(error: anyhow::Error) -> anyhow::Error {
+    if error.downcast_ref::<reqwest::Error>().is_some()
+        || error.downcast_ref::<hyper::Error>().is_some()
+        || error.downcast_ref::<std::io::Error>().is_some()
+    {
+        error.context(RemoteRpcTransportFailure)
+    } else {
+        // Header/protocol/authority refusals are not transport failures and
+        // must not enter the activation-only replay loop.
+        error.context("remote RPC transport failed")
+    }
+}
+
 /// Preserve the owner's durability verdict and handler failure in a peer reply.
 fn peer_gate_failure(verdict: RequestError, handler: Option<&anyhow::Error>) -> HttpReply {
     let detail = match handler {
         Some(handler) => format!("; the handler failed: {handler:#}"),
         None => String::new(),
     };
-    peer_response(response(
+    let mut reply = peer_response(response(
         StatusCode::INTERNAL_SERVER_ERROR,
         format!("durability unproven: {verdict:?}{detail}"),
-    ))
+    ));
+    reply.headers_mut().insert(
+        hyper::header::HeaderName::from_static(event_failure::HEADER),
+        hyper::header::HeaderValue::from_static(event_failure::header(event_failure::gate_code(
+            verdict,
+        ))),
+    );
+    reply
 }
 
 fn classify_remote_attempt(error: &anyhow::Error) -> cellar_logic::routing::Attempt {
@@ -617,23 +659,37 @@ async fn dispatch_facet(app: AppHandle, req: crate::host_channels::FacetReq) {
         match req {
             FacetReq::Open { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Delete { reply, .. } => drop(reply.send(Err(error()))),
+            FacetReq::DeleteBatch { reply, .. } => drop(reply.send(Err(error()))),
             FacetReq::Prove { reply, .. } => drop(reply.send(Err(error()))),
         }
         return;
     };
     match req {
         FacetReq::Open {
+            authority,
             root,
             epoch,
             names,
             reply,
-        } => drop(reply.send(runtime.open_facet(&root, epoch, &names).await)),
+        } => drop(
+            reply.send(
+                runtime
+                    .open_facet_authorized(&root, epoch, &names, authority.as_ref())
+                    .await,
+            ),
+        ),
         FacetReq::Delete {
             root,
             epoch,
             names,
             reply,
         } => drop(reply.send(runtime.delete_facet(&root, epoch, &names).await)),
+        FacetReq::DeleteBatch {
+            root,
+            epoch,
+            names,
+            reply,
+        } => drop(reply.send(runtime.delete_facet_batch(&root, epoch, &names).await)),
         FacetReq::Prove {
             stream,
             epoch,
@@ -912,6 +968,9 @@ async fn adopt_deployment(
         Ok(Err(error)) => return failed(format!("{error:#}")),
         Err(error) => return failed(format!("generation build panicked: {error}")),
     };
+    if let Err(error) = event_resources::activate(app.clone(), &generation).await {
+        return failed(format!("{error:#}"));
+    }
     let adopted = runtime.adopt(generation);
     // Tell the core, so resident cells move to the new generation at their
     // safe points. The reserved cells move at once, ahead of the cron arm
@@ -1478,6 +1537,7 @@ async fn dispatch_do_call(app: AppHandle, call: DoCallReq) {
 
 async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let RpcCallReq {
+        authority,
         request_id,
         mut cancel,
         scope,
@@ -1486,8 +1546,12 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
         args,
         reply,
     } = call;
+    let event_call = authority.is_some();
     let request_id = Some(request_id.unwrap_or_else(crate::engine_api::next_request_id));
     let result = async {
+        crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &method).map_err(|failure| {
+            if event_call { event_failure::annotate(failure, crate::application::event_stream::ErrorCode::Forbidden) } else { failure }
+        })?;
         anyhow::ensure!(
             cellar_logic::cell::valid_cell_scope(&scope),
             "cell scope is malformed or exceeds the fleet storage limit"
@@ -1504,7 +1568,10 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 None => resolving.await,
             };
             let Routed { request, route } =
-                routed.map_err(|error| anyhow::anyhow!("route RPC {scope}: {error:?}"))?;
+                routed.map_err(|error| {
+                    let failure = anyhow::Error::new(RoutedRequestError(error));
+                    if event_call { event_failure::annotate(failure,event_failure::route_code(error)) } else { failure }
+                })?;
             let (node, addr, epoch, peer_protocol) = match route {
                 Route::Local => {
                     let local_request_id = local_dispatch_request_id(request_id);
@@ -1515,7 +1582,14 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                                 app.runtime
                                     .as_ref()
                                     .context("no cell runtime")?
-                                    .rpc(scope, name, method, args, local_request_id)
+                                    .rpc_with_authority(crate::runtime::RpcInvocation {
+                                        cell: scope,
+                                        name,
+                                        method,
+                                        args,
+                                        request_id: local_request_id,
+                                        authority,
+                                    })
                                     .await
                             })
                             .await;
@@ -1537,15 +1611,17 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                         continue;
                     }
                     RemoteRetryOutcome::Stop => {
-                        anyhow::bail!("remote RPC owner remained stale until the retry deadline")
+                        return Err(if event_call {
+                            event_failure::annotate(anyhow::anyhow!("remote RPC owner remained stale until the retry deadline"),crate::application::event_stream::ErrorCode::OwnershipLost)
+                        } else { anyhow::anyhow!("remote RPC owner remained stale until the retry deadline") })
                     }
                     RemoteRetryOutcome::Cancelled => anyhow::bail!("Durable Object RPC cancelled"),
                 }
             }
-            anyhow::ensure!(
-                peer_protocol == peer_auth::PROTOCOL_VERSION,
-                "peer {node} speaks incompatible protocol {peer_protocol}"
-            );
+            if peer_protocol != peer_auth::PROTOCOL_VERSION {
+                let failure = anyhow::anyhow!("peer {node} speaks incompatible protocol {peer_protocol}");
+                return Err(if event_call { event_failure::annotate(failure,crate::application::event_stream::ErrorCode::UnsupportedProtocol) } else { failure });
+            }
             let expects_structured_response =
                 matches!(args, crate::engine_api::RpcData::Structured(_));
             {
@@ -1562,8 +1638,15 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     addr: &addr,
                     node: &node,
                 };
-                let sending =
-                    peer_tunnel::rpc(&peer, &scope, name.as_deref(), &method, &args, request_id);
+                let sending = peer_tunnel::rpc(
+                    &peer,
+                    &scope,
+                    name.as_deref(),
+                    &method,
+                    &args,
+                    request_id,
+                    authority.as_ref(),
+                );
                 let response = match cancel.as_mut() {
                     Some(cancel) => crate::asyncrt::select_biased! {
                         "an RPC cancellation wins an undelivered remote response";
@@ -1602,8 +1685,13 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                             anyhow::bail!("Durable Object RPC cancelled")
                         }
                         RemoteRetryOutcome::Stop => match response {
-                            Err(error) => anyhow::bail!("remote RPC transport failed: {error:#}"),
-                            Ok(_) => anyhow::bail!("remote RPC owner was stale"),
+                            Err(error) => {
+                                let failure = remote_rpc_failure(error);
+                                return Err(if event_call { event_failure::transport(failure,attempt) } else { failure });
+                            },
+                            Ok(_) => return Err(if event_call {
+                                event_failure::annotate(anyhow::anyhow!("remote RPC owner was stale"),crate::application::event_stream::ErrorCode::OwnershipLost)
+                            } else { anyhow::anyhow!("remote RPC owner was stale") }),
                         },
                     }
                 }
@@ -1620,7 +1708,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 {
                     return Err(anyhow::Error::new(crate::engine_api::CellOverloaded));
                 }
-                if !response.status().is_success()
+                if !event_call && !response.status().is_success()
                     && response
                         .headers()
                         .get(HANDLER_FAILURE_HEADER)
@@ -1649,23 +1737,19 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                             .to_owned(),
                     )));
                 }
-                anyhow::ensure!(
-                    response.status().is_success(),
-                    "remote RPC failed with {}",
-                    response.status()
-                );
-                let collecting = response.into_body().collect();
-                let collected = match cancel.as_mut() {
-                    Some(cancel) => crate::asyncrt::select_biased! {
-                        "an RPC cancellation wins an undelivered result body";
-                        _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
-                        collected = collecting => collected,
-                    },
-                    None => collecting.await,
-                };
-                let body = collected
-                    .map_err(|error| anyhow::anyhow!("remote RPC body: {error}"))?
-                    .to_bytes();
+                if !response.status().is_success() {
+                    let failure = anyhow::anyhow!("remote RPC failed with {}",response.status());
+                    return Err(if event_call {
+                        event_failure::annotate(failure,event_failure::response_code(response.headers(),response.status()))
+                    } else { failure });
+                }
+                let body = event_reply::receive(
+                    response.into_body(),
+                    event_call,
+                    cancel.as_mut(),
+                    event_call.then_some(dispatcher.deadline_ms),
+                )
+                .await?;
                 return Ok(if expects_structured_response {
                     crate::engine_api::RpcData::Structured(body)
                 } else {
@@ -1675,6 +1759,11 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
         }
     }
     .await;
+    let result = if event_call {
+        result.map_err(event_failure::dispatched)
+    } else {
+        result
+    };
     let _ = reply.send(result);
 }
 
@@ -2410,9 +2499,24 @@ pub(crate) async fn dispatch_forwarded_rpc(
     rpc_method: String,
     args: crate::engine_api::RpcData,
     request_id: Option<crate::engine_api::RequestId>,
+    authority: Option<crate::runtime::RpcAuthority>,
 ) -> HttpReply {
+    if crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &rpc_method)
+        .is_err()
+    {
+        return peer_response(response(
+            StatusCode::FORBIDDEN,
+            "framework RPC requires valid host authority",
+        ));
+    }
     let Some(runtime) = &app.runtime else {
-        return peer_response(response(StatusCode::SERVICE_UNAVAILABLE, "no cell runtime"));
+        let mut refusal =
+            peer_response(response(StatusCode::SERVICE_UNAVAILABLE, "no cell runtime"));
+        refusal.headers_mut().insert(
+            hyper::header::HeaderName::from_static(event_failure::HEADER),
+            hyper::header::HeaderValue::from_static("Unavailable"),
+        );
+        return refusal;
     };
     let request_id = local_dispatch_request_id(request_id).expect("RPC dispatch has an id");
     let (cancel, _reply_wait) = runtime.begin_rpc_reply_wait(request_id);
@@ -2431,7 +2535,14 @@ pub(crate) async fn dispatch_forwarded_rpc(
                     ));
                 };
                 let completed = local
-                    .run(runtime.rpc(scope, name, rpc_method, args, local_request_id))
+                    .run(runtime.rpc_with_authority(crate::runtime::RpcInvocation {
+                        cell: scope,
+                        name,
+                        method: rpc_method,
+                        args,
+                        request_id: local_request_id,
+                        authority,
+                    }))
                     .await;
                 match completed.result {
                     Ok(outcome) => Ok(outcome.data),
@@ -2454,7 +2565,19 @@ pub(crate) async fn dispatch_forwarded_rpc(
                 );
                 return peer_response(stale);
             }
-            Err(error) => Err(anyhow::anyhow!("route failed: {error:?}")),
+            Err(error) => {
+                let mut refusal = peer_response(response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "RPC route refused before execution",
+                ));
+                refusal.headers_mut().insert(
+                    hyper::header::HeaderName::from_static(event_failure::HEADER),
+                    hyper::header::HeaderValue::from_static(event_failure::header(
+                        event_failure::route_code(error),
+                    )),
+                );
+                return refusal;
+            }
         };
         match result {
             Ok(crate::engine_api::RpcData::Json(json)) => peer_response(
@@ -3040,6 +3163,7 @@ async fn handle_internal(
     let cell_scope = path.strip_prefix("/cell/");
     let evict_scope = path.strip_prefix("/evict/");
     let result = match path.as_str() {
+        "/event-metrics" if app.runtime.is_some() => event_metrics::handle(&app, request).await,
         "/peer/probe" => internal_probe(request, app).await,
         "/peer/management" => management::handle(request, app, shutdown).await,
         "/peer/handoff" => internal_handoff(request, app).await,
@@ -3099,6 +3223,21 @@ async fn handle_internal(
         // `RESERVED_CLASSES` inherits both. (The pre-v5 `/__sql/` alias died
         // with the v0.4.0 stop-the-world upgrade; the CLI in this tree sends
         // `/runtime/`.)
+        _ if path.starts_with("/event-inventory/") && app.runtime.is_some() => {
+            event_inventory::handle(&app, request).await
+        }
+        _ if path.starts_with("/event-state/") && app.runtime.is_some() => {
+            event_state::handle(&app, request).await
+        }
+        _ if path.starts_with("/outbox/") && app.runtime.is_some() => {
+            source_operator::handle(&app, request).await
+        }
+        _ if path.starts_with("/streams/") && app.runtime.is_some() => {
+            stream_operator::handle(&app, request).await
+        }
+        _ if path.starts_with("/catalogs/") && app.runtime.is_some() => {
+            catalog_operator::handle(&app, request).await
+        }
         _ if path.starts_with("/runtime/") && app.runtime.is_some() => {
             let scope = path
                 .strip_prefix("/runtime/")
@@ -3741,6 +3880,10 @@ async fn async_main(
         Action::Sql(arguments) => return crate::sql_cli::run(arguments).await,
         Action::Kv(arguments) => return crate::kv_cli::run(arguments).await,
         Action::Queue(arguments) => return crate::queue_cli::run(arguments).await,
+        Action::Event(arguments) => return crate::event_cli::run(arguments).await,
+        Action::Outbox(arguments) => return crate::outbox_cli::run(arguments).await,
+        Action::Stream(arguments) => return crate::stream_cli::run(arguments, false).await,
+        Action::Subscription(arguments) => return crate::stream_cli::run(arguments, true).await,
         Action::Blob(arguments) => return crate::blob_cli::run(arguments).await,
         Action::Connect(arguments) => {
             return crate::control_plane::handle_connect_command(arguments).await
@@ -4257,6 +4400,7 @@ async fn async_main(
                 .map(str::to_string)
                 .collect();
             let options = WorkerConfigOptions {
+                stream_bindings: Vec::new(),
                 src: source,
                 script_name,
                 do_classes,
@@ -4309,6 +4453,7 @@ async fn async_main(
             let generation = backend.build(
                 FIRST_GENERATION,
                 DeploymentGraph::single(fleet::LoadedDeployment {
+                    event_streams: Vec::new(),
                     native: None,
                     options,
                     script_name,
@@ -4384,6 +4529,9 @@ async fn async_main(
             };
             (None, ownership, peer_key, None, None)
         };
+    if let Some(runtime) = &runtime {
+        runtime.generation().begin_event_activation();
+    }
     if let Some(config) = &telemetry_config {
         let sink_bucket = match &config.sink {
             crate::telemetry::SinkChoice::Bucket => {
@@ -4899,16 +5047,6 @@ async fn async_main(
         // due while nothing was watching. It probes like the elected waker
         // does, so a rolling restart does not send every node the whole
         // fleet's due set once each.
-        let boot_ms = now_ms();
-        let live = crate::dead_node_gc::live_nodes(&client, boot_ms).await;
-        let due = crate::wake::due_scan(&client, boot_ms as i64).await;
-        for (cell, entry_ms) in crate::wake::elected_due(&ownership, &node, &live, due).await {
-            let _ = app.tx.send(Message::WakeHint {
-                cell,
-                entry_ms,
-                scope: cellar_logic::WakeHintScope::Fleet,
-            });
-        }
 
         // And again, on a timer, for the rest of the process's life.
         //
@@ -4935,14 +5073,7 @@ async fn async_main(
         // cell with a live owner elsewhere resolves to that owner rather
         // than stealing it.
         let tick_ms = crate::env_vars::positive::<u64>("CELLAR_WAKER_TICK_MS")?.unwrap_or(60_000);
-        crate::asyncrt::spawn(crate::wake::run_periodic(
-            client,
-            ownership,
-            node.clone(),
-            app.tx.clone(),
-            tick_ms,
-        ))
-        .detach();
+        wake_discovery::start(&app, client, ownership, &node, tick_ms)?;
     }
 
     // Arm the schedule, then watch the pointer. Adoption arms it again, so

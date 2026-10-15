@@ -15,6 +15,24 @@ use futures_util::FutureExt;
 use std::path::PathBuf;
 use std::time::Duration;
 
+#[cfg(test)]
+#[path = "embedded_tests.rs"]
+mod tests;
+
+async fn build_generation(
+    backend: Backend,
+    id: crate::generation::GenerationId,
+    graph: DeploymentGraph,
+    options: GenerationOptions,
+) -> anyhow::Result<Generation> {
+    crate::asyncrt::try_blocking(move || backend.build(id, graph, options))?.await?
+}
+
+async fn sample_load() -> anyhow::Result<crate::host_services::HostMetricsSample> {
+    let services = crate::asyncrt::services();
+    Ok(crate::asyncrt::try_blocking(move || services.sample_metrics())?.await?)
+}
+
 /// Bounds initial lease establishment and predecessor recovery. Recovery must
 /// succeed before this node can install its lease, in either durability posture.
 #[derive(Clone, Debug)]
@@ -113,6 +131,11 @@ impl NodeConfig {
 
     fn validate(&self, services: &StartupServices) -> anyhow::Result<()> {
         self.actor.validate_policy()?;
+        anyhow::ensure!(
+            self.actor.core.peer_protocol == crate::peer_auth::PROTOCOL_VERSION,
+            "node actor policy must advertise the current peer protocol {}",
+            crate::peer_auth::PROTOCOL_VERSION
+        );
         self.runtime.validate()?;
         self.http.validate()?;
         self.cell_limits.validate()?;
@@ -555,6 +578,16 @@ impl Node {
                 }
             }
         };
+        let generation = app
+            .runtime
+            .as_ref()
+            .expect("embedded node has a runtime")
+            .generation();
+        if let Err(error) = generation.event_readiness.wait().await {
+            domain.close();
+            let _ = supervisor.await;
+            return Err(error.context("node event resource activation failed"));
+        }
         // Transfer domain ownership to the handle; do not close it when the
         // successful startup guard is retired.
         startup_guard.0 = None;
@@ -585,7 +618,13 @@ impl Node {
         Ok(self
             .domain
             .run(async {
-                self.app.fleet_ready() && !self.app.is_draining() && self.app.healthy().await
+                self.app
+                    .runtime
+                    .as_ref()
+                    .is_some_and(|runtime| runtime.generation().event_readiness.check().is_ok())
+                    && self.app.fleet_ready()
+                    && !self.app.is_draining()
+                    && self.app.healthy().await
             })
             .await?)
     }
@@ -611,14 +650,16 @@ impl Node {
         self.domain
             .run(async move {
                 let id = runtime.next_generation_id();
-                let generation = crate::asyncrt::blocking(move || {
-                    Backend::Native(Arc::new(applications)).build(
-                        id,
-                        graph,
-                        GenerationOptions { node, region },
-                    )
-                })
-                .await??;
+                let generation = build_generation(
+                    Backend::Native(Arc::new(applications)),
+                    id,
+                    graph,
+                    GenerationOptions { node, region },
+                )
+                .await?;
+                event_resources::activate(app.clone(), &generation).await?;
+                // The candidate is retained through activation and moved only
+                // after its catalog and binding proofs pass.
                 let adopted = runtime.adopt(generation);
                 app.tx.send(Message::GenerationChanged {
                     generation: adopted.id(),
@@ -777,10 +818,14 @@ async fn prepare(
         node: node.clone(),
         region: region.clone(),
     };
-    let generation = crate::asyncrt::blocking(move || {
-        Backend::Native(Arc::new(applications)).build(FIRST_GENERATION, graph, generation_options)
-    })
-    .await??;
+    let generation = build_generation(
+        Backend::Native(Arc::new(applications)),
+        FIRST_GENERATION,
+        graph,
+        generation_options,
+    )
+    .await?;
+    generation.begin_event_activation();
     let runtime = RuntimeManager::start(
         generation,
         RuntimeOptions {
@@ -888,8 +933,7 @@ async fn prepare(
         _ => None,
     };
     let channels = driver::Channels::install(websocket_rx);
-    let metrics = domain.services();
-    let sample = crate::asyncrt::blocking(move || metrics.sample_metrics()).await?;
+    let sample = sample_load().await?;
     actor.store_load_sample(sample);
     let (actor_exit_tx, actor_exit_rx) = mpsc::unbounded_channel();
     let actor_task = actor.spawn(domain, &core_executor, rx)?;
@@ -920,25 +964,13 @@ async fn prepare(
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     if let Some(ownership) = &ownership {
-        let bucket = ownership.bucket_client();
-        let boot_ms = now_ms();
-        let live = crate::dead_node_gc::live_nodes(&bucket, boot_ms).await;
-        let due = crate::wake::due_scan(&bucket, boot_ms as i64).await;
-        for (cell, entry_ms) in crate::wake::elected_due(ownership, &node, &live, due).await {
-            let _ = app.tx.send(Message::WakeHint {
-                cell,
-                entry_ms,
-                scope: cellar_logic::WakeHintScope::Fleet,
-            });
-        }
-        crate::asyncrt::spawn(crate::wake::run_periodic(
-            bucket,
+        super::wake_discovery::start(
+            &app,
+            ownership.bucket_client(),
             ownership.clone(),
-            node.clone(),
-            app.tx.clone(),
+            &node,
             duration_ms("wake period", config.maintenance.wake_period)?,
-        ))
-        .detach();
+        )?;
     }
     spawn_cron_arm(app.clone());
     let info = NodeInfo {
@@ -988,9 +1020,15 @@ fn start_maintenance(
         tick.tick().await;
         loop {
             tick.tick().await;
-            let services = crate::asyncrt::services();
-            let sample = match crate::asyncrt::blocking(move || services.sample_metrics()).await {
+            let sample = match sample_load().await {
                 Ok(sample) => sample,
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::asyncrt::DomainClosed>()
+                        .is_some() =>
+                {
+                    return
+                }
                 Err(error) => {
                     tracing::warn!(%error, "node metrics sampling failed");
                     continue;

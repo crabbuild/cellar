@@ -6,8 +6,10 @@ use cellar::generation::DeploymentGraph;
 
 pub fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "perf-cells".into(),
             do_classes: vec!["Entity".into()],

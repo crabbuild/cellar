@@ -299,6 +299,9 @@ pub struct GenerationOptions {
 /// the application handle. They are private and reached through
 /// `RuntimeManager`, which hands out this struct only as a snapshot.
 pub struct Generation {
+    event_streams: Vec<(String, crate::application::event_stream::Definition)>,
+    event_bindings: Vec<crate::application::event_stream::BindingConfig>,
+    pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
     pub(crate) id: GenerationId,
     pub(crate) version: String,
     pub(crate) prefix: String,
@@ -307,6 +310,8 @@ pub struct Generation {
     pub(crate) primary_crons: Vec<String>,
     pub(crate) stateless: crate::runtime::StatelessRuntime,
     pub(crate) services: HashMap<String, crate::runtime::StatelessRuntime>,
+    pub(crate) source_recovery: Arc<WorkerConfig>,
+    pub(crate) source_recovery_pool: Arc<crate::pool::Pool>,
     pub(crate) cell_configs: HashMap<String, Arc<WorkerConfig>>,
     /// The isolates a Worker script's cells live in — the same `Pool` the
     /// stateless path admits into, because an isolate is an isolate. Cells
@@ -324,6 +329,64 @@ pub struct Generation {
 }
 
 impl Generation {
+    pub(crate) fn event_bindings(&self) -> &[crate::application::event_stream::BindingConfig] {
+        &self.event_bindings
+    }
+
+    pub(crate) fn begin_event_activation(&self) {
+        if !self.event_streams.is_empty() || !self.event_bindings.is_empty() {
+            self.event_readiness.begin();
+        }
+    }
+
+    /// Desired configurations captured from trusted deployment state. These
+    /// still require catalog reconciliation before bindings become ready.
+    pub fn event_streams(&self) -> &[(String, crate::application::event_stream::Definition)] {
+        &self.event_streams
+    }
+
+    /// Prepare trusted host provisioning for an exact captured deployment
+    /// declaration. Hosts must route this request through their ordinary owner,
+    /// recovery and proof path. SDK bindings cannot supply this authority.
+    pub fn event_provisioning_request(
+        &self,
+        resource: &crate::application::event_stream::Resource,
+        operation: &str,
+        reply: tokio::sync::oneshot::Sender<anyhow::Result<crate::engine_api::RpcData>>,
+    ) -> anyhow::Result<crate::host_channels::RpcCallReq> {
+        use crate::application::event_stream as events;
+        use base64::Engine;
+        anyhow::ensure!(
+            operation.len() == 32
+                && operation
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "provisioning requires a canonical operation UUID"
+        );
+        let (script, definition) = self
+            .event_streams
+            .iter()
+            .find(|(_, definition)| definition.resource == *resource)
+            .ok_or_else(|| {
+                anyhow::anyhow!("resource is not a captured provisioning declaration")
+            })?;
+        let bytes = events::encoding::json(definition, events::MAX_DEFINITION_BYTES)?;
+        Ok(crate::host_channels::RpcCallReq {
+            authority: Some(events::authority::Authority::deployment(script, definition)?.into()),
+            request_id: Some(crate::engine_api::next_request_id()),
+            cancel: None,
+            scope: events::catalog_scope(resource)?,
+            name: Some(events::catalog_name(resource)?),
+            method: "__catalogConfigure".into(),
+            args: crate::application::encode_rpc(
+                &cellar_native::clone::StructuredValue::from_json(serde_json::json!([
+                    {"operation":operation,"definition":base64::engine::general_purpose::STANDARD.encode(bytes)}
+                ]))?,
+            )?,
+            reply,
+        })
+    }
+
     pub fn id(&self) -> GenerationId {
         self.id
     }
@@ -427,6 +490,7 @@ impl Generation {
         for pool in self.cell_isolates.values() {
             pool.retire_all();
         }
+        self.source_recovery_pool.retire_all();
     }
 
     /// Whether every isolate of this generation has been freed, so the
@@ -436,6 +500,7 @@ impl Generation {
             .values()
             .all(|service| service.isolates.is_drained())
             && self.cell_isolates.values().all(|pool| pool.is_drained())
+            && self.source_recovery_pool.is_drained()
     }
 
     /// One maintenance pass over the cell pools: retire and free every empty
@@ -445,11 +510,13 @@ impl Generation {
         for pool in self.cell_isolates.values() {
             pool.reap_empty();
         }
+        self.source_recovery_pool.reap_empty();
     }
 
     /// The isolates this generation holds right now, for `/state`.
     pub(crate) fn isolate_census(&self) -> IsolateCensus {
         IsolateCensus {
+            source_recovery: self.source_recovery_pool.census(),
             stateless: self.stateless.isolates.census(),
             services: self
                 .services
@@ -469,6 +536,7 @@ impl Generation {
 /// `/state` reports them.
 #[derive(Debug, serde::Serialize)]
 pub struct IsolateCensus {
+    pub source_recovery: crate::engine_api::PoolCensus,
     /// The pool that serves the primary script's stateless handlers.
     pub stateless: crate::pool::PoolCensus,
     /// The pools of the named services, by service name.
@@ -527,6 +595,68 @@ impl Generation {
         );
         crate::asyncrt::services().loader_policy();
         let cell_limits = crate::application::limits::current();
+        let managed_events =
+            std::iter::once(&graph.primary)
+                .chain(&graph.cohosted)
+                .any(|deployment| {
+                    !deployment.event_streams.is_empty()
+                        || (deployment.native.is_some()
+                            && !deployment.options.stream_bindings.is_empty())
+                });
+        let event_readiness = Arc::new(
+            crate::application::event_stream::readiness::Readiness::new(!managed_events),
+        );
+        let mut event_streams = Vec::new();
+        let mut event_bindings = Vec::new();
+        let mut stream_identities = BTreeSet::new();
+        let mut stream_names = BTreeSet::new();
+        for deployment in std::iter::once(&graph.primary).chain(&graph.cohosted) {
+            let options = &deployment.options;
+            let mut occupied = options
+                .bindings
+                .iter()
+                .chain(&options.blob_bindings)
+                .chain(&options.sql_bindings)
+                .chain(&options.kv_bindings)
+                .chain(&options.vars)
+                .map(|(name, _)| name.clone())
+                .collect::<BTreeSet<_>>();
+            occupied.extend(
+                options
+                    .queue_bindings
+                    .iter()
+                    .map(|binding| binding.environment.clone()),
+            );
+            occupied.extend(
+                options
+                    .workflow_bindings
+                    .iter()
+                    .map(|binding| binding.environment.clone()),
+            );
+            occupied.extend(deployment.loader_bindings.iter().cloned());
+            occupied.extend(deployment.services.iter().map(|(name, _, _)| name.clone()));
+            occupied.extend(deployment.asset_binding.iter().cloned());
+            crate::protocol::validate_event_resources(
+                &deployment.script_name,
+                &deployment.event_streams,
+                &options.stream_bindings,
+                &occupied,
+                &cell_limits.events,
+            )?;
+            event_bindings.extend(options.stream_bindings.iter().cloned());
+            for definition in &deployment.event_streams {
+                anyhow::ensure!(
+                    stream_identities.insert(definition.resource.id.clone())
+                        && stream_names.insert((
+                            definition.resource.tenant.clone(),
+                            definition.resource.application.clone(),
+                            definition.resource.name.clone()
+                        )),
+                    "more than one application declares the same event stream resource or name"
+                );
+                event_streams.push((deployment.script_name.clone(), definition.clone()));
+            }
+        }
         let GenerationOptions { node, region } = options;
         let DeploymentGraph { primary, cohosted } = graph;
 
@@ -644,7 +774,15 @@ impl Generation {
             if let Some(resolver) = resolver {
                 assets.insert(script.clone(), resolver);
             }
-            let classes = options.do_classes.clone();
+            let mut classes = options.do_classes.clone();
+            // System cells must remain routable while a candidate provisions
+            // resources, including when the serving generation has no binding.
+            classes.extend([
+                crate::deploy::EVENT_STREAM_CLASS.into(),
+                crate::deploy::EVENT_CATALOG_CLASS.into(),
+            ]);
+            classes.sort();
+            classes.dedup();
             for binding in &options.queue_bindings {
                 anyhow::ensure!(
                     binding.delivery_delay <= cell_limits.queue.max_delay_seconds,
@@ -670,6 +808,7 @@ impl Generation {
             if let Some(application) = applications.remove(&script) {
                 config = config.with_native_application(application);
             }
+            config.event_readiness = event_readiness.clone();
             let config = Arc::new(config);
             let pool = crate::runtime::StatelessRuntime::start(
                 config.clone(),
@@ -709,7 +848,14 @@ impl Generation {
                 )
             })
             .collect();
+        let source_recovery = crate::runtime::source_recovery::configuration(id, &node);
+        let source_recovery_pool = crate::runtime::cell_pool(source_recovery.clone());
         Ok(Generation {
+            source_recovery,
+            source_recovery_pool,
+            event_streams,
+            event_bindings,
+            event_readiness,
             id,
             version,
             prefix,

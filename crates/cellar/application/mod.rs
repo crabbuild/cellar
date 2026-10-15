@@ -14,6 +14,7 @@ pub mod cells;
 pub(crate) mod concurrency;
 pub mod containers;
 pub mod cron;
+pub mod event_stream;
 pub mod events;
 pub mod facets;
 pub mod html_rewriter;
@@ -21,6 +22,7 @@ pub mod http;
 pub mod kv;
 pub mod limits;
 pub mod loader;
+pub(crate) mod outbox;
 pub mod queue;
 pub mod service;
 pub mod sockets;
@@ -29,7 +31,10 @@ pub mod storage;
 pub mod streams;
 pub mod websocket;
 pub mod workflow;
-pub use storage::{ListOptions, Storage};
+pub use storage::{
+    ListOptions, OutboxBlocked, OutboxLane, OutboxObservation, OutboxOptions, OutboxPage,
+    OutboxRevision, Storage,
+};
 
 pub type HandlerFuture<T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>;
 pub type SqlResult = (Vec<String>, Vec<Vec<serde_json::Value>>, u64);
@@ -338,6 +343,7 @@ impl EventState {
 }
 
 pub(crate) struct Activation {
+    pub(crate) worker_config: Arc<crate::worker_config::WorkerConfig>,
     pub scope: String,
     pub epoch: u64,
     pub delete_all_deletes_alarm: bool,
@@ -347,6 +353,9 @@ pub(crate) struct Activation {
 
 #[derive(Clone)]
 pub struct Context {
+    pub(crate) event_authority: Option<event_stream::Authority>,
+    pub(crate) name_authority: Option<event_stream::name_resolution::NameAuthority>,
+    pub(crate) catalog_authority: Option<crate::runtime::rpc_authority::CatalogAuthority>,
     pub(crate) io: Arc<crate::host_io::IoContext>,
     pub(crate) state: Arc<EventState>,
     pub(crate) identity: Option<CellIdentity>,
@@ -468,6 +477,23 @@ impl Context {
             );
         }
         if let Some(activation) = &self.io.native_activation {
+            anyhow::ensure!(
+                cellar_logic::event_stream::source_admitted(
+                    self.io.source_generation,
+                    activation
+                        .resources
+                        .source_generation
+                        .load(std::sync::atomic::Ordering::Acquire),
+                    activation
+                        .resources
+                        .source_closed
+                        .load(std::sync::atomic::Ordering::Acquire),
+                    self.io
+                        .framework_source
+                        .load(std::sync::atomic::Ordering::Acquire)
+                ),
+                "source business admission is closed or its incarnation has changed"
+            );
             if let Some(failure) = activation.resources.failure.lock().unwrap().as_ref() {
                 anyhow::bail!("native cell was reset: {failure}");
             }
@@ -505,6 +531,7 @@ impl Context {
                 .clone()
                 .expect("native cell has an activation"),
             None,
+            self.io.source_generation,
         ))
     }
 

@@ -793,6 +793,10 @@ async fn load_worker_at_pointer(
         &manifest,
         &crate::application::limits::current().queue,
     )?;
+    let event_resources = crate::protocol::event_resources_from_manifest(
+        &manifest,
+        &crate::application::limits::current().events,
+    )?;
     // Old managed uploads can contain AI metadata without a required-feature
     // gate. Refuse it before loading code, rather than serve a missing binding.
     anyhow::ensure!(
@@ -967,8 +971,10 @@ async fn load_worker_at_pointer(
     let fence_image = manifest.fence_image.clone();
     let container_images = manifest.container_images.clone();
     Ok(LoadedDeployment {
+        event_streams: event_resources.definitions,
         native: manifest.native,
         options: WorkerConfigOptions {
+            stream_bindings: event_resources.bindings,
             src,
             script_name: script_name.clone(),
             do_classes: manifest.do_classes,
@@ -1000,6 +1006,8 @@ async fn load_worker_at_pointer(
 }
 
 pub struct LoadedDeployment {
+    /// Desired owner-routed stream configuration; not activation receipts.
+    pub event_streams: Vec<crate::application::event_stream::Definition>,
     pub native: Option<crate::protocol::NativeDeployment>,
     pub options: WorkerConfigOptions,
     pub script_name: String,

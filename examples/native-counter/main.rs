@@ -102,8 +102,10 @@ fn application(version: &'static str) -> Result<Arc<dyn Application>> {
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: SCRIPT.into(),
             do_classes: vec![CLASS.into()],

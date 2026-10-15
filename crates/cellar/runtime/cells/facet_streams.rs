@@ -69,7 +69,11 @@ impl FacetStreams {
         root: &str,
         epoch: u64,
         names: &[String],
+        authority: Option<&crate::host_channels::FacetOpenAuthority>,
     ) -> anyhow::Result<(PathBuf, bool)> {
+        if let Some(authority) = authority {
+            authority.check()?;
+        }
         let facet = crate::engine_api::facet_cell(root, names);
         let path = db_path(&facet, epoch);
         let resident = |roots: &HashMap<String, FacetRoot>| {
@@ -94,6 +98,9 @@ impl FacetStreams {
             opening
         };
         let _opening = opening.lock().await;
+        if let Some(authority) = authority {
+            authority.check()?;
+        }
         let spec = {
             let roots = self.0.lock().expect("facet streams poisoned");
             let (open, spec, _) = resident(&roots)?;
@@ -129,6 +136,12 @@ impl FacetStreams {
                 false
             }
         };
+        if let Some(failure) = authority.and_then(|authority| authority.check().err()) {
+            if let Some(replication) = replication {
+                replication.ltx().discard(&facet, epoch);
+            }
+            return Err(failure);
+        }
         let mut roots = self.0.lock().expect("facet streams poisoned");
         match roots
             .get_mut(root)
@@ -195,6 +208,66 @@ impl FacetStreams {
                     }
                     _ => Ok(()),
                 }
+            }
+        }
+    }
+
+    /// The source has already closed application admission and native child
+    /// activations. Serialize its bounded reclamation with begun opens.
+    pub(crate) async fn delete_batch(
+        &self,
+        replication: Option<&Replication>,
+        local: impl Fn(&str) -> PathBuf,
+        root: &str,
+        epoch: u64,
+        names: &[String],
+    ) -> anyhow::Result<bool> {
+        anyhow::ensure!(
+            !names.is_empty(),
+            "facet cleanup cannot delete its root stream"
+        );
+        let opening = self
+            .0
+            .lock()
+            .expect("facet streams poisoned")
+            .get(root)
+            .filter(|entry| entry.epoch == epoch && !entry.stopping)
+            .map(|entry| entry.opening.clone())
+            .ok_or_else(|| anyhow!("{root} epoch {epoch} is not resident"))?;
+        let _opening = opening.lock().await;
+        let facet = crate::engine_api::facet_cell(root, names);
+        let below = format!("{facet}/");
+        let doomed = {
+            let mut roots = self.0.lock().expect("facet streams poisoned");
+            let entry = roots
+                .get_mut(root)
+                .filter(|entry| entry.epoch == epoch && !entry.stopping)
+                .ok_or_else(|| anyhow!("{root} epoch {epoch} is not resident"))?;
+            let doomed = entry
+                .streams
+                .iter()
+                .filter(|stream| **stream == facet || stream.starts_with(&below))
+                .cloned()
+                .collect::<Vec<_>>();
+            for stream in &doomed {
+                entry.streams.remove(stream);
+            }
+            doomed
+        };
+        match replication {
+            Some(replication) => {
+                for stream in &doomed {
+                    replication.ltx().delete_local(stream, epoch);
+                }
+                replication.ltx().delete_streams_batch(&facet).await
+            }
+            None => {
+                let filesystem = crate::asyncrt::fs();
+                let path = local(&facet);
+                Ok(
+                    crate::asyncrt::try_blocking(move || filesystem.remove_dir_batch(&path, 100))?
+                        .await??,
+                )
             }
         }
     }

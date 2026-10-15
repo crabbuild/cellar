@@ -87,6 +87,8 @@ pub const KV_CLASS: &str = cellar_logic::kv::RESERVED_CLASS;
 
 /// The Durable Object class every Queue broker runs as.
 pub const QUEUE_CLASS: &str = cellar_logic::queue::RESERVED_CLASS;
+pub const EVENT_STREAM_CLASS: &str = cellar_logic::event_stream::RESERVED_CLASS;
+pub const EVENT_CATALOG_CLASS: &str = "__EventCatalog";
 
 /// Every runtime-supplied Durable Object class.
 pub const RESERVED_CLASSES: &[&str] = &[
@@ -94,6 +96,8 @@ pub const RESERVED_CLASSES: &[&str] = &[
     WORKFLOW_CLASS,
     KV_CLASS,
     QUEUE_CLASS,
+    EVENT_STREAM_CLASS,
+    EVENT_CATALOG_CLASS,
     cellar_logic::cron::RESERVED_CLASS,
 ];
 
@@ -130,7 +134,11 @@ pub fn workflow_class(script_name: &str) -> String {
 /// both is correct rather than merely tolerated. A workflow class carries its
 /// script, so it is never shared and a collision there is a real one.
 pub fn is_shared_reserved_class(class: &str) -> bool {
-    class == SQL_CLASS || class == KV_CLASS || class == QUEUE_CLASS
+    class == SQL_CLASS
+        || class == KV_CLASS
+        || class == QUEUE_CLASS
+        || class == EVENT_STREAM_CLASS
+        || class == EVENT_CATALOG_CLASS
 }
 
 /// Whether a class name is a script-scoped workflow class.
@@ -690,7 +698,7 @@ pub fn build(options: &Options) -> anyhow::Result<Built> {
     let uses_sql = project.do_classes.iter().any(|class| class == SQL_CLASS);
     let python_runtime = project.python.is_some();
     let manifest = Manifest {
-        schema_version: if asset_reference.is_some() { 2 } else { 1 },
+        schema_version: 1,
         version: version.clone(),
         script_name: project.script_name.clone(),
         main_module: project.entry.as_ref().map(|_| module_name.clone()),

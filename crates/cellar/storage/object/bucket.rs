@@ -963,6 +963,46 @@ impl Bucket {
         }
     }
 
+    /// Bound metadata/body reads before decoding control-plane JSON. The
+    /// body and token come from the same object response, without a HEAD race.
+    pub(crate) async fn get_bounded(
+        &self,
+        key: &str,
+        maximum: usize,
+    ) -> anyhow::Result<Option<(Bytes, String)>> {
+        let path = self.key(key);
+        let result = match self.store.get(&Path::from(path.as_str())).await {
+            Ok(result) => result,
+            Err(Error::NotFound { .. }) => return Ok(None),
+            Err(error) => {
+                return Err(anyhow!(error).context(format!(
+                    "read {}://{}/{path}",
+                    self.scheme(),
+                    self.name
+                )))
+            }
+        };
+        anyhow::ensure!(
+            result.meta.size <= u64::try_from(maximum)?,
+            "object {key} exceeds its metadata read budget"
+        );
+        let token = self
+            .backend
+            .token(result.meta.e_tag.clone(), result.meta.version.clone())
+            .context("bounded object read has no CAS token")?;
+        let mut body = Vec::with_capacity(usize::try_from(result.meta.size)?);
+        let mut stream = result.into_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk?;
+            anyhow::ensure!(
+                chunk.len() <= maximum.saturating_sub(body.len()),
+                "object {key} body exceeds its metadata read budget"
+            );
+            body.extend_from_slice(&chunk);
+        }
+        Ok(Some((Bytes::from(body), token)))
+    }
+
     /// Size and CAS token, or `None` when the key does not exist.
     pub async fn head(&self, key: &str) -> anyhow::Result<Option<(u64, String)>> {
         let key = self.key(key);

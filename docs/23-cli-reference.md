@@ -49,6 +49,8 @@ select locked dependencies and reject JavaScript-engine dependency graphs.
 | `sql` | Owner-routed SQL database operations | [SQL CLI](../crates/cellar/cli/sql_cli.rs) |
 | `kv` | Owner-routed KV operations | [KV CLI](../crates/cellar/cli/kv_cli.rs) |
 | `queue` | Owner-routed queue operations | [Queue CLI](../crates/cellar/cli/queue_cli.rs) |
+| `outbox` | Owner-routed source inspection and audited retry (under implementation) | [Outbox CLI](../crates/cellar/cli/outbox_cli.rs) |
+| `stream`, `subscription` | Granted stream reads and guarded subscription administration (under implementation) | [Stream CLI](../crates/cellar/cli/stream_cli.rs) |
 | `blob` | Shared Blob backend operations | [Blob CLI](../crates/cellar/cli/blob_cli.rs) |
 | `diagnose` | Diagnostics through the process adapter | [CLI dispatch](../crates/cellar/cli/native_deploy/cli.rs) |
 | `connect`, `credentials`, `token`, `disconnect` | Managed connection and credential commands | [managed host](../crates/cellar/node/managed.rs) |
@@ -65,3 +67,320 @@ automation. Treat truncated pages as incomplete, and do not parse progress logs
 as the command result. Do not place secrets in committed command examples.
 See [operations](17-operations.md), [security](14-security-tenancy.md), and
 [packaging implementation](../crates/cellar/cli/native_deploy/cli.rs).
+
+## Fleet event state metrics
+
+```text
+cellar event metrics --max-roots 10000 --json [FLEET OPTIONS]
+cellar event metrics --max-roots 10000 [FLEET OPTIONS]
+```
+
+The collector samples source backlog/blocked reasons, stream rows/bytes/offsets,
+retention protection, live leases, subscription lag and root SQLite page allocation
+through signed owner RPCs. It walks bounded root-directory pages with four probes
+at a time. The default root/page cap is 10,000; the hard cap is 100,000. Cold
+inspection can restore cells and progress existing work. Stream counts include
+retained retired partitions, reported separately by `retired_streams`.
+
+JSON gauges are exact decimal strings. Ages take the maximum; other values sum,
+including stream offsets (diagnostic sums, not a resumable cursor). Default output
+is Prometheus text with fixed names and no resource/cell/subscription labels.
+Incomplete collection exits unsuccessfully: JSON has `gauges: null` and separate
+partial `observed_gauges`; Prometheus emits coverage metrics only. Check complete
+coverage before using fleet totals. A successful live directory traversal is not
+a snapshot or drain proof. Facet/WAL/LTX/bucket allocation, historical producer
+inventory and resident-host aggregate gauges remain separate work.
+
+## Fleet event inventory
+
+```text
+cellar event inventory --limit 100 --json [FLEET OPTIONS]
+cellar event inventory --cursor TOKEN --limit 100 --json [FLEET OPTIONS]
+cellar event inventory CATALOG_SCOPE --page resources --limit 100 --json [FLEET OPTIONS]
+cellar event inventory STREAM_SCOPE --page producers --cursor TOKEN --limit 100 --json [FLEET OPTIONS]
+cellar event inventory SOURCE_SCOPE --page history --cursor TOKEN --limit 100 --json [FLEET OPTIONS]
+```
+
+Without a scope, one provider page discovers catalog namespaces, retained stream
+identities and current root sources through four concurrent signed owner probes.
+Empty catalogs have no recoverable namespace identity. Continue with the printed
+fleet-bound token until next is null; failed probes remain unavailable rows and
+return a failed exit after printing the page. Cold reads may restore cells and
+progress existing work. Directory observations are live, without snapshot or drain
+proof; facet inventory remains separate.
+
+Scoped pages return at most 100 retained metadata records. Resource pages include
+catalog tombstones. Producer pages show destination-observed watermarks while
+retained; retirement intentionally purges those rows, so retired and cleanup_complete
+make terminal absence explicit. Source history projects destruction/recreation and
+retry receipt metadata, retaining old/new incarnations and loss counts across
+supported recreation. It excludes full receipts, operator reasons, tokens,
+configuration grants and event bodies. No page authorizes a mutation or proves that
+all producers have drained. Arbitrary historical backup restore remains unsupported.
+
+## Outbox source controls
+
+The event primitive remains under implementation; the
+[implementation status](../plans/outbox-implementation-status.md) records its
+remaining release gates. Current source commands use the existing fleet
+credentials and reach the authoritative owner:
+
+```text
+cellar outbox census [CLASS] --limit 100 --json [FLEET OPTIONS]
+cellar outbox census [CLASS] --cursor TOKEN --json [FLEET OPTIONS]
+cellar outbox inspect SCOPE --limit 100 --json [FLEET OPTIONS]
+cellar outbox retry SCOPE --expected REVISION.json --operation UUID --reason TEXT [FLEET OPTIONS]
+cellar outbox status SCOPE --operation UUID --json [FLEET OPTIONS]
+cellar outbox audit SCOPE --limit 100 --after POSITION --json [FLEET OPTIONS]
+```
+
+`census` reads exactly one bounded cell-directory page from the fleet bucket,
+then uses signed owner-routed inspection for each candidate source. It can find
+pending producers that have never appended to a destination. A call scans at
+most 100 prefixes and probes four sources concurrently, preserving key order.
+Catalog/stream cells are excluded; other framework cells remain candidates.
+The `census1` continuation binds backend, bucket/prefix, endpoint and optional
+class. Continue until `next` is null; a filtered empty page can still have a next
+page. Listings and source observations are live, without snapshot/drain proof.
+
+Rows distinguish `source` (current incarnation and whole-source pending counts),
+`empty` (no current outbox identity) and `unavailable` (no valid owner observation).
+No event payload, lane/grant metadata or receipt tokens are returned. Failed
+probes remain explicit rows; the page has `complete_probes: false` and the CLI
+exits unsuccessfully after printing rows/continuation. Cold inspection can
+restore a source and let its existing durable work progress. The bucket listing
+does not directly read or mutate business SQLite state, and observations do not
+constitute fleet aggregate gauges or historical source/tombstone inventory.
+
+`SCOPE` is the exact cell scope, including its class and ID. Inspection returns
+metadata and an optional continuation for `--cursor`; it excludes event bodies.
+Its `observation` includes sampled wall time, whole-source oldest pending event
+age, and blocked lane counts for a fixed seven-code permanent failure set. Lane
+metadata includes transactional pending rows/bytes, oldest pending age and typed
+`blocked_reason`. Blocked terminal seals count even without pending event rows.
+Age is null with no pending events, and wall-clock skew clamps negative age to
+zero. Every page repeats live source totals, including on continuation; integers
+use decimal strings. Retry clears the current blocked reason while preserving
+the prior human error diagnostic until successful delivery.
+Save the selected lane's `revision` object as `REVISION.json` before retrying.
+The guard includes source incarnation, dispatch generation, next sequence and
+settled watermark. Retry advances dispatch authority and commits wake work
+without removing events or changing their identity. A changed producer revision
+is refused; inspect again before starting a new operation.
+
+Operation UUIDs are 32 lowercase hexadecimal characters. Repeat the same UUID,
+reason and revision after an ambiguous reply, or query its status. The retained
+receipt reports whether work was re-armed and the original time the operation was applied;
+it does not establish destination delivery. Different arguments with the same
+UUID conflict. A settled lane records `rearmed: false` and retains its seal.
+Receipts survive business reset and have no automatic expiry. New operations
+stop at the smaller of the captured operation-receipt limit and 10,000 retained
+receipts per source; existing receipts remain replayable. An unknown operation
+returns `OperationUnknown`.
+
+The authenticated HTTP equivalent is `POST /outbox/SCOPE` on a live node's
+internal listener. JSON operations are `inspect`, `retry` (with a `change`
+containing `operation`, `reason` and `expected`), `status`, and `audit`. The
+ingress verifies the signed method, path and body before minting source RPC
+authority. Ordinary application RPC cannot invoke that control method. Requests
+are limited to 16 KiB, revision files to 4 KiB and pages to 100 records. The CLI
+bounds source replies to 1 MiB and prints command data on stdout.
+
+## Stream and subscription controls
+
+These commands use the same fleet credentials and owner route. `BINDING.json`
+contains the deployed stream `Binding` object, including resource identity,
+principal, grant and permission flags. The signed operator request delegates
+that grant; its current durable permissions are checked by the receiver.
+A fleet signature and supplied permission flags cannot restore a revoked grant.
+
+```text
+cellar stream list --tenant TENANT --application APPLICATION [--cursor TOKEN] [--limit N] [FLEET OPTIONS]
+cellar stream sources --binding BINDING.json [--cursor TOKEN] [--limit N] [FLEET OPTIONS]
+cellar stream describe --binding BINDING.json --json [FLEET OPTIONS]
+cellar stream read --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
+cellar stream read --binding BINDING.json --cursor TOKEN --payload --json [FLEET OPTIONS]
+cellar stream audit --binding BINDING.json --after POSITION --limit 100 --json [FLEET OPTIONS]
+cellar stream status --binding BINDING.json --operation UUID --json [FLEET OPTIONS]
+cellar subscription list --binding BINDING.json --limit 100 --json [FLEET OPTIONS]
+cellar subscription list --binding BINDING.json --cursor TOKEN --json [FLEET OPTIONS]
+cellar subscription describe NAME --binding BINDING.json --json [FLEET OPTIONS]
+cellar subscription pause NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT [FLEET OPTIONS]
+cellar subscription resume NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT [FLEET OPTIONS]
+cellar subscription reset NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --cursor TOKEN --confirm-reset [FLEET OPTIONS]
+cellar subscription delete NAME --binding BINDING.json --expected IDENTITY.json --operation UUID --reason TEXT --confirm-delete [--force] [FLEET OPTIONS]
+```
+
+Reads require a read grant. Describe, source inventory, audit, status and subscription controls
+require an administration grant. Read defaults to event metadata, removes the
+encoded envelope, and returns a resumable `cursor`; `--payload` includes bodies.
+Read, audit, source and subscription inventory pages contain at most 100 records.
+`--max-bytes` bounds copied event bytes to at most 256 KiB. History expiration returns `CursorExpired`.
+
+Stream description includes owner-sampled lease, age, and retention observations.
+`protected_bytes` covers all payload pinned by required checkpoints/live leases;
+`retention_blocked_bytes` covers its age-expired subset. SQLite allocated/used
+page bytes are separate from retained payload bytes, WAL, LTX and bucket storage.
+All integer metrics use decimal strings. The SDK equivalent is
+`stream.stats(&context)`; grants and response resource identity are checked.
+
+Subscription inventory includes every retained incarnation, including deleted
+records, ordered by subscription UUID. It returns identity/generation, lifecycle,
+checkpoint, retry deadline and lease range/expiry; it excludes lease tokens and
+event payloads. Its opaque `cursor` belongs to the exact stream UUID and differs
+from the stream-read cursor. Pages are live observations rather than a snapshot:
+new lower UUIDs require a fresh traversal. The receiver checks the current
+administration grant on every page, including continuation after owner handoff.
+The SDK equivalent is `stream.subscriptions(&context, SubscriptionListOptions)`.
+
+Status and inventory also return `observation`: sampled owner time, lag in
+unacknowledged offsets, retained unread records, oldest retained unread age,
+`history_expired`, and `lease_active`. Age is measured since append; it is null
+when no unread record remains retained. Lost offsets still count toward lag.
+An expired lease can remain stored with `lease_active: false`. The diagnostic
+read does not expire leases or advance the stream's durable logical clock.
+Integers are canonical decimal strings; inventory pages share a sample time.
+
+Catalog listing requires fleet administration through a separate namespace
+capability; a stream administration grant cannot list its tenant/application.
+It returns bounded identity/lifecycle metadata, current operation and accepted/
+desired revision strings, including retained deleted resources. Configuration
+bodies, grants, credentials and event payloads are absent. Its `catalog1` cursor
+binds the exact tenant/application catalog and page tail. Pages are live
+observations, not a snapshot or whole-fleet resource/producer discovery.
+The owner reads at most 101 scalar metadata rows for a 100-record page, through
+the ordinary recovery and output gates. Every page verifies fleet authentication
+and the namespace/method capability. The signed HTTP equivalent is
+`POST /catalogs/SCOPE` with `{"namespace":{"tenant":"TENANT","application":"APPLICATION"},"cursor":null,"limit":100}`.
+
+Source inventory lists destination-observed producer lanes, ordered by lane digest.
+Each record contains the source scope/incarnation, captured principal/grant,
+accepted sequence watermark and terminal seal state. Watermarks use decimal
+strings. Records remain visible after payload expiry while producer metadata is
+retained. This list excludes event bodies, bearer tokens and source-side retry
+state; it cannot discover sources whose obligations have not reached the stream
+or prove an all-producer drain. Pages read at most 101 rows to return at most 100
+records and check current administration authority on every continuation.
+The `sources1` cursor binds tenant, application and stream identity; live pages
+are not a snapshot. The SDK equivalent is `stream.sources(&context, SourceListOptions)`.
+
+Save the subscription description's `identity` object to `IDENTITY.json` before
+a change. A changed resource, subscription ID or generation refuses the change.
+Reset and deletion invalidate delivery authority; receipts report any skipped
+range. Non-forced deletion refuses pending progress or an active lease. The
+last required subscription cannot be deleted. Repeat identical changes after
+an ambiguous response, or use stream status to retrieve the immutable receipt.
+Current grant authorization also applies to receipt replay. Both CLI families
+use the authenticated label `events-operator`; another operator label cannot
+reuse or retrieve a change receipt. The label is fleet-authenticated provenance,
+not an independently verified human account identity.
+
+The HTTP equivalent is `POST /streams/SCOPE` on the internal listener with
+`{"binding": BINDING, "command": COMMAND}`. The scope is derived from the exact
+stream resource identity. Command kinds are `describe`, `read`, `subscription`,
+`subscriptions`, `sources`, `change`, `status`, and `audit`. Inventory uses `cursor` (null for the first
+page) and `limit`. A change carries the SDK `Change` shape. Signed
+method/path/body verification precedes authority minting. Operator RPC authority
+is restricted to these stream methods and cannot configure a catalog or append
+events. Requests and binding files are bounded to 16 KiB, expected identity
+files to 4 KiB and replies to 1 MiB. This surface remains under implementation;
+whole-fleet resource/source inventories, lifecycle controls and exported
+metrics are outstanding.
+
+Stream retirement uses the same binding and administration grant, but routes to
+the resource's catalog scope. Save `stream describe`'s revision before starting:
+
+```text
+cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --procedure TEXT --confirm-retire [FLEET OPTIONS]
+cellar stream retire --binding BINDING.json --revision N --operation UUID --reason TEXT --force --data-loss TEXT --confirm-retire [FLEET OPTIONS]
+cellar stream retirement-status --binding BINDING.json --operation UUID --json [FLEET OPTIONS]
+```
+
+The coordinated procedure must quiesce every producer, including sources that
+have never contacted this stream. Seal source lanes through `tx.seal` and drain
+subscriptions first. The procedure is an external attestation; the catalog's
+preflight independently checks observed producer seals, checkpoints and leases.
+Forced retirement requires a bounded textual data-loss acknowledgment and may
+leave source obligations permanently blocked. Both forms require explicit
+`--confirm-retire`, the exact resource incarnation, current revision, operation
+UUID and a bounded reason.
+
+`retiring` records recoverable intent; `deleted` confirms terminal closure and
+bounded cleanup. Query retirement status to distinguish them. Terminal results
+retain the operator label, captured records/bytes and the affected retained
+payload offset range, even after payload cleanup. An empty retained range is
+null. The terminal receipt is immutable; repeat the original retirement request
+after an ambiguous response. Another operator or changed request cannot reuse
+it. Current administration grants are checked on every replay/status request.
+An unknown operation returns `OperationUnknown`. A retired UUID cannot be revived
+by replaying historic deployment configuration.
+
+HTTP command kinds `retire` and `retirement_status` use the catalog scope derived
+from the binding resource's tenant/application. `retire` carries the SDK
+`Retirement` shape, whose nested mode is coordinated or force. Operator authority
+permits catalog retirement/status and its partition preflight/closure, while
+configuration and append remain unavailable to this capability. Catalog and partition schemas stay at version 1 and include nullable provenance.
+Internal development uses hard cutovers with recreated state, without legacy migrations.
+
+Fleet administrators can inspect terminal retirement evidence independently of
+the resource's current grants:
+
+```text
+cellar stream retirement-proof --resource RESOURCE.json --json [FLEET OPTIONS]
+```
+
+The resource file contains its exact `tenant`, `application`, `family`, `name`
+and UUID `id`. The catalog owner returns only that identity, terminal `deleted`
+state, retirement operation, digest and accepted revision after checking the
+matching committed retirement receipt. Live or unfinished retirement returns
+`PendingDelivery`. This read-only platform capability does not grant resource
+administration or source deletion. Guarded whole-source destruction remains
+unfinished.
+
+
+### Source destruction and recreation
+
+These fleet-administration commands affect the exact source incarnation:
+
+```text
+cellar outbox destroy SCOPE --incarnation UUID --operation UUID --reason TEXT --data-loss TEXT --confirm-destroy [FLEET OPTIONS]
+cellar outbox recreate SCOPE --incarnation UUID --operation UUID --reason TEXT --confirm-recreate [FLEET OPTIONS]
+cellar outbox status SCOPE --operation UUID --json [FLEET OPTIONS]
+```
+
+Save the incarnation returned by `outbox inspect`. Destruction closes business
+admission durably and captures the current lane/work generations. A pending or
+unsealed destination needs exact terminal retirement evidence; a fully settled,
+accepted sealed lane can retain its live destination. Evidence checks run through
+the catalog owner outside a source transaction. A live destination returns
+`PendingDelivery` with no discarded obligations; the accepted closure intent
+remains recoverable and business admission remains closed. Drain and seal live
+lanes before requesting destruction, or retire every affected destination through
+its independent administration capability before repeating the exact request.
+
+Status progresses through `checking`, `verified`, `cleaning` and `deleted`.
+An intermediate state is not a deletion proof. The terminal receipt retains the
+source incarnation, original operator/request, captured and discarded event rows/
+bytes, reason and loss acknowledgment. Repeat the same arguments after an
+ambiguous reply. Another operator or changed request cannot reuse its operation.
+Cleanup preserves source administration receipts and destination watermarks.
+Repeating an unfinished destruction request re-arms durable cleanup immediately,
+including after storage recovers from an outage. Terminal replays return the old
+receipt without scheduling work against a successor.
+
+Recreation requires the deleted incarnation and a new operation. It clears the
+base source's business state and mints a fresh producer incarnation. A retained
+storage handle or suspended context cannot become valid again in that activation.
+Replaying an old destruction operation returns its original receipt and leaves
+the successor intact. Source event/inbox/lane reclamation is batched; existing
+business SQL table reset has separate transaction cost. Top-level facet names are registered before opening; source cleanup removes
+those independent subtrees, including children absent from the current process.
+A registry row stays until cleanup completes. Each remote batch deletes at most
+100 objects; local cleanup subsequently removes at most 100 files or directories
+per batch on the blocking executor. The root replica and sibling streams remain
+intact. Custom filesystems must provide resumable bounded directory deletion. Recreated
+sources use incarnation-qualified physical facet names while retaining public
+logical names and startup identity. Warm and owner-handoff nested-facet cases
+are qualified. Large local-directory/SQL reset capacity and the full source
+fault/lease/policy matrix remain unqualified. This feature is still under
+implementation and is not ready for release.

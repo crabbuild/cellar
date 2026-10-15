@@ -38,6 +38,7 @@ pub fn graph(config: &AppConfig) -> DeploymentGraph {
         }
     }
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: vec![],
         native: None,
         options: WorkerConfigOptions {
             src: String::new(),
@@ -60,6 +61,7 @@ pub fn graph(config: &AppConfig) -> DeploymentGraph {
             sql_bindings: sql,
             kv_bindings: kv,
             queue_bindings: queues,
+            stream_bindings: vec![],
             queue_consumers: consumers,
             workflow_bindings: vec![WorkflowBinding {
                 environment: "DISPATCH".into(),

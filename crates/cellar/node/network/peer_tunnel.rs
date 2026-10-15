@@ -39,7 +39,7 @@ use super::*;
 use crate::engine_api::HttpChunkStream;
 
 pub(crate) const TUNNEL_PROTOCOL: &str = "cellar-tunnel";
-pub(crate) const TUNNEL_VERSION: &str = "5";
+pub(crate) const TUNNEL_VERSION: &str = peer_auth::PROTOCOL_VERSION_TEXT;
 pub(crate) const VERSION_HEADER: &str = "x-cells-tunnel-version";
 pub(crate) const KIND_HEADER: &str = "x-cells-tunnel-kind";
 pub(crate) const SCOPE_HEADER: &str = "x-cells-scope";
@@ -464,22 +464,17 @@ fn inner_request(
     Ok(inner)
 }
 
-/// Send one inner request, preferring a pooled tunnel. A pooled connection
-/// can die between checkout and use, so a replayable body retries once on a
-/// fresh tunnel — the same stale keep-alive race every h1 pool has. A
-/// streamed body is not replayable; its pooled failure surfaces as the
-/// attempt failure the caller already handles.
+/// Retry a pooled tunnel only when Hyper returns the request as unsent.
+/// A buffered/replayable body alone cannot establish non-execution: the owner
+/// may have committed before losing its response. Reuse the exact recovered
+/// request (including a streamed body), without rebuilding protocol identity.
 async fn send_inner(
     peer: &Peer<'_>,
     kind: &'static str,
-    build: impl Fn(TunnelBody) -> anyhow::Result<Request<TunnelBody>>,
+    build: impl FnOnce(TunnelBody) -> anyhow::Result<Request<TunnelBody>>,
     body: crate::engine_api::RequestBody,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let key = format!("{}#{kind}", peer.addr);
-    let replay = match &body {
-        crate::engine_api::RequestBody::Bytes(bytes) => Some(bytes.clone()),
-        crate::engine_api::RequestBody::Stream(_) => None,
-    };
     let body = match body {
         crate::engine_api::RequestBody::Bytes(bytes) => full_body(bytes),
         crate::engine_api::RequestBody::Stream(stream_id) => {
@@ -488,30 +483,30 @@ async fn send_inner(
             stream_body(payload)
         }
     };
-    let mut body = Some(body);
+    let mut request = build(body)?;
     if let Some(sender) = checkout(&key) {
-        match send_on_tunnel(&key, sender, build(body.take().unwrap())?).await {
-            Ok(response) => {
-                return Ok(response);
-            }
-            Err(error) => {
-                let Some(bytes) = replay else {
-                    return Err(error);
+        match send_on_tunnel(&key, sender, request).await {
+            Ok(response) => return Ok(response),
+            Err(mut error) => {
+                let Some(unsent) = error.take_message() else {
+                    return Err(error.into_error().into());
                 };
-                body = Some(full_body(bytes));
+                request = unsent;
             }
         }
     }
     let sender = establish(peer, kind).await?;
-    send_on_tunnel(&key, sender, build(body.take().unwrap())?).await
+    send_on_tunnel(&key, sender, request)
+        .await
+        .map_err(|error| error.into_error().into())
 }
 
 async fn send_on_tunnel(
     key: &str,
     mut sender: TunnelSender,
     request: Request<TunnelBody>,
-) -> anyhow::Result<Response<PooledResponseBody>> {
-    let response = sender.send_request(request).await?;
+) -> Result<Response<PooledResponseBody>, hyper::client::conn::TrySendError<Request<TunnelBody>>> {
+    let response = sender.try_send_request(request).await?;
     let reusable =
         (response.status() != StatusCode::SWITCHING_PROTOCOLS).then(|| (key.to_string(), sender));
     Ok(response.map(|body| PooledResponseBody { body, reusable }))
@@ -579,6 +574,7 @@ pub(crate) async fn fetch(
 }
 
 pub(crate) const METHOD_HEADER: &str = "x-cells-rpc-method";
+const AUTHORITY_HEADER: &str = "x-cellar-event-authority";
 
 /// One inner request, one RPC: the method name rides a header, the
 /// arguments ride the body, and the content type says which encoding the
@@ -587,6 +583,33 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
     let service = service_fn(move |inner: Request<Incoming>| {
         let app = app.clone();
         async move {
+            let authority = match inner.headers().get(AUTHORITY_HEADER) {
+                None => None,
+                Some(header) => {
+                    use base64::Engine;
+                    let decoded = (|| -> anyhow::Result<crate::runtime::RpcAuthority> {
+                        anyhow::ensure!(
+                            header.as_bytes().len() <= 16_384,
+                            "event authority header is too large"
+                        );
+                        let bytes =
+                            base64::engine::general_purpose::STANDARD.decode(header.as_bytes())?;
+                        let authority: crate::runtime::RpcAuthority =
+                            serde_json::from_slice(&bytes)?;
+                        authority.validate()?;
+                        Ok(authority)
+                    })();
+                    match decoded {
+                        Ok(authority) => Some(authority),
+                        Err(_) => {
+                            return Ok::<_, Infallible>(peer_response(response(
+                                StatusCode::BAD_REQUEST,
+                                "invalid event RPC authority",
+                            )))
+                        }
+                    }
+                }
+            };
             let Some(scope) = inner
                 .headers()
                 .get(SCOPE_HEADER)
@@ -621,13 +644,23 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     "RPC method header is missing",
                 )));
             };
-            let body =
-                match collect_limited_body(inner.into_body(), MAX_PEER_FORWARD_BODY_BYTES).await {
-                    Ok(body) => body,
-                    Err(error) => {
-                        return Ok(peer_response(body_read_error("tunnel RPC", error)));
-                    }
-                };
+            let body_limit = if matches!(&authority, Some(crate::runtime::RpcAuthority::Name(_))) {
+                crate::application::event_stream::name_resolution::MAX_REQUEST_BYTES
+            } else if matches!(&authority, Some(crate::runtime::RpcAuthority::Catalog(_))) {
+                crate::runtime::catalog_control::MAX_RPC_BYTES
+            } else if method == crate::runtime::source_control::METHOD
+                || matches!(&authority, Some(crate::runtime::RpcAuthority::Source(_)))
+            {
+                crate::runtime::source_control::MAX_RPC_BYTES
+            } else {
+                MAX_PEER_FORWARD_BODY_BYTES
+            };
+            let body = match collect_limited_body(inner.into_body(), body_limit).await {
+                Ok(body) => body,
+                Err(error) => {
+                    return Ok(peer_response(body_read_error("tunnel RPC", error)));
+                }
+            };
             let args = if structured {
                 crate::engine_api::RpcData::Structured(body)
             } else {
@@ -641,7 +674,8 @@ async fn serve_rpc(upgraded: hyper::upgrade::Upgraded, app: AppHandle) {
                     }
                 }
             };
-            let reply = dispatch_forwarded_rpc(app, scope, name, method, args, request_id).await;
+            let reply =
+                dispatch_forwarded_rpc(app, scope, name, method, args, request_id, authority).await;
             Ok(reply)
         }
     });
@@ -658,6 +692,7 @@ pub(crate) async fn rpc(
     method: &str,
     args: &crate::engine_api::RpcData,
     request_id: Option<crate::engine_api::RequestId>,
+    authority: Option<&crate::runtime::RpcAuthority>,
 ) -> anyhow::Result<Response<PooledResponseBody>> {
     let (content_type, payload) = match args {
         crate::engine_api::RpcData::Json(json) => ("application/json", Bytes::from(json.clone())),
@@ -677,6 +712,15 @@ pub(crate) async fn rpc(
                 .header(hyper::header::CONTENT_TYPE, content_type);
             if let Some(name) = name {
                 inner = inner.header(NAME_HEADER, name);
+            }
+            if let Some(authority) = authority {
+                use base64::Engine;
+                authority.validate()?;
+                inner = inner.header(
+                    AUTHORITY_HEADER,
+                    base64::engine::general_purpose::STANDARD
+                        .encode(serde_json::to_vec(authority)?),
+                );
             }
             if let Some(request_id) = request_id {
                 inner = inner.header(
@@ -786,3 +830,7 @@ pub(crate) fn response_stream(body: PooledResponseBody) -> HttpChunkStream {
 mod private_tests {
     include!(env!("CELLAR_CONFORMANCE_PEER_TUNNEL_TESTS"));
 }
+
+#[cfg(test)]
+#[path = "peer_tunnel_tests.rs"]
+mod tests;

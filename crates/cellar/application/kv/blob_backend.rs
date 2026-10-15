@@ -34,7 +34,7 @@ pub(crate) async fn run(
     let reply = match field("mode")?.as_str() {
         "prepare" => {
             let digest = field("digest")?;
-            let reference = BlobRef::v2(activation_epoch, &digest)
+            let reference = BlobRef::v1(activation_epoch, &digest)
                 .map_err(|error| error.to_string())?
                 .encode();
             serde_json::json!({ "reference": reference })
@@ -88,7 +88,7 @@ pub(crate) async fn run(
             // Mark and sweep, not a refcount: a crash between the blob write
             // and the row commit leaves bytes no count ever counted. The
             // caller includes its pending references.
-            let prefix = BlobRef::v2_object_prefix(cell);
+            let prefix = BlobRef::v1_object_prefix(cell);
             let listed = kv_blob_store()?
                 .list(&prefix)
                 .await

@@ -174,8 +174,10 @@ async fn preflight(context: Context, _: Invocation) -> Result<Output> {
 async fn native_workflow_preflight_refuses_bad_batches_before_any_cell_call() -> Result<()> {
     cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
     let graph = DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "workflow-policy".into(),
             do_classes: Vec::new(),

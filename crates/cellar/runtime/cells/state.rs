@@ -226,6 +226,26 @@ impl CellRuntime {
                 root,
                 epoch,
                 names,
+                None,
+            )
+            .await
+    }
+
+    pub(crate) async fn open_facet_authorized(
+        &self,
+        root: &str,
+        epoch: u64,
+        names: &[String],
+        authority: Option<&crate::host_channels::FacetOpenAuthority>,
+    ) -> anyhow::Result<(PathBuf, bool)> {
+        self.facets
+            .open(
+                self.replication.as_ref(),
+                |cell, epoch| self.db_path(cell, epoch),
+                root,
+                epoch,
+                names,
+                authority,
             )
             .await
     }
@@ -239,6 +259,23 @@ impl CellRuntime {
     ) -> anyhow::Result<()> {
         self.facets
             .delete(
+                self.replication.as_ref(),
+                |cell| self.data_dir.join(cell),
+                root,
+                epoch,
+                names,
+            )
+            .await
+    }
+
+    pub(crate) async fn delete_facet_batch(
+        &self,
+        root: &str,
+        epoch: u64,
+        names: &[String],
+    ) -> anyhow::Result<bool> {
+        self.facets
+            .delete_batch(
                 self.replication.as_ref(),
                 |cell| self.data_dir.join(cell),
                 root,

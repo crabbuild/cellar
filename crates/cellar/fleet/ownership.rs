@@ -240,11 +240,8 @@ pub struct NodeLoadWire {
     /// nodes' weights. `None` from a node that predates rebalancing.
     #[serde(default)]
     pub placement_weight: Option<u64>,
-    /// The newest bucket format this node reads
-    /// (`cellar_logic::format::BUCKET_FORMAT`). `None` from a release before
-    /// the field, which reads format 1. A node writes a newer format only
-    /// while every live lease reads it, so a rolling update never leaves a
-    /// cell an old node cannot restore.
+    /// Current bucket layout advertised by this node. Missing capability does
+    /// not authorize paged-epoch writes; mixed development builds are unsupported.
     #[serde(default)]
     pub bucket_format: Option<u16>,
     pub resident_cells: usize,

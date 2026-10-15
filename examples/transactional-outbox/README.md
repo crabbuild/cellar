@@ -1,5 +1,9 @@
 # Atomic order and outbox
 
+This queue-backed recipe manages its own publication loop. The newer
+[durable stream example](../durable-streams/README.md) uses framework `tx.emit`,
+subscription leases and inbox receipts; that primitive remains under implementation.
+
 Commit business state with pending publication, then deliver with a stable consumer key.
 
 ## How it works

@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 mod calls;
-pub(crate) use calls::{abort_facet, delete_facet_files};
+pub(crate) use calls::{abort_facet, delete_facet_files, delete_facet_files_batch};
 
 pub(crate) fn facet_scope(class_name: &str, parent_scope: &str, owner: &str, name: &str) -> String {
     use sha2::Digest as _;
@@ -34,6 +34,7 @@ pub(crate) fn facet_scope(class_name: &str, parent_scope: &str, owner: &str, nam
 pub(crate) async fn open_facet_file(
     parent: &storage::StorageIdentity,
     name: &str,
+    authority: Option<crate::host_channels::FacetOpenAuthority>,
 ) -> Result<(std::path::PathBuf, bool), String> {
     let mut names = parent.facet_path.clone();
     names.push(name.to_string());
@@ -45,6 +46,7 @@ pub(crate) async fn open_facet_file(
     };
     let (reply, receive) = tokio::sync::oneshot::channel();
     let request = FacetReq::Open {
+        authority,
         root: parent.root_scope.clone(),
         epoch: parent.epoch,
         names,
@@ -73,6 +75,7 @@ fn standalone_facet_file(
 }
 
 pub(crate) struct FacetStart {
+    pub(crate) source_generation: u64,
     pub(crate) class_name: String,
     pub(crate) parent_scope: String,
     pub(crate) owner: String,
@@ -614,7 +617,39 @@ async fn prepare_facet_in(
     let recorded = host.is_loaded_worker();
     let slot = host.slot().await?;
     check_facet_service(&service)?;
-    let file = open_facet_file(&start.parent, &start.name).await?;
+    let permit = authority.as_ref().map(|activation| {
+        let weak = Arc::downgrade(activation);
+        let generation = start.source_generation;
+        crate::host_channels::FacetOpenAuthority {
+            validate: Arc::new(move || {
+                let activation = weak
+                    .upgrade()
+                    .ok_or_else(|| anyhow!("facet parent activation has retired"))?;
+                anyhow::ensure!(
+                    !activation.resources.retired.load(Ordering::Acquire)
+                        && activation.resources.failure.lock().unwrap().is_none(),
+                    "facet parent activation has retired"
+                );
+                anyhow::ensure!(
+                    cellar_logic::event_stream::source_admitted(
+                        generation,
+                        activation
+                            .resources
+                            .source_generation
+                            .load(Ordering::Acquire),
+                        activation.resources.source_closed.load(Ordering::Acquire),
+                        false
+                    ),
+                    "facet parent source incarnation has retired"
+                );
+                Ok(())
+            }),
+        }
+    });
+    if let Some(permit) = &permit {
+        permit.check().map_err(|error| error.to_string())?;
+    }
+    let file = open_facet_file(&start.parent, &start.name, permit.clone()).await?;
     let mut names = start.parent.facet_path.clone();
     names.push(start.name.clone());
     let stream = crate::engine_api::facet_cell(&start.parent.root_scope, &names);
@@ -627,6 +662,9 @@ async fn prepare_facet_in(
     );
     let opening = slot
         .turn(|worker| {
+            if let Some(permit) = &permit {
+                permit.check().map_err(|error| error.to_string())?;
+            }
             if let Some(authority) = &authority {
                 if authority
                     .resources

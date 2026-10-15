@@ -222,6 +222,7 @@ pub(super) async fn cron_history(app: AppHandle, scope: String, body: Vec<u8>) -
         dispatch_rpc_call(
             app,
             RpcCallReq {
+                authority: None,
                 request_id: Some(crate::engine_api::next_request_id()),
                 cancel: Some(cancel),
                 scope,

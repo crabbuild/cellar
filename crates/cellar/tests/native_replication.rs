@@ -1,6 +1,6 @@
 //! Caller-configured production storage, paging, and credential providers.
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::replication::{ActivationOptions, SyncWait};
 use cellar::sdk::{
     CompactionConfig, ExecutionDomain, ReplicaRangeReaderFactory, ReplicaStorage,
@@ -285,7 +285,11 @@ async fn supplied_s3(native: bool) -> Result<()> {
                     {
                         std::thread::sleep(Duration::from_millis(5))
                     }
-                    Err(e) => return Err(e.into()),
+                    Err(e) => {
+                        return Err(e).with_context(|| {
+                            format!("S3 fixture native={native} attempt={attempt}: accept request")
+                        })
+                    }
                 }
             };
             // Accepted sockets may inherit the listener's nonblocking mode.
@@ -296,7 +300,12 @@ async fn supplied_s3(native: bool) -> Result<()> {
             let mut request = String::new();
             loop {
                 let mut line = String::new();
-                ensure!(socket.read_line(&mut line)? > 0, "request headers stopped");
+                ensure!(
+                    socket.read_line(&mut line).with_context(|| {
+                        format!("S3 fixture native={native} attempt={attempt}: read headers")
+                    })? > 0,
+                    "request headers stopped"
+                );
                 let done = line == "\r\n";
                 request.push_str(&line);
                 ensure!(request.len() <= 16384, "request header bound");

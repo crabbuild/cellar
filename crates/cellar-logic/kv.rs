@@ -71,7 +71,7 @@ pub const MAX_LIST_LIMIT: usize = 1000;
 /// address an object from a later owner.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BlobRef<'a> {
-    V2 { epoch: u64, digest: &'a str },
+    V1 { epoch: u64, digest: &'a str },
 }
 
 /// Why a persisted or listed large-value reference is not safe to use.
@@ -106,30 +106,30 @@ impl<'a> BlobRef<'a> {
         if parts.next().is_some() {
             return Err(BlobRefError::Shape);
         }
-        if version != Some("v2") {
+        if version != Some("v1") {
             return Err(BlobRefError::Version);
         }
         let (Some(epoch), Some(digest)) = (epoch, digest) else {
             return Err(BlobRefError::Shape);
         };
-        Ok(Self::V2 {
+        Ok(Self::V1 {
             epoch: parse_blob_epoch(epoch)?,
             digest: validate_blob_digest(digest)?,
         })
     }
 
     /// Mint the only reference a new write can commit.
-    pub fn v2(epoch: u64, digest: &'a str) -> Result<Self, BlobRefError> {
+    pub fn v1(epoch: u64, digest: &'a str) -> Result<Self, BlobRefError> {
         if epoch == 0 {
             return Err(BlobRefError::Epoch);
         }
-        Ok(Self::V2 {
+        Ok(Self::V1 {
             epoch,
             digest: validate_blob_digest(digest)?,
         })
     }
 
-    /// Parse the suffix below `kv/blobs-v2/<cell>/`.
+    /// Parse the suffix below `kv/blobs-v1/<cell>/`.
     pub fn parse_object_suffix(suffix: &'a str) -> Result<Self, BlobRefError> {
         let mut parts = suffix.split('/');
         let epoch = parts.next();
@@ -140,7 +140,7 @@ impl<'a> BlobRef<'a> {
         let (Some(epoch), Some(digest)) = (epoch, digest) else {
             return Err(BlobRefError::Shape);
         };
-        Ok(Self::V2 {
+        Ok(Self::V1 {
             epoch: parse_blob_epoch(epoch)?,
             digest: validate_blob_digest(digest)?,
         })
@@ -148,34 +148,34 @@ impl<'a> BlobRef<'a> {
 
     pub fn digest(self) -> &'a str {
         match self {
-            Self::V2 { digest, .. } => digest,
+            Self::V1 { digest, .. } => digest,
         }
     }
 
     pub fn epoch(self) -> Option<u64> {
         match self {
-            Self::V2 { epoch, .. } => Some(epoch),
+            Self::V1 { epoch, .. } => Some(epoch),
         }
     }
 
     pub fn encode(self) -> String {
         match self {
-            Self::V2 { epoch, digest } => format!("v2:e{epoch}:{digest}"),
+            Self::V1 { epoch, digest } => format!("v1:e{epoch}:{digest}"),
         }
     }
 
     /// Map a persisted reference to its fleet-bucket object key.
     pub fn object_key(self, cell: &str) -> String {
         match self {
-            Self::V2 { epoch, digest } => {
-                format!("kv/blobs-v2/{cell}/e{epoch}/{digest}")
+            Self::V1 { epoch, digest } => {
+                format!("kv/blobs-v1/{cell}/e{epoch}/{digest}")
             }
         }
     }
 
-    /// The only subtree that a v2 collector can list.
-    pub fn v2_object_prefix(cell: &str) -> String {
-        format!("kv/blobs-v2/{cell}/")
+    /// The only subtree that a v1 collector can list.
+    pub fn v1_object_prefix(cell: &str) -> String {
+        format!("kv/blobs-v1/{cell}/")
     }
 
     /// A cell can read a reference from its current epoch or an older epoch. A later epoch is outside this activation's
@@ -189,7 +189,7 @@ impl<'a> BlobRef<'a> {
         self.epoch() == Some(activation_epoch)
     }
 
-    /// A collector can remove only the v2 objects from its epoch or an older
+    /// A collector can remove only the v1 objects from its epoch or an older
     /// epoch.
     pub fn collectable_by(self, collector_epoch: u64) -> bool {
         self.epoch().is_some_and(|epoch| epoch <= collector_epoch)

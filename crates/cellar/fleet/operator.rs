@@ -72,8 +72,63 @@ impl Reachable {
         scope: String,
         name: Option<&str>,
     ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, name, "runtime").await
+    }
+
+    pub(crate) async fn open_inventory(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "event-inventory").await
+    }
+
+    pub(crate) async fn open_state(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "event-state").await
+    }
+
+    pub(crate) async fn open_source(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "outbox").await
+    }
+
+    pub(crate) async fn open_stream(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "streams").await
+    }
+
+    pub(crate) async fn open_catalog(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+    ) -> anyhow::Result<Self> {
+        Self::open_route(fleet, subject, scope, None, "catalogs").await
+    }
+
+    async fn open_route(
+        fleet: Fleet<'_>,
+        subject: Subject,
+        scope: String,
+        name: Option<&str>,
+        route: &str,
+    ) -> anyhow::Result<Self> {
         let bucket = crate::fleet::bucket_client(fleet.bucket, fleet.endpoint, fleet.region)?;
-        Self::from_bucket(&bucket, fleet.unsafe_public_advertise, subject, scope, name).await
+        if route == "runtime" {
+            return Self::from_bucket(&bucket, fleet.unsafe_public_advertise, subject, scope, name)
+                .await;
+        }
+        let nodes = live_nodes(&bucket, fleet.unsafe_public_advertise, subject.source).await?;
+        Self::from_entrances_route(&bucket, subject, scope, name, nodes, route).await
     }
 
     pub(crate) async fn from_bucket(
@@ -99,11 +154,24 @@ impl Reachable {
         name: Option<&str>,
         nodes: Vec<(String, String)>,
     ) -> anyhow::Result<Self> {
-        anyhow::ensure!(
-            cellar_logic::cell::valid_cell_scope(&scope)
-                && crate::deploy::is_reserved_scope(&scope),
-            "invalid operator cell scope"
-        );
+        Self::from_entrances_route(bucket, subject, scope, name, nodes, "runtime").await
+    }
+
+    async fn from_entrances_route(
+        bucket: &Bucket,
+        subject: Subject,
+        scope: String,
+        name: Option<&str>,
+        nodes: Vec<(String, String)>,
+        route: &str,
+    ) -> anyhow::Result<Self> {
+        if route == "runtime" {
+            anyhow::ensure!(
+                cellar_logic::cell::valid_cell_scope(&scope)
+                    && crate::deploy::is_reserved_scope(&scope),
+                "invalid operator cell scope"
+            );
+        }
         anyhow::ensure!(!nodes.is_empty(), "no current routing entrance observed");
         // The same secret and the same source shape `cellar diagnose` uses.
         let auth = crate::peer_auth::PeerAuth::new(
@@ -118,7 +186,7 @@ impl Reachable {
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .with_context(|| format!("build the {} client", subject.noun))?;
-        let mut path = format!("/runtime/{scope}");
+        let mut path = format!("/{route}/{scope}");
         if let Some(name) = name {
             // An operator command can be the first request to construct a
             // reserved cell. A later named binding call cannot repair the
@@ -134,7 +202,14 @@ impl Reachable {
             http,
             auth,
             subject,
-            max_response_bytes: None,
+            max_response_bytes: if route == "event-inventory" {
+                Some(crate::runtime::event_inventory::MAX_REPLY_BYTES)
+            } else if route == "event-state" {
+                Some(crate::runtime::event_state::MAX_REPLY_BYTES)
+            } else {
+                matches!(route, "outbox" | "streams" | "catalogs")
+                    .then_some(crate::runtime::source_control::MAX_REPLY_BYTES)
+            },
             entrances: nodes
                 .into_iter()
                 .map(|(node, addr)| Entrance {
@@ -234,7 +309,10 @@ impl Reachable {
             }
             let value: Value = serde_json::from_str(&text)
                 .with_context(|| format!("decode the reply ({status}): {text}"))?;
-            if let Some(error) = value.get("error").and_then(Value::as_str) {
+            if let Some(error) = value.get("error") {
+                if let Some(error) = error.as_str() {
+                    bail!("{error}{}", report(&refused));
+                }
                 bail!("{error}{}", report(&refused));
             }
             if !status.is_success() {

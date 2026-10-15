@@ -40,6 +40,10 @@ pub async fn due_scan(bucket: &Bucket, now_ms: i64) -> Vec<(String, i64)> {
     let minutes = match bucket.common_prefixes(ENTRY_PREFIX).await {
         Ok(minutes) => minutes,
         Err(e) => {
+            crate::asyncrt::services()
+                .events()
+                .metrics
+                .increment(crate::event_metrics::Counter::WakeDiscoveryFailed, 1);
             warn!(error = %e, "wake due scan bucket listing failed");
             return due;
         }
@@ -61,6 +65,10 @@ pub async fn due_scan(bucket: &Bucket, now_ms: i64) -> Vec<(String, i64)> {
         let objects = match objects {
             Ok(objects) => objects,
             Err(e) => {
+                crate::asyncrt::services()
+                    .events()
+                    .metrics
+                    .increment(crate::event_metrics::Counter::WakeDiscoveryFailed, 1);
                 warn!(error = %e, %minute, "wake due scan entry listing failed");
                 continue;
             }
@@ -406,7 +414,7 @@ impl WakeFlusher {
             publication
         };
         let body = serde_json::to_vec(&serde_json::json!({
-            "format": 2, "cell": cell, "due_ms": alarm.at_ms(),
+            "format": 1, "cell": cell, "due_ms": alarm.at_ms(),
             "identity": alarm.source().unwrap().id.to_string(),
         }))?;
         bucket.put(&publication.key, body).await?;
@@ -525,7 +533,7 @@ struct RetirementRecord {
 impl RetirementRecord {
     fn decode(bytes: &[u8]) -> anyhow::Result<Retirement> {
         let record: Self = serde_json::from_slice(bytes)?;
-        anyhow::ensure!(record.format == 2, "unsupported wake retirement format");
+        anyhow::ensure!(record.format == 1, "unsupported wake retirement format");
         let id = PublicationId::parse(&record.identity)
             .ok_or_else(|| anyhow::anyhow!("invalid wake retirement identity"))?;
         anyhow::ensure!(
@@ -547,7 +555,7 @@ async fn publish_retirement(
     let retirement = proof.0;
     let key = retirement_key(cell);
     let body = serde_json::to_vec(&RetirementRecord {
-        format: 2,
+        format: 1,
         identity: retirement.id.to_string(),
         at_ms: retirement.at_ms,
     })?;

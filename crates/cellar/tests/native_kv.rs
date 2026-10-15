@@ -32,8 +32,10 @@ fn scope() -> String {
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "native-kv".into(),
             do_classes: vec![cellar::deploy::KV_CLASS.into(), "Caller".into()],
@@ -721,7 +723,7 @@ async fn run() -> Result<()> {
         info["result"]["live"]
     );
     assert_eq!(worker(&runtime, "large").await?.body, b"large checked");
-    let prefix = cellar_logic::kv::BlobRef::v2_object_prefix(&scope());
+    let prefix = cellar_logic::kv::BlobRef::v1_object_prefix(&scope());
     assert_eq!(bucket.list(&prefix).await?.len(), 1);
     let bounded = operator(
         &runtime,
@@ -809,7 +811,7 @@ async fn run() -> Result<()> {
     assert_eq!(result.status, 200);
     // Current collectors must spare later-epoch subtrees.
     let digest = "0".repeat(64);
-    let future = cellar_logic::kv::BlobRef::v2(2, &digest)?.object_key(&scope());
+    let future = cellar_logic::kv::BlobRef::v1(2, &digest)?.object_key(&scope());
     bucket.put(&future, vec![2]).await?;
     operator(&runtime, json!({"op":"delete","keys":["during-sweep"]})).await?;
     fire(&runtime, 4).await?;

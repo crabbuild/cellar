@@ -74,12 +74,14 @@ pub(crate) struct NativeFlight {
 }
 
 struct Start {
+    authority: Option<crate::runtime::RpcAuthority>,
     invocation: Invocation,
     answer: Answer,
     request_id: Option<RequestId>,
     scope: Option<String>,
     trace: Option<crate::telemetry::TraceContext>,
     alarm: Option<AlarmClaim>,
+    work: Option<cellar_logic::work::Installation>,
     limits: Option<ResourceLimits>,
     tail: Option<TailReportState>,
 }
@@ -172,6 +174,8 @@ pub(crate) fn validate_application_classes<'a>(
             class == crate::deploy::SQL_CLASS
                 || class == crate::deploy::KV_CLASS
                 || class == crate::deploy::QUEUE_CLASS
+                || class == crate::deploy::EVENT_STREAM_CLASS
+                || class == crate::deploy::EVENT_CATALOG_CLASS
                 || class == cellar_logic::cron::RESERVED_CLASS
                 || class == crate::deploy::workflow_class(script)
                 || application.supports_cell(class),
@@ -321,13 +325,33 @@ impl NativeWorker {
                 authority.vfs,
                 self.config.compat.sqlite_vec,
             )?;
+            if self.config.source_recovery {
+                let present = storage::outbox::retained_source(scope);
+                if !matches!(present, Ok(true)) {
+                    storage::close(scope);
+                    present?;
+                    return Err(anyhow!(
+                        "removed class has no retained source identity: {scope}"
+                    ));
+                }
+            }
+            let (source_generation, source_closed) =
+                storage::outbox_control::source_admission(scope)?;
+            let resources = crate::application::storage::Resources::default();
+            resources
+                .source_generation
+                .store(source_generation, Ordering::Release);
+            resources
+                .source_closed
+                .store(source_closed, Ordering::Release);
             self.activations.insert(
                 scope.to_string(),
                 Arc::new(Activation {
+                    worker_config: self.config.clone(),
                     scope: scope.to_string(),
                     epoch: authority.epoch,
                     delete_all_deletes_alarm: self.config.compat.delete_all_deletes_alarm,
-                    resources: Default::default(),
+                    resources,
                     websocket_states: Default::default(),
                 }),
             );
@@ -370,6 +394,15 @@ impl NativeWorker {
         Arc::get_mut(&mut io)
             .expect("new context has no external owners")
             .native_activation = scope.and_then(|scope| self.activations.get(scope).cloned());
+        if let Some(activation) = &io.native_activation {
+            let generation = activation
+                .resources
+                .source_generation
+                .load(Ordering::Acquire);
+            Arc::get_mut(&mut io)
+                .expect("new context has no external owners")
+                .source_generation = generation;
+        }
         self.registry.register(&mut io);
         io.begin_event();
         if let Some(identity) = &identity {
@@ -380,6 +413,9 @@ impl NativeWorker {
             });
         }
         Ok(Context {
+            event_authority: None,
+            catalog_authority: None,
+            name_authority: None,
             io,
             state: Arc::new(EventState::default()),
             identity,
@@ -518,6 +554,8 @@ impl NativeWorker {
             ),
         };
         self.start(Start {
+            authority: None,
+            work: None,
             invocation,
             answer,
             request_id,
@@ -532,12 +570,14 @@ impl NativeWorker {
     fn start(&mut self, start: Start) -> (Option<InFlight>, Vec<Op>) {
         let _clock = cellar_native::web::WallClockGuard::enter(primitive_wall_ms);
         let Start {
+            authority,
             invocation,
             answer,
             request_id,
             scope,
             trace,
             alarm,
+            work,
             limits,
             tail,
         } = start;
@@ -554,13 +594,30 @@ impl NativeWorker {
                 self.instances.remove(scope);
                 old.drain_resources();
                 storage::reset_native_resources(scope);
+                let (source_generation, source_closed) =
+                    match storage::outbox_control::source_admission(scope) {
+                        Ok(value) => value,
+                        Err(error) => {
+                            self.activations.insert(scope.clone(), old);
+                            answer.fail(error);
+                            return (None, Vec::new());
+                        }
+                    };
+                let resources = crate::application::storage::Resources::default();
+                resources
+                    .source_generation
+                    .store(source_generation, Ordering::Release);
+                resources
+                    .source_closed
+                    .store(source_closed, Ordering::Release);
                 self.activations.insert(
                     scope.clone(),
                     Arc::new(Activation {
+                        worker_config: self.config.clone(),
                         scope: scope.clone(),
                         epoch: old.epoch,
                         delete_all_deletes_alarm: old.delete_all_deletes_alarm,
-                        resources: Default::default(),
+                        resources,
                         websocket_states: Default::default(),
                     }),
                 );
@@ -569,7 +626,7 @@ impl NativeWorker {
         if let Some(activation) = scope.as_ref().and_then(|scope| self.activations.get(scope)) {
             activation.drain_resources();
         }
-        let context = match self.context(scope.as_deref(), trace, limits, tail.is_some()) {
+        let mut context = match self.context(scope.as_deref(), trace, limits, tail.is_some()) {
             Ok(context) => context,
             Err(error) => {
                 if let (Some(scope), Some(claim)) = (&scope, &alarm) {
@@ -584,6 +641,51 @@ impl NativeWorker {
                 return (None, Vec::new());
             }
         };
+        let mut state_authority = None;
+        let mut inventory_authority = None;
+        let source_authority = match authority {
+            Some(crate::runtime::RpcAuthority::Inventory(authority)) => {
+                inventory_authority = Some(authority);
+                None
+            }
+            Some(crate::runtime::RpcAuthority::State(authority)) => {
+                state_authority = Some(authority);
+                None
+            }
+            Some(crate::runtime::RpcAuthority::Source(authority)) => Some(authority),
+            Some(crate::runtime::RpcAuthority::Event(authority)) => {
+                context.event_authority = Some(authority);
+                None
+            }
+            Some(crate::runtime::RpcAuthority::Name(authority)) => {
+                context.name_authority = Some(authority);
+                None
+            }
+            Some(crate::runtime::RpcAuthority::Catalog(authority)) => {
+                context.catalog_authority = Some(authority);
+                None
+            }
+            None => None,
+        };
+        context.io.framework_source.store(
+            source_authority.is_some()
+                || state_authority.is_some()
+                || inventory_authority.is_some()
+                || work
+                    .as_ref()
+                    .is_some_and(|work| work.reason == cellar_logic::work::Reason::Outbox),
+            Ordering::Release,
+        );
+        if scope
+            .as_ref()
+            .and_then(|scope| self.activations.get(scope))
+            .is_some_and(|activation| activation.resources.source_closed.load(Ordering::Acquire))
+        {
+            if let Some(scope) = &scope {
+                self.retire_facet_descendants(scope);
+                self.instances.remove(scope);
+            }
+        }
         let writes_before = scope.as_deref().and_then(storage::event_start_position);
         if matches!(&invocation, Invocation::WebSocketMessage { .. }) {
             *context.state.websocket_capture.lock().unwrap() = Some(Default::default());
@@ -608,6 +710,55 @@ impl NativeWorker {
         context.io.begin_cpu_turn();
         let handler = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
             || -> Result<HandlerFuture<Output>> {
+                if let Some(authority) = inventory_authority {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        crate::runtime::event_inventory::invoke(context, invocation, authority)
+                            .await
+                    }));
+                }
+                if let Some(authority) = state_authority {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        crate::runtime::event_state::invoke(context, invocation, authority).await
+                    }));
+                }
+                if let Some(authority) = source_authority {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        crate::runtime::source_control::invoke(context, invocation, authority).await
+                    }));
+                }
+                if let Some(installation) = work {
+                    let context = context.clone();
+                    return Ok(Box::pin(async move {
+                        match installation.reason {
+                            cellar_logic::work::Reason::Outbox => {
+                                crate::application::outbox::dispatch(context, installation).await
+                            }
+                            cellar_logic::work::Reason::StreamMaintenance => {
+                                crate::application::event_stream::broker::maintain(
+                                    context,
+                                    installation,
+                                )
+                                .await
+                            }
+                            cellar_logic::work::Reason::ResourceReconciliation => {
+                                crate::application::event_stream::catalog::maintain(
+                                    context,
+                                    installation,
+                                )
+                                .await
+                            }
+                        }
+                    }));
+                }
+                context.check_turn()?;
+                if self.config.source_recovery {
+                    return Ok(Box::pin(async {
+                        Err(crate::runtime::source_recovery::unavailable())
+                    }));
+                }
                 match &context.identity {
                     Some(identity) => {
                         let cell = match self.instances.entry(identity.scope.clone()) {
@@ -621,6 +772,12 @@ impl NativeWorker {
                                     crate::application::kv::create_cell(&context)?
                                 } else if identity.class == crate::deploy::QUEUE_CLASS {
                                     crate::application::queue::create_cell(&context)?
+                                } else if identity.class == crate::deploy::EVENT_STREAM_CLASS {
+                                    crate::application::event_stream::broker::create_cell(&context)?
+                                } else if identity.class == crate::deploy::EVENT_CATALOG_CLASS {
+                                    crate::application::event_stream::catalog::create_cell(
+                                        &context,
+                                    )?
                                 } else if identity.class == cellar_logic::cron::RESERVED_CLASS {
                                     crate::application::cron::create_cell(
                                         &context,
@@ -700,6 +857,8 @@ impl NativeWorker {
         let scope = job.scope().to_string();
         let request_id = job.request_id();
         let mut alarm = None;
+        let mut authority = None;
+        let mut work = None;
         let (invocation, answer) = match job {
             CellJob::Fetch {
                 url,
@@ -728,12 +887,14 @@ impl NativeWorker {
                 )
             }
             CellJob::Rpc {
+                authority: caller,
                 method,
                 args,
                 name,
                 reply,
                 ..
             } => {
+                authority = caller;
                 if let Some(name) = name {
                     if let Err(error) = storage::set_actor_name(&scope, &name) {
                         let _ = reply.send(Err(error));
@@ -760,16 +921,42 @@ impl NativeWorker {
                     #[cfg(cellar_internal_tests)]
                     AlarmDispatch::Claimed(_) => now_ms,
                 };
-                let Some((scheduled_ms, _retry)) = storage::due_alarm_entry(&scope, due_by) else {
+                let application_alarm = storage::due_alarm_entry(&scope, due_by);
+                let internal = match storage::work::due(&scope, due_by) {
+                    Ok(work) => work,
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                        return (None, Vec::new());
+                    }
+                };
+                if let Some(installation) = internal.filter(|work| {
+                    cellar_logic::work::internal_first(
+                        self.config.source_recovery,
+                        work.at_ms,
+                        application_alarm.map(|alarm| alarm.0),
+                    )
+                }) {
+                    work = Some(installation);
+                    (
+                        Invocation::Alarm {
+                            scheduled_ms: installation.at_ms,
+                        },
+                        Answer::Alarm(reply),
+                    )
+                } else if let Some((scheduled_ms, _retry)) = application_alarm {
+                    storage::begin_alarm_handler(&scope, scheduled_ms);
+                    alarm = Some(AlarmClaim {
+                        now_ms,
+                        counts_against_limit: !self.config.source_recovery,
+                    });
+                    (Invocation::Alarm { scheduled_ms }, Answer::Alarm(reply))
+                } else {
                     let _ = reply.send(Ok((
                         observe_alarm(&scope, storage::get_alarm(&scope)),
                         None,
                     )));
                     return (None, Vec::new());
-                };
-                storage::begin_alarm_handler(&scope, scheduled_ms);
-                alarm = Some(AlarmClaim { now_ms });
-                (Invocation::Alarm { scheduled_ms }, Answer::Alarm(reply))
+                }
             }
             CellJob::WsOpen {
                 ws_id,
@@ -836,6 +1023,8 @@ impl NativeWorker {
             }
         };
         self.start(Start {
+            authority,
+            work,
             invocation,
             answer,
             request_id,
@@ -872,6 +1061,30 @@ impl NativeWorker {
                 anyhow!(failure.unwrap_or_else(|| "native cell activation has retired".into())),
                 (position, None),
             ));
+            entry.context.end_event_registrations();
+            entry.context.seal_wait_until();
+            entry.context.close_sockets();
+            return adopt(entry);
+        }
+        if entry
+            .context
+            .native_activation
+            .as_ref()
+            .is_some_and(|activation| {
+                !cellar_logic::event_stream::source_admitted(
+                    entry.context.source_generation,
+                    activation
+                        .resources
+                        .source_generation
+                        .load(Ordering::Acquire),
+                    activation.resources.source_closed.load(Ordering::Acquire),
+                    entry.context.framework_source.load(Ordering::Acquire),
+                )
+            })
+        {
+            entry.native = None;
+            entry.alarm = None;
+            entry.fail_in_turn(anyhow!("source business admission has closed"));
             entry.context.end_event_registrations();
             entry.context.seal_wait_until();
             entry.context.close_sockets();
@@ -1448,6 +1661,17 @@ pub(crate) fn set_alarm(scope: &str, at_ms: i64) -> Result<()> {
     Ok(())
 }
 
+/// Removing one reason may expose a different, later deadline. It still
+/// needs its own discovery gate before the event can acknowledge the change.
+pub(crate) fn refresh_wake_gate(scope: &str) -> Result<()> {
+    if storage::sync_sample(scope)?.is_some_and(|sample| !sample.in_transaction) {
+        if let Some(deadline) = storage::alarm_snapshot(scope)?.at_ms() {
+            spawn_arm_gate(scope, deadline, installed_context());
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn transaction_control(
     scope: &str,
     action: &str,
@@ -1502,11 +1726,20 @@ pub(crate) fn storage_sync(scope: &str) -> HandlerFuture<()> {
                 Some(sample.epoch),
             ),
         };
-        Ok(gate)
+        // Independently observe coverage without consuming response gates:
+        // dropping an unpolled sync future must not loosen the event's reply.
+        let discovery = launch_arm_gate(scope, storage::alarm_snapshot(scope)?);
+        Ok((gate, discovery))
     })();
     let scope = scope.to_string();
     Box::pin(async move {
-        egress_gate_verdict(prepared?)
+        let (gate, discovery) = prepared?;
+        if let Some(gate) = discovery {
+            gate.await
+                .map_err(|_| anyhow!("storage.sync: {scope}: wake publication stopped"))?
+                .map_err(|error| anyhow!("storage.sync: {scope}: {error}"))?;
+        }
+        egress_gate_verdict(gate)
             .await
             .map_err(|refusal| anyhow!("storage.sync: {scope}: {refusal}"))
     })
@@ -1603,6 +1836,9 @@ pub(crate) fn rpc_cell(
     method: String,
     args: RpcData,
 ) -> HandlerFuture<RpcData> {
+    if crate::application::event_stream::is_event_scope(&scope) {
+        return Box::pin(async { Err(anyhow!("event stream calls require a bound capability")) });
+    }
     if let Err(error) = context
         .check_turn()
         .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
@@ -1625,7 +1861,60 @@ pub(crate) fn rpc_cell_resource(
         return Box::pin(async move { Err(error) });
     }
     let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
-    Box::pin(crate::host_rpc::call(gate, scope, name, method, args))
+    Box::pin(crate::host_rpc::call(gate, scope, name, method, args, None))
+}
+
+pub(crate) fn event_rpc(
+    context: &Context,
+    scope: String,
+    name: Option<String>,
+    method: String,
+    args: RpcData,
+    authority: crate::application::event_stream::Authority,
+) -> HandlerFuture<RpcData> {
+    if let Err(error) = context
+        .check_turn()
+        .and_then(|()| crate::application::event_stream::validate_target(&scope, &authority))
+        .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
+    {
+        return Box::pin(async move { Err(error) });
+    }
+    let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
+    Box::pin(crate::host_rpc::call(
+        gate,
+        scope,
+        name,
+        method,
+        args,
+        Some(authority.into()),
+    ))
+}
+
+/// Private platform evidence path. Application bindings cannot mint it.
+pub(crate) fn catalog_rpc(
+    context: &Context,
+    authority: crate::runtime::rpc_authority::CatalogAuthority,
+    scope: String,
+    name: String,
+    method: String,
+    args: RpcData,
+) -> HandlerFuture<RpcData> {
+    if let Err(error) = context
+        .check_turn()
+        .and_then(|()| authority.validate_target(&scope, &method))
+        .and_then(|()| context.io.charge_subrequest().map_err(anyhow::Error::msg))
+    {
+        return Box::pin(async move { Err(error) });
+    }
+    let gate = egress_gate_request(&context.io, cellar_logic::Channel::CellRpc);
+    Box::pin(crate::host_rpc::call(
+        gate,
+        scope,
+        Some(name),
+        method,
+        args,
+        Some(crate::runtime::RpcAuthority::Catalog(authority)),
+    ))
 }
 
 pub(crate) fn blob_gate(context: &Context) -> HandlerFuture<()> {

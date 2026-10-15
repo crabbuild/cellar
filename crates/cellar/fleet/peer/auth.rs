@@ -14,8 +14,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const PROTOCOL_VERSION: u16 = 5;
-pub const PROTOCOL_VERSION_TEXT: &str = "5";
+// Internal development keeps protocol 1; all fleet participants use one build.
+pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION_TEXT: &str = "1";
 pub const RESPONSE_VERSION_HEADER: &str = "x-cells-peer-version";
 
 const SECRET_KEY: &str = "fleet/peer-auth.json";
@@ -386,4 +387,10 @@ fn hex_nibble(value: u8) -> anyhow::Result<u8> {
         b'a'..=b'f' => Ok(value - b'a' + 10),
         _ => Err(anyhow!("hexadecimal must be lowercase ASCII")),
     }
+}
+
+/// Caller label from a request that the ingress has already verified.
+pub(crate) fn verified_source(headers: &hyper::http::HeaderMap) -> anyhow::Result<&str> {
+    header(headers, HEADER_SOURCE)
+        .ok_or_else(|| anyhow::anyhow!("verified operator has no caller identity"))
 }

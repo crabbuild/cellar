@@ -60,6 +60,7 @@ pub(crate) struct LoaderEnv {
 }
 
 pub struct WorkerConfig {
+    pub(crate) source_recovery: bool,
     pub(crate) native_application: Option<Arc<dyn crate::application::Application>>,
     // The origin link is weak: a loaded worker cannot keep its own loader
     // registry entry alive merely by retaining its configuration.
@@ -87,6 +88,8 @@ pub struct WorkerConfig {
     /// [[kv]].
     pub(crate) kv_bindings: Vec<(String, String)>,
     pub(crate) queue_bindings: Vec<QueueBinding>,
+    pub(crate) stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
+    pub(crate) event_readiness: Arc<crate::application::event_stream::readiness::Readiness>,
     pub(crate) queue_consumers: Vec<QueueConsumerRegistration>,
     /// This script declared a consumer in its own manifest. The deployment-
     /// wide catalog later replaces `queue_consumers` in every isolate, so the
@@ -167,6 +170,7 @@ impl WorkerConfig {
             sql_bindings,
             kv_bindings,
             queue_bindings,
+            stream_bindings,
             queue_consumers,
             workflow_bindings,
             vars,
@@ -187,6 +191,10 @@ impl WorkerConfig {
             })
             .collect();
         Self {
+            event_readiness: Arc::new(crate::application::event_stream::readiness::Readiness::new(
+                true,
+            )),
+            source_recovery: false,
             native_application: None,
             src,
             main_module_name: ENTRY_MODULE_NAME.to_string(),
@@ -198,6 +206,7 @@ impl WorkerConfig {
             sql_bindings,
             kv_bindings,
             queue_bindings,
+            stream_bindings,
             queue_consumers,
             declares_queue_consumer,
             workflow_bindings,

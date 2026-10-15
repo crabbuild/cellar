@@ -341,6 +341,7 @@ impl Loader {
                 compat.js_rpc = true;
                 let config = Arc::new(
                     WorkerConfig::new(WorkerConfigOptions {
+                        stream_bindings: Vec::new(),
                         src: String::new(),
                         script_name: format!("__loader:{id}"),
                         do_classes: Vec::new(),

@@ -101,8 +101,10 @@ async fn note(context: &Context, value: &str) -> Result<()> {
 
 fn graph() -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: SCRIPT.into(),
             do_classes: vec!["Sink".into(), cellar::deploy::workflow_class(SCRIPT)],

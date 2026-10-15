@@ -86,7 +86,13 @@ impl Context {
                     .lock()
                     .unwrap()
                     .clone()
-                    .map(|transaction| Storage(activation.clone(), Some(transaction)))
+                    .map(|transaction| {
+                        Storage(
+                            activation.clone(),
+                            Some(transaction),
+                            self.io.source_generation,
+                        )
+                    })
             });
             let parent = blocks.current.lock().unwrap().clone();
             let depth = parent.as_ref().map_or(1, |parent| parent.depth + 1);

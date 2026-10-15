@@ -1,5 +1,18 @@
 # Cellar architecture and integration plans
 
+## Primitive designs
+
+| Design | Status | Scope |
+| --- | --- | --- |
+| [002: Transactional outbox and durable event delivery](002-outbox-streams-subscriptions.md) | Proposed | Atomic event emission, durable streams, resumable subscriptions, recovery, retention, and implementation phases |
+
+The primitive design is separate from the completed component organization
+work below. Its API sketches describe proposed behavior, not the current SDK.
+Implementation is underway; the [requirement audit and verification status](outbox-implementation-status.md)
+track the full remaining scope.
+
+## Component organization baseline
+
 Prepared on 2026-10-12 against `origin/main` at
 `0bbb2b11ffbcc2ccb3bd08f62a83c84c73c8c5f6`, using the improve planning workflow.
 

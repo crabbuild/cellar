@@ -271,8 +271,10 @@ async fn run() -> Result<()> {
         }))
     })?;
     let graph = DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "native-gates".into(),
             do_classes: vec!["Counter".into()],

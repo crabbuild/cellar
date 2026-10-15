@@ -19,6 +19,169 @@ single application CLI executable; the optional `cellar-dashboard` service serve
 the management console. A generic CLI binary cannot serve an application whose
 factories were not compiled into it.
 
+Deployment `stream_bindings` use `BindingConfig` selectors. Their `resource.id`
+may be omitted for catalog name lookup; runtime `Binding`/outbox lanes always
+retain resolved UUIDs. A private namespace/method-bound lookup reads an existing
+active resource and validates current grants; it cannot provision or mutate.
+The declaration travels in a bounded 128 KiB RPC body with a 64 KiB JSON cap,
+not in the authority header. Catalog and partition identity/grants are checked
+again before generation-local bindings pin once and admission opens. Name reuse
+requires a new generation; old handles cannot emit or seal against successors.
+All owned markers remain 1.
+
+Event RPC host outcomes use `node/event_failure.rs` and the invocation RPC gate.
+Pre-submission refusal/never-connected transport is `Unavailable`; fenced or
+exhausted stale ownership is `OwnershipLost`; lost submitted results and unproven
+post-execution output are `Ambiguous`. Authenticated peer host verdicts carry a
+bounded header, with unknown/missing verdicts failing conservatively. Existing
+DeliveryError and activation transport tags remain in the error chain. Typed
+outcomes do not authorize ordinary RPC replay or prove a prior commit absent.
+The tunnel pool uses Hyper try_send_request and retries only a returned unsent
+request. Buffered bytes alone cannot authorize retry after response loss. Reuse
+that exact returned request/body/headers; serialized failures surface as ambiguous.
+
+Event delivery is under implementation; track the complete remaining scope in
+`plans/outbox-implementation-status.md`. Native `streams` declarations and
+`stream_bindings` are validated in `deployment/event_resources.rs` and require
+`event-delivery-v1`. `LoadedDeployment::event_streams` and
+`Generation::event_streams` carry desired configuration, not activation proof.
+Node startup and adoption reconcile them through `node/event_resources.rs`,
+verify current catalog revision/digest and independently resolve every binding
+before event admission. Failed adoption preserves the serving generation, but
+does not roll back resource changes already committed. Deployed event bindings
+require a bucket-backed node or fleet with replication and durable wake discovery;
+SQLite-only embedded nodes reject activation until a local recovery inventory
+is implemented and qualified.
+Outbox dispatch uses immutable stored principal/grant identity after source
+proof; current application bindings govern new emission, and receivers repeat
+authorization against durable resource grants. Outbox and inbox schemas have
+version-1 markers; activation rejects unsupported markers, inconsistent retained
+accounting and outbox events exceeding the captured host policy. Cellar is in internal development: all Cellar-owned protocol, format and
+schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
+readers, layout migrations, version negotiation or fleet upgrade commands.
+Recreate development state and rebuild all participants when layouts change;
+mixed builds are unsupported. External codec versions (SQLite WAL and upstream
+LTX), package versions and runtime revision/sequence counters keep their meaning.
+Telemetry exports use schema marker `1`; KV large-value references and object
+prefixes use `v1` with ownership epochs. Recreate earlier development blobs on
+cutover; readers and collectors accept only the current layout.
+Initial catalog/partition creation requires a host provisioning claim from an
+exact captured deployment declaration; proposed grants cannot authorize their
+own creation. Ordinary SDK configuration can only administer existing resources.
+Keep the remaining qualification gates explicit before release.
+
+Source diagnostics use `Storage::outbox` under the owning activation, with
+bounded metadata pages and source-incarnation continuations. Lane retry requires
+the captured producer revision and advances its dispatch generation to fence
+old replies; the dependency-free core owns that decision. `cellar outbox`
+inspect/retry/status/audit uses fleet-HMAC ingress, a distinct source RPC
+capability and the original owner/output/discovery gates. Retry operation
+receipts and bounded audit pages live in an independent version-1 source
+control schema and survive business reset. `cellar stream` describe/read/sources/status/
+audit and `cellar subscription` list/describe/pause/resume/reset/delete use signed
+`/streams/` ingress and delegated durable grants. Operator authority is limited
+to stream control methods, with optional provenance omitted from ordinary event
+packets. Subscription receipts retain the operator label and enforce it during
+replay/status; ordinary SDK receipts carry no operator. Reads exclude bodies and
+encoded envelopes unless explicitly requested. `cellar stream retire` and
+`retirement-status` route to the catalog; operator authority also permits only
+the matching catalog retirement and partition preflight/closure methods.
+Catalog and stream schemas use version 1 with nullable operator provenance.
+Current markers require those columns before base schema mutation.
+Terminal retirement receipts retain the affected payload range after
+bounded cleanup. Subscription inventory uses a bounded primary-key range and includes retained
+deleted incarnations without lease tokens or payloads. Its `subs1` cursor is
+bound to the stream UUID; every page checks current administration authority.
+Pages are live observations, not a snapshot. Destination source inventory uses
+`Stream::sources`/`cellar stream sources`, a bounded producer primary-key range,
+and a `sources1` cursor bound to tenant/application/stream identity. It shows
+accepted watermarks and retained seals, including after payload expiry, without
+payloads or tokens. It is not a census of undispatched sources or an all-producer
+drain proof. Each page repeats current administration checks. Whole-fleet
+resource/source inventories and complete event metrics remain unfinished.
+Fixed-cardinality event observations belong to each host execution domain.
+`HostServices::event_metrics()` and fleet-authenticated internal `/event-metrics`
+export operation counters, histograms and live reservation gauges without
+resource identities or payload labels. Timers retain their creating domain.
+These observations are not a receipt ledger or cold-cell state census;
+resident host aggregate gauges remain unfinished. Fleet root-state collection is
+available through `cellar event metrics` and signed `POST /event-state/SCOPE`.
+Subscription status and bounded inventory carry owner-sampled lag/lease
+observations. Logical unread offsets include lost history; retained unread age
+is null when no unread payload remains. A read clamps to the durable clock but
+does not advance it or expire leases. Each returned row adds at most one primary-
+key timestamp lookup; SDK/operator acceptance checks observation consistency.
+This diagnostic coverage does not supply aggregate metric gauges.
+Outbox inspection uses transactional per-lane row/byte counters and seven
+fixed permanent failure counters, including blocked seal delivery. Explicit
+covering age indexes bound source/lane timestamp reads; pages do not aggregate
+event ranges. Current blocked reasons clear on retry or accepted delivery.
+Restore validates accounting and requires its indexes/triggers. The schema
+marker stays 1; prior development layouts require recreated state. SDK/operator
+page acceptance checks scope, lane identity, totals, reason set and ages.
+`Stream::stats`/stream describe expose current offsets, payload bytes, lease/age
+and exact protected/age-blocked retention bytes under administration authority.
+Byte-prefix positions are internal ring bookkeeping, not delivery identity;
+a retained window stays smaller than its modulus and offsets never wrap.
+Restore audits contiguous offsets, sizes, timestamp order and byte positions
+before base-schema mutation. SQLite allocation observations use a fixed framework
+helper after activation checks; public pragma permissions stay unchanged. Full
+WAL/LTX/bucket physical usage and aggregate export remain unfinished.
+Stream maintenance only schedules age reclamation for an eligible first record;
+required checkpoint protection can quiesce age work entirely. Live/expired lease
+cleanup retains its expiry wake. Checkpoint/lifecycle/configuration transitions
+recompute deadlines in their transaction; configuration cannot leave newly
+eligible age work dormant. Indexed minimum checkpoint, at most 129 lease probes
+and one oldest record bound scheduling independently of retained payload size.
+Use durable logical time, preserve overflow refusal, and keep bounded continuation
+intervals plus independent application alarms/work reasons.
+Catalog inventory uses `cellar stream list` with a separate
+fleet-administration namespace capability and `/catalogs/` ingress; resource
+grants cannot mint it. Owner pages select at most 101 scalar identity/lifecycle
+rows, including tombstones. `catalog1` continuations bind the namespace and tail.
+Catalog identity and accepted/desired revision columns commit with configuration
+state; the schema marker stays 1 and older layouts require recreated state.
+`cellar stream retirement-proof --resource RESOURCE.json` uses an exact-resource,
+read-only platform capability through the same catalog owner path. It requires
+a terminal identity and matching committed retirement receipt, returning scalar
+identity metadata without grants or event bodies. Resource grant revocation does
+not prevent platform verification; this capability cannot mutate resources.
+Source destruction uses a durable source lifecycle and captured lane/work
+snapshot under the source control schema, still marker 1. Private source RPC and
+outbox work may continue after business admission closes; ordinary contexts,
+retained storage/cursor/inbox/facet handles and suspended turns keep their captured
+source generation. Restore and instance reset reconstruct the durable fence.
+`cellar outbox destroy/recreate` require exact incarnation, operation, reason and
+explicit CLI intent; destruction also requires a loss acknowledgment. Retirement
+evidence commits before deletion; stale verification and dispatch replies cannot
+advance a replacement. Event/inbox/lane cleanup is batched, business reset uses its
+existing transaction, receipts/tombstones survive and recreation mints fresh
+producer identity. Source roots register top-level physical facet names durably before opening.
+Destruction retires child activations and reclaims registered subtrees in at most
+100 replica objects and, after remote completion, at most 100 local files or
+directories per host batch, keeping each registry row until completion. Local
+cleanup uses `FileSystem::remove_dir_batch` on the owning blocking executor;
+custom filesystems must implement that resumable, no-symlink-following contract.
+Runtime-only facet fixtures must supply their per-domain host-gate adapter because
+registration writes parent storage. Synthetic fixture responders test API/policy
+contracts and are not fleet durability evidence.
+Recreated sources qualify facet storage names by producer incarnation; logical
+names and startup identity remain unchanged. Native opens carry a captured
+admission check across host waits and restore, and serialize with subtree cleanup.
+An authenticated unfinished destruction replay re-arms durable cleanup before proof;
+terminal replays leave successors untouched. Injected lost replica-delete replies
+and complete owner handoff preserve closed admission and exact discard receipts.
+Large local-directory/SQL reset capacity and the complete source fault/lease/policy
+matrix remain unfinished. Do not infer full release qualification from the base-database tests.
+
+Cold source recovery can use a separate framework-only worker pool when its
+application class is absent. It accepts only restored epochs with retained
+source identity, repeats schema/host-limit validation and preserves the actor's
+restore, VFS, ownership and proof path. It has no application bindings or
+handlers. Internal work and source controls execute before rejecting business
+calls; unavailable application alarms back off without consuming abandonment
+budget. The pool participates in generation retirement, census and shutdown.
+
 Library applications start `sdk::Node` with explicit `NodeConfig`,
 `NodeServices`, a `DeploymentGraph`, and `CompiledApplications`. The caller
 supplies listeners, executors, clients, authentication, and any fleet services.
@@ -29,6 +192,14 @@ polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
 Queue leases and actor settlement share the host's captured operation deadline.
+Embedded bootstrap/adoption generation builds and metrics sampling use fallible
+blocking admission. Closing a domain can race a later effect in an already-entered
+poll; return `DomainClosed` without invoking the refused factory/sampler. Started
+blocking work still joins before releasing the node directory. Metrics maintenance
+ends on closed admission. Keep startup/directory deadlines and assertions intact;
+cancellation diagnostics independently distinguish retained locks from pending
+replacement bootstrap. A fixed admission panic does not by itself explain an
+observed bootstrap deadline failure.
 Lower-level library hosts pin a 15-second default on first use; configure actor
 policy before constructing generations to choose another budget. CLI startup
 captures its environment override before any generation can sample that budget.
@@ -221,6 +392,9 @@ existing identity, default-policy, and explicit environment adapters.
    Both stop modes drain complete event drivers, including post-response
    background work and queued SDK calls, before changing cell lifecycle.
    Progress may extend the stall window, never the absolute stop deadline.
+   Handoff progress counts terminal adoption completions, including failed
+   acknowledgements after ownership release; retry attempts are not progress.
+   Successful adoption telemetry remains separate from that completion count.
    Forced cancellation supplies no graceful durability proof; report incomplete
    drain phases through `ShutdownReport` and return `NodeOutcome` to library
    callers. Process exits belong to the CLI boundary.
@@ -373,6 +547,114 @@ drain phases. `cellar-example-container-peer` validates the dependency-free Rust
 peer built inside the example container. Native pattern equivalents do not imply
 third-party SDK compatibility; keep gaps in `examples/ROADMAP.md` explicit.
 
+`cellar-example-streams` is a separate bucket-backed `sdk::Node` host. It provisions
+required stream retention, commits order state with `tx.emit`, composes projection
+effects with inbox receipts and syncs before remote acknowledgment. Its explicit
+retry endpoint plus preserving process restart demonstrate redelivery without
+duplicate local effects. The private bucket also retains the randomly generated
+fleet secret. Verify the real binary with `python3 examples/durable-streams/smoke.py
+--binary "$CARGO_TARGET_DIR/debug/cellar-example-streams"`; this is a local demo,
+not production crash/response-loss or multi-node capacity qualification.
+Its separate `examples/durable-streams/faults.py` opt-in harness records an
+independent fsynced ledger, drops a real source HTTP response and observes
+SIGKILL with a pending source obligation and proven consumer effects before
+ack. It audits before replay, preserves lease expiry, archives accepted envelope
+digests/effect receipts and re-audits saved stages. Run its oracle guards with
+`python3 -m unittest discover -s examples/durable-streams -p 'test_*.py'`.
+This is single-node SQLite-bucket process evidence; it does not complete the
+destination/follower/network/power/cut-point/capacity release matrix.
+The serial Node suite also places destination, producer and consumer in distinct
+execution domains. A real loopback peer tunnel proxy captures a proven append
+reply, holds it through an independent source/destination audit and closes both
+sockets. Retry bytes and acceptance match exactly; one destination offset and
+one inbox-protected effect survive. The same proxy can lose a proven acknowledgment
+reply: the consumer stores the exact batch receipt atomically alongside its
+retained inbox effect before proof, then replays unchanged receipt bytes after
+independently auditing checkpoint 1 and no live lease. Replay returns
+`AlreadyAcknowledged` without another effect or checkpoint change. This is actual
+network reply loss between embedded nodes, not separate-process/host, SIGKILL or
+power qualification.
+`examples/durable-streams/before_send.py` holds the source's actual input gate,
+proves its command/obligation and SIGKILLs before the first dispatch attempt.
+Copy the killed SQLite family and audit zero attempts before restarting, then
+audit recovery before replay. Audit-only mode checks saved database/WAL hashes,
+envelope identity and replay ordering; SHM read marks are mutable bookkeeping.
+Keep the original handler/gate deadlines and complete final shutdown assertions.
+`examples/durable-streams/fleet_faults.py` uses opt-in bounded loopback fleet
+configuration to start separate destination/producer/consumer processes sharing
+a private SQLite bucket. The proxy holds a proven append reply through audit,
+SIGKILLs the destination and blocks automatic retries until recovered acceptance
+is audited. Consumer transport ambiguity is audited before retry and preserves
+original lease expiry. Saved evidence validates exact peer byte digests, process
+roles/IDs and complete surviving/replacement shutdown. This is separate-process
+single-machine evidence, not physical-host/follower/power/capacity qualification.
+The same driver accepts `--rustfs-image` to create a fresh private Docker S3
+server and bucket. It captures image/backend identity, retries only startup
+CreateBucket 503s, injects separate no-retry conditional-write clients and removes
+its own server after complete node shutdown. Credentials stay outside saved
+configuration and ledgers. This adds network-store destination recovery evidence;
+it does not prove follower-only acknowledgment, store loss or physical-host loss.
+`capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
+append traffic is paused. Overflow must roll back business state and sequence.
+It audits before producer SIGKILL and before resumed retry, without source POST
+replay, then uses resumable reads and a slow required consumer to verify every
+acceptance, inbox effect and checkpoint. Unarmed peer errors must be forwarded
+unchanged so advertised batch limits reach the dispatcher. Saved evidence must
+pass the independent oracle and include complete final shutdown. RSS/residency
+and live local file sizes are observations, not aggregate/bucket physical metrics,
+memory SLOs, many-cold-source or long-soak qualification.
+`many_sources.py` exercises independent Order sources beyond one host's resident
+limit. Required retention, rather than only a network proxy, backpressures local
+and remote appends even when source ownership moves. It archives the protected
+prefix, audits remaining obligations, SIGKILLs every fleet process and starts all
+replacements before waiting for readiness. No source requests occur before full
+consumption. Its saved oracle and cleanup-failure guard are mandatory. Activation
+retries only tagged network failures for its idempotent configuration or read-only
+resolution/status calls, within the original activation deadline. It encodes the
+authority/body once and uses a new dispatch identity per attempt to avoid prior
+abort tombstones. General RPC still refuses ambiguous replay; protocol/authority/
+codec refusals are not tagged for this loop. Preserve failed and passing evidence
+in the implementation status: a passing replay alone cannot establish an earlier
+failure's cause or justify relaxing readiness/durability/deadline/shutdown checks.
+Startup boot/periodic wake discovery now waits for the captured generation's
+event-resource activation before doing store reads or submitting cold hints.
+Both embedded and CLI paths use `node/wake_discovery.rs`; predecessor recovery,
+node authority and authenticated internal serving retain their existing order.
+Failed/cancelled activation cannot start discovery; hosts without event activation
+do not wait. Durable publications remain intact and normal discovery resumes
+after readiness, including removed-class delivery. Gated reply task admission
+uses try_spawn: refusal drops reply/value/gates in their owner and returns a closed
+completion to the driver, without unproven output or a closure panic. The trace
+identified startup source-wake pressure and the concrete alarm reply spawn caller;
+untraced 144/192-source RustFS cases pass after these fixes. Wider maintenance
+fairness and failed-startup/shutdown cut points retain their separate audits.
+`whole_fleet.py` explicitly selects bucket proofs, audits one accepted event with
+a proven unacked inbox effect plus one capacity-blocked source obligation, then
+SIGKILLs all three processes. It inventories/discards only its private node data
+after every kill is observed and audits bucket-restored receipts/state before
+consumer replay. No source POST repairs recovery. Replay adds zero old effects;
+ack releases capacity for the pending event and final shutdown is complete.
+SQLite/RustFS results qualify this boundary, not follower-only/power/store loss.
+`ack_faults.py` captures a proven `__streamAck` reply, audits checkpoint/effect/
+receipt before destination SIGKILL and reply loss, then audits recovery before
+exact stored-receipt replay. Opt-in consumer routes atomically save the receipt
+with its effect and sync before ack; replay never fetches a new batch. A stale
+pooled transport requires another saved audit before retry. Exact bytes and
+`AlreadyAcknowledged` plus unchanged effect/checkpoint qualify this boundary;
+consumer/follower/power/store loss and the full lease/ack matrix remain open.
+
+`cellar outbox census [CLASS]` reads one bounded provider cell-directory page,
+then performs up to four concurrent signed source-owner inspections, including
+producers unseen by destinations. `census1` continuations bind fleet/prefix/class;
+filtered pages still advance without an unbounded listing. Catalog/stream cells
+are excluded, other framework roots stay candidates. Rows distinguish current
+source, empty and unavailable; partial failure prints its cursor and returns a
+failed exit. Metadata excludes lanes/payloads/tokens. Cold inspection can restore
+and progress durable work. This is live root-cell census, not a snapshot/drain
+proof, facet/historical-source inventory or aggregate gauges. The RustFS CLI
+smoke is `census_smoke.py`; keep census scope distinct from destination watermarks.
+
+
 ## Change discipline
 
 The dashboard is an optional management application, separate from native cell
@@ -441,3 +723,94 @@ changes additionally need the corresponding SDK and isolated fleet tests.
 This guide follows the organizational approach of
 [Crab's AGENTS.md](https://raw.githubusercontent.com/crabbuild/crab/refs/heads/main/AGENTS.md),
 with Cellar's architecture and commands derived from this repository.
+
+
+Fleet root metrics use a separate scope/method-bound platform StateAuthority and
+`runtime/event_state.rs`, under ordinary owner/output/discovery gates. Native
+sampling bypasses application invocation, including removed-class recovery, and
+reads indexed source counters and at most 129 live subscription metadata rows.
+Deleted stream partitions remain observable and have a separate retired count.
+Source/stream gauges and root SQLite allocation are canonical decimals; aggregate
+sums use checked u128 and ages take maxima. All owned markers remain 1.
+`cellar event metrics` scans at most 100 provider prefixes per page and probes four
+owners concurrently, within its max-roots/page bound (default 10,000; cap 100,000).
+Duplicate/invalid prefixes, failed probes, failed/repeated listing tokens or an
+exhausted bound make collection incomplete. Incomplete Prometheus emits coverage
+only; JSON puts partial values in observed_gauges with gauges=null and a failed
+exit. Complete means a successful live root-directory traversal, never a snapshot
+or drain proof. IDs are absent from global labels. It does not include facet
+SQLite/WAL/LTX/bucket physical bytes, historical producer incarnations, or resident
+host gauges. `census_smoke.py` also exercises actual RustFS CLI state collection,
+protected/undispatched state, caps and unavailable owners. Keep these scopes explicit.
+
+
+`cellar event inventory` discovers one bounded provider page of root descriptors,
+with four signed owner probes and an inventory1 cursor bound to fleet bucket/
+prefix/endpoint/region. Invalid, duplicate or unavailable roots remain explicit;
+partial pages print their continuation and return failure. Catalog descriptors
+recover namespace identity from scalar retained rows and validate its hashed scope;
+empty catalogs cannot invent a namespace. Stream descriptors recover only resource
+identity; ordinary roots expose current incarnation and receipt-history availability.
+`event inventory SCOPE --page resources|producers|history` reads at most 101 scalar
+rows for 100 returned records. A distinct exact-scope/method InventoryAuthority and
+native framework handler precede application invocation and retain owner/output/
+discovery gates. Resource/producer pages share existing validated range readers.
+Source history projects retained operation identities, source incarnations,
+recreation predecessor, lifecycle and loss counts without full receipts/operator
+reasons/credentials. History1 binds root scope and exact sequence tail and remains
+valid across supported recreation because the receipt ledger is retained.
+Stream retirement deliberately purges producer metadata after terminal tombstones;
+producer replies carry retired/cleanup_complete so an empty terminal set is not
+mistaken for an active producer census. Pages are live, not snapshots/drain proofs.
+Facet inventory, every historical restore/backend/ownership/capacity cut and
+complete release qualification remain separate work. All owned markers stay 1.
+
+
+Subscription fetch acceptance compares the receipt with the identity resolved for
+that fetch, including subscription UUID and incarnation. Raw and leased reads
+share the bounded envelope decoder: remaining caller bytes bound base64 allocation,
+and family/source/incarnation/lane/event identities are independently checked.
+Leased replies must match the exact contiguous receipt range and a nonnegative,
+positive lease interval within captured lifetime limits. Unknown application event
+schemas remain readable; processing authority never depends on application decoding.
+Negative extension deadlines and retry delays outside host policy fail before RPC.
+All owned markers remain 1; full codec, cancellation, lifecycle/fault qualification
+remains tracked in plans/outbox-implementation-status.md.
+
+
+Wake projection admission rejects previous alarm-only __sys_cell_wake_* triggers
+through wake_record::check_schema before base-schema DDL, journal pragmas or writer
+epoch updates. It never drops/replaces those triggers as an upgrade. Recreate that
+development layout; all markers remain 1. Current projections preserve same-epoch
+publication identity and consumed tombstones; a new owner advances the epoch while
+retaining the monotonic sequence and independent alarm/work deadlines.
+
+
+SDK event administration independently validates response metadata. Configuration
+acceptance binds resource/operation and active definition revision/digest; pending
+creation requires revision 1, while status may report later operations. Lifecycle
+receipts bind action/reason/operator and identities, validate state/incarnation/
+checkpoint/loss-range consistency, and retain exact decimal positions. Audit pages
+allow monotonic sequence gaps and multiple authorized principals but enforce
+bounded counts/receipt bytes, scope, unique operations and exact continuation.
+Terminal retirement replies validate retained range/count/byte accounting; pending
+intent can precede captured loss metadata. Retry responses require canonical,
+nonnegative deadlines consistent with delay. All owned markers remain 1. These
+checks do not establish full transport allocation/cancellation or failure-matrix
+qualification; track remaining evidence in plans/outbox-implementation-status.md.
+
+
+Shared event reply acceptance consumes exactly one ok/error branch; contradictory
+or undecodable submitted results are Ambiguous. Wire bytes are capped at 64 MiB
+before JSON/structured decode; encoded error metadata is capped at 16 KiB and
+message text at 4096 bytes. Valid typed errors retain their exact metadata.
+Do not clone a whole success/error object or reflect malformed body text in an
+error. Peer event/control body collection uses that same wire ceiling and the
+original route operation deadline. Coalesce frames into one bounded buffer, drop
+unused trailers and yield bounded frame/byte work so ready frames cannot starve
+cancellation or deadlines. Size/timeout refusals are Ambiguous without
+RemoteRpcTransportFailure; genuine body I/O errors retain the activation-only
+network tag. Cancellation wins undelivered body/deadline ties and releases the
+body. The proven response-head abort disarm remains intact; collection failure
+cannot kill the handler's later waitUntil work. Full request-phase allocation and
+cancellation qualification remain in the implementation status.

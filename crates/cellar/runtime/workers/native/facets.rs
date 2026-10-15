@@ -86,6 +86,7 @@ impl NativeWorker {
         self.activations.insert(
             scope.to_string(),
             Arc::new(Activation {
+                worker_config: self.config.clone(),
                 scope: scope.to_string(),
                 epoch: parent.epoch,
                 delete_all_deletes_alarm: self.config.compat.delete_all_deletes_alarm,

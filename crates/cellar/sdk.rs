@@ -199,6 +199,7 @@ pub use crate::daemon::{
     ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
     NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
 };
+pub use crate::event_metrics::{EventBucket, EventCounter, EventHistogram, EventMetricsSnapshot};
 pub use crate::generation::DeploymentGraph;
 pub use crate::host_services::{
     ApplicationWorkSnapshot, HostMetricsSample, HostServices, MetricsSampler,
@@ -224,6 +225,7 @@ pub use crate::replica_storage::{
 };
 pub use crate::replication_options::{CompactionConfig, ReplicationOptions};
 pub use crate::runtime_policy::RuntimePolicy;
+pub use cellar_logic::event_stream::Limits as EventLimits;
 pub use cellar_logic::queue::Limits as QueueLimits;
 pub use cellar_ltx::TimestampMetadataKey as ReplicaTimestampMetadataKey;
 pub use cellar_ltx::{

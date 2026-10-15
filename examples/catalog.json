@@ -275,6 +275,15 @@
       "guide": "native-websocket/README.md",
       "route": "/bind/cell",
       "status": "runnable"
+    },
+    {
+      "name": "durable-streams",
+      "binary": "cellar-example-streams",
+      "source": "durable-streams/main.rs",
+      "route": "/orders/a?amount_cents=1200",
+      "status": "runnable",
+      "guide": "durable-streams/README.md",
+      "prerequisites": "Private bucket-backed demo; stream primitive remains under implementation."
     }
   ]
 }

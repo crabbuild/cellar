@@ -238,7 +238,7 @@ impl Guard {
         transaction.control(storage, "start")?;
         *storage.0.resources.open_transaction.lock().unwrap() = Some(transaction.clone());
         Ok(Self {
-            view: Storage(storage.0.clone(), Some(transaction)),
+            view: Storage(storage.0.clone(), Some(transaction), storage.2),
             previous_open,
         })
     }
@@ -324,6 +324,12 @@ where
 }
 
 impl Storage {
+    /// Atomically commit synchronous work in this cell. A local commit is
+    /// followed by the event's normal discovery and durability output gates.
+    pub fn tx<T>(&self, callback: impl FnOnce(&Storage) -> Result<T>) -> Result<T> {
+        self.transaction_sync(callback)
+    }
+
     /// Hold the host input gate through an asynchronous transaction. Ordinary
     /// callback errors and panics roll back without resetting the cell. Root
     /// transactions reserve slots in call order; nested children finish before

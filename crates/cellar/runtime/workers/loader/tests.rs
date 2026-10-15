@@ -86,6 +86,7 @@ impl Drop for DropProbe {
 fn config(application: Arc<dyn Application>) -> Arc<WorkerConfig> {
     Arc::new(
         WorkerConfig::new(WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "not a JavaScript module!".into(),
             script_name: "loaded-native".into(),
             do_classes: Vec::new(),
@@ -471,8 +472,17 @@ async fn facet_claims_root_retirement_and_pins_keep_their_host_when_identities_c
         .unwrap();
     second.shutdown().await;
     drop(second_pending);
-    drop(first_slot);
-    drop(second_slot);
+    let foreign = ExecutionDomain::new(tokio::runtime::Handle::current());
+    foreign
+        .run(async {
+            let unrelated = loader_registry();
+            let _held = unrelated.lock().unwrap();
+            drop(first_slot);
+            drop(second_slot);
+        })
+        .await
+        .unwrap();
+    foreign.shutdown().await;
     assert!(second_roots.lock().unwrap().is_empty());
     assert_eq!(drops.load(Ordering::SeqCst), 2);
 }

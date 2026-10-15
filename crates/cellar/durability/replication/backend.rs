@@ -1263,12 +1263,9 @@ pub struct LtxRepl {
     /// SQLite VFS) instead of downloading the whole chain, and continue its
     /// chain from the cut. On unless `CELLAR_LTX_PAGED=0`.
     paged_restore: AtomicBool,
-    /// Whether every live lease in the fleet reads a paged epoch
-    /// (`cellar_logic::format`). Off until the fleet sampler has seen every
-    /// lease at `BUCKET_FORMAT`, so a node in a rolling update clones a whale
-    /// the way the old release does instead of writing an epoch the old
-    /// release cannot restore. `CELLAR_LTX_PAGED` is the operator's switch;
-    /// this one is the fleet's.
+    /// Whether every observed live lease advertises the current bucket layout.
+    /// Off until a complete fleet sample supplies that capability evidence.
+    /// `CELLAR_LTX_PAGED` is the operator switch; this is the fleet gate.
     paged_fleet: AtomicBool,
     /// The chain size, in bytes, from which a restore pages instead of
     /// cloning (`CELLAR_LTX_PAGED_MIN_MB`). Below it the clone is cheaper:
@@ -3494,6 +3491,41 @@ impl LtxRepl {
         Ok(())
     }
 
+    /// Delete at most 100 replica objects from exactly one facet subtree.
+    /// Source cleanup persists the name until an empty tail is observed.
+    pub(crate) async fn delete_streams_batch(&self, cell: &str) -> anyhow::Result<bool> {
+        use cellar_ltx::object_store::path::Path as ObjPath;
+        use futures_util::{StreamExt as _, TryStreamExt as _};
+        anyhow::ensure!(
+            cell.contains("/facets/"),
+            "source cleanup requires a facet subtree"
+        );
+        self.forget_deleted_tails(cell);
+        let base = ObjPath::from(format!("{}cells/{cell}", self.prefix));
+        let listed = self
+            .store
+            .list(Some(&base))
+            .take(101)
+            .map_ok(|meta| meta.location)
+            .try_collect::<Vec<_>>()
+            .await?;
+        let complete = listed.len() <= 100;
+        let mut deleted = self.store.delete_stream(
+            futures_util::stream::iter(listed.into_iter().take(100).map(Ok)).boxed(),
+        );
+        while let Some(result) = deleted.next().await {
+            result?;
+        }
+        if complete {
+            let local = self.watch.join(cell);
+            let filesystem = self.ltx_host.filesystem();
+            return Ok(
+                asyncrt::try_blocking(move || filesystem.remove_dir_batch(&local, 100))?.await??,
+            );
+        }
+        Ok(false)
+    }
+
     /// Drop the undrained tails of a deleted stream and every stream below it.
     /// A tail names rows that the next activation folds into the bucket, so a
     /// kept tail restores deleted rows into a recreated facet of the same
@@ -5535,3 +5567,170 @@ impl Drop for LtxRepl {
 
 #[cfg(cellar_internal_tests)]
 include!(env!("CELLAR_INTERNAL_LTX_REPL_OBSERVERS"));
+
+#[cfg(test)]
+mod source_facet_cleanup_tests {
+    use super::*;
+    use futures_util::TryStreamExt;
+
+    fn local_entries(
+        filesystem: &dyn cellar_ltx::FileSystem,
+        path: &Path,
+    ) -> std::io::Result<usize> {
+        let entries = match filesystem.read_dir(path) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+            Err(error) => return Err(error),
+        };
+        let mut count = 1;
+        for entry in entries {
+            count += if entry.is_dir {
+                local_entries(filesystem, &entry.path)?
+            } else {
+                1
+            };
+        }
+        Ok(count)
+    }
+
+    #[test]
+    fn bounded_local_cleanup_restarts_and_preserves_outside_paths() -> anyhow::Result<()> {
+        use cellar_ltx::FileSystem;
+        let directory = tempfile::tempdir()?;
+        let filesystem = cellar_ltx::DirectFileSystem;
+        let root = directory.path().join("closed-source");
+        let outside = directory.path().join("outside");
+        filesystem.create_dir_all(&outside)?;
+        filesystem.write(&outside.join("keep"), b"protected")?;
+        let mut nested = root.clone();
+        for depth in 0..10 {
+            nested = nested.join(format!("depth-{depth}"));
+            filesystem.create_dir_all(&nested)?;
+            for ordinal in 0..20 {
+                filesystem.write(&nested.join(format!("{ordinal:04}")), b"discard")?;
+            }
+        }
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, root.join("directory-link"))?;
+            std::os::unix::fs::symlink(outside.join("keep"), root.join("file-link"))?;
+        }
+        let mut remaining = local_entries(&filesystem, &root)?;
+        assert_eq!(
+            filesystem.remove_dir_batch(&root, 0).unwrap_err().kind(),
+            std::io::ErrorKind::InvalidInput
+        );
+        assert_eq!(local_entries(&filesystem, &root)?, remaining);
+        let mut batches = 0;
+        loop {
+            // A fresh provider proves resumption needs no process-local cursor.
+            let complete = cellar_ltx::DirectFileSystem.remove_dir_batch(&root, 17)?;
+            let after = local_entries(&filesystem, &root)?;
+            assert!(remaining > after && remaining - after <= 17);
+            assert_eq!(complete, after == 0);
+            assert_eq!(filesystem.read(&outside.join("keep"))?, b"protected");
+            batches += 1;
+            remaining = after;
+            if complete {
+                break;
+            }
+        }
+        assert!(batches > 10);
+        assert!(filesystem.remove_dir_batch(&root, 17)?);
+        #[cfg(unix)]
+        {
+            let link = directory.path().join("root-link");
+            std::os::unix::fs::symlink(&outside, &link)?;
+            assert!(filesystem.remove_dir_batch(&link, 1)?);
+            assert_eq!(filesystem.read(&outside.join("keep"))?, b"protected");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cleanup_batches_preserve_root_and_sibling_replica_objects() -> anyhow::Result<()> {
+        let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+        let result = domain
+            .run(async {
+                use cellar_ltx::object_store::path::Path as ObjPath;
+                let directory = tempfile::tempdir()?;
+                let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+                let root = "Account:source";
+                let facet = format!("{root}/facets/{}", "a".repeat(32));
+                for ordinal in 0..205 {
+                    store
+                        .put(
+                            &ObjPath::from(format!("cells/{facet}/ltx/e1/{ordinal:04}")),
+                            b"x".as_slice().into(),
+                        )
+                        .await?;
+                }
+                let protected = [
+                    format!("cells/{root}/ltx/e1/root"),
+                    format!("cells/{root}/facets/{}/ltx/e1/sibling", "b".repeat(32)),
+                    format!("cells/{root}-other/facets/{}/ltx/e1/other", "a".repeat(32)),
+                ];
+                for key in &protected {
+                    store
+                        .put(&ObjPath::from(key.as_str()), b"keep".as_slice().into())
+                        .await?;
+                }
+                let backend = LtxRepl::start(
+                    directory.path(),
+                    ReplicaStorage::new(store.clone(), ReplicaStorageOptions::default())?,
+                    ReplicationOptions {
+                        flush_interval: Duration::ZERO,
+                        compaction: None,
+                        ..Default::default()
+                    },
+                )?;
+                let filesystem = backend.ltx_host.filesystem();
+                let local = backend.watch.join(&facet);
+                let cache = local.join("cache");
+                filesystem.create_dir_all(&cache)?;
+                for ordinal in 0..205 {
+                    filesystem.write(&cache.join(format!("{ordinal:04}")), b"local")?;
+                }
+                let sibling = backend.watch.join(root).join("keep");
+                filesystem.write(&sibling, b"root-local")?;
+                let prefix = ObjPath::from(format!("cells/{facet}"));
+                for (remaining, local_files, complete) in [
+                    (105, Some(205), false),
+                    (5, Some(205), false),
+                    (0, Some(105), false),
+                    (0, Some(5), false),
+                    (0, None, true),
+                ] {
+                    assert_eq!(backend.delete_streams_batch(&facet).await?, complete);
+                    let objects = store.list(Some(&prefix)).try_collect::<Vec<_>>().await?;
+                    assert_eq!(objects.len(), remaining);
+                    if let Some(count) = local_files {
+                        assert_eq!(filesystem.read_dir(&cache)?.len(), count);
+                    } else {
+                        assert_eq!(
+                            filesystem.metadata(&local).unwrap_err().kind(),
+                            std::io::ErrorKind::NotFound
+                        );
+                    }
+                    assert_eq!(filesystem.read(&sibling)?, b"root-local");
+                    for key in &protected {
+                        assert_eq!(
+                            store
+                                .get(&ObjPath::from(key.as_str()))
+                                .await?
+                                .bytes()
+                                .await?
+                                .as_ref(),
+                            b"keep"
+                        );
+                    }
+                }
+                assert!(backend.delete_streams_batch(&facet).await?);
+                assert!(backend.delete_streams_batch(root).await.is_err());
+                Ok::<_, anyhow::Error>(())
+            })
+            .await?;
+        domain.shutdown().await;
+        result
+    }
+}

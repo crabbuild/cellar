@@ -222,6 +222,7 @@ mod tests {
 
     fn config() -> WorkerConfig {
         WorkerConfig::new(WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: "not a JavaScript module!".into(),
             script_name: "cold-native".into(),
             do_classes: Vec::new(),

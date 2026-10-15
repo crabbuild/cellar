@@ -78,6 +78,10 @@ pub struct ApplicationConfig {
     pub cells: Vec<String>,
     #[serde(default)]
     pub bindings: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub streams: Vec<crate::application::event_stream::Definition>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stream_bindings: Vec<crate::application::event_stream::BindingConfig>,
     #[serde(default)]
     pub compatibility_date: Option<String>,
     #[serde(default)]
@@ -169,6 +173,12 @@ impl ApplicationConfig {
         if !self.queue_consumers.is_empty() {
             classes.push(crate::deploy::QUEUE_CLASS.into());
         }
+        if !self.streams.is_empty() || !self.stream_bindings.is_empty() {
+            classes.extend([
+                crate::deploy::EVENT_STREAM_CLASS.into(),
+                crate::deploy::EVENT_CATALOG_CLASS.into(),
+            ]);
+        }
         classes.sort();
         classes.dedup();
         anyhow::ensure!(
@@ -189,6 +199,15 @@ impl ApplicationConfig {
         }
         let mut metadata = serde_json::Map::new();
         metadata.insert("bindings".into(), serde_json::json!(bindings));
+        if !self.streams.is_empty() {
+            metadata.insert("streams".into(), serde_json::to_value(&self.streams)?);
+        }
+        if !self.stream_bindings.is_empty() {
+            metadata.insert(
+                "stream_bindings".into(),
+                serde_json::to_value(&self.stream_bindings)?,
+            );
+        }
         if let Some(date) = &self.compatibility_date {
             metadata.insert("compatibility_date".into(), date.clone().into());
         }
@@ -204,7 +223,7 @@ impl ApplicationConfig {
             artifacts,
         };
         let mut manifest = Manifest {
-            schema_version: 3,
+            schema_version: 1,
             version: String::new(),
             script_name: self.script_name.clone(),
             main_module: None,
@@ -259,9 +278,18 @@ impl ApplicationConfig {
                 .required_features
                 .push(crate::protocol::FEATURE_CRON_V1.into());
         }
+        if !self.streams.is_empty() || !self.stream_bindings.is_empty() {
+            manifest
+                .required_features
+                .push(crate::protocol::FEATURE_EVENT_DELIVERY_V1.into());
+        }
         manifest.required_features.sort();
         crate::protocol::validate_execution_manifest(&manifest)?;
         crate::protocol::validate_queue_manifest(&manifest)?;
+        crate::protocol::event_resources_from_manifest(
+            &manifest,
+            &cellar_logic::event_stream::Limits::default(),
+        )?;
         // Native identity includes the complete configuration and executable
         // declarations. Registration uses application_version, avoiding a
         // self-hash embedded in the executable that would change its hash.
@@ -304,6 +332,10 @@ impl Package {
                 "native package requires native manifests"
             );
             crate::protocol::validate_queue_manifest(manifest)?;
+            crate::protocol::event_resources_from_manifest(
+                manifest,
+                &cellar_logic::event_stream::Limits::default(),
+            )?;
             if let Some(reference) = &manifest.assets {
                 assets::validate_reference(reference)?;
                 anyhow::ensure!(

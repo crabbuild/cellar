@@ -13,6 +13,7 @@ pub struct CellLimits {
     pub sql: SqlLimits,
     pub blob: BlobLimits,
     pub queue: cellar_logic::queue::Limits,
+    pub events: cellar_logic::event_stream::Limits,
     pub workflow: WorkflowLimits,
 }
 
@@ -37,6 +38,7 @@ impl CellLimits {
                 max_multipart_backlog_bytes: usize::MAX,
             },
             queue: cellar_logic::queue::Limits::unrestricted(),
+            events: cellar_logic::event_stream::Limits::unrestricted(),
             workflow: WorkflowLimits {
                 max_value_bytes: usize::MAX,
                 max_stream_bytes: usize::MAX,
@@ -52,6 +54,7 @@ impl CellLimits {
     }
 
     pub fn validate(&self) -> Result<()> {
+        self.events.validate()?;
         for (name, value) in [
             ("kv.max_key_bytes", self.kv.max_key_bytes),
             ("kv.max_value_bytes", self.kv.max_value_bytes),

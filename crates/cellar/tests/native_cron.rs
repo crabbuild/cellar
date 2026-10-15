@@ -157,8 +157,10 @@ async fn worker(context: Context, invocation: Invocation, signals: Arc<Signals>)
 
 fn graph(expressions: Vec<String>) -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: SCRIPT.into(),
             do_classes: vec!["CronSink".into()],

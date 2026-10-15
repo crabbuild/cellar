@@ -282,8 +282,10 @@ async fn run() -> Result<()> {
     })
     .cell("Room", move |_, _| Ok(Arc::new(Room(cell_signals.clone()))))?;
     let graph = DeploymentGraph::single(LoadedDeployment {
+        event_streams: Vec::new(),
         native: None,
         options: WorkerConfigOptions {
+            stream_bindings: Vec::new(),
             src: String::new(),
             script_name: "native-websocket".into(),
             do_classes: vec!["Room".into()],

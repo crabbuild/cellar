@@ -195,10 +195,23 @@ pub(crate) static GATE_TX: HostSlot<tokio::sync::mpsc::UnboundedSender<GateReq>>
 /// is a database and a replication stream of its own
 /// (`crate::facet_streams`), which only the runtime can activate, delete, or
 /// prove.
+#[doc(hidden)]
+#[derive(Clone)]
+pub struct FacetOpenAuthority {
+    pub(crate) validate: std::sync::Arc<dyn Fn() -> Result<()> + Send + Sync>,
+}
+
+impl FacetOpenAuthority {
+    pub(crate) fn check(&self) -> Result<()> {
+        (self.validate)()
+    }
+}
+
 pub enum FacetReq {
     /// Activate the stream of the facet at `names` below `root`, and answer
     /// its database file and whether replication restored it.
     Open {
+        authority: Option<FacetOpenAuthority>,
         root: String,
         epoch: u64,
         names: Vec<String>,
@@ -210,6 +223,13 @@ pub enum FacetReq {
         epoch: u64,
         names: Vec<String>,
         reply: tokio::sync::oneshot::Sender<Result<()>>,
+    },
+    /// Bounded subtree cleanup for a durably closed source.
+    DeleteBatch {
+        root: String,
+        epoch: u64,
+        names: Vec<String>,
+        reply: tokio::sync::oneshot::Sender<Result<bool>>,
     },
     /// Prove every committed write of the stream durable.
     Prove {
@@ -351,6 +371,8 @@ pub fn set_asset_call_tx(tx: tokio::sync::mpsc::UnboundedSender<AssetCallReq>) {
 /// A native Durable Object RPC call (`stub.someMethod(...args)`).
 /// Routing/activation is identical to fetch calls.
 pub struct RpcCallReq {
+    #[doc(hidden)]
+    pub authority: Option<crate::runtime::RpcAuthority>,
     /// Correlates local execution and the authenticated peer abort protocol.
     pub request_id: Option<RequestId>,
     /// The caller's owned wait signals cancellation before or during dispatch.

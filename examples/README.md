@@ -13,8 +13,8 @@ The catalog borrows application patterns from the
 These are new Rust implementations. The pinned revision and every project's
 source, route and prerequisites are in [catalog.json](catalog.json).
 Every recipe has a README with purpose, code flow, prerequisites, end-to-end
-commands, expected output, interpretation and cleanup. The catalog contains 34
-entries, including two original standalone hosts.
+commands, expected output, interpretation and cleanup. The catalog contains 35
+entries, including the original standalone embedding and stream hosts.
 Native pattern equivalents have explicit limits below. The catalog does not
 claim Workers SDK compatibility or production fleet certification.
 
@@ -100,6 +100,7 @@ isolation is not a deployment tenancy policy.
 | --- | --- |
 | [multi-tenant](multi-tenant/README.md) | Authenticated tenant identity, separate account cells, atomic receipts, conflict and rollback |
 | [transactional-outbox](transactional-outbox/README.md) | Atomic business record plus wake, bounded publication and consumer deduplication |
+| [durable-streams](durable-streams/README.md) | Framework outbox/stream/subscription, atomic consumer inbox, explicit redelivery and bucket-backed restart |
 | [durable-agent](durable-agent/README.md) | Bounded native tools, checkpoints, alarms and progress inspection |
 | [team-services](team-services/README.md) | API/ledger manifests, service binding and explicit state ownership |
 | [embedded-node](embedded-node/README.md) | Caller-owned executors, listeners, clients, explicit policy and checked shutdown |
@@ -110,6 +111,14 @@ reference applications and their acceptance checks, distinguishing these
 working recipes from capabilities that need implementation or validation.
 
 ## Verify behavior
+
+The stream primitive has its own standalone smoke test:
+
+```sh
+cargo build -p cellar --bin cellar-example-streams --locked
+python3 examples/durable-streams/smoke.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams"
+```
 
 Build the Rust hosts, then exercise fresh temporary project state:
 
