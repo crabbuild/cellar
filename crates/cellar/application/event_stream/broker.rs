@@ -260,21 +260,18 @@ pub(crate) async fn maintain(
         return Ok(Output::Done);
     }
     let (definition, row) = store::load_state(&db)?;
-    let now = crate::asyncrt::wall_ms().max(store::number(&row, "logical_ms")?);
     if store::text(&row, "lifecycle")? == "deleted" {
+        let now = crate::asyncrt::wall_ms().max(store::number(&row, "logical_ms")?);
         super::retirement_store::cleanup(&db, now)?;
         return Ok(Output::Done);
     }
+    let now = store::clock(&db)?;
     db.tx(|tx| {
         tx.system_sql(
             "DELETE FROM __sys_stream_leases WHERE expires_ms<=?",
             &[now.into()],
         )?;
         store::sweep(tx, &definition, now, 0, 0)?;
-        tx.system_sql(
-            "UPDATE __sys_stream SET logical_ms=? WHERE singleton=1",
-            &[now.into()],
-        )?;
         store::schedule(tx, &definition)
     })?;
     Ok(Output::Done)

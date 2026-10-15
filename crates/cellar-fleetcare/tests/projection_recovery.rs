@@ -70,6 +70,7 @@ fn dead_lettered_projection_recovers_while_poison_stays_quarantined() -> Result<
         config.shutdown = ShutdownPolicy { total_ms: 10_000, token_wait_ms: 0, no_progress_ms: 5_000 };
         let replica_storage = ReplicaStorage::new(bucket.store.clone(), Default::default())?;
         let services = NodeServices {
+            wall_clock: None,
             http_client: None,
             host_executor: host.handle(), core_executor: core.handle(), listener, internal_listener,
             peer_http: client.clone(), peer_auth: auth.clone(), probe_signer: signer,

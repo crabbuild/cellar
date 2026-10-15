@@ -1,9 +1,348 @@
-//! A proven append reply outlives its source owner. No replay can settle the
-//! successor until its original obligation and stream acceptance are audited.
+//! Delayed event replies cross ownership and source-control transitions.
+//! Audit the original obligation before allowing a newer dispatch to settle it.
 
 use super::*;
 use base64::Engine;
 use serde_json::{json, Value};
+
+// This fixture deliberately removes authority to exercise NodeLeaseMissing.
+// Atomically retain the exact deleted root: a separate GET followed by DELETE
+// could miss an intervening log/lease CAS and discard its proof metadata.
+async fn remove_authority(
+    domain: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+    node: &str,
+) -> Result<Value> {
+    ensure!(
+        bucket.scheme() == "dev",
+        "authority fault requires the private SQLite store"
+    );
+    let database = std::path::PathBuf::from(&bucket.name);
+    let key = format!("{}nodes/{node}.json", bucket.prefix);
+    let bytes = domain
+        .blocking(move || {
+            let connection = rusqlite::Connection::open(database)?;
+            connection.busy_timeout(Duration::from_secs(1))?;
+            connection.pragma_update(None, "synchronous", "FULL")?;
+            let bytes: Vec<u8> = connection.query_row(
+                "DELETE FROM __sys_local_objects WHERE key = ?1 RETURNING body",
+                [key],
+                |row| row.get(0),
+            )?;
+            Ok::<_, anyhow::Error>(bytes)
+        })?
+        .await??;
+    let saved: Value = serde_json::from_slice(&bytes)?;
+    ensure!(
+        saved["node"] == node,
+        "removed authority belongs to another node"
+    );
+    Ok(saved)
+}
+
+async fn restore_joined_authority(
+    domain: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+    node: &str,
+    saved: &Value,
+) -> Result<()> {
+    domain
+        .run(async {
+            let key = format!("nodes/{node}.json");
+            ensure!(
+                bucket.get(&key).await?.is_none(),
+                "removed lease was recreated before join"
+            );
+            let mut expired = saved.clone();
+            expired["expires_ms"] = json!(cellar::ownership_store::now_ms().saturating_sub(1));
+            ensure!(
+                bucket
+                    .put_cas(&key, serde_json::to_vec(&expired)?, None)
+                    .await?
+                    .is_some(),
+                "a concurrent node replaced the removed authority"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?
+}
+
+fn dispatch_observation(node: &Node) -> Result<[u64; 5]> {
+    let snapshot = node.services().event_metrics();
+    let counter = |name| {
+        snapshot
+            .counters
+            .iter()
+            .find(|counter| counter.name == name)
+            .map(|counter| counter.value)
+            .context("dispatch observation missing")
+    };
+    Ok([
+        counter("cellar_event_dispatch_rpc_attempts_total")?,
+        counter("cellar_event_dispatch_rpc_succeeded_total")?,
+        counter("cellar_event_dispatch_rpc_failed_total")?,
+        counter("cellar_event_dispatch_rpc_cancelled_total")?,
+        snapshot.inflight_dispatches,
+    ])
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn operator_retry_ignores_prior_generation_append_acceptance() -> Result<()> {
+    operator_retry_fences_held_append(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn operator_retry_ignores_prior_generation_append_refusal() -> Result<()> {
+    operator_retry_fences_held_append(false).await
+}
+
+async fn operator_retry_fences_held_append(accepted: bool) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let destination_core = Executor::new("retry-reply-destination")?;
+    let source_core = Executor::new("retry-reply-source")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let (mut config, services) = inputs(
+        "retry-destination",
+        &directory.path().join("destination"),
+        &destination_core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let proxy = peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
+    config.identity.advertise = proxy.address.to_string();
+    let destination = Node::start(
+        config,
+        services,
+        graph(1, false),
+        applications("destination")?,
+    )
+    .await?;
+    super::super::ready(&destination).await?;
+    let client = client()?;
+    ensure!(history(&client, &destination).await? == json!([]));
+
+    let (config, services) = inputs(
+        "retry-source",
+        &directory.path().join("source"),
+        &source_core,
+        Some(bucket),
+        0,
+    )
+    .await?;
+    let operation_budget = Duration::from_millis(config.actor.core.operation_deadline_ms.unwrap());
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let source = Node::start(config, services, external, applications("source")?).await?;
+    super::super::ready(&source).await?;
+    // Establish the business source here before any administrative call can
+    // place it on the destination and turn this into a local dispatch.
+    ensure!(call(&client, &source, reqwest::Method::GET, "/read").await? == "source:0");
+    if !accepted {
+        ensure!(
+            call(&client, &source, reqwest::Method::POST, "/revoke-publish").await? == "active"
+        );
+    }
+    proxy.capture.delay_append();
+    let submitted = std::time::Instant::now();
+    ensure!(call(&client, &source, reqwest::Method::POST, "/write").await? == "source:1");
+    tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
+        .await??
+        .forget();
+    let captured = proxy.capture.exchanges.lock().unwrap().clone();
+    ensure!(captured.len() == 1 && captured[0].delayed && !captured[0].dropped);
+    let request = cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
+        captured[0].request.clone().into(),
+    ))?
+    .to_json()?;
+    let response = cellar::application::decode_rpc_result(
+        &cellar::engine_api::RpcData::Structured(captured[0].response.clone().into()),
+    )?
+    .to_json()?;
+    let envelope: Value = serde_json::from_slice(
+        &base64::engine::general_purpose::STANDARD.decode(
+            request[0]["records"][0]
+                .as_str()
+                .context("held append envelope missing")?,
+        )?,
+    )?;
+    let scope = envelope["source"]
+        .as_str()
+        .context("held append source missing")?;
+    ensure!(envelope["payload"] == json!({"value":1}) && envelope["sequence"] == "1");
+    if accepted {
+        ensure!(response["ok"]["accepted_through"] == "1");
+    } else {
+        ensure!(
+            response["error"]["code"] == "Forbidden",
+            "held append did not return authorization refusal: {response}"
+        );
+        ensure!(
+            call(&client, &source, reqwest::Method::POST, "/restore-publish").await? == "active"
+        );
+    }
+    let original = pending(&client, &source, scope).await?;
+    let revision = original["lanes"][0]["revision"].clone();
+    let generation: u64 = revision["dispatch_generation"]
+        .as_str()
+        .context("dispatch generation missing")?
+        .parse()?;
+    let expected_control_generation = (generation + 1).to_string();
+    let expected_fresh_generation = (generation + 2).to_string();
+    ensure!(
+        original["pending_rows"] == "1"
+            && revision["next_sequence"] == "2"
+            && revision["settled_through"] == "0"
+    );
+    let before = history(&client, &destination).await?;
+    ensure!(before.as_array().context("stream history missing")?.len() == usize::from(accepted));
+    if accepted {
+        ensure!(before[0]["event"] == envelope && before[0]["offset"] == "1");
+    }
+    let change = json!({"op":"retry","change":{"operation":"000000000000000000000000000000a1",
+        "reason":"fence a still-pending append reply","expected":revision}});
+    let receipt = operator(&client, &source, scope, &change, "retry-reply-audit").await?;
+    ensure!(receipt["result"]["rearmed"] == true);
+    let rearmed = pending(&client, &source, scope).await?;
+    ensure!(
+        rearmed["pending_rows"] == "1"
+            && rearmed["lanes"][0]["revision"]["dispatch_generation"].as_str()
+                == Some(expected_control_generation.as_str())
+            && rearmed["lanes"][0]["revision"]["settled_through"] == "0"
+    );
+    ensure!(
+        dispatch_observation(&source)? == [1, 0, 0, 0, 1],
+        "old RPC completed before the control cut"
+    );
+    ensure!(
+        proxy.capture.blocked.try_acquire().is_err(),
+        "a new batch overlapped the held lane"
+    );
+    proxy.capture.release.add_permits(1);
+    tokio::time::timeout(Duration::from_secs(5), proxy.capture.released.acquire())
+        .await??
+        .forget();
+    // A fresh submission proves the old callback returned and released its
+    // lane reservation. Keep this submission paused so it cannot hide stale
+    // settlement or a stale failure overwriting the operator's retry.
+    let permit =
+        match tokio::time::timeout(Duration::from_secs(5), proxy.capture.blocked.acquire()).await {
+            Ok(permit) => permit?,
+            Err(error) => {
+                let state = pending(&client, &source, scope).await?;
+                return Err(error).with_context(|| {
+                    format!("new dispatch did not follow the obsolete reply; source={state}")
+                });
+            }
+        };
+    permit.forget();
+    ensure!(
+        submitted.elapsed() < operation_budget && !source.is_closed(),
+        "old callback crossed its original operation deadline or source closure"
+    );
+    let after = pending(&client, &source, scope).await?;
+    ensure!(
+        after["pending_rows"] == "1"
+            && after["incarnation"] == original["incarnation"]
+            && after["lanes"][0]["revision"]["dispatch_generation"].as_str()
+                == Some(expected_fresh_generation.as_str())
+            && after["lanes"][0]["revision"]["next_sequence"] == "2"
+            && after["lanes"][0]["revision"]["settled_through"] == "0"
+            && after["lanes"][0]["status"] == "pending"
+            && after["lanes"][0]["blocked_reason"].is_null()
+            && after["lanes"][0]["last_error"].is_null(),
+        "obsolete reply changed newer work: {after}"
+    );
+    ensure!(
+        dispatch_observation(&source)? == [2, u64::from(accepted), u64::from(!accepted), 0, 1],
+        "old reply was not consumed at the intended boundary"
+    );
+    ensure!(
+        operator(&client, &source, scope, &change, "retry-reply-audit").await? == receipt,
+        "replaying the operator receipt retried a newer generation"
+    );
+    let observed = pending(&client, &source, scope).await?;
+    ensure!(observed["lanes"][0]["revision"] == after["lanes"][0]["revision"]);
+    ensure!(proxy.capture.exchanges.lock().unwrap().len() == 1);
+    ensure!(history(&client, &destination).await? == before);
+    ensure!(
+        dispatch_observation(&source)? == [2, u64::from(accepted), u64::from(!accepted), 0, 1],
+        "fresh replay timed out before the measuring gate opened"
+    );
+    proxy.capture.resume_appends();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while pending(&client, &source, scope).await?["pending_rows"] != "0" {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    let settled = pending(&client, &source, scope).await?;
+    ensure!(
+        settled["incarnation"] == original["incarnation"]
+            && settled["lanes"][0]["revision"]["lane"] == revision["lane"]
+            && settled["lanes"][0]["revision"]["next_sequence"] == "2"
+            && settled["lanes"][0]["revision"]["settled_through"] == "1"
+            && settled["lanes"][0]["revision"]["dispatch_generation"].as_str()
+                == Some(expected_fresh_generation.as_str()),
+        "fresh retry changed producer progress: {settled}"
+    );
+    let exchanges = proxy.capture.exchanges.lock().unwrap().clone();
+    ensure!(
+        exchanges.len() >= 2 && exchanges.iter().filter(|exchange| exchange.delayed).count() == 1
+    );
+    for exchange in &exchanges {
+        ensure!(
+            exchange.scope == captured[0].scope
+                && exchange.request == captured[0].request
+                && !exchange.dropped,
+            "operator retry changed the original append bytes"
+        );
+        if accepted {
+            ensure!(exchange.response == captured[0].response);
+        }
+    }
+    let delivered = history(&client, &destination).await?;
+    ensure!(
+        delivered
+            .as_array()
+            .context("delivered history missing")?
+            .len()
+            == 1
+            && delivered[0]["event"] == envelope
+            && delivered[0]["offset"] == "1"
+    );
+    ensure!(
+        call(
+            &client,
+            &source,
+            reqwest::Method::POST,
+            "/process-retry?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    ensure!(
+        call(
+            &client,
+            &source,
+            reqwest::Method::POST,
+            "/process-ack?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    ensure!(subscription(&client, &destination).await?["checkpoint"] == "1");
+    ensure!(operator(&client, &source, scope, &change, "retry-reply-audit").await? == receipt);
+    stopped(source)
+        .await
+        .context("retry-reply source complete shutdown")?;
+    stopped(destination)
+        .await
+        .context("retry-reply destination complete shutdown")?;
+    proxy.stop().await?;
+    Ok(())
+}
 
 async fn pending(client: &reqwest::Client, node: &Node, scope: &str) -> Result<Value> {
     Ok(operator(
@@ -151,10 +490,7 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
     // This drives the real authority readback; no shutdown path or fake proof
     // adapter is used to close the source execution domain.
     let faults = ExecutionDomain::new(tokio::runtime::Handle::current());
-    faults
-        .run(async { bucket.delete("nodes/late-source.json").await })
-        .await??;
-    faults.shutdown().await;
+    let removed = remove_authority(&faults, &bucket, "late-source").await?;
     let source_services = source.services();
     let outcome = tokio::time::timeout(
         Duration::from_secs(10),
@@ -173,6 +509,10 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
         .configure_metrics(Arc::new(HostMetricsSample::default))
         .is_err());
     ensure!(source_core.handle().spawn(async { 7 }).await? == 7);
+    // Missing authority fenced the old process. Return its exact proof fields
+    // only after join, with expiry shortened, before asking for a successor.
+    restore_joined_authority(&faults, &bucket, "late-source", &removed).await?;
+    faults.shutdown().await;
 
     let (config, services) = inputs(
         "late-successor",
@@ -397,9 +737,7 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
     );
 
     proxy.capture.expect_upstream_close();
-    observer
-        .run(async { bucket.delete("nodes/late-ack-destination.json").await })
-        .await??;
+    let removed = remove_authority(&observer, &bucket, "late-ack-destination").await?;
     let destination_services = destination.services();
     let outcome = tokio::time::timeout(
         Duration::from_secs(10),
@@ -419,6 +757,7 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
         .configure_metrics(Arc::new(HostMetricsSample::default))
         .is_err());
     ensure!(destination_core.handle().spawn(async { 7 }).await? == 7);
+    restore_joined_authority(&observer, &bucket, "late-ack-destination", &removed).await?;
     let (config, services) = inputs(
         "late-ack-replacement",
         &directory.path().join("replacement"),

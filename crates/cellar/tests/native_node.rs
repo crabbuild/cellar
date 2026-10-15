@@ -998,6 +998,7 @@ async fn inputs(
     config.maintenance.load_sample_period = Duration::from_millis(50);
     config.generation_max_age = Duration::ZERO;
     let services = NodeServices {
+        wall_clock: None,
         http_client: None,
         host_executor: tokio::runtime::Handle::current(),
         core_executor: core.handle(),
@@ -1346,14 +1347,35 @@ async fn public_nodes_adopt_compiled_generations_and_force_close_without_process
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined(
 ) -> Result<()> {
+    cancelled_bootstrap_case().await
+}
+
+#[test]
+fn cancelled_bootstrap_observation_does_not_consume_the_only_host_blocking_worker() -> Result<()> {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(4)
+        .max_blocking_threads(1)
+        .enable_all()
+        .build()?
+        .block_on(async {
+            // Keep the original five-second entry and restart deadlines. This
+            // outer bound also catches an observer queued behind the factory
+            // whose release it is supposed to authorize.
+            tokio::time::timeout(Duration::from_secs(30), cancelled_bootstrap_case())
+                .await
+                .context("bounded-host cancellation fixture did not complete")?
+        })
+}
+
+async fn cancelled_bootstrap_case() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let core = Executor::new("application-core")?;
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
     let _release_on_failure = ReleaseFactoryOnDrop(gate.clone());
-    let (entered, received) = std::sync::mpsc::channel();
+    let (entered, mut received) = mpsc::unbounded_channel();
     let factory_gate = gate.clone();
     let apps = CompiledApplications::default().register("embedded-node", "test", move || {
-        entered.send(())?;
+        entered.send(std::time::Instant::now())?;
         let (lock, notify) = &*factory_gate;
         let mut released = lock.lock().unwrap();
         while !*released {
@@ -1374,13 +1396,12 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
     let (config, services) = inputs("cancelled", directory.path(), &core, None, 0).await?;
     let first_poll = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let polled = first_poll.clone();
+    let entry_deadline = std::time::Instant::now() + Duration::from_secs(5);
     let mut startup = tokio::spawn(async move {
         polled.store(true, std::sync::atomic::Ordering::Release);
         Node::start(config, services, graph(), apps).await
     });
-    let entry = tokio::task::spawn_blocking(move || received.recv_timeout(Duration::from_secs(5)))
-        .await
-        .context("factory-entry observer task failed")?;
+    let entry = factory_entry_before_deadline(&mut received, entry_deadline).await;
     if let Err(error) = entry {
         let polled = first_poll.load(std::sync::atomic::Ordering::Acquire);
         // Observe completion before probing the lock. Keep any returned node
@@ -1473,6 +1494,38 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
     .await
     .with_context(||format!("cancelled bootstrap recovery deadline: {}",restart_phase.lock().unwrap()))??;
     stopped(restarted).await?;
+    Ok(())
+}
+
+async fn factory_entry_before_deadline(
+    received: &mut mpsc::UnboundedReceiver<std::time::Instant>,
+    deadline: std::time::Instant,
+) -> Result<()> {
+    // The observer must not occupy the blocking executor it is measuring.
+    // Preserve the actual entry time too: a scheduler-delayed receiver must
+    // not accept a late entry just because its message is already queued.
+    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    let entered = tokio::time::timeout(remaining, received.recv())
+        .await?
+        .context("factory-entry channel closed before observation")?;
+    ensure!(
+        entered <= deadline,
+        "factory entered after its observation deadline"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn factory_entry_observation_keeps_its_deadline_for_queued_notifications() -> Result<()> {
+    let deadline = std::time::Instant::now() - Duration::from_secs(1);
+    let (sent, mut received) = mpsc::unbounded_channel();
+    sent.send(deadline - Duration::from_millis(1))?;
+    factory_entry_before_deadline(&mut received, deadline).await?;
+    sent.send(deadline + Duration::from_millis(1))?;
+    let error = factory_entry_before_deadline(&mut received, deadline)
+        .await
+        .unwrap_err();
+    ensure!(error.to_string().contains("after its observation deadline"));
     Ok(())
 }
 
@@ -1575,8 +1628,8 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     let writer = ExecutionDomain::new(tokio::runtime::Handle::current());
     let prior = PeerProbeSigner::generate().public_key_hex();
     let record = serde_json::json!({
-        "node":"unrecovered", "generation": prior, "probe_public_key":prior,
-        "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION,
+        "node":"unrecovered", "generation": prior, "probe_public_key":prior, "lineage":"00000000000000000000000000000001",
+        "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true,
         "log":{"state":"open", "epoch":2, "ensemble":["missing-follower"], "tiered":0, "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null}
     });
     writer
@@ -1606,7 +1659,8 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     );
     let error = result.err().unwrap();
     ensure!(
-        format!("{error:#}").contains("unrecovered predecessor"),
+        format!("{error:#}").contains("unrecovered predecessor")
+            && format!("{error:#}").contains("no complete true witness"),
         "startup did not enforce the recovery gate: {error:#}"
     );
     let (body, _) = writer
@@ -1624,6 +1678,88 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
         .await
         .context("local-only shutdown after failed predecessor bootstrap")?;
     writer.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conclusively_lost_fleet_proof_cannot_install_a_successor() -> Result<()> {
+    for ensemble in [vec!["lost-follower"], Vec::new()] {
+        let directory = tempfile::tempdir()?;
+        let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let writer = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let prior = PeerProbeSigner::generate().public_key_hex();
+        let record = serde_json::json!({
+            "node":"lost-proof", "generation":prior, "probe_public_key":prior, "lineage":"00000000000000000000000000000001",
+            "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true,
+            "log":{"state":"open", "epoch":2, "ensemble":ensemble, "tiered":0,
+                "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null}
+        });
+        // A persisted, long-expired member crosses the real conclusive-loss
+        // branch immediately. An absent member stays undecided and does not cover it.
+        let follower = serde_json::json!({
+            "node":"lost-follower", "generation":"retained-follower-generation", "lineage":"00000000000000000000000000000002",
+            "probe_public_key":"retained-follower-generation", "expires_ms":0,
+            "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true
+        });
+        writer
+            .run(async {
+                cellar::wake_format::ensure_ready(&bucket).await?;
+                bucket
+                    .put("nodes/lost-proof.json", serde_json::to_vec(&record)?)
+                    .await?;
+                bucket
+                    .put("nodes/lost-follower.json", serde_json::to_vec(&follower)?)
+                    .await
+            })
+            .await??;
+        let core = Executor::new("lost-proof-core")?;
+        let path = directory.path().join("lost-proof");
+        let (mut config, services) =
+            inputs("lost-proof", &path, &core, Some(bucket.clone()), 0).await?;
+        config.startup.recovery_attempts = 1;
+        config.startup.recovery_attempt_timeout = Duration::from_secs(2);
+        let error = match Node::start(config, services, graph(), applications("lost-proof", None)?)
+            .await
+        {
+            Ok(node) => {
+                stopped(node).await?;
+                anyhow::bail!("lost acknowledged fleet proof was silently accepted as recovered");
+            }
+            Err(error) => error,
+        };
+        ensure!(
+            format!("{error:#}").contains("no complete true witness"),
+            "wrong refusal: {error:#}"
+        );
+        let (preserved, loss) = writer
+            .run(async {
+                let (body, _) = bucket
+                    .get("nodes/lost-proof.json")
+                    .await?
+                    .context("predecessor disappeared")?;
+                let value: serde_json::Value = serde_json::from_slice(&body)?;
+                let loss = bucket
+                    .get(&format!(
+                        "log/lost-proof/00000000000000000000000000000001/{prior}.e2.loss.json"
+                    ))
+                    .await?;
+                Ok::<_, anyhow::Error>((value, loss))
+            })
+            .await??;
+        ensure!(
+            preserved["generation"] == prior && preserved["log"]["state"] == "recovering",
+            "lost proof sealed the predecessor or replaced its generation"
+        );
+        let (loss, _) = loss.context("conclusive loss was not recorded")?;
+        let loss: serde_json::Value = serde_json::from_slice(&loss)?;
+        ensure!(
+            loss["recovery_blocked"] == true,
+            "loss receipt authorized progress instead of recording a blocked recovery"
+        );
+        let local = start("local-after-loss", "local", &path, &core, None, None, 0).await?;
+        stopped(local).await?;
+        writer.shutdown().await;
+    }
     Ok(())
 }
 

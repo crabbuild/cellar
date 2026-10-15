@@ -4,8 +4,8 @@ use anyhow::{ensure, Result};
 use cellar::bucket::Bucket;
 use cellar::dead_node_gc::{live_nodes, DeadNodeGc};
 use cellar::node_log::{
-    decode_tail_resp, encode_tail_resp, read_frame, write_frame, AppendResp, SealResp, TailRange,
-    TailResp, TailWireReq,
+    decode_tail_resp, encode_entry, encode_tail_resp, read_frame, write_frame, AppendResp, Entry,
+    FollowerState, FollowerStore, SealResp, TailRange, TailReq, TailResp, TailWireReq,
 };
 use cellar::ownership_store::BucketOwnership;
 use cellar::peer_auth::{
@@ -32,17 +32,34 @@ async fn log_wire_requires_current_shapes_and_complete_frames() -> Result<()> {
         entries: Vec::new(),
     };
     let mut wire = encode_tail_resp(&response);
+    assert_eq!(&wire[..4], b"CLT1");
     assert_eq!(decode_tail_resp(&wire)?.range, response.range);
-    wire[..4].copy_from_slice(b"CLT1");
+    wire[..4].copy_from_slice(b"CLT2");
     ensure!(decode_tail_resp(&wire).is_err());
+    let mut entries_only = b"CLT1".to_vec();
+    entries_only.extend_from_slice(&0_u32.to_le_bytes());
+    ensure!(decode_tail_resp(&entries_only).is_err());
+    let request = TailWireReq::ranged(TailReq {
+        leader: "leader/00000000000000000000000000000001/generation".into(),
+    });
+    let encoded = serde_json::to_value(request)?;
+    assert_eq!(encoded["tail_format"], 1);
+    for marker in [0, 2, 255] {
+        let mut unsupported = encoded.clone();
+        unsupported["tail_format"] = marker.into();
+        ensure!(serde_json::from_value::<TailWireReq>(unsupported).is_err());
+    }
     for request in [
-        r#"{"leader":"leader/generation"}"#,
+        r#"{"leader":"leader/00000000000000000000000000000001/generation"}"#,
+        r#"{"leader":"leader","tail_format":1}"#,
         r#"{"leader":"leader/generation","tail_format":1}"#,
-        r#"{"leader":"leader","tail_format":2}"#,
+        r#"{"leader":"leader/not-a-lineage/generation","tail_format":1}"#,
     ] {
         ensure!(serde_json::from_str::<TailWireReq>(request).is_err());
     }
-    serde_json::from_str::<TailWireReq>(r#"{"leader":"leader/generation","tail_format":2}"#)?;
+    serde_json::from_str::<TailWireReq>(
+        r#"{"leader":"leader/00000000000000000000000000000001/generation","tail_format":1}"#,
+    )?;
     ensure!(serde_json::from_str::<AppendResp>(r#"{"ok":true,"end":4}"#).is_err());
     serde_json::from_str::<AppendResp>(r#"{"ok":false,"end":0,"epoch":null}"#)?;
     for response in [
@@ -67,11 +84,122 @@ async fn log_wire_requires_current_shapes_and_complete_frames() -> Result<()> {
 
 fn lease(node: &str, expiry: u64) -> serde_json::Value {
     serde_json::json!({
-        "node": node, "expires_ms": expiry, "generation": "process-generation",
+        "node": node, "expires_ms": expiry, "generation": "process-generation", "lineage": "00000000000000000000000000000001",
         "addr": "127.0.0.1:1234", "probe_public_key": "process-generation",
         "peer_protocol": PROTOCOL_VERSION, "paced_handoff": true,
         "application_metadata": {"preserve": 17}
     })
+}
+
+#[tokio::test]
+async fn follower_gc_discovers_current_sessions_and_requires_closed_authority() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+            let store =
+                FollowerStore::new(directory.path(), Some(Arc::new(bucket.clone())), "observer");
+            let seed = FollowerState {
+                fragment_epoch: 1,
+                base: 0,
+                end: 0,
+                sealed_to: 0,
+            };
+            let flat_path = directory.path().join("peerlog/flat/state.json");
+            std::fs::create_dir_all(flat_path.parent().unwrap())?;
+            let flat_bytes = serde_json::to_vec(&seed)?;
+            std::fs::write(&flat_path, &flat_bytes)?;
+            ensure!(
+                store.load("flat").is_err(),
+                "native access read a former flat session"
+            );
+            ensure!(
+                store.persist("flat", seed).is_err(),
+                "native access wrote a former flat session"
+            );
+            for (node, state) in [("closed", "sealed"), ("active", "open")] {
+                let mut record = lease(node, 0);
+                record["log"] = serde_json::json!({
+                    "state":state, "epoch":1, "ensemble":[], "tiered":0,
+                    "may_have_fleet_acks":false, "claimant":null, "claimed_ms":null
+                });
+                bucket
+                    .put(&format!("nodes/{node}.json"), serde_json::to_vec(&record)?)
+                    .await?;
+                store.persist(
+                    &format!("{node}/00000000000000000000000000000001/process-generation"),
+                    seed,
+                )?;
+            }
+            store.gc_fragments().await;
+            ensure!(
+                std::fs::read(&flat_path)? == flat_bytes,
+                "GC rewrote unsupported development state"
+            );
+            let closed = store
+                .tail(&TailReq {
+                    leader: "closed/00000000000000000000000000000001/process-generation".into(),
+                })
+                .await?;
+            let active = store
+                .tail(&TailReq {
+                    leader: "active/00000000000000000000000000000001/process-generation".into(),
+                })
+                .await?;
+            ensure!(closed.range.complete && active.range.complete);
+            let closed_path = directory.path().join(
+                "peerlog/closed/00000000000000000000000000000001/process-generation/state.json",
+            );
+            let active_path = directory.path().join(
+                "peerlog/active/00000000000000000000000000000001/process-generation/state.json",
+            );
+            let closed: serde_json::Value = serde_json::from_slice(&std::fs::read(closed_path)?)?;
+            let active: serde_json::Value = serde_json::from_slice(&std::fs::read(active_path)?)?;
+            ensure!(
+                closed["sealed_to"] == 1 && active["sealed_to"] == 0,
+                "GC ignored current sessions or closed an active fragment"
+            );
+            for (generation, name) in [("entry", "1.entry"), ("entries", "1-1.entries")] {
+                let session = format!("unsupported/00000000000000000000000000000001/{generation}");
+                store.persist(&session, FollowerState { end: 1, ..seed })?;
+                let mut bytes = Vec::new();
+                encode_entry(
+                    &Entry {
+                        seq: 1,
+                        cell: "cell".into(),
+                        cell_epoch: 1,
+                        txid: 1,
+                        bytes: b"unsupported development payload".to_vec(),
+                    },
+                    &mut bytes,
+                );
+                let path = directory.path().join("peerlog").join(&session).join(name);
+                std::fs::write(&path, &bytes)?;
+                ensure!(
+                    store
+                        .tail(&TailReq {
+                            leader: session.clone()
+                        })
+                        .await
+                        .is_err(),
+                    "old entry bytes supplied a tail"
+                );
+                let cold = FollowerStore::new(directory.path(), None, "observer");
+                ensure!(
+                    cold.load(&session).is_err(),
+                    "cold restore accepted an old entry layout"
+                );
+                ensure!(
+                    std::fs::read(path)? == bytes,
+                    "unsupported entry bytes were migrated"
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -113,6 +241,23 @@ async fn modern_leases_keep_recovery_pointers_and_cas_tombstones() -> Result<()>
                 "reader-generation".into(),
             );
             let modern = lease("old", expiry);
+            for lineage in [
+                serde_json::Value::Null,
+                serde_json::json!("../unsafe"),
+                serde_json::json!("A".repeat(32)),
+            ] {
+                let mut invalid = modern.clone();
+                invalid["lineage"] = lineage.clone();
+                bucket
+                    .put("nodes/old.json", serde_json::to_vec(&invalid)?)
+                    .await?;
+                ensure!(ownership.read_node_lease("old").await.is_err());
+                let owner = serde_json::json!({"node":"old", "epoch":1, "lineage":lineage});
+                bucket
+                    .put("cells/old/own.json", serde_json::to_vec(&owner)?)
+                    .await?;
+                ensure!(ownership.read_owner("old").await.is_err());
+            }
             let mut old = modern.clone();
             old.as_object_mut().unwrap().remove("generation");
             old["ownership_index_generation"] = serde_json::json!("process-generation");
@@ -146,6 +291,7 @@ async fn modern_leases_keep_recovery_pointers_and_cas_tombstones() -> Result<()>
                 let wire: serde_json::Value = serde_json::from_slice(&body)?;
                 assert_eq!(wire["expires_ms"], if retired { 0 } else { expiry });
                 assert_eq!(wire["generation"], "process-generation");
+                assert_eq!(wire["lineage"], "00000000000000000000000000000001");
                 assert_eq!(wire["application_metadata"]["preserve"], 17);
                 if node != "plain" {
                     assert_eq!(wire["log"]["may_have_fleet_acks"], true);
@@ -316,4 +462,33 @@ async fn signed_transport_retains_both_caller_pools_and_authenticates_requests()
     server.abort();
     let _ = server.await;
     Ok(())
+}
+
+#[tokio::test]
+async fn a_new_lineage_cannot_certify_or_collect_an_old_follower_session() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let bucket = Arc::new(Bucket::open_dev(&directory.path().join("objects.sqlite"))?);
+        let store = FollowerStore::new(directory.path(), Some(bucket.clone()), "observer");
+        let mut original = lease("leader", u64::MAX);
+        original["log"] = serde_json::json!({"state":"open", "epoch":1, "ensemble":["observer"], "tiered":0, "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null});
+        bucket.put("nodes/leader.json", serde_json::to_vec(&original)?).await?;
+        let session = "leader/00000000000000000000000000000001/process-generation";
+        let accepted = store.append(cellar::node_log::AppendReq { leader: session.into(), epoch:1, truncate_to:0, entries:vec![Entry { seq:1, cell:"cell".into(), cell_epoch:1, txid:1, bytes:b"retained proof".to_vec() }] }).await;
+        ensure!(accepted.ok, "original follower append was not proven");
+        let before = store.tail(&TailReq { leader: session.into() }).await?;
+        ensure!(before.range.complete && before.entries.len() == 1);
+        let mut fresh = original.clone();
+        fresh["lineage"] = "00000000000000000000000000000002".into();
+        fresh["log"]["state"] = "sealed".into();
+        bucket.put("nodes/leader.json", serde_json::to_vec(&fresh)?).await?;
+        store.gc_fragments().await;
+        let after = store.tail(&TailReq { leader: session.into() }).await?;
+        ensure!(after.range == before.range && after.entries.len() == 1 && after.entries[0].bytes == before.entries[0].bytes, "another lineage discarded the retained proof");
+        ensure!(store.load(session)?.sealed_to == 0, "a foreign lineage sealed the old fragment");
+        Ok::<_, anyhow::Error>(())
+    }).await?;
+    domain.shutdown().await;
+    result
 }

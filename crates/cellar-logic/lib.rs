@@ -661,6 +661,7 @@ struct ShedCut {
 /// All authoritative coordination state for the first vertical slice.
 pub struct State {
     node: NodeId,
+    node_lineage: Option<String>,
     config: Config,
     fenced: bool,
     /// A shutdown handoff is under way: every resident cell is to be
@@ -859,6 +860,17 @@ pub struct State {
 }
 
 impl State {
+    /// Capture the durable node identity before processing any events.
+    pub fn new_with_lineage(
+        node: impl Into<NodeId>,
+        config: Config,
+        lineage: Option<String>,
+    ) -> Self {
+        let mut state = Self::new(node, config);
+        state.node_lineage = lineage;
+        state
+    }
+
     pub fn new(node: impl Into<NodeId>, config: Config) -> Self {
         assert!(config.max_evictions > 0, "max_evictions must be positive");
         assert!(config.max_releases > 0, "max_releases must be positive");
@@ -868,6 +880,7 @@ impl State {
         );
         Self {
             node: node.into(),
+            node_lineage: None,
             config,
             fenced: false,
             draining: false,
@@ -2498,6 +2511,7 @@ impl State {
         ) {
             return;
         }
+        self.node_lineage = spec.lineage.clone();
         self.begin_node_lease_acquisition(now_ms, spec, effects);
     }
 
@@ -2508,6 +2522,7 @@ impl State {
         effects: &mut Vec<Effect>,
     ) {
         let desired = NodeLeaseRecord {
+            lineage: spec.lineage.clone(),
             node: self.node.clone(),
             addr: spec.addr.clone(),
             expires_ms: now_ms.saturating_add(spec.ttl_ms),
@@ -2770,6 +2785,7 @@ impl State {
             Ok(Some(record))
                 if pending.prior.as_ref().is_some_and(|prior| {
                     record.node == pending.desired.node
+                        && record.lineage == pending.desired.lineage
                         && record.addr == pending.desired.addr
                         && record.peer_protocol == pending.desired.peer_protocol
                         && record.generation == pending.desired.generation
@@ -2858,12 +2874,13 @@ impl State {
                 // run, and installing would erase the only evidence it
                 // was needed. The engine's boot order makes this
                 // unreachable; the guard keeps it structurally so.
-                let predecessor_unrecovered = pending.prior.is_none()
-                    && record.generation != pending.desired.generation
-                    && !matches!(
-                        record.log_state,
-                        None | Some(crate::log_tier::LogState::Sealed)
-                    );
+                let predecessor_unrecovered = record.lineage != pending.desired.lineage
+                    || pending.prior.is_none()
+                        && record.generation != pending.desired.generation
+                        && !matches!(
+                            record.log_state,
+                            None | Some(crate::log_tier::LogState::Sealed)
+                        );
                 if predecessor_unrecovered {
                     self.fail_initial_node_lease(pending.spec, effects);
                     return;
@@ -3226,6 +3243,7 @@ impl State {
                 prior.last_attempt_mono_ms = now_mono_ms;
                 let spec = prior.spec.clone();
                 let desired = NodeLeaseRecord {
+                    lineage: spec.lineage.clone(),
                     node: self.node.clone(),
                     addr: spec.addr.clone(),
                     expires_ms: now_ms.saturating_add(spec.ttl_ms),
@@ -4208,7 +4226,10 @@ impl State {
                 // dormant at that epoch, exactly as an idle eviction does,
                 // and the next request wakes it through the usual claim.
                 let phase = match result {
-                    Ok(Some(record)) if record.node.as_deref() == Some(self.node.as_str()) => {
+                    Ok(Some(record))
+                        if record.node.as_deref() == Some(self.node.as_str())
+                            && record.lineage == self.node_lineage =>
+                    {
                         Phase::Dormant {
                             epoch: record.epoch,
                         }
@@ -4234,6 +4255,7 @@ impl State {
             Ok(Some(record))
                 if reconciling_claim.as_ref().is_some_and(|claim| {
                     record.node.as_deref() == Some(self.node.as_str())
+                        && record.lineage == self.node_lineage
                         && record.epoch == claim.epoch
                 }) =>
             {
@@ -4277,7 +4299,10 @@ impl State {
                     );
                 }
             }
-            Ok(Some(record)) if record.node.as_deref() == Some(self.node.as_str()) => {
+            Ok(Some(record))
+                if record.node.as_deref() == Some(self.node.as_str())
+                    && record.lineage == self.node_lineage =>
+            {
                 let Some(epoch) = self.next_writer_epoch(&id, &mut cell, record.epoch, effects)
                 else {
                     self.put_cell(id, cell);
@@ -4576,6 +4601,20 @@ impl State {
         result: Result<Option<CachedNodeLease>, Failure>,
         effects: &mut Vec<Effect>,
     ) {
+        if result.as_ref().is_ok_and(|lease| {
+            lease
+                .as_ref()
+                .is_some_and(|lease| lease.record.lineage != record.lineage)
+        }) {
+            // The sampled root cannot route this owner. Do not retain it for
+            // the full lease TTL after the original metadata returns.
+            if let Some(node) = record.node.as_ref() {
+                self.node_lease_cache.remove(node);
+            }
+            set_phase(&mut self.occupied, cell, Phase::Inactive);
+            self.finish_requests(id, cell, Err(RequestError::ResolveFailed), effects);
+            return;
+        }
         match result {
             Ok(Some(CachedNodeLease { record: lease, .. }))
                 if lease.expires_ms > issued_ms
@@ -4629,10 +4668,10 @@ impl State {
                 // core just read (lease-fold): a dead owner whose folded
                 // log state is not sealed may hold acked writes only on
                 // its followers, and claiming before recovery fixes a
-                // bucket state that excludes them. Absence of a lease —
-                // or a lease that never opened a log — keeps its meaning
-                // as a proof: nothing was acked past the bucket.
-                let unrecovered = lease.as_ref().is_some_and(|lease| {
+                // bucket state that excludes them. A present lease without
+                // a log proves bucket completeness. A missing lease cannot
+                // supply that proof: require the recovery interlock to decide.
+                let unrecovered = lease.as_ref().is_none_or(|lease| {
                     !matches!(
                         lease.record.log_state,
                         None | Some(crate::log_tier::LogState::Sealed)
@@ -4640,6 +4679,7 @@ impl State {
                 });
                 if unrecovered {
                     let owner = record.node.clone().unwrap_or_default();
+                    let lineage = record.lineage.clone();
                     let next = self.cell_op(id);
                     set_phase(
                         &mut self.occupied,
@@ -4650,6 +4690,7 @@ impl State {
                         },
                     );
                     effects.push(Effect::RecoverNodeLog {
+                        lineage,
                         op: next,
                         cell: id.to_string(),
                         owner,
@@ -7131,6 +7172,7 @@ fn is_queue_broker(id: &str) -> bool {
 
 fn same_node_lease(left: &NodeLeaseRecord, right: &NodeLeaseRecord) -> bool {
     left.node == right.node
+        && left.lineage == right.lineage
         && left.addr == right.addr
         && left.expires_ms == right.expires_ms
         && left.peer_protocol == right.peer_protocol

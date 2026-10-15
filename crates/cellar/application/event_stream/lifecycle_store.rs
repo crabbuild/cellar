@@ -194,7 +194,7 @@ pub(crate) fn change(context: &Context, body: &Value) -> Result<Value> {
         ));
     }
     let digest = hex::encode(Sha256::digest(serde_json::to_vec(&change)?));
-    let now = subscription_store::clock(&db)?;
+    let now = store::clock(&db)?;
     db.tx(|tx| {
         let prior=tx.system_sql("SELECT * FROM __sys_stream_operations WHERE operation=?",&[change.operation.clone().into()])?;
         if let Some(prior)=prior.first() {

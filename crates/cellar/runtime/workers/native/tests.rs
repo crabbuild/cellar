@@ -9,6 +9,12 @@ use std::task::{Wake, Waker};
 use std::time::Duration;
 use tokio::sync::{oneshot, Notify};
 
+#[path = "storage_authority_tests.rs"]
+mod storage_authority_tests;
+
+#[path = "stream_clock_tests.rs"]
+mod stream_clock_tests;
+
 struct ReceiverWake {
     sender: Arc<WakeTurn>,
     calls: AtomicUsize,

@@ -167,6 +167,8 @@ pub struct Config {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OwnerRecord {
+    /// Persistent node identity. None is used only by memory ownership/release.
+    pub lineage: Option<String>,
     /// `None` is a deliberately released, fenced record. Epochs never reset.
     pub node: Option<NodeId>,
     pub epoch: Epoch,
@@ -179,6 +181,7 @@ pub struct OwnerRecord {
 /// not the storage adapter, decides whether it is live and routable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeLeaseRecord {
+    pub lineage: Option<String>,
     pub node: NodeId,
     pub addr: String,
     pub expires_ms: u64,
@@ -274,6 +277,7 @@ pub struct AdoptedCell {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeLeaseSpec {
+    pub lineage: Option<String>,
     pub addr: String,
     pub peer_protocol: u16,
     pub generation: String,
@@ -1084,6 +1088,7 @@ pub enum Effect {
     /// non-sealed session of `owner` into the bucket and reports
     /// `NodeLogRecovered`; only then does the claim proceed.
     RecoverNodeLog {
+        lineage: Option<String>,
         op: OpId,
         cell: CellId,
         owner: NodeId,

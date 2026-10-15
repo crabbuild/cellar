@@ -264,9 +264,9 @@ pub fn finish_recovery(record: &LogRecord, cert: Offset) -> Option<LogRecord> {
 }
 
 /// May a per-cell takeover of this node's cells treat the bucket as
-/// complete? Absence is a proof, not a guess: the record is created before
-/// the first fleet-durable ack and never deleted, so no record means the
-/// node never acknowledged anything the bucket does not hold.
+/// complete? The caller must have read a present node lease. Its absent
+/// folded log proves no fleet acknowledgments; a sealed log proves recovery.
+/// Absence of the lease itself is not an input to this gate or a proof.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TakeoverGate {
     BucketComplete,

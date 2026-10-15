@@ -167,6 +167,9 @@ The guard includes source incarnation, dispatch generation, next sequence and
 settled watermark. Retry advances dispatch authority and commits wake work
 without removing events or changing their identity. A changed producer revision
 is refused; inspect again before starting a new operation.
+Replies from attempts that were already in flight cannot settle or block the
+retried work. Replaying the retained operation receipt does not advance dispatch
+authority again, including after delivery completes.
 
 Operation UUIDs are 32 lowercase hexadecimal characters. Repeat the same UUID,
 reason and revision after an ambiguous reply, or query its status. The retained

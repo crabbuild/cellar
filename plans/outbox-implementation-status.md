@@ -3,7 +3,9 @@
 Updated 2026-10-15. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
-release. The native fixture now exercises source, catalog, stream, and consumer
+release. All pending event-delivery changes are consolidated in PR #46 against
+main; PRs #47–#62 are superseded. Follow-ups update that same active PR rather
+than creating a stack. The native fixture now exercises source, catalog, stream, and consumer
 turns together; that local evidence does not satisfy the fleet/release gates.
 
 ## Current priorities and readiness
@@ -16,17 +18,32 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout and explicit-policy closed-domain failure with the stage diagnostics from PR #36; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are remaining live old-owner execution during
-takeover, follower-only destination append/fetch/ack proof, follower disk and
-physical store/host loss, and remaining lifecycle/capacity cuts. The current
-process fixture adds the selected follower-only source acknowledgment boundary;
-it does not complete the follower-proof failure matrix.
+The current slice corrects a demonstrated timing assumption in the intermittent
+five-second post-ack delivery observation. A controlled delay before acknowledgment reproduces that timeout
+with a persisted source retry still 21.292s in the future, an acknowledged first
+record and no second acceptance. This establishes a timing defect in the fixture;
+the original failure lacked that snapshot, so its exact cause is not asserted.
+The fixture now selects the next automatic append at a real peer submission
+barrier before obtaining and acknowledging a fresh lease. It releases the unchanged
+append within the original three-second budget and retains the five-second
+settlement observation. Production backoff and source state are unchanged.
+All three paired delay controls and all seven final focused cases pass; the
+final serial Node run passes all 65 cases. Workspace and tooling checks pass.
+Next exercise loss during predecessor recovery and the transition from proven
+recovery to lease installation, metadata rollback and the independent-process
+clock-refusal matrix. The full proof/fault matrix remains open.
+Selected local rollback/reopen and subscription handoff cases below do not close
+that matrix. The startup/shutdown cause audit remains open and
+must resume on recurrence, followed by physical store/host loss and the
+remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
+cover selected follower-only source acceptance and destination append/fetch/ack
+boundaries; they do not complete the follower-proof failure matrix.
 PRs #41 and #42 cover selected lost-fetch handoff and unproven-ack forced
 closure cases; neither is independent-process evidence. The process harnesses
 already cover append, ack and whole-fleet loss at selected boundaries; the
@@ -52,7 +69,1208 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: follower-only source acceptance
+## Current follow-up: delivery after recovery backpressure
+
+The preserved 79d5a8b Node executable passes 50 additional isolated same-name
+metadata-loss cases; those repeats do not establish the earlier timeout's cause.
+A separate one-variable probe waits 15s after the recovered-prefix audit and
+before acknowledgment. Its second run reproduces the original five-second
+post-ack assertion (25.23s overall). At the cutoff, source attempts are 10,
+dispatch generation is 11, the original event remains pending, last error is
+StreamFull, and retry_at_ms is 21.292s in the future. Destination checkpoint is
+1, end is 2 and the lease is absent. Thus this reproduction is a legitimate
+saved retry delay, not overdue work or an already accepted event waiting for
+source settlement. No operation budget or dispatch policy changes in the probe;
+its source is restored byte-for-byte. The initial run did not capture this state,
+so these findings do not retroactively prove its exact scheduling path.
+
+The corrected fixture advertises a real proxy for the chosen replacement, then
+holds its next automatic __streamAppend after auditing the original recovered
+prefix and stale receipt. The phase wait is bounded by the existing 60s maximum
+retry plus the original 3s operation budget. Only after a real submission arrives
+does it obtain a fresh lease and acknowledge the retained first event. Require
+that work to finish inside the original 3s held-request interval, compare the
+complete decoded append with the original captured request, and release that
+same request. The original five-second settlement observation, source identity,
+envelope, inbox and checkpoint assertions remain. No source replay, operator
+rearm, row repair, shorter backoff or synthetic proof is introduced.
+
+All three paired 15s controls pass (45.77s, 54.14s and 43.46s overall).
+They wait 23.418s, 32.003s and 19.154s for actual automatic submissions and hold
+those requests only 54ms, 80ms and 43ms while fetching and acknowledging. The
+complete original append, source identity, inbox effects and final checkpoint 2
+survive each control. Both temporary probes restore source byte-for-byte; the
+final fixture has no injected delay. Final qualification passes below.
+The first final focused group passes four cases but three foreign-name cases
+expire at the proxy phase gate. A live, read-only inspection during the follower
+case records refusal-source as the actual epoch-two owner, also present in its
+local stream database path. Local dispatch cannot visit the replacement proxy.
+The pre-existing owner-key CAS-only selection fault previously applied only to
+same-name cases. Apply it to all seven cases and to cold source/witness restarts,
+then explicitly require the chosen successor. Only those peers' conditional
+writes to the one stream owner key are refused; reads, node leases, metadata
+proof and follower services stay real. Preserve the failed executable, source,
+logs and live owner snapshot. This fixture failure is not a recovery defect. The next group passes six cases
+and refuses cold-source activation: with peer claims excluded, activation needs
+the selected successor that the fixture had started only afterward. Start both
+cold follower servers and that successor in one heap-pinned three-way join;
+preserve the original activation deadlines and complete each readiness check.
+That change passes activation, but the cold case still times out at the dispatch
+phase gate in a subsequent six-pass/one-failure group. Retain that failure and
+capture source retry state, destination acceptance and actual owner at the
+unchanged phase cutoff before identifying its cause. No production scheduler
+or retry-policy change is justified by that observation alone.
+The cutoff snapshot then shows attempts advancing to 10 with StreamFull, a
+future retry and the intended stream owner: automatic dispatch is running.
+An independent repeat inspects both real owner records while the gate is held;
+the producer is on the same replacement (producer epoch 3, stream epoch 2).
+Its local appends correctly bypass the peer proxy. Exclude only the replacement's
+conditional writes to that producer owner key and assert distinct source/stream
+owners before selecting the next submission. Other peers may still own/recover
+the producer; no source or stream data is edited. The original diagnostic run
+and repeat remain preserved. These are corrections to remote-phase fixture
+selection, not production routing, retry or recovery changes.
+
+This is native domain evidence; recovery/install interleavings, metadata rollback,
+process clock-refusal and physical fault qualification remain open.
+
+Final focused qualification passes all seven cases (65.69s). The final serial
+Node suite passes all 65 cases (497.11s). The saved focused/full executable
+SHA256 matches: 007f275618a0c35b98b77f4baced37bc893768fb78b76330afaf6bc83973487a.
+The changed Rust source remains byte-identical throughout both runs. This
+follow-up changes one native fixture and documentation; production sources
+remain those qualified at 79d5a8b. Workspace all-target/all-feature check passes
+(383.24s), as does Clippy with warnings denied (45.31s). All seven artifact and
+three CLI cases pass; formatting checks 516 Rust files. Docs validate 36 documents,
+six flows and 388 references; the dependency audit checks 403 packages without a
+JavaScript engine. All 129 Python guards pass. Hosted run 38813621162 executes
+zero steps because GitHub reports failed payments or an exhausted spending limit;
+hosted Rust 1.98.1 qualification remains unavailable. Local Rust is 1.97.0 on
+aarch64 macOS. Independent-process drivers have not been rerun for the new
+session namespace. The earlier sample did not capture causality state; these
+controls address demonstrated timing/placement assumptions without claiming
+complete startup/recovery availability or a physical-fault qualification.
+
+## Current follow-up: missing node lease recovery evidence
+
+A native log regression reproduces two premature-success paths. After a real
+follower fsync proves one SQL write, join both original domains, remove leader
+local state and verify no bucket payload exists. Delete only the old node lease
+root, preserving the cold follower bytes. Both ensure_recovered and explicit
+recover incorrectly return success (1.05s; repeat from the same pre-fix executable 1.04s).
+A separate decision-core regression shows a missing lease bypasses RecoverNodeLog
+and proceeds toward a claim. These failures establish a metadata-absence defect;
+they do not establish a complete process/store-loss contract.
+
+The core now sends named-owner missing leases through the ordinary recovery
+interlock. Log reads require a present, identity-matching node lease; only own-node
+first boot may read an optional root before installation. A present no-log lease
+and a present successor generation retain their recovery-before-replacement
+meaning. No schema, wire marker or version changes. The regression requires
+refusal without fabricated metadata or a restored cell, unchanged cold follower
+proof, and correct original SQL after the saved metadata returns, before command
+replay. Initial complete native-log qualification passes all seven cases (4.60s).
+The initial full Node admission case passes (8.84s): with actual authenticated
+peer routing and blocked payload uploads, a missing destination root refuses
+requests without changing the original owner/epoch or bucket payload prefix.
+Return the saved original proof fields with post-join expiry shortened; audit
+higher-epoch recovery before receipt reuse. Retained logical clock, exact event
+bytes, pending source identity, inbox effect and checkpoints all survive.
+All 13 decision-core tests, 238 library tests (6.92s), six actor, six external
+ingress and seven final native log cases (4.52s) pass.
+
+The first full Node run passes 60 cases and fails two older delayed-reply
+fixtures: they deliberately erase a node root to drive NodeLeaseMissing, then
+expect recovery to proceed while the evidence is still absent. Preserve that
+original missing-lease fence and complete join. The corrected private-SQLite
+fault uses DELETE RETURNING to atomically retain the exact removed root (no
+GET/DELETE window can discard an intervening log CAS), then conditionally
+restores those proof fields with only expiry shortened before successor
+recovery. The missing-metadata case above independently requires refusal until
+valid evidence returns. The corrected four delayed-reply cases pass (27.67s), preserving the original
+fencing reasons and operation deadlines. Final serial Node qualification passes
+all 62 tests (491.61s). Saved focused/full-start/full-end executable SHA256 is
+79ed1c3d616d7fdec9ee47e24f90fc02a1cdb1dc6afad96c1ca0d3ae6c42e716;
+all seven changed Rust files retain identical bytes throughout that qualification.
+Artifact (seven) and CLI (three) tests pass. Workspace/all-target/all-feature
+check and Clippy with warnings denied pass. Formatting checks 514 Rust files;
+docs validate 36 documents/6 flows/388 local references; the dependency audit
+checks 403 packages without a JavaScript engine. The 127 Python guards also pass.
+All 15 additional integration tests pass across native cells, streams, log
+protocol, outbox, replication, runtime, storage and transactions. Workspace
+documentation tests pass: 11 passed and one existing Axum example ignored.
+Local Rust 1.97.0/aarch64 macOS. Hosted runs 38789605008 and 38789598754 for
+implementation commit 120126b were refused before any steps: GitHub reports
+failed account payments or a spending limit. Hosted toolchain qualification
+(Rust 1.98.1) remains unavailable.
+
+### Current follow-up: same-name identity continuity
+
+After the preceding qualification, change only the replacement node name in
+the missing-destination-metadata fixture to the erased owner's name. Keep the
+old disk removed, real follower proof, blocked payload uploads, original 30s
+stream lease, 3s operation budget and original assertions. The replacement
+incorrectly claims epoch two and returns HTTP success with the old lease active:
+it has lost the previously proven future expiry clock. The original owner was
+epoch one with that same node name. This reproduces in 3.63s and repeats in
+4.93s from a saved probe executable (SHA256
+95a522ace8fa804acd696a9032afea3d26cf5311586eaeba34677d33036824db).
+
+A missing own-node root looked like first boot, while cells naming this node
+used the same-node ownership shortcut. The fix captures a random 128-bit lineage
+before actor/log construction, copies it across retained-root restarts, and
+persists it in owned cell records and node leases. Existing-cell admission,
+claim confirmation, ambiguous CAS reconciliation, remote routing, output proof,
+release and epoch GC require the same lineage. Recovery compares the expected
+owner lineage with the same root read used for its folded proof decision.
+Missing or changed identity cannot be treated as a no-log completion. A
+mismatched lease sample is discarded so later independent requests can observe
+returned metadata rather than remaining stuck for the old lease TTL.
+
+Log sessions, bundles and follower directories use node/lineage/process-generation.
+Startup bundle collection stays within the captured lineage; follower GC cannot
+use a fresh root to certify or discard an old lineage’s fragments, even if the
+node name and generation match. Required wire fields and directory layout are a
+hard cutover with recreated development state; all owned markers remain 1.
+Process-fault evidence readers and their negative guards select the full session.
+This slice runs their guard tests; the independent-process fault matrix has not
+been rerun against the new namespace. Keep that evidence separate from the
+current native-domain cases.
+
+The same-name Node regression requires fresh-lineage refusal with the original
+owner and payload prefix intact, joins that refused node, returns the saved
+original proof metadata with only expiry shortened, and restarts under the
+retained lineage. Peer owner-key writes are refused during this selected
+successor cut; real follower reads, lease traffic and recovery remain available.
+It then requires a higher epoch, the retained future clock, exact event bytes,
+pending obligation, checkpoint and inbox effects before receipt reuse.
+
+This test exposed a second defect: a stopped Ambiguous request retained its dead
+remote route, so independent later reads kept using the old endpoint. Stopped
+attempts now queue guarded route invalidation without waiting for cleanup or
+replaying the submitted request. The new library regression failed before the
+fix and passes after it; it requires immediate Stop, exactly one invalidation,
+a dropped cleanup receiver and no queued dispatch. Ready retries retain their
+existing awaited invalidation and captured budget.
+
+The earlier probe restored all original source bytes and retains its failing
+runtime separately. The historical 62-case results above qualify only the
+pre-lineage implementation. Two targeted negative controls disable only the
+same-name lineage predicate or only mismatch-cache eviction. The core regression fails at the intended claim
+boundary or the next-request refresh assertion respectively. Both restore the
+production source byte-for-byte before formatting and final qualification.
+The first full lineage run passes 61 Node cases and fails two older missing-
+witness fixtures before recovery, because their manually seeded lease JSON
+omits the required lineage. Update only those three synthetic lease records
+and the corresponding loss-record path to the current session shape; retain the
+original witness, predecessor-generation, directory-release and refusal
+assertions and deadlines. Production and all other test Rust bytes are unchanged.
+New qualification is recorded below. Loss after lineage capture and before
+startup recovery/install, metadata rollback, independent-process and physical
+store-loss gates remain open. The
+full design remains incomplete and not release-ready.
+
+
+### Final qualification for node lineage
+
+All 15 decision-core tests and 239 library tests pass (7.13s). The six actor,
+six external-ingress, seven log (4.49s) and five log-protocol tests pass. Both
+corrected predecessor/lost-witness cases pass without weakening their original
+refusals or deadlines. The five focused clock/recovery cases pass (40.38s).
+The final serial Node run passes all 63 tests (492.94s); focused/full-start/
+full-end executable SHA256 is
+056234fdacf8b10ea6cd3f9ac9faaadf116fb0750449637e5f55cb0baf5b9228.
+All 16 changed Rust files retain identical bytes from the final focused run
+through Node qualification. Production and previously qualified test sources
+also match their hashes from the initial core/library/log runs; only the native
+Node fixture records and diagnostic lookup changed after the first full run.
+All seven artifact and three CLI tests pass.
+All 11 additional integration cases pass across cells, event streams, outbox,
+replication, runtime, storage and transactions. Workspace all-target/all-feature
+check (79.47s), Clippy with warnings denied (91.19s) and formatting of 514 Rust
+files pass. Workspace doc tests pass: 11 passed, one existing Axum example
+ignored. Documentation validates 36 documents, six flows and 388 references;
+dependency audit checks 403 packages without a JavaScript engine. All 129
+Python evidence guards pass. Local Rust remains 1.97.0/aarch64 macOS; this does
+not supply hosted Rust 1.98.1 qualification or independent-process evidence.
+
+
+## Current follow-up: root continuity during startup
+
+Hold the first actual own-root GET response, including its original bytes and
+object token, after the store has read it. The old destination is joined and
+its disk removed; actual followers retain the proven clock-only StreamFull
+update and both destination replica and session-bundle publication were blocked.
+Delete the root before releasing that unchanged response to lineage capture.
+The pre-fix implementation admits epoch two under the old lineage and returns
+success with the expired subscription lease active. It loses the proven future
+clock. This reproduces in 7.77s and repeats in 7.86s from the saved executable
+(SHA256 b8676ebf5e773976d6e154718e674df54767e011a39d0ec07206f19b16c7fde8).
+
+Lineage capture remembered the identity but discarded whether it came from a
+retained root. The subsequent optional own-root read mistook the erasure for
+first boot, skipped predecessor recovery and installed a no-log successor.
+A captured retained-root requirement now refuses that second missing read before
+GC or the clean latch. First boot still permits an absent root; preserving
+restarts still recover from their retained metadata. No wire, schema or marker
+changes; every Cellar-owned marker remains 1.
+
+The regression requires startup refusal and complete directory release, with
+unchanged original cell owner, bucket payload and bounded exact follower-file
+bytes. Returning the saved metadata changes only expiry after join; the restart
+must recover the proven clock, inactive lease, exact history, pending producer
+identity, inbox effects and checkpoint before receipt reuse. A companion cut
+replaces the root with a different lineage and no folded log after capture;
+it must preserve that replacement record and the original proof while refusing.
+The private read barrier supplies no metadata, witness or success verdict.
+An initial focused run passes six cases and times out in the older same-name
+case while waiting for the pending second event after acknowledgment. Its
+original five-second observation deadline remains unchanged. An isolated repeat,
+a diagnostic seven-case run and ten isolated repeats pass; they do not establish
+the failure's cause. The failure now retains the last source snapshot and UTC
+at the original cutoff, then samples destination state read-only. Distinguish a
+future persisted retry, delayed settlement after acceptance and overdue work
+before changing production behavior or the fixture's phase boundary.
+
+The initial log-boundary run also fails before the metadata cut because its
+write reports Bucket rather than Fleet proof. A same-runtime repeat and 50
+isolated diagnostic repeats pass. Source inspection finds that only per-cell
+uploads were delayed: the bundle loop's initial tick could still upload through
+a plain node-log bucket. Changing only the private fixture's flush interval to
+1ms reproduces the exact proof-selection failure: live WAL (28,872 bytes), local
+rows (1,11), one committed follower entry and a published session bundle.
+
+The fixture now rejects only that session's bundle PUTs; metadata CAS, reads,
+retained-object injection and loss diagnostics remain real. Under the same 1ms
+control, seven bundle writes are actually refused and Fleet proof succeeds,
+followed by the original missing-root refusal and retained-witness recovery.
+Both timing probes restore source byte-for-byte; production and final fixture
+intervals/deadlines are unchanged. The original full boundary failure did not
+record its object inventory; the paired control establishes and excludes the
+uncontrolled bundle route without claiming a physical-fault qualification.
+
+These are native domain/store cuts, not independent-process or physical-fault
+qualification. The post-ack availability failure, recovery/install interleavings
+and metadata rollback stay open.
+
+
+
+### Qualification of the startup root-continuity fix
+
+The seven focused clock/recovery cases pass (61.01s). The final serial Node run
+passes all 65 tests (511.94s), including both new capture cuts and the older
+same-name case. Focused/full-start/full-end executable SHA256 is
+04de23236e977a3cf15552f28969e87f5011863170996845f56d8fcea46688fd.
+All seven changed Rust files remain byte-identical through that final focused
+and Node qualification. The 15 decision-core and 239 library cases also pass;
+production sources match their hashes from those earlier phases. The diagnostic
+and bundle-exclusion additions affect only test sources. Actor, external ingress,
+log and log-protocol boundary suites pass (six actor, six ingress, seven log,
+five protocol cases). All seven artifact and three CLI cases pass. Workspace
+all-target/all-feature check (81.99s), Clippy with warnings denied (91.90s), and
+formatting of 516 Rust files pass. Workspace doc tests pass: 11 passed and one
+existing Axum example ignored. Docs validate 36 documents, six flows and 388
+local references; dependency audit checks 403 packages without a JavaScript
+engine. All 129 Python evidence guards pass. Local Rust is 1.97.0/aarch64 macOS;
+hosted Rust 1.98.1 and independent-process/physical qualification remain separate.
+The initial post-ack observation failure remains unexplained; these passing
+results do not close it.
+
+
+## Current follow-up: proven and unproven clock-only refusals
+
+Two native cases retain the exact original event/lease and a second pending
+producer obligation. A signed append is held before submission, then only the
+destination UTC steps beyond the ordinary 30s lease. Capture its complete proven
+StreamFull response, roll UTC back immediately, and require the original lease
+still present with inactive authority, checkpoint zero and unchanged payload.
+This excludes expiry maintenance as the source of the measured clock update.
+The source must consume the typed refusal within its original 3s call budget.
+
+Exercise bucket proof and actual authenticated follower proof. In follower mode,
+refuse both direct stream-replica and old-session bundle uploads before the cut;
+compare every byte of the bounded private payload prefixes before recovery.
+Force/join the destination, prohibit shutdown repair and discard its local disk.
+All nodes use explicit 120s authority TTL/recovery backoff, preserving the 30s
+stream lease, 3s operation policy and normal startup/shutdown deadlines. A
+post-join conditional write expires only the old node's liveness field, retaining
+its folded log evidence. This is controlled authority loss, not natural expiry.
+A binding-free fresh entrance audits a different higher-epoch owner before
+receipt reuse, with ordinary UTC still below the original expiry. Only a
+read-only Ambiguous old-owner transport failure can repeat within the audit.
+
+Recovered logical time must retain the future floor before any replay can repair
+it. Required history/backpressure and the original producer identity/sequence
+survive; the old receipt is refused, a new lease redelivers exactly once in the
+same inbox, and acknowledgment releases capacity for the exact pending envelope.
+The proven cases finish checkpoint two, next sequence three/settled two, effect sum
+three and complete node/proxy/domain joins with caller executors still usable.
+The initial corrected cases pass (14.14s). A third proven-refusal case joins both
+original followers and drops their service references, then restarts both from
+retained directories with heap-pinned concurrent startup. Neither original
+follower domain supplies the recovery tail. This native cold-reopening case
+passes (13.60s); graceful follower close does not qualify process/crash/power loss.
+
+A complementary case holds publication after a local clock-only expired-extension
+commit, with fleet proof disabled. A read-only forensic connection sees the new
+clock and unchanged lease/checkpoint; it supplies no output proof. The original
+caller must remain pending and then receive Ambiguous, never an exposed typed
+LeaseExpired. Force closure before releasing publication to fail, prohibit
+shutdown repair, discard the old disk and preserve folded recovery metadata.
+Audit the retained proven prefix before receipt reuse: the old live lease and
+one inbox effect survive, its original ack succeeds once, and replay is
+AlreadyAcknowledged. This initial case passes (7.96s). Ambiguity by itself never
+proves rollback; the explicit publication/disk faults establish this selected
+absence case. A targeted negative control removes only append clock capture:
+both original recovery cases fail the pre-loss read-only clock audit (4.00s),
+showing expiry maintenance cannot mask the missing write. Production bytes restore
+exactly (SHA256 57836cf4f53260deee19e0a89099944e476dab394aae8289e8d4ed785d91d710).
+Final restored qualification passes all six clock-focused Node tests (39.72s),
+including the earlier bounded/required retention cases, and all 61 serial Node
+tests (459.16s). Saved focused, full-run start and full-run end executable SHA256
+matches: 05ff0e3984b683831a046d12048770e1fcd5e41b8e2a4d6e6f20d2108d2ae1c2.
+The five changed Rust test files retain identical bytes throughout qualification;
+production code remains identical to the parent implementation. All seven
+artifact and three CLI tests pass. Workspace/all-target/all-feature check and
+Clippy with warnings denied pass. Formatting checks 514 Rust files; docs validate
+36 documents/6 flows/388 references; dependency audit checks 403 packages without
+a JavaScript engine. All 127 Python guards and whitespace checks pass. Local
+Rust 1.97.0/aarch64 macOS; hosted toolchain qualification remains separate.
+
+Early fixture attempts used short-lived witnesses, covered only direct replica
+uploads and removed the old folded log record with liveness. Those cuts did not
+establish retained-proof recovery. The corrected fault keeps all authority/CAS
+clients and proof metadata intact and blocks both payload paths. Initial audits
+through an old entrance received a closed-owner Ambiguous transport result; a
+fresh binding-free entrance performs the read-only audit. Compilation mistakes
+in fixture arguments/shadowing and one unused import were corrected. These are
+not claimed runtime defects. A final focused attempt exposed a comparator that
+inserted null for an absent optional log field in bucket-only records; the audit
+now preserves field absence while retaining the authority/proof checks.
+
+This qualifies selected native domains/cores and a private SQLite bucket, not
+independent processes, natural node expiry, physical
+clock/store/power faults or the whole release matrix. Folded node-record loss is
+a separate unqualified metadata-loss contract; deleting that record is not an
+alternative way to test recovery with retained proof. Historical startup/shutdown
+causes and remaining lifecycle/capacity/operational gates stay open.
+
+## 2026-10-15 expiry authority across refused mutations
+
+Real native contexts, host-minted source authority, broker RPC encoding and SQLite
+reproduce a stale-settlement defect without background maintenance. At time
+100000, accept an event and lease it through 130000. At 130001, attempt an oversized
+append, required-capacity append, duplicate append, successful/failed configuration
+or coordinated retirement that remains blocked. Roll UTC back to 100000: all six
+original cases incorrectly acknowledge the old receipt and advance checkpoint.
+The oversized/required-capacity, duplicate and failed-configuration cases also
+reproduce from a saved immutable test executable.
+
+An isolated probe persists only the append clock outside its transaction: all
+three append cases pass while the two configuration cases and retirement still
+fail. This identifies lost clock authority; acknowledgment policy needs no change.
+Append only persisted time on insertion, rollback discarded observations, and
+scheduling sampled UTC without committing it. A shared store clock now captures
+authorized mutations before their rollback scope. Configuration creates its first
+clock atomically; existing streams persist it first. Maintenance, subscriptions
+and lifecycle use that same boundary, and scheduling reuses persisted time.
+Retirement refusals keep clock authority while terminal receipt replay remains
+unchanged. All owned markers stay 1; no layout or compatibility changes.
+
+Six initial fixed cases pass (0.28s), each in place and after SQLite close/reopen.
+Final regressions also cover grant rotation with exact configuration replay,
+denied append/configuration/retirement and time advancing between samples within
+one mutation. Preserve accepted records, identities, lease, checkpoint and failed
+configuration revision. Denied requests/read-only observations must not acquire
+time authority. All 238 serial library tests pass (5.06s), including nine new
+regressions covering 22 scenarios. All 57 serial Node tests pass (423.45s), with
+matching pre/post-run archived executable SHA256
+acb65b773f21df2d1bf71ece31820ab1aba8c9133516004da37c29f08625be52.
+Workspace/all-target/all-feature check and Clippy with warnings denied pass.
+Formatting checks 512 Rust files; docs validate 36 documents/6 flows/388
+references; the dependency audit checks 403 packages without a JavaScript engine.
+All 127 Python guards and whitespace checks pass. Local Rust 1.97.0/aarch64
+macOS; hosted toolchain qualification remains separate.
+
+These are local native broker/SQLite tests, not independent-process or fleet
+proof. Next qualify recovery of the newer clock on a refused RPC through actual
+owner/output/follower gates before any replay can repair it. Physical clock/store
+loss, historical startup/shutdown causes and the complete release gates remain
+open; the full design is not release-ready.
+
+## 2026-10-15 domain clocks and retention across rollback
+
+Native domains now accept a captured WallClock provider, and both node service
+structs expose optional wall_clock infrastructure before bootstrap. None keeps
+system UTC. Providers follow scoped polls, tasks, blocking work and cleanup;
+negative samples clamp to zero. Monotonic budgets/timers and peer signature
+clock/entropy keep their separate host boundaries. All native/example/adapter
+call sites explicitly select the default. This is an internal source API
+cutover; add the field when rebuilding hosts. Owned markers remain 1.
+
+Two real-node cases use a destination-only clock step with the ordinary 30s
+stream lease and 3s operation policy. Their explicit 120s node TTL and matching
+recovery backoff keep the 31s wall step separate from authority expiry; startup,
+shutdown and invocation deadlines are not raised. With one-record capacity and
+10s age, a live lease must preserve the exact aged record and the producer's
+second pending obligation, including a recorded StreamFull refusal. Observe
+expiry through ordinary extension, roll the clock back, then audit read-only
+status before new mutations. Durable logical time and inactive old authority
+must survive joined handoff to a different, higher-epoch owner with system UTC.
+
+Bounded mode reclaims the old prefix, expires its optional subscription and
+requires an audited reset reporting the skipped offset. Required mode preserves
+original records and backpressure after expiry/handoff; a new higher lease
+replays exact bytes without repeating the retained inbox effect. Its ack releases
+capacity for the original second obligation. Both modes finish checkpoint two,
+producer next sequence three/settled two, one plus two inbox effects and complete
+node/observer drain with usable caller core executors.
+
+The standalone domain clock test passes, including nested domains, async/blocking
+inheritance, rollback, nonnegative samples and independent monotonic waits.
+Initial node attempts failed fixture TTL/backoff validation and an incorrect
+outbox diagnostic path, before the intended qualification. After correcting those
+fixture assumptions, both node cases pass (11.58s); these failures are not claimed
+product defects. Final focused domain/external/node cases pass
+(0.11s/0.68s/16.98s). Full workspace/all-feature library and integration tests pass
+(1450.84s), including all 57 serial Node cases (417.43s). The saved Node executable
+has matching pre/post-run SHA256
+ae8bb37b7847c2e9285a80519fc943ac2415146c370db7c40ec57b0c68f1fc83.
+Workspace doctests pass (11 executed, one existing ignored); no-default-feature
+Axum tests and counter binary check pass. Workspace/all-target/all-feature check
+and Clippy with warnings denied pass. Formatting checks 511 Rust files; docs
+validate 36 documents/6 flows/388 references; the dependency audit checks 403
+packages without a JavaScript engine. All 127 Python guards and whitespace checks
+pass. Local Rust 1.97.0/aarch64 macOS; hosted toolchain qualification is separate.
+
+Additional time-observation paths, including rejected appends and failed
+configuration, physical clock/store failures and the remaining release gates are
+still unqualified. Historical startup/shutdown causes remain unresolved; passing
+workspace reruns do not establish their cause.
+
+## 2026-10-15 subscription settlement races
+
+Three real-node cases hold the original signed acknowledgment and extension
+requests before forwarding them to the stream owner. Separate consumer cells
+originate both requests; the destination still uses normal authorization,
+transaction, ownership and proof gates. Signed operator status audits the
+subscription before either old request can execute. Competing fetch IDs receive
+LeaseBusy while each original/replacement lease is live.
+
+Exercise three durable transitions while those requests are held: reset to the
+same original offset under a new incarnation; actual expiry and a higher lease
+generation for the same records; and acknowledgment followed by a lease for the
+next event. Audit the replacement before release. Old reset receipts must return
+SubscriptionReset, replaced receipts StaleReceipt, and an already committed ack
+AlreadyAcknowledged. The old extension must never change replacement expiry;
+checkpoint, identity and full lease must remain unchanged after both calls finish.
+Forward the exact captured request bytes. Replaying the retained reset operation
+must preserve the live replacement and later settled progress. The current lease
+alone can advance the checkpoint, and both nodes/proxy must fully join while
+caller-owned core executors remain usable.
+
+Keep the ordinary 30-second lease and three-second operation budget. The expiry
+case waits outside the calls until near expiry, captures both requests while the
+old lease is still live, and crosses actual expiry within the original call
+budget. Neither timeout nor domain closure can qualify stale-receipt refusal.
+An absolute extension repeated before acknowledgment keeps the same expiry.
+Reset/expiry redelivery preserves original encoded records and one effect in the
+same durable projection inbox; next-event processing adds only that event's
+effect. This does not promise global deduplication across separate databases or
+external effects.
+
+The initial three cases pass (53.77s). A targeted negative control bypasses only
+the pure policy's extension receipt comparison: the next-lease case fails in
+3.16s because the obsolete extension succeeds. Restore the production source
+exactly before qualification; this intentional failure establishes guard
+sensitivity, not a bug in the unchanged runtime. All three restored cases pass
+(58.29s). The saved immutable test executable passes all 55 serial Node cases
+(434.53s), with no other task-owned Rust builds/test suites running alongside it.
+Workspace/all-target/all-feature check and Clippy with warnings denied pass,
+as do seven artifact/three CLI tests, all 127 Python guards, formatting (510
+Rust files), docs (36 documents/6 flows/386 references), dependency checks (403
+packages/no JavaScript engine) and whitespace checks. Local checks use Rust
+1.97.0/aarch64 macOS. The changes are native qualification and operator/SDK
+guidance; all owned markers remain 1.
+
+These are separate native domains/core executors with real peer RPC and a private
+SQLite bucket. They do not qualify independent processes, clock rollback,
+protected-history reclamation, physical faults or the full release matrix.
+Next address durable clock/retention races, retaining the unresolved historical
+startup/shutdown investigation and remaining proof, lifecycle, capacity and
+operational work. The full design remains incomplete.
+
+## 2026-10-15 delayed append replies race guarded operator retry
+
+Two native cases now hold an actual append acceptance or actual Forbidden reply
+while the same live source accepts a signed operator retry. The refusal comes
+from durable publication-grant revocation; ordinary resource configuration
+restores that grant before retry. There is no synthetic reply or proof adapter.
+Source incarnation, lane and producer sequence remain the original identity.
+
+The operator commits a higher dispatch generation while the original RPC is
+still pending. Fixed-cardinality host observations confirm that phase, without
+being used as receipts. After releasing the old response, require a fresh
+submission blocked at the peer proxy: that barrier proves the old callback
+finished and released its lane reservation. Socket-write completion alone is
+insufficient. The whole old-callback cut must stay inside the source's unchanged
+operation budget; a timeout or domain closure cannot qualify this boundary.
+
+Signed inspection must find one pending row, next sequence two, settlement zero,
+the newer generation and pending status without a stale blocked reason/error.
+The old acceptance cannot settle it; the old refusal cannot overwrite retry.
+Replaying the original operator receipt must leave the current revision unchanged.
+Only then may the new request proceed, retaining the original append bytes and
+event/envelope identity, producing one stream offset and one inbox effect despite
+redelivery. Final progress must be next sequence two/settlement one; the retained
+retry receipt must still replay without rearming. Both nodes return complete
+drain reports and the proxy joins; their core executors are separate and caller-
+owned.
+
+Both cases pass on the unchanged dispatcher (13.58s). A targeted negative control
+temporarily disables only its dispatch-generation comparison. Both tests fail
+at the fresh-submission barrier: the accepted reply incorrectly settles the lane
+to zero pending rows; the Forbidden reply incorrectly marks it blocked. The
+negative runtime takes 13.85s. Production source bytes are restored exactly
+before qualification, and both restored cases pass (11.24s). These intentional
+mutation failures validate test sensitivity; they are not bugs claimed in the
+unchanged implementation. The existing generation guard is essential and already
+correct at these cuts.
+
+The serial Node suite passes all 52 cases (365.04s). After reusing expected
+canonical decimal strings to resolve comparison-allocation lint errors, the two
+final focused cases pass again (10.11s) and workspace/all-target/all-feature
+Clippy passes with warnings denied. The string checks are preserved; no lint is
+suppressed. Workspace check, seven artifact/three CLI tests, all 127 Python
+guards, formatting (509 Rust files), docs (36 documents/6 flows/386 references),
+dependency checks (403 packages/no JavaScript engine) and whitespace checks pass.
+Local validation uses Rust 1.97.0/aarch64 macOS; hosted toolchain qualification
+is separate. Runtime/SDK behavior and all owned version-one markers remain
+unchanged; changes are native qualification and operator documentation.
+These are separate embedded nodes/execution domains
+and core executors with a real loopback proxy/private SQLite bucket. They do not
+qualify independent processes, physical host/store loss, delayed seals, other
+source lifecycle transitions or the full release matrix.
+
+Next qualify subscription expiry/reset/extend against acknowledgment and competing
+consumers. Preserve the separate historical startup/shutdown cause audit and all
+remaining lifecycle, capacity and operational gates. The full goal remains the
+entire design.
+
+## 2026-10-15 independent factory-entry observation
+
+The historical startup/shutdown failures remain unresolved. The unchanged full
+Node suite passes all 48 cases (353.06s). An immutable unchanged executable also
+passes 100 isolated replays: 34 cancelled-bootstrap, 33 explicit-policy and 33
+failed-predecessor recovery cases. These passing replays do not establish or
+repair the earlier failure causes.
+
+A separate deterministic fixture defect is now reproduced: the entry observer
+uses `spawn_blocking` plus a blocking channel receive on the same host pool that
+must execute the application factory. With one blocking worker, the observer
+prevents factory entry, or can itself queue behind a factory awaiting its release.
+Three before-fix runs fail at the original entry cutoff (5.32s/5.27s/5.30s),
+reporting startup polled, directory held and startup still pending. The final
+before-fix run uses the same new bounded-host test as the fixed source. This
+constraint differs from the original fixture's default blocking-pool capacity;
+it does not prove that starvation caused the historical failures.
+
+The observer now awaits an async channel, leaving the factory's host blocking
+worker available. The factory records its actual entry Instant. A five-second
+entry cutoff is captured before startup, so a receiver delayed until after the
+cutoff cannot accept a genuinely late entry merely because its message is queued.
+Timely entry observed later remains valid. The original restart cutoff, directory
+retention, factory join, node drain and caller-executor assertions are unchanged.
+The new one-worker variant has a separate 30-second outer watchdog to terminate
+an observer queued behind the held factory; neither original five-second limit
+is raised. A queued-notification test checks both sides of the actual cutoff.
+
+Both cancellation cases pass together (1.01s), the queued-deadline guard passes,
+and ten repeated runs of both cancellation cases pass (20 cases). The final
+unchanged-budget serial Node suite passes all 50 cases (359.22s), including
+explicit-policy, predecessor recovery, real event delivery and complete drain.
+Workspace/all-target/all-feature check and Clippy with warnings denied pass,
+as do seven artifact/three CLI tests and all 127 Python guards. Formatting
+checks 509 Rust files; docs validate 36 documents/6 flows/386 references; the
+dependency check finds 403 packages with no JavaScript engine. Whitespace checks
+pass. Local checks use Rust 1.97.0/aarch64 macOS. Only the native fixture and
+documentation change; production runtime/SDK code and all owned markers remain
+unchanged. The historical timeout, explicit-policy closure and predecessor-
+shutdown expiry audits remain open.
+
+Next qualify delayed delivery settlement against source-control generation
+changes. Continue retaining the original startup failure diagnostics and resume
+that cause investigation when new evidence distinguishes it from fixture
+starvation. Physical host/store/power, unrestricted placement, lifecycle,
+capacity and operational release gates remain incomplete. The full goal remains
+the entire design.
+
+## 2026-10-15 cold destination append recovery before automatic retry
+
+`fleet_faults.py --follower-only --restart-followers` now extends the original
+append cut to loss of every original process and recovery from retained follower
+disks. As in ack/fetch, archive actual committed CLB1/CLE1 batches, exclude new
+destination LTX/session-log bucket data before replacement, remove destination-
+local data, retain peer disks and require expired leases/new PIDs/generations.
+
+An unsettled source can otherwise repair missing acceptance automatically, even
+without an ordinary source command replay. A returning peer that acquires the
+stream could append locally and bypass the network gate. The private native
+fixture therefore supports `blocked_claim`: while `claim-block` exists, refuse
+only puts to the exact selected stream ownership object. Reads, other ownership
+and node lease writes, and actual retained follower responses remain unchanged.
+The wrapper retains the original no-retry conditional client and supplies no
+proof. A real refused claim must be observed before the destination starts.
+
+The replacement destination claims/recovers through the ordinary path. Both
+peer replacements must be ready and an identical automatic append actually
+blocked before the original accepted event/envelope, source receipt/pending
+obligation, empty inbox and checkpoint zero are audited. Only then may the held
+reply be dropped and retries resumed. Source ownership may move between returning
+peers; neither can acquire the selected stream during measurement. Offline audit
+rechecks the exact private configurations/markers and original follower archives.
+The same accepted event must settle and produce one effect/checkpoint with full
+process/proxy/store joins. This is a selected placement-controlled recovery cut,
+not qualification of unrestricted placement or missing witness disks.
+
+The initial SQLite run passed its state/effect audits but failed proxy cleanup:
+the killed source had already disconnected its held-response socket, so shutdown
+returned ENOTCONN. Cleanup then skipped other proxy listeners. The proxy now
+accepts only that already-disconnected outcome at the explicit drop call; other
+errors remain failures. Cleanup attempts every remaining proxy close before
+propagating failure. A real TCP-reset regression fails against the prior proxy
+with the same error and passes with the fix. The failed trace is retained.
+
+Final placement-gated cold append runs pass on SQLite (4.25s) and private pinned
+RustFS S3 (6.78s), including actual refused claims and blocked retries. The new
+immutable executable SHA-256 is
+`c8c01f76512b150a31f46c99a75aa2b42c81a5e1d54a5cf0700ccd76472c3bb6`.
+Ordinary smoke/live-follower append, cold ack, private S3 cold live-fetch and
+live-owner before-commit cases pass with that same executable. All 127 Python
+guards pass. The native claim-client test verifies exact-key refusal, unchanged
+bytes/read access, other ownership/lease writes, release and stale-CAS rejection.
+Workspace/all-target/all-feature check and Clippy with warnings denied plus
+seven artifact/three CLI tests pass. Core runtime/SDK code and owned markers
+remain unchanged; only private example Rust and qualification tools change.
+All six saved recovery ledgers pass offline audit. Formatting (509 Rust files),
+documentation (36 documents/6 flows/386 references), dependency checks (403
+packages/no JavaScript engine) and whitespace checks pass. Local checks use
+Rust 1.97.0/aarch64 macOS; hosted toolchain qualification remains separate.
+
+Next address the observed startup/shutdown failures and remaining stale
+settlement/reply interleavings. Unrestricted/local-owner placement, physical
+host/store/power, missing-disk, lifecycle, capacity and operational gates remain
+open. Passing these selected cases does not explain earlier intermittent
+bootstrap/recovery failures. The full goal remains incomplete.
+
+## 2026-10-15 cold destination acknowledgment and fetch recovery
+
+The ack/fetch process drivers now accept `--follower-only --restart-followers`.
+All original processes are SIGKILLed after an actual proven destination reply
+and pre-loss audit. The original destination ensemble's committed CLB1/CLE1
+batches are archived with checksum/range inspection; stream LTX and original
+destination-session log bucket objects must remain unchanged with all original
+memory gone. Destination-local data is deleted. Peer disks are preserved and
+rechecked before their independent replacement processes start.
+
+`destination_disks.py` requires old lease expiry, distinct process IDs and new
+peer node generations. Every replacement starts before readiness waits, since
+recovery can need another peer's still-activating listener. A saved recovery
+prefix must precede request replay. Ack recovers checkpoint one, no lease and
+the original inbox receipt before AlreadyAcknowledged replay. Live fetch retains
+the original lease/response; expired fetch keeps its original 30-second node/
+stream timing and obtains higher lease authority before stable replay. Both
+fetches apply one effect and acknowledge only the saved receipt. Complete
+survivor/proxy/store joins and offline archive-byte reinspection remain required.
+
+An initial S3 live-fetch run recovered the exact lease and one effect but failed
+the evidence gate because ownership moved to the restarted producer, bypassing
+the destination-only measuring proxy. This was a missing harness observation,
+not an observed lost event or duplicate effect. The harness now places paused
+method-specific proxies on both returning peers' advertised routes too. The
+assertion and exact-byte comparison remain unchanged. A final S3 ack run owned
+by the returning producer exercises that route and passes. The failed trace is
+retained; passing reruns do not explain unrelated historical failures.
+
+All six final cold-disk cases pass: ack/live-fetch/expired-fetch on SQLite
+(4.52s/4.48s/33.27s) and private pinned RustFS S3 (6.02s/5.95s/34.84s). They use
+the unchanged immutable executable SHA-256
+`931d05edf72aff8740efb1db608c6b17ef7147a4a96663378190260c8082fcfd`.
+The 124 Python guards include missing/reordered custody, stale/reused process
+authority, changed witness files/epochs, bucket repair, early replay and archive
+mutation. Unit custody fixtures are synthetic; only process runs supply actual
+disk/state evidence. Core runtime/SDK Rust code and owned markers are unchanged.
+Ordinary ack, live-fetch and live-follower append cases pass too; all nine saved
+ledgers pass offline audit. Formatting (509 Rust files), documentation (36
+documents/6 flows/386 references), dependency checks (403 packages/no JavaScript
+engine) and whitespace checks pass. No new Rust build/test claims are made for
+this Python/documentation change; the unchanged executable comes from the prior
+Rust 1.97.0/aarch64 macOS qualification.
+
+These are selected cold retained-disk destination ack/fetch cuts among processes
+on one machine. Cold pending-append recovery is next: its unsettled source can
+otherwise repair missing acceptance automatically, so it needs an independent
+pre-replay gate. Missing follower disks, consumer-local replay, other stale
+settlement/reply interleavings and physical host/store/power, startup-cause,
+lifecycle, capacity and operational gates remain open. The full goal remains
+incomplete.
+
+## 2026-10-15 independent-process live source takeover
+
+`live_owner.py` extends the embedded running-poll case to four independent
+processes on one machine. A private producer-only `owner_fault` configuration
+wraps its real ordinary, conditional and listing clients. The conditional wrapper
+keeps the original no-retry client; the small private listing caps its materialized
+inventory at 1000 objects. An isolation marker causes actual store calls to fail
+and records bounded operation/path evidence. It never supplies durability credit
+or changes other nodes' clients. All leader writes use explicit bucket proof.
+
+The original order/receipt is accepted and settled before a different stale probe
+is submitted. The callback publishes an entered observation and stays inside its
+native poll, either before starting a transaction or after uncommitted business/
+outbox writes. The external measuring client records the original/probe intent,
+actual refused lease operations, current lease expiry and a live/non-stopped old
+PID. A different successor must recover the original source under a higher epoch
+and pass a saved source/event/inbox/checkpoint audit before callback release.
+No SIGSTOP, source-command replay or synthetic proof repairs that prefix.
+
+After release within the unchanged 10-second handler budget, the old callback
+must record closed-domain storage/commit refusal even though it then attempts a
+success-shaped response. The original request must terminate without success,
+and the old process must join with `NodeLeaseExpired` and no graceful-stop report.
+The joined old source's DB/WAL family is archived and read only through disposable
+copies: original business value/receipt, lane, next sequence 2, settlement 1 and
+zero pending events must remain. A second recovered-prefix audit precedes one
+consumer effect/checkpoint and complete preserving survivor/store cleanup.
+Complete offline audit rechecks the forensic archive's bytes.
+
+All four final cases pass: before-tx/before-commit on SQLite (2.91s/2.79s) and
+private pinned RustFS S3 (4.74s/4.40s). Ordinary smoke, resumed-owner and source
+follower-only cases also pass. The immutable final executable SHA-256 is
+`931d05edf72aff8740efb1db608c6b17ef7147a4a96663378190260c8082fcfd`.
+All 117 Python guards pass, including missing/reordered stages, changed probe
+intent, paused/dead/reused PIDs, stale authority/policy, false refusal, stale
+commits, source replay/prefix loss, archive mutation and incomplete cleanup.
+Workspace/all-target/all-feature check and Clippy with warnings denied, seven
+artifact tests, three CLI tests, formatting (509 Rust files), dependency checks
+(403 packages/no JavaScript engine), documentation validation (36 documents,
+6 flows, 386 references) and whitespace checks pass. Checks use Rust 1.97.0/aarch64 macOS; the
+initial adapter lifetime compile error was a fixture setup issue, not a runtime
+failure. Core runtime/SDK code and owned markers remain unchanged. Earlier library,
+Node and other process qualifications are not superseded by these selected runs.
+
+This qualifies the two independent-process source callback cuts under an injected
+node-client outage. Destination follower-disk recovery is next, followed by other
+stale settlement/reply interleavings and the existing physical-host/store/power,
+startup-cause, lifecycle, capacity and operational gates. The full goal remains
+incomplete.
+
+## 2026-10-15 an executing source poll spans fenced takeover
+
+The next native fixture holds a real source callback within a synchronous poll
+at two cuts: after retaining storage/stream handles but before a transaction,
+and after writing business state plus an outbox event but before commit. It
+isolates only the old node's object-store client; the observer and successor
+retain healthy independent clients. Actual refused store calls and old-domain
+closure must occur while the callback remains held. No SIGSTOP, manual domain
+closure, synthetic proof or source-command replay supplies the boundary.
+
+Before releasing that callback, a distinct node/domain/core executor must recover
+the source by read, install a higher ownership epoch and expose the original
+business value, producer incarnation/revision/progress and exact accepted event.
+The second cut specifically keeps an uncommitted event present in the old
+connection throughout recovery; it must not appear in the successor's prefix.
+After release, the original retained handle or commit must refuse with closed-
+domain authority. Even though application code catches that error and returns
+a success-shaped response, the original HTTP request must not succeed.
+
+The old node must return `NodeLeaseExpired` after joining, then a second audit
+must find the same recovered state and accepted envelope. Only afterward may a
+consumer process the original event, producing one inbox effect. Successor drain
+and continued caller-executor operation are required. The focused two-cut case
+passes (10.07s). The final case adds explicit original event/value/sequence checks
+and confirms the callback has not ended before the successor audit. All 48 native
+Node tests pass (99.41s), as do seven artifact tests, three CLI tests, 111 Python
+guards, formatting (508 Rust files), docs (36 documents/6 flows/386 references),
+dependency checks (403 packages/no JavaScript engine) and whitespace checks.
+Workspace/all-target/all-feature check and Clippy with warnings denied also
+pass. Initial test-helper compile errors were fixture setup errors, not
+production failures. No production Rust or owned marker changes are made;
+earlier library, SDK and independent-process suites are not rerun or superseded
+by this fixture-only slice. Checks use Rust 1.97.0/aarch64 macOS rather than
+claiming CI's configured toolchain.
+
+This extends PR #52's local storage regression to actual embedded Node routing,
+automatic expiry/fencing and takeover while the callback is still entered. It
+uses a private SQLite bucket on one machine, independent execution domains and
+core executors, and an injected client-specific outage. Independent-process
+isolation, physical hosts/power/store faults, other stale settlement/reply cuts,
+destination follower-disk recovery and lifecycle/capacity gates remain open.
+The full goal is still incomplete.
+
+## 2026-10-15 retained storage admission inside an executing turn
+
+The stale-owner audit found a concrete SDK admission gap. `Context::storage`
+checked domain admission when creating a handle, but retained `Storage` handles
+only checked activation/source identity. A callback already executing while its
+domain closes could continue synchronous access and commit an open transaction.
+An installed original I/O context also let a retained handle write while another
+execution domain was temporarily entered.
+
+Two focused native regressions fail before the fix: the wrong-domain write
+returns success, and domain closure after business/outbox writes still permits
+commit (0.02s). These are actual storage-boundary failures, not fixture decoding
+or bootstrap errors. Storage now independently compares the installed I/O
+context's services with the current domain. Ordinary access and commit additionally
+require open-domain admission. Cleanup retains original activation/connection
+identity without requiring open admission, so rollback can undo the unfinished
+transaction after closure. No new business authority is granted by cleanup.
+
+Both regressions pass after the fix (0.03s): retained KV/SQL/cursor access and new
+transactions refuse after closure; the unfinished transaction rolls back both
+business state and its second event, retaining the earlier event, producer next
+sequence and settlement watermark. Owned markers remain one, with no
+compatibility path or schema change.
+
+Broader validation passes all 229 library tests, 47 native Node tests (100.46s),
+seven artifact tests, three CLI tests and the native event-stream, outbox, SQL,
+storage and transaction suites. Workspace/all-target/all-feature check and
+Clippy with warnings denied pass, as do formatting (507 Rust files), 111 Python
+guards, docs (36 documents/6 flows/386 references), the dependency audit
+(403 packages/no JavaScript engine) and whitespace checks. The SDK guides, API
+map, example and generated asynchronous flow/2x preview describe the admission
+boundary; the preview was rendered and inspected.
+
+A rebuilt executable, archived with SHA-256
+`617bfe9ac441dfeb07fdf3d96e3152f4358a0848002f395380dc5e8aab11f165`,
+passes eleven process runs: ordinary stream smoke, resumed-owner fencing and
+follower-only append/ack/live-fetch/expired-fetch on both SQLite and private
+RustFS S3. All ten saved fault ledgers pass offline audit. The checks use
+Rust 1.97.0 on aarch64 macOS; CI's configured toolchain is not claimed as locally
+exercised. These passing reruns do not establish the causes of earlier intermittent
+startup failures or close their separate gates.
+
+This closes the reproduced local SDK gap, not the full live stale-owner process
+matrix. An SQLite statement already admitted before concurrent closure and
+output/durability gates retain their existing semantics; this change does not
+claim preemption or rollback of a previously committed result. Qualifying an old
+process still executing across takeover remains the highest correctness work,
+followed by destination follower-disk and other commit/proof/lifecycle/capacity
+cuts. The full goal remains incomplete.
+
+## 2026-10-15 follower-only subscription fetch and ack recovery
+
+`ack_faults.py --follower-only` and `fetch_faults.py --follower-only` share the
+destination proof gate from the append case, with operation-specific held replies,
+restart identities and recovery audits. The original destination uses real fleet
+durability; producer/consumer leader writes explicitly use bucket proof. Arming
+follows the accepted-event audit and precedes the target fetch/ack. Actual stream
+upload refusal, the installed fleet-ack marker and unchanged stream LTX plus
+original-session log bucket bytes are required before loss and restart. The
+destination is SIGKILLed, its private local data deleted, and its actual old node
+lease observed expired before replacement starts. Followers retain their disks.
+
+Ack audits checkpoint one, no active lease, one proven inbox effect and the
+saved receipt digest before replaying only that exact receipt. The result must
+be `AlreadyAcknowledged` without another fetch, effect or checkpoint advance.
+Fetch first observes an ambiguous original response with no effect. Recovery
+must audit the original event and checkpoint zero before another fetch. Live
+mode retains the exact original lease/response; expired mode observes expiry
+and obtains a higher lease generation, then repeats that fresh receipt/response
+unchanged. Two successful fetch replays produce exactly one inbox effect; only
+the saved receipt is acknowledged. Original stream lease and transport budgets
+are unchanged. Fetch proof policy is checked against its recorded live/expired
+node-authority policy instead of inferring timing from elapsed wall time.
+
+The shared proof auditor runs before dependent operations and in complete saved
+evidence. Mutation guards reject LTX or node-log bucket bypass, missing stages,
+false proof, retained local data, stale ownership/policy and replay before proof
+recovery. Method-specific guards continue to require exact wire/receipt bytes,
+subscription identity and lease/checkpoint/effect invariants. All survivors must
+join with complete preserving shutdown.
+
+All six selected follower-only runs pass: ack, live fetch and expired fetch on
+both private SQLite and pinned RustFS S3. The eight new saved ledgers, including
+ordinary SQLite ack/live-fetch regressions, pass offline audit. The shared proof
+auditor also accepts the prior SQLite/S3 append evidence. All 111 Python guards,
+formatting (506 Rust files), docs (36 documents/6 flows/386 references), dependency
+audit (403 packages/no JavaScript engine) and whitespace checks pass. Runtime
+cases use the unchanged current executable SHA-256
+`44d5806b33ca9b3d82231a53596535878565b36b68985a21ff0ff9e3524ce9e2`,
+built with Rust 1.97.0 on aarch64 macOS. No production Rust or Cellar-owned version
+markers change, and this qualification slice does not rerun or supersede earlier
+Rust suites. The ordinary expired-fetch process case is not rerun here; its
+existing oracle guards remain in the Python suite.
+
+This remains selected process-loss qualification on one machine with live
+retained followers. It does not qualify follower disk destruction, physical
+hosts, power/store loss, live stale-owner execution or every commit/proof cut.
+The full implementation/release goal remains incomplete.
+
+## 2026-10-15 follower-only destination append recovery
+
+`fleet_faults.py --follower-only` selects real fleet durability for the original
+destination and explicit bucket proofs for producer/consumer leader writes.
+It waits for an installed destination follower ensemble, arms the existing
+replica-publication refusal, and measures destination LTX plus the original
+session's log objects before the command. A complete successful append reply is
+held while an independent audit verifies the original event and source's pending
+obligation. The proof gate requires a refused stream LTX upload, the fleet-ack
+marker and unchanged destination/session bucket bytes.
+
+After SIGKILL, the harness inventories and deletes only the destination's private
+data, observes actual old lease expiry and checks unchanged bucket data again.
+It keeps the original source RPC waiting through replacement startup and a saved
+audit of the original accepted envelope, pending source, empty inbox and checkpoint
+zero. Only then is the held reply dropped and retry released. The exact append
+request/response bytes must repeat; one accepted offset, one inbox effect and
+checkpoint one survive the retry/redelivery. Every surviving process joins with
+complete preserving shutdown. The separate proof auditor runs before each
+dependent boundary as well as during the full saved-ledger audit.
+
+The first measuring run failed because dropping the original response before
+recovery allowed a retry to take a new route after authority expiry and settle
+the source before audit. That run does not qualify recovery and is retained as
+a harness failure, not a production loss bug. Holding the original response
+through recovery closes that measuring race without changing runtime policies,
+timeouts or assertions. An oracle mutation now rejects early response loss.
+
+Final follower-only runs pass on SQLite and private RustFS S3; ordinary SQLite
+append-loss also passes. All use the existing current executable with SHA-256
+`44d5806b33ca9b3d82231a53596535878565b36b68985a21ff0ff9e3524ce9e2`.
+The 106 Python guards pass, including refusal of bucket bypass through LTX or
+node-log objects, missing proof stages, retained local data, stale authority and
+early response loss. Production Rust and owned markers remain unchanged.
+Formatting (506 Rust files), docs (36 documents/6 flows/386 references), dependency
+audit (403 packages/no JavaScript engine) and whitespace checks also pass. The
+current runtime binary's earlier Rust suites remain separate evidence; this
+Python/documentation slice does not rerun or supersede them.
+
+This qualifies one destination append boundary with live retained followers on
+one machine, not follower disk loss, independent physical hosts, power/store
+loss or every commit/proof cut. Destination follower-only fetch/ack and live
+stale-owner execution are next, with unexplained startup and lifecycle/capacity
+gates still open. The full goal remains incomplete.
+
+## 2026-10-15 returning proof after a recorded recovery refusal
+
+The selected acceptance gate is recovery availability when a valid follower
+witness returns after the predecessor has already recorded missing proof.
+Refusal must preserve the recovering predecessor, and a later retry must use
+current evidence rather than treat the earlier loss diagnostic as authority.
+
+A native log fixture commits a real fleet-proven SQLite write, stops both
+original execution domains, deletes the original leader's local directory and
+checks that neither cell LTX nor session log data exists in the bucket. Recovery
+first contacts a real follower store opened on an empty directory. It must
+refuse with no complete witness, preserve the old generation in recovering state,
+record a blocked diagnostic and expose no restored cell. The fixture then routes
+to a newly opened follower store on the retained disk, checks the exact original
+range and entry bytes, and retries recovery twice. The restored SQL state must
+contain exactly the single original row without command replay; the predecessor
+must be sealed and the earlier diagnostic unchanged.
+
+The focused case passes (2.81s), followed by all six native log tests (1.33s)
+and four protocol tests (0.69s). Workspace/all-target/all-feature Clippy with
+warnings denied passes (41.76s), as do formatting (506 Rust files), 101 Python
+oracle guards, docs (36 documents/6 flows/386 references), dependency checks
+(403 packages/no JavaScript engine) and whitespace checks. This test-only slice
+changes no production Rust or version markers; it does not rerun or supersede
+the preceding full Node and process qualifications. Checks use Rust 1.97.0 on
+aarch64 macOS, not CI's configured toolchain.
+
+This fixture uses independent native execution domains and actual follower
+handlers through the current log wire. It is not independent-process, physical
+network, host or power-loss qualification, and does not close the destination
+append/fetch/ack or stale-owner gates. Those remain the highest correctness
+priorities, followed by the unexplained startup failures and lifecycle/capacity
+cuts in the ordered list above.
+
+## 2026-10-15 current log wire and follower layout at version one
+
+The remaining owned ranged-tail marker is now one in both JSON requests
+(`tail_format`) and binary responses (`CLT1`). The range's fragment epoch, base,
+end and completeness fields are unchanged. Epochs and sequence counters remain
+runtime values, including values greater than one. Unsupported markers and
+missing declarations are refused; there is no entries-only fallback or format
+negotiation. Every participant must be rebuilt together.
+
+Follower session discovery no longer checks the former flat node/state.json
+layout. Native load/persist entry points also require a valid node/lineage/generation
+identity before reading cached or on-disk state, so direct SDK calls cannot
+re-enable that layout or write it. Existing current-layout disk bytes are
+unchanged; former flat-layout development state must be recreated. No layout
+migration or compatibility reader is added.
+The same audit found old individual-entry and unchecksummed batch decoders.
+Those readers and their cleanup branches are removed too. Current loading/tails
+reject `.entry`/`.entries` files without reading their payload; only checksum-
+protected committed `.batch` files supply entries. The existing missing-directory
+and checksum/range completeness refusals remain in place. Unsupported development
+files are left for inspection/recreation instead of silently migrating them.
+
+Protocol coverage asserts the encoder's JSON marker and binary magic as well as
+decoder acceptance/refusal, keeps nontrivial epoch/range counters, and retains
+torn-frame checks. A native follower-GC case exercises current-generation
+discovery, keeps an active fragment unsealed, seals only a closed fragment,
+rejects native access to flat sessions and old entry layouts, and leaves
+unsupported files unchanged. A
+targeted scan found no other non-one owned version markers in
+the inspected core; application event schema versions and external codec versions
+are not normalized by this policy.
+
+Validation passes all 227 library tests, 47 native node tests (328.86s), five
+native log tests, four protocol tests including current-only GC/access, seven
+artifact tests and three CLI tests. The 101 Python oracle guards, format check
+(505 Rust files), docs (36 documents/6 flows/386 references), dependency audit
+(403 packages/no JavaScript engine), whitespace and workspace/all-target/all-
+feature Clippy with warnings denied also pass. Real source follower-disk restart
+passes on SQLite/S3 (3.43s/5.93s), live-follower recovery passes on both backends
+(2.71s/5.72s), and ordinary streams smoke passes (1.58s), all on the same current
+executable. The final comment-only rebuild is byte-identical to the tested
+binary. These checks use Rust 1.97.0/aarch64 macOS; CI's configured toolchain is
+not claimed as locally exercised.
+
+The full outbox goal remains incomplete. The next correctness work returns to
+restoration of valid proof after refusal and destination follower-only append/
+fetch/ack cuts, followed by the unresolved startup, lifecycle, capacity and
+operational gates. This hard cutover does not establish mixed-build support or
+close any unqualified failure boundary.
+
+## 2026-10-15 refuse recovery after durability proof loss
+
+The prior all-fleet S3 failure is not evidence that arbitrary disk loss must be
+recoverable. Fleet proof certifies follower fsync or bucket data; a surviving
+leader's local SQLite file does not certify a complete node-log prefix. Eventual
+delivery already requires recoverable storage. When a required witness is
+unavailable, refusing startup is safe. Restoring valid evidence can permit a
+later retry; destroying every authoritative copy cannot be hidden as successful
+recovery.
+
+Inspection found two unsafe continuations beyond that initial refusal. First,
+after all members were considered conclusive (including a long-expired,
+unreachable member), recovery wrote a loss record and proceeded to drain/seal
+the log despite possible fleet acknowledgments. A valid native startup
+regression reproduced successor admission on that path. Second, an unreadable
+retained bundle was recorded and skipped, so the uncovered-row scan could
+answer as if no outstanding bytes remained. A diagnostic is not durability
+evidence and cannot authorize either continuation.
+
+Recovery now retains the recovering predecessor and refuses to install a
+successor whenever a log may have fleet acknowledgments but no complete witness.
+The empty-ensemble/ack-marker case also refuses. Conclusive failures retain a
+`recovery_blocked` diagnostic; inconclusive failures retain their existing
+refusal. Neither expiry grace nor a diagnostic grants permission to abandon
+acknowledged writes. Unreadable retained bundles record diagnostics and refuse
+every scan, including after that diagnostic is cached. The record remains a
+timestamped observation, while the current log state remains authoritative.
+
+The original predecessor-recovery fixture lacked the required paced_handoff
+lease field and could fail at decoding while claiming to cover witness refusal.
+It now supplies the current lease shape and asserts the actual witness reason.
+The new startup case covers long-dead members and an empty ensemble, preserves
+the prior generation/recovering state, and checks that failed startup releases
+the local directory. The bundle regression covers repeated scans after a
+diagnostic exists. This change adds no version marker, compatibility reader or
+local-SQLite fallback.
+
+The valid pre-fix startup regression admitted a successor (failed in 1.62s),
+and the pre-fix corrupt-bundle regression accepted both empty folds (failed in
+0.03s). Those are the behavioral reproductions; the initial malformed lease and
+fixture compile failures are not counted as proof. With the fix, all 47 native
+node cases pass (349.35s), including both missing-proof inputs and the strengthened
+predecessor refusal. All five native log cases pass (2.37s), including the repeated
+corrupt scan and real successful follower recovery. Library tests pass 227 cases,
+native artifacts/CLI/log protocol pass 7/3/3 cases, and Python guards pass 101.
+Workspace/all-target/all-feature Clippy passes with warnings denied (3m47s),
+format checks 505 Rust files, docs validate 36 documents/6 flows/386 references
+and dependency audit checks 403 packages without a JavaScript engine.
+
+A freshly built executable also passes follower-disk restart on SQLite/S3
+(3.10s/5.66s), live-follower recovery on SQLite/S3 (3.03s/5.39s), and ordinary
+streams smoke (1.11s). These retain exact receipt/envelope checks, pre-replay
+audits, expected inbox/checkpoint results and complete process/server shutdown.
+The restart cases explicitly keep destination/consumer leader commits bucket-
+backed while the source uses follower-only proof; they are not successful recovery
+claims for destroyed witnesses. Rust 1.97.0/aarch64 macOS and symbols-disabled,
+nonincremental profiles were used; CI's configured toolchain is not claimed as
+locally exercised.
+
+This prevents false successful recovery. It does not recreate destroyed proof,
+retroactively repair development logs already sealed after loss, establish
+physical-disk/power tolerance, or close the older unexplained startup/recovery
+failures. Wider destination append/fetch/ack proof cuts, safe restoration of
+missing evidence and remaining lifecycle/capacity/operational gates stay open.
+An additional pre-existing internal-development policy gap was found during this
+audit: the owned tail wire still uses tail_format 2 / CLT2, and follower session
+discovery retains a former flat-layout branch. Normalize those with a hard
+cutover to marker one and current-layout-only readers; do not add compatibility
+negotiation. This safety fix does not claim that broader audit is complete.
+
+## 2026-10-15 recover source proof after follower restart
+
+The source-proof driver adds an explicit `--restart-followers` mode. It SIGKILLs
+every original process, archives the producer's original ensemble's committed
+follower batches and independently rechecks unchanged source bucket data while
+no original process survives. It then archives/deletes leader-local data,
+observes each original node's persisted authority expiry and starts all
+replacements before waiting for activation. Each follower must retain the same
+files but register a new PID/node generation. The actual new source owner may be
+a restarted follower; direct owner metadata must show a higher epoch and match
+the serving source. Original receipts, pending obligation and accepted envelope
+bytes must survive before any consumer effect or acknowledgment. No source POST
+is replayed. Complete audits recheck the source and follower archives.
+
+The first oracle incorrectly required a positive state.json watermark and
+rejected actual successful SQLite recovery. Inspection of the immutable killed
+disk showed the seed at zero and committed batches spanning later sequences.
+The measuring code now decodes the current CLB1/CLE1 batch format independently,
+checks full SHA-256 footers, entry/header/filename ranges, and identifies original
+source/ownership-epoch frames. This follows the runtime's documented batch commit
+point; it does not relax source identity or durability requirements. The original
+failed trace remains retained.
+
+The broader all-fleet S3 case found a separate open recovery gap. Destination's
+persisted log had `may_have_fleet_acks=true`, `tiered=0`, and sole ensemble member
+producer. Deleting producer-local data also deleted that destination session's
+only follower batches. Destination restart refused with `no complete true
+witness` and consumer/successor event activation failed. No successful recovery
+is claimed for that trace. The implementation currently fails closed; whether
+and how to recover safely from the surviving former leader's local data, or
+prevent this availability loss through proof policy, requires further work.
+
+An explicit `--peer-proof bucket` case isolates source follower restart by keeping
+destination/consumer leader commits bucket-backed. Source proof remains fleet
+only, with real refused replica uploads and original source LTX still absent from
+the bucket after all SIGKILLs. Both SQLite and private S3 runs recover the original
+source after restarting followers from retained disk, then apply exactly two
+effects and checkpoint two. This is additional source-proof evidence; it does
+not replace or close the failing all-fleet case. Defaults retain fleet proof on
+peers; every saved run records its actual peer policy.
+The bucket inventory includes both cell LTX and producer-session node-log
+bundle/recovered objects. Either new object or changed bytes reject a
+follower-only claim, including while every original process is dead. The live-
+follower regression also passes on both backends under this stronger inventory.
+
+Final source-only restart cases pass on SQLite (3.30s) and private RustFS S3
+(6.21s), with the acknowledging destination process restarted and then serving
+the original pending source under epoch two. All original processes are dead
+at the bucket/data archive boundary; producer-session bucket bundle count is
+zero. Live-follower regressions pass on SQLite/S3 (2.68s/5.24s). Oracle guards
+pass 101 cases; native artifact/CLI suites pass 7/3 cases. Workspace/all-target/
+all-feature Clippy passes with warnings denied (1m30s including a package-cache
+lock wait), formatting checks 505 Rust files, docs validate 36 documents/6 flows/
+386 references and dependency audit checks 403 packages with no JavaScript
+engine. Rust example source hashes and the reused executable's SHA256 are
+verified unchanged from the preceding qualified build; this turn changes only
+the Python measuring/oracle code and documentation.
+
+Next correctness work starts with the combined lost-witness recovery boundary,
+then destination follower-only append/fetch/ack cuts. Physical disk destruction,
+power/host loss, the earlier unexplained startup/recovery intermittents and the
+remaining lifecycle/capacity/operational gates remain open. All owned markers
+stay one; this turn adds no runtime schema/protocol reader or migration.
+
+## 2026-10-15 follower-only source acceptance
 
 The selected risk is an acknowledged source state/outbox transaction existing
 only on the fleet log when the leader loses all local state. The new

@@ -9,13 +9,40 @@ use serde_json::{json, Value};
 use std::sync::atomic::AtomicBool;
 
 #[derive(Debug)]
-struct Outage {
+pub(super) struct Outage {
     store: Arc<dyn ObjectStore>,
     isolated: AtomicBool,
     refused: AtomicUsize,
 }
 
 impl Outage {
+    pub(super) fn wrap(
+        bucket: &cellar::bucket::Bucket,
+    ) -> Result<(cellar::bucket::Bucket, Arc<Self>)> {
+        let fault = Arc::new(Self {
+            store: bucket.store.clone(),
+            isolated: AtomicBool::new(false),
+            refused: AtomicUsize::new(0),
+        });
+        let isolated = cellar::bucket::Bucket::from_clients(
+            fault.clone(),
+            fault.clone(),
+            fault.clone(),
+            bucket.backend,
+            bucket.name.clone(),
+            bucket.prefix.clone(),
+        )?;
+        Ok((isolated, fault))
+    }
+
+    pub(super) fn isolate(&self) {
+        self.isolated.store(true, Ordering::Release);
+    }
+
+    pub(super) fn refused(&self) -> usize {
+        self.refused.load(Ordering::Acquire)
+    }
+
     fn check(&self) -> object_store::Result<()> {
         if self.isolated.load(Ordering::Acquire) {
             self.refused.fetch_add(1, Ordering::AcqRel);
@@ -149,7 +176,7 @@ impl PaginatedListStore for Outage {
     }
 }
 
-fn source_scope() -> String {
+pub(super) fn source_scope() -> String {
     let script = "embedded-node";
     let namespace = format!("cells:v1:{}:{script}:Account", script.len());
     let id = cellar_native::cell_id::for_name(&namespace, "events");

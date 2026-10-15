@@ -89,6 +89,14 @@ successful response passes the source output proof gates. The stream or consumer
 may still be unavailable. An operation that updates a separate SQL binding must
 emit inside that database's owning cell to share the atomic boundary.
 
+Retained storage handles stay bound to their execution domain and activation.
+Storage access and transaction commit recheck admission, including when forced
+domain closure happens inside an already-entered synchronous callback. A refused
+commit rolls back business changes and emitted events together. Rollback cleanup
+can still use the original connection after closure; it grants no new business
+or delivery authority. Local writes already executed before closure remain
+subject to the ordinary durability and discovery gates.
+
 Application commands still need stable command IDs and digest-checked receipts.
 A retried business request can otherwise emit twice. Stream append deduplication
 protects retries of the same stored obligation, not repeated business commands.
@@ -142,6 +150,36 @@ releases work for later processing without advancing the checkpoint.
 `extend_until` uses a bounded absolute expiry so a repeated extension cannot
 continually add time. Expired/reset/obsolete authority must be handled explicitly.
 
+Several workers sharing a subscription compete for one live batch. Expiry allows
+another worker to receive the same records with a new receipt; it does not stop
+the old worker's effects. A delayed acknowledgment or extension cannot settle or
+extend that replacement lease. Reset changes the subscription incarnation even
+when replay starts at the same offset, so old receipts return `SubscriptionReset`.
+A replayed successful acknowledgment may return `AlreadyAcknowledged` while a
+later batch is leased; that result describes only the original receipt. Keep
+inbox receipts and business effects in the same stable consumer database and
+processing scope across redelivery. Separate worker databases do not share inbox
+deduplication; external effects still require destination idempotency.
+
+Stream deadline decisions use a captured, persisted logical clock. Authorized
+append, configuration and retirement attempts retain their time observation even
+when the requested change is refused; duplicate appends retain it too. Scheduling
+uses that captured time. Once a mutation's time observation is proven, rolling
+the host clock backward cannot make that receipt live again, including after
+owner handoff. A typed refusal after a clock write uses the same ownership and
+data output proof as other results. An `Ambiguous` result establishes neither
+the recovered clock nor rollback; reconcile the current owner before proceeding.
+Read-only status clamps its observation without advancing that clock; denied
+callers cannot advance it. Exact configuration-receipt replay returns the recorded
+result without a new deadline decision. Live leases protect their
+batch from age and capacity reclamation; after expiry, required checkpoints
+continue protecting unacknowledged history. Bounded-history subscriptions can
+instead become expired and require an explicit reset after reclamation.
+
+The SDK returns `Acknowledgment::Obsolete` for an older receipt whose range is
+already behind the checkpoint. Like `AlreadyAcknowledged`, this is settled
+progress, not an instruction to apply the events again.
+
 `BatchOptions` defaults to 100 records, 1 MiB and a 30-second poll. Host policy
 caps the requested budgets. Polling stops when work is available or its wait
 elapses; caller cancellation can stop it earlier. The pending RPC deadline
@@ -163,7 +201,7 @@ name used in JSON. Display text is diagnostic, not a retry decision.
 | `OwnershipLost` | Resolve current authority; a prior commit may still exist |
 | `Ambiguous` | Reconcile using the saved command ID, operation ID, fetch ID or exact receipt before repeating effects |
 | `LeaseBusy`, `SubscriptionPaused` | Wait for eligible work or an authorized lifecycle change |
-| `LeaseExpired`, `StaleReceipt`, `SubscriptionReset`, `AckObsolete` | Stop treating the old receipt as current processing authority |
+| `LeaseExpired`, `StaleReceipt`, `SubscriptionReset` | Stop treating the old receipt as current processing authority |
 | `CursorExpired` | Inspect the earliest retained offset and explicitly choose whether to restart or rebuild |
 | `InvalidCursor` | Use a cursor for the same resource and inspect its retained range before selecting another position |
 | `BatchTooSmall` | Increase record/byte budgets within host policy; preserve the fetch ID when retrying a leased batch |
@@ -193,7 +231,10 @@ business calls.
 ## Operate the whole path
 
 Required subscriptions protect their unacknowledged history and can backpressure
-producers. Bounded history can expire lagging readers. Choose this policy before
+producers. After acknowledgment frees capacity, producers resume on their saved
+retry schedule; acknowledgment does not immediately wake a remote producer.
+Transient delivery failures use jittered exponential backoff capped at 60 seconds.
+Bounded history can expire lagging readers. Choose this policy before
 deployment, monitor backlog and lag, and define how to rebuild a consumer whose
 history has expired. Correctness receipts and watermarks do not expire
 automatically. Retiring resources and destroying sources require explicit controls.
@@ -205,6 +246,29 @@ with `cellar stream describe`, and consumer checkpoint/lease state with
 drain proofs. Save operation IDs and expected revisions for mutations; query
 status after a lost response. Diagnostics omit payloads and lease tokens by
 default. Fleet root metrics report coverage failures rather than inventing totals.
+
+After repairing a blocked lane, retry against its freshly inspected revision.
+Retry fences attempts already in flight: their later success or refusal cannot
+clear or block the retried work. Reuse the same operation ID, reason and expected
+revision when resolving an ambiguous retry response; replay returns its retained
+receipt and does not schedule another attempt, even after delivery completes.
+That receipt proves the retry obligation, not destination acceptance.
+
+Node lease objects retain folded log recovery evidence even after expiry or
+retirement. An expired lease is eligible for recovery; a missing lease is not
+proof that bucket data is complete. When a cell names that displaced owner,
+takeover requires the retained node lineage and recovery metadata. Each owned
+cell and node root carries that lineage; log sessions and follower directories
+use node/lineage/process-generation. Reusing a node name after deleting its root
+creates a fresh lineage and refuses the existing cell. Preserving restarts reuse
+the retained lineage and recover the previous process session before admission.
+If identity capture observed a root, its later disappearance cannot become first
+boot. Startup refuses before collecting predecessor proof or installing a lease;
+changing the lineage between those reads also refuses.
+Do not delete node lease objects as a recovery or garbage-collection procedure.
+Returning metadata must preserve the original lineage, generation, ensemble and
+acknowledgment history. Metadata rollback, independent-process and physical
+store-loss behavior remain separate release qualifications.
 
 Start with the [executable walkthrough](../examples/durable-streams/README.md).
 Its smoke test checks publication, retry, preserving restart, inbox suppression

@@ -271,6 +271,10 @@ impl Storage {
         let io = crate::host_io::installed_context()
             .ok_or_else(|| anyhow!("native storage is outside an executing turn"))?;
         anyhow::ensure!(
+            Arc::ptr_eq(io.host_services(), &crate::asyncrt::services()),
+            "native storage belongs to another execution domain"
+        );
+        anyhow::ensure!(
             io.native_activation
                 .as_ref()
                 .is_some_and(|activation| Arc::ptr_eq(activation, &self.0))
@@ -293,6 +297,13 @@ impl Storage {
 
     fn activation_scope(&self) -> Result<&str> {
         let scope = self.installed_activation_scope()?;
+        // A synchronous application poll can outlive forced host closure.
+        // Recheck ordinary operations and commit here; rollback/retirement
+        // deliberately retain installed_activation_scope on the original DB.
+        anyhow::ensure!(
+            crate::asyncrt::services().accepts_work(),
+            "native storage execution domain is closed"
+        );
         if let Some(failure) = self.0.resources.failure.lock().unwrap().as_ref() {
             anyhow::bail!("native cell was reset: {failure}");
         }

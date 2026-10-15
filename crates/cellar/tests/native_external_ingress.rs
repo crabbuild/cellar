@@ -63,6 +63,16 @@ fn applications(signals: Arc<Signals>) -> Result<CompiledApplications> {
                         anyhow::bail!("fetch required");
                     };
                     let path = request.parsed_url()?.pathname();
+                    if path == "/clock" {
+                        return Ok(Output::Http(
+                            http::Response::new(
+                                200,
+                                cellar::asyncrt::wall_ms().to_string(),
+                                Vec::new(),
+                            )
+                            .into_http(&context)?,
+                        ));
+                    }
                     if path == "/count" {
                         return Ok(Output::Http(
                             context
@@ -107,6 +117,15 @@ struct Harness {
 }
 
 async fn start(capacity: usize, max_body: usize, signals: Arc<Signals>) -> Result<Harness> {
+    start_with_clock(capacity, max_body, signals, None).await
+}
+
+async fn start_with_clock(
+    capacity: usize,
+    max_body: usize,
+    signals: Arc<Signals>,
+    wall_clock: Option<Arc<WallClock>>,
+) -> Result<Harness> {
     let directory = tempfile::tempdir()?;
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -151,6 +170,7 @@ async fn start(capacity: usize, max_body: usize, signals: Arc<Signals>) -> Resul
     };
     config.maintenance.rebalance = false;
     let services = ExternalNodeServices {
+        wall_clock,
         http_client: None,
         host_executor: tokio::runtime::Handle::current(),
         core_executor: tokio::runtime::Handle::current(),
@@ -313,5 +333,28 @@ async fn cancelled_external_call_retires_work_and_releases_admission() -> Result
     let _ = calling.await;
     // Join through the node's existing work barrier instead of assuming that
     // cancelling the transport future immediately retires the application.
+    stop(harness.node).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn external_ingress_retains_its_captured_wall_clock_after_rollback() -> Result<()> {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    let now = cellar::asyncrt::wall_ms();
+    let sample = Arc::new(AtomicI64::new(now));
+    let selected = sample.clone();
+    let harness = start_with_clock(
+        8,
+        1024,
+        Arc::new(Signals::default()),
+        Some(Arc::new(move || selected.load(Ordering::SeqCst))),
+    )
+    .await?;
+    for value in [now, now - 60_000, now + 5_000] {
+        sample.store(value, Ordering::SeqCst);
+        ensure!(
+            text(harness.ingress.call(request("/clock", "GET", "")?).await).await?
+                == value.to_string()
+        );
+    }
     stop(harness.node).await
 }

@@ -3,6 +3,7 @@
 #![allow(clippy::disallowed_methods)]
 
 mod application;
+mod owner_fault;
 mod replica_fault;
 
 use anyhow::{ensure, Result};
@@ -83,6 +84,9 @@ struct FleetFixture {
     node_lease_ms: Option<u64>,
     #[serde(default)]
     replica_fault: bool,
+    #[serde(default)]
+    owner_fault: bool,
+    blocked_claim: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -234,6 +238,23 @@ fn main() -> Result<()> {
             .run(cellar::peer_auth::load_or_create(&bucket))
             .await??;
         bootstrap.shutdown().await;
+        let owner_control = fixture
+            .as_ref()
+            .filter(|fixture| fixture.owner_fault)
+            .map(|_| owner_fault::Control::new(&data));
+        let bucket = match &owner_control {
+            Some(control) => owner_fault::wrap(bucket, control.clone())?,
+            None => bucket,
+        };
+        let bucket = match fixture
+            .as_ref()
+            .and_then(|fixture| fixture.blocked_claim.as_deref())
+        {
+            Some(scope) => {
+                owner_fault::wrap(bucket, owner_fault::Control::for_claim(&data, scope)?)?
+            }
+            None => bucket,
+        };
         let peer = fixture
             .as_ref()
             .map(|fixture| fixture.peer)
@@ -325,6 +346,7 @@ fn main() -> Result<()> {
                 .is_none_or(|fixture| fixture.fleet_durability),
         };
         let services = NodeServices {
+            wall_clock: None,
             http_client: None,
             host_executor: host.handle().clone(),
             core_executor: core.handle().clone(),
@@ -337,9 +359,12 @@ fn main() -> Result<()> {
             containers: None,
             metrics: None,
         };
-        let applications = application::applications(
-            faults.then(|| Arc::new(application::FaultControls::for_node(node_name))),
-        )?;
+        let applications = application::applications(faults.then(|| {
+            Arc::new(application::FaultControls::for_node(
+                node_name,
+                owner_control.clone(),
+            ))
+        }))?;
         #[cfg(unix)]
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;

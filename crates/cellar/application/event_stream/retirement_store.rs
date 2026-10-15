@@ -173,6 +173,12 @@ pub(crate) fn acceptance(reply: &Value, operator: Option<&str>) -> Result<()> {
 pub(crate) fn close(context: &Context, body: &Value) -> Result<Value> {
     let (request, digest) = request(body)?;
     let (db, definition, row, caller) = authorized(context)?;
+    let now = if store::text(&row, "lifecycle")? == "active" {
+        store::clock(&db)?
+    } else {
+        // Terminal receipt replay makes no lease decision or new observation.
+        store::number(&row, "logical_ms")?
+    };
     db.tx(|tx| {
         let previous=tx.system_sql("SELECT * FROM __sys_stream_retirement WHERE singleton=1",&[])?;
         if let Some(previous)=previous.first() {
@@ -182,7 +188,6 @@ pub(crate) fn close(context: &Context, body: &Value) -> Result<Value> {
         }
         if store::text(&row,"lifecycle")?!="active" {return Err(error(ErrorCode::DestinationDeleted,"stream is closed"));}
         if request.revision!=definition.revision {return Err(error(ErrorCode::ConfigConflict,"retirement revision differs from the stream"));}
-        let now=crate::asyncrt::wall_ms().max(store::number(&row,"logical_ms")?);
         facts(tx,request.force(),now,store::number(&row,"next_offset")?)?;
         tx.system_sql("INSERT INTO __sys_stream_retirement(singleton,operation,digest,request,principal,grant_id,operator,started_ms,records,bytes) VALUES(1,?,?,?,?,?,?,?,?,?)",
             &[request.operation.clone().into(),digest.into(),serde_json::to_string(&request)?.into(),caller.principal.into(),caller.grant.into(),caller.operator.map(SqlValue::Text).unwrap_or(SqlValue::Null),now.into(),store::number(&row,"rows")?.into(),store::number(&row,"bytes")?.into()])?;

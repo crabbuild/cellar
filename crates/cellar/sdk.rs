@@ -189,7 +189,7 @@ pub use crate::application::limits::{
 pub use crate::application::*;
 pub use crate::assets::{AssetCache, AssetCacheOptions, AssetResolver};
 #[cfg(not(cellar_internal_tests))]
-pub use crate::asyncrt::{DomainClosed, ExecutionDomain};
+pub use crate::asyncrt::{DomainClosed, ExecutionDomain, WallClock};
 pub use crate::container::EngineOptions as ContainerEngineOptions;
 pub use crate::daemon::CompiledApplications;
 /// The process-owning command-line runner.

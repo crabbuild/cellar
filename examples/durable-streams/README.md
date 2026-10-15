@@ -60,6 +60,10 @@ inside the transaction. Framework dispatch proves the source obligation and
 appends it asynchronously. A successful business response establishes durable
 state and a recoverable obligation, not completed delivery.
 
+Storage access and commit retain the original activation/domain authority.
+Forced domain closure inside the callback refuses commit and rolls back state
+and the emitted obligation together; retaining a storage handle cannot bypass it.
+
 The `Projection` cell calls `subscription.next` with explicit batch/byte budgets
 and zero wait. For every record, one transaction records
 `tx.inbox("order-projection-v1").accept(record)` and increments local totals.
@@ -271,6 +275,35 @@ qualify separate physical hosts, follower loss, destination ack SIGKILL, object-
 store loss, power loss or the complete failure
 and capacity matrix.
 
+Add `--follower-only` to qualify an append accepted solely on follower proof.
+This mode uses 1000ms node leases, fleet durability on the original destination
+and explicit bucket proofs for producer/consumer leader writes. It waits for
+the destination ensemble, refuses destination replica uploads and requires an
+actual refused stream LTX write plus unchanged stream LTX and original-session
+log objects in the bucket. After SIGKILL it deletes the destination's private
+data and observes actual lease expiry. Followers keep their retained data.
+
+The original append reply stays held through the recovery audit, so the source
+cannot retry through a new owner and repair the prefix being measured. Only
+after the original envelope, pending source, empty inbox and checkpoint zero
+are audited does the harness drop the reply and release identical retries.
+One effect/checkpoint and complete shutdown are required. The extra saved-ledger
+checks live in [destination_proof.py](destination_proof.py) and reject bucket
+bypass, missing proof, early retry, local-data survival and stale authority.
+
+```sh
+python3 examples/durable-streams/fleet_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --output /tmp/cellar-destination-follower-evidence
+python3 examples/durable-streams/fleet_faults.py \
+  --audit /tmp/cellar-destination-follower-evidence/ledger.jsonl
+```
+
+The same mode accepts `--rustfs-image` with a pinned digest. It covers the
+selected destination append cut with live followers; follower disk loss,
+follower-only fetch/ack, physical hosts, power/store loss and the full matrix
+remain unqualified. The ordinary mode retains its existing proof/lease defaults.
+
 ## Whole-fleet recovery from the bucket
 
 [whole_fleet.py](whole_fleet.py) starts three independent processes with explicit
@@ -331,9 +364,21 @@ python3 examples/durable-streams/ack_faults.py \
   --audit /tmp/cellar-ack-fault-evidence/ledger.jsonl
 ```
 
-Omit `--rustfs-image` for SQLite. These cases add independent-process ack-loss
-evidence on one machine. They do not qualify consumer process loss during exact
+Omit `--rustfs-image` for SQLite. Ordinary mode adds independent-process ack-loss
+evidence on one machine. It does not qualify consumer process loss during exact
 receipt replay, follower-only proof, power/store loss or all lease/ack cut points.
+
+Add `--follower-only` to refuse destination replica uploads after the accepted-
+event audit and before processing/acknowledgment. The shared destination proof
+gate requires an actual refused stream upload, an installed fleet-ack marker
+and unchanged stream LTX/session-log bucket bytes. After SIGKILL the harness
+deletes destination-local data, observes old authority expiry and requires a
+higher owner epoch/new process generation. Recovery must retain checkpoint 1,
+the original consumer effect and the exact saved receipt before replay returns
+`AlreadyAcknowledged`. This mode uses 1000ms node leases and explicit bucket
+proofs for producer/consumer leader writes; ordinary mode keeps its defaults.
+It covers this cut with live retained followers, not follower disk destruction,
+consumer loss during replay, physical hosts, power/store loss or every ack cut.
 
 ## Independent-process fetch loss
 
@@ -378,6 +423,84 @@ These are independent loopback processes on one machine. They do not qualify
 power loss, failed object-store persistence, follower-only proof, physical host
 isolation or an old owner still executing during takeover.
 
+Add `--follower-only` to either lease mode to isolate fetch proof on retained
+followers. It arms the destination replica refusal after the accepted-event
+audit, checks unchanged stream LTX/session-log bucket objects and actual fleet
+proof, then deletes destination-local data after SIGKILL. Actual node-authority
+expiry must precede restart, and the recovered original event, checkpoint zero
+and lease state must be audited before another fetch. The live case returns the
+exact original receipt/response; the expired case obtains higher lease authority
+before stable replay. Two successful replays produce one inbox effect, followed
+by acknowledgment of the saved receipt. Producer/consumer leader writes use
+explicit bucket proof. This selected fetch cut retains live follower disks;
+other commit/proof cuts, follower disk loss, physical hosts, power/store loss
+and live old-owner execution remain unqualified.
+
+```sh
+python3 examples/durable-streams/fetch_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --lease-state live --output /tmp/cellar-fetch-follower-live
+python3 examples/durable-streams/ack_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --output /tmp/cellar-ack-follower-evidence
+```
+
+Add `--restart-followers` to those ack/fetch commands to recover from **cold
+retained follower disks**. It requires `--follower-only`. After the proven reply
+is lost, all original processes are SIGKILLed. The measuring client archives the
+original destination ensemble's checksum-protected CLB1/CLE1 batches and checks
+that neither stream LTX nor that destination session's log objects repaired the
+bucket prefix. It deletes the destination's private data while preserving both
+peer disks. All replacements start before readiness waits; old leases must expire
+and peer process IDs/node generations must change.
+
+The saved recovery audit must prove the original event and subscription state
+before request replay. A returning witness can become stream owner, so every
+advertised replacement route retains the paused exact-byte measuring proxy.
+Ack recovers checkpoint one and replays the exact saved receipt without new
+fetch/effect. Live fetch retains the exact lease/reply; expired fetch waits for
+the original lease and obtains higher authority before stable replay. Offline
+audit reopens both archived batch inventories and refuses changed bytes or
+incomplete cleanup. Unit oracles use synthetic custody metadata; the process
+runs supply the actual retained batch and state evidence.
+
+These cases preserve follower disks on one machine. They do not qualify missing
+witness disks, cold pending-append recovery, consumer-local replay, physical host
+or power loss. The original live-follower modes remain separate cases.
+
+For a **cold pending append**, use both flags on `fleet_faults.py`:
+
+```sh
+python3 examples/durable-streams/fleet_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --restart-followers --output /tmp/cellar-cold-append
+python3 examples/durable-streams/fleet_faults.py \
+  --audit /tmp/cellar-cold-append/ledger.jsonl
+```
+
+The source still has an unsettled obligation when every original process dies.
+To prevent automatic delivery from repairing the destination before inspection,
+returning peers enable a private exact-scope ownership-write refusal. It denies
+only puts to this stream's ownership object while `claim-block` exists; reads,
+other claims/leases and follower-log replies retain their real behavior. The
+driver must observe an actual refusal before starting the destination. The
+replacement destination then claims and recovers through the ordinary proof
+path. The private fault never returns success or supplies proof.
+
+After both peers are ready, require a blocked retry with the original append
+bytes. Audit the original event/envelope, pending source receipt, empty consumer
+and checkpoint zero before dropping the held reply or resuming retries. The
+source may recover on either returning peer. Final delivery must retain the
+same acceptance and produce one inbox effect/checkpoint. Offline audit rechecks
+the private claim configurations/markers and archived follower batches; complete
+process/proxy/store cleanup remains mandatory. Add `--rustfs-image` with a pinned
+digest for a private S3 store.
+
+This qualifies recovery under an explicit placement gate. Unrestricted placement,
+missing witness disks, consumer-local replay and physical host/store/power loss
+retain separate qualification. Neither this cut nor a passing rerun explains
+the earlier intermittent startup/shutdown failures.
+
 ## Resume an expired source owner
 
 [resumed_owner.py](resumed_owner.py) uses four independent loopback processes
@@ -409,6 +532,44 @@ empty WAL/SHM files, so the measured archive itself is never opened by SQLite.
 This case qualifies a resumed expired owner with a held invocation/first dispatch.
 It does not qualify physical partitions, power/store loss, follower-only proof,
 or every in-flight write/reply interleaving while an old owner is running.
+
+## Keep a live source callback entered through takeover
+
+[live_owner.py](live_owner.py) runs four independent processes with explicit
+bucket proof and 1000ms node leases. It first accepts and delivers one original
+order. A second, deliberately different probe stays inside the old source's
+native poll at either `--cut before_tx` (retained handles before starting a
+transaction) or `--cut before_commit` (business/event writes still uncommitted).
+The ordinary 10-second handler budget stays unchanged.
+
+Only the producer enables the private `owner_fault` fixture client. A private
+marker makes its actual ordinary, conditional and listing operations fail;
+the CAS wrapper retains the original no-retry client. The small fixture listing
+is capped at 1000 objects. No adapter supplies proof or alters another node's
+client. Callback phase files are observations, not authority or receipts.
+
+The measuring client requires real refused lease operations, observed lease
+expiry, a live/non-stopped old PID and higher-epoch successor ownership. It audits
+the original business receipt, envelope, producer progress and empty consumer
+state before releasing the callback. No source command is replayed. The stale
+operation must refuse closed-domain authority; its caught-error success-shaped
+response must not succeed. The old process must join with lease-expiry fencing.
+Its archived DB/WAL is queried only through disposable copies and must retain
+the original business state, next sequence 2, settlement 1 and zero pending rows.
+Another audit precedes the single consumer effect and complete survivor cleanup.
+
+```sh
+python3 examples/durable-streams/live_owner.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --cut before_commit --output /tmp/cellar-live-owner-evidence
+python3 examples/durable-streams/live_owner.py \
+  --audit /tmp/cellar-live-owner-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image` with a pinned RustFS digest for a private S3 bucket. These
+cuts qualify independent loopback processes on one machine with an injected
+node-client outage. Physical partitions, power/store loss, follower-only proofs
+and other stale settlement/reply interleavings retain their own qualification.
 
 ## Recover a follower-only source proof
 
@@ -446,6 +607,25 @@ enabled in fleet-fixture configuration. This case covers follower-only source
 acceptance and leader-local-data loss. Destination append/fetch/ack follower-only
 cuts, loss of the follower disks, physical host/power loss and unsupported store
 loss remain separate qualification requirements.
+
+Add `--restart-followers --peer-proof bucket` to kill **all** original fleet
+processes and restart destination/consumer from their retained disks. The source
+still uses follower-only proof; the explicit peer policy keeps other leaders'
+commits bucket-backed. Before any replacement starts, the driver rechecks that
+source bucket bytes are unchanged, including producer-session node-log objects
+as well as cell LTX, and archives the original ensemble's committed
+batch files. Batch headers, ranges, entry identities and SHA-256 footers supply
+the evidence; `state.json` may legitimately retain a zero watermark. It verifies
+unchanged follower files before restart, actual old authority expiry, new PIDs
+and new node generations before auditing recovery. Saved source and follower
+archives are checked again at completion.
+
+The broader `--restart-followers --peer-proof fleet` case has an open recovery
+gap: deleting the producer's disk can also delete the destination's sole follower
+witness. A private S3 run refused destination startup with `no complete true
+witness`; consumer/successor activation then failed. This is fail-closed behavior,
+not successful recovery. Passing the source-only proof case does not resolve
+that combined failure or establish physical disk/power tolerance.
 
 ## Discover sources from the fleet
 

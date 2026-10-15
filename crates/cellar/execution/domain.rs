@@ -31,6 +31,11 @@ static RUNTIME_SERVICES: OnceLock<Mutex<HashMap<tokio::runtime::Id, Weak<HostSer
     OnceLock::new();
 static SELECT_STATE: OnceLock<AtomicU64> = OnceLock::new();
 
+/// Caller-owned UTC milliseconds for one execution domain. Sampling must be
+/// fast and nonblocking. Negative samples clamp to zero; wall time may move
+/// backward. Monotonic timers and operation budgets use a separate host clock.
+pub type WallClock = dyn Fn() -> i64 + Send + Sync;
+
 thread_local! {
     static SPAWNS: RefCell<Vec<Spawn>> = const { RefCell::new(Vec::new()) };
     static CURRENT_DOMAIN: RefCell<Option<Arc<ProductionDomain>>> = const { RefCell::new(None) };
@@ -43,6 +48,7 @@ struct ProductionDomain {
     next_core_request: AtomicU64,
     next_async_op: AtomicU64,
     process_tag: u64,
+    wall_clock: Option<Arc<WallClock>>,
 }
 
 impl ProductionDomain {
@@ -51,6 +57,14 @@ impl ProductionDomain {
     }
 
     fn with_services(handle: tokio::runtime::Handle, services: Arc<HostServices>) -> Arc<Self> {
+        Self::with_clock(handle, services, None)
+    }
+
+    fn with_clock(
+        handle: tokio::runtime::Handle,
+        services: Arc<HostServices>,
+        wall_clock: Option<Arc<WallClock>>,
+    ) -> Arc<Self> {
         let owner = Arc::new(ProductionDomainOwner::new(handle));
         let token = DomainToken::new(&owner);
         services.bind_domain(token.clone());
@@ -61,6 +75,7 @@ impl ProductionDomain {
             next_core_request: AtomicU64::new(1),
             next_async_op: AtomicU64::new(1),
             process_tag: u64::from(std::process::id()),
+            wall_clock,
         });
         let _ = domain.owner.domain.set(Arc::downgrade(&domain));
         domain
@@ -376,6 +391,18 @@ impl ExecutionDomain {
     pub fn new(handle: tokio::runtime::Handle) -> Self {
         Self {
             inner: ProductionDomain::new(handle),
+        }
+    }
+
+    /// Capture a caller-owned wall clock before any domain work starts.
+    /// Child tasks, blocking work and cleanup retain this domain's provider.
+    pub fn with_wall_clock(handle: tokio::runtime::Handle, clock: Arc<WallClock>) -> Self {
+        Self {
+            inner: ProductionDomain::with_clock(
+                handle,
+                Arc::new(HostServices::production()),
+                Some(clock),
+            ),
         }
     }
 
@@ -732,6 +759,11 @@ pub fn filesystem_name_max(path: &std::path::Path) -> std::io::Result<Option<i64
 }
 
 pub fn wall_ms() -> i64 {
+    if let Some(sample) =
+        installed_domain().and_then(|domain| domain.wall_clock.as_ref().map(|clock| clock()))
+    {
+        return sample.max(0);
+    }
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

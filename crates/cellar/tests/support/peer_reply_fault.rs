@@ -1,4 +1,5 @@
-//! Real peer tunnel proxy: capture a complete event RPC reply, then lose it.
+//! Real peer tunnel proxy: hold signed submissions or capture complete replies
+//! before controlled delay/loss. Packets and production proof stay unchanged.
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::{ensure, Context, Result};
@@ -25,8 +26,19 @@ pub(super) struct Exchange {
     pub delayed: bool,
 }
 
+#[derive(Clone, Debug)]
+pub(super) struct HeldRequest {
+    pub method: String,
+    pub scope: String,
+    pub body: Vec<u8>,
+}
+
 pub(super) struct Capture {
     armed: Mutex<Option<(&'static str, Fault)>>,
+    held_methods: Mutex<Vec<&'static str>>,
+    pub held_requests: Mutex<Vec<HeldRequest>>,
+    pub request_entered: Semaphore,
+    pub request_release: Semaphore,
     paused: watch::Sender<bool>,
     upstream_closing: AtomicBool,
     pub entered: Semaphore,
@@ -40,6 +52,10 @@ impl Default for Capture {
     fn default() -> Self {
         Self {
             armed: Mutex::new(None),
+            held_methods: Mutex::new(Vec::new()),
+            held_requests: Mutex::new(Vec::new()),
+            request_entered: Semaphore::new(0),
+            request_release: Semaphore::new(0),
             paused: watch::channel(false).0,
             upstream_closing: AtomicBool::new(false),
             entered: Semaphore::new(0),
@@ -52,6 +68,12 @@ impl Default for Capture {
 }
 
 impl Capture {
+    /// Hold exactly one original request for each method, before forwarding
+    /// its unchanged signed packet. This is a submission barrier, not proof.
+    pub fn hold_requests(&self, methods: &[&'static str]) {
+        *self.held_methods.lock().unwrap() = methods.to_vec();
+    }
+
     pub fn arm(&self, method: &'static str) {
         *self.armed.lock().unwrap() = Some((method, Fault::Drop));
     }
@@ -285,6 +307,22 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
     let upstream = TcpStream::connect(target).await?;
     let mut owner = BufReader::new(upstream);
     while let Some(request) = message(&mut client, false).await? {
+        let hold = {
+            let mut methods = capture.held_methods.lock().unwrap();
+            request
+                .header("x-cells-rpc-method")
+                .and_then(|method| methods.iter().position(|candidate| *candidate == method))
+                .map(|index| methods.remove(index))
+        };
+        if let Some(method) = hold {
+            capture.held_requests.lock().unwrap().push(HeldRequest {
+                method: method.into(),
+                scope: request.header("x-cells-scope").unwrap_or_default().into(),
+                body: request.body.clone(),
+            });
+            capture.request_entered.add_permits(1);
+            capture.request_release.acquire().await?.forget();
+        }
         let mut paused = capture.paused.subscribe();
         if request.header("x-cells-rpc-method") == Some("__streamAppend")
             && *paused.borrow_and_update()
@@ -301,7 +339,7 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
         let method = request.header("x-cells-rpc-method");
         if matches!(
             method,
-            Some("__streamAppend" | "__streamAck" | "__streamNext")
+            Some("__streamAppend" | "__streamAck" | "__streamNext" | "__streamExtend")
         ) {
             let method = method.unwrap();
             ensure!(

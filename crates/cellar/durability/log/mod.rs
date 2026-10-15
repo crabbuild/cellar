@@ -5,7 +5,7 @@
 //! a follower ensemble through the supplied authenticated transport. A write
 //! is proven by follower fsyncs or by ordinary bucket upload, whichever wins.
 //! The ensemble and acknowledgement history live in the leader's node lease;
-//! every log session is identified by `<node>/<generation>`.
+//! every log session is identified by `<node>/<lineage>/<generation>`.
 //!
 //! Append data and ranged recovery tails use binary framing. Recovery requires
 //! a complete retained range from a sealed follower before certifying its data.
@@ -508,7 +508,8 @@ pub fn eviction_policy_from_env() -> anyhow::Result<cellar_logic::log_evict::Evi
 // beside its authority fields, and a session's identity is the record's
 // generation. Reading "session X/G" means reading X's lease and answering
 // None unless it still carries generation G — a replaced record is a
-// recovered-then-superseded session, and absence keeps meaning complete.
+// recovered-then-superseded session. A present lease without a log also proves
+// bucket completeness. A missing lease cannot prove either condition.
 // Writes here are for DEAD sessions only (recovery's fence and seal): they
 // CAS the full wire record, carrying every authority field through
 // unchanged and never touching expiry. A LIVE session's own writes go
@@ -565,18 +566,27 @@ pub(crate) fn log_to_wire(
     }
 }
 
-pub(crate) async fn read_record(
+/// Read a node lease without assuming that an absent root proves recovery.
+/// Only first boot may proceed without this root; retired nodes retain it.
+async fn read_node_record(
     bucket: &Bucket,
-    session: &str,
-) -> anyhow::Result<Option<FoldedRead>> {
-    let (node, generation) = session.split_once('/').unwrap_or((session, ""));
+    node: &str,
+) -> anyhow::Result<Option<(crate::ownership_store::NodeLeaseWire, String)>> {
     let Some((bytes, token)) = bucket.get(&lease_key(node)).await? else {
         return Ok(None);
     };
     let wire: crate::ownership_store::NodeLeaseWire = serde_json::from_slice(&bytes)?;
-    // A bare node name reads whatever session the record carries; a full
-    // <node>/<generation> pins it, and a superseded generation is a
-    // recovered-then-replaced session whose absence means complete.
+    anyhow::ensure!(wire.node == node, "node lease identity mismatch for {node}");
+    Ok(Some((wire, token)))
+}
+
+fn folded_record(
+    wire: crate::ownership_store::NodeLeaseWire,
+    token: String,
+    generation: &str,
+) -> anyhow::Result<Option<FoldedRead>> {
+    // A present successor lease proves recovery-before-replacement. This
+    // conclusion requires the lease root; absence of that root is no proof.
     if !generation.is_empty() && wire.generation != generation {
         return Ok(None);
     }
@@ -589,6 +599,28 @@ pub(crate) async fn read_record(
         token,
         wire,
     }))
+}
+
+pub(crate) async fn read_record(
+    bucket: &Bucket,
+    session: &str,
+) -> anyhow::Result<Option<FoldedRead>> {
+    let (node, lineage, generation) = if session.contains('/') {
+        let (node, lineage, generation) = session_parts(session)?;
+        (node, Some(lineage), generation)
+    } else {
+        (session, None, "")
+    };
+    let (wire, token) = read_node_record(bucket, node)
+        .await?
+        .ok_or_else(|| anyhow!("missing node lease for {session}; recovery is unproven"))?;
+    if let Some(lineage) = lineage {
+        anyhow::ensure!(
+            wire.lineage == lineage,
+            "node lineage changed; recovery is unproven for {session}"
+        );
+    }
+    folded_record(wire, token, generation)
 }
 
 /// CAS a DEAD session's folded log fields. Authority fields ride through
@@ -745,19 +777,19 @@ impl LiveLogTransition<'_> {
 //
 // The two byte-dominated messages — the append request and the tail
 // response — travel as a small binary framing; every control message
-// (append response, seal, tail request) stays JSON. The same entry
-// encoding is the follower's on-disk `<seq>.entry` format, so one decoder
-// serves the wire and the disk. All integers little-endian:
+// (append response, seal, tail request) stays JSON. Entries use the same
+// encoding on the wire and inside checksum-protected committed batches.
+// All integers little-endian:
 //
 //   append body:   "CLA1" u16 leader_len leader u64 epoch u64 truncate_to
 //                  u32 count entry*
-//   ranged tail:   "CLT2" u64 fragment_epoch u64 base u64 end
+//   ranged tail:   "CLT1" u64 fragment_epoch u64 base u64 end
 //                  u8 complete u32 count entry*
 //   entry:         "CLE1" u64 seq u16 cell_len cell u64 cell_epoch
 //                  u64 txid u32 len bytes
 
 const APPEND_MAGIC: &[u8; 4] = b"CLA1";
-const TAIL_MAGIC: &[u8; 4] = b"CLT2";
+const TAIL_MAGIC: &[u8; 4] = b"CLT1";
 const ENTRY_MAGIC: &[u8; 4] = b"CLE1";
 
 pub struct Entry {
@@ -777,16 +809,27 @@ pub struct AppendReq {
     pub entries: Vec<Entry>,
 }
 
+fn session_parts(session: &str) -> anyhow::Result<(&str, &str, &str)> {
+    let mut parts = session.split('/');
+    let node = parts.next().unwrap_or("");
+    let lineage = parts
+        .next()
+        .context("log session requires node/lineage/generation")?;
+    let generation = parts
+        .next()
+        .context("log session requires node/lineage/generation")?;
+    anyhow::ensure!(
+        parts.next().is_none(),
+        "log session has extra identity segments"
+    );
+    crate::machine::validate_node_name(node)?;
+    crate::ownership_store::validate_lineage(lineage)?;
+    crate::machine::validate_node_name(generation)?;
+    Ok((node, lineage, generation))
+}
+
 fn validate_log_leader(leader: &str) -> anyhow::Result<()> {
-    let validate = |name| crate::machine::validate_node_name(name);
-    match leader.split_once('/') {
-        Some((node, generation)) => {
-            validate(node)?;
-            validate(generation)?;
-        }
-        None => anyhow::bail!("log leader requires node/generation"),
-    }
-    Ok(())
+    session_parts(leader).map(|_| ())
 }
 
 fn deserialize_log_leader<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -1046,7 +1089,7 @@ impl TryFrom<u8> for TailFormat {
     type Error = &'static str;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value == 2 {
+        if value == 1 {
             Ok(Self::Ranged)
         } else {
             Err("unsupported tail_format")
@@ -1056,7 +1099,7 @@ impl TryFrom<u8> for TailFormat {
 
 impl From<TailFormat> for u8 {
     fn from(_: TailFormat) -> Self {
-        2
+        1
     }
 }
 
@@ -1259,10 +1302,9 @@ struct FollowerPersistTiming {
 
 /// One node's store of the log fragments that it follows.
 ///
-/// Each follower session uses `<root>/peerlog/<node>/<generation>/`. The store
+/// Each follower session uses `<root>/peerlog/<node>/<lineage>/<generation>/`. The store
 /// persists the seal mark before it sends the response, so the mark survives a
-/// follower restart. The store also reads the former flat layout during an
-/// upgrade.
+/// follower restart. Only this current session layout is discovered.
 pub struct FollowerStore {
     root: PathBuf,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
@@ -1348,16 +1390,16 @@ impl FollowerStore {
     }
 
     /// Barrier every directory entry from the session leaf through the data
-    /// root. A follower session is `<node>/<generation>`, so the chain is
-    /// four directories deep, and a leaf-only fsync leaves the two
+    /// root. A follower session is `<node>/<lineage>/<generation>`, so the chain is
+    /// five directories deep, and a leaf-only fsync leaves the three
     /// intermediate entries outside the barrier the acknowledgment claims.
     ///
     /// The chain is walked on every persist, not only when `create_dir_all`
     /// reports a fresh directory. A predecessor process can create the
     /// chain and die before its own barrier completes; this process would
     /// then find the directories present, skip the fsync, and acknowledge
-    /// over a chain that was never durable. The price is four directory
-    /// fsyncs for each persist — nine for a steady-state append, which
+    /// over a chain that was never durable. The price is five directory
+    /// fsyncs for each persist — eleven for an uncached append, which
     /// persists twice for the truncate and syncs the leaf once more for the
     /// entry files.
     fn sync_namespace_to_data_root(&self, leaf: &Path) -> anyhow::Result<()> {
@@ -1425,32 +1467,35 @@ impl FollowerStore {
             return sessions;
         };
         for node in nodes.into_iter().filter(|item| item.is_dir) {
-            let Some(node_name) = node.file_name.to_str().map(str::to_string) else {
+            let Some(node_name) = node.file_name.to_str() else {
                 continue;
             };
-            if self
-                .filesystem
-                .metadata(&node.path.join("state.json"))
-                .is_ok_and(|metadata| metadata.is_file)
-            {
-                // Keep fragments written by the former flat leader identity
-                // reachable during an upgrade.
-                sessions.push(node_name.clone());
-            }
-            let Ok(generations) = self.filesystem.read_dir(&node.path) else {
+            let Ok(lineages) = self.filesystem.read_dir(&node.path) else {
                 continue;
             };
-            for generation in generations.into_iter().filter(|item| item.is_dir) {
-                let Some(generation_name) = generation.file_name.to_str().map(str::to_string)
-                else {
+            for lineage in lineages.into_iter().filter(|item| item.is_dir) {
+                let Some(lineage_name) = lineage.file_name.to_str() else {
                     continue;
                 };
-                if self
-                    .filesystem
-                    .metadata(&generation.path.join("state.json"))
-                    .is_ok_and(|metadata| metadata.is_file)
-                {
-                    sessions.push(format!("{node_name}/{generation_name}"));
+                if crate::ownership_store::validate_lineage(lineage_name).is_err() {
+                    continue;
+                }
+                let Ok(generations) = self.filesystem.read_dir(&lineage.path) else {
+                    continue;
+                };
+                for generation in generations.into_iter().filter(|item| item.is_dir) {
+                    let Some(generation_name) = generation.file_name.to_str() else {
+                        continue;
+                    };
+                    let session = format!("{node_name}/{lineage_name}/{generation_name}");
+                    if validate_log_leader(&session).is_ok()
+                        && self
+                            .filesystem
+                            .metadata(&generation.path.join("state.json"))
+                            .is_ok_and(|m| m.is_file)
+                    {
+                        sessions.push(session);
+                    }
                 }
             }
         }
@@ -1488,6 +1533,10 @@ impl FollowerStore {
                 }
                 continue;
             };
+            anyhow::ensure!(
+                !name.ends_with(".entry") && !name.ends_with(".entries"),
+                "unsupported follower entry layout for {leader}; recreate development state"
+            );
             if !name.ends_with(".batch") {
                 continue;
             }
@@ -1605,6 +1654,7 @@ impl FollowerStore {
 
     #[doc(hidden)]
     pub fn load(&self, leader: &str) -> anyhow::Result<FollowerState> {
+        validate_log_leader(leader)?;
         if let Some(loaded) = self.logs.lock().unwrap().get(leader) {
             return Ok(loaded.state);
         }
@@ -1664,6 +1714,7 @@ impl FollowerStore {
         leader: &str,
         state: FollowerState,
     ) -> anyhow::Result<FollowerPersistTiming> {
+        validate_log_leader(leader)?;
         let dir = self.dir(leader);
         self.filesystem.create_dir_all(&dir)?;
         let path = dir.join("state.json");
@@ -1747,23 +1798,9 @@ impl FollowerStore {
         for item in read {
             let name = item.file_name;
             let Some(name) = name.to_str() else { continue };
-            if let Some(stem) = name.strip_suffix(".entry") {
-                if stem.parse::<u64>().is_ok_and(|s| s <= seq) {
-                    self.filesystem.remove_file(&item.path)?;
-                }
-            } else if let Some(stem) = name.strip_suffix(".entries") {
-                // A batch file goes only when its WHOLE range is behind the
-                // watermark. A straddling batch keeps its covered entries:
-                // truncation is space reclamation, not a correctness
-                // boundary, so retaining them is free.
-                if stem
-                    .split_once('-')
-                    .and_then(|(_, last)| last.parse::<u64>().ok())
-                    .is_some_and(|last| last <= seq)
-                {
-                    self.filesystem.remove_file(&item.path)?;
-                }
-            } else if follower_batch_range(name, ".batch").is_some_and(|(_, last)| last <= seq) {
+            // Reclaim a committed batch only when its whole range is covered.
+            // Straddling batches retain their covered prefix as harmless data.
+            if follower_batch_range(name, ".batch").is_some_and(|(_, last)| last <= seq) {
                 self.filesystem.remove_file(&item.path)?;
             }
         }
@@ -2174,12 +2211,8 @@ impl FollowerStore {
     }
 
     fn read_tail(&self, req: &TailReq) -> anyhow::Result<TailResp> {
-        // Entries above the persisted end are unacked debris a crash may
-        // legitimately tear (the entry syncs before the state does), and
-        // including or losing an unacked frame is free. A torn entry ABOVE
-        // the base and AT OR BELOW the end would be an acked frame's only
-        // local copy, so it is skipped LOUDLY — write-all means another
-        // member still has it, and the line attributes the anomaly.
+        // Only checksum-protected committed batches supply retained entries.
+        // Unsupported development layouts cannot supply recovery evidence.
         let state = self.load(&req.leader)?;
         let base = state.base;
         let end = state.end;
@@ -2203,120 +2236,7 @@ impl FollowerStore {
             .collect();
         let dir = self.dir(&req.leader);
         match self.filesystem.read_dir(&dir) {
-            Ok(read) => {
-                for item in read {
-                    let name = item.file_name;
-                    let Some(name) = name.to_str() else { continue };
-                    if let Some(stem) = name.strip_suffix(".entry") {
-                        let Ok(sequence) = stem.parse::<u64>() else {
-                            retained_files_complete = false;
-                            warn!(
-                                leader = req.leader,
-                                path = %item.path.display(),
-                                "follower entry file name does not contain a valid sequence"
-                            );
-                            continue;
-                        };
-                        match self.filesystem.read(&item.path) {
-                            Ok(bytes) => match decode_entry(&mut bytes.as_slice()) {
-                                Ok(entry) => {
-                                    if entry.seq != sequence {
-                                        let retained = sequence > base && sequence <= end;
-                                        retained_files_complete &= !retained;
-                                        warn!(
-                                            leader = req.leader,
-                                            path = %item.path.display(),
-                                            named = sequence,
-                                            decoded = entry.seq,
-                                            "follower entry name does not match its contents"
-                                        );
-                                    } else if entry.seq > base {
-                                        entries.push(entry);
-                                    }
-                                }
-                                Err(error) => {
-                                    let retained = sequence > base && sequence <= end;
-                                    retained_files_complete &= !retained;
-                                    if retained {
-                                        warn!(
-                                            leader = req.leader,
-                                            path = %item.path.display(),
-                                            %error,
-                                            "torn entry at or below the fragment end skipped in tail"
-                                        );
-                                    }
-                                }
-                            },
-                            Err(error) => {
-                                let retained = sequence > base && sequence <= end;
-                                retained_files_complete &= !retained;
-                                if retained {
-                                    warn!(
-                                        leader = req.leader,
-                                        path = %item.path.display(),
-                                        %error,
-                                        "retained follower entry could not be read"
-                                    );
-                                }
-                            }
-                        }
-                    } else if name.ends_with(".entries") {
-                        let Some((named_first, named_last)) =
-                            follower_batch_range(name, ".entries")
-                                .filter(|(first, last)| first <= last)
-                        else {
-                            retained_files_complete = false;
-                            warn!(
-                                leader = req.leader,
-                                path = %item.path.display(),
-                                "follower batch file name does not contain a valid range"
-                            );
-                            continue;
-                        };
-                        let retained = named_first <= end && named_last > base;
-                        let Ok(bytes) = self.filesystem.read(&item.path) else {
-                            retained_files_complete &= !retained;
-                            if retained {
-                                warn!(
-                                    leader = req.leader,
-                                    path = %item.path.display(),
-                                    "retained follower batch could not be read"
-                                );
-                            }
-                            continue;
-                        };
-                        // Decode the batch until the tear, keeping every intact
-                        // entry. The first undecoded sequence starts at the
-                        // filename's range and follows the last decoded entry,
-                        // so the retained-tear classification is exact.
-                        let mut next = Some(named_first);
-                        let mut buf = bytes.as_slice();
-                        while !buf.is_empty() {
-                            match decode_entry(&mut buf) {
-                                Ok(entry) => {
-                                    next = Some(entry.seq + 1);
-                                    if entry.seq > base {
-                                        entries.push(entry);
-                                    }
-                                }
-                                Err(error) => {
-                                    let retained = next.is_some_and(|seq| seq > base && seq <= end);
-                                    retained_files_complete &= !retained;
-                                    if retained {
-                                        warn!(
-                                            leader = req.leader,
-                                            path = %item.path.display(),
-                                            %error,
-                                            "torn batch at or below the fragment end skipped in tail"
-                                        );
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 retained_files_complete = false;
                 if state.fragment_epoch != 0 {
@@ -3876,10 +3796,11 @@ pub(crate) const EPOCH_GC_CELLS_PER_PASS: usize = 32;
 /// peer client, address resolution, and the raw per-cell upload.
 pub struct NodeLogManager {
     node: String,
+    lineage: String,
     /// The single-writer path for our own folded log state: publishes to
     /// the ownership store and rides the core's immediate renewal.
     live_log: Arc<LiveLogTransitions>,
-    /// This process session's log identity: `<node>/<generation>`, the
+    /// This process session's log identity: `<node>/<lineage>/<generation>`, the
     /// generation from the node lease record. Every self record, bundle,
     /// fragment, and loss key hangs off it.
     session: String,
@@ -4364,7 +4285,7 @@ impl NodeLogManager {
     }
 
     /// Start inside the owning execution domain. `session` must be the
-    /// ownership adapter's exact `<node>/<generation>` identity. The caller
+    /// ownership adapter's exact `<node>/<lineage>/<generation>` identity. The caller
     /// supplies authenticated transport and immutable ensemble policy.
     pub fn new(
         session: &str,
@@ -4376,13 +4297,12 @@ impl NodeLogManager {
     ) -> anyhow::Result<Self> {
         options.validate()?;
         validate_log_leader(session)?;
-        let (node, generation) = session
-            .split_once('/')
-            .ok_or_else(|| anyhow!("log session requires node/generation"))?;
+        let (node, lineage, generation) = session_parts(session)?;
         anyhow::ensure!(
             node == own_log.ownership.node()
+                && Some(lineage) == own_log.ownership.lineage()
                 && Some(generation) == own_log.ownership.process_generation(),
-            "log session must match its ownership adapter's node and generation"
+            "log session must match its ownership adapter's node, lineage and generation"
         );
         anyhow::ensure!(
             bucket.prefix == own_log.ownership.bucket_client().prefix
@@ -4466,7 +4386,8 @@ impl NodeLogManager {
         let task_stop = crate::ltx_repl::StopToken::new();
         let child_tasks = crate::ltx_repl::TaskGroup::new(task_stop.clone());
         Self {
-            node: session.split('/').next().unwrap_or(session).to_string(),
+            node: session_parts(session).unwrap().0.to_string(),
+            lineage: session_parts(session).unwrap().1.to_string(),
             session: session.to_string(),
             live_log,
             bucket,
@@ -4523,8 +4444,28 @@ impl NodeLogManager {
         if self.predecessors_clean.load(Ordering::SeqCst) {
             return Ok(());
         }
-        if let Some(folded) = read_record(&self.bucket, &self.node).await? {
-            let session = format!("{}/{}", self.node, folded.wire.generation);
+        // Only identity capture which observed no root can treat absence as
+        // first boot. Losing a retained root cannot erase its recovery duty.
+        let prior = read_node_record(&self.bucket, &self.node).await?;
+        anyhow::ensure!(
+            prior.is_some() || !self.ownership.retained_root_required(),
+            "missing retained node lease after lineage capture; recovery is unproven"
+        );
+        if let Some(folded) = prior
+            .map(|(wire, token)| {
+                anyhow::ensure!(
+                    wire.lineage == self.lineage,
+                    "own node lineage changed before recovery"
+                );
+                folded_record(wire, token, "")
+            })
+            .transpose()?
+            .flatten()
+        {
+            let session = format!(
+                "{}/{}/{}",
+                self.node, folded.wire.lineage, folded.wire.generation
+            );
             if session != self.session
                 && log_tier::takeover_gate(Some(&folded.record))
                     == log_tier::TakeoverGate::RecoverFirst
@@ -4553,7 +4494,7 @@ impl NodeLogManager {
     /// acked row per-cell first). Its recovery checkpoints are obsolete too.
     /// Loss declarations and all other keys stay untouched.
     async fn gc_stale_generation_bundles(&self) -> anyhow::Result<()> {
-        let prefix = format!("log/{}/", self.node);
+        let prefix = format!("log/{}/{}/", self.node, self.lineage);
         let mut stale: Vec<String> = Vec::new();
         for meta in self.bucket.list(&prefix).await? {
             let key = meta.location.as_ref().to_string();
@@ -4566,7 +4507,7 @@ impl NodeLogManager {
             if !tail.starts_with("bundle/") && !tail.starts_with("recovered/") {
                 continue;
             }
-            if format!("{}/{generation}", self.node) == self.session {
+            if format!("{}/{}/{generation}", self.node, self.lineage) == self.session {
                 continue;
             }
             stale.push(key);
@@ -4874,7 +4815,7 @@ impl NodeLogManager {
         Ok(count)
     }
 
-    /// Recover one dead SESSION's log: `dead` is `<node>/<generation>`.
+    /// Recover one dead SESSION's log: `dead` is `<node>/<lineage>/<generation>`.
     pub async fn recover(&self, dead: &str) -> anyhow::Result<()> {
         self.recover_as(dead, RecoverMode::Sweep).await
     }
@@ -5077,11 +5018,12 @@ impl NodeLogManager {
             // expired and unreachable, reachable with a different fragment
             // epoch, or reachable with an explicitly incomplete retained
             // range. A failed tail or an old response without that range is
-            // inconclusive. Only a fully conclusive, witness-free epoch with
-            // possible fleet acknowledgements may declare bounded loss.
+            // inconclusive. A witness-free epoch with possible fleet
+            // acknowledgements must remain blocked even when every member
+            // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
             let mut gathered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
-            // "A blink is not death" applies to loss declaration too: a
+            // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
             // power cycle) is NOT conclusively gone — its fsync'd fragments
             // boot back in seconds, and declaring loss against boot order
@@ -5230,13 +5172,12 @@ impl NodeLogManager {
             // acked frames can be missing. If any member's state remains
             // inconclusive, keep failing loudly because its data can still
             // become readable. If every member is conclusive, declare the
-            // bounded loss AS A RECORD: a permanent object beside the log
-            // record stating what was unrecoverable, then proceed to the
-            // drain and the seal. "Loss is a record, never a prompt." The
-            // verdict rests on the members alone, so it is reached before
-            // the bundle drain: a pass that must refuse to seal refuses
-            // before it reads the session, not after.
-            if complete_witnesses == 0 && may_have_fleet_acks && !record.ensemble.is_empty() {
+            // missing evidence in a diagnostic, but do not drain, seal or
+            // authorize a replacement from that record. Expiry or a dead
+            // connection cannot certify that acknowledged data may be
+            // discarded. An empty ensemble with the ack marker is likewise
+            // missing proof. A later pass can succeed if a witness returns.
+            if complete_witnesses == 0 && may_have_fleet_acks {
                 anyhow::ensure!(
                     inconclusive == 0,
                     "node-log recovery for {dead}: no complete true witness among {:?} and \
@@ -5250,8 +5191,9 @@ impl NodeLogManager {
                     "declared_at_ms": now,
                     "declared_by": self.node,
                     "ensemble": record.ensemble.iter().collect::<Vec<_>>(),
-                    "note": "no complete true witness survived; acked writes within the \
-                             final flush window may be unrecovered",
+                    "recovery_blocked": true,
+                    "note": "no complete true witness is available; acknowledged writes \
+                             may be missing and recovery must not seal this log",
                 });
                 self.bucket
                     .put(
@@ -5259,19 +5201,17 @@ impl NodeLogManager {
                         serde_json::to_vec(&loss)?,
                     )
                     .await?;
-                warn!(
-                    dead,
-                    epoch = record.epoch,
-                    "declared bounded loss: no complete true witness for an active log; \
-                     recovery record written"
+                anyhow::bail!(
+                    "node-log recovery for {dead}: no complete true witness among {:?}; \
+                     acknowledged writes may be missing; recovery remains blocked",
+                    record.ensemble
                 );
             }
             // The dead leader's un-drained bundles are bucket-durable
             // coverage that recovery folds into the per-cell prefixes —
             // one GET per bundle, sliced locally, the same idempotent
-            // per-cell PUTs as the follower gather. This runs regardless
-            // of the witness outcome: even a declared loss drains what
-            // the bucket already holds. EVERY retained bundle, not only
+            // per-cell PUTs as the follower gather. This runs only after
+            // the witness requirement passes. EVERY retained bundle, not only
             // the record epoch's: a live reconfiguration steps the epoch
             // behind a barrier that counts bundle coverage as tiered, so
             // rows can be durable only in a prior epoch's bundle — an
@@ -5460,27 +5400,45 @@ impl NodeLogManager {
     /// reconciliation names the displaced owner exactly like one confirmed
     /// by the CAS response — the v0 ambiguous-CAS window is closed. `None`
     /// means the consumed record was released or absent, which the release
-    /// path already proved durable. Absence of a log record is a proof (the
-    /// node never acked past the bucket); a sealed record means recovery
-    /// already ran; anything else runs it now.
-    pub async fn ensure_recovered(&self, prior: Option<&str>) -> anyhow::Result<()> {
+    /// path already proved durable. A present lease without a log proves the
+    /// node never acked past the bucket; a sealed log proves recovery already
+    /// ran. A missing lease root is unproven and must refuse the takeover.
+    pub async fn ensure_recovered(
+        &self,
+        prior: Option<&str>,
+        lineage: Option<&str>,
+    ) -> anyhow::Result<()> {
         self.ensure_predecessors_recovered().await?;
         let Some(prior) = prior else {
             return Ok(());
         };
+        let lineage = lineage.context("named owner has no node lineage")?;
         if prior == self.node {
+            anyhow::ensure!(
+                lineage == self.lineage,
+                "same-name owner belongs to another node lineage"
+            );
             return Ok(());
         }
         // ONE rule for every cold path, at the cost of ONE read the core
         // usually already performed: before restoring a cell last owned
-        // by node X, X's folded log state must be sealed or absent. The
+        // by node X, X's lease must exist and its log be sealed or absent. The
         // lease record holds at most one session's state — recovery-
         // before-install is what keeps a predecessor's Open state from
         // being replaced unrecovered — so a single GET decides.
-        let folded = read_record(&self.bucket, prior).await?;
+        // Require the cell's durable identity even for a present no-log root.
+        // A fresh root after erasure cannot certify the displaced lineage.
+        let (wire, token) = read_node_record(&self.bucket, prior)
+            .await?
+            .context("missing node lease for owner recovery")?;
+        anyhow::ensure!(
+            wire.lineage == lineage,
+            "owner node lineage changed; recovery is unproven"
+        );
+        let folded = folded_record(wire, token, "")?;
         let session = folded
             .as_ref()
-            .map(|folded| format!("{prior}/{}", folded.wire.generation));
+            .map(|folded| format!("{prior}/{}/{}", folded.wire.lineage, folded.wire.generation));
         match log_tier::takeover_gate(folded.as_ref().map(|folded| &folded.record)) {
             log_tier::TakeoverGate::BucketComplete => {}
             log_tier::TakeoverGate::RecoverFirst => {
@@ -5992,8 +5950,8 @@ impl NodeLogManager {
         }
         drop(fetches);
         // Bundles whose bytes this pass read and could not use. They are
-        // declared together below, before the scan answers, so no caller
-        // proceeds past an undeclared loss.
+        // recorded together below before refusing the fold. A diagnostic
+        // cannot authorize a caller to restore or seal incomplete state.
         let mut unreadable: BTreeMap<String, (String, Vec<cellar_ltx::bundle::BundleRow>)> =
             BTreeMap::new();
         let mut bundles = Vec::new();
@@ -6098,11 +6056,18 @@ impl NodeLogManager {
                 }
             }
         }
-        // Declare before answering. A caller that seals or restores on this
-        // answer must do it against a durable record of what was lost.
+        // Record before refusing, including on later scans whose diagnostics
+        // are already cached. No caller may treat unreadable bytes as an
+        // empty set of outstanding rows.
+        let unreadable_count = unreadable.len();
         for (key, (reason, rows)) in unreadable {
             self.declare_bundle_loss(&key, &rows, &reason).await?;
         }
+        anyhow::ensure!(
+            unreadable_count == 0,
+            "session {} has {unreadable_count} unreadable retained bundle(s); recovery remains blocked",
+            self.session
+        );
         Ok(uncovered)
     }
 
@@ -6112,11 +6077,9 @@ impl NodeLogManager {
     /// The scan reads `log/<session>/bundle/` only, so the writer is this
     /// process running this binary. Bytes that do not decode are therefore
     /// corruption, not a newer envelope this reader does not know, and no
-    /// retry and no other reader can do better. That leaves a permanent
-    /// refusal or a record. A refusal wedges every activation waiting on
-    /// the fold, so the loss becomes a record and the scan continues --
-    /// the shape the amnesiac ensemble already uses, and the reason "loss
-    /// is a record, never a prompt" is a rule here.
+    /// retry alone cannot repair them. Persist a diagnostic before refusing
+    /// the fold; the record cannot certify an incomplete state as recovered.
+    /// A later scan may succeed after valid bytes are restored.
     ///
     /// `rows` names what was lost when one row failed to slice out of an
     /// envelope that decoded. It is empty when the envelope itself was
@@ -6145,6 +6108,7 @@ impl NodeLogManager {
             "bundle": key,
             "declared_at_ms": crate::ownership_store::now_ms(),
             "declared_by": self.node,
+            "recovery_blocked": true,
             "reason": reason,
             "rows": rows
                 .iter()
@@ -6183,7 +6147,7 @@ impl NodeLogManager {
         Ok(matches!(
             self.ownership.read_owner(cell).await?,
             Some(record)
-                if record.node.as_deref() == Some(self.node.as_str()) && record.epoch == epoch
+                if record.node.as_deref() == Some(self.node.as_str()) && record.lineage.as_deref() == Some(self.lineage.as_str()) && record.epoch == epoch
         ))
     }
 
@@ -6397,7 +6361,7 @@ impl NodeLogManager {
             let Ok(Some(folded)) = read_record(&self.bucket, &node).await else {
                 continue;
             };
-            let session = format!("{node}/{}", folded.wire.generation);
+            let session = format!("{node}/{}/{}", folded.wire.lineage, folded.wire.generation);
             let record = folded.record;
             // Under the fold, the lease we just read IS the record: a
             // session is dead the moment its published expiry passed. A

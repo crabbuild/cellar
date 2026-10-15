@@ -325,3 +325,52 @@ async fn real_dispatch_route_timeout_cancels_the_pending_actor_request() -> Resu
     domain.shutdown().await;
     result
 }
+
+#[tokio::test]
+async fn ambiguous_attempt_discards_its_route_without_replay_or_cleanup_wait() -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let (app, mut messages) = app()?;
+            let mut route = super::super::RemoteRouteRetry::new(1000);
+            assert!(!route.observe("old-node", 7));
+            let operation = route.retry(
+                &app,
+                "Order:a",
+                cellar_logic::routing::Attempt::Ambiguous,
+                None,
+                Some("rpc"),
+            );
+            let outcome = futures_util::FutureExt::now_or_never(operation)
+                .expect("stopping an ambiguous request must not wait for cache cleanup");
+            assert_eq!(outcome, super::super::RemoteRetryOutcome::Stop);
+            let message = messages
+                .try_recv()
+                .expect("an ambiguous failure retained its dead route");
+            let crate::actor::Message::InvalidateRemote {
+                cell,
+                node,
+                epoch,
+                reply,
+            } = message
+            else {
+                panic!("a stopped request was replayed instead of invalidated")
+            };
+            assert_eq!(
+                (cell.as_str(), node.as_str(), epoch),
+                ("Order:a", "old-node", 7)
+            );
+            assert!(
+                reply.send(()).is_err(),
+                "stopped caller retained the cleanup wait"
+            );
+            assert!(
+                messages.try_recv().is_err(),
+                "stopped caller queued another dispatch"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}

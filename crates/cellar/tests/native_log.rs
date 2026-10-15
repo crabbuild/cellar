@@ -1,6 +1,11 @@
 //! Caller-owned log transports, real follower proofs, and crash recovery.
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+#[path = "support/log_recovery.rs"]
+mod log_recovery;
+
+#[path = "support/log_bundle_fault.rs"]
+mod log_bundle_fault;
+use anyhow::{ensure, Context as _, Result};
 use bytes::Bytes;
 use cellar::bucket::Bucket;
 use cellar::ltx_repl::Shipper;
@@ -16,6 +21,7 @@ use cellar::sdk::{
 };
 use cellar_logic::{CasGuard, LeaseCasOutcome, NodeLeaseRecord};
 use futures_util::TryStreamExt;
+use log_bundle_fault::BundleFault;
 use object_store::{
     throttle::{ThrottleConfig, ThrottledStore},
     ObjectStore,
@@ -39,6 +45,7 @@ async fn lease_writer(
     ownership: Arc<BucketOwnership>,
     addr: &str,
 ) -> Result<mpsc::UnboundedSender<()>> {
+    let lineage = domain.run(ownership.prepare_lineage()).await??.to_owned();
     let generation = ownership.process_generation().unwrap().to_owned();
     let (send, mut receive) = mpsc::unbounded_channel();
     let addr = addr.to_owned();
@@ -46,6 +53,7 @@ async fn lease_writer(
         .run(async move {
             let node = addr.split(':').next().unwrap().to_owned();
             let mut record = NodeLeaseRecord {
+                lineage: Some(lineage),
                 node,
                 addr,
                 expires_ms: cellar::ownership_store::now_ms() + TTL,
@@ -171,6 +179,7 @@ struct Pair {
     transport: Arc<Transport>,
     bucket: Arc<Bucket>,
     session: String,
+    bundle_fault: Arc<BundleFault>,
 }
 
 async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> Result<Pair> {
@@ -225,7 +234,13 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         appends: AtomicUsize::new(0),
         streams: AtomicUsize::new(0),
     });
-    let session = format!("{leader}/{generation}");
+    let session = ownership.log_session()?;
+    let bundle_fault = BundleFault::new(
+        bucket.store.clone(),
+        format!("{}log/{session}/bundle/", bucket.prefix),
+    );
+    let mut log_bucket = (*bucket).clone();
+    log_bucket.store = bundle_fault.clone();
     let (replica, log, owner) = domain
         .run(async {
             let store: Arc<dyn ObjectStore> = Arc::new(ThrottledStore::new(
@@ -253,7 +268,7 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
             )?;
             let log = Arc::new(NodeLogManager::new(
                 &session,
-                bucket.clone(),
+                Arc::new(log_bucket),
                 Arc::new(OwnLog {
                     ownership,
                     nudge: Box::new(move || {
@@ -280,6 +295,7 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         transport,
         bucket,
         session,
+        bundle_fault,
     })
 }
 
@@ -298,19 +314,26 @@ async fn write(pair: &Pair, value: i64, fresh: bool) -> Result<()> {
                     prior: None,
                 })
                 .await?;
-            let connection = rusqlite::Connection::open(activated.path)?;
+            let connection = rusqlite::Connection::open(&activated.path)?;
             connection.execute_batch("CREATE TABLE IF NOT EXISTS accounts(value INTEGER)")?;
             connection.execute("INSERT INTO accounts VALUES (?1)", [value])?;
             drop(connection);
-            ensure!(
-                tokio::time::timeout(
-                    Duration::from_secs(5),
-                    pair.replica.ltx().handoff_wait(CELL, 1),
-                )
-                .await??
-                    == cellar_logic::ProofSource::Fleet,
-                "real follower fsyncs must prove the write while bucket uploads are delayed"
-            );
+            let proof = tokio::time::timeout(
+                Duration::from_secs(5),
+                pair.replica.ltx().handoff_wait(CELL, 1),
+            ).await??;
+            if proof != cellar_logic::ProofSource::Fleet {
+                let tail = pair.transport.follower_domain.run(pair.transport.follower.tail(&TailReq { leader: pair.session.clone() })).await??;
+                let wal = std::fs::metadata(format!("{}-wal", activated.path.display())).map(|metadata| metadata.len());
+                let local = rusqlite::Connection::open_with_flags(&activated.path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+                let rows: (i64, i64) = local.query_row("SELECT count(*),sum(value) FROM accounts", [], |row| Ok((row.get(0)?,row.get(1)?)))?;
+                let bundles = pair.bucket.list(&format!("log/{}/", pair.session)).await?.into_iter().map(|object| object.location.to_string()).collect::<Vec<_>>();
+                anyhow::ensure!(bundles.len() <= 100, "fixture bundle inventory exceeded bound");
+                anyhow::bail!("real follower fsyncs must prove the write while bucket uploads are delayed: proof={proof:?}; wal={wal:?}; rows={rows:?}; follower_range={:?}; follower_entries={}; bundle_paths={bundles:?}", tail.range, tail.entries.len());
+            }
+            if pair.bundle_fault.refused() > 0 {
+                eprintln!("FOLLOWER_ONLY_PROOF session={} refused_bundles={} proof={proof:?}", pair.session, pair.bundle_fault.refused());
+            }
             Ok::<_, anyhow::Error>(())
         })
         .await??;
@@ -385,7 +408,7 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
                     .unwrap();
                 let lease: serde_json::Value = serde_json::from_slice(&lease)?;
                 assert!(lease.get("ownership_index_generation").is_none());
-                assert_eq!(lease["generation"], pair.session.split('/').nth(1).unwrap());
+                assert_eq!(lease["generation"], pair.session.split('/').nth(2).unwrap());
                 assert_eq!(lease["log"]["may_have_fleet_acks"], true);
                 Ok::<_, anyhow::Error>(())
             })
@@ -435,8 +458,9 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
                 appends: AtomicUsize::new(0),
                 streams: AtomicUsize::new(0),
             });
+            lease.prepare_lineage().await?;
             let log = Arc::new(NodeLogManager::new(
-                "recovery-a/recovery-generation-a",
+                &lease.log_session()?,
                 a.bucket.clone(),
                 Arc::new(OwnLog {
                     ownership: lease.clone(),
@@ -486,6 +510,54 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
 }
 
 #[test]
+fn unreadable_retained_bundle_cannot_be_certified_as_an_empty_fold() -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async {
+        let directory = tempfile::tempdir()?;
+        let mut pair = pair(
+            &directory.path().join("fleet.sqlite"),
+            directory.path(),
+            "corrupt",
+            LogOptions::default(),
+        )
+        .await?;
+        let key = format!("log/{}/bundle/e1-00000000.ltxb", pair.session);
+        let verdicts = pair
+            .domain
+            .run(async {
+                pair.bucket
+                    .put(&key, b"damaged retained bundle".to_vec())
+                    .await?;
+                let first = pair.log.uncovered_bundle_rows().await;
+                let second = pair.log.uncovered_bundle_rows().await;
+                let record = format!("log/{}.bundle-e1-00000000.ltxb.loss.json", pair.session);
+                let (body, _) = pair
+                    .bucket
+                    .get(&record)
+                    .await?
+                    .context("missing corruption record")?;
+                let recorded: serde_json::Value = serde_json::from_slice(&body)?;
+                // Remove only the injected private fixture object before joining.
+                pair.bucket.delete(&key).await?;
+                pair.owner.shutdown_local().await;
+                Ok::<_, anyhow::Error>((first.is_err(), second.is_err(), recorded))
+            })
+            .await??;
+        pair.domain.shutdown().await;
+        pair.transport.follower_domain.shutdown().await;
+        ensure!(
+            verdicts.0 && verdicts.1,
+            "unreadable retained bundle was certified as an empty fold, including after its loss record existed"
+        );
+        ensure!(
+            verdicts.2["recovery_blocked"] == true,
+            "corruption record permitted recovery to continue"
+        );
+        Ok(())
+    })
+}
+
+#[test]
 fn explicit_log_policy_survives_unusable_process_environment() -> Result<()> {
     let mut child = std::process::Command::new(std::env::current_exe()?);
     child.args([
@@ -526,14 +598,16 @@ async fn log_construction_rejects_wrong_identity_namespace_domain_and_policy() -
         LogOptions::default(),
     )
     .await?;
+    let ownership = Arc::new(BucketOwnership::new(
+        (*pair.bucket).clone(),
+        (*pair.bucket).clone(),
+        "leader-validated".into(),
+        "generation-validated".into(),
+    ));
+    pair.domain.run(ownership.prepare_lineage()).await??;
     let own = || {
         Arc::new(OwnLog {
-            ownership: Arc::new(BucketOwnership::new(
-                (*pair.bucket).clone(),
-                (*pair.bucket).clone(),
-                "leader-validated".into(),
-                "generation-validated".into(),
-            )),
+            ownership: ownership.clone(),
             nudge: Box::new(|| {}),
             write_lock: tokio::sync::Mutex::new(()),
         })
@@ -541,13 +615,21 @@ async fn log_construction_rejects_wrong_identity_namespace_domain_and_policy() -
     pair.domain
         .run(async {
             for session in [
-                "leader-validated",
-                "leader-validated/wrong-generation",
-                "wrong-node/generation-validated",
-                "../generation-validated",
+                "leader-validated".to_owned(),
+                "leader-validated/generation-validated".to_owned(),
+                format!(
+                    "leader-validated/{}/wrong-generation",
+                    ownership.lineage().unwrap()
+                ),
+                format!(
+                    "wrong-node/{}/generation-validated",
+                    ownership.lineage().unwrap()
+                ),
+                "leader-validated/ffffffffffffffffffffffffffffffff/generation-validated".to_owned(),
+                "../00000000000000000000000000000001/generation-validated".to_owned(),
             ] {
                 ensure!(NodeLogManager::new(
-                    session,
+                    &session,
                     pair.bucket.clone(),
                     own(),
                     pair.replica.ltx(),

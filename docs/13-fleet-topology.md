@@ -5,6 +5,17 @@ nodes share bucket-backed fleet ownership and use authenticated peer traffic,
 local disk, replication and log recovery. Placement must account for those
 shared dependencies.
 
+During internal development, rebuild every participant together for a hard
+cutover. Cellar's ranged log-tail request and response use marker 1; missing or
+unsupported markers are refused without negotiation. Follower state uses only
+`peerlog/<node>/<lineage>/<generation>/`. Owned cell records and node leases
+carry the same persistent 128-bit lineage; retained roots preserve it across
+process generations. Missing roots mint a fresh lineage, which cannot certify
+existing cells or collect the old lineage’s follower proof. Recreate earlier
+development state; the runtime does not migrate it. Former `.entry`/`.entries`
+payload layouts are also rejected; only current checksum-protected `.batch` files supply follower
+entries. Epochs and sequence counters keep their meaning.
+
 ![Proposed fleet failure domains](diagrams/fleet-topology.svg)
 
 ## Define the environment
@@ -33,6 +44,20 @@ object store across the intended failure domains, then test losing each.
 Do not interpret “fleet proof” as a universal quorum configuration or promise
 that any arbitrary simultaneous failures preserve all acknowledged writes.
 Inspect the actual log/follower policy and loss assumptions.
+
+Expiry and an unreachable follower do not certify that its acknowledged data
+can be discarded. If a log may contain fleet-acknowledged writes, recovery needs
+a complete follower witness before sealing it and admitting a replacement.
+Without that evidence, recovery stays blocked, including after the follower's
+expiry grace. A retained bucket bundle that cannot be decoded also blocks a
+fold; a loss diagnostic cannot substitute for the missing bytes. Restore valid
+durability evidence before retrying recovery. Existing local SQLite files alone
+do not certify a complete node-log prefix.
+
+This preserves safety after proof loss; it does not promise availability after
+every durable copy is destroyed. Qualify the actual replica placement, retained
+disks and bucket behavior for each deployment. A recorded blocked recovery is
+an observation at its timestamp; the current node-log state remains authoritative.
 
 No built-in active-active multi-region certification is established by this
 baseline. Start with one qualified fleet region. If multiple regions are

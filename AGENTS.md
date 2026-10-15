@@ -57,6 +57,87 @@ behavior and unqualified correctness boundaries at the start of each turn.
 Prioritize loss, duplicate effects, fencing and recovery failures before API
 polish or additional metrics. State the selected risk and its acceptance gate;
 report what changed, exact verification and the highest remaining blocker.
+Retained Storage handles must check the installed I/O context's domain as well
+as activation identity. Ordinary access and commit recheck open-domain admission
+inside an already-entered poll; forced closure cannot rely only on the next turn
+to refuse new work. Preserve original-connection rollback/retirement cleanup
+after closure. storage_authority_tests.rs covers wrong-domain access and closure
+between business/outbox writes and commit. These local SDK regressions do not
+qualify an old process still executing across full fleet takeover.
+event_running_owner.rs exercises two embedded-node takeover cuts with a callback
+still inside its native poll: before starting a transaction and after business/
+outbox writes but before commit. Isolate only the old store client, observe
+domain closure and a higher owner epoch, and audit original state before releasing
+the callback. Its caught storage refusal must not become HTTP success. Preserve
+the original producer revision/envelope and complete both node joins. These
+independent-domain/executor cases are not separate-process or physical partition
+qualification; do not relax their deadline or repair the prefix by command replay.
+`live_owner.py` carries those source cuts into four independent processes. Its
+opt-in owner_fault client refuses actual ordinary/CAS/list operations after a
+private marker; CAS keeps the original no-retry client. It supplies no proof.
+The private listing adapter caps its materialized inventory at 1000 objects;
+this is not a general pagination implementation or capacity fixture. The native
+callback publishes entered/attempted phase observations and remains in its poll
+until a measured release, with the ordinary 10s handler policy unchanged.
+Require lease expiry, live/non-stopped old PID, a higher-epoch successor and a
+saved original-prefix audit before release. Require closed-domain refusal,
+interrupted response, joined expiry fencing, immutable old DB/WAL inspection
+and one consumer effect before complete survivor/store cleanup. Never use an
+ordinary source replay or a signal to repair this boundary. Core runtime and
+all owned markers remain unchanged; physical fault qualification is separate.
+Node-log recovery cannot seal possible fleet acknowledgments without a complete
+witness, even after every member is long expired/unreachable or the ensemble is
+empty. Durable loss diagnostics do not authorize replacement admission. Retained
+bundle corruption also refuses the uncovered-row fold on every scan, including
+when the diagnostic is cached. Preserve the recovering predecessor and require
+valid evidence before retry can succeed. Local SQLite state alone is not a
+complete node-log witness; do not add a fallback that silently resets accepted
+outbox, stream, inbox or checkpoint state.
+A missing node lease root is unproven, not an absent folded log. The core must
+invoke RecoverNodeLog for a named foreign owner whose lease is missing; the log
+reader must refuse that root in explicit/takeover recovery. Only own-node first
+boot reads an optional root before lease installation. Retired leases remain
+present tombstones. Never fabricate a no-log record to unblock recovery. Persist a canonical 128-bit node lineage in both owned cell records and node
+leases before actor/log construction. Retained roots preserve that lineage;
+a missing root starts a fresh lineage and cannot certify existing owned cells.
+Own-name claim/reconciliation, output/release/GC gates and remote lease routing
+must compare lineage as well as node name. Recovery checks the expected lineage
+against the same root read used for its folded proof decision. Identity capture
+also retains whether a root was present. Startup cannot treat a later absence
+as first boot: require that retained root before predecessor GC or lease install.
+The native root-read cut holds actual response bytes/token, erases or replaces
+the root, and requires refusal with owner, payload and follower bytes unchanged;
+returning the original metadata must recover before receipt reuse. Keep metadata
+rollback and physical loss qualification separate from retained-root evidence.
+Delayed-reply fixtures retain the exact removed root atomically in their private
+SQLite store, assert NodeLeaseMissing and full join, then restore its proof fields
+with only expiry shortened before expecting retained-proof recovery.
+Returning-witness coverage belongs in tests/support/log_recovery.rs, included by
+native_log.rs. It must use cold follower stores and exact retained bytes, remove
+leader-local data and exclude bucket data before recovery, and check SQL state
+before any replay. A prior blocked diagnostic is history; current valid evidence
+can permit recovery without rewriting that history. This native-domain fixture
+does not substitute for the independent-process destination failure matrix.
+Follower-only native log fixtures must exclude node-session bundle publication
+as well as per-cell uploads. The bundle loop's first tick can otherwise win
+with legitimate Bucket proof before Fleet credit; a 1ms fixture-only flush probe
+exposes that route. Preserve real metadata CAS, reads and loss diagnostics;
+BundleFault excludes only the selected session's bundle PUTs, never supplies proof.
+Clock-refusal recovery fixtures select the next automatic append at the real
+successor peer proxy before fetching a fresh lease and acknowledging retained
+history. Select that successor with the existing owner-key CAS-only peer fault
+in every cut, including cold restarts, and assert its name. Otherwise a source
+can legitimately claim the stream and dispatch locally without visiting the proxy.
+Start both cold followers and the selected successor concurrently so binding
+activation can resolve it; keep all startup futures heap-pinned and retain the
+original activation deadlines. Exclude producer ownership on that successor
+with a producer-owner-key CAS-only fault and assert distinct owners: cold
+recovery can otherwise validly co-locate the outbox and stream and bypass the
+peer boundary. Required-history backpressure can save a retry up to 60s away;
+ack does not notify a remote producer to advance that deadline. Bound phase selection by
+that policy plus the original call budget, compare the entire original request,
+release within the ordinary 3s held interval and keep the 5s settlement check.
+Do not use operator retry, row repair or mutation replay to select this phase.
 Keep implemented behavior separate from release qualification. Passing reruns
 do not close unexplained failures or substitute for missing fault cases.
 Outbox dispatch uses immutable stored principal/grant identity after source
@@ -66,6 +147,14 @@ version-1 markers; activation rejects unsupported markers, inconsistent retained
 accounting and outbox events exceeding the captured host policy. Cellar is in internal development: all Cellar-owned protocol, format and
 schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
 readers, layout migrations, version negotiation or fleet upgrade commands.
+The ranged log-tail request uses tail_format 1 and its response uses CLT1;
+missing/unsupported markers and entries-only request shapes are refused. Native
+follower reads/writes require node/lineage/generation identities, and discovery visits
+only that current directory layout. Rebuild every participant on wire cutover;
+former flat-layout development state requires recreation, not a migration.
+Only checksum-protected committed .batch files supply follower entries. Former
+.entry/.entries files are rejected without decoding or migrating their payloads;
+current cleanup reclaims only covered committed batches.
 Recreate development state and rebuild all participants when layouts change;
 mixed builds are unsupported. External codec versions (SQLite WAL and upstream
 LTX), package versions and runtime revision/sequence counters keep their meaning.
@@ -84,8 +173,34 @@ old replies; the dependency-free core owns that decision. `cellar outbox`
 inspect/retry/status/audit uses fleet-HMAC ingress, a distinct source RPC
 capability and the original owner/output/discovery gates. Retry operation
 receipts and bounded audit pages live in an independent version-1 source
-control schema and survive business reset. `cellar stream` describe/read/sources/status/
-audit and `cellar subscription` list/describe/pause/resume/reset/delete use signed
+control schema and survive business reset.
+
+`event_late_reply.rs` qualifies operator retry while a real append acceptance or
+Forbidden reply is held. Preserve the source's ordinary operation budget and
+prove its old RPC is still pending at the control cut. After releasing that reply,
+require a blocked newer submission before inspecting pending state; socket-write
+completion alone does not prove the old callback finished. Current generation,
+rows, status and error must survive, and operation-receipt replay cannot rearm
+again. Host counters only establish phase boundaries; signed source inspection,
+stream history, original request/envelope bytes and inbox effects supply state
+evidence. A targeted negative control disabled only the generation check and
+exposed stale settlement and stale blocking; any such probe must restore
+production bytes before qualification. These are embedded-node/domain cuts,
+not process/power proof.
+
+`event_settlement_race.rs` holds original signed ack/extend submissions at the
+real peer proxy before the destination owner sees them. Exercise reset at the
+same offset, actual lease expiry and replacement, and acknowledged progress with
+a next live lease. Audit the replacement before releasing the old requests and
+compare its full lease/checkpoint afterward. Preserve the ordinary 30s lease and
+3s operation budget; wait outside the calls until near expiry, then require both
+requests captured while the original lease is still live. A timeout cannot stand
+in for typed receipt refusal. Inbox deduplication is scoped to one stable consumer
+database; separate worker databases do not share it. These are native domain/
+executor cuts, not independent-process or clock/retention qualification.
+
+`cellar stream` describe/read/sources/status/audit and `cellar subscription`
+list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited
 to stream control methods, with optional provenance omitted from ordinary event
 packets. Subscription receipts retain the operator label and enforce it during
@@ -198,6 +313,51 @@ handlers and body producers retain SDK event authority; only the node driver
 polls admitted ingress in its owning domain. Keep the private peer listener.
 Each node owns an isolated execution domain; library defaults do not inspect
 process environment. The CLI captures environment settings at startup.
+NodeServices/ExternalNodeServices capture an optional `wall_clock` before
+bootstrap; use None for system UTC. Standalone domains use
+ExecutionDomain::with_wall_clock. The provider belongs to ProductionDomain and
+follows scoped tasks, blocking work and cleanup; it is never a process override.
+Negative samples clamp to zero. Monotonic deadlines/timers and peer signature
+timestamps retain their separate host clocks. Keep fleet UTC sources consistent.
+`event_clock_retention.rs` moves only the destination clock: live leases must pin
+aged capacity, required checkpoints must keep pinning after expiry, and rollback
+plus joined owner handoff must retain observed expiry before any mutation can
+repair state. It uses explicit 120s node TTL/recovery backoff to avoid turning a
+31s wall step into an unrelated authority expiry, preserving ordinary 30s stream
+leases and 3s operation budgets. Audit source obligations and accepted bytes
+before reclaim/replay; bounded-history loss requires an explicit reset. These
+native domain cuts do not qualify physical clock faults or all rejected-operation
+time observations.
+Stream deadline mutations capture `event_stream::store::clock` after authorization
+and before their rollback transaction. Refusal/deduplication cannot forget expiry;
+scheduling reuses persisted time rather than sampling UTC again. Keep denied
+requests and read-only diagnostics from advancing it. Exact configuration receipt
+replay preserves the recorded caller's result, including its own grant rotation,
+without authorizing a new change. `native/stream_clock_tests.rs` uses real broker
+RPC/native contexts and SQLite close/reopen, with no background maintenance;
+these regressions are not fleet proof of clock-only commits on refused RPCs.
+`event_refusal_clock.rs` tests bucket and follower recovery of a proven
+StreamFull clock-only update. Its shared publication fault covers stream replica
+and old-session bundle writes while keeping CAS/lease clients unchanged. Keep
+the original lease and payload present at capture, block shutdown repair, discard
+the joined owner's disk, and audit a higher-epoch owner before receipt reuse.
+All participating nodes use explicit 120s TTL/backoff so the 31s wall step does
+not expire live witnesses; stream leases remain 30s and operation budgets 3s.
+The post-join expiry-only CAS is a controlled liveness fault, preserving every
+folded proof field. Readback may see legitimate recovery state/certificate
+progress but cannot change proof identity or authority. Do not delete the folded
+record to emulate ordinary expiry. Read-only audits can repeat a closed-owner
+Ambiguous transport result; ordinary mutations and receipts cannot.
+`event_unproven_clock.rs` holds actual publication with fleet proof disabled:
+local SQLite clock evidence cannot expose a typed refusal. Require Ambiguous,
+then independently audit the retained proven prefix after failed publication and
+disk loss. This selected absence result does not mean ambiguity proves rollback.
+These are native domain cuts, not independent processes, natural node expiry,
+or physical store-loss proof. The cold-follower variant joins both original
+follower domains, drops their service references and restarts both from retained
+directories before readiness can await predecessor recovery. Heap-pin their
+startup futures. No original follower domain supplies the recovery tail; graceful
+follower close is not SIGKILL or power-loss persistence qualification.
 Queue leases and actor settlement share the host's captured operation deadline.
 Embedded bootstrap/adoption generation builds and metrics sampling use fallible
 blocking admission. Closing a domain can race a later effect in an already-entered
@@ -207,6 +367,14 @@ ends on closed admission. Keep startup/directory deadlines and assertions intact
 cancellation diagnostics independently distinguish retained locks from pending
 replacement bootstrap. A fixed admission panic does not by itself explain an
 observed bootstrap deadline failure.
+The cancellation fixture must observe factory entry without consuming the host
+blocking pool it measures. Use an async entry notification with the actual
+factory-entry Instant and preserve its five-second cutoff even when receiver
+polling is delayed. A one-blocking-worker variant retains the original entry,
+restart, directory-retention and join assertions. Queued notification coverage
+rejects late entry; it does not reject timely entry merely observed later. This
+fixes reproduced observer starvation, not the historical startup/lease failures
+whose causes remain unestablished.
 Lower-level library hosts pin a 15-second default on first use; configure actor
 policy before constructing generations to choose another budget. CLI startup
 captures its environment override before any generation can sample that budget.
@@ -636,6 +804,66 @@ source POST to repair this test. Runtime prefix and complete offline audits plus
 survivor joins are mandatory. This selected source cut does not qualify follower
 disk loss, destination append/fetch/ack follower-only cuts or physical host/power
 loss. Existing fixtures keep their default proof/lease policies.
+`--restart-followers --peer-proof bucket` kills every original process and keeps
+destination/consumer leader writes bucket-backed while the source uses real fleet
+proof. Recheck source bucket absence with all original memory gone; archive the
+original ensemble's committed batches before any restart. Inspect current CLB1/
+CLE1 headers, ranges and SHA-256 footers, not only the possibly zero state.json
+seed. Require unchanged files, actual old authority expiry, distinct PIDs/new node
+generations and recovery audits before effects/ack. Bucket observations include
+the producer session's node-log bundle/recovered objects as well as source LTX;
+either publication invalidates a follower-only claim. Recheck both archives at
+completion. The all-fleet `--peer-proof fleet` variant remains unqualified: a
+private S3 case deleted the destination's sole follower witness with the producer
+disk and refused startup. Preserve that failed trace and do not treat the
+source-only proof case as its fix or general disk/power qualification.
+`fleet_faults.py --follower-only` instead isolates destination append proof with
+bucket-backed producer/consumer leaders and the destination replica refusal.
+Require unchanged destination LTX and original-session log objects, an actual
+refused upload and installed fleet-ack marker. Delete destination-local data
+after SIGKILL and observe old authority expiry. Keep the original append reply
+held until the recovery prefix is independently audited: dropping it earlier
+allows retries to acquire another route and repair that prefix. Then drop the
+reply, release identical retries and verify one envelope/offset, effect and
+checkpoint plus full joins. destination_proof.py enforces the extra proof gates
+before dependent work and in saved evidence. `ack_faults.py --follower-only` and
+`fetch_faults.py --follower-only` share those gates with their own method, restart
+and recovery-audit identities. Arm after the accepted-event audit; refuse source
+command replay after that point. Fetch keeps its original live/expired timing
+policy and must preserve the exact live lease or obtain higher authority only
+after expiry. Ack must recover checkpoint one and the exact saved inbox receipt
+before AlreadyAcknowledged replay. Every consumer effect stays unique. These
+cases retain live follower disks; other commit/proof cuts, follower disk and
+physical host/power/store loss remain separate qualification.
+For ack/fetch, `--follower-only --restart-followers` additionally kills every
+original process, archives the destination ensemble's current CLB1/CLE1 batches
+and checks unchanged destination LTX/session-log bucket data with all memory gone.
+Delete only destination-local data; keep the original witness disks unchanged.
+Start all replacements before awaiting readiness, require expired old leases,
+new PIDs/generations and a saved recovered prefix before any request replay.
+`destination_disks.py` checks custody during execution and rechecks archived bytes
+offline. Returning witnesses may acquire stream ownership, so their advertised
+routes also need paused exact-byte reply proxies until the recovery audit passes.
+Require exact live receipt/reply or higher post-expiry lease authority, original
+stored ack replay, unique effects and complete process/proxy/store joins.
+This qualifies selected cold retained-disk ack/fetch cuts, not witness-disk loss,
+cold pending-append recovery, consumer-local replay, or physical host/power faults.
+`fleet_faults.py --follower-only --restart-followers` adds a selected cold append
+cut. Returning peers keep their follower disks but enable a private exact-scope
+`blocked_claim` client: only puts to that stream's `cells/SCOPE/own.json` fail
+while `claim-block` exists. Preserve the original no-retry CAS store, reads,
+other ownership/lease writes and actual follower replies. Observe at least one
+real refused ownership write before starting the replacement destination.
+Its ordinary claim/recovery must retain the accepted event. Require a blocked
+identical append after both peers are ready and a saved original-prefix audit
+before releasing the held reply or automatic retry. Sources may move between
+returning peers; neither may own the selected stream during measurement.
+Offline audit checks the exact private configurations/markers as well as witness
+archives. This placement gate supplies no proof and does not qualify unrestricted
+placement, missing disks or physical failures. A reset source socket can already
+be disconnected when the measuring proxy drops its held reply: accept only
+ENOTCONN at that shutdown call, retain other errors and join all remaining proxy
+listeners before propagating cleanup failure.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST
@@ -698,6 +926,13 @@ smoke is `census_smoke.py`; keep census scope distinct from destination watermar
 
 
 ## Change discipline
+
+Use a single active PR against `main` for ongoing outbox, stream and subscription
+work. Reuse that PR's head branch for follow-ups; do not create stacked or
+successor PRs while it is open. After it merges, start any next PR from updated
+`main`. Do not base PRs on deletable feature branches. When consolidating,
+preserve all reviewed changes, close superseded PRs only after the surviving
+PR contains them, and record the consolidation in its description.
 
 The dashboard is an optional management application, separate from native cell
 execution. Browser JavaScript does not authorize adding a JavaScript engine to
@@ -910,3 +1145,10 @@ wait_for_event_activation on the production Node::start path, reject completed
 supervisors even when readiness is simultaneously ready, and preserve close/join
 on activation failure. Focused embedded tests cover that cut without wall-clock
 timeouts. This does not explain the separate intermittent bootstrap/recovery cases.
+
+
+A stopped remote attempt queues invalidation of its observed route without
+waiting for actor cleanup. Its Ambiguous verdict never authorizes replay; the
+next independent call can resolve a replacement endpoint. Ready retries still
+await invalidation under their captured deadline. Keep the regression that polls
+the stopped future once, checks exactly one invalidation and no queued replay.

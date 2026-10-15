@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import shutil
 import sqlite3
+import struct
 import tempfile
 import time
 import urllib.parse
@@ -32,19 +33,29 @@ STAGES = {
 def replica_inventory(root, store):
     if store is None:
         with sqlite3.connect((root / "fleet.sqlite").resolve().as_uri() + "?mode=ro", uri=True) as db:
-            rows = db.execute("SELECT key,body FROM __sys_local_objects WHERE key LIKE 'cells/%/ltx/%' ORDER BY key LIMIT 1001").fetchall()
+            rows = db.execute("SELECT key,body FROM __sys_local_objects WHERE key LIKE 'cells/%/ltx/%' OR key LIKE 'log/%' ORDER BY key LIMIT 1001").fetchall()
     else:
-        query = urllib.parse.urlencode({"list-type": "2", "max-keys": "1000", "prefix": "cells/"}, quote_via=urllib.parse.quote)
+        query = urllib.parse.urlencode({"list-type": "2", "max-keys": "1000"}, quote_via=urllib.parse.quote)
         listing = ET.fromstring(store_read(root, store, "", query))
         require(listing.findtext("{*}IsTruncated") == "false", "fixture object inventory exceeded one bounded page")
         keys = [entry.findtext("{*}Key") for entry in listing.findall("{*}Contents")]
-        rows = [(key, store_read(root, store, key)) for key in keys if "/ltx/" in key]
+        rows = [(key, store_read(root, store, key)) for key in keys if "/ltx/" in key or key.startswith("log/")]
     require(len(rows) <= 1000, "fixture replica inventory exceeded limit")
     return {key: dict(bytes=len(body), sha256=hashlib.sha256(body).hexdigest()) for key, body in rows}
 
 
-def source_inventory(objects, scope):
-    return {key: value for key, value in objects.items() if key.startswith(f"cells/{scope}/ltx/")}
+def log_lineage(lease):
+    lineage = lease.get("lineage")
+    require(isinstance(lineage, str) and len(lineage) == 32 and all(c in "0123456789abcdef" for c in lineage),
+            "missing or invalid node lineage")
+    return lineage
+
+
+def source_inventory(objects, scope, generation=None, lineage=None):
+    if generation is not None:
+        log_lineage(dict(lineage=lineage))
+    return {key: value for key, value in objects.items() if key.startswith(f"cells/{scope}/ltx/")
+            or generation is not None and key.startswith(f"log/producer/{lineage}/{generation}/")}
 
 
 def archive_pending_source(root, scope):
@@ -61,6 +72,65 @@ def archive_pending_source(root, scope):
             with target.open("rb") as saved:
                 os.fsync(saved.fileno())
     return inspect_crash_image(archive, scope)
+
+
+def inspect_follower_disk(directory):
+    files = inventory(directory)
+    state = json.loads((directory / "state.json").read_text())
+    batches = []
+    for file in files:
+        if not file["path"].endswith(".batch"):
+            continue
+        require(file["bytes"] <= 16 << 20, "fixture follower batch exceeds limit")
+        raw = (directory / file["path"]).read_bytes()
+        require(len(raw) >= 72 and raw[:4] == b"CLB1" and hashlib.sha256(raw[:-32]).digest() == raw[-32:],
+                "invalid committed follower batch or digest")
+        payload, position = raw[:-32], 4
+        def take(size):
+            nonlocal position
+            require(size >= 0 and position + size <= len(payload), "truncated follower batch entry")
+            result = payload[position:position + size]
+            position += size
+            return result
+        def number(format):
+            return struct.unpack(format, take(struct.calcsize(format)))[0]
+        epoch, base, end, sealed, count = number("<Q"), number("<Q"), number("<Q"), number("<Q"), number("<I")
+        require(epoch > 0 and base <= end and 1 <= count <= 4096, "invalid committed follower batch state")
+        entries = []
+        for _ in range(count):
+            require(take(4) == b"CLE1", "invalid committed follower entry magic")
+            seq = number("<Q")
+            cell = take(number("<H")).decode("utf-8")
+            cell_epoch, txid = number("<Q"), number("<Q")
+            body = take(number("<I"))
+            entries.append(dict(seq=seq, cell=cell, cell_epoch=cell_epoch, txid=txid, sha256=hashlib.sha256(body).hexdigest()))
+        require(position == len(payload) and entries[0]["seq"] > base and entries[-1]["seq"] == end
+                and all(right["seq"] == left["seq"] + 1 for left, right in zip(entries, entries[1:])), "invalid follower entry range")
+        require(file["path"] == f"{entries[0]['seq']}-{end}.batch", "follower batch filename/range mismatch")
+        batches.append(dict(path=file["path"], epoch=epoch, base=base, end=end, sealed_to=sealed, entries=entries))
+    require(batches, "acknowledging follower has no valid committed batch")
+    return dict(files=files, seed=state, batches=batches)
+
+
+def archive_followers(root, lease):
+    generation = lease["generation"]
+    lineage = log_lineage(lease)
+    require(len(generation) == 64 and all(c in "0123456789abcdef" for c in generation), "unsafe follower session")
+    retained = {}
+    for node in lease["log"]["ensemble"]:
+        require(node in {"destination", "consumer"}, "unknown follower process")
+        source = root / "data" / node / "node/peerlog/producer" / lineage / generation
+        files = inventory(source)
+        require(files and any(file["path"].endswith(".batch") for file in files), "acknowledging follower has no retained batch")
+        archive = root / "follower-images" / node
+        shutil.copytree(source, archive)
+        for file in archive.rglob("*"):
+            if file.is_file():
+                with file.open("rb") as saved:
+                    os.fsync(saved.fileno())
+        require(inventory(archive) == files, "follower archive changed during copy")
+        retained[node] = inspect_follower_disk(archive)
+    return retained
 
 
 def audit(ledger, origins, label, owner):
@@ -82,6 +152,12 @@ def audit_evidence(path, complete=True):
     operations = pids = baseline = proof = lost = replacement = owner = store = image = None
     stages, joined = set(), set()
     removed = discarded = expired = False
+    restart_followers = False
+    killed, restarts = {}, {}
+    ready = set()
+    retained = None
+    cold_leases = None
+    peer_proof = None
     consumed = 0
     for line in path.read_text().splitlines():
         row = json.loads(line)
@@ -102,6 +178,10 @@ def audit_evidence(path, complete=True):
         elif event == "follower_fleet_started":
             require(pids is None and row["proof_mode"] == "fleet" and row["replica_fault_node"] == "producer", "missing fleet-only proof control")
             pids = row["pids"]
+            require(type(row["restart_followers"]) is bool, "follower proof mode missing")
+            restart_followers = row["restart_followers"]
+            peer_proof = row["peer_proof"]
+            require(peer_proof in ("bucket", "fleet"), "peer proof policy missing")
             require(set(pids) == set(ROLES) and len(set(pids.values())) == 3, "fleet processes are not independent")
         elif event == "attempt":
             key = row["key"]
@@ -122,7 +202,9 @@ def audit_evidence(path, complete=True):
                     "follower proof lacks an original source acknowledgment")
             proof = row
             scope = operations["waiting"]["ack"]["source"]
-            require(source_inventory(baseline, scope) == source_inventory(row["objects"], scope),
+            generation = row["node_lease"]["generation"]
+            lineage = log_lineage(row["node_lease"])
+            require(source_inventory(baseline, scope, generation, lineage) == source_inventory(row["objects"], scope, generation, lineage),
                     "bucket publication bypassed follower-only boundary")
             require(row["refused"] and any(entry["path"].startswith(f"cells/{scope}/ltx/") for entry in row["refused"]),
                     "source bucket upload was not actually refused")
@@ -137,16 +219,19 @@ def audit_evidence(path, complete=True):
             if label == "before-loss":
                 require(proof is not None and not lost and row["owner"] == owner, "loss preceded original pending obligation audit")
             else:
-                require(discarded and replacement is not None and row["owner"]["node"] == "successor"
+                allowed = {"destination", "consumer", "successor"} if restart_followers else {"successor"}
+                require(discarded and replacement is not None and row["owner"]["node"] in allowed
                         and row["owner"]["epoch"] > owner["epoch"], "follower recovery did not cross independent ownership")
+                require(not restart_followers or ready == {"destination", "consumer"}, "recovery preceded follower disk restarts")
             if label in ("first-acknowledged", "final"):
                 require(consumed == (1 if label == "first-acknowledged" else 2), "consumer effect preceded recovery audit")
             for key, operation in operations.items():
                 for field in ("payload", "sha256", "offset", "attempts", "ack"):
                     require(row["operations"][key].get(field) == operation.get(field), "audit changed original command or acknowledgment")
             accepted = validate_snapshot(operations, row["snapshot"], *STAGES[label])
-            expected_host = "producer" if label == "before-loss" else "successor"
-            require(all(source["host"] == expected_host for source in row["snapshot"]["sources"].values())
+            expected_hosts = {"producer"} if label == "before-loss" else ({"destination", "consumer", "successor"} if restart_followers else {"successor"})
+            require(all(source["host"] in expected_hosts for source in row["snapshot"]["sources"].values())
+                    and row["snapshot"]["sources"]["waiting"]["host"] == row["owner"]["node"]
                     and row["snapshot"]["effects"]["host"] == "consumer", "audit observed the wrong owner")
             require(label not in ("before-loss", "recovered-before-replay")
                     or [record["order_id"] for record in row["snapshot"]["events"]["records"]] == ["cross"],
@@ -158,9 +243,32 @@ def audit_evidence(path, complete=True):
                         "recovered encoded event differs from the killed leader's pending obligation")
             stages.add(label)
         elif event == "process_killed":
-            require(lost is None and "before-loss" in stages and row["label"] == "follower-producer"
-                    and row["pid"] == pids["producer"] and row["exit_code"] == -9, "wrong leader loss")
-            lost = row
+            node = row["label"].removeprefix("follower-")
+            require("before-loss" in stages and node in ROLES and node not in killed and row["pid"] == pids[node]
+                    and row["exit_code"] == -9 and (node == "producer" or restart_followers and lost is not None)
+                    and retained is None, "wrong or repeated process loss")
+            killed[node] = row["pid"]
+            if node == "producer":
+                lost = row
+        elif event == "follower_disks_retained":
+            require(restart_followers and set(killed) == set(ROLES) and retained is None and not discarded,
+                    "follower disk evidence preceded loss of every original process")
+            scope = operations["waiting"]["ack"]["source"]
+            generation = proof["node_lease"]["generation"]
+            lineage = log_lineage(proof["node_lease"])
+            require(source_inventory(row["objects"], scope, generation, lineage) == source_inventory(baseline, scope, generation, lineage),
+                    "bucket data repaired the transaction before follower restart")
+            retained = row["followers"]
+            cold_leases = row["leases"]
+            require(set(cold_leases) == {"destination", "consumer"} and all(lease["node"] == node for node, lease in cold_leases.items()),
+                    "cold follower authority inventory changed")
+            require(peer_proof != "bucket" or all(not lease.get("log") or not lease["log"]["may_have_fleet_acks"] for lease in cold_leases.values()),
+                    "bucket-backed peer policy had fleet-only acknowledgments")
+            require(set(retained) == set(proof["node_lease"]["log"]["ensemble"]), "retained disks omit an acknowledging follower")
+            for node, data in retained.items():
+                require(any(batch["epoch"] == proof["node_lease"]["log"]["epoch"] and any(entry["cell"] == scope
+                            and entry["cell_epoch"] == owner["epoch"] for entry in batch["entries"]) for batch in data["batches"]),
+                        "follower disk has no original epoch's retained data")
         elif event == "follower_source_image":
             require(lost and image is None and not discarded, "source image was not copied from the killed leader")
             image = row["image"]
@@ -171,6 +279,7 @@ def audit_evidence(path, complete=True):
                     and len(image["envelope_sha256"]) == 64 and "db.sqlite" in image["files"], "archived pending obligation changed")
         elif event == "follower_leader_data_discarded":
             require(lost and image is not None and not discarded and replacement is None and row["remaining_entries"] == 0 and row["files"], "leader local state survived loss")
+            require(not restart_followers or retained is not None, "leader data discarded before cold follower evidence")
             paths = set()
             for entry in row["files"]:
                 name = Path(entry["path"])
@@ -179,20 +288,35 @@ def audit_evidence(path, complete=True):
                 paths.add(entry["path"])
             discarded = True
         elif event == "follower_successor_started":
-            require(discarded and expired and replacement is None and row["node"] == "successor" and row["pid"] not in pids.values(), "replacement reused lost local state or live authority")
+            require(discarded and expired and replacement is None and row["node"] == "successor" and row["pid"] not in (*pids.values(), *restarts.values()), "replacement reused lost local state or live authority")
             replacement = row
         elif event == "follower_authority_expired":
             require(discarded and not expired and replacement is None and row["lease"]["node"] == "producer"
+                    and log_lineage(row["lease"]) == log_lineage(proof["node_lease"])
                     and row["lease"]["generation"] == proof["node_lease"]["generation"]
                     and row["lease"]["expires_ms"] >= proof["node_lease"]["expires_ms"]
                     and row["observed_ms"] > row["lease"]["expires_ms"], "takeover did not observe actual old authority expiry")
             expired = True
+        elif event == "follower_process_restarted":
+            node = row["node"]
+            require(restart_followers and discarded and expired and retained is not None and node in {"destination", "consumer"} - restarts.keys()
+                    and row["pid"] not in (*pids.values(), *restarts.values()) and row["lease"]["node"] == node
+                    and row["lease"] == cold_leases[node] and row["observed_ms"] > row["lease"]["expires_ms"], "follower restart lacks new process or expired authority")
+            require(node not in retained or row["files"] == retained[node]["files"], "follower files changed before process restart")
+            restarts[node] = row["pid"]
+        elif event == "follower_process_ready":
+            node = row["node"]
+            require(restart_followers and node in restarts and node not in ready and row["pid"] == restarts[node]
+                    and row["lease"]["node"] == node and row["lease"]["generation"] != cold_leases[node]["generation"]
+                    and log_lineage(row["lease"]) == log_lineage(cold_leases[node]),
+                    "follower did not register a new process generation")
+            ready.add(node)
         elif event == "follower_consumer_acknowledged":
             require("recovered-before-replay" in stages and consumed < 2 and (consumed == 0 or "first-acknowledged" in stages)
                     and row["fresh_effects"] == 1 and row["status"] == "acknowledged", "repeated, skipped or premature inbox effect")
             consumed += 1
         elif event == "fleet_process_stopped":
-            expected = replacement["pid"] if row["node"] == "successor" else pids[row["node"]]
+            expected = replacement["pid"] if row["node"] == "successor" else (restarts if restart_followers else pids)[row["node"]]
             require("final" in stages and row["node"] in {"destination", "consumer", "successor"} - joined and row["pid"] == expected
                     and row["exit_code"] == 0 and len(row["reports"]) == 1 and all(row["reports"][0].get(key) is True
                         for key in ("ingress_drained", "application_work_drained", "cells_drained")), "incomplete survivor shutdown")
@@ -208,11 +332,14 @@ def audit_evidence(path, complete=True):
                 and (store is None or removed), "incomplete follower-only qualification")
         require(inspect_crash_image(path.parent / "source-image", operations["waiting"]["ack"]["source"]) == image,
                 "archived source database/WAL changed after the kill")
+        if restart_followers:
+            for node, data in retained.items():
+                require(inspect_follower_disk(path.parent / "follower-images" / node) == data, "archived follower files changed after restart")
     return dict(audits=len(stages), follower_only_recoveries=int("recovered-before-replay" in stages),
-                effects=consumed, backend="s3" if store else "sqlite")
+                effects=consumed, restarted_follower_processes=len(restarts), backend="s3" if store else "sqlite")
 
 
-def exercise(binary, root, rustfs_image=None):
+def exercise(binary, root, rustfs_image=None, restart_followers=False, peer_proof="fleet"):
     require(os.name == "posix", "follower qualification requires SIGKILL")
     root.mkdir(parents=True, exist_ok=False)
     ledger = Ledger(root, commands=(("cross", 725, 1), ("waiting", 375, 2)))
@@ -224,13 +351,13 @@ def exercise(binary, root, rustfs_image=None):
         for node in ROLES:
             peer = free_address()
             process = FleetProcess(binary, root, node, node, peer, peer, node == "destination", store,
-                                   fleet_durability=True, replica_fault=node == "producer", node_lease_ms=1000)
+                                   fleet_durability=node == "producer" or peer_proof == "fleet", replica_fault=node == "producer", node_lease_ms=1000)
             processes.append(process)
             origins[node] = process.ready()
             if node == "destination":
                 require(read(origins[node], "/__test/events")["records"] == [], "nonempty private fixture stream")
         ledger.record("follower_fleet_started", pids={node: process.child.pid for node, process in zip(ROLES, processes)},
-                      proof_mode="fleet", replica_fault_node="producer")
+                      proof_mode="fleet", replica_fault_node="producer", restart_followers=restart_followers, peer_proof=peer_proof)
         ledger.issue(origins["producer"], "cross")
         eventually(lambda: read(origins["producer"], "/orders/cross"), lambda state: state["outbox"]["pending_rows"] == "0")
         # Initialize this empty source before taking the object inventory.
@@ -249,10 +376,18 @@ def exercise(binary, root, rustfs_image=None):
             return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
         denied = eventually(refused, lambda rows: any(row["path"].startswith(f"cells/{scope}/ltx/") for row in rows))
         original_owner = authority(root, store, scope)
-        ledger.record("follower_only_acknowledged", owner=original_owner, node_lease=store_json(root, store, "nodes/producer.json"),
+        proof_lease = store_json(root, store, "nodes/producer.json")
+        ledger.record("follower_only_acknowledged", owner=original_owner, node_lease=proof_lease,
                       objects=replica_inventory(root, store), refused=denied)
         audit(ledger, origins, "before-loss", original_owner)
         processes[1].crash(ledger, "follower-producer")
+        if restart_followers:
+            for index in (0, 2):
+                processes[index].crash(ledger, "follower-" + ROLES[index])
+            retained = archive_followers(root, proof_lease)
+            ledger.record("follower_disks_retained", followers=retained, objects=replica_inventory(root, store),
+                          leases={node: store_json(root, store, f"nodes/{node}.json") for node in ("destination", "consumer")})
+            audit_evidence(ledger.path, complete=False)
         ledger.record("follower_source_image", image=archive_pending_source(root, scope))
         files = inventory(data)
         shutil.rmtree(data)
@@ -261,11 +396,30 @@ def exercise(binary, root, rustfs_image=None):
         old_lease = store_json(root, store, "nodes/producer.json")
         observed = eventually(lambda: int(time.time() * 1000), lambda now: now > old_lease["expires_ms"])
         ledger.record("follower_authority_expired", lease=old_lease, observed_ms=observed)
+        audit_evidence(ledger.path, complete=False)
+        replacements = {}
+        if restart_followers:
+            for node in ("destination", "consumer"):
+                lease = store_json(root, store, f"nodes/{node}.json")
+                observed = eventually(lambda: int(time.time() * 1000), lambda now: now > lease["expires_ms"])
+                files = inventory(root / "data" / node / "node/peerlog/producer" / log_lineage(proof_lease) / proof_lease["generation"]) if node in retained else []
+                require(node not in retained or files == retained[node]["files"], "cold follower disk changed before restart")
+                peer = free_address()
+                process = FleetProcess(binary, root, node, node + "-restarted", peer, peer, node == "destination", store,
+                                       fleet_durability=peer_proof == "fleet", node_lease_ms=1000)
+                processes.append(process)
+                replacements[node] = process
+                ledger.record("follower_process_restarted", node=node, pid=process.child.pid, lease=lease, observed_ms=observed, files=files)
         peer = free_address()
         successor = FleetProcess(binary, root, "successor", "successor", peer, peer, False, store, node_lease_ms=1000)
         processes.append(successor)
-        origins["producer"] = successor.ready()
         ledger.record("follower_successor_started", node="successor", pid=successor.child.pid)
+        # Start every replacement before awaiting activation: predecessor log
+        # recovery may need a peer whose event bindings are still activating.
+        for node, process in replacements.items():
+            origins[node] = process.ready()
+            ledger.record("follower_process_ready", node=node, pid=process.child.pid, lease=store_json(root, store, f"nodes/{node}.json"))
+        origins["producer"] = successor.ready()
         # These are reads only. No original source POST is ever replayed.
         read(origins["producer"], "/orders/waiting")
         new_owner = authority(root, store, scope)
@@ -282,7 +436,8 @@ def exercise(binary, root, rustfs_image=None):
         if store:
             store.close()
         summary = dict(audit_evidence(ledger.path), status="passed", binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-                       output=str(root), scope="follower-only source proof; real replica upload refusal; leader SIGKILL and local data loss; recovery before replay")
+                       output=str(root), scope="follower-only source proof; real replica upload refusal; leader SIGKILL and local data loss; recovery before replay",
+                       restart_followers=restart_followers, peer_proof=peer_proof)
         (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary), flush=True)
     finally:
@@ -300,8 +455,10 @@ if __name__ == "__main__":
     target.add_argument("--audit", type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument("--rustfs-image")
+    parser.add_argument("--restart-followers", action="store_true", help="SIGKILL every original process and restart followers from retained disks")
+    parser.add_argument("--peer-proof", choices=("bucket", "fleet"), default="fleet", help="explicit destination/consumer proof policy; source always uses fleet proof")
     args = parser.parse_args()
     if args.audit:
         print(json.dumps(audit_evidence(args.audit.resolve())), flush=True)
     else:
-        exercise(args.binary.resolve(), (args.output or Path(tempfile.mkdtemp(prefix="cellar-follower-parent-")) / "evidence").resolve(), args.rustfs_image)
+        exercise(args.binary.resolve(), (args.output or Path(tempfile.mkdtemp(prefix="cellar-follower-parent-")) / "evidence").resolve(), args.rustfs_image, args.restart_followers, args.peer_proof)

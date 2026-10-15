@@ -551,9 +551,8 @@ impl RemoteRouteRetry {
         }
     }
 
-    /// Apply one failed attempt's policy, then invalidate only when another
-    /// dispatch is allowed. The observed generation ties the retry budget,
-    /// diagnostic, and invalidation to the same owner.
+    /// Apply one failed attempt's policy and discard its observed route. A
+    /// stopped caller queues cleanup without waiting or authorizing replay.
     async fn retry(
         &mut self,
         app: &AppHandle,
@@ -581,6 +580,9 @@ impl RemoteRouteRetry {
         };
         if outcome == RemoteRetryOutcome::Ready {
             self.invalidate(app, scope).await;
+        } else {
+            let (node, epoch) = self.generation.as_ref().expect("an observed remote route");
+            drop(app.queue_remote_invalidation(scope.to_string(), node.clone(), *epoch));
         }
         outcome
     }
@@ -4740,7 +4742,7 @@ async fn async_main(
                 write_lock: tokio::sync::Mutex::new(()),
             });
             let manager = Arc::new(crate::node_log::NodeLogManager::from_environment(
-                &format!("{node}/{process_generation}"),
+                &bucket_ownership.log_session()?,
                 log_bucket,
                 own_log,
                 ltx.clone(),
