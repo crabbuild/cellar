@@ -1028,7 +1028,9 @@ async fn start(
     metrics: u64,
 ) -> Result<Node> {
     let (config, services) = inputs(name, directory, core, bucket, metrics).await?;
-    Node::start(config, services, graph(), applications(label, signals)?).await
+    Node::start(config, services, graph(), applications(label, signals)?)
+        .await
+        .with_context(|| format!("start node {name} in {}", directory.display()))
 }
 
 fn client() -> Result<reqwest::Client> {
@@ -1064,6 +1066,26 @@ async fn ready(node: &Node) -> Result<()> {
         Ok::<_, anyhow::Error>(())
     })
     .await?
+}
+
+async fn ready_with_completion(node: &mut Node, stage: &'static str) -> Result<()> {
+    if let Err(error) = ready(node).await {
+        let closed = node.is_closed();
+        // Observe a completed supervisor once; never wait longer or turn a
+        // failed readiness check into success. A pending join stays pending.
+        let completion = if closed {
+            format!(
+                "{:?}",
+                futures_util::FutureExt::now_or_never(node.finished())
+            )
+        } else {
+            "not polled: domain remains open".into()
+        };
+        return Err(error).with_context(|| {
+            format!("{stage}: domain_closed={closed}, supervisor_completion={completion}")
+        });
+    }
+    Ok(())
 }
 
 async fn stopped(node: Node) -> Result<()> {
@@ -1164,7 +1186,7 @@ async fn public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_exec
         entered,
         release: Semaphore::new(0),
     });
-    let a = start(
+    let mut a = start(
         "same-node",
         "a",
         &directory.path().join("a"),
@@ -1174,7 +1196,7 @@ async fn public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_exec
         101,
     )
     .await?;
-    let b = start(
+    let mut b = start(
         "same-node",
         "b",
         &directory.path().join("b"),
@@ -1184,8 +1206,8 @@ async fn public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_exec
         202,
     )
     .await?;
-    ready(&a).await?;
-    ready(&b).await?;
+    ready_with_completion(&mut a, "initial fleet A readiness").await?;
+    ready_with_completion(&mut b, "initial fleet B readiness").await?;
     ensure!(
         a.services().sample_metrics().rss_bytes == 101
             && b.services().sample_metrics().rss_bytes == 202,
@@ -1224,12 +1246,12 @@ async fn public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_exec
         response.status() == 200 && response.text().await? == "a:1",
         "admitted write was cut off"
     );
-    shutdown.await??;
+    shutdown.await?.context("drain original fleet A")?;
     ensure!(
         core_a.handle().spawn(async { 7 }).await? == 7,
         "caller core executor stopped"
     );
-    let reopened = start(
+    let mut reopened = start(
         "same-node",
         "a",
         &directory.path().join("a"),
@@ -1239,17 +1261,17 @@ async fn public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_exec
         101,
     )
     .await?;
-    ready(&reopened).await?;
+    ready_with_completion(&mut reopened, "restored fleet A readiness").await?;
     ensure!(
         call(&client, &reopened, reqwest::Method::POST, "/write").await? == "a:2",
         "committed fleet state was not restored"
     );
-    stopped(reopened).await?;
+    stopped(reopened).await.context("drain restored fleet A")?;
     ensure!(
         call(&client, &b, reqwest::Method::POST, "/write").await? == "b:3",
         "sibling was closed"
     );
-    stopped(b).await?;
+    stopped(b).await.context("drain fleet B")?;
     Ok(())
 }
 
@@ -1350,8 +1372,19 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
         ))
     })?;
     let (config, services) = inputs("cancelled", directory.path(), &core, None, 0).await?;
-    let startup = tokio::spawn(Node::start(config, services, graph(), apps));
-    tokio::task::spawn_blocking(move || received.recv_timeout(Duration::from_secs(5))).await??;
+    let mut startup = tokio::spawn(Node::start(config, services, graph(), apps));
+    let entry = tokio::task::spawn_blocking(move || received.recv_timeout(Duration::from_secs(5)))
+        .await
+        .context("factory-entry observer task failed")?;
+    if let Err(error) = entry {
+        let completion = match futures_util::FutureExt::now_or_never(&mut startup) {
+            Some(Ok(Err(error))) => format!("startup failed: {error:#}"),
+            Some(Err(error)) => format!("startup task failed: {error}"),
+            Some(Ok(Ok(node))) => format!("startup returned a node: closed={}", node.is_closed()),
+            None => "startup remains pending".into(),
+        };
+        return Err(error).with_context(|| format!("factory-entry wait failed; {completion}"));
+    }
     startup.abort();
     ensure!(startup.await.is_err(), "startup was not cancelled");
     let (config, services) = inputs("replacement", directory.path(), &core, None, 0).await?;
@@ -1500,7 +1533,7 @@ fn explicit_public_node_policy_ignores_invalid_process_configuration() -> Result
         .output()?;
     ensure!(
         output.status.success(),
-        "embedded node consulted process configuration:\n{}\n{}",
+        "explicit-policy child failed (the child output determines the cause):\n{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
