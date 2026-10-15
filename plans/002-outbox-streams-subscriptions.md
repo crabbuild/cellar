@@ -233,6 +233,8 @@ Required invariants:
   expiry or prolonged unreachability does not authorize abandoning its writes.
   An unreadable retained bundle blocks its fold. Loss diagnostics alone never
   authorize sealing, replacement admission or dropping an outbox obligation.
+  A later recovery retry may succeed when a valid complete witness returns;
+  the earlier diagnostic remains an observation, not a permanent loss verdict.
 
 Eventual delivery assumes a recoverable source, an available and authorized
 destination with capacity, and fair scheduling. Permanent deletion, persistent

@@ -65,6 +65,12 @@ when the diagnostic is cached. Preserve the recovering predecessor and require
 valid evidence before retry can succeed. Local SQLite state alone is not a
 complete node-log witness; do not add a fallback that silently resets accepted
 outbox, stream, inbox or checkpoint state.
+Returning-witness coverage belongs in tests/support/log_recovery.rs, included by
+native_log.rs. It must use cold follower stores and exact retained bytes, remove
+leader-local data and exclude bucket data before recovery, and check SQL state
+before any replay. A prior blocked diagnostic is history; current valid evidence
+can permit recovery without rewriting that history. This native-domain fixture
+does not substitute for the independent-process destination failure matrix.
 Keep implemented behavior separate from release qualification. Passing reruns
 do not close unexplained failures or substitute for missing fault cases.
 Outbox dispatch uses immutable stored principal/grant identity after source

@@ -52,7 +52,41 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: current log wire and follower layout at version one
+## Current follow-up: returning proof after a recorded recovery refusal
+
+The selected acceptance gate is recovery availability when a valid follower
+witness returns after the predecessor has already recorded missing proof.
+Refusal must preserve the recovering predecessor, and a later retry must use
+current evidence rather than treat the earlier loss diagnostic as authority.
+
+A native log fixture commits a real fleet-proven SQLite write, stops both
+original execution domains, deletes the original leader's local directory and
+checks that neither cell LTX nor session log data exists in the bucket. Recovery
+first contacts a real follower store opened on an empty directory. It must
+refuse with no complete witness, preserve the old generation in recovering state,
+record a blocked diagnostic and expose no restored cell. The fixture then routes
+to a newly opened follower store on the retained disk, checks the exact original
+range and entry bytes, and retries recovery twice. The restored SQL state must
+contain exactly the single original row without command replay; the predecessor
+must be sealed and the earlier diagnostic unchanged.
+
+The focused case passes (2.81s), followed by all six native log tests (1.33s)
+and four protocol tests (0.69s). Workspace/all-target/all-feature Clippy with
+warnings denied passes (41.76s), as do formatting (506 Rust files), 101 Python
+oracle guards, docs (36 documents/6 flows/386 references), dependency checks
+(403 packages/no JavaScript engine) and whitespace checks. This test-only slice
+changes no production Rust or version markers; it does not rerun or supersede
+the preceding full Node and process qualifications. Checks use Rust 1.97.0 on
+aarch64 macOS, not CI's configured toolchain.
+
+This fixture uses independent native execution domains and actual follower
+handlers through the current log wire. It is not independent-process, physical
+network, host or power-loss qualification, and does not close the destination
+append/fetch/ack or stale-owner gates. Those remain the highest correctness
+priorities, followed by the unexplained startup failures and lifecycle/capacity
+cuts in the ordered list above.
+
+## 2026-10-15 current log wire and follower layout at version one
 
 The remaining owned ranged-tail marker is now one in both JSON requests
 (`tail_format`) and binary responses (`CLT1`). The range's fragment epoch, base,

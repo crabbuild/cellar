@@ -1,5 +1,8 @@
 //! Caller-owned log transports, real follower proofs, and crash recovery.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/log_recovery.rs"]
+mod log_recovery;
+
 use anyhow::{ensure, Context as _, Result};
 use bytes::Bytes;
 use cellar::bucket::Bucket;
