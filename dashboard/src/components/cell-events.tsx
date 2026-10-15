@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import {
@@ -56,12 +56,21 @@ import {
 
 export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
   const { token, session } = useSession()
+  const [params] = useSearchParams()
+  const [view, setView] = useState(
+    params.has("operation") ? "history" : "lanes"
+  )
   const [cursor, setCursor] = useState<string | null>(null)
   const [selected, setSelected] = useState<Lane | null>(null)
   const [retry, setRetry] = useState<Lane | null>(null)
   const [outcome, setOutcome] = useState<EventReply | null>(null)
   const path = `${cellEventsPath(fleet, scope)}/outbox`
-  const page = useEvent<Outbox>(path, { kind: "inspect", limit: 25, cursor })
+  const page = useEvent<Outbox>(
+    path,
+    { kind: "inspect", limit: 25, cursor },
+    undefined,
+    view === "lanes"
+  )
   const write = useMutation({
     mutationFn: ({ lane, reason }: { lane: Lane; reason: string }) =>
       eventRequest(
@@ -105,7 +114,7 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
           )
         }
       />
-      <Tabs defaultValue="lanes">
+      <Tabs value={view} onValueChange={setView}>
         <TabsList variant="line">
           <TabsTrigger value="lanes">Delivery lanes</TabsTrigger>
           <TabsTrigger value="history">Operation history</TabsTrigger>
@@ -255,6 +264,11 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
               </div>
             )}
           </Feedback>
+          {page.error && cursor && !data && (
+            <Button variant="outline" onClick={() => setCursor(null)}>
+              Reload first lane page
+            </Button>
+          )}
         </TabsContent>
         <TabsContent value="history">
           <EventAudit path={path} source />
@@ -278,9 +292,13 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
             <div className="space-y-4 p-4">
               <dl className="detail-grid">
                 <dt>Retry eligible</dt>
-                <dd>{eventTime(selected.retry_at_ms)}</dd>
+                <dd>
+                  {selected.retry_at_ms === "0"
+                    ? "Now"
+                    : eventTime(selected.retry_at_ms)}
+                </dd>
                 <dt>Seal</dt>
-                <dd>{selected.seal_state}</dd>
+                <dd>{selected.seal_state ?? "Not requested"}</dd>
                 <dt>Dispatch generation</dt>
                 <dd>{exact(selected.revision.dispatch_generation)}</dd>
                 <dt>Next sequence</dt>

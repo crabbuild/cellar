@@ -116,9 +116,12 @@ function ResourceList({ kind }: { kind: keyof typeof definitions }) {
             .map((binding) => ({ app, ...binding }))
     ) ?? []
   const filtered = resources.filter((resource) =>
-    [resource.name, resource.app.name, resource.identity].some((value) =>
-      value.toLowerCase().includes(search.trim().toLowerCase())
-    )
+    [
+      resource.name,
+      resource.app.name,
+      resource.identity,
+      "event" in resource ? (resource.event?.resource.name ?? "") : "",
+    ].some((value) => value.toLowerCase().includes(search.trim().toLowerCase()))
   )
   const Icon = definition.icon
   return (

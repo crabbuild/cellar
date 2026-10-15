@@ -197,6 +197,10 @@ pub(crate) async fn stream(
     } else {
         None
     };
+    let read_payloads = match &body.action {
+        EventStreamAction::Read { payload, .. } => Some(*payload),
+        _ => None,
+    };
     let result = client
         .event_stream(
             &application,
@@ -206,7 +210,8 @@ pub(crate) async fn stream(
             &operator(&fleet, &principal),
             &body.operation_id,
         )
-        .await;
+        .await
+        .and_then(|reply| stream_read_view(reply, read_payloads));
     if let Some(operation) = operation.as_mut() {
         console.audit.finish(
             operation,
@@ -244,6 +249,37 @@ pub(crate) async fn stream(
         }
     }
     event_reply(result, operation)
+}
+
+// JSON text preserves application integer values when the browser parses the
+// enclosing API reply. Metadata and all durable offsets keep their native shape.
+fn stream_read_view(mut reply: Value, payloads: Option<bool>) -> anyhow::Result<Value> {
+    let Some(include) = payloads else {
+        return Ok(reply);
+    };
+    let records = reply
+        .get_mut("records")
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| anyhow::anyhow!("invalid event read page"))?;
+    for record in records {
+        let record = record
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("invalid event record"))?;
+        let payload = record
+            .get_mut("event")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| anyhow::anyhow!("invalid event metadata"))?
+            .remove("payload");
+        if include {
+            let payload =
+                payload.ok_or_else(|| anyhow::anyhow!("requested event payload missing"))?;
+            record.insert(
+                "payload_json".into(),
+                Value::String(serde_json::to_string(&payload)?),
+            );
+        }
+    }
+    Ok(reply)
 }
 
 fn event_reply(
@@ -331,4 +367,30 @@ pub(crate) async fn metrics(
     Ok(Json(
         client.node_event_metrics(&node, &query.generation).await?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_payload_json_preserves_large_integers_and_explicit_opt_in() -> anyhow::Result<()> {
+        let reply: Value = serde_json::from_str(
+            r#"{"records":[{"offset":"1","event":{"id":"event-one","payload":{"id":9007199254740993,"max":18446744073709551615,"min":-9223372036854775808}}}]}"#,
+        )?;
+        let view = stream_read_view(reply.clone(), Some(true))?;
+        assert!(view["records"][0]["event"].get("payload").is_none());
+        let encoded = view["records"][0]["payload_json"].as_str().unwrap();
+        assert!(encoded.contains("9007199254740993"));
+        assert_eq!(
+            serde_json::from_str::<Value>(encoded)?,
+            reply["records"][0]["event"]["payload"]
+        );
+        let metadata = stream_read_view(reply, Some(false))?;
+        assert!(metadata["records"][0]["event"].get("payload").is_none());
+        assert!(metadata["records"][0].get("payload_json").is_none());
+        assert!(stream_read_view(json!(false), Some(true)).is_err());
+        assert!(stream_read_view(json!({"records":[[]]}), Some(true)).is_err());
+        Ok(())
+    }
 }

@@ -735,7 +735,10 @@ async fn event_request(app: &Router, path: &str, token: &str, body: Value) -> (S
         .unwrap();
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    (status, serde_json::from_slice(&bytes).unwrap())
+    // Axum's extractor rejections are plain text; handler responses are JSON.
+    let body = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|_| json!({"error": String::from_utf8_lossy(&bytes)}));
+    (status, body)
 }
 
 #[tokio::test]

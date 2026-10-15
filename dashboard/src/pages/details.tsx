@@ -86,9 +86,11 @@ export default function Details({ kind }: { kind: "nodes" | "cells" }) {
           <Tabs value={tab} onValueChange={(tab) => setParams({ tab })}>
             <TabsList variant="line">
               <TabsTrigger value="overview">Overview</TabsTrigger>
-              {kind === "cells" && (
-                <TabsTrigger value="outbox">Outbox</TabsTrigger>
-              )}
+              {kind === "cells" &&
+                "scope" in record &&
+                !["event_stream", "event_catalog"].includes(record.kind) && (
+                  <TabsTrigger value="outbox">Outbox</TabsTrigger>
+                )}
               <TabsTrigger value="events">
                 {kind === "cells" ? "Event state" : "Event activity"}
               </TabsTrigger>

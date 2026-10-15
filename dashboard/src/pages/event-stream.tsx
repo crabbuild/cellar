@@ -254,7 +254,7 @@ function StreamView({
     path,
     { kind: "describe" },
     resource,
-    event.administer
+    event.administer && tab === "overview"
   )
   return (
     <div className="space-y-5">
@@ -449,6 +449,7 @@ function AdminRequired() {
 type EventRecord = {
   offset: string
   appended_ms?: string
+  payload_json?: string
   event: {
     family?: string
     key?: string
@@ -628,14 +629,33 @@ function EventReader({ path, resource }: { path: string; resource: string }) {
                     : "Metadata only. Request payloads from the event browser to include event data."}
                 </SheetDescription>
               </SheetHeader>
-              <div className="p-4">
-                <JsonView value={selected} />
-              </div>
+              <EventRecordView record={selected} />
             </SheetContent>
           </Sheet>
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function EventRecordView({ record }: { record: EventRecord }) {
+  const { payload_json, ...metadata } = record
+  return (
+    <div className="space-y-4 p-4">
+      <JsonView value={metadata} />
+      {payload_json !== undefined && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-medium">Payload · JSON</h3>
+          <pre
+            className="json-view"
+            tabIndex={0}
+            aria-label="Event payload JSON"
+          >
+            {payload_json}
+          </pre>
+        </section>
+      )}
+    </div>
   )
 }
 

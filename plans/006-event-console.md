@@ -31,13 +31,13 @@ durability, backend recovery, all failure cuts or old-build interoperability.
 
 ## Verification
 
-Completed: `npm ci`, dashboard build/lint, 44 browser tests (including ten
+Completed: `npm ci`, dashboard build/lint, 45 browser tests (including eleven
 new event tests), native dependency policy and documentation reference checks.
 Rendered desktop subscription, mobile outbox and dark mobile stream views inspected.
 `cargo check -p cellar-admin --locked`, `cargo format` and the repository
 formatter check also pass. Exact u64 values,
 explicit payload requests, guarded reset offsets, permissions, bounded pagination
-lost-response receipt recovery and seal-only retries have browser coverage.
+lost-response and post-reload receipt recovery and seal-only retries have browser coverage.
 
 GitHub Actions could not start because of account runner/billing limits. Local
 Rust tests are being rerun with debug symbols disabled to reduce build I/O; test

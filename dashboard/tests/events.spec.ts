@@ -128,6 +128,7 @@ async function setup(
     unknown?: boolean
     lost?: boolean
     sealOnly?: boolean
+    staleCursor?: boolean
   } = {}
 ) {
   const requests: {
@@ -185,6 +186,13 @@ async function setup(
     else if (path.endsWith("/nodes/node-one")) result = node
     else if (path.endsWith("/cells")) result = pageOf([cell])
     else if (path.endsWith("/cells/Order:one")) result = cell
+    else if (path.endsWith("/cells/__EventStream:one"))
+      result = {
+        ...cell,
+        scope: "__EventStream:one",
+        class: "__EventStream",
+        kind: "event_stream",
+      }
     else if (path.endsWith("/event-state"))
       result = {
         format: 1,
@@ -216,6 +224,13 @@ async function setup(
       const body = route.request().postDataJSON()
       requests.push({ path, body })
       const action = body.action
+      if (options.staleCursor && action.kind === "inspect" && action.cursor) {
+        await route.fulfill({
+          status: 400,
+          json: { error: "Cursor belongs to an old source incarnation" },
+        })
+        return
+      }
       if (action.kind === "inspect")
         result = {
           result: {
@@ -277,12 +292,16 @@ async function setup(
             records: [
               {
                 offset: "1",
+                ...(action.payload
+                  ? {
+                      payload_json: '{"amount":42,"large_id":9007199254740993}',
+                    }
+                  : {}),
                 event: {
                   family: resource.family,
                   source: cell.scope,
                   id: "event-1",
                   key: "order-1",
-                  ...(action.payload ? { payload: { amount: 42 } } : {}),
                 },
               },
             ],
@@ -349,6 +368,7 @@ test("event navigation resolves named bindings and opens subscriptions", async (
 }) => {
   await setup(page, { named: true })
   await page.getByRole("link", { name: "Subscriptions", exact: true }).click()
+  await page.getByLabel("Filter resources on this page").fill("order-events")
   await page.getByRole("link", { name: "Open workspace" }).click()
   await expect(
     page.getByText("Resolve order-events", { exact: true })
@@ -446,6 +466,9 @@ test("event payloads require an explicit request and browsing is non-consuming",
     .click()
   await page.getByRole("button", { name: "Inspect event" }).click()
   await expect(page.getByText('"amount"', { exact: false })).toBeVisible()
+  await expect(page.getByLabel("Event payload JSON")).toContainText(
+    "9007199254740993"
+  )
   const reads = calls.filter((call) => call.body.action.kind === "read")
   expect(reads.at(-1)?.body.action.payload).toBe(true)
   expect(
@@ -594,4 +617,61 @@ test("seal-only outbox work can be retried without pending event rows", async ({
   expect(
     calls.filter((call) => call.body.action.kind === "retry")
   ).toHaveLength(1)
+})
+
+test("receipt recovery survives a workspace reload without replaying writes", async ({
+  page,
+}) => {
+  const calls = await setup(page)
+  const operation = "f".repeat(32)
+  await open(
+    page,
+    `/fleets/main/cells/Order%3Aone?tab=outbox&operation=${operation}`
+  )
+  await expect(page.getByLabel("Operation ID", { exact: true })).toHaveValue(
+    operation
+  )
+  await page.getByRole("button", { name: "Look up receipt" }).click()
+  await expect(
+    page.getByText("Durable receipt confirmed", { exact: true })
+  ).toBeVisible()
+  expect(
+    calls.find((call) => call.body.action.kind === "status")!.body.action
+      .operation
+  ).toBe(operation)
+  expect(calls.every((call) => call.body.action.kind === "status")).toBeTruthy()
+})
+
+test("an expired outbox cursor has a first-page recovery action", async ({
+  page,
+}) => {
+  const calls = await setup(page, { staleCursor: true })
+  await open(page, "/fleets/main/cells/Order%3Aone?tab=outbox")
+  await page.getByRole("button", { name: "Next lanes" }).click()
+  await expect(
+    page.getByText("Cursor belongs to an old source incarnation", {
+      exact: false,
+    })
+  ).toBeVisible()
+  await page.getByRole("button", { name: "Reload first lane page" }).click()
+  await expect(page.getByRole("button", { name: "Retry lane" })).toBeVisible()
+  expect(
+    calls.filter((call) => call.body.action.cursor === "lane-page-2")
+  ).toHaveLength(1)
+})
+
+test("stream backing cells expose event state without an unsupported source outbox", async ({
+  page,
+}) => {
+  await setup(page)
+  await open(page, "/fleets/main/cells/__EventStream%3Aone")
+  await expect(
+    page.getByRole("heading", { name: "__EventStream:one" })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("tab", { name: "Outbox", exact: true })
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole("tab", { name: "Event state", exact: true })
+  ).toBeVisible()
 })

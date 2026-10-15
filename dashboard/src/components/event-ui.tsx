@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from "react"
+import { cn } from "cn"
+import { useSearchParams } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { AlertCircle, CheckCircle2 } from "lucide-react"
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
@@ -45,9 +47,14 @@ export function EventMetrics({
   items: { label: string; value: ReactNode; detail?: string }[]
 }) {
   return (
-    <dl className="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 xl:grid-cols-4">
+    <dl
+      className={cn(
+        "grid gap-3 sm:grid-cols-2",
+        items.length > 2 && "xl:grid-cols-4"
+      )}
+    >
       {items.map((item) => (
-        <div className="min-w-0 bg-card p-5" key={item.label}>
+        <div className="min-w-0 rounded-lg border bg-card p-5" key={item.label}>
           <dt className="text-sm text-muted-foreground">{item.label}</dt>
           <dd className="mt-2 font-mono text-2xl font-medium tracking-tight break-words">
             {item.value}
@@ -218,6 +225,21 @@ export function EventAudit({
   source?: boolean
 }) {
   const { token } = useSession()
+  const [params] = useSearchParams()
+  const [operation, setOperation] = useState(params.get("operation") ?? "")
+  const lookup = useMutation({
+    mutationFn: (id: string) =>
+      eventRequest(
+        token,
+        path,
+        { kind: "status", operation: id },
+        resource
+      ).then((reply) => {
+        if (reply.result === undefined)
+          throw new Error(reply.failure ?? "Receipt is unknown")
+        return reply.result
+      }),
+  })
   const [after, setAfter] = useState("0")
   const read = useMutation({
     mutationFn: (position: string) =>
@@ -242,6 +264,50 @@ export function EventAudit({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-3 rounded-lg border p-4">
+          <p className="text-sm text-muted-foreground">
+            Recover a write after leaving or reloading this workspace. Use your
+            operation ID from the console’s Operations page. Looking up a
+            receipt never repeats the write.
+          </p>
+          <form
+            className="flex flex-wrap items-end gap-3"
+            onSubmit={(event) => {
+              event.preventDefault()
+              lookup.mutate(operation.trim())
+            }}
+          >
+            <Field className="min-w-48 flex-1">
+              <FieldLabel htmlFor="event-receipt-id">Operation ID</FieldLabel>
+              <Input
+                id="event-receipt-id"
+                value={operation}
+                onChange={(event) => setOperation(event.target.value)}
+                maxLength={32}
+                placeholder="32 lowercase hexadecimal digits"
+              />
+            </Field>
+            <Button
+              type="submit"
+              variant="outline"
+              disabled={
+                lookup.isPending || !/^[a-f0-9]{32}$/.test(operation.trim())
+              }
+            >
+              Look up receipt
+            </Button>
+          </form>
+          {lookup.variables === operation.trim() && (
+            <Feedback loading={lookup.isPending} error={lookup.error}>
+              {lookup.isSuccess && (
+                <>
+                  <Status label="Durable receipt confirmed" tone="good" />
+                  <JsonView value={lookup.data} />
+                </>
+              )}
+            </Feedback>
+          )}
+        </div>
         <div className="flex flex-wrap items-end gap-3">
           <Field className="max-w-56">
             <FieldLabel htmlFor="audit-after">After sequence</FieldLabel>

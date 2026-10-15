@@ -140,7 +140,9 @@ reject a change. Forced subscription deletion is an explicit additional choice.
 The native durable receipt is bound to a server-derived console actor. A lost
 reply retains its operation ID for **Check receipt**. Reconciliation matches the exact recorded request,
 including its reason and expected identity; the console never replays
-the mutation automatically. Operation history pages are owner observations.
+the mutation automatically. The Operations page links to receipt lookup, including after a workspace reload.
+Receipt lookup does not inspect delivery lanes or repeat a mutation. Operation
+history pages are owner observations.
 
 Cells expose root event-state gauges. Nodes expose signed host counters,
 cumulative duration histograms and current dispatch/waiter reservations, pinned
@@ -148,7 +150,9 @@ to the observed process generation. Host counters reset on restart and cannot
 be attributed to individual cells. No cross-fleet aggregate or drain proof is
 inferred from these observations. Cold inspection can activate a cell and
 progress existing work. All counters and offsets remain decimal strings in the
-browser to preserve 64-bit precision.
+browser to preserve 64-bit precision. Requested event payloads are delivered as
+JSON text and rendered without a browser numeric conversion, preserving large
+application integer values too.
 
 See [event console implementation and verification](../plans/006-event-console.md)
 and [primitive qualification status](../plans/outbox-implementation-status.md).

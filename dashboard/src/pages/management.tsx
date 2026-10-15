@@ -42,7 +42,19 @@ import {
 } from "@/lib/api"
 import { useSession } from "@/lib/session"
 
+function eventReceiptPath(fleet: string, item: Operation) {
+  const base = `/fleets/${encodeURIComponent(fleet)}`
+  const operation = encodeURIComponent(item.id)
+  if (item.action === "outbox_retry" && item.target.startsWith("outbox/"))
+    return `${base}/cells/${encodeURIComponent(item.target.slice(7))}?tab=outbox&operation=${operation}`
+  const stream = /^stream\/([^/]+)\/([^/]+)\/([a-f0-9]{32})$/.exec(item.target)
+  if (item.action === "subscription_change" && stream)
+    return `${base}/streams/${encodeURIComponent(stream[1])}/${encodeURIComponent(stream[2])}?resource=${stream[3]}&view=history&operation=${operation}`
+  return null
+}
+
 export function Operations() {
+  const { session } = useSession()
   const [receipt, setReceipt] = useState<StopLocator | null>(null)
   const { fleet = "" } = useParams()
   const data = useApi<{ items: Operation[]; coverage: string }>(
@@ -86,6 +98,19 @@ export function Operations() {
                         <div className="text-xs text-muted-foreground">
                           {item.id}
                         </div>
+                        {item.actor === session.user &&
+                          eventReceiptPath(fleet, item) && (
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="px-0"
+                              asChild
+                            >
+                              <Link to={eventReceiptPath(fleet, item)!}>
+                                Inspect event receipt
+                              </Link>
+                            </Button>
+                          )}
                         {item.action === "stop" &&
                         /^node\/([^@]+)@(.+)$/.test(item.target) ? (
                           <Button
