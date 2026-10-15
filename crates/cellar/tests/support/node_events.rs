@@ -28,6 +28,12 @@ mod event_settlement_race;
 #[path = "event_clock_retention.rs"]
 mod event_clock_retention;
 
+#[path = "event_refusal_clock.rs"]
+mod event_refusal_clock;
+
+#[path = "event_unproven_clock.rs"]
+mod event_unproven_clock;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};

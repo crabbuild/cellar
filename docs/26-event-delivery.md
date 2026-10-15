@@ -164,8 +164,11 @@ deduplication; external effects still require destination idempotency.
 Stream deadline decisions use a captured, persisted logical clock. Authorized
 append, configuration and retirement attempts retain their time observation even
 when the requested change is refused; duplicate appends retain it too. Scheduling
-uses that captured time. Once a mutation observes expiry, rolling the host clock
-backward cannot make that receipt live again, including after owner handoff.
+uses that captured time. Once a mutation's time observation is proven, rolling
+the host clock backward cannot make that receipt live again, including after
+owner handoff. A typed refusal after a clock write uses the same ownership and
+data output proof as other results. An `Ambiguous` result establishes neither
+the recovered clock nor rollback; reconcile the current owner before proceeding.
 Read-only status clamps its observation without advancing that clock; denied
 callers cannot advance it. Exact configuration-receipt replay returns the recorded
 result without a new deadline decision. Live leases protect their

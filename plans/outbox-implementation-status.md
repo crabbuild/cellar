@@ -22,10 +22,11 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable correctness work is fleet recovery of clock-only commits
-from refused RPCs through owner/output/follower boundaries, followed by the
-remaining retention/lease and source-control transitions. The lost-expiry defect
-in refused and deduplicated mutations below is fixed and locally qualified.
+The next actionable correctness work is independent-process clock-refusal
+recovery and the node lease/folded-record loss contract, followed
+by remaining retention/lease and source-control transitions. The lost-expiry
+defect below is fixed; selected native owner-loss and publication cuts now extend
+its local qualification without closing the full proof/fault matrix.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -57,7 +58,85 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: expiry authority across refused mutations
+## Current follow-up: proven and unproven clock-only refusals
+
+Two native cases retain the exact original event/lease and a second pending
+producer obligation. A signed append is held before submission, then only the
+destination UTC steps beyond the ordinary 30s lease. Capture its complete proven
+StreamFull response, roll UTC back immediately, and require the original lease
+still present with inactive authority, checkpoint zero and unchanged payload.
+This excludes expiry maintenance as the source of the measured clock update.
+The source must consume the typed refusal within its original 3s call budget.
+
+Exercise bucket proof and actual authenticated follower proof. In follower mode,
+refuse both direct stream-replica and old-session bundle uploads before the cut;
+compare every byte of the bounded private payload prefixes before recovery.
+Force/join the destination, prohibit shutdown repair and discard its local disk.
+All nodes use explicit 120s authority TTL/recovery backoff, preserving the 30s
+stream lease, 3s operation policy and normal startup/shutdown deadlines. A
+post-join conditional write expires only the old node's liveness field, retaining
+its folded log evidence. This is controlled authority loss, not natural expiry.
+A binding-free fresh entrance audits a different higher-epoch owner before
+receipt reuse, with ordinary UTC still below the original expiry. Only a
+read-only Ambiguous old-owner transport failure can repeat within the audit.
+
+Recovered logical time must retain the future floor before any replay can repair
+it. Required history/backpressure and the original producer identity/sequence
+survive; the old receipt is refused, a new lease redelivers exactly once in the
+same inbox, and acknowledgment releases capacity for the exact pending envelope.
+The proven cases finish checkpoint two, next sequence three/settled two, effect sum
+three and complete node/proxy/domain joins with caller executors still usable.
+The initial corrected cases pass (14.14s). A third proven-refusal case joins both
+original followers and drops their service references, then restarts both from
+retained directories with heap-pinned concurrent startup. Neither original
+follower domain supplies the recovery tail. This native cold-reopening case
+passes (13.60s); graceful follower close does not qualify process/crash/power loss.
+
+A complementary case holds publication after a local clock-only expired-extension
+commit, with fleet proof disabled. A read-only forensic connection sees the new
+clock and unchanged lease/checkpoint; it supplies no output proof. The original
+caller must remain pending and then receive Ambiguous, never an exposed typed
+LeaseExpired. Force closure before releasing publication to fail, prohibit
+shutdown repair, discard the old disk and preserve folded recovery metadata.
+Audit the retained proven prefix before receipt reuse: the old live lease and
+one inbox effect survive, its original ack succeeds once, and replay is
+AlreadyAcknowledged. This initial case passes (7.96s). Ambiguity by itself never
+proves rollback; the explicit publication/disk faults establish this selected
+absence case. A targeted negative control removes only append clock capture:
+both original recovery cases fail the pre-loss read-only clock audit (4.00s),
+showing expiry maintenance cannot mask the missing write. Production bytes restore
+exactly (SHA256 57836cf4f53260deee19e0a89099944e476dab394aae8289e8d4ed785d91d710).
+Final restored qualification passes all six clock-focused Node tests (39.72s),
+including the earlier bounded/required retention cases, and all 61 serial Node
+tests (459.16s). Saved focused, full-run start and full-run end executable SHA256
+matches: 05ff0e3984b683831a046d12048770e1fcd5e41b8e2a4d6e6f20d2108d2ae1c2.
+The five changed Rust test files retain identical bytes throughout qualification;
+production code remains identical to the parent implementation. All seven
+artifact and three CLI tests pass. Workspace/all-target/all-feature check and
+Clippy with warnings denied pass. Formatting checks 514 Rust files; docs validate
+36 documents/6 flows/388 references; dependency audit checks 403 packages without
+a JavaScript engine. All 127 Python guards and whitespace checks pass. Local
+Rust 1.97.0/aarch64 macOS; hosted toolchain qualification remains separate.
+
+Early fixture attempts used short-lived witnesses, covered only direct replica
+uploads and removed the old folded log record with liveness. Those cuts did not
+establish retained-proof recovery. The corrected fault keeps all authority/CAS
+clients and proof metadata intact and blocks both payload paths. Initial audits
+through an old entrance received a closed-owner Ambiguous transport result; a
+fresh binding-free entrance performs the read-only audit. Compilation mistakes
+in fixture arguments/shadowing and one unused import were corrected. These are
+not claimed runtime defects. A final focused attempt exposed a comparator that
+inserted null for an absent optional log field in bucket-only records; the audit
+now preserves field absence while retaining the authority/proof checks.
+
+This qualifies selected native domains/cores and a private SQLite bucket, not
+independent processes, natural node expiry, physical
+clock/store/power faults or the whole release matrix. Folded node-record loss is
+a separate unqualified metadata-loss contract; deleting that record is not an
+alternative way to test recovery with retained proof. Historical startup/shutdown
+causes and remaining lifecycle/capacity/operational gates stay open.
+
+## 2026-10-15 expiry authority across refused mutations
 
 Real native contexts, host-minted source authority, broker RPC encoding and SQLite
 reproduce a stale-settlement defect without background maintenance. At time

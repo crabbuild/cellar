@@ -831,6 +831,9 @@ Scheduling must reuse that persisted time. Denied requests and read-only
 observations do not advance it; exact configuration receipt replay makes no new
 deadline decision. A failed business/configuration change may therefore retain
 newer clock authority while its other writes roll back.
+Typed refusals following clock writes must retain the ordinary owner/data output
+gate. An unproven clock-only result is `Ambiguous`; it does not establish rollback
+or the clock that a successor will recover. Audit recovered state before replay.
 
 Lease expiry leaves the checkpoint unchanged. Maintenance or the next fetch
 clears the expired lease and permits redelivery with a higher generation.
@@ -1610,6 +1613,26 @@ may run behind the incompatible-feature gate in isolated development fleets.
   crossing expiry between samples within one mutation, exact receipt replay after
   grant rotation and denied callers. Local handler evidence does not establish
   fleet durability of the clock-only commit on a refused RPC.
+- Native owner-loss qualification must capture a proven `StreamFull` append
+  reply while its original lease and payload remain unchanged. Roll UTC back,
+  force/join the old domain, remove its local disk, and audit a higher-epoch
+  successor before receipt reuse. Exercise bucket proof and actual follower proof
+  with both stream-replica and old-session bundle uploads refused. Compare the
+  bounded payload prefixes byte-for-byte before recovery can publish. Keep
+  ordinary UTC below the original expiry so replay cannot repair the future clock.
+  A controlled expiry-only CAS after join must preserve the folded log record;
+  deleting it loses proof metadata and is a separate failure boundary.
+  Repeat with both original follower domains joined and their service references
+  dropped. Restart both from retained directories before either startup waits
+  for binding recovery; heap-pin the startup futures. This native cold reopening
+  is separate from independent-process/crash/power-loss persistence evidence.
+- Hold real publication of an expired extension's clock-only commit with fleet
+  proof disabled. Forensic local reads do not authorize output: the caller must
+  receive `Ambiguous`, without an exposed `LeaseExpired`. After failed publication,
+  forced join and old-disk loss, audit the independently retained proven prefix
+  before original-receipt settlement. Ambiguity alone never proves rollback.
+  These domain/executor and private-store cases do not replace independent-process
+  cold-follower, natural authority-expiry or physical storage fault gates.
 - Inbox receipt rollback, digest conflict, capacity, pruning contract, repeated
   batch with partial prior local commits, and two consumers racing on a receipt.
 - Same host with multiple execution domains: no policy, grants, tasks, or

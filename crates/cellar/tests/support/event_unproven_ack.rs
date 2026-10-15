@@ -10,9 +10,10 @@ use std::sync::Mutex;
 use tokio::sync::{watch, Semaphore};
 
 #[derive(Debug)]
-struct PublicationFault {
+pub(super) struct PublicationFault {
     store: Arc<dyn ObjectStore>,
     prefix: String,
+    extra_prefixes: Vec<String>,
     phase: watch::Sender<u8>,
     entered: Semaphore,
     attempts: AtomicUsize,
@@ -21,9 +22,18 @@ struct PublicationFault {
 
 impl PublicationFault {
     fn new(store: Arc<dyn ObjectStore>, prefix: String) -> Arc<Self> {
+        Self::with_prefixes(store, prefix, Vec::new())
+    }
+
+    pub(super) fn with_prefixes(
+        store: Arc<dyn ObjectStore>,
+        prefix: String,
+        extra_prefixes: Vec<String>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             store,
             prefix,
+            extra_prefixes,
             phase: watch::channel(0).0,
             entered: Semaphore::new(0),
             attempts: AtomicUsize::new(0),
@@ -31,10 +41,33 @@ impl PublicationFault {
         })
     }
 
+    pub(super) fn block(&self) {
+        self.phase.send_replace(2);
+    }
+
+    pub(super) fn hold(&self) {
+        self.phase.send_replace(1);
+    }
+
+    pub(super) async fn wait_for_publication(&self) -> Result<()> {
+        self.entered.acquire().await?.forget();
+        Ok(())
+    }
+
+    pub(super) fn refused(&self) -> usize {
+        self.attempts.load(Ordering::Acquire)
+    }
+
     async fn check(&self, path: &Path) -> object_store::Result<()> {
         let mut phase = self.phase.subscribe();
         let current = *phase.borrow_and_update();
-        if !path.as_ref().starts_with(&self.prefix) || current == 0 {
+        if (!path.as_ref().starts_with(&self.prefix)
+            && !self
+                .extra_prefixes
+                .iter()
+                .any(|prefix| path.as_ref().starts_with(prefix)))
+            || current == 0
+        {
             return Ok(());
         }
         self.attempts.fetch_add(1, Ordering::AcqRel);

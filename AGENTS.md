@@ -297,6 +297,28 @@ replay preserves the recorded caller's result, including its own grant rotation,
 without authorizing a new change. `native/stream_clock_tests.rs` uses real broker
 RPC/native contexts and SQLite close/reopen, with no background maintenance;
 these regressions are not fleet proof of clock-only commits on refused RPCs.
+`event_refusal_clock.rs` tests bucket and follower recovery of a proven
+StreamFull clock-only update. Its shared publication fault covers stream replica
+and old-session bundle writes while keeping CAS/lease clients unchanged. Keep
+the original lease and payload present at capture, block shutdown repair, discard
+the joined owner's disk, and audit a higher-epoch owner before receipt reuse.
+All participating nodes use explicit 120s TTL/backoff so the 31s wall step does
+not expire live witnesses; stream leases remain 30s and operation budgets 3s.
+The post-join expiry-only CAS is a controlled liveness fault, preserving every
+folded proof field. Readback may see legitimate recovery state/certificate
+progress but cannot change proof identity or authority. Do not delete the folded
+record to emulate ordinary expiry. Read-only audits can repeat a closed-owner
+Ambiguous transport result; ordinary mutations and receipts cannot.
+`event_unproven_clock.rs` holds actual publication with fleet proof disabled:
+local SQLite clock evidence cannot expose a typed refusal. Require Ambiguous,
+then independently audit the retained proven prefix after failed publication and
+disk loss. This selected absence result does not mean ambiguity proves rollback.
+These are native domain cuts, not independent processes, natural node expiry,
+or physical store-loss proof. The cold-follower variant joins both original
+follower domains, drops their service references and restarts both from retained
+directories before readiness can await predecessor recovery. Heap-pin their
+startup futures. No original follower domain supplies the recovery tail; graceful
+follower close is not SIGKILL or power-loss persistence qualification.
 Queue leases and actor settlement share the host's captured operation deadline.
 Embedded bootstrap/adoption generation builds and metrics sampling use fallible
 blocking admission. Closing a domain can race a later effect in an already-entered

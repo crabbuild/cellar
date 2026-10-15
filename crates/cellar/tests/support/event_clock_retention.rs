@@ -7,18 +7,21 @@ use serde_json::{json, Value};
 use std::sync::atomic::AtomicI64;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-fn wall() -> i64 {
+pub(super) fn wall() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64
 }
 
-fn number(value: &Value) -> Result<i64> {
+pub(super) fn number(value: &Value) -> Result<i64> {
     Ok(value.as_str().context("decimal string missing")?.parse()?)
 }
 
-async fn owner(observer: &ExecutionDomain, bucket: &cellar::bucket::Bucket) -> Result<Value> {
+pub(super) async fn owner(
+    observer: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+) -> Result<Value> {
     observer
         .run(async {
             let (bytes, _) = bucket
@@ -30,7 +33,7 @@ async fn owner(observer: &ExecutionDomain, bucket: &cellar::bucket::Bucket) -> R
         .await?
 }
 
-async fn history(client: &reqwest::Client, node: &Node) -> Result<Value> {
+pub(super) async fn history(client: &reqwest::Client, node: &Node) -> Result<Value> {
     Ok(stream_operator(
         client,
         node,
@@ -42,7 +45,7 @@ async fn history(client: &reqwest::Client, node: &Node) -> Result<Value> {
         .clone())
 }
 
-async fn pending(client: &reqwest::Client, node: &Node) -> Result<Value> {
+pub(super) async fn pending(client: &reqwest::Client, node: &Node) -> Result<Value> {
     let namespace = "cells:v1:13:embedded-node:Account";
     let cell = cellar_native::cell_id::for_name(namespace, "producer");
     let scope = format!("Account:{}", cellar_native::cell_id::encode_hex(&cell));
