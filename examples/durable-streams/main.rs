@@ -79,6 +79,7 @@ struct FleetFixture {
     fleet_durability: bool,
     outbox_rows: Option<usize>,
     stream_rows: Option<usize>,
+    node_lease_ms: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]
@@ -187,6 +188,14 @@ fn main() -> Result<()> {
             .try_init()
             .map_err(|error| anyhow::anyhow!("fixture tracing: {error}"))?;
     }
+    let node_lease_ms = fixture
+        .as_ref()
+        .and_then(|fixture| fixture.node_lease_ms)
+        .unwrap_or(30_000);
+    ensure!(
+        (1_000..=30_000).contains(&node_lease_ms),
+        "fixture node lease must be between 1000 and 30000ms"
+    );
     let node_name = fixture
         .as_ref()
         .map_or(application::SCRIPT, |fixture| fixture.node.as_str());
@@ -256,7 +265,7 @@ fn main() -> Result<()> {
                     idle_evict_ms: None,
                     pressure: Default::default(),
                 },
-                lease_ttl_ms: 30000,
+                lease_ttl_ms: node_lease_ms,
                 placement_weight: 1,
                 generation: signer.public_key_hex(),
                 resume_generation: None,

@@ -320,10 +320,12 @@ impl Cell for Projection {
             }
             let lost_ack = self.faults.is_some() && path == "/projection/lost-ack";
             let ack_stored = self.faults.is_some() && path == "/projection/ack-stored";
+            let fetch_saved = self.faults.is_some() && path == "/projection/fetch";
             if request.method != "POST"
                 || !(hold
                     || lost_ack
                     || ack_stored
+                    || fetch_saved
                     || matches!(path.as_str(), "/projection/process" | "/projection/retry"))
             {
                 return reply(
@@ -347,27 +349,46 @@ impl Cell for Projection {
                     json!({"status":format!("{result:?}"),"projection":projection(&db)?}),
                 );
             }
-            let Some(batch) = subscription
-                .next(
-                    &context,
-                    BatchOptions {
-                        max_records: 20,
-                        max_bytes: 64 << 10,
-                        wait_ms: 0,
-                    },
-                )
-                .await?
-            else {
-                return reply(
-                    &context,
-                    200,
-                    json!({"status":"empty","fresh_effects":0,"projection":projection(&db)?}),
-                );
+            let options = BatchOptions {
+                max_records: 20,
+                max_bytes: 64 << 10,
+                wait_ms: 0,
+            };
+            let fetched = if fetch_saved {
+                let id = url
+                    .query_pairs()
+                    .find(|(name, _)| name == "fetch_id")
+                    .map(|(_, value)| value.into_owned())
+                    .ok_or_else(|| anyhow::anyhow!("fetch ID missing"))?;
+                subscription.next_with_id(&context, &id, options).await
+            } else {
+                subscription.next(&context, options).await
+            };
+            let batch = match fetched {
+                Ok(Some(batch)) => batch,
+                Ok(None) => {
+                    return reply(
+                        &context,
+                        200,
+                        json!({"status":"empty","fresh_effects":0,"projection":projection(&db)?}),
+                    )
+                }
+                Err(error) if fetch_saved => {
+                    let error = error
+                        .downcast_ref::<DeliveryError>()
+                        .ok_or_else(|| anyhow::anyhow!("untyped fetch refusal"))?;
+                    return reply(
+                        &context,
+                        200,
+                        json!({"status":error.code.as_str(),"fresh_effects":0,"projection":projection(&db)?}),
+                    );
+                }
+                Err(error) => return Err(error),
             };
             let mut fresh_effects = 0;
             for record in &batch.records {
                 let fresh = db.tx(|tx| {
-                    if lost_ack {
+                    if lost_ack || fetch_saved {
                         tx.put_json("ack_receipt", &json!(batch.receipt().encode()?))?;
                     }
                     if !tx.inbox("order-projection-v1")?.accept(record)? {
@@ -406,6 +427,18 @@ impl Cell for Projection {
             // Prove local receipts and effects before touching the remote
             // checkpoint. Redelivery reuses those receipts after recovery.
             db.sync().await?;
+            if fetch_saved {
+                return reply(
+                    &context,
+                    200,
+                    json!({
+                        "status":"fetched", "fresh_effects":fresh_effects, "projection":projection(&db)?,
+                        "batch":{"receipt":batch.receipt().encode()?,
+                            "issued_ms":batch.issued_at_ms.to_string(), "expires_ms":batch.expires_at_ms.to_string(),
+                            "records":batch.records.iter().map(event_receipt).collect::<Result<Vec<_>>>()?}
+                    }),
+                );
+            }
             if lost_ack {
                 let status = match batch.ack(&context).await {
                     Ok(value) => format!("{value:?}"),

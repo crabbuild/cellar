@@ -1670,6 +1670,16 @@ audit before repeating the same receipt. SQLite/RustFS cases qualify this
 independent-process boundary, leaving consumer/follower/store/power loss and
 other lease/ack cut points open.
 
+The independent `fetch_faults.py` case targets a proven fetch reply lost across
+destination SIGKILL. It validates each actual snapshot before permitting replay.
+Live mode explicitly selects a shorter node-authority policy and requires the
+same receipt and wire response; expired mode retains the default authority
+policy and requires a fresh lease under the same fetch ID after observed expiry.
+The stream lease is never extended for either mode. Two fetches apply one inbox
+effect, and only the saved receipt advances the checkpoint. Runtime results and
+backend scope belong in the implementation status; the complete matrix remains
+required.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

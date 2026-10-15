@@ -22,13 +22,14 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness slices are lost lease-fetch responses, unproven ack cuts,
-and live old-owner execution during takeover. PR #38 covers storage-isolated
-expiry and a late proven append response after joined source fencing. PR #39
-adds a proven ack across joined destination fencing; PR #40 fixes a separately
-reproduced event-startup supervision hang. The earlier intermittent no-event
-bootstrap/recovery failures remain unexplained. Neither passing reruns nor
-joined local handoffs qualify the complete failure matrix.
+The next correctness priorities are live old-owner execution during takeover,
+follower-only proof, physical store/host loss and remaining lifecycle/capacity
+cuts. PRs #41 and #42 cover selected lost-fetch handoff and unproven-ack forced
+closure cases; neither is independent-process evidence. The process harnesses
+already cover append, ack and whole-fleet loss at selected boundaries; the
+current slice extends them to fetch loss with live/expired leases. Earlier
+intermittent no-event bootstrap/recovery failures remain unexplained. Passing
+reruns and any one backend/cut cannot qualify the complete failure matrix.
 
 SQLite-only event deployment remains explicitly unsupported until local recovery
 inventory/discovery exists and is qualified. Multi-partition streams, push
@@ -48,6 +49,50 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
+## Current follow-up: independent-process fetch loss
+
+The existing separate-process harness is extended for __streamNext, with an
+opt-in example route using next_with_id and proven inbox/saved receipt writes.
+Before destination SIGKILL, it saves the original accepted event, checkpoint zero
+and live lease. The consumer must observe Ambiguous and zero effects. Recovery
+is audited before proxy release and every subsequent retry; two successful
+fetches must apply only one effect, then only the saved receipt advances the
+checkpoint. Offline audits require the complete kill/restart/replay/shutdown
+chain, while runtime prefix audits validate actual state before marking retry
+safe. Failed audits cannot authorize another attempt.
+
+The first actual run was rejected: 30.7-second destination recovery outlasted
+the original 30-second stream lease. The fixture's original node-authority TTL
+was also 30 seconds. That trace is not live-lease recovery evidence and is not
+repaired by replay. Two explicit modes now retain that stream lifetime: live
+mode records a 1-second node lease and requires exact original wire/lease
+recovery; expired mode retains the 30-second node lease and requires observed
+expiry plus fresh receipt generation before stable replay. The optional bounded
+fixture authority setting leaves existing harness policies unchanged.
+
+Current Python guards pass 75 cases, including both modes, early replay, changed
+bytes, changed/expired authority, missing/foreign SIGKILL, duplicate effects,
+missing saved receipt and incomplete/mismatched store cleanup. Formatting checks
+504 Rust files. Both live/expired fetch modes pass on SQLite (3.71s/32.64s)
+and private RustFS S3 (7.30s/34.07s) with the same archived executable. Each
+records an observed destination SIGKILL, replacement PID, original payload/event
+receipts, two exact fetch replay responses, one inbox effect, saved-receipt ack
+and complete final shutdown. The S3 prefix validator explicitly permits only
+CreateBucket 503 retries before store/application startup, with a matching
+started/removed server identity; that event cannot hide application failures.
+The existing independent-process ack-loss harness passes (32.72s), and ordinary
+example smoke passes (1.33s). Workspace/all-target/all-feature Clippy passes with
+warnings denied (2m 24s); native dependency audit checks 403 packages without a
+JavaScript engine; docs validate 36 documents/6 flows/386 references; whitespace
+checks pass. A final negative guard rejects disappearance of any previously
+proven consumer effect or saved receipt before retry, preventing replay from
+repairing the measurement. All four actual fetch ledgers pass that final oracle.
+Local Rust 1.97.0/aarch64 macOS uses symbols-disabled, nonincremental profiles.
+These loopback process cuts do not qualify power loss, follower-only proof,
+object-store persistence loss, physical hosts or concurrently executing owners.
+All owned markers remain one; no compatibility readers or migrations are added.
+
+## 2026-10-15 unproven acknowledgment and forced owner closure
 ## Current follow-up: unproven acknowledgment and forced owner closure
 
 The native unproven-ack fixture decorates the destination's real ReplicaStorage
