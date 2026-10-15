@@ -1,6 +1,6 @@
 # Outbox implementation status
 
-Updated 2026-10-14. The goal remains the entire
+Updated 2026-10-15. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
 release. The native fixture now exercises source, catalog, stream, and consumer
@@ -22,12 +22,11 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness slice is event-specific isolated/expired-owner coverage:
-retain an original source obligation and leased consumer batch, isolate their
-owner, observe the real typed fence, audit successor recovery before replay,
-and verify old dispatch/ack completions cannot advance replacement state. Existing
-generic cell isolation evidence and orderly event handoffs do not close it.
-This is an acceptance target, not a claim that this scenario has run.
+The next actionable slice is diagnosing the observed Node startup/recovery and
+late-ack failures before adding further fault cases. PR #38 covers storage-isolated
+expiry and a late proven append response after joined source fencing. PR #39
+adds a proven ack across joined destination fencing. These do not qualify a live
+old owner concurrently executing during takeover or the complete failure matrix.
 
 SQLite-only event deployment remains explicitly unsupported until local recovery
 inventory/discovery exists and is qualified. Multi-partition streams, push
@@ -47,25 +46,55 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: startup observations
+## Current follow-up: diagnose startup and late-ack failures
 
-[PR #27](https://github.com/crabbuild/cellar/pull/27) and
-[PR #34](https://github.com/crabbuild/cellar/pull/34) are merged. The activation
-stack fix and SDK contracts are on main. The follow-up contains fixture-only
-startup failure diagnostics and this evidence ledger; production Rust is unchanged.
-Local library (218 cases), stream/outbox, Clippy-D and example smoke gates pass.
-The earlier combined Node run passed 37/39; the diagnostic Node run passes 39/39.
-Their conditions and evidence remain separate below. Rustdoc succeeds with seven
-private-link warnings in unchanged files.
+PRs #27, #34, #36, #37 and #38 are merged. PR #39 is open. The
+closed-domain wake-publication panic has a reproduced fix in #38; other
+intermittent startup/shutdown failures remain unexplained.
 
-The two earlier Node failures were cancelled-bootstrap factory entry timeout and
-a closed-domain error in the explicit-policy test's child. Both pass unchanged
-in isolation and all six repeated isolated attempts pass; their causes remain
-unestablished. They are not repaired by the activation stack fix or diagnostics.
-Local results use Rust 1.97.0/aarch64 macOS and symbols-disabled dev/test profiles.
-GitHub CI did not start on the checked c7be23d run because of account billing/
-spending limits. Complete backend, ownership, fault, capacity and release gates
-remain open. Historical sections retain their exact source/evidence scope.
+A captured full serial Node run passes 41/42 in 364.87s. Delayed proven ack
+takeover fails with an unlabeled timeout. The executable's inode, size and
+modification time remain unchanged throughout that run. Earlier factory-entry,
+explicit-policy bootstrap and predecessor-recovery shutdown failures all pass
+in this run and in 24 targeted attempts (eight rounds of three), without a
+production repair. Passing reruns do not close those failures.
+
+After merging current main, three bounded four-case rounds produce two complete
+passes and a third late-ack failure at **wait for held ack release**. The three
+startup/recovery cases pass in all three rounds. The test has already captured
+the proven acknowledgment, joined the fenced destination, and audited the
+successor checkpoint/identity/history before this wait fails. Observing the proxy
+supervisor while waiting exposes `Broken pipe` on the tenth ack-only attempt.
+An existing connection to the intentionally fenced destination can fail while
+other connections hold the proven reply; the proxy previously allowed only new
+connection refusal at that cut. Its supervisor then exited and dropped the
+held-response task, leaving the release observer pending.
+
+The helper now accepts connection-refused/broken-pipe/reset/aborted/not-connected
+transport errors only after the fixture explicitly marks its destination closing.
+Parsing and unrelated I/O failures remain errors. A real TCP malformed-response
+case proves the closure mode cannot hide an unframed response. The release wait
+also supervises the proxy so unrelated failures preserve their original cause.
+This repairs the reproduced helper failure, not the separately unexplained
+startup/recovery failures or a product acknowledgment durability bug.
+
+Failure-only diagnostics now observe startup polling, completed result and the
+existing directory lock. All timed waits in delayed ack takeover identify their
+stage: first/second delivery, proven response capture, destination fence/join,
+held response release and original caller completion. Existing budgets and
+correctness assertions are unchanged. The helper correction does not establish a green release gate. Local results use Rust 1.97.0/aarch64 macOS with
+symbols-disabled dev/test profiles; historical sections preserve their exact
+source and evidence scope. All owned markers remain 1.
+
+Final local validation of the helper correction: all 44 Node integration cases
+pass in 343.77s, and ten focused repetitions each pass delayed ack takeover and
+the malformed-response guard (20 cases total). Native Node Clippy passes with warnings denied (11.02s). Formatting checks
+502 Rust files; docs validate 36 documents, 6 flows and 386 references. The captured pre-fix
+41/42 run and subsequent narrowed failures remain part of the evidence. No Node
+lease, startup, readiness, RPC or shutdown deadline was relaxed. Production Rust
+and all owned version-1 markers are unchanged by this correction. These green
+runs do not establish causes or repairs for the earlier intermittent
+startup/recovery failures, and do not close the wider release matrix.
 
 ## Current code
 

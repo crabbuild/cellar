@@ -293,7 +293,8 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
     .await?;
     config.actor.lease_ttl_ms = 5_000;
     config.startup.recovery_retry_backoff = Duration::from_millis(5_000);
-    let proxy = peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
+    let mut proxy =
+        peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
     config.identity.advertise = proxy.address.to_string();
     let destination = Node::start(
         config,
@@ -452,10 +453,9 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
     ensure!(history(&client, &replacement).await? == accepted);
 
     proxy.capture.release.add_permits(1);
-    tokio::time::timeout(Duration::from_secs(5), proxy.capture.released.acquire())
+    tokio::time::timeout(Duration::from_secs(5), proxy.wait_for_release())
         .await
-        .context("wait for held ack release")??
-        .forget();
+        .context("wait for held ack release")??;
     let original_outcome = tokio::time::timeout(Duration::from_secs(5), &mut acknowledging)
         .await
         .context("wait for original ack caller after held reply release")??;
