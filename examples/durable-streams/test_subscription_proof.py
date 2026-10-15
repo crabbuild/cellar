@@ -14,7 +14,7 @@ def fixture(operation, expired=False):
         rows = fetch_oracle.expired_fixture() if expired else fetch_oracle.fixture()
     scope = next(row for row in rows if row["event"] == operation + "_reply_held")["exchange"]["scope"]
     owner = dict(node="destination", epoch=1)
-    lease = dict(node="destination", generation="original", expires_ms=1000,
+    lease = dict(node="destination", lineage="1"*32, generation="original", expires_ms=1000,
                  log=dict(state="open", ensemble=["producer"], may_have_fleet_acks=True))
     index = next(i for i, row in enumerate(rows) if row["event"] == operation + "_reply_held")
     rows.insert(index, dict(event="destination_proof_armed", scope=scope, owner=owner, lease=copy.deepcopy(lease), objects={},
@@ -27,7 +27,7 @@ def fixture(operation, expired=False):
                             remaining_entries=0, lease=copy.deepcopy(lease), observed_ms=1001, objects={}))
     index = next(i for i, row in enumerate(rows) if row["event"] == "retry_resumed")
     rows.insert(index, dict(event="destination_follower_recovered", owner=dict(node="destination", epoch=2),
-                           lease=dict(node="destination", generation="replacement")))
+                           lease=dict(node="destination", lineage="1"*32, generation="replacement")))
     return copy.deepcopy(rows)
 
 
@@ -54,7 +54,7 @@ class SubscriptionProofTests(unittest.TestCase):
                 for kind in ("ltx", "bundle"):
                     rows = fixture(operation)
                     accepted = next(row for row in rows if row["event"] == "destination_follower_accepted")
-                    key = accepted["refused"][0]["path"] if kind == "ltx" else "log/destination/original/bundle/e1-0.ltxb"
+                    key = accepted["refused"][0]["path"] if kind == "ltx" else "log/destination/"+"1"*32+"/original/bundle/e1-0.ltxb"
                     next(row for row in rows if row["event"] == event)["objects"][key] = dict(bytes=100, sha256="f"*64)
                     with self.subTest(operation=operation, event=event, kind=kind), self.assertRaisesRegex(AuditError, "bucket data"):
                         self.audit(rows, operation)

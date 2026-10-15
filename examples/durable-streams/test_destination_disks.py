@@ -24,9 +24,9 @@ def fixture(operation="ack", expired=False):
         rows = ack_fixture() if operation == "ack" else expired_fixture() if expired else fetch_fixture()
     scope = next(row for row in rows if row["event"] == operation + "_reply_held")["exchange"]["scope"]
     owner = dict(node="destination", epoch=1)
-    lease = dict(node="destination", generation="a"*64, expires_ms=1000,
+    lease = dict(node="destination", lineage="1"*32, generation="a"*64, expires_ms=1000,
                  log=dict(epoch=1, state="open", ensemble=["producer"], may_have_fleet_acks=True))
-    peers = {node: dict(node=node, generation=node+"-old", expires_ms=1000,
+    peers = {node: dict(node=node, lineage="1"*32, generation=node+"-old", expires_ms=1000,
                        log=dict(may_have_fleet_acks=False)) for node in ("producer", "consumer")}
     files = [dict(path="4-4.batch", bytes=100, sha256="b"*64), dict(path="state.json", bytes=50, sha256="c"*64)]
     disk = dict(files=files, seed=dict(epoch=0), batches=[dict(epoch=1, entries=[dict(cell=scope, cell_epoch=1)])])
@@ -53,7 +53,7 @@ def fixture(operation="ack", expired=False):
     recovered_label="recovered-before-retry" if operation=="append" else "recovered-before-replay"
     index = next(i for i,row in enumerate(rows) if row["event"]==("fleet" if operation=="append" else operation)+"_audit" and row["label"]==recovered_label)
     rows[index:index] = [dict(event="destination_follower_process_ready",node=node,pid=pid,
-                             lease=dict(node=node,generation=node+"-new")) for node,pid in (("producer",5),("consumer",6))]
+                             lease=dict(node=node, lineage="1"*32, generation=node+"-new")) for node,pid in (("producer",5),("consumer",6))]
     if operation=="append":
         index=next(i for i,row in enumerate(rows) if row["event"]=="fleet_audit" and row["label"]==recovered_label)
         held=next(row["exchange"] for row in rows if row["event"]=="append_reply_held")
@@ -63,7 +63,7 @@ def fixture(operation="ack", expired=False):
         lost=next(row for row in rows if row["event"]=="append_reply_lost");rows.remove(lost)
     index = next(i for i,row in enumerate(rows) if row["event"]=="retry_resumed")
     rows.insert(index,dict(event="destination_follower_recovered",owner=dict(node="destination",epoch=2),
-                           lease=dict(node="destination",generation="b"*64)))
+                           lease=dict(node="destination", lineage="1"*32, generation="b"*64)))
     if operation=="append":rows.insert(index+1,lost)
     for row in rows:
         if row["event"]=="fleet_process_stopped" and row["node"]!="destination":row["pid"]={"producer":5,"consumer":6}[row["node"]]
@@ -102,7 +102,7 @@ class DestinationDiskTests(unittest.TestCase):
         with self.assertRaisesRegex(AuditError,"snapshot preceded"):self.audit(rows)
 
     def test_fresh_process_expired_authority_and_exact_disk_are_required(self):
-        for kind in ("pid","lease","files","generation","graceful","exit","destination_pid"):
+        for kind in ("pid","lease","files","generation","lineage","graceful","exit","destination_pid"):
             rows=fixture()
             started=next(row for row in rows if row["event"]=="destination_follower_process_started")
             ready=next(row for row in rows if row["event"]=="destination_follower_process_ready")
@@ -110,6 +110,7 @@ class DestinationDiskTests(unittest.TestCase):
             if kind=="pid":started["pid"]=2
             elif kind=="lease":started["observed_ms"]=1000
             elif kind=="files":started["files"]=[]
+            elif kind=="lineage":ready["lease"]["lineage"]="2"*32
             elif kind=="generation":ready["lease"]["generation"]=started["lease"]["generation"]
             elif kind=="graceful":killed["graceful_reports"]=1
             elif kind=="exit":killed["exit_code"]=0
@@ -124,7 +125,7 @@ class DestinationDiskTests(unittest.TestCase):
                 entry=retained["followers"]["producer"]["batches"][0]["entries"][0]
                 entry["cell" if kind=="scope" else "cell_epoch"]="wrong" if kind=="scope" else 2
             elif kind=="peer_proof":retained["leases"]["producer"]["log"]["may_have_fleet_acks"]=True
-            else:retained["objects"]["log/destination/"+"a"*64+"/bundle/e1-0.ltxb"]=dict(bytes=100,sha256="e"*64)
+            else:retained["objects"]["log/destination/"+"1"*32+"/"+"a"*64+"/bundle/e1-0.ltxb"]=dict(bytes=100,sha256="e"*64)
             with self.subTest(kind=kind),self.assertRaises(AuditError):self.audit(rows)
 
     def test_archive_mutation_and_replay_before_recovery_are_rejected(self):

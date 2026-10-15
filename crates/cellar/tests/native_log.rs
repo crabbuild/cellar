@@ -42,6 +42,7 @@ async fn lease_writer(
     ownership: Arc<BucketOwnership>,
     addr: &str,
 ) -> Result<mpsc::UnboundedSender<()>> {
+    let lineage = domain.run(ownership.prepare_lineage()).await??.to_owned();
     let generation = ownership.process_generation().unwrap().to_owned();
     let (send, mut receive) = mpsc::unbounded_channel();
     let addr = addr.to_owned();
@@ -49,6 +50,7 @@ async fn lease_writer(
         .run(async move {
             let node = addr.split(':').next().unwrap().to_owned();
             let mut record = NodeLeaseRecord {
+                lineage: Some(lineage),
                 node,
                 addr,
                 expires_ms: cellar::ownership_store::now_ms() + TTL,
@@ -228,7 +230,7 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         appends: AtomicUsize::new(0),
         streams: AtomicUsize::new(0),
     });
-    let session = format!("{leader}/{generation}");
+    let session = ownership.log_session()?;
     let (replica, log, owner) = domain
         .run(async {
             let store: Arc<dyn ObjectStore> = Arc::new(ThrottledStore::new(
@@ -388,7 +390,7 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
                     .unwrap();
                 let lease: serde_json::Value = serde_json::from_slice(&lease)?;
                 assert!(lease.get("ownership_index_generation").is_none());
-                assert_eq!(lease["generation"], pair.session.split('/').nth(1).unwrap());
+                assert_eq!(lease["generation"], pair.session.split('/').nth(2).unwrap());
                 assert_eq!(lease["log"]["may_have_fleet_acks"], true);
                 Ok::<_, anyhow::Error>(())
             })
@@ -438,8 +440,9 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
                 appends: AtomicUsize::new(0),
                 streams: AtomicUsize::new(0),
             });
+            lease.prepare_lineage().await?;
             let log = Arc::new(NodeLogManager::new(
-                "recovery-a/recovery-generation-a",
+                &lease.log_session()?,
                 a.bucket.clone(),
                 Arc::new(OwnLog {
                     ownership: lease.clone(),
@@ -577,14 +580,16 @@ async fn log_construction_rejects_wrong_identity_namespace_domain_and_policy() -
         LogOptions::default(),
     )
     .await?;
+    let ownership = Arc::new(BucketOwnership::new(
+        (*pair.bucket).clone(),
+        (*pair.bucket).clone(),
+        "leader-validated".into(),
+        "generation-validated".into(),
+    ));
+    pair.domain.run(ownership.prepare_lineage()).await??;
     let own = || {
         Arc::new(OwnLog {
-            ownership: Arc::new(BucketOwnership::new(
-                (*pair.bucket).clone(),
-                (*pair.bucket).clone(),
-                "leader-validated".into(),
-                "generation-validated".into(),
-            )),
+            ownership: ownership.clone(),
             nudge: Box::new(|| {}),
             write_lock: tokio::sync::Mutex::new(()),
         })
@@ -592,13 +597,21 @@ async fn log_construction_rejects_wrong_identity_namespace_domain_and_policy() -
     pair.domain
         .run(async {
             for session in [
-                "leader-validated",
-                "leader-validated/wrong-generation",
-                "wrong-node/generation-validated",
-                "../generation-validated",
+                "leader-validated".to_owned(),
+                "leader-validated/generation-validated".to_owned(),
+                format!(
+                    "leader-validated/{}/wrong-generation",
+                    ownership.lineage().unwrap()
+                ),
+                format!(
+                    "wrong-node/{}/generation-validated",
+                    ownership.lineage().unwrap()
+                ),
+                "leader-validated/ffffffffffffffffffffffffffffffff/generation-validated".to_owned(),
+                "../00000000000000000000000000000001/generation-validated".to_owned(),
             ] {
                 ensure!(NodeLogManager::new(
-                    session,
+                    &session,
                     pair.bucket.clone(),
                     own(),
                     pair.replica.ltx(),

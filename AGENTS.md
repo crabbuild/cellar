@@ -97,8 +97,13 @@ A missing node lease root is unproven, not an absent folded log. The core must
 invoke RecoverNodeLog for a named foreign owner whose lease is missing; the log
 reader must refuse that root in explicit/takeover recovery. Only own-node first
 boot reads an optional root before lease installation. Retired leases remain
-present tombstones. Never fabricate a no-log record to unblock recovery. Keep
-node-name reuse after erased metadata separate from retained-root qualification.
+present tombstones. Never fabricate a no-log record to unblock recovery. Persist a canonical 128-bit node lineage in both owned cell records and node
+leases before actor/log construction. Retained roots preserve that lineage;
+a missing root starts a fresh lineage and cannot certify existing owned cells.
+Own-name claim/reconciliation, output/release/GC gates and remote lease routing
+must compare lineage as well as node name. Recovery checks the expected lineage
+against the same root read used for its folded proof decision. Keep metadata
+rollback and physical loss qualification separate from retained-root evidence.
 Delayed-reply fixtures retain the exact removed root atomically in their private
 SQLite store, assert NodeLeaseMissing and full join, then restore its proof fields
 with only expiry shortened before expecting retained-proof recovery.
@@ -119,7 +124,7 @@ schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
 readers, layout migrations, version negotiation or fleet upgrade commands.
 The ranged log-tail request uses tail_format 1 and its response uses CLT1;
 missing/unsupported markers and entries-only request shapes are refused. Native
-follower reads/writes require node/generation identities, and discovery visits
+follower reads/writes require node/lineage/generation identities, and discovery visits
 only that current directory layout. Rebuild every participant on wire cutover;
 former flat-layout development state requires recreation, not a migration.
 Only checksum-protected committed .batch files supply follower entries. Former
@@ -1115,3 +1120,10 @@ wait_for_event_activation on the production Node::start path, reject completed
 supervisors even when readiness is simultaneously ready, and preserve close/join
 on activation failure. Focused embedded tests cover that cut without wall-clock
 timeouts. This does not explain the separate intermittent bootstrap/recovery cases.
+
+
+A stopped remote attempt queues invalidation of its observed route without
+waiting for actor cleanup. Its Ambiguous verdict never authorizes replay; the
+next independent call can resolve a replacement endpoint. Ready retries still
+await invalidation under their captured deadline. Keep the regression that polls
+the stopped future once, checks exactly one invalidation and no queued replay.

@@ -935,7 +935,7 @@ async fn prepare(
                 write_lock: tokio::sync::Mutex::new(()),
             });
             let manager = Arc::new(NodeLogManager::new(
-                &format!("{node}/{}", config.actor.generation),
+                &ownership.log_session()?,
                 Arc::new(fleet.bucket.clone()),
                 own_log,
                 runtime.replication().unwrap().ltx(),

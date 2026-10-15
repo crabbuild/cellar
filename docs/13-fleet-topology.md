@@ -8,9 +8,12 @@ shared dependencies.
 During internal development, rebuild every participant together for a hard
 cutover. Cellar's ranged log-tail request and response use marker 1; missing or
 unsupported markers are refused without negotiation. Follower state uses only
-`peerlog/<node>/<generation>/`. Recreate former flat-layout development state;
-the runtime does not migrate it. Former `.entry`/`.entries` payload layouts are
-also rejected; only current checksum-protected `.batch` files supply follower
+`peerlog/<node>/<lineage>/<generation>/`. Owned cell records and node leases
+carry the same persistent 128-bit lineage; retained roots preserve it across
+process generations. Missing roots mint a fresh lineage, which cannot certify
+existing cells or collect the old lineage’s follower proof. Recreate earlier
+development state; the runtime does not migrate it. Former `.entry`/`.entries`
+payload layouts are also rejected; only current checksum-protected `.batch` files supply follower
 entries. Epochs and sequence counters keep their meaning.
 
 ![Proposed fleet failure domains](diagrams/fleet-topology.svg)

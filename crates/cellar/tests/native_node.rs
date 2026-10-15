@@ -1628,7 +1628,7 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     let writer = ExecutionDomain::new(tokio::runtime::Handle::current());
     let prior = PeerProbeSigner::generate().public_key_hex();
     let record = serde_json::json!({
-        "node":"unrecovered", "generation": prior, "probe_public_key":prior,
+        "node":"unrecovered", "generation": prior, "probe_public_key":prior, "lineage":"00000000000000000000000000000001",
         "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true,
         "log":{"state":"open", "epoch":2, "ensemble":["missing-follower"], "tiered":0, "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null}
     });
@@ -1689,7 +1689,7 @@ async fn conclusively_lost_fleet_proof_cannot_install_a_successor() -> Result<()
         let writer = ExecutionDomain::new(tokio::runtime::Handle::current());
         let prior = PeerProbeSigner::generate().public_key_hex();
         let record = serde_json::json!({
-            "node":"lost-proof", "generation":prior, "probe_public_key":prior,
+            "node":"lost-proof", "generation":prior, "probe_public_key":prior, "lineage":"00000000000000000000000000000001",
             "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true,
             "log":{"state":"open", "epoch":2, "ensemble":ensemble, "tiered":0,
                 "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null}
@@ -1697,7 +1697,7 @@ async fn conclusively_lost_fleet_proof_cannot_install_a_successor() -> Result<()
         // A persisted, long-expired member crosses the real conclusive-loss
         // branch immediately. An absent member stays undecided and does not cover it.
         let follower = serde_json::json!({
-            "node":"lost-follower", "generation":"retained-follower-generation",
+            "node":"lost-follower", "generation":"retained-follower-generation", "lineage":"00000000000000000000000000000002",
             "probe_public_key":"retained-follower-generation", "expires_ms":0,
             "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true
         });
@@ -1739,7 +1739,9 @@ async fn conclusively_lost_fleet_proof_cannot_install_a_successor() -> Result<()
                     .context("predecessor disappeared")?;
                 let value: serde_json::Value = serde_json::from_slice(&body)?;
                 let loss = bucket
-                    .get(&format!("log/lost-proof/{prior}.e2.loss.json"))
+                    .get(&format!(
+                        "log/lost-proof/00000000000000000000000000000001/{prior}.e2.loss.json"
+                    ))
                     .await?;
                 Ok::<_, anyhow::Error>((value, loss))
             })

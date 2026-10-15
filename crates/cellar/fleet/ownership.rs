@@ -21,12 +21,14 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Serialize)]
 struct OwnerWire<'a> {
+    lineage: Option<&'a str>,
     node: &'a str,
     epoch: u64,
 }
 
 #[derive(Deserialize)]
 struct OwnerWireOwned {
+    lineage: Option<String>,
     node: String,
     epoch: u64,
 }
@@ -34,6 +36,7 @@ struct OwnerWireOwned {
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(try_from = "NodeLeaseWireRaw")]
 pub(crate) struct NodeLeaseWire {
+    pub(crate) lineage: String,
     pub(crate) node: String,
     pub(crate) expires_ms: u64,
     #[serde(default)]
@@ -164,6 +167,7 @@ impl NodeLeaseWire {
 /// lease field names and probe-key fallbacks are intentionally unsupported.
 #[derive(Deserialize)]
 struct NodeLeaseWireRaw {
+    lineage: String,
     node: String,
     expires_ms: u64,
     addr: String,
@@ -181,9 +185,11 @@ impl TryFrom<NodeLeaseWireRaw> for NodeLeaseWire {
     type Error = anyhow::Error;
 
     fn try_from(raw: NodeLeaseWireRaw) -> anyhow::Result<Self> {
+        validate_lineage(&raw.lineage)?;
         crate::machine::validate_node_name(&raw.node)?;
         crate::machine::validate_node_name(&raw.generation)?;
         Ok(Self {
+            lineage: raw.lineage,
             node: raw.node,
             expires_ms: raw.expires_ms,
             addr: raw.addr,
@@ -371,6 +377,7 @@ pub struct BucketOwnership {
     lease_bucket: Bucket,
     node: String,
     probe_public_key: String,
+    lineage: std::sync::OnceLock<String>,
     live: Arc<LiveLoad>,
     lease_ttl_ms: u64,
     /// The shared fleet sample's interval and maximum age, the balancing
@@ -485,6 +492,7 @@ impl BucketOwnership {
             lease_bucket,
             node,
             probe_public_key,
+            lineage: std::sync::OnceLock::new(),
             live: Arc::new(LiveLoad::default()),
             lease_ttl_ms: 0,
             fleet_sample_ms: 5_000,
@@ -493,6 +501,51 @@ impl BucketOwnership {
             own_log: std::sync::Mutex::new((0, None)),
             applied: tokio::sync::watch::channel((String::new(), 0)).0,
         }
+    }
+
+    /// Capture the persistent node identity before actor/log construction.
+    /// A missing root starts a new identity; it never certifies existing cells.
+    pub async fn prepare_lineage(&self) -> anyhow::Result<&str> {
+        if self.lineage.get().is_none() {
+            let lineage = match load_json::<NodeLeaseWire>(
+                &self.lease_bucket,
+                &format!("nodes/{}.json", self.node),
+            )
+            .await?
+            {
+                Some((wire, _)) => {
+                    anyhow::ensure!(
+                        wire.node == self.node,
+                        "node lineage root identity mismatch"
+                    );
+                    wire.lineage
+                }
+                None => {
+                    let mut bytes = [0u8; 16];
+                    rand::RngCore::fill_bytes(&mut crate::asyncrt::rng("node_lineage"), &mut bytes);
+                    bytes
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect::<String>()
+                }
+            };
+            let _ = self.lineage.set(lineage);
+        }
+        self.lineage().context("node lineage was not prepared")
+    }
+
+    pub fn log_session(&self) -> anyhow::Result<String> {
+        Ok(format!(
+            "{}/{}/{}",
+            self.node,
+            self.lineage().context("node lineage was not prepared")?,
+            self.process_generation()
+                .context("node process generation is missing")?
+        ))
+    }
+
+    pub fn lineage(&self) -> Option<&str> {
+        self.lineage.get().map(String::as_str)
     }
 
     /// The lease lifetime this fleet renews on, used to decide which node
@@ -556,7 +609,19 @@ impl BucketOwnership {
         let Some((owner, etag)) = load_json::<OwnerWireOwned>(&self.bucket, &key).await? else {
             return Ok(None);
         };
+        if !owner.node.is_empty() {
+            crate::machine::validate_node_name(&owner.node)?;
+            validate_lineage(
+                owner
+                    .lineage
+                    .as_deref()
+                    .context("owned cell has no node lineage")?,
+            )?;
+        } else {
+            anyhow::ensure!(owner.lineage.is_none(), "released owner carries a lineage");
+        }
         let record = OwnerRecord {
+            lineage: owner.lineage,
             node: (!owner.node.is_empty()).then_some(owner.node),
             epoch: owner.epoch,
             etag,
@@ -871,11 +936,18 @@ impl BucketOwnership {
         let Some(current) = self.read_owner(cell).await? else {
             return Ok(CasOutcome::Rejected);
         };
-        if current.node.as_deref() != Some(self.node.as_str()) || current.epoch != epoch {
+        if current.node.as_deref() != Some(self.node.as_str())
+            || current.lineage.as_deref() != self.lineage()
+            || current.epoch != epoch
+        {
             return Ok(CasOutcome::Rejected);
         }
         let key = format!("cells/{cell}/own.json");
-        let body = serde_json::to_vec(&OwnerWire { node: "", epoch })?;
+        let body = serde_json::to_vec(&OwnerWire {
+            lineage: None,
+            node: "",
+            epoch,
+        })?;
         match self.bucket.put_cas(&key, body, Some(&current.etag)).await? {
             Some(_) => Ok(CasOutcome::Applied),
             None => Ok(CasOutcome::Rejected),
@@ -890,6 +962,10 @@ impl BucketOwnership {
     ) -> anyhow::Result<CasOutcome> {
         let key = format!("cells/{cell}/own.json");
         let body = serde_json::to_vec(&OwnerWire {
+            lineage: Some(
+                self.lineage()
+                    .context("owner write before node lineage preparation")?,
+            ),
             node: &self.node,
             epoch,
         })?;
@@ -922,6 +998,11 @@ impl BucketOwnership {
                 "node lease must match its writer's node and process generation"
             )));
         }
+        if record.lineage.as_deref() != self.lineage() || self.lineage().is_none() {
+            return Err(LeaseCasError::NotCommitted(anyhow::anyhow!(
+                "node lease lineage must match its prepared writer"
+            )));
+        }
         let key = format!("nodes/{}.json", self.node);
         // Snapshot the folded log ONCE, before serialization: the applied
         // notification below reports THIS seq — the identity of the body
@@ -932,6 +1013,7 @@ impl BucketOwnership {
         // still learns what the possibly-landed body carried.
         *stamped = log_state_from_wire(&log);
         let body = serde_json::to_vec(&NodeLeaseWire {
+            lineage: self.lineage().unwrap().to_owned(),
             node: record.node.clone(),
             expires_ms: record.expires_ms,
             addr: record.addr.clone(),
@@ -1124,6 +1206,7 @@ pub(crate) async fn load_node_lease(
     Ok(load_json::<NodeLeaseWire>(bucket, &key)
         .await?
         .map(|(lease, etag)| NodeLeaseRecord {
+            lineage: Some(lease.lineage),
             log_state: log_state_from_wire(&lease.log),
             node: lease.node,
             addr: lease.addr,
@@ -1226,4 +1309,15 @@ pub(crate) fn process_load(live: &LiveLoad) -> NodeLoadWire {
         // renewal and a sample refresh. Empty on a node with no engine.
         container_instances: crate::container::running_instances_by_class(),
     }
+}
+
+pub(crate) fn validate_lineage(lineage: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        lineage.len() == 32
+            && lineage
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+        "invalid node lineage"
+    );
+    Ok(())
 }

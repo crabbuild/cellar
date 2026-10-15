@@ -19,7 +19,7 @@ def fixture():
     plan = old[0]
     operations = next(row["operations"] for row in old if row["event"] == "whole_fleet_audit")
     source = operations["waiting"]["ack"]["source"]
-    lease = dict(node="producer", generation="generation", expires_ms=1000,
+    lease = dict(node="producer", lineage="1"*32, generation="generation", expires_ms=1000,
                  log=dict(state="open", epoch=1, ensemble=["destination", "consumer"], may_have_fleet_acks=True))
     owner = dict(node="producer", epoch=1)
     proof = dict(event="follower_only_acknowledged", owner=owner, node_lease=lease, objects={},
@@ -68,7 +68,7 @@ def restarted_fixture():
     disk = dict(files=files, seed=dict(fragment_epoch=1, base=0, end=0, sealed_to=0),
                 batches=[dict(path="4-4.batch", epoch=1, base=3, end=4, sealed_to=0,
                               entries=[dict(seq=4, cell=source, cell_epoch=1, txid=2, sha256="c" * 64)])])
-    leases = {node: dict(node=node, generation="old-" + node, expires_ms=1000) for node in ("destination", "consumer")}
+    leases = {node: dict(node=node, lineage="1"*32, generation="old-" + node, expires_ms=1000) for node in ("destination", "consumer")}
     index = next(i for i, row in enumerate(rows) if row["event"] == "process_killed") + 1
     rows[index:index] = [dict(event="process_killed", label="follower-destination", pid=1, exit_code=-9),
                          dict(event="process_killed", label="follower-consumer", pid=3, exit_code=-9),
@@ -78,7 +78,7 @@ def restarted_fixture():
     rows[index:index] = [dict(event="follower_process_restarted", node=node, pid=pid, lease=leases[node], observed_ms=1001, files=files)
                          for node, pid in (("destination", 4), ("consumer", 5))]
     index = next(i for i, row in enumerate(rows) if row["event"] == "follower_audit" and row["label"] == "recovered-before-replay")
-    rows[index:index] = [dict(event="follower_process_ready", node=node, pid=pid, lease=dict(node=node, generation="new-" + node))
+    rows[index:index] = [dict(event="follower_process_ready", node=node, pid=pid, lease=dict(node=node, lineage="1"*32, generation="new-" + node))
                          for node, pid in (("destination", 4), ("consumer", 5))]
     for row in rows:
         if row["event"] == "fleet_process_stopped":
@@ -96,6 +96,13 @@ class FollowerOracleTests(unittest.TestCase):
             with patch("follower_faults.inspect_crash_image", return_value=image), \
                  patch("follower_faults.inspect_follower_disk", side_effect=lambda path: disks[path.name]):
                 return audit_evidence(path)
+
+    def test_selected_session_requires_lineage_and_excludes_other_lineages(self):
+        objects = {f"log/producer/{lineage}/generation/bundle/e1-0.ltxb": lineage for lineage in ("1"*32, "2"*32)}
+        self.assertEqual(list(source_inventory(objects, "Order:a", "generation", "1"*32).values()), ["1"*32])
+        for lineage in (None, "", "../unsafe", "A"*32):
+            with self.subTest(lineage=lineage), self.assertRaises(AuditError):
+                source_inventory(objects, "Order:a", "generation", lineage)
 
     def test_complete_follower_only_recovery(self):
         self.assertEqual(self.audit(fixture())["follower_only_recoveries"], 1)
@@ -116,18 +123,20 @@ class FollowerOracleTests(unittest.TestCase):
             rows = restarted_fixture()
             proof = next(row for row in rows if row["event"] == "follower_only_acknowledged")
             row = next(row for row in rows if row["event"] == event)
-            row["objects"][f"log/producer/{proof['node_lease']['generation']}/bundle/e1-00000000.ltxb"] = dict(bytes=100, sha256="c" * 64)
+            row["objects"][f"log/producer/{proof['node_lease']['lineage']}/{proof['node_lease']['generation']}/bundle/e1-00000000.ltxb"] = dict(bytes=100, sha256="c" * 64)
             with self.subTest(event=event), self.assertRaises(AuditError):
                 self.audit(rows)
 
     def test_live_follower_memory_missing_restart_or_stale_generation_is_rejected(self):
-        for kind in ("kill", "restart", "ready", "generation", "lease"):
+        for kind in ("kill", "restart", "ready", "generation", "lineage", "lease"):
             rows = restarted_fixture()
             if kind == "kill":
                 rows = [row for row in rows if row.get("label") != "follower-consumer"]
             elif kind in ("restart", "ready"):
                 event = "follower_process_restarted" if kind == "restart" else "follower_process_ready"
                 rows = [row for row in rows if not (row["event"] == event and row["node"] == "destination")]
+            elif kind == "lineage":
+                next(row for row in rows if row["event"] == "follower_process_ready")["lease"]["lineage"] = "2"*32
             elif kind == "generation":
                 next(row for row in rows if row["event"] == "follower_process_ready")["lease"]["generation"] = "old-destination"
             else:
@@ -295,12 +304,12 @@ class FollowerOracleTests(unittest.TestCase):
                 db.execute("CREATE TABLE __sys_local_objects(key TEXT,body BLOB)")
                 db.executemany("INSERT INTO __sys_local_objects VALUES(?,?)", [("nodes/producer.json", b"metadata"),
                     ("cells/Order:a/ltx/e1/file.ltx", b"actual-ltx"), ("cells/Order:ab/ltx/e1/file.ltx", b"other"),
-                    ("log/producer/generation/bundle/e1-00000000.ltxb", b"actual-bundle")])
+                    ("log/producer/"+"1"*32+"/generation/bundle/e1-00000000.ltxb", b"actual-bundle")])
             objects = replica_inventory(root, None)
             observed = source_inventory(objects, "Order:a")
             self.assertEqual(list(observed), ["cells/Order:a/ltx/e1/file.ltx"])
             self.assertEqual(next(iter(observed.values()))["bytes"], 10)
-            self.assertEqual(len(source_inventory(objects, "Order:a", "generation")), 2)
+            self.assertEqual(len(source_inventory(objects, "Order:a", "generation", "1"*32)), 2)
 
     def test_network_inventory_refuses_truncated_or_oversized_listing(self):
         xml = b'<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>true</IsTruncated></ListBucketResult>'

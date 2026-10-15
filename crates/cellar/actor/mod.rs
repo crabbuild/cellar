@@ -205,6 +205,13 @@ pub enum Ownership {
 }
 
 impl Ownership {
+    pub(crate) fn lineage(&self) -> Option<&str> {
+        match self {
+            Self::Memory(_) => None,
+            Self::Bucket(bucket) => bucket.lineage(),
+        }
+    }
+
     pub(crate) async fn read_owner(&self, cell: &str) -> Result<Option<OwnerRecord>, Failure> {
         match self {
             Self::Memory(memory) => Ok(memory.lock().await.owners.get(cell).cloned()),
@@ -281,6 +288,7 @@ impl Ownership {
                     memory.owners.insert(
                         cell.into(),
                         OwnerRecord {
+                            lineage: None,
                             node: Some(node),
                             epoch,
                             etag,
@@ -317,6 +325,7 @@ impl Ownership {
                     memory.owners.insert(
                         cell.into(),
                         OwnerRecord {
+                            lineage: None,
                             node: None,
                             epoch,
                             etag,
@@ -1720,19 +1729,23 @@ impl AppHandle {
     }
 
     pub async fn invalidate_remote(&self, cell: String, node: String, epoch: u64) {
+        let _ = self.queue_remote_invalidation(cell, node, epoch).await;
+    }
+
+    pub(crate) fn queue_remote_invalidation(
+        &self,
+        cell: String,
+        node: String,
+        epoch: u64,
+    ) -> oneshot::Receiver<()> {
         let (reply, receive) = oneshot::channel();
-        if self
-            .tx
-            .send(Message::InvalidateRemote {
-                cell,
-                node,
-                epoch,
-                reply,
-            })
-            .is_ok()
-        {
-            let _ = receive.await;
-        }
+        let _ = self.tx.send(Message::InvalidateRemote {
+            cell,
+            node,
+            epoch,
+            reply,
+        });
+        receive
     }
 
     pub async fn owned_cells(
@@ -2560,7 +2573,12 @@ impl Actor {
         if matches!(&ownership, Ownership::Bucket(_)) {
             crate::ownership_store::set_node_load(live_load.clone());
         }
+        let lineage = match &ownership {
+            Ownership::Bucket(bucket) => Some(bucket.prepare_lineage().await?.to_owned()),
+            Ownership::Memory(_) => None,
+        };
         let lease_spec = NodeLeaseSpec {
+            lineage,
             addr: advertise,
             peer_protocol: options.core.peer_protocol,
             generation: options.generation,
@@ -2570,7 +2588,11 @@ impl Actor {
         Ok(Self {
             node_log: Arc::new(std::sync::Mutex::new(None)),
             host_services,
-            state: ActorState::from(State::new(node, options.core)),
+            state: ActorState::from(State::new_with_lineage(
+                node,
+                options.core,
+                lease_spec.lineage.clone(),
+            )),
             ownership,
             peer_http,
             peer_auth,
@@ -3380,7 +3402,12 @@ impl Actor {
                     )
                 });
             }
-            Effect::RecoverNodeLog { op, cell, owner } => {
+            Effect::RecoverNodeLog {
+                lineage,
+                op,
+                cell,
+                owner,
+            } => {
                 self.route_effect_started(&cell);
                 let interlock = self.node_log.lock().unwrap().clone();
                 let timing_cell = cell.clone();
@@ -3391,7 +3418,7 @@ impl Actor {
                         // recover, and the claim proceeds as before.
                         None => Ok(()),
                         Some(interlock) => interlock
-                            .ensure_recovered(Some(&owner))
+                            .ensure_recovered(Some(&owner), lineage.as_deref())
                             .await
                             .map_err(|error| {
                                 eprintln!(
@@ -3971,6 +3998,7 @@ impl Actor {
                     let result = match ownership.read_owner(&cell).await {
                         Ok(Some(record))
                             if record.node.as_deref() == Some(node.as_str())
+                                && record.lineage.as_deref() == ownership.lineage()
                                 && record.epoch == epoch =>
                         {
                             Ok(())

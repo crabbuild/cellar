@@ -164,8 +164,9 @@ async fn run(missing_lease: bool) -> Result<()> {
                 )
                 .with_lease_ttl_ms(TTL),
             );
+            lease.prepare_lineage().await?;
             let log = Arc::new(NodeLogManager::new(
-                "recovery-witness/recovery-generation-witness",
+                &lease.log_session()?,
                 bucket.clone(),
                 Arc::new(OwnLog {
                     ownership: lease.clone(),
@@ -191,7 +192,7 @@ async fn run(missing_lease: bool) -> Result<()> {
                 ensure!(original["log"]["may_have_fleet_acks"] == true);
                 bucket.delete(&key).await?;
                 ensure!(bucket.get(&key).await?.is_none());
-                let gate = log.ensure_recovered(Some(leader)).await;
+                let gate = log.ensure_recovered(Some(leader), previous.lineage.as_deref()).await;
                 let direct = log.recover(&session).await;
                 ensure!(
                     gate.is_err() && direct.is_err(),
@@ -249,7 +250,7 @@ async fn run(missing_lease: bool) -> Result<()> {
                 cold.range == original_range && rows(cold) == original_rows,
                 "returned disk changed proven bytes"
             );
-            tokio::time::timeout(Duration::from_secs(5), log.ensure_recovered(Some(leader))).await??;
+            tokio::time::timeout(Duration::from_secs(5), log.ensure_recovered(Some(leader), previous.lineage.as_deref())).await??;
             tokio::time::timeout(Duration::from_secs(5), log.recover(&session)).await??;
             let snapshot = replica
                 .restore_snapshot(CELL)

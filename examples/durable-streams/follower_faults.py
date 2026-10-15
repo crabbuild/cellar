@@ -44,9 +44,18 @@ def replica_inventory(root, store):
     return {key: dict(bytes=len(body), sha256=hashlib.sha256(body).hexdigest()) for key, body in rows}
 
 
-def source_inventory(objects, scope, generation=None):
+def log_lineage(lease):
+    lineage = lease.get("lineage")
+    require(isinstance(lineage, str) and len(lineage) == 32 and all(c in "0123456789abcdef" for c in lineage),
+            "missing or invalid node lineage")
+    return lineage
+
+
+def source_inventory(objects, scope, generation=None, lineage=None):
+    if generation is not None:
+        log_lineage(dict(lineage=lineage))
     return {key: value for key, value in objects.items() if key.startswith(f"cells/{scope}/ltx/")
-            or generation is not None and key.startswith(f"log/producer/{generation}/")}
+            or generation is not None and key.startswith(f"log/producer/{lineage}/{generation}/")}
 
 
 def archive_pending_source(root, scope):
@@ -105,11 +114,12 @@ def inspect_follower_disk(directory):
 
 def archive_followers(root, lease):
     generation = lease["generation"]
+    lineage = log_lineage(lease)
     require(len(generation) == 64 and all(c in "0123456789abcdef" for c in generation), "unsafe follower session")
     retained = {}
     for node in lease["log"]["ensemble"]:
         require(node in {"destination", "consumer"}, "unknown follower process")
-        source = root / "data" / node / "node/peerlog/producer" / generation
+        source = root / "data" / node / "node/peerlog/producer" / lineage / generation
         files = inventory(source)
         require(files and any(file["path"].endswith(".batch") for file in files), "acknowledging follower has no retained batch")
         archive = root / "follower-images" / node
@@ -193,7 +203,8 @@ def audit_evidence(path, complete=True):
             proof = row
             scope = operations["waiting"]["ack"]["source"]
             generation = row["node_lease"]["generation"]
-            require(source_inventory(baseline, scope, generation) == source_inventory(row["objects"], scope, generation),
+            lineage = log_lineage(row["node_lease"])
+            require(source_inventory(baseline, scope, generation, lineage) == source_inventory(row["objects"], scope, generation, lineage),
                     "bucket publication bypassed follower-only boundary")
             require(row["refused"] and any(entry["path"].startswith(f"cells/{scope}/ltx/") for entry in row["refused"]),
                     "source bucket upload was not actually refused")
@@ -244,7 +255,8 @@ def audit_evidence(path, complete=True):
                     "follower disk evidence preceded loss of every original process")
             scope = operations["waiting"]["ack"]["source"]
             generation = proof["node_lease"]["generation"]
-            require(source_inventory(row["objects"], scope, generation) == source_inventory(baseline, scope, generation),
+            lineage = log_lineage(proof["node_lease"])
+            require(source_inventory(row["objects"], scope, generation, lineage) == source_inventory(baseline, scope, generation, lineage),
                     "bucket data repaired the transaction before follower restart")
             retained = row["followers"]
             cold_leases = row["leases"]
@@ -280,6 +292,7 @@ def audit_evidence(path, complete=True):
             replacement = row
         elif event == "follower_authority_expired":
             require(discarded and not expired and replacement is None and row["lease"]["node"] == "producer"
+                    and log_lineage(row["lease"]) == log_lineage(proof["node_lease"])
                     and row["lease"]["generation"] == proof["node_lease"]["generation"]
                     and row["lease"]["expires_ms"] >= proof["node_lease"]["expires_ms"]
                     and row["observed_ms"] > row["lease"]["expires_ms"], "takeover did not observe actual old authority expiry")
@@ -294,7 +307,8 @@ def audit_evidence(path, complete=True):
         elif event == "follower_process_ready":
             node = row["node"]
             require(restart_followers and node in restarts and node not in ready and row["pid"] == restarts[node]
-                    and row["lease"]["node"] == node and row["lease"]["generation"] != cold_leases[node]["generation"],
+                    and row["lease"]["node"] == node and row["lease"]["generation"] != cold_leases[node]["generation"]
+                    and log_lineage(row["lease"]) == log_lineage(cold_leases[node]),
                     "follower did not register a new process generation")
             ready.add(node)
         elif event == "follower_consumer_acknowledged":
@@ -388,7 +402,7 @@ def exercise(binary, root, rustfs_image=None, restart_followers=False, peer_proo
             for node in ("destination", "consumer"):
                 lease = store_json(root, store, f"nodes/{node}.json")
                 observed = eventually(lambda: int(time.time() * 1000), lambda now: now > lease["expires_ms"])
-                files = inventory(root / "data" / node / "node/peerlog/producer" / proof_lease["generation"]) if node in retained else []
+                files = inventory(root / "data" / node / "node/peerlog/producer" / log_lineage(proof_lease) / proof_lease["generation"]) if node in retained else []
                 require(node not in retained or files == retained[node]["files"], "cold follower disk changed before restart")
                 peer = free_address()
                 process = FleetProcess(binary, root, node, node + "-restarted", peer, peer, node == "destination", store,

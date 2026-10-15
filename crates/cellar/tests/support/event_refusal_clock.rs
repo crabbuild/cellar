@@ -102,6 +102,15 @@ pub(super) async fn recovered_status(
     node: &Node,
     expires: i64,
 ) -> Result<(Value, usize)> {
+    read_status(client, node, expires, false).await
+}
+
+async fn read_status(
+    client: &reqwest::Client,
+    node: &Node,
+    expires: i64,
+    lineage_return: bool,
+) -> Result<(Value, usize)> {
     let mut read_retries = 0;
     let recovered = tokio::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -113,9 +122,13 @@ pub(super) async fn recovered_status(
                 Ok(value) => return Ok::<_, anyhow::Error>(value),
                 Err(error)
                     if error.to_string().contains("503 Service Unavailable")
-                        && error
+                        && (error
                             .to_string()
-                            .contains("Ambiguous: event RPC did not return a proven result") =>
+                            .contains("Ambiguous: event RPC did not return a proven result")
+                            || lineage_return
+                                && error.to_string().contains(
+                                    "Unavailable: event RPC did not return a proven result",
+                                )) =>
                 {
                     // A standalone read can safely repeat after an old-owner
                     // transport fails. No mutation/fetch/receipt is replayed.
@@ -131,28 +144,74 @@ pub(super) async fn recovered_status(
     Ok((recovered, read_retries))
 }
 
+async fn restore_metadata(
+    observer: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+    old: &Value,
+    replace: bool,
+) -> Result<()> {
+    observer
+        .run(async {
+            let key = "nodes/refusal-destination.json";
+            let token = if replace {
+                let (_, token) = bucket
+                    .get(key)
+                    .await?
+                    .context("joined fresh lineage missing")?;
+                Some(token)
+            } else {
+                ensure!(
+                    bucket.get(key).await?.is_none(),
+                    "refusal fabricated a node record"
+                );
+                None
+            };
+            let mut restored = old.clone();
+            restored["expires_ms"] = json!(wall() - 1);
+            ensure!(
+                bucket
+                    .put_cas(key, serde_json::to_vec(&restored)?, token.as_deref())
+                    .await?
+                    .is_some(),
+                "node metadata changed during controlled return"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss() -> Result<()> {
-    run(false, false, false).await
+    run(false, false, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload() -> Result<()>
 {
-    run(true, false, false).await
+    run(true, false, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_cold_followers_recover_before_any_receipt_replay() -> Result<()> {
-    run(true, true, false).await
+    run(true, true, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn missing_destination_lease_refuses_admission_until_proof_metadata_returns() -> Result<()> {
-    run(true, false, true).await
+    run(true, false, true, false).await
 }
 
-async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn same_name_restart_cannot_recover_from_a_fresh_lineage_after_root_loss() -> Result<()> {
+    run(true, false, true, true).await
+}
+
+async fn run(
+    followers: bool,
+    cold_followers: bool,
+    missing_metadata: bool,
+    same_name: bool,
+) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let destination_data = directory.path().join("destination");
     let destination_core = Executor::new("refusal-clock-destination")?;
@@ -161,6 +220,14 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
     let replacement_core = Executor::new("refusal-clock-replacement")?;
     let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    // Select the same-name node as the measured successor. Other real peers
+    // retain their read, lease, follower and recovery services; only their
+    // conditional writes to this cell's owner key are refused during the cut.
+    let peer_claim = PublicationFault::with_prefixes(
+        bucket.cas_store.clone(),
+        format!("{}cells/{}/own.json", bucket.prefix, stream_scope()?),
+        Vec::new(),
+    );
     let outage = PublicationFault::with_prefixes(
         bucket.store.clone(),
         format!("{}cells/{}/ltx/", bucket.prefix, stream_scope()?),
@@ -206,7 +273,7 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
     super::super::ready(&destination).await?;
     let first_owner = owner(&observer, &bucket).await?;
     ensure!(first_owner["node"] == "refusal-destination");
-    let (mut config, services) = inputs(
+    let (mut config, mut services) = inputs(
         "refusal-source",
         &directory.path().join("source"),
         &source_core,
@@ -214,6 +281,14 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
         0,
     )
     .await?;
+    if same_name {
+        services
+            .fleet
+            .as_mut()
+            .context("source fleet missing")?
+            .bucket
+            .cas_store = peer_claim.clone();
+    }
     config.actor.lease_ttl_ms = 120_000;
     config.startup.recovery_retry_backoff = Duration::from_secs(120);
     let operation_budget = Duration::from_millis(config.actor.core.operation_deadline_ms.unwrap());
@@ -223,7 +298,7 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
     let mut source = Node::start(config, services, external, applications("source")?).await?;
     super::super::ready(&source).await?;
     let mut witness = if followers {
-        let (mut config, services) = inputs(
+        let (mut config, mut services) = inputs(
             "refusal-witness",
             &directory.path().join("witness"),
             &witness_core,
@@ -231,6 +306,14 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
             0,
         )
         .await?;
+        if same_name {
+            services
+                .fleet
+                .as_mut()
+                .context("witness fleet missing")?
+                .bucket
+                .cas_store = peer_claim.clone();
+        }
         config.actor.lease_ttl_ms = 120_000;
         config.startup.recovery_retry_backoff = Duration::from_secs(120);
         let mut external = graph(1, false);
@@ -439,6 +522,9 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
         .is_err());
     drop(old_services);
     std::fs::remove_dir_all(&destination_data)?;
+    if same_name {
+        peer_claim.block();
+    }
     if followers {
         ensure!(
             replicas(&observer, &bucket).await? == baseline,
@@ -548,7 +634,11 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
         "ordinary UTC could repair the future clock before recovery audit"
     );
     let (mut config, services) = inputs(
-        "refusal-replacement",
+        if same_name {
+            "refusal-destination"
+        } else {
+            "refusal-replacement"
+        },
         &directory.path().join("replacement"),
         &replacement_core,
         Some(bucket.clone()),
@@ -560,7 +650,7 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
     external.primary.options.stream_bindings.clear();
-    let replacement_node =
+    let mut replacement_node =
         Node::start(config, services, external, applications("replacement")?).await?;
     super::super::ready(&replacement_node).await?;
     if missing_metadata {
@@ -574,35 +664,58 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
             replicas(&observer, &bucket).await? == baseline,
             "missing-metadata refusal changed the bucket payload prefix"
         );
-        observer
-            .run(async {
-                let key = "nodes/refusal-destination.json";
-                ensure!(
-                    bucket.get(key).await?.is_none(),
-                    "refusal fabricated a node record"
-                );
-                // Return the original proof metadata. Only post-join liveness
-                // changes; the generation, ensemble and acknowledgment marker
-                // are the exact values saved before the deliberate deletion.
-                let mut restored = old_lease.clone();
-                restored["expires_ms"] = json!(wall() - 1);
-                ensure!(
-                    bucket
-                        .put_cas(key, serde_json::to_vec(&restored)?, None)
+        if same_name {
+            observer
+                .run(async {
+                    let (bytes, _) = bucket
+                        .get("nodes/refusal-destination.json")
                         .await?
-                        .is_some(),
-                    "a successor replaced the absent metadata"
-                );
-                Ok::<_, anyhow::Error>(())
-            })
-            .await??;
+                        .context("fresh lineage lease missing")?;
+                    let fresh: Value = serde_json::from_slice(&bytes)?;
+                    ensure!(
+                        fresh["lineage"] != old_lease["lineage"],
+                        "missing root reused the old lineage"
+                    );
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await??;
+            stopped(replacement_node)
+                .await
+                .context("join refused same-name node before returning old metadata")?;
+            restore_metadata(&observer, &bucket, &old_lease, true).await?;
+            let (mut config, services) = inputs(
+                "refusal-destination",
+                &directory.path().join("replacement"),
+                &replacement_core,
+                Some(bucket.clone()),
+                0,
+            )
+            .await?;
+            config.actor.lease_ttl_ms = 120_000;
+            config.startup.recovery_retry_backoff = Duration::from_secs(120);
+            let mut external = graph(1, false);
+            external.primary.event_streams.clear();
+            external.primary.options.stream_bindings.clear();
+            replacement_node =
+                Node::start(config, services, external, applications("replacement")?).await?;
+            super::super::ready(&replacement_node).await?;
+        } else {
+            restore_metadata(&observer, &bucket, &old_lease, false).await?;
+        }
     }
-    let (recovered, read_retries) = recovered_status(&client, &replacement_node, expires).await?;
+    let (recovered, mut read_retries) = recovered_status(&client, &replacement_node, expires)
+        .await
+        .context("audit current replacement clock")?;
     let next_owner = owner(&observer, &bucket).await?;
     ensure!(
-        next_owner["node"] != first_owner["node"]
+        (if same_name {
+            next_owner["node"] == first_owner["node"]
+        } else {
+            next_owner["node"] != first_owner["node"]
+        }) && (!same_name || next_owner["lineage"] == first_owner["lineage"])
             && next_owner["epoch"].as_u64().context("new epoch missing")?
-                > first_owner["epoch"].as_u64().context("old epoch missing")?
+                > first_owner["epoch"].as_u64().context("old epoch missing")?,
+        "recovery used the wrong successor: {first_owner} -> {next_owner}"
     );
     ensure!(
         wall() < expires
@@ -612,7 +725,27 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
             && recovered["observation"]["lease_active"] == false,
         "successor lost the proven refusal clock before receipt reuse: {recovered}"
     );
-    ensure!(history(&client, &source).await? == accepted);
+    if same_name {
+        // A same-name successor also changes its endpoint/generation. A
+        // standalone read may refresh a closed predecessor route; never use
+        // ordinary mutation replay to repair the measured recovery prefix.
+        let (view, retries) = read_status(&client, &source, expires, true)
+            .await
+            .context("refresh source read-only route after same-name recovery")?;
+        read_retries += retries;
+        ensure!(
+            view["checkpoint"] == "0"
+                && view["identity"] == initial["identity"]
+                && number(&view["observation"]["observed_ms"])? >= expiry_cut
+                && view["observation"]["lease_active"] == false
+        );
+    }
+    ensure!(
+        history(&client, &source)
+            .await
+            .context("audit recovered history through original source")?
+            == accepted
+    );
     let retained = pending(&client, &source)
         .await
         .context("retained successor source obligation")?;
@@ -695,7 +828,7 @@ async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> R
     eprintln!(
         "CLOCK_REFUSAL_EVIDENCE {}",
         json!({"proof":if followers {"followers"}else{"bucket"},"old_owner":first_owner,"successor":next_owner,
-        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
+        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
     );
     stopped(source)
         .await

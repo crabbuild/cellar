@@ -254,13 +254,15 @@ That receipt proves the retry obligation, not destination acceptance.
 Node lease objects retain folded log recovery evidence even after expiry or
 retirement. An expired lease is eligible for recovery; a missing lease is not
 proof that bucket data is complete. When a cell names that displaced owner,
-the current foreign-owner guard blocks takeover while metadata is missing.
-Same-name restart after erased metadata remains a confirmed release-blocking gap:
-it can admit stale state and lose a proven expiry clock. Do not delete
-node lease objects as a recovery or garbage-collection procedure. Restoring
-metadata must retain the original generation, ensemble and acknowledgment
-history. Node-name reuse after metadata erasure and physical store loss remain
-separate release qualifications.
+takeover requires the retained node lineage and recovery metadata. Each owned
+cell and node root carries that lineage; log sessions and follower directories
+use node/lineage/process-generation. Reusing a node name after deleting its root
+creates a fresh lineage and refuses the existing cell. Preserving restarts reuse
+the retained lineage and recover the previous process session before admission.
+Do not delete node lease objects as a recovery or garbage-collection procedure.
+Returning metadata must preserve the original lineage, generation, ensemble and
+acknowledgment history. Metadata rollback, independent-process and physical
+store-loss behavior remain separate release qualifications.
 
 Start with the [executable walkthrough](../examples/durable-streams/README.md).
 Its smoke test checks publication, retry, preserving restart, inbox suppression

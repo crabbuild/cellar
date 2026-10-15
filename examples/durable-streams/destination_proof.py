@@ -5,14 +5,15 @@ import shutil
 import time
 
 from faults import eventually, require
-from follower_faults import replica_inventory
+from follower_faults import log_lineage, replica_inventory
 from resumed_owner import authority, store_json
 from whole_fleet import inventory
 
 
-def selected(objects, scope, generation):
+def selected(objects, scope, lease):
+    lineage, generation = log_lineage(lease), lease["generation"]
     return {key: value for key, value in objects.items()
-            if key.startswith(f"cells/{scope}/ltx/") or key.startswith(f"log/destination/{generation}/")}
+            if key.startswith(f"cells/{scope}/ltx/") or key.startswith(f"log/destination/{lineage}/{generation}/")}
 
 
 def audit_proof(path, complete=True, operation="append"):
@@ -48,14 +49,15 @@ def audit_proof(path, complete=True, operation="append"):
             accepted = row
             lease = row["lease"]
             require(row["owner"] == armed["owner"] and lease["generation"] == armed["lease"]["generation"]
+                    and log_lineage(lease) == log_lineage(armed["lease"])
                     and lease["log"]["state"] == "open" and lease["log"]["may_have_fleet_acks"] is True
                     and lease["log"]["ensemble"] and set(lease["log"]["ensemble"]) <= {"producer", "consumer"},
                     "operation lacks installed fleet proof")
             require(row["scope"] == armed["scope"] and row["refused"]
                     and any(item["path"].startswith(f"cells/{row['scope']}/ltx/") for item in row["refused"]),
                     "destination upload was not refused")
-            require(selected(armed["objects"], row["scope"], lease["generation"])
-                    == selected(row["objects"], row["scope"], lease["generation"]), "bucket data bypassed follower-only operation")
+            require(selected(armed["objects"], row["scope"], lease)
+                    == selected(row["objects"], row["scope"], lease), "bucket data bypassed follower-only operation")
         elif event == "process_killed" and armed is not None:
             require(accepted is not None and not killed and row["label"] == "destination-after-proven-" + operation, "kill preceded follower proof")
             killed = True
@@ -63,9 +65,10 @@ def audit_proof(path, complete=True, operation="append"):
             require(killed and discarded is None and not restarted and row["files"] and row["remaining_entries"] == 0,
                     "destination local data survived or was removed before loss")
             require(row["lease"]["generation"] == accepted["lease"]["generation"]
+                    and log_lineage(row["lease"]) == log_lineage(accepted["lease"])
                     and row["observed_ms"] > row["lease"]["expires_ms"], "old destination authority has not expired")
-            require(selected(row["objects"], armed["scope"], accepted["lease"]["generation"])
-                    == selected(armed["objects"], armed["scope"], accepted["lease"]["generation"]),
+            require(selected(row["objects"], armed["scope"], accepted["lease"])
+                    == selected(armed["objects"], armed["scope"], accepted["lease"]),
                     "bucket data repaired operation before restart")
             discarded = row
         elif event == restarted_event and armed is not None:
@@ -76,6 +79,7 @@ def audit_proof(path, complete=True, operation="append"):
         elif event == "destination_follower_recovered":
             require(armed is not None and restarted and audited and recovered is None, "proof recovery preceded saved-prefix audit")
             require(row["lease"]["generation"] != accepted["lease"]["generation"]
+                    and log_lineage(row["lease"]) == log_lineage(accepted["lease"])
                     and row["owner"]["epoch"] > accepted["owner"]["epoch"], "destination authority was not replaced")
             recovered = row
         elif event == "retry_resumed" and armed is not None:

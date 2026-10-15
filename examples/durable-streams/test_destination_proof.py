@@ -10,7 +10,7 @@ def fixture():
     rows = fleet_oracle.fixture()
     scope = next(row for row in rows if row["event"] == "append_reply_held")["exchange"]["scope"]
     owner = dict(node="destination", epoch=1)
-    lease = dict(node="destination", generation="original", expires_ms=1000,
+    lease = dict(node="destination", lineage="1"*32, generation="original", expires_ms=1000,
                  log=dict(state="open", ensemble=["producer"], may_have_fleet_acks=True))
     index = next(i for i, row in enumerate(rows) if row["event"] == "attempt")
     rows.insert(index, dict(event="destination_proof_armed", scope=scope, owner=owner, lease=copy.deepcopy(lease), objects={},
@@ -25,7 +25,7 @@ def fixture():
     rows.remove(lost)
     index = next(i for i, row in enumerate(rows) if row["event"] == "retry_resumed")
     rows[index:index] = [dict(event="destination_follower_recovered", owner=dict(node="destination", epoch=2),
-                               lease=dict(node="destination", generation="replacement")), lost]
+                               lease=dict(node="destination", lineage="1"*32, generation="replacement")), lost]
     return copy.deepcopy(rows)
 
 
@@ -46,7 +46,7 @@ class DestinationProofTests(unittest.TestCase):
             for kind in ("ltx", "bundle"):
                 rows = fixture()
                 accepted = next(row for row in rows if row["event"] == "destination_follower_accepted")
-                key = accepted["refused"][0]["path"] if kind == "ltx" else "log/destination/original/bundle/e1-0.ltxb"
+                key = accepted["refused"][0]["path"] if kind == "ltx" else "log/destination/"+"1"*32+"/original/bundle/e1-0.ltxb"
                 next(row for row in rows if row["event"] == event)["objects"][key] = dict(bytes=100, sha256="f"*64)
                 with self.subTest(event=event, kind=kind), self.assertRaisesRegex(AuditError, "bucket data"):
                     self.audit(rows)
@@ -67,6 +67,14 @@ class DestinationProofTests(unittest.TestCase):
             else: next(row for row in rows if row["event"] == "destination_proof_armed")["peer_proof"] = "fleet"
             with self.subTest(kind=kind), self.assertRaises(AuditError):
                 self.audit(rows)
+
+    def test_missing_changed_or_invalid_lineage_refuses_recovery(self):
+        for event in ("destination_proof_armed", "destination_follower_accepted", "destination_proof_discarded", "destination_follower_recovered"):
+            for lineage in (None, "2"*32, "../unsafe"):
+                rows = fixture()
+                next(row for row in rows if row["event"] == event)["lease"]["lineage"] = lineage
+                with self.subTest(event=event, lineage=lineage), self.assertRaises(AuditError):
+                    self.audit(rows)
 
     def test_early_response_loss_cannot_enable_local_retry(self):
         rows = fixture()

@@ -65,6 +65,7 @@ fn remote(state: &mut State, id: u64, cell: &str) {
             op,
             now_ms: 0,
             result: Ok(Some(OwnerRecord {
+                lineage: None,
                 node: Some("peer".into()),
                 epoch: 7,
                 etag: "owner".into(),
@@ -81,6 +82,7 @@ fn remote(state: &mut State, id: u64, cell: &str) {
                 op,
                 now_ms: 0,
                 result: Ok(Some(NodeLeaseRecord {
+                    lineage: None,
                     node: "peer".into(),
                     addr: "peer:8081".into(),
                     expires_ms: 1_000_000,
@@ -355,6 +357,7 @@ fn a_zero_route_cache_retains_authority_for_resident_and_dormant_cells() {
             op,
             now_ms: 0,
             result: Ok(Some(OwnerRecord {
+                lineage: None,
                 node: Some("owner".into()),
                 epoch: 7,
                 etag: "owner".into(),
@@ -469,6 +472,7 @@ fn terminal_adoption_failures_advance_drain_progress_without_counting_stale_repl
                 op,
                 now_ms: 0,
                 result: Ok(Some(OwnerRecord {
+                    lineage: None,
                     node: Some("owner".into()),
                     epoch: 7,
                     etag: "owner".into(),
@@ -584,6 +588,7 @@ fn missing_owner_lease_requires_recovery_before_claiming() {
             op,
             now_ms: 0,
             result: Ok(Some(OwnerRecord {
+                lineage: None,
                 node: Some("missing-leader".into()),
                 epoch: 7,
                 etag: "original-owner".into(),
@@ -636,5 +641,111 @@ fn missing_owner_lease_requires_recovery_before_claiming() {
         state.phase("Account:missing-proof"),
         Some(Phase::Inactive)
     ));
+    state.validate().unwrap();
+}
+
+#[test]
+fn a_reused_node_name_cannot_route_or_claim_another_lineage() {
+    for expires_ms in [0, 100_000] {
+        let mut state = State::new("replacement", config());
+        let op = request(&mut state, 1, "Account:old-lineage");
+        let effects = on_event(
+            &mut state,
+            Event::OwnerRead {
+                op,
+                now_ms: 1,
+                result: Ok(Some(OwnerRecord {
+                    node: Some("replacement".into()),
+                    lineage: Some("old".into()),
+                    epoch: 7,
+                    etag: "owner".into(),
+                })),
+            },
+        );
+        let op = effects
+            .iter()
+            .find_map(|effect| match effect {
+                Effect::ReadNodeLease { op, .. } => Some(*op),
+                _ => None,
+            })
+            .expect("a reused name must check durable lineage before claiming");
+        let effects = on_event(
+            &mut state,
+            Event::NodeLeaseRead {
+                op,
+                now_ms: 1,
+                result: Ok(Some(NodeLeaseRecord {
+                    node: "replacement".into(),
+                    lineage: Some("fresh".into()),
+                    addr: "replacement:8080".into(),
+                    expires_ms,
+                    peer_protocol: 1,
+                    generation: "new-process".into(),
+                    log_state: None,
+                    etag: "lease".into(),
+                })),
+            },
+        );
+        assert!(effects.iter().any(|effect| matches!(
+            effect,
+            Effect::Complete {
+                request: 1,
+                result: Err(_),
+                ..
+            }
+        )));
+        assert!(!effects.iter().any(|effect| matches!(
+            effect,
+            Effect::CasOwner { .. } | Effect::Restore { .. } | Effect::RecoverNodeLog { .. }
+        )));
+        state.validate().unwrap();
+        let op = request(&mut state, 2, "Account:old-lineage");
+        let effects = on_event(
+            &mut state,
+            Event::OwnerRead {
+                op,
+                now_ms: 2,
+                result: Ok(Some(OwnerRecord {
+                    node: Some("replacement".into()),
+                    lineage: Some("old".into()),
+                    epoch: 8,
+                    etag: "restored-owner".into(),
+                })),
+            },
+        );
+        assert!(
+            effects
+                .iter()
+                .any(|effect| matches!(effect, Effect::ReadNodeLease { .. })),
+            "a mismatched lineage stayed cached instead of rereading restored metadata"
+        );
+        state.validate().unwrap();
+    }
+}
+
+#[test]
+fn a_preserved_lineage_keeps_same_name_activation_available() {
+    let mut state = State::new_with_lineage("replacement", config(), Some("retained".into()));
+    let op = request(&mut state, 1, "Account:retained-lineage");
+    let effects = on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 0,
+            result: Ok(Some(OwnerRecord {
+                node: Some("replacement".into()),
+                lineage: Some("retained".into()),
+                epoch: 7,
+                etag: "owner".into(),
+            })),
+        },
+    );
+    assert!(effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::CasOwner { epoch: 8, .. })));
+    assert!(!effects.iter().any(|effect| matches!(
+        effect,
+        Effect::ReadNodeLease { .. } | Effect::RecoverNodeLog { .. }
+    )));
     state.validate().unwrap();
 }

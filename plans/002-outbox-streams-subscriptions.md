@@ -1505,7 +1505,7 @@ Cellar is in internal development and has no backward compatibility contract.
 All Cellar-owned protocol, format and schema markers remain at version 1,
 including peer, native host, ranged log tail, bucket/wake, catalog, stream,
 outbox and inbox. Ranged tails use tail_format 1 / CLT1 and require their current
-range fields. Follower discovery and native access require node/generation
+range fields. Follower discovery and native access require node/lineage/generation
 identities and checksum-protected committed batches; former flat or individual-
 entry layouts are not compatibility inputs.
 `event-delivery-v1` names the current feature. Breaking layout changes use a hard
@@ -1955,3 +1955,16 @@ never grants extra time to malformed or over-policy waits. Two parser regression
 cover JSON and structured arguments, canonicality, caps and saturating addition.
 The source changed during the earlier build; fresh qualification is required.
 All Cellar-owned markers remain 1.
+
+
+### Node identity and recovery continuity
+
+A durable owner records node name, persistent node lineage and writer epoch.
+The node lease retains the same lineage across process generations. A new root
+uses a random 128-bit lineage; a reused name cannot certify cells belonging to
+a displaced lineage. Recovery compares the owner lineage with the same lease
+read used to decide whether its folded log is complete. Own-node shortcuts,
+output proofs, release and garbage collection preserve that identity boundary.
+Log sessions use node/lineage/process-generation so a fresh lineage cannot
+collect another lineage’s retained bundles or follower fragments. This is a
+version-1 development hard cutover with recreated state, not a migration.

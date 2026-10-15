@@ -6,7 +6,7 @@ import shutil
 import time
 
 from faults import eventually, require
-from follower_faults import inspect_follower_disk, replica_inventory
+from follower_faults import inspect_follower_disk, log_lineage, replica_inventory
 from resumed_owner import authority, store_json
 from whole_fleet import inventory
 
@@ -53,9 +53,9 @@ def audit_disks(path, complete=True):
                     "cold follower custody preceded loss of all original memory")
             retained = row
             from destination_proof import selected
-            generation = accepted["lease"]["generation"]
-            require(selected(row["objects"], armed["scope"], generation)
-                    == selected(armed["objects"], armed["scope"], generation), "bucket data repaired cold follower proof")
+            lease = accepted["lease"]
+            require(selected(row["objects"], armed["scope"], lease)
+                    == selected(armed["objects"], armed["scope"], lease), "bucket data repaired cold follower proof")
             require(set(row["leases"]) == PEERS and set(row["followers"]) == set(accepted["lease"]["log"]["ensemble"]),
                     "cold follower custody omitted an original witness")
             for node, lease in row["leases"].items():
@@ -86,7 +86,8 @@ def audit_disks(path, complete=True):
             node = row["node"]
             require(armed and replacement is not None and set(started) == PEERS and node in PEERS - ready and row["pid"] == started[node]
                     and row["lease"]["node"] == node
-                    and row["lease"]["generation"] != retained["leases"][node]["generation"],
+                    and row["lease"]["generation"] != retained["leases"][node]["generation"]
+                    and log_lineage(row["lease"]) == log_lineage(retained["leases"][node]),
                     "cold follower readiness lacks a fresh process generation")
             ready.add(node)
         elif event in ("ack_destination_restarted", "fetch_destination_restarted", "destination_restarted") and armed:
@@ -154,6 +155,7 @@ class ColdFollowers:
                                 exit_code=code, graceful_reports=graceful)
         lease = store_json(proof.root, proof.store, "nodes/destination.json")
         self.generation = lease["generation"]
+        self.lineage = log_lineage(lease)
         require(len(self.generation) == 64 and all(c in "0123456789abcdef" for c in self.generation), "unsafe destination session")
         self.retained = {}
         for node in lease["log"]["ensemble"]:
@@ -174,7 +176,7 @@ class ColdFollowers:
         audit_disks(proof.ledger.path, complete=False)
 
     def directory(self, node):
-        return self.proof.root / "data" / node / "node/peerlog/destination" / self.generation
+        return self.proof.root / "data" / node / "node/peerlog/destination" / self.lineage / self.generation
 
     def start(self):
         from fleet_faults import FleetProcess, PeerProxy, free_address

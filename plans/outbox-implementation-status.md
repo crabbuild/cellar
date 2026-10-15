@@ -24,12 +24,19 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The highest actionable defect is same-name node restart after erased lease
-metadata. The probe below reproduces replacement admission and loss of a proven
-expiry clock. Fix that ownership/boot continuity boundary before extending
-independent-process clock-refusal qualification, then continue the remaining
-retention/lease and source-control transitions. The prior refused-mutation clock
-defect is fixed; its complete proof/fault matrix remains open.
+The current correctness slice binds ownership and recovery to a persistent node
+lineage, closing the reproduced same-name admission bypass below. It also drops
+a failed remote route after an ambiguous result without replaying that request.
+Qualify the changed identity and cache boundaries, then exercise root loss or
+replacement between identity capture, predecessor recovery and lease install.
+Require recovery from valid evidence or refusal before existing-cell admission;
+this startup interleaving has not been reproduced or qualified in the cases
+below. Source inspection makes the absent-root cut the next concrete probe:
+lineage capture does not retain whether it observed a root, while predecessor
+startup still permits an optional own root. Require a regression at that exact
+interleaving before claiming continuity across concurrent root loss. Follow it with the independent-process clock-refusal matrix, retention/
+lease and source-control transitions. The prior refused-mutation clock defect is fixed;
+its complete proof/fault matrix remains open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -114,7 +121,7 @@ implementation commit 120126b were refused before any steps: GitHub reports
 failed account payments or a spending limit. Hosted toolchain qualification
 (Rust 1.98.1) remains unavailable.
 
-### Confirmed follow-up: same-name restart after metadata erasure
+### Current follow-up: same-name identity continuity
 
 After the preceding qualification, change only the replacement node name in
 the missing-destination-metadata fixture to the erased owner's name. Keep the
@@ -126,20 +133,83 @@ epoch one with that same node name. This reproduces in 3.63s and repeats in
 4.93s from a saved probe executable (SHA256
 95a522ace8fa804acd696a9032afea3d26cf5311586eaeba34677d33036824db).
 
-A missing own-node root looks like first boot, and a cell naming this node takes
-the existing same-node ownership shortcut. The required foreign-owner interlock
-therefore does not establish same-name continuity. A fix must distinguish a
-legitimate first boot/preserving restart from reuse after lost recovery evidence;
-it must not disable ordinary new nodes, break preserving restarts, fabricate a
-no-log root as proof, or fall back to stale bucket state. Persisted owner identity
-and bootstrap/recovery evidence need to agree before existing-cell admission.
-Metadata rollback, independent-process and physical-store-loss gates remain open.
+A missing own-node root looked like first boot, while cells naming this node
+used the same-node ownership shortcut. The fix captures a random 128-bit lineage
+before actor/log construction, copies it across retained-root restarts, and
+persists it in owned cell records and node leases. Existing-cell admission,
+claim confirmation, ambiguous CAS reconciliation, remote routing, output proof,
+release and epoch GC require the same lineage. Recovery compares the expected
+owner lineage with the same root read used for its folded proof decision.
+Missing or changed identity cannot be treated as a no-log completion. A
+mismatched lease sample is discarded so later independent requests can observe
+returned metadata rather than remaining stuck for the old lease TTL.
 
-The probe restores the original Rust source byte-for-byte, with all seven
-qualified Rust hashes rechecked. Its failing executable is retained separately;
-it is not the qualified runtime above. No temporary probe behavior is committed.
-The 62-case run qualifies the retained-source cases, not this newly exposed
-same-name loss case. The full design remains incomplete and not release-ready.
+Log sessions, bundles and follower directories use node/lineage/process-generation.
+Startup bundle collection stays within the captured lineage; follower GC cannot
+use a fresh root to certify or discard an old lineage’s fragments, even if the
+node name and generation match. Required wire fields and directory layout are a
+hard cutover with recreated development state; all owned markers remain 1.
+Process-fault evidence readers and their negative guards select the full session.
+This slice runs their guard tests; the independent-process fault matrix has not
+been rerun against the new namespace. Keep that evidence separate from the
+current native-domain cases.
+
+The same-name Node regression requires fresh-lineage refusal with the original
+owner and payload prefix intact, joins that refused node, returns the saved
+original proof metadata with only expiry shortened, and restarts under the
+retained lineage. Peer owner-key writes are refused during this selected
+successor cut; real follower reads, lease traffic and recovery remain available.
+It then requires a higher epoch, the retained future clock, exact event bytes,
+pending obligation, checkpoint and inbox effects before receipt reuse.
+
+This test exposed a second defect: a stopped Ambiguous request retained its dead
+remote route, so independent later reads kept using the old endpoint. Stopped
+attempts now queue guarded route invalidation without waiting for cleanup or
+replaying the submitted request. The new library regression failed before the
+fix and passes after it; it requires immediate Stop, exactly one invalidation,
+a dropped cleanup receiver and no queued dispatch. Ready retries retain their
+existing awaited invalidation and captured budget.
+
+The earlier probe restored all original source bytes and retains its failing
+runtime separately. The historical 62-case results above qualify only the
+pre-lineage implementation. Two targeted negative controls disable only the
+same-name lineage predicate or only mismatch-cache eviction. The core regression fails at the intended claim
+boundary or the next-request refresh assertion respectively. Both restore the
+production source byte-for-byte before formatting and final qualification.
+The first full lineage run passes 61 Node cases and fails two older missing-
+witness fixtures before recovery, because their manually seeded lease JSON
+omits the required lineage. Update only those three synthetic lease records
+and the corresponding loss-record path to the current session shape; retain the
+original witness, predecessor-generation, directory-release and refusal
+assertions and deadlines. Production and all other test Rust bytes are unchanged.
+New qualification is recorded below. Loss after lineage capture and before
+startup recovery/install, metadata rollback, independent-process and physical
+store-loss gates remain open. The
+full design remains incomplete and not release-ready.
+
+
+### Final qualification for node lineage
+
+All 15 decision-core tests and 239 library tests pass (7.13s). The six actor,
+six external-ingress, seven log (4.49s) and five log-protocol tests pass. Both
+corrected predecessor/lost-witness cases pass without weakening their original
+refusals or deadlines. The five focused clock/recovery cases pass (40.38s).
+The final serial Node run passes all 63 tests (492.94s); focused/full-start/
+full-end executable SHA256 is
+056234fdacf8b10ea6cd3f9ac9faaadf116fb0750449637e5f55cb0baf5b9228.
+All 16 changed Rust files retain identical bytes from the final focused run
+through Node qualification. Production and previously qualified test sources
+also match their hashes from the initial core/library/log runs; only the native
+Node fixture records and diagnostic lookup changed after the first full run.
+All seven artifact and three CLI tests pass.
+All 11 additional integration cases pass across cells, event streams, outbox,
+replication, runtime, storage and transactions. Workspace all-target/all-feature
+check (79.47s), Clippy with warnings denied (91.19s) and formatting of 514 Rust
+files pass. Workspace doc tests pass: 11 passed, one existing Axum example
+ignored. Documentation validates 36 documents, six flows and 388 references;
+dependency audit checks 403 packages without a JavaScript engine. All 129
+Python evidence guards pass. Local Rust remains 1.97.0/aarch64 macOS; this does
+not supply hosted Rust 1.98.1 qualification or independent-process evidence.
 
 ## Current follow-up: proven and unproven clock-only refusals
 
@@ -860,7 +930,7 @@ missing declarations are refused; there is no entries-only fallback or format
 negotiation. Every participant must be rebuilt together.
 
 Follower session discovery no longer checks the former flat node/state.json
-layout. Native load/persist entry points also require a valid node/generation
+layout. Native load/persist entry points also require a valid node/lineage/generation
 identity before reading cached or on-disk state, so direct SDK calls cannot
 re-enable that layout or write it. Existing current-layout disk bytes are
 unchanged; former flat-layout development state must be recreated. No layout

@@ -5,7 +5,7 @@
 //! a follower ensemble through the supplied authenticated transport. A write
 //! is proven by follower fsyncs or by ordinary bucket upload, whichever wins.
 //! The ensemble and acknowledgement history live in the leader's node lease;
-//! every log session is identified by `<node>/<generation>`.
+//! every log session is identified by `<node>/<lineage>/<generation>`.
 //!
 //! Append data and ranged recovery tails use binary framing. Recovery requires
 //! a complete retained range from a sealed follower before certifying its data.
@@ -605,10 +605,21 @@ pub(crate) async fn read_record(
     bucket: &Bucket,
     session: &str,
 ) -> anyhow::Result<Option<FoldedRead>> {
-    let (node, generation) = session.split_once('/').unwrap_or((session, ""));
+    let (node, lineage, generation) = if session.contains('/') {
+        let (node, lineage, generation) = session_parts(session)?;
+        (node, Some(lineage), generation)
+    } else {
+        (session, None, "")
+    };
     let (wire, token) = read_node_record(bucket, node)
         .await?
         .ok_or_else(|| anyhow!("missing node lease for {session}; recovery is unproven"))?;
+    if let Some(lineage) = lineage {
+        anyhow::ensure!(
+            wire.lineage == lineage,
+            "node lineage changed; recovery is unproven for {session}"
+        );
+    }
     folded_record(wire, token, generation)
 }
 
@@ -798,16 +809,27 @@ pub struct AppendReq {
     pub entries: Vec<Entry>,
 }
 
+fn session_parts(session: &str) -> anyhow::Result<(&str, &str, &str)> {
+    let mut parts = session.split('/');
+    let node = parts.next().unwrap_or("");
+    let lineage = parts
+        .next()
+        .context("log session requires node/lineage/generation")?;
+    let generation = parts
+        .next()
+        .context("log session requires node/lineage/generation")?;
+    anyhow::ensure!(
+        parts.next().is_none(),
+        "log session has extra identity segments"
+    );
+    crate::machine::validate_node_name(node)?;
+    crate::ownership_store::validate_lineage(lineage)?;
+    crate::machine::validate_node_name(generation)?;
+    Ok((node, lineage, generation))
+}
+
 fn validate_log_leader(leader: &str) -> anyhow::Result<()> {
-    let validate = |name| crate::machine::validate_node_name(name);
-    match leader.split_once('/') {
-        Some((node, generation)) => {
-            validate(node)?;
-            validate(generation)?;
-        }
-        None => anyhow::bail!("log leader requires node/generation"),
-    }
-    Ok(())
+    session_parts(leader).map(|_| ())
 }
 
 fn deserialize_log_leader<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -1280,7 +1302,7 @@ struct FollowerPersistTiming {
 
 /// One node's store of the log fragments that it follows.
 ///
-/// Each follower session uses `<root>/peerlog/<node>/<generation>/`. The store
+/// Each follower session uses `<root>/peerlog/<node>/<lineage>/<generation>/`. The store
 /// persists the seal mark before it sends the response, so the mark survives a
 /// follower restart. Only this current session layout is discovered.
 pub struct FollowerStore {
@@ -1368,16 +1390,16 @@ impl FollowerStore {
     }
 
     /// Barrier every directory entry from the session leaf through the data
-    /// root. A follower session is `<node>/<generation>`, so the chain is
-    /// four directories deep, and a leaf-only fsync leaves the two
+    /// root. A follower session is `<node>/<lineage>/<generation>`, so the chain is
+    /// five directories deep, and a leaf-only fsync leaves the three
     /// intermediate entries outside the barrier the acknowledgment claims.
     ///
     /// The chain is walked on every persist, not only when `create_dir_all`
     /// reports a fresh directory. A predecessor process can create the
     /// chain and die before its own barrier completes; this process would
     /// then find the directories present, skip the fsync, and acknowledge
-    /// over a chain that was never durable. The price is four directory
-    /// fsyncs for each persist — nine for a steady-state append, which
+    /// over a chain that was never durable. The price is five directory
+    /// fsyncs for each persist — eleven for an uncached append, which
     /// persists twice for the truncate and syncs the leaf once more for the
     /// entry files.
     fn sync_namespace_to_data_root(&self, leaf: &Path) -> anyhow::Result<()> {
@@ -1445,23 +1467,35 @@ impl FollowerStore {
             return sessions;
         };
         for node in nodes.into_iter().filter(|item| item.is_dir) {
-            let Some(node_name) = node.file_name.to_str().map(str::to_string) else {
+            let Some(node_name) = node.file_name.to_str() else {
                 continue;
             };
-            let Ok(generations) = self.filesystem.read_dir(&node.path) else {
+            let Ok(lineages) = self.filesystem.read_dir(&node.path) else {
                 continue;
             };
-            for generation in generations.into_iter().filter(|item| item.is_dir) {
-                let Some(generation_name) = generation.file_name.to_str().map(str::to_string)
-                else {
+            for lineage in lineages.into_iter().filter(|item| item.is_dir) {
+                let Some(lineage_name) = lineage.file_name.to_str() else {
                     continue;
                 };
-                if self
-                    .filesystem
-                    .metadata(&generation.path.join("state.json"))
-                    .is_ok_and(|metadata| metadata.is_file)
-                {
-                    sessions.push(format!("{node_name}/{generation_name}"));
+                if crate::ownership_store::validate_lineage(lineage_name).is_err() {
+                    continue;
+                }
+                let Ok(generations) = self.filesystem.read_dir(&lineage.path) else {
+                    continue;
+                };
+                for generation in generations.into_iter().filter(|item| item.is_dir) {
+                    let Some(generation_name) = generation.file_name.to_str() else {
+                        continue;
+                    };
+                    let session = format!("{node_name}/{lineage_name}/{generation_name}");
+                    if validate_log_leader(&session).is_ok()
+                        && self
+                            .filesystem
+                            .metadata(&generation.path.join("state.json"))
+                            .is_ok_and(|m| m.is_file)
+                    {
+                        sessions.push(session);
+                    }
                 }
             }
         }
@@ -3762,10 +3796,11 @@ pub(crate) const EPOCH_GC_CELLS_PER_PASS: usize = 32;
 /// peer client, address resolution, and the raw per-cell upload.
 pub struct NodeLogManager {
     node: String,
+    lineage: String,
     /// The single-writer path for our own folded log state: publishes to
     /// the ownership store and rides the core's immediate renewal.
     live_log: Arc<LiveLogTransitions>,
-    /// This process session's log identity: `<node>/<generation>`, the
+    /// This process session's log identity: `<node>/<lineage>/<generation>`, the
     /// generation from the node lease record. Every self record, bundle,
     /// fragment, and loss key hangs off it.
     session: String,
@@ -4250,7 +4285,7 @@ impl NodeLogManager {
     }
 
     /// Start inside the owning execution domain. `session` must be the
-    /// ownership adapter's exact `<node>/<generation>` identity. The caller
+    /// ownership adapter's exact `<node>/<lineage>/<generation>` identity. The caller
     /// supplies authenticated transport and immutable ensemble policy.
     pub fn new(
         session: &str,
@@ -4262,13 +4297,12 @@ impl NodeLogManager {
     ) -> anyhow::Result<Self> {
         options.validate()?;
         validate_log_leader(session)?;
-        let (node, generation) = session
-            .split_once('/')
-            .ok_or_else(|| anyhow!("log session requires node/generation"))?;
+        let (node, lineage, generation) = session_parts(session)?;
         anyhow::ensure!(
             node == own_log.ownership.node()
+                && Some(lineage) == own_log.ownership.lineage()
                 && Some(generation) == own_log.ownership.process_generation(),
-            "log session must match its ownership adapter's node and generation"
+            "log session must match its ownership adapter's node, lineage and generation"
         );
         anyhow::ensure!(
             bucket.prefix == own_log.ownership.bucket_client().prefix
@@ -4352,7 +4386,8 @@ impl NodeLogManager {
         let task_stop = crate::ltx_repl::StopToken::new();
         let child_tasks = crate::ltx_repl::TaskGroup::new(task_stop.clone());
         Self {
-            node: session.split('/').next().unwrap_or(session).to_string(),
+            node: session_parts(session).unwrap().0.to_string(),
+            lineage: session_parts(session).unwrap().1.to_string(),
             session: session.to_string(),
             live_log,
             bucket,
@@ -4413,11 +4448,20 @@ impl NodeLogManager {
         // explicitly named predecessor, first boot has no lease to require.
         let prior = read_node_record(&self.bucket, &self.node).await?;
         if let Some(folded) = prior
-            .map(|(wire, token)| folded_record(wire, token, ""))
+            .map(|(wire, token)| {
+                anyhow::ensure!(
+                    wire.lineage == self.lineage,
+                    "own node lineage changed before recovery"
+                );
+                folded_record(wire, token, "")
+            })
             .transpose()?
             .flatten()
         {
-            let session = format!("{}/{}", self.node, folded.wire.generation);
+            let session = format!(
+                "{}/{}/{}",
+                self.node, folded.wire.lineage, folded.wire.generation
+            );
             if session != self.session
                 && log_tier::takeover_gate(Some(&folded.record))
                     == log_tier::TakeoverGate::RecoverFirst
@@ -4446,7 +4490,7 @@ impl NodeLogManager {
     /// acked row per-cell first). Its recovery checkpoints are obsolete too.
     /// Loss declarations and all other keys stay untouched.
     async fn gc_stale_generation_bundles(&self) -> anyhow::Result<()> {
-        let prefix = format!("log/{}/", self.node);
+        let prefix = format!("log/{}/{}/", self.node, self.lineage);
         let mut stale: Vec<String> = Vec::new();
         for meta in self.bucket.list(&prefix).await? {
             let key = meta.location.as_ref().to_string();
@@ -4459,7 +4503,7 @@ impl NodeLogManager {
             if !tail.starts_with("bundle/") && !tail.starts_with("recovered/") {
                 continue;
             }
-            if format!("{}/{generation}", self.node) == self.session {
+            if format!("{}/{}/{generation}", self.node, self.lineage) == self.session {
                 continue;
             }
             stale.push(key);
@@ -4767,7 +4811,7 @@ impl NodeLogManager {
         Ok(count)
     }
 
-    /// Recover one dead SESSION's log: `dead` is `<node>/<generation>`.
+    /// Recover one dead SESSION's log: `dead` is `<node>/<lineage>/<generation>`.
     pub async fn recover(&self, dead: &str) -> anyhow::Result<()> {
         self.recover_as(dead, RecoverMode::Sweep).await
     }
@@ -5355,12 +5399,21 @@ impl NodeLogManager {
     /// path already proved durable. A present lease without a log proves the
     /// node never acked past the bucket; a sealed log proves recovery already
     /// ran. A missing lease root is unproven and must refuse the takeover.
-    pub async fn ensure_recovered(&self, prior: Option<&str>) -> anyhow::Result<()> {
+    pub async fn ensure_recovered(
+        &self,
+        prior: Option<&str>,
+        lineage: Option<&str>,
+    ) -> anyhow::Result<()> {
         self.ensure_predecessors_recovered().await?;
         let Some(prior) = prior else {
             return Ok(());
         };
+        let lineage = lineage.context("named owner has no node lineage")?;
         if prior == self.node {
+            anyhow::ensure!(
+                lineage == self.lineage,
+                "same-name owner belongs to another node lineage"
+            );
             return Ok(());
         }
         // ONE rule for every cold path, at the cost of ONE read the core
@@ -5369,10 +5422,19 @@ impl NodeLogManager {
         // lease record holds at most one session's state — recovery-
         // before-install is what keeps a predecessor's Open state from
         // being replaced unrecovered — so a single GET decides.
-        let folded = read_record(&self.bucket, prior).await?;
+        // Require the cell's durable identity even for a present no-log root.
+        // A fresh root after erasure cannot certify the displaced lineage.
+        let (wire, token) = read_node_record(&self.bucket, prior)
+            .await?
+            .context("missing node lease for owner recovery")?;
+        anyhow::ensure!(
+            wire.lineage == lineage,
+            "owner node lineage changed; recovery is unproven"
+        );
+        let folded = folded_record(wire, token, "")?;
         let session = folded
             .as_ref()
-            .map(|folded| format!("{prior}/{}", folded.wire.generation));
+            .map(|folded| format!("{prior}/{}/{}", folded.wire.lineage, folded.wire.generation));
         match log_tier::takeover_gate(folded.as_ref().map(|folded| &folded.record)) {
             log_tier::TakeoverGate::BucketComplete => {}
             log_tier::TakeoverGate::RecoverFirst => {
@@ -6081,7 +6143,7 @@ impl NodeLogManager {
         Ok(matches!(
             self.ownership.read_owner(cell).await?,
             Some(record)
-                if record.node.as_deref() == Some(self.node.as_str()) && record.epoch == epoch
+                if record.node.as_deref() == Some(self.node.as_str()) && record.lineage.as_deref() == Some(self.lineage.as_str()) && record.epoch == epoch
         ))
     }
 
@@ -6295,7 +6357,7 @@ impl NodeLogManager {
             let Ok(Some(folded)) = read_record(&self.bucket, &node).await else {
                 continue;
             };
-            let session = format!("{node}/{}", folded.wire.generation);
+            let session = format!("{node}/{}/{}", folded.wire.lineage, folded.wire.generation);
             let record = folded.record;
             // Under the fold, the lease we just read IS the record: a
             // session is dead the moment its published expiry passed. A

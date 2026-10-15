@@ -19,6 +19,7 @@ const NODE_SCAN_PAGE_SIZE: usize = 256;
 
 #[derive(Deserialize, Serialize)]
 struct NodeWire {
+    lineage: String,
     node: String,
     expires_ms: u64,
     generation: String,
@@ -207,6 +208,7 @@ async fn read_node(bucket: &Bucket, key: &str) -> anyhow::Result<Option<(NodeWir
     };
     let record: NodeWire = serde_json::from_slice(&bytes)
         .with_context(|| format!("decode {}://{}/{key}", bucket.scheme(), bucket.name))?;
+    crate::ownership_store::validate_lineage(&record.lineage)?;
     crate::machine::validate_node_name(&record.node)?;
     crate::machine::validate_node_name(&record.generation)?;
     Ok(Some((record, etag)))
