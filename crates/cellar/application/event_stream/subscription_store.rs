@@ -57,24 +57,6 @@ fn subscription(db: &Storage, name: &str) -> Result<SqlRow> {
     Ok(row)
 }
 
-/// Persist time even when an operation returns a typed error, so a later clock
-/// rollback cannot resurrect a lease whose expiry was already observed.
-pub(crate) fn clock(db: &Storage) -> Result<i64> {
-    db.tx(|tx| {
-        let (_, row) = store::load(tx)?;
-        let now = crate::asyncrt::wall_ms()
-            .max(store::number(&row, "logical_ms")?)
-            .max(0);
-        if now != store::number(&row, "logical_ms")? {
-            tx.system_sql(
-                "UPDATE __sys_stream SET logical_ms=? WHERE singleton=1",
-                &[now.into()],
-            )?;
-        }
-        Ok(now)
-    })
-}
-
 fn authorize(context: &Context, body: &Value) -> Result<(Storage, Definition, String)> {
     let caller = store::authority(context, Action::Consume)?;
     let name = name(body)?.to_owned();
@@ -164,7 +146,7 @@ pub(crate) fn next(context: &Context, body: &Value) -> Result<Fetch> {
         .ok_or_else(|| error(ErrorCode::InvalidRequest, "fetch identity is missing"))?;
     store::validate_id(fetch_id)?;
     let (count, budget) = store::budgets(body)?;
-    let now = clock(&db)?;
+    let now = store::clock(&db)?;
     db.tx(|tx| {
         let sub = subscription(tx,&name)?;
         super::lifecycle_store::check_identity(&definition,&sub,body)?;
@@ -225,7 +207,7 @@ pub(crate) fn next(context: &Context, body: &Value) -> Result<Fetch> {
 pub(crate) fn ack(context: &Context, body: &Value) -> Result<Value> {
     let (db, definition, name) = authorize(context, body)?;
     let requested = request_receipt(body)?;
-    let now = clock(&db)?;
+    let now = store::clock(&db)?;
     db.tx(|tx| {
         let sub = subscription(tx,&name)?;
         check_scope(&definition,&sub,&requested)?;
@@ -257,7 +239,7 @@ pub(crate) fn retry(context: &Context, body: &Value) -> Result<Value> {
     let (db, definition, name) = authorize(context, body)?;
     let requested = request_receipt(body)?;
     let delay = integer(body, "delay_ms")?;
-    let now = clock(&db)?;
+    let now = store::clock(&db)?;
     let limits = crate::application::limits::current().events;
     if delay < 0 || delay > limits.max_retry_delay_ms {
         return Err(error(
@@ -297,7 +279,7 @@ pub(crate) fn extend(context: &Context, body: &Value) -> Result<Value> {
     let (db, definition, name) = authorize(context, body)?;
     let requested = request_receipt(body)?;
     let target = integer(body, "expires_ms")?;
-    let now = clock(&db)?;
+    let now = store::clock(&db)?;
     db.tx(|tx| {
         let sub = subscription(tx, &name)?;
         check_scope(&definition, &sub, &requested)?;

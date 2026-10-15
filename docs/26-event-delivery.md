@@ -161,10 +161,14 @@ inbox receipts and business effects in the same stable consumer database and
 processing scope across redelivery. Separate worker databases do not share inbox
 deduplication; external effects still require destination idempotency.
 
-Subscription mutations clamp UTC time to the stream's persisted logical
-clock. Once such a mutation observes expiry, rolling the host clock backward cannot
-make that receipt live again, including after owner handoff. Read-only status
-clamps its observation without advancing that clock. Live leases protect their
+Stream deadline decisions use a captured, persisted logical clock. Authorized
+append, configuration and retirement attempts retain their time observation even
+when the requested change is refused; duplicate appends retain it too. Scheduling
+uses that captured time. Once a mutation observes expiry, rolling the host clock
+backward cannot make that receipt live again, including after owner handoff.
+Read-only status clamps its observation without advancing that clock; denied
+callers cannot advance it. Exact configuration-receipt replay returns the recorded
+result without a new deadline decision. Live leases protect their
 batch from age and capacity reclamation; after expiry, required checkpoints
 continue protecting unacknowledged history. Bounded-history subscriptions can
 instead become expired and require an explicit reset after reclamation.

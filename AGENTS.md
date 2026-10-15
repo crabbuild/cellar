@@ -289,6 +289,14 @@ leases and 3s operation budgets. Audit source obligations and accepted bytes
 before reclaim/replay; bounded-history loss requires an explicit reset. These
 native domain cuts do not qualify physical clock faults or all rejected-operation
 time observations.
+Stream deadline mutations capture `event_stream::store::clock` after authorization
+and before their rollback transaction. Refusal/deduplication cannot forget expiry;
+scheduling reuses persisted time rather than sampling UTC again. Keep denied
+requests and read-only diagnostics from advancing it. Exact configuration receipt
+replay preserves the recorded caller's result, including its own grant rotation,
+without authorizing a new change. `native/stream_clock_tests.rs` uses real broker
+RPC/native contexts and SQLite close/reopen, with no background maintenance;
+these regressions are not fleet proof of clock-only commits on refused RPCs.
 Queue leases and actor settlement share the host's captured operation deadline.
 Embedded bootstrap/adoption generation builds and metrics sampling use fallible
 blocking admission. Closing a domain can race a later effect in an already-entered

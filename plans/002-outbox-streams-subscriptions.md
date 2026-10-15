@@ -825,6 +825,12 @@ Persist lease generation allocation and stream logical time. Use
 process-local waits use the injected monotonic clock. Clock jumps can change
 when a lease expires, but cannot authorize stale settlement. Expiry does not
 stop a slow consumer's external effects, so consumers still need idempotency.
+Capture and persist an authorized mutation's clock before its rollback scope,
+including append refusals, duplicate appends, configuration and retirement.
+Scheduling must reuse that persisted time. Denied requests and read-only
+observations do not advance it; exact configuration receipt replay makes no new
+deadline decision. A failed business/configuration change may therefore retain
+newer clock authority while its other writes roll back.
 
 Lease expiry leaves the checkpoint unchanged. Maintenance or the next fetch
 clears the expired lease and permits redelivery with a higher generation.
@@ -1596,6 +1602,14 @@ may run behind the incompatible-feature gate in isolated development fleets.
   obligations, exact records and inbox effects; bounded-history loss needs an
   explicit reset. Selected subscription/maintenance cases do not qualify time
   observations in rejected appends/configuration or physical clock faults.
+- Native broker/SQLite regressions must reject an old acknowledgment after a
+  refused oversized batch, required-capacity refusal, duplicate append,
+  successful/failed configuration or refused retirement observes expiry and UTC
+  rolls backward. Repeat after close/reopen; preserve records, subscription and
+  lease identities, checkpoint and failed configuration revision. Exercise time
+  crossing expiry between samples within one mutation, exact receipt replay after
+  grant rotation and denied callers. Local handler evidence does not establish
+  fleet durability of the clock-only commit on a refused RPC.
 - Inbox receipt rollback, digest conflict, capacity, pruning contract, repeated
   batch with partial prior local commits, and two consumers racing on a receipt.
 - Same host with multiple execution domains: no policy, grants, tasks, or

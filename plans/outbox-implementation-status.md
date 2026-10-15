@@ -22,10 +22,12 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable correctness work is clock observations in rejected append
-and failed configuration paths, followed by the remaining retention/lease and
-source-control transitions. Selected subscription rollback/handoff and required
-checkpoint cases below do not close that matrix. The startup/shutdown cause audit remains open and
+The next actionable correctness work is fleet recovery of clock-only commits
+from refused RPCs through owner/output/follower boundaries, followed by the
+remaining retention/lease and source-control transitions. The lost-expiry defect
+in refused and deduplicated mutations below is fixed and locally qualified.
+Selected local rollback/reopen and subscription handoff cases below do not close
+that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
@@ -55,7 +57,50 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: domain clocks and retention across rollback
+## Current follow-up: expiry authority across refused mutations
+
+Real native contexts, host-minted source authority, broker RPC encoding and SQLite
+reproduce a stale-settlement defect without background maintenance. At time
+100000, accept an event and lease it through 130000. At 130001, attempt an oversized
+append, required-capacity append, duplicate append, successful/failed configuration
+or coordinated retirement that remains blocked. Roll UTC back to 100000: all six
+original cases incorrectly acknowledge the old receipt and advance checkpoint.
+The oversized/required-capacity, duplicate and failed-configuration cases also
+reproduce from a saved immutable test executable.
+
+An isolated probe persists only the append clock outside its transaction: all
+three append cases pass while the two configuration cases and retirement still
+fail. This identifies lost clock authority; acknowledgment policy needs no change.
+Append only persisted time on insertion, rollback discarded observations, and
+scheduling sampled UTC without committing it. A shared store clock now captures
+authorized mutations before their rollback scope. Configuration creates its first
+clock atomically; existing streams persist it first. Maintenance, subscriptions
+and lifecycle use that same boundary, and scheduling reuses persisted time.
+Retirement refusals keep clock authority while terminal receipt replay remains
+unchanged. All owned markers stay 1; no layout or compatibility changes.
+
+Six initial fixed cases pass (0.28s), each in place and after SQLite close/reopen.
+Final regressions also cover grant rotation with exact configuration replay,
+denied append/configuration/retirement and time advancing between samples within
+one mutation. Preserve accepted records, identities, lease, checkpoint and failed
+configuration revision. Denied requests/read-only observations must not acquire
+time authority. All 238 serial library tests pass (5.06s), including nine new
+regressions covering 22 scenarios. All 57 serial Node tests pass (423.45s), with
+matching pre/post-run archived executable SHA256
+acb65b773f21df2d1bf71ece31820ab1aba8c9133516004da37c29f08625be52.
+Workspace/all-target/all-feature check and Clippy with warnings denied pass.
+Formatting checks 512 Rust files; docs validate 36 documents/6 flows/388
+references; the dependency audit checks 403 packages without a JavaScript engine.
+All 127 Python guards and whitespace checks pass. Local Rust 1.97.0/aarch64
+macOS; hosted toolchain qualification remains separate.
+
+These are local native broker/SQLite tests, not independent-process or fleet
+proof. Next qualify recovery of the newer clock on a refused RPC through actual
+owner/output/follower gates before any replay can repair it. Physical clock/store
+loss, historical startup/shutdown causes and the complete release gates remain
+open; the full design is not release-ready.
+
+## 2026-10-15 domain clocks and retention across rollback
 
 Native domains now accept a captured WallClock provider, and both node service
 structs expose optional wall_clock infrastructure before bootstrap. None keeps

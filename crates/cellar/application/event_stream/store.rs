@@ -137,6 +137,24 @@ pub(crate) fn load(db: &Storage) -> Result<(Definition, SqlRow)> {
     Ok((definition, row))
 }
 
+/// Capture durable deadline authority outside the operation's rollback scope.
+/// Call only after authorization. A refusal or deduplicated mutation must not
+/// forget observed expiry and authorize old receipts after wall-clock rollback.
+pub(crate) fn clock(db: &Storage) -> Result<i64> {
+    db.tx(|tx| {
+        let (_, row) = load(tx)?;
+        let prior = number(&row, "logical_ms")?;
+        let now = crate::asyncrt::wall_ms().max(prior).max(0);
+        if now != prior {
+            tx.system_sql(
+                "UPDATE __sys_stream SET logical_ms=? WHERE singleton=1",
+                &[now.into()],
+            )?;
+        }
+        Ok(now)
+    })
+}
+
 pub(crate) fn resolve(context: &Context, body: &Value) -> Result<Value> {
     let caller = authority(context, Action::Resolve)?;
     let encoded = body["binding"]
@@ -259,6 +277,37 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
     }
     let db = context.storage()?;
     super::schema::open(&db)?;
+    let prior = db
+        .system_sql("SELECT * FROM __sys_stream WHERE singleton=1", &[])?
+        .into_iter()
+        .next();
+    let now = if let Some(prior) = &prior {
+        if text(prior, "lifecycle")? == "deleted" {
+            return Err(error(
+                ErrorCode::DestinationDeleted,
+                "stream incarnation was deleted",
+            ));
+        }
+        // Preserve exact receipt replay by its original caller, including a
+        // configuration that removed that caller's grant. This returns history
+        // without sampling time or making a new deadline decision.
+        if text(prior, "config_operation")? == operation
+            && text(prior, "config_digest")? == digest
+            && text(prior, "config_principal")? == caller.principal
+            && text(prior, "config_grant")? == caller.grant
+        {
+            return Ok(
+                json!({"revision":number(prior,"revision")?.to_string(),"resource":desired.resource.id,"operation":operation,"digest":digest}),
+            );
+        }
+        let current: Definition = serde_json::from_str(&text(prior, "definition")?)?;
+        authorize(&current, &caller, Action::Configure, None)?;
+        clock(&db)?
+    } else {
+        caller.require_provisioning()?;
+        authorize(&desired, &caller, Action::Configure, None)?;
+        crate::asyncrt::wall_ms().max(0)
+    };
     db.tx(|tx| {
         let prior=tx.system_sql("SELECT * FROM __sys_stream WHERE singleton=1",&[])?.into_iter().next();
         if let Some(ref prior)=prior {
@@ -312,7 +361,10 @@ pub(crate) fn initialize(context: &Context, body: &Value) -> Result<Value> {
             config_principal=excluded.config_principal,config_grant=excluded.config_grant",
             &[definition.into(),desired.revision.into(),operation.into(),digest.clone().into(),caller.principal.clone().into(),caller.grant.clone().into()])?;
         // Configuration can release retention protection or change age limits.
-        // Persist its replacement deadline in the same transaction.
+        // New streams acquire their first clock with creation. Existing clocks
+        // already committed independently of this configuration's rollback.
+        tx.system_sql("UPDATE __sys_stream SET logical_ms=max(logical_ms,?) WHERE singleton=1",&[now.into()])?;
+        // Persist the replacement deadline in the configuration transaction.
         schedule(tx,&desired)?;
         Ok(json!({"revision":desired.revision.to_string(),"resource":desired.resource.id,"operation":operation,"digest":digest}))
     })
@@ -405,9 +457,9 @@ pub(crate) fn sweep(
 
 pub(crate) fn schedule(db: &Storage, definition: &Definition) -> Result<()> {
     let logical = db.system_sql("SELECT logical_ms FROM __sys_stream WHERE singleton=1", &[])?;
-    let now = crate::asyncrt::wall_ms()
-        .max(number(&logical[0], "logical_ms")?)
-        .max(0);
+    // Every mutation captures its durable clock before entering its rollback
+    // scope. Reuse that sample instead of observing a later, unpersisted expiry.
+    let now = number(&logical[0], "logical_ms")?.max(0);
     schedule_at(db, definition, now)
 }
 
@@ -544,9 +596,8 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
             "event cannot fit stream capacity",
         ));
     }
+    let now = clock(&db)?;
     let (reply, skipped, ages) = db.tx(|tx| {
-        let (_,row)=load(tx)?;
-        let now=crate::asyncrt::wall_ms().max(number(&row,"logical_ms")?);
         let producers=tx.system_sql("SELECT * FROM __sys_stream_producers WHERE lane=?",&[lane.into()])?;
         let high=producers.first().map(|producer|number(producer,"accepted_through")).transpose()?.unwrap_or(0);
         let sequences=decoded.iter().map(|(event,_)|event.sequence).collect::<Vec<_>>();
@@ -590,8 +641,8 @@ pub(crate) fn append(context: &Context, body: &Value) -> Result<Value> {
                     &[offset.into(),lane.into(),envelope.sequence.into(),SqlValue::Blob(raw.clone()),(raw.len() as i64).into(),now.into(),byte_position.into()])?;
                 offset=next;
             }
-            tx.system_sql("UPDATE __sys_stream SET next_offset=?,rows=rows+?,bytes=bytes+?,logical_ms=?,byte_position=? WHERE singleton=1",
-                &[offset.into(),count.into(),size.into(),now.into(),byte_position.into()])?;
+            tx.system_sql("UPDATE __sys_stream SET next_offset=?,rows=rows+?,bytes=bytes+?,byte_position=? WHERE singleton=1",
+                &[offset.into(),count.into(),size.into(),byte_position.into()])?;
         }
         tx.system_sql("INSERT INTO __sys_stream_producers(lane,source,incarnation,principal,grant_id,accepted_through) VALUES(?,?,?,?,?,?)
             ON CONFLICT(lane) DO UPDATE SET accepted_through=excluded.accepted_through",
