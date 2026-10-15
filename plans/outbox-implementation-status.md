@@ -93,6 +93,7 @@ object-store persistence loss, physical hosts or concurrently executing owners.
 All owned markers remain one; no compatibility readers or migrations are added.
 
 ## 2026-10-15 unproven acknowledgment and forced owner closure
+## Current follow-up: unproven acknowledgment and forced owner closure
 
 The native unproven-ack fixture decorates the destination's real ReplicaStorage
 client for the exact stream LTX prefix and selects bucket-only proof through
