@@ -52,7 +52,50 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: retained storage admission inside an executing turn
+## Current follow-up: an executing source poll spans fenced takeover
+
+The next native fixture holds a real source callback within a synchronous poll
+at two cuts: after retaining storage/stream handles but before a transaction,
+and after writing business state plus an outbox event but before commit. It
+isolates only the old node's object-store client; the observer and successor
+retain healthy independent clients. Actual refused store calls and old-domain
+closure must occur while the callback remains held. No SIGSTOP, manual domain
+closure, synthetic proof or source-command replay supplies the boundary.
+
+Before releasing that callback, a distinct node/domain/core executor must recover
+the source by read, install a higher ownership epoch and expose the original
+business value, producer incarnation/revision/progress and exact accepted event.
+The second cut specifically keeps an uncommitted event present in the old
+connection throughout recovery; it must not appear in the successor's prefix.
+After release, the original retained handle or commit must refuse with closed-
+domain authority. Even though application code catches that error and returns
+a success-shaped response, the original HTTP request must not succeed.
+
+The old node must return `NodeLeaseExpired` after joining, then a second audit
+must find the same recovered state and accepted envelope. Only afterward may a
+consumer process the original event, producing one inbox effect. Successor drain
+and continued caller-executor operation are required. The focused two-cut case
+passes (10.07s). The final case adds explicit original event/value/sequence checks
+and confirms the callback has not ended before the successor audit. All 48 native
+Node tests pass (99.41s), as do seven artifact tests, three CLI tests, 111 Python
+guards, formatting (508 Rust files), docs (36 documents/6 flows/386 references),
+dependency checks (403 packages/no JavaScript engine) and whitespace checks.
+Workspace/all-target/all-feature check and Clippy with warnings denied also
+pass. Initial test-helper compile errors were fixture setup errors, not
+production failures. No production Rust or owned marker changes are made;
+earlier library, SDK and independent-process suites are not rerun or superseded
+by this fixture-only slice. Checks use Rust 1.97.0/aarch64 macOS rather than
+claiming CI's configured toolchain.
+
+This extends PR #52's local storage regression to actual embedded Node routing,
+automatic expiry/fencing and takeover while the callback is still entered. It
+uses a private SQLite bucket on one machine, independent execution domains and
+core executors, and an injected client-specific outage. Independent-process
+isolation, physical hosts/power/store faults, other stale settlement/reply cuts,
+destination follower-disk recovery and lifecycle/capacity gates remain open.
+The full goal is still incomplete.
+
+## 2026-10-15 retained storage admission inside an executing turn
 
 The stale-owner audit found a concrete SDK admission gap. `Context::storage`
 checked domain admission when creating a handle, but retained `Storage` handles

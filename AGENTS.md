@@ -64,6 +64,14 @@ to refuse new work. Preserve original-connection rollback/retirement cleanup
 after closure. storage_authority_tests.rs covers wrong-domain access and closure
 between business/outbox writes and commit. These local SDK regressions do not
 qualify an old process still executing across full fleet takeover.
+event_running_owner.rs exercises two embedded-node takeover cuts with a callback
+still inside its native poll: before starting a transaction and after business/
+outbox writes but before commit. Isolate only the old store client, observe
+domain closure and a higher owner epoch, and audit original state before releasing
+the callback. Its caught storage refusal must not become HTTP success. Preserve
+the original producer revision/envelope and complete both node joins. These
+independent-domain/executor cases are not separate-process or physical partition
+qualification; do not relax their deadline or repair the prefix by command replay.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained

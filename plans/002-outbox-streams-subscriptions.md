@@ -1730,6 +1730,17 @@ state is audited before command replay or consumption. This selected paused/
 resumed process cut does not replace the remaining stale-operation, physical
 partition, follower-only and power/store-loss matrix.
 
+The native `event_running_owner.rs` case keeps a source callback inside a poll
+while its own store client is isolated. It requires automatic expiry/domain
+closure and higher-epoch successor recovery before releasing the callback,
+covering retained-handle access before a transaction and closure after business/
+outbox writes but before commit. The original accepted prefix is audited before
+release and again before consumer processing, without source-command replay.
+Storage must refuse and a caught refusal cannot become HTTP success. Complete
+node joins and unchanged producer progress/envelope remain required. This is an
+embedded-node/domain/executor cut with a private SQLite backend, not independent-
+process or physical-partition qualification.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

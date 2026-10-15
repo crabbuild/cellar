@@ -19,6 +19,9 @@ mod event_fetch_reply;
 #[path = "event_unproven_ack.rs"]
 mod event_unproven_ack;
 
+#[path = "event_running_owner.rs"]
+mod event_running_owner;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
