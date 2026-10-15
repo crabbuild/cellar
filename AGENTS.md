@@ -852,3 +852,10 @@ submitted mutation/fetch success body. Invalid acceptance metadata is Ambiguous
 and must not become a definite refusal or reflect the invalid body's context.
 Local preflight and call_bound/call_authorized broker error branches bypass this
 boundary so valid typed refusal codes and metadata remain intact.
+
+
+Event activation joins a heap-pinned dispatch_rpc_call future with its reply
+receiver in node/event_resources.rs. Retain that boundary: embedding the whole
+routing/execution/deadline state inline propagates a large poll frame through
+activation and startup in unoptimized builds. The normal-stack catalog inventory
+Node integration covers this path; do not compensate by enlarging worker stacks.

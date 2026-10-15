@@ -2982,3 +2982,51 @@ and operation capacity, unknown operations and pending delivery. Replay guidance
 retains fetch/operation identity; capacity guidance preserves correctness metadata,
 and unsupported layouts use the version-1 hard cutover policy. This is a docs-only
 follow-up: Rust source remains identical to c7be23d for queued validation.
+
+
+## Final-source validation and activation stack diagnosis (2026-10-15)
+
+A fresh target avoids the measured dependency-directory scan bottleneck. Local
+qualification uses Rust 1.97.0/aarch64 macOS, incremental 0, debug symbols 0 and
+split-debuginfo off with normal dev/test assertions. Prior generated artifacts
+are retained, and all intentionally interrupted builds remain unqualified.
+The first fresh run passes all 218 library cases in 16.69s, then the stream fixture
+fails an obsolete string assertion for an unbound producer after adoption. The
+fixture now requires DeliveryError::InvalidRequest; its corrected complete stream
+case passes in 11.67s. Native outbox passes in 0.70s. Workspace/all-target/all-feature
+Clippy-D passes; rustdoc succeeds with seven private-link warnings in files
+unchanged by this PR. These are pre-stack-fix results, not final qualification.
+
+The full 39-case Node binary aborts at catalog inventory after its first 10 cases
+pass. The unchanged isolated catalog case also aborts with stack overflow. The
+crash report has a flat activation/startup poll chain. Offline disassembly shows
+activate_inner reserving 209680 bytes in its poll frame. The candidate moves the
+joined dispatch_rpc_call future behind Box::pin; no task, deadline, assertion or
+worker-stack limit changes. The same isolated case passes in 6.81s, and its
+activation poll frame reserves 25168 bytes under the same toolchain/profile.
+The before binary/hash, crash report, both failed logs and before/after assembly
+are retained separately. Existing catalog integration is the regression seam.
+No fixed future-size assertion is added across platforms/toolchains.
+
+The complete selected 259-case suite, workspace Clippy-D and rustdoc are now
+running/queued against this candidate; it is not yet published or fully qualified.
+This stack diagnosis does not establish the causes of earlier bootstrap, drain,
+analytics-receipt or predecessor-recovery failures. All owned markers remain 1.
+
+
+The candidate completes the selected run with 218 library cases passing (14.05s),
+stream integration passing (32.07s), and 37/39 Node cases passing (314.14s). Native
+outbox is run directly from the freshly built binary after Cargo stops on the
+Node failures and passes (1.84s). Workspace/all-target/all-feature Clippy-D passes
+(6m29s), and current-source rustdoc succeeds (4m43s) with the same seven private-link
+warnings in unchanged files. The formerly crashing catalog test passes inside
+the full serial Node suite as well as in isolation.
+
+Two startup cases remain failures: cancelled bootstrap times out waiting for
+factory entry, and the explicit-policy test's child returns execution domain is
+closed. The same unchanged binary passes those cases separately in 3.23s and
+15.16s; these replays do not establish either failure's cause or repair. A
+bounded three-round repeated isolated probe is running. Preserve the failed
+full-suite evidence separately from passing replays. PR34 remains a draft and
+these startup/recovery audits remain open; no all-green Node or release claim
+is made. No worker stack, timeout, lease or assertion was enlarged or weakened.
