@@ -46,7 +46,36 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: diagnose startup and late-ack failures
+## Current follow-up: supervise event startup
+
+A deterministic regression exposes a separate startup liveness bug. prepare()
+marks generation readiness pending before the driver polls event activation.
+The driver may select an authority fence or actor exit first. Activation's
+cancellation guard is created inside its first poll, so that early exit cannot
+finish readiness. Node::start retains the generation (and its readiness sender)
+while waiting only for the latch, leaving startup pending after its supervisor
+has exited. This is not established as the cause of the earlier no-event
+bootstrap/recovery failures.
+
+The production startup path now waits on readiness and supervisor completion
+together. Completed supervisor errors/outcomes fail startup; a completed
+supervisor also wins over a simultaneously ready latch. Activation failure keeps
+the existing close/join behavior. A pending live supervisor remains pending until
+activation, and successful startup retains its original live join handle. No
+new timeout, shutdown shortcut, public API or version marker is introduced.
+
+The regression fails before the fix in 0.01s and passes after it. Four focused
+embedded tests cover the pre-activation exit, completed outcomes with either
+latch state, pending-to-ready success with live supervision, and close/join on
+activation refusal. Full local verification passes 227 library tests (6.87s)
+and all 44 serial Node integration tests (341.40s). Formatting checks all 502
+Rust files, docs check 36 documents/6 flows/386 references, and whitespace checks
+pass. Workspace/all-target/all-feature Clippy passes with warnings denied (1m 38s);
+the dependency audit checks 403 reachable packages without a JavaScript engine. Verification uses Rust 1.97.0 on aarch64 macOS with symbols-disabled,
+nonincremental dev/test profiles. The wider failure/recovery/capacity matrix and
+the unexplained earlier startup/shutdown failures remain open.
+
+## 2026-10-15 proxy failure diagnosis and qualification
 
 PRs #27, #34, #36, #37 and #38 are merged. PR #39 is open. The
 closed-domain wake-publication panic has a reproduced fix in #38; other

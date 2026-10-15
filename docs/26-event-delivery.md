@@ -60,6 +60,11 @@ domain. A declared binding, an active catalog entry and successful readiness
 checks are required. Bucket-backed storage, replication and durable wake
 discovery currently are required even for a single deployed node.
 
+`Node::start` waits for resource activation while supervising the node. If the
+node exits first, startup fails with its error or outcome. A completed supervisor
+also fails startup when resource readiness is already ready. A reported activation
+failure closes and joins the node before returning.
+
 Application event versions identify payload schemas. All Cellar-owned protocol,
 format and schema markers stay at **1** during internal development. Layout
 changes require rebuilt participants and recreated development state.

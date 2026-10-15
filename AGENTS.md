@@ -866,3 +866,12 @@ receiver in node/event_resources.rs. Retain that boundary: embedding the whole
 routing/execution/deadline state inline propagates a large poll frame through
 activation and startup in unoptimized builds. The normal-stack catalog inventory
 Node integration covers this path; do not compensate by enlarging worker stacks.
+
+
+Embedded startup must observe both generation event readiness and its supervisor.
+prepare() marks activation pending before the driver first polls activation; its
+cancellation guard therefore cannot cover every early driver exit. Keep
+wait_for_event_activation on the production Node::start path, reject completed
+supervisors even when readiness is simultaneously ready, and preserve close/join
+on activation failure. Focused embedded tests cover that cut without wall-clock
+timeouts. This does not explain the separate intermittent bootstrap/recovery cases.
