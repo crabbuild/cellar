@@ -233,13 +233,14 @@ body {
   place-items: center;
   width: 32px;
   height: 32px;
+  flex-shrink: 0;
   border-radius: var(--radius);
   color: var(--primary-foreground);
   background: var(--primary);
 }
 .brand-mark svg {
-  width: 19px;
-  height: 19px;
+  width: 30px;
+  height: 30px;
 }
 .brand-caption {
   display: block;

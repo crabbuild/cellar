@@ -1,3 +1,5 @@
+<img src="../../dashboard/public/cellar-icon.png" alt="Cellar logo" width="56" height="56" />
+
 # Cellar dashboard service
 
 The dashboard implements [the v1 scope](../../plans/003-fleet-dashboard.md): fleet,

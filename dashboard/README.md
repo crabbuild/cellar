@@ -1,3 +1,5 @@
+<img src="public/cellar-icon.png" alt="Cellar logo" width="56" height="56" />
+
 # Cellar fleet console
 
 Vite + React + TypeScript + shadcn/ui (Radix) + Lucide. The frontend uses the
@@ -20,6 +22,17 @@ The deployed browser application contains no demo provider or synthetic fleet.
 Pages are loaded on demand. Query caches are cleared on logout. Resource identity
 and permission checks are enforced by the Rust server; hiding a button is not
 an authorization boundary. Write requests are not automatically retried.
+
+## Brand assets
+
+The Vault C logo is a C enclosing one durable cell. Download the
+[SVG icon and reusable mark](public/cellar.svg) or the
+[512 px PNG](public/cellar-icon.png) for repository avatars and other bitmap uses.
+The standalone icon uses a dark tile and white mark.
+
+The sidebar and sign-in screen use `CellarMark`, which references the SVG's
+`cellar-mark` symbol and inherits the console's theme colors. The favicon uses
+the same SVG, so all three surfaces share one source for the mark.
 
 ## Theme and design tokens
 

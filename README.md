@@ -1,3 +1,5 @@
+<img src="dashboard/public/cellar-icon.png" alt="Cellar logo" width="72" height="72" />
+
 # Cellar
 
 Start with the [documentation library](docs/README.md) for builder guides,
