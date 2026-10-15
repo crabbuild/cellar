@@ -11,7 +11,12 @@ identify their implementation at the documented source baseline.
 | Define handlers | `Application`, `Cell`, `Registry`, `Context`, `Invocation`, `Output`, `HandlerFuture` | [contracts](../crates/cellar/application/mod.rs) |
 | Identify/call cells | `cells::Namespace`, `Id`, `Stub`; `Context::namespace`, `exported_namespace`; stub `fetch`, `rpc`, `call`, signal variants | [cells](../crates/cellar/application/cells.rs) |
 | Current cell state | `Storage`, `ListOptions`; JSON/clone get/put/list, SQL, cursors, `sync`, alarms | [storage](../crates/cellar/application/storage.rs) |
-| Atomic cell operations | `transaction`, `transaction_sync`, `rollback` | [transactions](../crates/cellar/application/storage/transaction.rs) |
+| Atomic cell operations | `tx`, `transaction`, `transaction_sync`, `rollback` | [transactions](../crates/cellar/application/storage/transaction.rs) |
+| Outbox publication | `Context::stream::<E>`, `event_stream::Event`, `Stream<E>`, `tx.emit`; `Storage::outbox` | [event delivery guide](26-event-delivery.md), [handles](../crates/cellar/application/event_stream/mod.rs) |
+| Durable history | `event_stream::Stream::read`, `ReadOptions`, `Cursor`, `Page`, `Record` | [stream client](../crates/cellar/application/event_stream/client.rs) |
+| Resumable consumption | `Stream::subscription`, `Subscription::next`/`next_with_id`, `BatchOptions`, `Batch::ack`/`retry`/`extend_until`, `Receipt` | [subscriptions](../crates/cellar/application/event_stream/subscription.rs) |
+| Local effect deduplication | `tx.inbox(...).accept(record)`, `Storage::sync` before remote acknowledgment | [storage guide](06-storage-transactions.md) |
+| Event outcomes | `event_stream::DeliveryError`, `ErrorCode`, `ErrorCode::as_str` | [typed errors](../crates/cellar/application/event_stream/error.rs) |
 | SQL binding | `sql::Database`, prepared statements, sessions, batch, migrate, migrations, dump | [SQL](../crates/cellar/application/sql.rs) |
 | KV binding | `kv::Namespace`; reads/metadata, put text/bytes/stream, delete/list | [KV](../crates/cellar/application/kv.rs) |
 | Queue | `queue::Producer`, `SendOptions`, `Body`, `Event`, `Message`; send/batch, ack/retry | [Queue](../crates/cellar/application/queue.rs) |
@@ -27,7 +32,7 @@ identify their implementation at the documented source baseline.
 | Blob objects | `blob::Bucket`, `ObjectBody`, ranges, conditionals, multipart, metadata/checksums | [Blob](../crates/cellar/application/blob.rs) |
 | Host asset storage | `AssetCache`, `AssetCacheOptions`, `AssetResolver`, `FileSystem`; explicit cache passed to `DeploymentGraph::load` | [asset cache](../crates/cellar/runtime/assets/cache.rs), [filesystem](../crates/cellar-ltx/src/host.rs) |
 | Assets / cache / rewrite | `assets`, `cache`, `html_rewriter` modules | [assets](../crates/cellar/application/assets.rs), [cache](../crates/cellar/application/cache.rs), [rewriter](../crates/cellar/application/html_rewriter.rs) |
-| Streams | `streams` module and owned byte stream values | [streams](../crates/cellar/application/streams.rs) |
+| Byte streams | `streams` module and owned byte stream values | [byte streams](../crates/cellar/application/streams.rs) |
 | WebSockets | `websocket::WebSocketPair`, `WebSocket`, upgrade, hibernation, tags/attachments | [WebSocket](../crates/cellar/application/websocket.rs) |
 | TCP/TLS | `sockets::SocketAddress`, `SocketOptions`, `Socket`, reader/writer | [sockets](../crates/cellar/application/sockets.rs) |
 | Containers | `containers::Container`, `Port`, `Exec`; start/monitor/forward | [containers](../crates/cellar/application/containers.rs) |

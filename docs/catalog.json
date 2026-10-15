@@ -257,6 +257,17 @@
       "category": "Reference"
     },
     {
+      "path": "26-event-delivery.md",
+      "title": "Outbox, streams and subscriptions",
+      "summary": "Atomic publication, resumable consumption, typed outcomes and operations.",
+      "roles": [
+        "builder",
+        "platform",
+        "operations"
+      ],
+      "category": "Reference"
+    },
+    {
       "path": "README.md",
       "title": "Documentation library",
       "summary": "Complete document list, visuals and role-based reading paths.",
@@ -405,8 +416,8 @@
     {
       "id": "async",
       "title": "Asynchronous delivery",
-      "guide": "08-asynchronous-work.md",
-      "kind": "Proposed application pattern · replay-safe effects"
+      "guide": "26-event-delivery.md",
+      "kind": "Framework event delivery · under development"
     },
     {
       "id": "shutdown",

@@ -1233,6 +1233,20 @@ buffers. A proven response head has already disarmed handler abort, so failing
 collection cannot cancel later waitUntil work. These body checks do not qualify
 every request/head/ownership/cancellation cut or upstream transport allocation.
 
+Entered node event/control dispatch captures one absolute operation budget across
+route lookup, retry/invalidation, local execution/output gates, request submission,
+response headers and body. Cancellation wins delivery/deadline ties. A timeout
+before invocation cannot have executed the requested mutation and is Unavailable;
+known stale ownership remains OwnershipLost; possible submission is
+Ambiguous. These deadline verdicts carry no activation network retry tag and do
+not establish rollback. Local activity ownership precedes polling its wait future.
+Source SDK calls capture a host budget before egress proof and retain it through
+channel submission and result waiting. Before submission expiry is Unavailable;
+after submission it is Ambiguous and cancels the exact queued request. The earlier
+source cancellation bounds the later node budget without serializing monotonic
+clocks across hosts. Source and node deadline changes still require qualification
+against the full failure matrix.
+
 Sequences, offsets, checkpoints, lease generations, and absolute timestamps
 travel as canonical decimal strings on structured RPC and diagnostic JSON.
 The retained structured-value number codec uses binary64; bare JSON integers
@@ -1729,3 +1743,16 @@ and coordinated historical restore. Multi-partition routing must use a fixed,
 versioned hash over canonical key bytes, persist the selected destination at
 emission, and keep cursor/checkpoint state per partition. Do not add a mutable
 partition count to this release's routing algorithm.
+
+
+Event RPC deadline budgets include the canonical, nonnegative `__streamNext`
+wait when it is within the captured host polling policy, plus the host transport
+budget. That combined absolute deadline is captured once per source/entered-node
+operation and is never reset at response headers or a retry. This preserves
+empty-poll results when the default 30-second wait exceeds the 15-second transport
+budget. Budget inspection accepts at most 16 KiB and bounded structured objects/
+values/depth, reads only the array/body/wait field without alias expansion, and
+never grants extra time to malformed or over-policy waits. Two parser regressions
+cover JSON and structured arguments, canonicality, caps and saturating addition.
+The source changed during the earlier build; fresh qualification is required.
+All Cellar-owned markers remain 1.

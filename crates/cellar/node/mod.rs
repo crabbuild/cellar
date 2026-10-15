@@ -59,6 +59,7 @@ mod event_metrics;
 mod event_reply;
 mod event_resources;
 mod event_state;
+mod event_wait;
 mod ingress;
 pub(crate) mod operations;
 mod source_operator;
@@ -501,11 +502,15 @@ impl RemoteRouteRetry {
     const MAX_WAIT_MS: u64 = 250;
 
     fn new(operation_deadline_ms: u64) -> Self {
+        Self::until(crate::asyncrt::mono_ms().saturating_add(operation_deadline_ms))
+    }
+
+    fn until(deadline_ms: u64) -> Self {
         Self {
             dispatcher: cellar_logic::routing::Dispatcher::default(),
             generation: None,
             blocked: false,
-            deadline_ms: crate::asyncrt::mono_ms().saturating_add(operation_deadline_ms),
+            deadline_ms,
             next_wait_ms: Self::INITIAL_WAIT_MS,
         }
     }
@@ -1539,7 +1544,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     let RpcCallReq {
         authority,
         request_id,
-        mut cancel,
+        cancel,
         scope,
         name,
         method,
@@ -1548,36 +1553,54 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
     } = call;
     let event_call = authority.is_some();
     let request_id = Some(request_id.unwrap_or_else(crate::engine_api::next_request_id));
-    let result = async {
-        crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &method).map_err(|failure| {
-            if event_call { event_failure::annotate(failure, crate::application::event_stream::ErrorCode::Forbidden) } else { failure }
-        })?;
+    let budget = event_call.then(|| {
+        event_wait::Budget::new(crate::host_rpc::event_budget_ms(
+            &method,
+            &args,
+            app.operation_deadline_ms,
+        ))
+    });
+    let operation = async {
+        crate::runtime::rpc_authority::validate_target(authority.as_ref(), &scope, &method)
+            .map_err(|failure| {
+                if event_call {
+                    event_failure::annotate(
+                        failure,
+                        crate::application::event_stream::ErrorCode::Forbidden,
+                    )
+                } else {
+                    failure
+                }
+            })?;
         anyhow::ensure!(
             cellar_logic::cell::valid_cell_scope(&scope),
             "cell scope is malformed or exceeds the fleet storage limit"
         );
-        let mut dispatcher = RemoteRouteRetry::new(app.operation_deadline_ms);
+        let mut dispatcher = match budget.as_ref() {
+            Some(budget) => RemoteRouteRetry::until(budget.deadline_ms()),
+            None => RemoteRouteRetry::new(app.operation_deadline_ms),
+        };
         loop {
             let resolving = app.request(scope.clone());
-            let routed = match cancel.as_mut() {
-                Some(cancel) => crate::asyncrt::select_biased! {
-                    "an RPC cancellation wins a tie with route resolution";
-                    _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
-                    routed = resolving => routed,
-                },
-                None => resolving.await,
-            };
-            let Routed { request, route } =
-                routed.map_err(|error| {
-                    let failure = anyhow::Error::new(RoutedRequestError(error));
-                    if event_call { event_failure::annotate(failure,event_failure::route_code(error)) } else { failure }
-                })?;
+            let routed = resolving.await;
+            let Routed { request, route } = routed.map_err(|error| {
+                let failure = anyhow::Error::new(RoutedRequestError(error));
+                if event_call {
+                    event_failure::annotate(failure, event_failure::route_code(error))
+                } else {
+                    failure
+                }
+            })?;
             let (node, addr, epoch, peer_protocol) = match route {
                 Route::Local => {
                     let local_request_id = local_dispatch_request_id(request_id);
+                    let local =
+                        app.local_request(request, scope.clone(), local_request_id, "local");
+                    if let Some(budget) = &budget {
+                        budget.submitted();
+                    }
                     let dispatch = async {
-                        let completed = app
-                            .local_request(request, scope.clone(), local_request_id, "local")
+                        let completed = local
                             .run(async {
                                 app.runtime
                                     .as_ref()
@@ -1595,7 +1618,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                             .await;
                         Ok(completed.result.map_err(local_request_error)?.data)
                     };
-                    return crate::cell_dispatch::receive_rpc(dispatch, cancel.take()).await;
+                    return dispatch.await;
                 }
                 Route::Remote {
                     node,
@@ -1605,22 +1628,39 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 } => (node, addr, epoch, peer_protocol),
             };
             if dispatcher.observe(&node, epoch) {
-                match dispatcher.wait(cancel.as_mut()).await {
+                match dispatcher.wait(None).await {
                     RemoteRetryOutcome::Ready => {
                         dispatcher.invalidate(&app, &scope).await;
                         continue;
                     }
                     RemoteRetryOutcome::Stop => {
                         return Err(if event_call {
-                            event_failure::annotate(anyhow::anyhow!("remote RPC owner remained stale until the retry deadline"),crate::application::event_stream::ErrorCode::OwnershipLost)
-                        } else { anyhow::anyhow!("remote RPC owner remained stale until the retry deadline") })
+                            event_failure::annotate(
+                                anyhow::anyhow!(
+                                    "remote RPC owner remained stale until the retry deadline"
+                                ),
+                                crate::application::event_stream::ErrorCode::OwnershipLost,
+                            )
+                        } else {
+                            anyhow::anyhow!(
+                                "remote RPC owner remained stale until the retry deadline"
+                            )
+                        })
                     }
                     RemoteRetryOutcome::Cancelled => anyhow::bail!("Durable Object RPC cancelled"),
                 }
             }
             if peer_protocol != peer_auth::PROTOCOL_VERSION {
-                let failure = anyhow::anyhow!("peer {node} speaks incompatible protocol {peer_protocol}");
-                return Err(if event_call { event_failure::annotate(failure,crate::application::event_stream::ErrorCode::UnsupportedProtocol) } else { failure });
+                let failure =
+                    anyhow::anyhow!("peer {node} speaks incompatible protocol {peer_protocol}");
+                return Err(if event_call {
+                    event_failure::annotate(
+                        failure,
+                        crate::application::event_stream::ErrorCode::UnsupportedProtocol,
+                    )
+                } else {
+                    failure
+                });
             }
             let expects_structured_response =
                 matches!(args, crate::engine_api::RpcData::Structured(_));
@@ -1647,14 +1687,10 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     request_id,
                     authority.as_ref(),
                 );
-                let response = match cancel.as_mut() {
-                    Some(cancel) => crate::asyncrt::select_biased! {
-                        "an RPC cancellation wins an undelivered remote response";
-                        _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
-                        response = sending => response,
-                    },
-                    None => sending.await,
-                };
+                if let Some(budget) = &budget {
+                    budget.submitted();
+                }
+                let response = sending.await;
                 // Classify failures before response decoding. An explicit stale
                 // owner ran nothing; a failed or truncated reply after execution
                 // remains ambiguous and cannot justify another RPC invocation.
@@ -1671,28 +1707,41 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     Ok(_) => None,
                 };
                 if let Some(attempt) = attempt {
+                    if let Some(budget) = &budget {
+                        budget.refused(attempt);
+                    }
                     if attempt != cellar_logic::routing::Attempt::Ambiguous {
                         // Nothing executed. An abort tombstone must not cancel
                         // the safe redispatch of this same request identity.
                         abort.disarm();
                     }
                     match dispatcher
-                        .retry(&app, &scope, attempt, cancel.as_mut(), Some("rpc"))
+                        .retry(&app, &scope, attempt, None, Some("rpc"))
                         .await
                     {
                         RemoteRetryOutcome::Ready => continue,
                         RemoteRetryOutcome::Cancelled => {
                             anyhow::bail!("Durable Object RPC cancelled")
                         }
-                        RemoteRetryOutcome::Stop => match response {
-                            Err(error) => {
-                                let failure = remote_rpc_failure(error);
-                                return Err(if event_call { event_failure::transport(failure,attempt) } else { failure });
-                            },
-                            Ok(_) => return Err(if event_call {
-                                event_failure::annotate(anyhow::anyhow!("remote RPC owner was stale"),crate::application::event_stream::ErrorCode::OwnershipLost)
-                            } else { anyhow::anyhow!("remote RPC owner was stale") }),
-                        },
+                        RemoteRetryOutcome::Stop => {
+                            match response {
+                                Err(error) => {
+                                    let failure = remote_rpc_failure(error);
+                                    return Err(if event_call {
+                                        event_failure::transport(failure, attempt)
+                                    } else {
+                                        failure
+                                    });
+                                }
+                                Ok(_) => {
+                                    return Err(if event_call {
+                                        event_failure::annotate(anyhow::anyhow!("remote RPC owner was stale"),crate::application::event_stream::ErrorCode::OwnershipLost)
+                                    } else {
+                                        anyhow::anyhow!("remote RPC owner was stale")
+                                    })
+                                }
+                            }
+                        }
                     }
                 }
                 let response = response?;
@@ -1708,7 +1757,8 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 {
                     return Err(anyhow::Error::new(crate::engine_api::CellOverloaded));
                 }
-                if !event_call && !response.status().is_success()
+                if !event_call
+                    && !response.status().is_success()
                     && response
                         .headers()
                         .get(HANDLER_FAILURE_HEADER)
@@ -1719,14 +1769,7 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     // never interpret an unproven mutation as its completion.
                     let collecting =
                         Limited::new(response.into_body(), MAX_PEER_CONTROL_BODY_BYTES).collect();
-                    let collected = match cancel.as_mut() {
-                        Some(cancel) => crate::asyncrt::select_biased! {
-                            "an RPC cancellation wins an undelivered handler error";
-                            _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
-                            collected = collecting => collected,
-                        },
-                        None => collecting.await,
-                    };
+                    let collected = collecting.await;
                     let body = collected
                         .map_err(|error| anyhow::anyhow!("remote RPC error body: {error}"))?
                         .to_bytes();
@@ -1738,15 +1781,20 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                     )));
                 }
                 if !response.status().is_success() {
-                    let failure = anyhow::anyhow!("remote RPC failed with {}",response.status());
+                    let failure = anyhow::anyhow!("remote RPC failed with {}", response.status());
                     return Err(if event_call {
-                        event_failure::annotate(failure,event_failure::response_code(response.headers(),response.status()))
-                    } else { failure });
+                        event_failure::annotate(
+                            failure,
+                            event_failure::response_code(response.headers(), response.status()),
+                        )
+                    } else {
+                        failure
+                    });
                 }
                 let body = event_reply::receive(
                     response.into_body(),
                     event_call,
-                    cancel.as_mut(),
+                    None,
                     event_call.then_some(dispatcher.deadline_ms),
                 )
                 .await?;
@@ -1757,8 +1805,8 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                 });
             }
         }
-    }
-    .await;
+    };
+    let result = event_wait::receive(operation, cancel, budget.as_ref()).await;
     let result = if event_call {
         result.map_err(event_failure::dispatched)
     } else {

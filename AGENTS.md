@@ -814,3 +814,34 @@ network tag. Cancellation wins undelivered body/deadline ties and releases the
 body. The proven response-head abort disarm remains intact; collection failure
 cannot kill the handler's later waitUntil work. Full request-phase allocation and
 cancellation qualification remain in the implementation status.
+
+
+Entered event/control RPC dispatch uses `node/event_wait.rs`: one captured absolute
+budget covers routing, retry/invalidation, local execution/output gates, submission,
+response head and body. Cancellation wins delivery/deadline ties. Preserve explicit
+never-connected/stale outcomes; an unclassified submitted timeout is Ambiguous,
+without an activation network retry tag or any rollback claim. Local activity is
+owned before constructing its wait future. Proven-head abort disarm is unchanged.
+SDK source calls capture their host budget before the egress gate and retain it
+through queue/result waiting. Expiry before submission is Unavailable; after
+submission it is Ambiguous and drops the exact request cancellation guard. The
+full cut matrix remains separately tracked; do not call this complete end-to-end
+deadline qualification.
+
+
+Event RPC deadline budgets include the canonical, nonnegative `__streamNext`
+wait when it is within the captured host polling policy, plus the host transport
+budget. That combined absolute deadline is captured once per source/entered-node
+operation and is never reset at response headers or a retry. This preserves
+empty-poll results when the default 30-second wait exceeds the 15-second transport
+budget. Budget inspection accepts at most 16 KiB and bounded structured objects/
+values/depth, reads only the array/body/wait field without alias expansion, and
+never grants extra time to malformed or over-policy waits. Preserve saturating
+addition for captured maximum budgets. All Cellar-owned markers remain 1.
+
+
+`docs/26-event-delivery.md` is the SDK event-delivery contract and developer entry
+point. Update it, the API map, runnable durable-streams example and generated
+asynchronous delivery flow when changing this surface. ErrorCode::as_str/Display
+use canonical wire names. DeliveryError::is_permanent describes automatic outbox
+lane blocking; it never substitutes for an operation-specific replay contract.

@@ -8,6 +8,9 @@ direct access to the current cell's SQLite state.
 
 ![Local atomicity and distributed coordination](diagrams/cell-boundaries.svg)
 
+For the complete producer/consumer contract and outcome handling, see
+[outbox, streams and subscriptions](26-event-delivery.md).
+
 ## Local atomic updates
 
 This handler fragment atomically records a command receipt and mutation. It

@@ -7,6 +7,27 @@ fn code(failure: &anyhow::Error) -> Option<ErrorCode> {
 }
 
 #[test]
+fn public_code_names_match_wire_names_and_contextual_errors_remain_typed() -> anyhow::Result<()> {
+    for expected in [
+        ErrorCode::Unavailable,
+        ErrorCode::OwnershipLost,
+        ErrorCode::Ambiguous,
+        ErrorCode::OutboxFull,
+        ErrorCode::StreamFull,
+        ErrorCode::CursorExpired,
+        ErrorCode::SubscriptionReset,
+        ErrorCode::PendingDelivery,
+    ] {
+        assert_eq!(serde_json::to_value(expected)?, expected.as_str());
+        assert_eq!(expected.to_string(), expected.as_str());
+        let error = anyhow::Error::new(DeliveryError::new(expected, "bounded message"))
+            .context("application operation");
+        assert_eq!(code(&error), Some(expected));
+    }
+    Ok(())
+}
+
+#[test]
 fn successful_reply_moves_its_payload_without_cloning() -> anyhow::Result<()> {
     let value = json!({"ok":{"payload":"x".repeat(4096)}});
     let allocation = value["ok"]["payload"].as_str().unwrap().as_ptr();
