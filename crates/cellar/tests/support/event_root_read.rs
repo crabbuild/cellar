@@ -6,7 +6,7 @@ use bytes::Bytes;
 use futures_util::{stream::BoxStream, StreamExt as _};
 use object_store::{path::Path, *};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc, Mutex,
 };
 use tokio::sync::Semaphore;
@@ -15,6 +15,7 @@ use tokio::sync::Semaphore;
 pub(super) struct RootReadCut {
     store: Arc<dyn ObjectStore>,
     key: String,
+    skip: AtomicUsize,
     captured: AtomicBool,
     bytes: Mutex<Option<Bytes>>,
     pub entered: Semaphore,
@@ -23,9 +24,14 @@ pub(super) struct RootReadCut {
 
 impl RootReadCut {
     pub fn new(store: Arc<dyn ObjectStore>, key: String) -> Arc<Self> {
+        Self::after_reads(store, key, 0)
+    }
+
+    pub fn after_reads(store: Arc<dyn ObjectStore>, key: String, skip: usize) -> Arc<Self> {
         Arc::new(Self {
             store,
             key,
+            skip: AtomicUsize::new(skip),
             captured: AtomicBool::new(false),
             bytes: Mutex::new(None),
             entered: Semaphore::new(0),
@@ -71,7 +77,17 @@ impl ObjectStore for RootReadCut {
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> object_store::Result<GetResult> {
         let result = self.store.get_opts(path, opts).await?;
-        if path.as_ref() != self.key || self.captured.swap(true, Ordering::AcqRel) {
+        if path.as_ref() != self.key {
+            return Ok(result);
+        }
+        if self
+            .skip
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| {
+                left.checked_sub(1)
+            })
+            .is_ok()
+            || self.captured.swap(true, Ordering::AcqRel)
+        {
             return Ok(result);
         }
         let meta = result.meta.clone();

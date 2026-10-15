@@ -3,10 +3,10 @@
 Updated 2026-10-15. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
-release. All pending event-delivery changes are consolidated in PR #46 against
-main; PRs #47–#62 are superseded. Follow-ups update that same active PR rather
-than creating a stack. The native fixture now exercises source, catalog, stream, and consumer
-turns together; that local evidence does not satisfy the fleet/release gates.
+release. The consolidated event-delivery work merged in PR #46; PRs #47–#62
+are superseded. Follow-ups use one active PR against updated main; subsequent
+changes reuse that PR while it is open, without a stack. The native fixture now
+exercises source, catalog, stream, and consumer turns together; that local evidence does not satisfy the fleet/release gates.
 
 ## Current priorities and readiness
 
@@ -24,20 +24,22 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice corrects a demonstrated timing assumption in the intermittent
-five-second post-ack delivery observation. A controlled delay before acknowledgment reproduces that timeout
-with a persisted source retry still 21.292s in the future, an acknowledged first
-record and no second acceptance. This establishes a timing defect in the fixture;
-the original failure lacked that snapshot, so its exact cause is not asserted.
-The fixture now selects the next automatic append at a real peer submission
-barrier before obtaining and acknowledging a fresh lease. It releases the unchanged
-append within the original three-second budget and retains the five-second
-settlement observation. Production backoff and source state are unchanged.
-All three paired delay controls and all seven final focused cases pass; the
-final serial Node run passes all 65 cases. Workspace and tooling checks pass.
-Next exercise loss during predecessor recovery and the transition from proven
-recovery to lease installation, metadata rollback and the independent-process
-clock-refusal matrix. The full proof/fault matrix remains open.
+The current slice fixes a reproduced retained-root continuity gap after
+predecessor recovery seals its log but before initial lease installation.
+The native cut holds the core's actual sealed response, erases the root, then
+returns its unchanged bytes/token. The pre-fix path rejects a stale Match,
+reads absence and creates a new lease under the retained lineage. Two saved
+runtime runs admit epoch 2 with the recovered clock intact; this is a continuity
+defect, not evidence of lost data. The bucket writer now refuses Absent guards
+when identity capture saw a root. Both selected post-recovery cuts pass native
+qualification. The regressions retain the original owner and cut-time
+payload/follower evidence, then return the actual sealed metadata and recover
+before receipt reuse, within unchanged operation/startup budgets. The preceding timing/placement correction passes
+all 65 Node cases and local checks.
+Concurrent-startup generation GC, loss during predecessor recovery, metadata
+rollback and the independent-process clock-refusal matrix remain separate open
+gates. The full proof/fault matrix
+remains open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -68,6 +70,57 @@ development. Layout changes use hard cutovers with recreated state and rebuilt
 participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
+
+## Current follow-up: retained root loss at lease installation
+
+A new native cut reproduces a continuity gap after successful predecessor
+recovery. Identity capture reads the original root; recovery seals that exact
+node/lineage/generation and publishes real per-cell payload. Hold the core's
+next actual lease read with its unchanged sealed bytes/token, erase the root,
+then return the response. The stale Match CAS is rejected, but an absent
+readback selects a new Absent CAS and admits the successor under the retained
+lineage. The read-only audit reaches epoch 2 with the recovered logical clock
+intact. This establishes a retained-root continuity defect, not data loss.
+The pre-fix run fails in 5.81s; a repeat from the same saved executable fails in
+7.41s. Both preserve the observed sealed-proof precondition and original
+operation/startup budgets.
+
+The bucket lease writer now refuses an Absent guard when identity capture saw a
+retained root. This is a definite pre-transport refusal, before serialization or
+applied-log notification; the same immutable provenance already guards the
+predecessor recovery read. True first boot remains allowed. No new root read,
+wire field, schema marker, compatibility path or retry/deadline policy is added.
+The regression requires ordinary startup refusal, no recreated root or changed
+cell owner, unchanged payload/follower bytes from the cut, and directory release.
+Return the actual captured sealed metadata with only post-join expiry shortened,
+then require recovery of the original event/clock/source/inbox/checkpoints before
+receipt reuse. The first post-fix case passes (26.20s) and records the definite
+pre-transport refusal. A companion control replaces the root with a different
+valid lineage and no folded log at the same sealed-read cut. It must preserve
+that replacement and original proof while the existing core lineage guard
+refuses authority; returning the actual sealed root must recover. Final focused
+qualification passes all nine cases (121.95s); the final serial Node suite passes
+all 67 cases (658.25s). Focused/full executable hashes match and all three
+changed Rust files remain fixed through both runs. Library, ownership/log and
+workspace/tooling qualification also passes: 239 library cases (7.55s), all 15
+decision-core cases, six actor, six ingress, seven log and five protocol cases.
+All seven artifact and three CLI tests pass. Workspace all-target/all-feature
+check (104.07s), Clippy with warnings denied (212.11s), formatting of 516 Rust
+files and workspace doc tests (11 passed, one existing Axum example ignored)
+pass. Docs validate 36 documents/six flows/388 references; dependencies check
+403 packages with no JavaScript engine. All 129 Python guards pass. Saved
+focused/full runtime SHA256 is
+4e7d844be8e5b5eda14dd0d63870cb1edb610016eaa62e3adc922f42277a4e3f.
+All three changed Rust files remain identical through qualification and the
+move to updated main (same base tree). Local Rust is 1.97.0/aarch64 macOS;
+hosted Rust 1.98.1 and the process drivers remain separately unqualified.
+Erasure during predecessor recovery, metadata rollback, independent-process
+and physical fault matrices remain open.
+The next safety investigation must also exercise concurrent-startup generation
+GC: the current sweep lists/deletes other generations in the same lineage after
+its observed predecessor recovery. A competing generation's real bundle must
+remain protected until that generation's proof is retired. This is an
+unqualified candidate from source inspection, not a reproduced loss claim.
 
 ## Current follow-up: delivery after recovery backpressure
 

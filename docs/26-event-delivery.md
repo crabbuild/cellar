@@ -265,6 +265,9 @@ the retained lineage and recover the previous process session before admission.
 If identity capture observed a root, its later disappearance cannot become first
 boot. Startup refuses before collecting predecessor proof or installing a lease;
 changing the lineage between those reads also refuses.
+This remains true after recovery seals the old log: a stale lease write followed
+by an absent readback cannot recreate the retained root. Return the actual
+retained metadata before expecting that restart to acquire authority.
 Do not delete node lease objects as a recovery or garbage-collection procedure.
 Returning metadata must preserve the original lineage, generation, ensemble and
 acknowledgment history. Metadata rollback, independent-process and physical

@@ -105,6 +105,12 @@ must compare lineage as well as node name. Recovery checks the expected lineage
 against the same root read used for its folded proof decision. Identity capture
 also retains whether a root was present. Startup cannot treat a later absence
 as first boot: require that retained root before predecessor GC or lease install.
+Enforce that provenance at the bucket lease CAS too: after successful recovery,
+a stale Match rejection and absent readback cannot authorize Absent creation
+under a retained lineage. Refuse before transport and applied-log notification;
+true first boot can still create its root. The post-recovery read cut requires a
+real sealed predecessor and payload, preserves cut-time evidence on refusal,
+then returns those actual sealed bytes before recovery and receipt reuse.
 The native root-read cut holds actual response bytes/token, erases or replaces
 the root, and requires refusal with owner, payload and follower bytes unchanged;
 returning the original metadata must recover before receipt reuse. Keep metadata

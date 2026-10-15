@@ -1022,6 +1022,15 @@ impl BucketOwnership {
                 "node lease lineage must match its prepared writer"
             )));
         }
+        // A rejected stale match can be followed by an absent readback even
+        // after predecessor recovery succeeded. Capturing a retained root
+        // requires preserving it; that readback cannot turn this writer into
+        // first boot and recreate the root with the retained lineage.
+        if self.retained_root_required() && matches!(&guard, CasGuard::Absent) {
+            return Err(LeaseCasError::NotCommitted(anyhow::anyhow!(
+                "refusing to recreate a retained node lease after root loss"
+            )));
+        }
         let key = format!("nodes/{}.json", self.node);
         // Snapshot the folded log ONCE, before serialization: the applied
         // notification below reports THIS seq — the identity of the body
