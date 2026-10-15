@@ -121,7 +121,8 @@ Outboxes lists candidate root cells without probing every cell. Open a source
 scope to inspect up to 25 lanes, exact backlog counts, oldest pending age,
 blocked reasons, incarnation and dispatch revision. Retry requires `data_read`
 and `operate`, pins the inspected revision, and records a reason. It never skips
-or removes events.
+or removes events. A lane with no pending payload rows can still retry a pending
+or blocked producer seal.
 
 Event streams and Subscriptions list deployed stream bindings. Name selectors
 resolve through bounded catalog pages; the server rechecks the selected UUID's

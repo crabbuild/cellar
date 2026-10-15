@@ -207,7 +207,9 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
                                   disabled={
                                     !canOperate ||
                                     write.isPending ||
-                                    lane.pending_rows === "0"
+                                    (lane.pending_rows === "0" &&
+                                      (!lane.seal_state ||
+                                        lane.seal_state === "accepted"))
                                   }
                                   onClick={() => setRetry(lane)}
                                 >
@@ -308,6 +310,12 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
           <p className="text-sm">
             {exact(retry.pending_rows)} pending events · generation{" "}
             {exact(retry.revision.dispatch_generation)}
+            {retry.seal_state && retry.seal_state !== "accepted" && (
+              <span className="mt-2 block">
+                Seal delivery is {retry.seal_state}; this retry includes the
+                seal.
+              </span>
+            )}
           </p>
         </EventReview>
       )}

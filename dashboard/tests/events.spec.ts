@@ -48,7 +48,7 @@ const lane = {
   retry_at_ms: "0",
   attempts: "2",
   last_error: "Grant revoked",
-  seal_state: "open",
+  seal_state: null,
   blocked_reason: "Forbidden",
   oldest_pending_age_ms: "120000",
 }
@@ -127,6 +127,7 @@ async function setup(
     grants?: string[]
     unknown?: boolean
     lost?: boolean
+    sealOnly?: boolean
   } = {}
 ) {
   const requests: {
@@ -219,13 +220,24 @@ async function setup(
         result = {
           result: {
             incarnation: revision.incarnation,
-            pending_rows: lane.pending_rows,
-            pending_bytes: lane.pending_bytes,
-            lanes: [lane],
+            pending_rows: options.sealOnly ? "0" : lane.pending_rows,
+            pending_bytes: options.sealOnly ? "0" : lane.pending_bytes,
+            lanes: [
+              options.sealOnly
+                ? {
+                    ...lane,
+                    pending_rows: "0",
+                    pending_bytes: "0",
+                    oldest_pending_age_ms: null,
+                    status: "sealed",
+                    seal_state: "blocked",
+                  }
+                : lane,
+            ],
             next: action.cursor ? null : "lane-page-2",
             observation: {
               ...observation,
-              oldest_pending_age_ms: "120000",
+              oldest_pending_age_ms: options.sealOnly ? null : "120000",
               blocked_lanes: [{ reason: "Forbidden", lanes: "1" }],
             },
           },
@@ -562,4 +574,24 @@ test("stream workspace remains usable in dark mode on narrow screens", async ({
     path: "../.cellar/event-console-dark-mobile.png",
     fullPage: true,
   })
+})
+
+test("seal-only outbox work can be retried without pending event rows", async ({
+  page,
+}) => {
+  const calls = await setup(page, { sealOnly: true })
+  await open(page, "/fleets/main/cells/Order%3Aone?tab=outbox")
+  await expect(page.getByRole("button", { name: "Retry lane" })).toBeEnabled()
+  await page.getByRole("button", { name: "Retry lane" }).click()
+  await expect(
+    page.getByText("Seal delivery is blocked; this retry includes the seal.")
+  ).toBeVisible()
+  await page
+    .getByLabel("Reason", { exact: true })
+    .fill("Retry seal delivery after restoring grant")
+  await page.getByRole("button", { name: "Apply change" }).click()
+  await expect(page.getByText("Change confirmed")).toBeVisible()
+  expect(
+    calls.filter((call) => call.body.action.kind === "retry")
+  ).toHaveLength(1)
 })

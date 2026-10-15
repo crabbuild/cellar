@@ -33,7 +33,7 @@ export type Lane = {
   retry_at_ms: string
   attempts: string
   last_error: string | null
-  seal_state: string
+  seal_state: "pending" | "blocked" | "accepted" | null
   blocked_reason: string | null
   oldest_pending_age_ms: string | null
 }
