@@ -74,6 +74,14 @@ version-1 markers; activation rejects unsupported markers, inconsistent retained
 accounting and outbox events exceeding the captured host policy. Cellar is in internal development: all Cellar-owned protocol, format and
 schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
 readers, layout migrations, version negotiation or fleet upgrade commands.
+The ranged log-tail request uses tail_format 1 and its response uses CLT1;
+missing/unsupported markers and entries-only request shapes are refused. Native
+follower reads/writes require node/generation identities, and discovery visits
+only that current directory layout. Rebuild every participant on wire cutover;
+former flat-layout development state requires recreation, not a migration.
+Only checksum-protected committed .batch files supply follower entries. Former
+.entry/.entries files are rejected without decoding or migrating their payloads;
+current cleanup reclaims only covered committed batches.
 Recreate development state and rebuild all participants when layouts change;
 mixed builds are unsupported. External codec versions (SQLite WAL and upstream
 LTX), package versions and runtime revision/sequence counters keep their meaning.

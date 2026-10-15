@@ -4,8 +4,8 @@ use anyhow::{ensure, Result};
 use cellar::bucket::Bucket;
 use cellar::dead_node_gc::{live_nodes, DeadNodeGc};
 use cellar::node_log::{
-    decode_tail_resp, encode_tail_resp, read_frame, write_frame, AppendResp, SealResp, TailRange,
-    TailResp, TailWireReq,
+    decode_tail_resp, encode_entry, encode_tail_resp, read_frame, write_frame, AppendResp, Entry,
+    FollowerState, FollowerStore, SealResp, TailRange, TailReq, TailResp, TailWireReq,
 };
 use cellar::ownership_store::BucketOwnership;
 use cellar::peer_auth::{
@@ -32,17 +32,30 @@ async fn log_wire_requires_current_shapes_and_complete_frames() -> Result<()> {
         entries: Vec::new(),
     };
     let mut wire = encode_tail_resp(&response);
+    assert_eq!(&wire[..4], b"CLT1");
     assert_eq!(decode_tail_resp(&wire)?.range, response.range);
-    wire[..4].copy_from_slice(b"CLT1");
+    wire[..4].copy_from_slice(b"CLT2");
     ensure!(decode_tail_resp(&wire).is_err());
+    let mut entries_only = b"CLT1".to_vec();
+    entries_only.extend_from_slice(&0_u32.to_le_bytes());
+    ensure!(decode_tail_resp(&entries_only).is_err());
+    let request = TailWireReq::ranged(TailReq {
+        leader: "leader/generation".into(),
+    });
+    let encoded = serde_json::to_value(request)?;
+    assert_eq!(encoded["tail_format"], 1);
+    for marker in [0, 2, 255] {
+        let mut unsupported = encoded.clone();
+        unsupported["tail_format"] = marker.into();
+        ensure!(serde_json::from_value::<TailWireReq>(unsupported).is_err());
+    }
     for request in [
         r#"{"leader":"leader/generation"}"#,
-        r#"{"leader":"leader/generation","tail_format":1}"#,
-        r#"{"leader":"leader","tail_format":2}"#,
+        r#"{"leader":"leader","tail_format":1}"#,
     ] {
         ensure!(serde_json::from_str::<TailWireReq>(request).is_err());
     }
-    serde_json::from_str::<TailWireReq>(r#"{"leader":"leader/generation","tail_format":2}"#)?;
+    serde_json::from_str::<TailWireReq>(r#"{"leader":"leader/generation","tail_format":1}"#)?;
     ensure!(serde_json::from_str::<AppendResp>(r#"{"ok":true,"end":4}"#).is_err());
     serde_json::from_str::<AppendResp>(r#"{"ok":false,"end":0,"epoch":null}"#)?;
     for response in [
@@ -72,6 +85,114 @@ fn lease(node: &str, expiry: u64) -> serde_json::Value {
         "peer_protocol": PROTOCOL_VERSION, "paced_handoff": true,
         "application_metadata": {"preserve": 17}
     })
+}
+
+#[tokio::test]
+async fn follower_gc_discovers_current_sessions_and_requires_closed_authority() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+            let store =
+                FollowerStore::new(directory.path(), Some(Arc::new(bucket.clone())), "observer");
+            let seed = FollowerState {
+                fragment_epoch: 1,
+                base: 0,
+                end: 0,
+                sealed_to: 0,
+            };
+            let flat_path = directory.path().join("peerlog/flat/state.json");
+            std::fs::create_dir_all(flat_path.parent().unwrap())?;
+            let flat_bytes = serde_json::to_vec(&seed)?;
+            std::fs::write(&flat_path, &flat_bytes)?;
+            ensure!(
+                store.load("flat").is_err(),
+                "native access read a former flat session"
+            );
+            ensure!(
+                store.persist("flat", seed).is_err(),
+                "native access wrote a former flat session"
+            );
+            for (node, state) in [("closed", "sealed"), ("active", "open")] {
+                let mut record = lease(node, 0);
+                record["log"] = serde_json::json!({
+                    "state":state, "epoch":1, "ensemble":[], "tiered":0,
+                    "may_have_fleet_acks":false, "claimant":null, "claimed_ms":null
+                });
+                bucket
+                    .put(&format!("nodes/{node}.json"), serde_json::to_vec(&record)?)
+                    .await?;
+                store.persist(&format!("{node}/process-generation"), seed)?;
+            }
+            store.gc_fragments().await;
+            ensure!(
+                std::fs::read(&flat_path)? == flat_bytes,
+                "GC rewrote unsupported development state"
+            );
+            let closed = store
+                .tail(&TailReq {
+                    leader: "closed/process-generation".into(),
+                })
+                .await?;
+            let active = store
+                .tail(&TailReq {
+                    leader: "active/process-generation".into(),
+                })
+                .await?;
+            ensure!(closed.range.complete && active.range.complete);
+            let closed_path = directory
+                .path()
+                .join("peerlog/closed/process-generation/state.json");
+            let active_path = directory
+                .path()
+                .join("peerlog/active/process-generation/state.json");
+            let closed: serde_json::Value = serde_json::from_slice(&std::fs::read(closed_path)?)?;
+            let active: serde_json::Value = serde_json::from_slice(&std::fs::read(active_path)?)?;
+            ensure!(
+                closed["sealed_to"] == 1 && active["sealed_to"] == 0,
+                "GC ignored current sessions or closed an active fragment"
+            );
+            for (generation, name) in [("entry", "1.entry"), ("entries", "1-1.entries")] {
+                let session = format!("unsupported/{generation}");
+                store.persist(&session, FollowerState { end: 1, ..seed })?;
+                let mut bytes = Vec::new();
+                encode_entry(
+                    &Entry {
+                        seq: 1,
+                        cell: "cell".into(),
+                        cell_epoch: 1,
+                        txid: 1,
+                        bytes: b"unsupported development payload".to_vec(),
+                    },
+                    &mut bytes,
+                );
+                let path = directory.path().join("peerlog").join(&session).join(name);
+                std::fs::write(&path, &bytes)?;
+                ensure!(
+                    store
+                        .tail(&TailReq {
+                            leader: session.clone()
+                        })
+                        .await
+                        .is_err(),
+                    "old entry bytes supplied a tail"
+                );
+                let cold = FollowerStore::new(directory.path(), None, "observer");
+                ensure!(
+                    cold.load(&session).is_err(),
+                    "cold restore accepted an old entry layout"
+                );
+                ensure!(
+                    std::fs::read(path)? == bytes,
+                    "unsupported entry bytes were migrated"
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

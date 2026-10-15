@@ -52,7 +52,57 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: refuse recovery after durability proof loss
+## Current follow-up: current log wire and follower layout at version one
+
+The remaining owned ranged-tail marker is now one in both JSON requests
+(`tail_format`) and binary responses (`CLT1`). The range's fragment epoch, base,
+end and completeness fields are unchanged. Epochs and sequence counters remain
+runtime values, including values greater than one. Unsupported markers and
+missing declarations are refused; there is no entries-only fallback or format
+negotiation. Every participant must be rebuilt together.
+
+Follower session discovery no longer checks the former flat node/state.json
+layout. Native load/persist entry points also require a valid node/generation
+identity before reading cached or on-disk state, so direct SDK calls cannot
+re-enable that layout or write it. Existing current-layout disk bytes are
+unchanged; former flat-layout development state must be recreated. No layout
+migration or compatibility reader is added.
+The same audit found old individual-entry and unchecksummed batch decoders.
+Those readers and their cleanup branches are removed too. Current loading/tails
+reject `.entry`/`.entries` files without reading their payload; only checksum-
+protected committed `.batch` files supply entries. The existing missing-directory
+and checksum/range completeness refusals remain in place. Unsupported development
+files are left for inspection/recreation instead of silently migrating them.
+
+Protocol coverage asserts the encoder's JSON marker and binary magic as well as
+decoder acceptance/refusal, keeps nontrivial epoch/range counters, and retains
+torn-frame checks. A native follower-GC case exercises current-generation
+discovery, keeps an active fragment unsealed, seals only a closed fragment,
+rejects native access to flat sessions and old entry layouts, and leaves
+unsupported files unchanged. A
+targeted scan found no other non-one owned version markers in
+the inspected core; application event schema versions and external codec versions
+are not normalized by this policy.
+
+Validation passes all 227 library tests, 47 native node tests (328.86s), five
+native log tests, four protocol tests including current-only GC/access, seven
+artifact tests and three CLI tests. The 101 Python oracle guards, format check
+(505 Rust files), docs (36 documents/6 flows/386 references), dependency audit
+(403 packages/no JavaScript engine), whitespace and workspace/all-target/all-
+feature Clippy with warnings denied also pass. Real source follower-disk restart
+passes on SQLite/S3 (3.43s/5.93s), live-follower recovery passes on both backends
+(2.71s/5.72s), and ordinary streams smoke passes (1.58s), all on the same current
+executable. The final comment-only rebuild is byte-identical to the tested
+binary. These checks use Rust 1.97.0/aarch64 macOS; CI's configured toolchain is
+not claimed as locally exercised.
+
+The full outbox goal remains incomplete. The next correctness work returns to
+restoration of valid proof after refusal and destination follower-only append/
+fetch/ack cuts, followed by the unresolved startup, lifecycle, capacity and
+operational gates. This hard cutover does not establish mixed-build support or
+close any unqualified failure boundary.
+
+## 2026-10-15 refuse recovery after durability proof loss
 
 The prior all-fleet S3 failure is not evidence that arbitrary disk loss must be
 recoverable. Fleet proof certifies follower fsync or bucket data; a surviving

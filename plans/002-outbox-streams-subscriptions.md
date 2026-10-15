@@ -1483,7 +1483,11 @@ for internal work reasons and event-stream ownership.
 
 Cellar is in internal development and has no backward compatibility contract.
 All Cellar-owned protocol, format and schema markers remain at version 1,
-including peer, native host, bucket/wake, catalog, stream, outbox and inbox.
+including peer, native host, ranged log tail, bucket/wake, catalog, stream,
+outbox and inbox. Ranged tails use tail_format 1 / CLT1 and require their current
+range fields. Follower discovery and native access require node/generation
+identities and checksum-protected committed batches; former flat or individual-
+entry layouts are not compatibility inputs.
 `event-delivery-v1` names the current feature. Breaking layout changes use a hard
 cutover: stop all participants, recreate development state, rebuild executables,
 and restart on the current build. Mixed builds, old-state migrations, fleet

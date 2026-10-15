@@ -745,19 +745,19 @@ impl LiveLogTransition<'_> {
 //
 // The two byte-dominated messages — the append request and the tail
 // response — travel as a small binary framing; every control message
-// (append response, seal, tail request) stays JSON. The same entry
-// encoding is the follower's on-disk `<seq>.entry` format, so one decoder
-// serves the wire and the disk. All integers little-endian:
+// (append response, seal, tail request) stays JSON. Entries use the same
+// encoding on the wire and inside checksum-protected committed batches.
+// All integers little-endian:
 //
 //   append body:   "CLA1" u16 leader_len leader u64 epoch u64 truncate_to
 //                  u32 count entry*
-//   ranged tail:   "CLT2" u64 fragment_epoch u64 base u64 end
+//   ranged tail:   "CLT1" u64 fragment_epoch u64 base u64 end
 //                  u8 complete u32 count entry*
 //   entry:         "CLE1" u64 seq u16 cell_len cell u64 cell_epoch
 //                  u64 txid u32 len bytes
 
 const APPEND_MAGIC: &[u8; 4] = b"CLA1";
-const TAIL_MAGIC: &[u8; 4] = b"CLT2";
+const TAIL_MAGIC: &[u8; 4] = b"CLT1";
 const ENTRY_MAGIC: &[u8; 4] = b"CLE1";
 
 pub struct Entry {
@@ -1046,7 +1046,7 @@ impl TryFrom<u8> for TailFormat {
     type Error = &'static str;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        if value == 2 {
+        if value == 1 {
             Ok(Self::Ranged)
         } else {
             Err("unsupported tail_format")
@@ -1056,7 +1056,7 @@ impl TryFrom<u8> for TailFormat {
 
 impl From<TailFormat> for u8 {
     fn from(_: TailFormat) -> Self {
-        2
+        1
     }
 }
 
@@ -1261,8 +1261,7 @@ struct FollowerPersistTiming {
 ///
 /// Each follower session uses `<root>/peerlog/<node>/<generation>/`. The store
 /// persists the seal mark before it sends the response, so the mark survives a
-/// follower restart. The store also reads the former flat layout during an
-/// upgrade.
+/// follower restart. Only this current session layout is discovered.
 pub struct FollowerStore {
     root: PathBuf,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
@@ -1428,15 +1427,6 @@ impl FollowerStore {
             let Some(node_name) = node.file_name.to_str().map(str::to_string) else {
                 continue;
             };
-            if self
-                .filesystem
-                .metadata(&node.path.join("state.json"))
-                .is_ok_and(|metadata| metadata.is_file)
-            {
-                // Keep fragments written by the former flat leader identity
-                // reachable during an upgrade.
-                sessions.push(node_name.clone());
-            }
             let Ok(generations) = self.filesystem.read_dir(&node.path) else {
                 continue;
             };
@@ -1488,6 +1478,10 @@ impl FollowerStore {
                 }
                 continue;
             };
+            anyhow::ensure!(
+                !name.ends_with(".entry") && !name.ends_with(".entries"),
+                "unsupported follower entry layout for {leader}; recreate development state"
+            );
             if !name.ends_with(".batch") {
                 continue;
             }
@@ -1605,6 +1599,7 @@ impl FollowerStore {
 
     #[doc(hidden)]
     pub fn load(&self, leader: &str) -> anyhow::Result<FollowerState> {
+        validate_log_leader(leader)?;
         if let Some(loaded) = self.logs.lock().unwrap().get(leader) {
             return Ok(loaded.state);
         }
@@ -1664,6 +1659,7 @@ impl FollowerStore {
         leader: &str,
         state: FollowerState,
     ) -> anyhow::Result<FollowerPersistTiming> {
+        validate_log_leader(leader)?;
         let dir = self.dir(leader);
         self.filesystem.create_dir_all(&dir)?;
         let path = dir.join("state.json");
@@ -1747,23 +1743,9 @@ impl FollowerStore {
         for item in read {
             let name = item.file_name;
             let Some(name) = name.to_str() else { continue };
-            if let Some(stem) = name.strip_suffix(".entry") {
-                if stem.parse::<u64>().is_ok_and(|s| s <= seq) {
-                    self.filesystem.remove_file(&item.path)?;
-                }
-            } else if let Some(stem) = name.strip_suffix(".entries") {
-                // A batch file goes only when its WHOLE range is behind the
-                // watermark. A straddling batch keeps its covered entries:
-                // truncation is space reclamation, not a correctness
-                // boundary, so retaining them is free.
-                if stem
-                    .split_once('-')
-                    .and_then(|(_, last)| last.parse::<u64>().ok())
-                    .is_some_and(|last| last <= seq)
-                {
-                    self.filesystem.remove_file(&item.path)?;
-                }
-            } else if follower_batch_range(name, ".batch").is_some_and(|(_, last)| last <= seq) {
+            // Reclaim a committed batch only when its whole range is covered.
+            // Straddling batches retain their covered prefix as harmless data.
+            if follower_batch_range(name, ".batch").is_some_and(|(_, last)| last <= seq) {
                 self.filesystem.remove_file(&item.path)?;
             }
         }
@@ -2174,12 +2156,8 @@ impl FollowerStore {
     }
 
     fn read_tail(&self, req: &TailReq) -> anyhow::Result<TailResp> {
-        // Entries above the persisted end are unacked debris a crash may
-        // legitimately tear (the entry syncs before the state does), and
-        // including or losing an unacked frame is free. A torn entry ABOVE
-        // the base and AT OR BELOW the end would be an acked frame's only
-        // local copy, so it is skipped LOUDLY — write-all means another
-        // member still has it, and the line attributes the anomaly.
+        // Only checksum-protected committed batches supply retained entries.
+        // Unsupported development layouts cannot supply recovery evidence.
         let state = self.load(&req.leader)?;
         let base = state.base;
         let end = state.end;
@@ -2203,120 +2181,7 @@ impl FollowerStore {
             .collect();
         let dir = self.dir(&req.leader);
         match self.filesystem.read_dir(&dir) {
-            Ok(read) => {
-                for item in read {
-                    let name = item.file_name;
-                    let Some(name) = name.to_str() else { continue };
-                    if let Some(stem) = name.strip_suffix(".entry") {
-                        let Ok(sequence) = stem.parse::<u64>() else {
-                            retained_files_complete = false;
-                            warn!(
-                                leader = req.leader,
-                                path = %item.path.display(),
-                                "follower entry file name does not contain a valid sequence"
-                            );
-                            continue;
-                        };
-                        match self.filesystem.read(&item.path) {
-                            Ok(bytes) => match decode_entry(&mut bytes.as_slice()) {
-                                Ok(entry) => {
-                                    if entry.seq != sequence {
-                                        let retained = sequence > base && sequence <= end;
-                                        retained_files_complete &= !retained;
-                                        warn!(
-                                            leader = req.leader,
-                                            path = %item.path.display(),
-                                            named = sequence,
-                                            decoded = entry.seq,
-                                            "follower entry name does not match its contents"
-                                        );
-                                    } else if entry.seq > base {
-                                        entries.push(entry);
-                                    }
-                                }
-                                Err(error) => {
-                                    let retained = sequence > base && sequence <= end;
-                                    retained_files_complete &= !retained;
-                                    if retained {
-                                        warn!(
-                                            leader = req.leader,
-                                            path = %item.path.display(),
-                                            %error,
-                                            "torn entry at or below the fragment end skipped in tail"
-                                        );
-                                    }
-                                }
-                            },
-                            Err(error) => {
-                                let retained = sequence > base && sequence <= end;
-                                retained_files_complete &= !retained;
-                                if retained {
-                                    warn!(
-                                        leader = req.leader,
-                                        path = %item.path.display(),
-                                        %error,
-                                        "retained follower entry could not be read"
-                                    );
-                                }
-                            }
-                        }
-                    } else if name.ends_with(".entries") {
-                        let Some((named_first, named_last)) =
-                            follower_batch_range(name, ".entries")
-                                .filter(|(first, last)| first <= last)
-                        else {
-                            retained_files_complete = false;
-                            warn!(
-                                leader = req.leader,
-                                path = %item.path.display(),
-                                "follower batch file name does not contain a valid range"
-                            );
-                            continue;
-                        };
-                        let retained = named_first <= end && named_last > base;
-                        let Ok(bytes) = self.filesystem.read(&item.path) else {
-                            retained_files_complete &= !retained;
-                            if retained {
-                                warn!(
-                                    leader = req.leader,
-                                    path = %item.path.display(),
-                                    "retained follower batch could not be read"
-                                );
-                            }
-                            continue;
-                        };
-                        // Decode the batch until the tear, keeping every intact
-                        // entry. The first undecoded sequence starts at the
-                        // filename's range and follows the last decoded entry,
-                        // so the retained-tear classification is exact.
-                        let mut next = Some(named_first);
-                        let mut buf = bytes.as_slice();
-                        while !buf.is_empty() {
-                            match decode_entry(&mut buf) {
-                                Ok(entry) => {
-                                    next = Some(entry.seq + 1);
-                                    if entry.seq > base {
-                                        entries.push(entry);
-                                    }
-                                }
-                                Err(error) => {
-                                    let retained = next.is_some_and(|seq| seq > base && seq <= end);
-                                    retained_files_complete &= !retained;
-                                    if retained {
-                                        warn!(
-                                            leader = req.leader,
-                                            path = %item.path.display(),
-                                            %error,
-                                            "torn batch at or below the fragment end skipped in tail"
-                                        );
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 retained_files_complete = false;
                 if state.fragment_epoch != 0 {
