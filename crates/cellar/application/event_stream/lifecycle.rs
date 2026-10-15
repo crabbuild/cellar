@@ -415,11 +415,12 @@ impl<E> Subscription<E> {
             )?,
         )
         .await?;
-        let receipt: LifecycleReceipt = serde_json::from_value(value)
-            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid lifecycle response"))?;
-        receipt.validate_acceptance(change, None)?;
-        self.check_identity(&receipt.current)?;
-        Ok(receipt)
+        super::error::submitted_result((|| {
+            let receipt: LifecycleReceipt = serde_json::from_value(value)?;
+            receipt.validate_acceptance(change, None)?;
+            self.check_identity(&receipt.current)?;
+            Ok(receipt)
+        })())
     }
 }
 

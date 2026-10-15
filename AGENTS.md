@@ -845,3 +845,10 @@ point. Update it, the API map, runnable durable-streams example and generated
 asynchronous delivery flow when changing this surface. ErrorCode::as_str/Display
 use canonical wire names. DeliveryError::is_permanent describes automatic outbox
 lane blocking; it never substitutes for an operation-specific replay contract.
+
+
+Use event_stream::error::submitted_result only around validation of an already
+submitted mutation/fetch success body. Invalid acceptance metadata is Ambiguous
+and must not become a definite refusal or reflect the invalid body's context.
+Local preflight and call_bound/call_authorized broker error branches bypass this
+boundary so valid typed refusal codes and metadata remain intact.

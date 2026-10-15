@@ -7,6 +7,50 @@ fn code(failure: &anyhow::Error) -> Option<ErrorCode> {
 }
 
 #[test]
+fn invalid_submitted_success_metadata_is_ambiguous_without_reflecting_details() {
+    for original in [
+        ErrorCode::InvalidRequest,
+        ErrorCode::StaleReceipt,
+        ErrorCode::ConfigConflict,
+        ErrorCode::Forbidden,
+    ] {
+        let invalid = anyhow::Error::new(DeliveryError::new(original, "private response body"))
+            .context("private response context");
+        let failure = submitted_result::<()>(Err(invalid)).unwrap_err();
+        assert_eq!(code(&failure), Some(ErrorCode::Ambiguous));
+        assert!(!failure
+            .downcast_ref::<DeliveryError>()
+            .unwrap()
+            .is_permanent());
+        assert!(!format!("{failure:#}").contains("private"));
+    }
+}
+
+#[test]
+fn definitive_broker_refusals_bypass_success_metadata_acceptance() -> anyhow::Result<()> {
+    fn accept(value: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+        let success = unwrap_reply(value)?;
+        submitted_result(Ok(success))
+    }
+    for expected in [
+        ErrorCode::StaleReceipt,
+        ErrorCode::LeaseExpired,
+        ErrorCode::SubscriptionReset,
+        ErrorCode::Forbidden,
+        ErrorCode::ConfigConflict,
+    ] {
+        let data = json!({"checkpoint":"99"});
+        let failure =
+            accept(json!({"error":{"code":expected,"message":"refused","data":data}})).unwrap_err();
+        let accepted = failure.downcast_ref::<DeliveryError>().unwrap();
+        assert_eq!(accepted.code, expected);
+        assert_eq!(accepted.data, data);
+    }
+    assert_eq!(accept(json!({"ok":null}))?, serde_json::Value::Null);
+    Ok(())
+}
+
+#[test]
 fn public_code_names_match_wire_names_and_contextual_errors_remain_typed() -> anyhow::Result<()> {
     for expected in [
         ErrorCode::Unavailable,

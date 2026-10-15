@@ -124,7 +124,11 @@ impl<E> Stream<E> {
             json!([{"operation":operation,"definition":encoded}]),
         )
         .await?;
-        accept_configuration(self.resource(), Some((definition, operation)), value)
+        super::error::submitted_result(accept_configuration(
+            self.resource(),
+            Some((definition, operation)),
+            value,
+        ))
     }
 
     pub async fn configuration_status(&self, context: &Context) -> Result<Configuration> {

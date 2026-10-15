@@ -150,6 +150,12 @@ fn ambiguous_reply() -> anyhow::Error {
     )
 }
 
+/// Apply only to acceptance of an already-submitted mutation's success body.
+/// Broker error branches and local preflight failures must bypass this helper.
+pub(super) fn submitted_result<T>(result: anyhow::Result<T>) -> anyhow::Result<T> {
+    result.map_err(|_| ambiguous_reply())
+}
+
 pub(crate) fn decode_reply(data: &crate::engine_api::RpcData) -> anyhow::Result<serde_json::Value> {
     let bytes = match data {
         crate::engine_api::RpcData::Json(value) => value.len(),

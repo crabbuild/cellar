@@ -2955,3 +2955,21 @@ changed after the intermediate build began, so it cannot qualify the final patch
 The branch remains a draft until final-source validation passes. Full backend,
 ownership, fault, capacity, physical metrics and release gates remain open.
 All Cellar-owned markers remain 1.
+
+
+## Submitted mutation acceptance outcomes (2026-10-15)
+
+A current-source audit found that inner success-body validation could report
+InvalidRequest, StaleReceipt or ConfigConflict after an operation may already
+have committed. The SDK now applies a shared submitted_result boundary only
+after call_bound/call_authorized has accepted a success branch. Configuration,
+retirement, subscription lifecycle change, fetch, acknowledgment, retry and lease
+extension classify invalid success metadata as generic Ambiguous. Their local
+preflight checks and valid broker error branches retain their original codes
+and metadata; read-only observers retain their existing validation behavior.
+No body/validator context is reflected through this new error boundary.
+Three regressions cover unknown acknowledgment statuses, known settlement
+results, definitive broker refusals, successful null values and private-detail
+removal. Formatting 498 and whitespace pass; Rust/Clippy/rustdoc remain pending.
+The older intermediate compile began before this change and cannot qualify it.
+All Cellar-owned markers remain 1.

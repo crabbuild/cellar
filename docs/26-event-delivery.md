@@ -158,6 +158,12 @@ name used in JSON. Display text is diagnostic, not a retry decision.
 | `CursorExpired` | Inspect the earliest retained offset and explicitly choose whether to restart or rebuild |
 | `Forbidden`, `ConfigConflict`, `DestinationDeleted`, `SequenceGap`, `ProducerSealed` | Inspect grants, lifecycle and producer state; operator repair may be needed |
 
+An invalid success body after a submitted fetch or mutation is `Ambiguous`,
+even if the underlying metadata validator detects an invalid field or receipt.
+It cannot establish that a lease, acknowledgment, configuration or lifecycle
+change failed to commit. Valid broker error branches keep their exact typed
+code and metadata. Local preflight errors occur before this acceptance boundary.
+
 `DeliveryError::is_permanent()` describes whether automatic outbox delivery blocks
 that lane. It is not a general SDK retry policy, and it does not mean that an
 operator cannot repair the cause. No helper automatically replays ambiguous
