@@ -3,6 +3,7 @@
 #![allow(clippy::disallowed_methods)]
 
 mod application;
+mod replica_fault;
 
 use anyhow::{ensure, Result};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
@@ -80,6 +81,8 @@ struct FleetFixture {
     outbox_rows: Option<usize>,
     stream_rows: Option<usize>,
     node_lease_ms: Option<u64>,
+    #[serde(default)]
+    replica_fault: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -288,9 +291,17 @@ fn main() -> Result<()> {
             .connect_timeout(Duration::from_secs(5))
             .build()?;
         let peer_auth = Arc::new(PeerAuth::new(key, node_name)?);
+        let replica_client: Arc<dyn object_store::ObjectStore> = if fixture
+            .as_ref()
+            .is_some_and(|fixture| fixture.replica_fault)
+        {
+            replica_fault::ReplicaFault::new(bucket.store.clone(), &data)
+        } else {
+            bucket.store.clone()
+        };
         let fleet = NodeFleet {
             replica_storage: ReplicaStorage::new(
-                bucket.store.clone(),
+                replica_client,
                 ReplicaStorageOptions {
                     prefix: bucket.prefix.clone(),
                     ..Default::default()

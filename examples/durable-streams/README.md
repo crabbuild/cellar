@@ -410,6 +410,43 @@ This case qualifies a resumed expired owner with a held invocation/first dispatc
 It does not qualify physical partitions, power/store loss, follower-only proof,
 or every in-flight write/reply interleaving while an old owner is running.
 
+## Recover a follower-only source proof
+
+[follower_faults.py](follower_faults.py) runs independent destination, producer
+and consumer processes with real fleet durability. A required subscription holds
+the first event and backpressures a second source. After observing an installed
+follower ensemble, the measuring client arms an opt-in replica-client refusal on
+the producer. Both single-object and multipart publication fail; lease, catalog
+and wake clients remain healthy. The second source must still return success.
+
+Before loss, the driver independently inventories exact source LTX bytes in the
+private bucket, checks that they did not change across the transaction, observes
+an actual refused source upload, and audits the original receipt and pending
+obligation. It SIGKILLs the producer, archives its stable pending database/WAL
+for the exact encoded envelope digest, then inventories and deletes its local data,
+observes real node-authority expiry, and starts a new successor process. Reads
+must recover the original receipt and pending obligation under a higher ownership
+epoch before any consumer effect or acknowledgment. No source command is replayed.
+The recovered accepted envelope must match the killed source's bytes exactly.
+Two consumer deliveries then apply two distinct inbox effects and checkpoint two.
+Saved evidence and all survivor shutdowns must pass the independent oracle.
+
+```sh
+python3 examples/durable-streams/follower_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --output /tmp/cellar-follower-evidence
+python3 examples/durable-streams/follower_faults.py \
+  --audit /tmp/cellar-follower-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc` for a private S3 server.
+Node authority is explicitly 1000ms; existing fixtures retain their defaults.
+The fault adapter supplies no durability credit and is absent unless explicitly
+enabled in fleet-fixture configuration. This case covers follower-only source
+acceptance and leader-local-data loss. Destination append/fetch/ack follower-only
+cuts, loss of the follower disks, physical host/power loss and unsupported store
+loss remain separate qualification requirements.
+
 ## Discover sources from the fleet
 
 `cellar outbox census Order --limit 100 --json [FLEET OPTIONS]` lists root source
