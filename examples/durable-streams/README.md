@@ -468,6 +468,39 @@ These cases preserve follower disks on one machine. They do not qualify missing
 witness disks, cold pending-append recovery, consumer-local replay, physical host
 or power loss. The original live-follower modes remain separate cases.
 
+For a **cold pending append**, use both flags on `fleet_faults.py`:
+
+```sh
+python3 examples/durable-streams/fleet_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --restart-followers --output /tmp/cellar-cold-append
+python3 examples/durable-streams/fleet_faults.py \
+  --audit /tmp/cellar-cold-append/ledger.jsonl
+```
+
+The source still has an unsettled obligation when every original process dies.
+To prevent automatic delivery from repairing the destination before inspection,
+returning peers enable a private exact-scope ownership-write refusal. It denies
+only puts to this stream's ownership object while `claim-block` exists; reads,
+other claims/leases and follower-log replies retain their real behavior. The
+driver must observe an actual refusal before starting the destination. The
+replacement destination then claims and recovers through the ordinary proof
+path. The private fault never returns success or supplies proof.
+
+After both peers are ready, require a blocked retry with the original append
+bytes. Audit the original event/envelope, pending source receipt, empty consumer
+and checkpoint zero before dropping the held reply or resuming retries. The
+source may recover on either returning peer. Final delivery must retain the
+same acceptance and produce one inbox effect/checkpoint. Offline audit rechecks
+the private claim configurations/markers and archived follower batches; complete
+process/proxy/store cleanup remains mandatory. Add `--rustfs-image` with a pinned
+digest for a private S3 store.
+
+This qualifies recovery under an explicit placement gate. Unrestricted placement,
+missing witness disks, consumer-local replay and physical host/store/power loss
+retain separate qualification. Neither this cut nor a passing rerun explains
+the earlier intermittent startup/shutdown failures.
+
 ## Resume an expired source owner
 
 [resumed_owner.py](resumed_owner.py) uses four independent loopback processes

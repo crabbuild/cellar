@@ -730,6 +730,22 @@ Require exact live receipt/reply or higher post-expiry lease authority, original
 stored ack replay, unique effects and complete process/proxy/store joins.
 This qualifies selected cold retained-disk ack/fetch cuts, not witness-disk loss,
 cold pending-append recovery, consumer-local replay, or physical host/power faults.
+`fleet_faults.py --follower-only --restart-followers` adds a selected cold append
+cut. Returning peers keep their follower disks but enable a private exact-scope
+`blocked_claim` client: only puts to that stream's `cells/SCOPE/own.json` fail
+while `claim-block` exists. Preserve the original no-retry CAS store, reads,
+other ownership/lease writes and actual follower replies. Observe at least one
+real refused ownership write before starting the replacement destination.
+Its ordinary claim/recovery must retain the accepted event. Require a blocked
+identical append after both peers are ready and a saved original-prefix audit
+before releasing the held reply or automatic retry. Sources may move between
+returning peers; neither may own the selected stream during measurement.
+Offline audit checks the exact private configurations/markers as well as witness
+archives. This placement gate supplies no proof and does not qualify unrestricted
+placement, missing disks or physical failures. A reset source socket can already
+be disconnected when the measuring proxy drops its held reply: accept only
+ENOTCONN at that shutdown call, retain other errors and join all remaining proxy
+listeners before propagating cleanup failure.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST

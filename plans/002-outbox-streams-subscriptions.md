@@ -1769,6 +1769,21 @@ archive reinspection are required. These selected cold retained-disk cuts do not
 qualify lost witness disks, cold pending appends, consumer-local replay or physical
 host/power/store failures.
 
+For cold append recovery, `fleet_faults.py --follower-only --restart-followers`
+uses the same retained-disk custody gate while the source remains unsettled.
+Both returning peers refuse writes to the exact selected stream ownership key,
+preserving all other store effects and original conditional-write clients.
+Observe a real refusal before the destination starts. Its normal claim and
+recovery must use the original follower witness; the placement gate supplies no
+durability credit. After both peer replacements are ready, require an identical
+blocked append retry and audit the original accepted event, pending source
+receipt, empty inbox and checkpoint before releasing the held response/retry.
+Recheck private configuration/marker custody and follower archives offline.
+This selected placement-controlled cut does not qualify unrestricted local-owner
+dispatch, missing disks or physical failures. Proxy cleanup must still join when
+the killed source has already reset its held-response socket; unrelated errors
+must remain failures.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

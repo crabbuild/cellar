@@ -2,6 +2,7 @@
 """Independent-process destination loss after proven append, audited before retry."""
 import argparse
 import base64
+import errno
 import hashlib
 import json
 import os
@@ -127,7 +128,13 @@ class PeerProxy:
                                 require(proxy.release.wait(20), "measuring client did not release the original proof boundary")
                                 proxy.ledger.record(proxy.label+"_reply_lost", request_sha256=exchange["request_sha256"])
                                 proxy.lost.set()
-                                self.request.shutdown(socket.SHUT_RDWR)
+                                try:
+                                    self.request.shutdown(socket.SHUT_RDWR)
+                                except OSError as error:
+                                    # The measured source may already have been
+                                    # killed while this proven reply was held.
+                                    if error.errno != errno.ENOTCONN:
+                                        raise
                                 return
                             proxy.ledger.record(proxy.label+"_reply_forwarded", exchange=exchange)
                         self.request.sendall(reply["wire"])
@@ -170,13 +177,15 @@ class PeerProxy:
 
 
 class FleetProcess(Process):
-    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None, stream_rows=None, node_lease_ms=None, replica_fault=False, owner_fault=False):
+    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None, stream_rows=None, node_lease_ms=None, replica_fault=False, owner_fault=False, blocked_claim=None):
         self.node = node
         data = root / "data" / node
         data.mkdir(parents=True, exist_ok=True)
         config = root / f"{label}-config.json"
-        config.write_text(json.dumps(dict(node=node, bucket=store.config if store else str(root/"fleet.sqlite"), peer=f"{peer[0]}:{peer[1]}",
-            advertise=f"{advertise[0]}:{advertise[1]}", declare=declare, fleet_durability=fleet_durability,outbox_rows=outbox_rows,stream_rows=stream_rows,node_lease_ms=node_lease_ms,replica_fault=replica_fault,owner_fault=owner_fault)))
+        settings=dict(node=node, bucket=store.config if store else str(root/"fleet.sqlite"), peer=f"{peer[0]}:{peer[1]}",
+            advertise=f"{advertise[0]}:{advertise[1]}", declare=declare, fleet_durability=fleet_durability,outbox_rows=outbox_rows,stream_rows=stream_rows,node_lease_ms=node_lease_ms,replica_fault=replica_fault,owner_fault=owner_fault)
+        if blocked_claim is not None:settings["blocked_claim"]=blocked_claim
+        config.write_text(json.dumps(settings))
         self.log = root/f"{label}.log"
         self.output = self.log.open("xb")
         self.child = subprocess.Popen([str(binary),str(data),"0","--fleet-fixture",str(config)],
@@ -191,12 +200,12 @@ class FleetProcess(Process):
                 reports=[json.loads(line) for line in self.log.read_text().splitlines() if line.startswith('{"') and json.loads(line).get("outcome")=="stopped"])
 
 
-def audit(ledger, origins, label, pending, effects, checkpoint):
+def audit(ledger, origins, label, pending, effects, checkpoint, source_hosts=None):
     ledger.audited = False
     snapshot = dict(sources={"cross":read(origins["producer"],"/orders/cross")},
         events=read(origins["destination"],"/__test/events"), effects=read(origins["consumer"],"/__test/projection-receipts"),
         subscription=read(origins["destination"],"/subscription"))
-    require(snapshot["sources"]["cross"]["host"]=="producer" and snapshot["effects"]["host"]=="consumer", "source/effects were not independently hosted")
+    require(snapshot["sources"]["cross"]["host"] in (source_hosts or {"producer"}) and snapshot["effects"]["host"]=="consumer", "source/effects were not independently hosted")
     accepted = validate_snapshot(ledger.operations, snapshot, effects, checkpoint, {"cross":pending})
     # Before consumption, an already proven acceptance may not be repaired by retry.
     if checkpoint == 0:
@@ -275,6 +284,8 @@ def audit_evidence(path):
     pids, restarted, stopped = None, None, set()
     store, removed = None, False
     follower_only = False
+    cold_followers = False
+    peer_restarts = {}
     for line in path.read_text().splitlines():
         row = json.loads(line); event=row["event"]
         if event=="network_store_started":
@@ -303,13 +314,16 @@ def audit_evidence(path):
             require(set(pids)=={"producer","destination","consumer"} and len(set(pids.values()))==3, "fixture processes were not independent")
         elif event=="destination_proof_armed":
             follower_only=True
+            cold_followers=row.get("restart_followers",False)
+        elif event=="destination_follower_process_started":
+            peer_restarts[row["node"]]=row["pid"]  # Independent custody auditor validates these.
         elif event=="destination_restarted":
             require(restarted is None and kills==1 and not resumed and row["pid"] not in pids.values(), "restart did not replace the killed destination")
             restarted=row["pid"]
         elif event=="fleet_process_stopped":
             require("final" in passed and row["node"] not in stopped and row["exit_code"]==0 and len(row["reports"])==1
                 and all(row["reports"][0].get(key) is True for key in ("ingress_drained","application_work_drained","cells_drained")), "incomplete graceful fleet shutdown")
-            expected_pid=restarted if row["node"]=="destination" else pids.get(row["node"])
+            expected_pid=restarted if row["node"]=="destination" else peer_restarts.get(row["node"],pids.get(row["node"]))
             require(row["pid"]==expected_pid, "shutdown report names another process")
             stopped.add(row["node"])
         elif event=="append_reply_held":
@@ -342,7 +356,8 @@ def audit_evidence(path):
                 require(label in expected, "unknown fleet stage")
                 pending,effects,checkpoint=expected[label]
             known_effects.update(effects)
-            require(snapshot["sources"]["cross"]["host"]=="producer" and snapshot["effects"]["host"]=="consumer", "fleet role changed")
+            source_hosts={"producer","consumer"} if cold_followers and label!="before-destination-loss" else {"producer"}
+            require(snapshot["sources"]["cross"]["host"] in source_hosts and snapshot["effects"]["host"]=="consumer", "fleet role changed")
             accepted=validate_snapshot(row["operations"],snapshot,effects,checkpoint,{"cross":pending})
             for key,evidence in accepted.items():
                 prior=operations[key].get("accepted")
@@ -381,10 +396,11 @@ def audit_evidence(path):
     return result
 
 
-def exercise(binary, root, rustfs_image=None, follower_only=False):
+def exercise(binary, root, rustfs_image=None, follower_only=False, restart_followers=False):
     require(os.name=="posix", "fleet qualification requires SIGKILL")
+    require(not restart_followers or follower_only,"cold followers require follower-only destination proof")
     root.mkdir(parents=True,exist_ok=False)
-    ledger=Ledger(root,commands=(("cross",725,1),)); processes=[]; proxy=None
+    ledger=Ledger(root,commands=(("cross",725,1),)); processes=[]; proxy=None;cold=None
     store=NetworkStore(root,ledger,rustfs_image) if rustfs_image else None
     try:
         if store:store.start()
@@ -404,26 +420,36 @@ def exercise(binary, root, rustfs_image=None, follower_only=False):
         proof = None
         if follower_only:
             from destination_proof import DestinationProof
-            proof = DestinationProof(root, store, ledger)
+            proof = DestinationProof(root, store, ledger,restart_followers=restart_followers)
             proof.arm()
         proxy.arm(); ledger.issue(origins["producer"],"cross")
         require(proxy.entered.wait(5), "append proof boundary was not reached")
         audit(ledger,origins,"before-destination-loss",1,[],0)
         if proof:proof.accepted(proxy.capture)
         destination.crash(ledger,"destination-after-proven-append")
+        if restart_followers:
+            from destination_disks import ColdFollowers
+            cold=ColdFollowers(proof,binary,processes)
+            cold.stop()
         if proof:proof.discard()
         if not proof:proxy.release.set()
+        if cold:cold.start()
         destination=FleetProcess(binary,root,"destination","destination-recovered",destination_peer,proxy.address,True,store,
             node_lease_ms=1000 if follower_only else None)
         processes.append(destination);origins["destination"]=destination.ready()
         ledger.record("destination_restarted", pid=destination.child.pid)
-        audit(ledger,origins,"recovered-before-retry",1,[],0)
+        source_hosts={"producer","consumer"} if cold else {"producer"}
+        if cold:
+            cold.ready(origins)
+            cold.append_gate()
+        audit(ledger,origins,"recovered-before-retry",1,[],0,source_hosts)
         if proof:proof.recovered()
         proxy.release.set()
         require(proxy.lost.wait(5), "original append response was not dropped")
         proxy.resume("recovered-before-retry")
+        if cold:cold.resume()
         eventually(lambda:read(origins["producer"],"/orders/cross"),lambda state:state["outbox"]["pending_rows"]=="0")
-        audit(ledger,origins,"accepted-after-retry",0,[],0)
+        audit(ledger,origins,"accepted-after-retry",0,[],0,source_hosts)
         known_effects=[]
         deadline=time.monotonic()+60
         interruptions=0
@@ -437,7 +463,7 @@ def exercise(binary, root, rustfs_image=None, follower_only=False):
                 observed=read(origins["consumer"],"/__test/projection-receipts")
                 effects=list(observed["receipts"])
                 require(set(known_effects).issubset(effects) and set(effects).issubset({"cross"}), "consumer interruption lost a proven effect")
-                snapshot=audit(ledger,origins,f"consumer-interrupted-{interruptions}",0,effects,0)
+                snapshot=audit(ledger,origins,f"consumer-interrupted-{interruptions}",0,effects,0,source_hosts)
                 known_effects=effects;interruptions+=1
                 if snapshot["subscription"]["observation"]["lease_active"]:
                     eventually(lambda:read(origins["destination"],"/subscription"),lambda state:not state["observation"]["lease_active"],timeout=45)
@@ -445,23 +471,31 @@ def exercise(binary, root, rustfs_image=None, follower_only=False):
         require(first["fresh_effects"]==1-len(known_effects) and first["status"]=="retried", "first effect missing or repeated")
         repeated=read(origins["consumer"],"/projection/process","POST")
         require(repeated["fresh_effects"]==0 and repeated["status"]=="acknowledged", "inbox redelivery repeated effects")
-        audit(ledger,origins,"final",0,["cross"],1)
+        audit(ledger,origins,"final",0,["cross"],1,source_hosts)
         proxy.outage=True
+        if cold:cold.quiesce()
         for process in reversed(processes):process.stop_recorded(ledger)
         proxy.close();proxy=None
+        if cold:cold.close()
         if store:store.close()
         summary=dict(audit_evidence(ledger.path),status="passed",binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
             scope="three independent loopback processes sharing a private "+("RustFS S3" if store else "SQLite")+" bucket; proven destination append reply loss and destination SIGKILL",
-            follower_only=follower_only,output=str(root))
+            follower_only=follower_only,restart_followers=restart_followers,output=str(root))
         (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
         print(json.dumps(summary),flush=True)
     finally:
         if proxy is not None:
             proxy.release.set();proxy.outage=True
+        if cold:cold.quiesce()
         for process in reversed(processes):process.stop()
-        if proxy is not None:proxy.close()
-        if store:store.close()
-        ledger.close()
+        try:
+            if proxy is not None:proxy.close()
+        finally:
+            try:
+                if cold:cold.close()
+            finally:
+                if store:store.close()
+                ledger.close()
 
 
 if __name__=="__main__":
@@ -471,6 +505,7 @@ if __name__=="__main__":
     parser.add_argument("--output",type=Path)
     parser.add_argument("--rustfs-image",help="start a fresh private Docker RustFS server instead of the SQLite bucket")
     parser.add_argument("--follower-only",action="store_true",help="refuse destination replica uploads and delete its local data before recovery")
+    parser.add_argument("--restart-followers",action="store_true",help="SIGKILL every original process and gate automatic append retries until cold recovery is audited; requires --follower-only")
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
-    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-stream-fleet-parent-"))/"evidence").resolve(),args.rustfs_image,args.follower_only)
+    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-stream-fleet-parent-"))/"evidence").resolve(),args.rustfs_image,args.follower_only,args.restart_followers)

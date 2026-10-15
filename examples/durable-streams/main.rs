@@ -86,6 +86,7 @@ struct FleetFixture {
     replica_fault: bool,
     #[serde(default)]
     owner_fault: bool,
+    blocked_claim: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -243,6 +244,15 @@ fn main() -> Result<()> {
             .map(|_| owner_fault::Control::new(&data));
         let bucket = match &owner_control {
             Some(control) => owner_fault::wrap(bucket, control.clone())?,
+            None => bucket,
+        };
+        let bucket = match fixture
+            .as_ref()
+            .and_then(|fixture| fixture.blocked_claim.as_deref())
+        {
+            Some(scope) => {
+                owner_fault::wrap(bucket, owner_fault::Control::for_claim(&data, scope)?)?
+            }
             None => bucket,
         };
         let peer = fixture

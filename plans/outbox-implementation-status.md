@@ -22,8 +22,8 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are cold destination append recovery, remaining
-stale settlement/reply interleavings, physical store/host loss and the
+The next actionable correctness priorities are the observed startup/shutdown
+failures and remaining stale settlement/reply interleavings, followed by physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
 boundaries; they do not complete the follower-proof failure matrix.
@@ -52,7 +52,65 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: cold destination acknowledgment and fetch recovery
+## Current follow-up: cold destination append recovery before automatic retry
+
+`fleet_faults.py --follower-only --restart-followers` now extends the original
+append cut to loss of every original process and recovery from retained follower
+disks. As in ack/fetch, archive actual committed CLB1/CLE1 batches, exclude new
+destination LTX/session-log bucket data before replacement, remove destination-
+local data, retain peer disks and require expired leases/new PIDs/generations.
+
+An unsettled source can otherwise repair missing acceptance automatically, even
+without an ordinary source command replay. A returning peer that acquires the
+stream could append locally and bypass the network gate. The private native
+fixture therefore supports `blocked_claim`: while `claim-block` exists, refuse
+only puts to the exact selected stream ownership object. Reads, other ownership
+and node lease writes, and actual retained follower responses remain unchanged.
+The wrapper retains the original no-retry conditional client and supplies no
+proof. A real refused claim must be observed before the destination starts.
+
+The replacement destination claims/recovers through the ordinary path. Both
+peer replacements must be ready and an identical automatic append actually
+blocked before the original accepted event/envelope, source receipt/pending
+obligation, empty inbox and checkpoint zero are audited. Only then may the held
+reply be dropped and retries resumed. Source ownership may move between returning
+peers; neither can acquire the selected stream during measurement. Offline audit
+rechecks the exact private configurations/markers and original follower archives.
+The same accepted event must settle and produce one effect/checkpoint with full
+process/proxy/store joins. This is a selected placement-controlled recovery cut,
+not qualification of unrestricted placement or missing witness disks.
+
+The initial SQLite run passed its state/effect audits but failed proxy cleanup:
+the killed source had already disconnected its held-response socket, so shutdown
+returned ENOTCONN. Cleanup then skipped other proxy listeners. The proxy now
+accepts only that already-disconnected outcome at the explicit drop call; other
+errors remain failures. Cleanup attempts every remaining proxy close before
+propagating failure. A real TCP-reset regression fails against the prior proxy
+with the same error and passes with the fix. The failed trace is retained.
+
+Final placement-gated cold append runs pass on SQLite (4.25s) and private pinned
+RustFS S3 (6.78s), including actual refused claims and blocked retries. The new
+immutable executable SHA-256 is
+`c8c01f76512b150a31f46c99a75aa2b42c81a5e1d54a5cf0700ccd76472c3bb6`.
+Ordinary smoke/live-follower append, cold ack, private S3 cold live-fetch and
+live-owner before-commit cases pass with that same executable. All 127 Python
+guards pass. The native claim-client test verifies exact-key refusal, unchanged
+bytes/read access, other ownership/lease writes, release and stale-CAS rejection.
+Workspace/all-target/all-feature check and Clippy with warnings denied plus
+seven artifact/three CLI tests pass. Core runtime/SDK code and owned markers
+remain unchanged; only private example Rust and qualification tools change.
+All six saved recovery ledgers pass offline audit. Formatting (509 Rust files),
+documentation (36 documents/6 flows/386 references), dependency checks (403
+packages/no JavaScript engine) and whitespace checks pass. Local checks use
+Rust 1.97.0/aarch64 macOS; hosted toolchain qualification remains separate.
+
+Next address the observed startup/shutdown failures and remaining stale
+settlement/reply interleavings. Unrestricted/local-owner placement, physical
+host/store/power, missing-disk, lifecycle, capacity and operational gates remain
+open. Passing these selected cases does not explain earlier intermittent
+bootstrap/recovery failures. The full goal remains incomplete.
+
+## 2026-10-15 cold destination acknowledgment and fetch recovery
 
 The ack/fetch process drivers now accept `--follower-only --restart-followers`.
 All original processes are SIGKILLed after an actual proven destination reply
