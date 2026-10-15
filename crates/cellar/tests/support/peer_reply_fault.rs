@@ -3,6 +3,7 @@
 
 use anyhow::{ensure, Result};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -27,6 +28,7 @@ pub(super) struct Exchange {
 pub(super) struct Capture {
     armed: Mutex<Option<(&'static str, Fault)>>,
     paused: watch::Sender<bool>,
+    upstream_closing: AtomicBool,
     pub entered: Semaphore,
     pub release: Semaphore,
     pub blocked: Semaphore,
@@ -39,6 +41,7 @@ impl Default for Capture {
         Self {
             armed: Mutex::new(None),
             paused: watch::channel(false).0,
+            upstream_closing: AtomicBool::new(false),
             entered: Semaphore::new(0),
             release: Semaphore::new(0),
             blocked: Semaphore::new(0),
@@ -61,6 +64,16 @@ impl Capture {
 
     pub fn resume_appends(&self) {
         self.paused.send_replace(false);
+    }
+
+    pub fn delay_ack(&self) {
+        *self.armed.lock().unwrap() = Some(("__streamAck", Fault::Delay));
+    }
+
+    /// A fenced destination can refuse new tunnel connections while cached
+    /// callers discover its successor. Only this controlled refusal is normal.
+    pub fn expect_upstream_close(&self) {
+        self.upstream_closing.store(true, Ordering::Release);
     }
 }
 
@@ -231,7 +244,17 @@ async fn message(reader: &mut BufReader<TcpStream>, response: bool) -> Result<Op
 
 async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
     let mut client = BufReader::new(socket);
-    let mut owner = BufReader::new(TcpStream::connect(target).await?);
+    let upstream = match TcpStream::connect(target).await {
+        Ok(socket) => socket,
+        Err(error)
+            if capture.upstream_closing.load(Ordering::Acquire)
+                && error.kind() == std::io::ErrorKind::ConnectionRefused =>
+        {
+            return Ok(())
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let mut owner = BufReader::new(upstream);
     while let Some(request) = message(&mut client, false).await? {
         let mut paused = capture.paused.subscribe();
         if request.header("x-cells-rpc-method") == Some("__streamAppend")
@@ -272,7 +295,9 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
                 delayed,
             });
             if delayed {
-                capture.paused.send_replace(true);
+                if method == "__streamAppend" {
+                    capture.paused.send_replace(true);
+                }
                 capture.entered.add_permits(1);
                 capture.release.acquire().await?.forget();
                 let result = reply.write(client.get_mut()).await;

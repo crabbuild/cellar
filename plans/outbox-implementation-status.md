@@ -3164,3 +3164,50 @@ lease/ack completions across destination takeover, physical network isolation,
 follower-only proof or the full crash/storage-loss matrix. These remain higher
 priority than SDK polish or more aggregate metrics. Earlier intermittent startup
 and shutdown failures retain their separate unestablished-cause audits.
+
+## Delayed proven ack across destination fencing
+
+`event_late_reply::delayed_proven_ack_survives_destination_fencing_without_consuming_the_next_lease`
+extends the correctness matrix to destination-owner failure. The proxy captures
+one complete successful ack response without pausing unrelated appends. A consumer
+has already committed/proven its inbox effect and saved the exact receipt. The
+test independently observes checkpoint one and no lease before removing only
+this test destination's node lease and requiring `NodeLeaseMissing` plus joined
+closed admission. The existing missing-authority fixture's 5-second readback
+window is retained; operation/readiness/shutdown budgets are not extended.
+
+Before replay, binding-only activation and signed inspection must recover the
+same subscription identity, checkpoint one, no lease and exact accepted event.
+A read of the authoritative partition owner record must show a different node
+and strictly higher epoch. Placement may choose any healthy host; a replacement
+entrance alone is not evidence that the partition changed owner. The old ack
+response is released only after these audits. The original caller may receive
+`Acknowledged` or `Ambiguous`, since the ack was committed/proven before the cut.
+Replaying the original saved receipt must return `AlreadyAcknowledged`.
+
+A second event then acquires a fresh lease and its local effect. Replaying the
+first receipt again must leave checkpoint one and the second lease's full summary
+unchanged. Only the fresh receipt may advance checkpoint two. The independently
+expected effect total is three. Final node shutdowns, proxy and observer join.
+Expected upstream `ConnectionRefused` after controlled destination closure closes
+the tunnel without fabricating a response; unrelated proxy errors still fail.
+
+The focused scenario passes in 7.10s and passes again inside the full serial
+Node run. That run fails overall: 39/42 pass in 534.24s. The unchanged cancelled-
+bootstrap case times out waiting for factory entry; the explicit-policy child
+hits its bootstrap deadline; failed-predecessor recovery reports `NodeLeaseExpired`
+at shutdown. Their causes remain unestablished, and this is not a green gate.
+A live process sample during the apparent initial stall shows the test had
+already returned an error and was formatting/symbolicating its backtrace; only
+two samples were obtained, so this does not establish the startup failure cause.
+The run was not restarted or interrupted. Workspace/all-target/all-feature Clippy
+passes with warnings denied (52.27s), formatting checks 500 Rust files, docs check
+36 documents/6 flows/386 references, dependency audit checks 403 packages without
+a JavaScript engine, and whitespace checks pass. The startup/recovery cause audit
+is the next priority before further fault-case additions. Production code and
+owned markers stay unchanged from
+a62a244. This covers a committed/proven ack whose response crosses joined owner
+fencing; it does not qualify lease-fetch response loss, an unproven ack cut, an
+old owner still executing during takeover, physical network isolation or
+follower-only proof. Those remain correctness priorities, along with the earlier
+unestablished startup/shutdown failure causes.
