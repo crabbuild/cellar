@@ -1,7 +1,7 @@
 //! Host-minted event RPC provenance. Application arguments cannot provide
 //! these fields; private binding adapters mint them before owner routing.
 
-use super::{Binding, Resource};
+use super::{error::error, Binding, ErrorCode, Resource};
 use crate::application::Context;
 use anyhow::{Context as _, Result};
 use serde::{Deserialize, Serialize};
@@ -102,11 +102,15 @@ impl Authority {
 
     pub(crate) fn mint(context: &Context, binding: &Binding, action: Action) -> Result<Self> {
         context.check_turn()?;
-        binding.validate()?;
-        anyhow::ensure!(
-            binding.principal == context.worker_config.script_name,
-            "stream principal does not match its host application identity"
-        );
+        binding
+            .validate()
+            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid stream binding"))?;
+        if binding.principal != context.worker_config.script_name {
+            return Err(error(
+                ErrorCode::Forbidden,
+                "stream principal does not match its host application identity",
+            ));
+        }
         let permitted = match action {
             Action::Resolve => {
                 binding.publish
@@ -119,12 +123,19 @@ impl Authority {
             Action::Read => binding.read,
             Action::Consume => !binding.subscriptions.is_empty(),
         };
-        anyhow::ensure!(permitted, "stream binding does not grant this operation");
+        if !permitted {
+            return Err(error(
+                ErrorCode::Forbidden,
+                "stream binding does not grant this operation",
+            ));
+        }
         let source = context.identity().map(|identity| identity.scope.clone());
-        anyhow::ensure!(
-            action != Action::Append || source.is_some(),
-            "stream append requires a source cell"
-        );
+        if action == Action::Append && source.is_none() {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "stream append requires a source cell",
+            ));
+        }
         Ok(Self {
             principal: context.worker_config.script_name.clone(),
             grant: binding.grant.clone(),

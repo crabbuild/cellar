@@ -171,6 +171,10 @@ even if the underlying metadata validator detects an invalid field or receipt.
 It cannot establish that a lease, acknowledgment, configuration or lifecycle
 change failed to commit. Valid broker error branches keep their exact typed
 code and metadata. Local preflight errors occur before this acceptance boundary.
+An invalid configuration definition or subscription name is `InvalidRequest`;
+a well-formed operation denied by the local binding is `Forbidden`. These local
+refusals do not contact the destination, and a local permission check never
+replaces the destination's current durable-grant check.
 
 `DeliveryError::is_permanent()` describes whether automatic outbox delivery blocks
 that lane. It is not a general SDK retry policy, and it does not mean that an

@@ -3058,3 +3058,28 @@ cellar-example-streams executable also passes examples/durable-streams/smoke.py:
 atomic producer, resumable read, inbox redelivery, acknowledgment and preserving
 restart. This qualifies the documented local walkthrough, not the complete
 backend/crash/ownership/release matrix.
+
+## Local SDK preflight standardization
+
+PR #34 is merged. PR #36 separately contains startup-failure diagnostics; its
+39/39 Node run does not establish the causes of the two earlier intermittent
+failures. Its correction to the current-status summary is independent of this
+SDK change.
+
+Authority minting now returns `Forbidden` for principal/permission refusal and
+`InvalidRequest` for malformed bindings or a missing append source. Configure
+returns `InvalidRequest` for an invalid definition. Subscription construction
+separates invalid names from valid names without a local grant. Receiver grant
+checks and submitted-result ambiguity are unchanged; owned markers stay at 1.
+The developer guide documents the local-refusal contract.
+
+Before destination provisioning, the native source fixture checks seven typed
+refusals and verifies that no catalog or stream partition activates. Local
+verification passes 218 library cases (9.82s), native stream (11.91s) and native
+outbox (0.65s). Compilation takes 7m29s with Rust 1.97.0/aarch64 macOS and the
+captured symbols-disabled, nonincremental dev/test profile. Formatting checks
+498 Rust files; documentation checks 36 documents/6 flows/386 references; the
+403-package dependency audit remains free of JavaScript engines. Workspace
+Clippy passes with all targets/features and warnings denied. Complete SDK outcome
+auditing and broader backend, ownership,
+fault, capacity and release gates remain open.
