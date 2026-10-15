@@ -636,6 +636,19 @@ source POST to repair this test. Runtime prefix and complete offline audits plus
 survivor joins are mandatory. This selected source cut does not qualify follower
 disk loss, destination append/fetch/ack follower-only cuts or physical host/power
 loss. Existing fixtures keep their default proof/lease policies.
+`--restart-followers --peer-proof bucket` kills every original process and keeps
+destination/consumer leader writes bucket-backed while the source uses real fleet
+proof. Recheck source bucket absence with all original memory gone; archive the
+original ensemble's committed batches before any restart. Inspect current CLB1/
+CLE1 headers, ranges and SHA-256 footers, not only the possibly zero state.json
+seed. Require unchanged files, actual old authority expiry, distinct PIDs/new node
+generations and recovery audits before effects/ack. Bucket observations include
+the producer session's node-log bundle/recovered objects as well as source LTX;
+either publication invalidates a follower-only claim. Recheck both archives at
+completion. The all-fleet `--peer-proof fleet` variant remains unqualified: a
+private S3 case deleted the destination's sole follower witness with the producer
+disk and refused startup. Preserve that failed trace and do not treat the
+source-only proof case as its fix or general disk/power qualification.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST

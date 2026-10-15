@@ -447,6 +447,25 @@ acceptance and leader-local-data loss. Destination append/fetch/ack follower-onl
 cuts, loss of the follower disks, physical host/power loss and unsupported store
 loss remain separate qualification requirements.
 
+Add `--restart-followers --peer-proof bucket` to kill **all** original fleet
+processes and restart destination/consumer from their retained disks. The source
+still uses follower-only proof; the explicit peer policy keeps other leaders'
+commits bucket-backed. Before any replacement starts, the driver rechecks that
+source bucket bytes are unchanged, including producer-session node-log objects
+as well as cell LTX, and archives the original ensemble's committed
+batch files. Batch headers, ranges, entry identities and SHA-256 footers supply
+the evidence; `state.json` may legitimately retain a zero watermark. It verifies
+unchanged follower files before restart, actual old authority expiry, new PIDs
+and new node generations before auditing recovery. Saved source and follower
+archives are checked again at completion.
+
+The broader `--restart-followers --peer-proof fleet` case has an open recovery
+gap: deleting the producer's disk can also delete the destination's sole follower
+witness. A private S3 run refused destination startup with `no complete true
+witness`; consumer/successor activation then failed. This is fail-closed behavior,
+not successful recovery. Passing the source-only proof case does not resolve
+that combined failure or establish physical disk/power tolerance.
+
 ## Discover sources from the fleet
 
 `cellar outbox census Order --limit 100 --json [FLEET OPTIONS]` lists root source

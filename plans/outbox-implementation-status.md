@@ -16,7 +16,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Resolve the combined fleet-process/leader-local-data-loss case that removes another leader's sole follower witness. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout and explicit-policy closed-domain failure with the stage diagnostics from PR #36; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
@@ -52,7 +52,71 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: follower-only source acceptance
+## Current follow-up: recover source proof after follower restart
+
+The source-proof driver adds an explicit `--restart-followers` mode. It SIGKILLs
+every original process, archives the producer's original ensemble's committed
+follower batches and independently rechecks unchanged source bucket data while
+no original process survives. It then archives/deletes leader-local data,
+observes each original node's persisted authority expiry and starts all
+replacements before waiting for activation. Each follower must retain the same
+files but register a new PID/node generation. The actual new source owner may be
+a restarted follower; direct owner metadata must show a higher epoch and match
+the serving source. Original receipts, pending obligation and accepted envelope
+bytes must survive before any consumer effect or acknowledgment. No source POST
+is replayed. Complete audits recheck the source and follower archives.
+
+The first oracle incorrectly required a positive state.json watermark and
+rejected actual successful SQLite recovery. Inspection of the immutable killed
+disk showed the seed at zero and committed batches spanning later sequences.
+The measuring code now decodes the current CLB1/CLE1 batch format independently,
+checks full SHA-256 footers, entry/header/filename ranges, and identifies original
+source/ownership-epoch frames. This follows the runtime's documented batch commit
+point; it does not relax source identity or durability requirements. The original
+failed trace remains retained.
+
+The broader all-fleet S3 case found a separate open recovery gap. Destination's
+persisted log had `may_have_fleet_acks=true`, `tiered=0`, and sole ensemble member
+producer. Deleting producer-local data also deleted that destination session's
+only follower batches. Destination restart refused with `no complete true
+witness` and consumer/successor event activation failed. No successful recovery
+is claimed for that trace. The implementation currently fails closed; whether
+and how to recover safely from the surviving former leader's local data, or
+prevent this availability loss through proof policy, requires further work.
+
+An explicit `--peer-proof bucket` case isolates source follower restart by keeping
+destination/consumer leader commits bucket-backed. Source proof remains fleet
+only, with real refused replica uploads and original source LTX still absent from
+the bucket after all SIGKILLs. Both SQLite and private S3 runs recover the original
+source after restarting followers from retained disk, then apply exactly two
+effects and checkpoint two. This is additional source-proof evidence; it does
+not replace or close the failing all-fleet case. Defaults retain fleet proof on
+peers; every saved run records its actual peer policy.
+The bucket inventory includes both cell LTX and producer-session node-log
+bundle/recovered objects. Either new object or changed bytes reject a
+follower-only claim, including while every original process is dead. The live-
+follower regression also passes on both backends under this stronger inventory.
+
+Final source-only restart cases pass on SQLite (3.30s) and private RustFS S3
+(6.21s), with the acknowledging destination process restarted and then serving
+the original pending source under epoch two. All original processes are dead
+at the bucket/data archive boundary; producer-session bucket bundle count is
+zero. Live-follower regressions pass on SQLite/S3 (2.68s/5.24s). Oracle guards
+pass 101 cases; native artifact/CLI suites pass 7/3 cases. Workspace/all-target/
+all-feature Clippy passes with warnings denied (1m30s including a package-cache
+lock wait), formatting checks 505 Rust files, docs validate 36 documents/6 flows/
+386 references and dependency audit checks 403 packages with no JavaScript
+engine. Rust example source hashes and the reused executable's SHA256 are
+verified unchanged from the preceding qualified build; this turn changes only
+the Python measuring/oracle code and documentation.
+
+Next correctness work starts with the combined lost-witness recovery boundary,
+then destination follower-only append/fetch/ack cuts. Physical disk destruction,
+power/host loss, the earlier unexplained startup/recovery intermittents and the
+remaining lifecycle/capacity/operational gates remain open. All owned markers
+stay one; this turn adds no runtime schema/protocol reader or migration.
+
+## 2026-10-15 follower-only source acceptance
 
 The selected risk is an acknowledged source state/outbox transaction existing
 only on the fleet log when the leader loses all local state. The new
