@@ -251,6 +251,15 @@ revision when resolving an ambiguous retry response; replay returns its retained
 receipt and does not schedule another attempt, even after delivery completes.
 That receipt proves the retry obligation, not destination acceptance.
 
+Node lease objects retain folded log recovery evidence even after expiry or
+retirement. An expired lease is eligible for recovery; a missing lease is not
+proof that bucket data is complete. When a cell names that displaced owner,
+missing metadata blocks takeover until valid evidence returns. Do not delete
+node lease objects as a recovery or garbage-collection procedure. Restoring
+metadata must retain the original generation, ensemble and acknowledgment
+history. Node-name reuse after metadata erasure and physical store loss remain
+separate release qualifications.
+
 Start with the [executable walkthrough](../examples/durable-streams/README.md).
 Its smoke test checks publication, retry, preserving restart, inbox suppression
 and acknowledgment. Its process-fault harnesses retain independent ledgers and

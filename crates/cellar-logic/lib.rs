@@ -4629,10 +4629,10 @@ impl State {
                 // core just read (lease-fold): a dead owner whose folded
                 // log state is not sealed may hold acked writes only on
                 // its followers, and claiming before recovery fixes a
-                // bucket state that excludes them. Absence of a lease —
-                // or a lease that never opened a log — keeps its meaning
-                // as a proof: nothing was acked past the bucket.
-                let unrecovered = lease.as_ref().is_some_and(|lease| {
+                // bucket state that excludes them. A present lease without
+                // a log proves bucket completeness. A missing lease cannot
+                // supply that proof: require the recovery interlock to decide.
+                let unrecovered = lease.as_ref().is_none_or(|lease| {
                     !matches!(
                         lease.record.log_state,
                         None | Some(crate::log_tier::LogState::Sealed)

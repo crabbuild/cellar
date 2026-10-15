@@ -133,21 +133,26 @@ pub(super) async fn recovered_status(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss() -> Result<()> {
-    run(false, false).await
+    run(false, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload() -> Result<()>
 {
-    run(true, false).await
+    run(true, false, false).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn refused_clock_cold_followers_recover_before_any_receipt_replay() -> Result<()> {
-    run(true, true).await
+    run(true, true, false).await
 }
 
-async fn run(followers: bool, cold_followers: bool) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn missing_destination_lease_refuses_admission_until_proof_metadata_returns() -> Result<()> {
+    run(true, false, true).await
+}
+
+async fn run(followers: bool, cold_followers: bool, missing_metadata: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let destination_data = directory.path().join("destination");
     let destination_core = Executor::new("refusal-clock-destination")?;
@@ -440,10 +445,24 @@ async fn run(followers: bool, cold_followers: bool) -> Result<()> {
             "shutdown repaired the follower-only prefix"
         );
     }
-    // This controlled liveness fault changes only expiry after the old domain
-    // has joined. Keep every folded proof field; deleting the lease object
-    // would destroy the evidence that follower recovery must consume.
-    let old_lease = if cold_followers {
+    // Retained-proof cuts change only expiry after the old domain joins.
+    // The separate metadata-loss cut deletes that proof root deliberately;
+    // admission must remain blocked until its original fields return.
+    let old_lease = if missing_metadata {
+        observer
+            .run(async {
+                let key = "nodes/refusal-destination.json";
+                let (bytes, _) = bucket
+                    .get(key)
+                    .await?
+                    .context("old lease missing before loss")?;
+                let saved: Value = serde_json::from_slice(&bytes)?;
+                bucket.delete(key).await?;
+                ensure!(bucket.get(key).await?.is_none());
+                Ok::<_, anyhow::Error>(saved)
+            })
+            .await??
+    } else if cold_followers {
         let old_source_services = source.services();
         stopped(source)
             .await
@@ -544,6 +563,40 @@ async fn run(followers: bool, cold_followers: bool) -> Result<()> {
     let replacement_node =
         Node::start(config, services, external, applications("replacement")?).await?;
     super::super::ready(&replacement_node).await?;
+    if missing_metadata {
+        let refused = status(&client, &replacement_node).await;
+        let unchanged = owner(&observer, &bucket).await?;
+        ensure!(
+            refused.is_err() && unchanged == first_owner,
+            "missing folded metadata admitted a successor: {refused:?}; {first_owner} -> {unchanged}"
+        );
+        ensure!(
+            replicas(&observer, &bucket).await? == baseline,
+            "missing-metadata refusal changed the bucket payload prefix"
+        );
+        observer
+            .run(async {
+                let key = "nodes/refusal-destination.json";
+                ensure!(
+                    bucket.get(key).await?.is_none(),
+                    "refusal fabricated a node record"
+                );
+                // Return the original proof metadata. Only post-join liveness
+                // changes; the generation, ensemble and acknowledgment marker
+                // are the exact values saved before the deliberate deletion.
+                let mut restored = old_lease.clone();
+                restored["expires_ms"] = json!(wall() - 1);
+                ensure!(
+                    bucket
+                        .put_cas(key, serde_json::to_vec(&restored)?, None)
+                        .await?
+                        .is_some(),
+                    "a successor replaced the absent metadata"
+                );
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+    }
     let (recovered, read_retries) = recovered_status(&client, &replacement_node, expires).await?;
     let next_owner = owner(&observer, &bucket).await?;
     ensure!(
@@ -642,7 +695,7 @@ async fn run(followers: bool, cold_followers: bool) -> Result<()> {
     eprintln!(
         "CLOCK_REFUSAL_EVIDENCE {}",
         json!({"proof":if followers {"followers"}else{"bucket"},"old_owner":first_owner,"successor":next_owner,
-        "cold_followers":cold_followers,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
+        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"read_retries":read_retries,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
     );
     stopped(source)
         .await

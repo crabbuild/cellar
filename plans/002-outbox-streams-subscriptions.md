@@ -233,6 +233,10 @@ Required invariants:
   admission if forced closure occurs inside an already-entered callback.
   Rollback cleanup retains only the original connection authority after closure.
 - Missing durability evidence cannot be converted into an empty restored state.
+  A displaced owner's missing node lease is not the same as a present lease
+  without a folded log. Require the recovery interlock before claiming its cells;
+  a missing lease root must refuse recovery rather than certify bucket completeness.
+  First boot without a named predecessor is a separate admission boundary.
   A log with possible fleet acknowledgments needs a complete follower witness;
   expiry or prolonged unreachability does not authorize abandoning its writes.
   An unreadable retained bundle blocks its fold. Loss diagnostics alone never

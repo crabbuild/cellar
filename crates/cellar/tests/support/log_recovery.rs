@@ -58,6 +58,15 @@ fn rows(tail: cellar::node_log::TailResp) -> Vec<(u64, String, u64, u64, Vec<u8>
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn returned_cold_witness_recovers_original_state_after_recorded_refusal() -> Result<()> {
+    run(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn missing_node_lease_blocks_takeover_until_original_metadata_returns() -> Result<()> {
+    run(true).await
+}
+
+async fn run(missing_lease: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let original = pair(
         &directory.path().join("fleet.sqlite"),
@@ -130,7 +139,7 @@ async fn returned_cold_witness_recovers_original_state_after_recorded_refusal() 
             let returned = Arc::new(ReturningWitness {
                 missing: transport(empty),
                 retained: transport(retained.clone()),
-                use_retained: AtomicBool::new(false),
+                use_retained: AtomicBool::new(missing_lease),
             });
             let replica = Replication::start(
                 &directory.path().join("recovery"),
@@ -175,25 +184,60 @@ async fn returned_cold_witness_recovers_original_state_after_recorded_refusal() 
                 .saturating_sub(cellar::ownership_store::now_ms());
             tokio::time::sleep(Duration::from_millis(wait + 1)).await;
 
-            let refusal = log
-                .recover(&session)
-                .await
-                .expect_err("empty disk certified missing proof");
-            ensure!(format!("{refusal:#}").contains("no complete true witness"));
-            let (body, _) = bucket.get(&format!("nodes/{leader}.json")).await?.unwrap();
-            let blocked: serde_json::Value = serde_json::from_slice(&body)?;
-            ensure!(
-                blocked["generation"] == previous.generation
-                    && blocked["log"]["state"] == "recovering"
-            );
-            let epoch = blocked["log"]["epoch"].as_u64().unwrap();
-            let diagnostic = format!("log/{session}.e{epoch}.loss.json");
-            let (recorded, _) = bucket
-                .get(&diagnostic)
-                .await?
-                .expect("missing blocked diagnostic");
-            let recorded_value: serde_json::Value = serde_json::from_slice(&recorded)?;
-            ensure!(recorded_value["recovery_blocked"] == true);
+            let key = format!("nodes/{leader}.json");
+            let diagnostic = if missing_lease {
+                let (saved, _) = bucket.get(&key).await?.context("old lease missing")?;
+                let original: serde_json::Value = serde_json::from_slice(&saved)?;
+                ensure!(original["log"]["may_have_fleet_acks"] == true);
+                bucket.delete(&key).await?;
+                ensure!(bucket.get(&key).await?.is_none());
+                let gate = log.ensure_recovered(Some(leader)).await;
+                let direct = log.recover(&session).await;
+                ensure!(
+                    gate.is_err() && direct.is_err(),
+                    "missing node lease permitted takeover gate ({gate:?}) or explicit recovery ({direct:?})"
+                );
+                for result in [gate, direct] {
+                    let error = result.unwrap_err();
+                    ensure!(format!("{error:#}").contains("missing node lease"));
+                }
+                ensure!(bucket.get(&key).await?.is_none(), "refusal fabricated metadata");
+                ensure!(
+                    replica.restore_snapshot(CELL).await?.is_none(),
+                    "missing metadata exposed bucket state as a complete restore"
+                );
+                let cold = peer.run(retained.tail(&request)).await??;
+                ensure!(
+                    cold.range == original_range && rows(cold) == original_rows,
+                    "metadata refusal changed retained follower proof"
+                );
+                ensure!(
+                    bucket.put_cas(&key, saved.to_vec(), None).await?.is_some(),
+                    "a concurrent node replaced the absent record"
+                );
+                None
+            } else {
+                let refusal = log
+                    .recover(&session)
+                    .await
+                    .expect_err("empty disk certified missing proof");
+                ensure!(format!("{refusal:#}").contains("no complete true witness"));
+                let (body, _) = bucket.get(&key).await?.unwrap();
+                let blocked: serde_json::Value = serde_json::from_slice(&body)?;
+                ensure!(
+                    blocked["generation"] == previous.generation
+                        && blocked["log"]["state"] == "recovering"
+                );
+                let epoch = blocked["log"]["epoch"].as_u64().unwrap();
+                let diagnostic = format!("log/{session}.e{epoch}.loss.json");
+                let (recorded, _) = bucket
+                    .get(&diagnostic)
+                    .await?
+                    .expect("missing blocked diagnostic");
+                let recorded_value: serde_json::Value = serde_json::from_slice(&recorded)?;
+                ensure!(recorded_value["recovery_blocked"] == true);
+                Some((diagnostic, recorded))
+            };
             ensure!(
                 replica.restore_snapshot(CELL).await?.is_none(),
                 "refusal exposed a restored cell"
@@ -205,7 +249,7 @@ async fn returned_cold_witness_recovers_original_state_after_recorded_refusal() 
                 cold.range == original_range && rows(cold) == original_rows,
                 "returned disk changed proven bytes"
             );
-            tokio::time::timeout(Duration::from_secs(5), log.recover(&session)).await??;
+            tokio::time::timeout(Duration::from_secs(5), log.ensure_recovered(Some(leader))).await??;
             tokio::time::timeout(Duration::from_secs(5), log.recover(&session)).await??;
             let snapshot = replica
                 .restore_snapshot(CELL)
@@ -225,11 +269,13 @@ async fn returned_cold_witness_recovers_original_state_after_recorded_refusal() 
             ensure!(
                 sealed["generation"] == previous.generation && sealed["log"]["state"] == "sealed"
             );
-            let (history, _) = bucket.get(&diagnostic).await?.unwrap();
-            ensure!(
-                history == recorded,
-                "recovery rewrote a prior diagnostic as permission"
-            );
+            if let Some((diagnostic, recorded)) = diagnostic {
+                let (history, _) = bucket.get(&diagnostic).await?.unwrap();
+                ensure!(
+                    history == recorded,
+                    "recovery rewrote a prior diagnostic as permission"
+                );
+            }
             drop(connection);
             owner.shutdown_local().await;
             Ok::<_, anyhow::Error>(())

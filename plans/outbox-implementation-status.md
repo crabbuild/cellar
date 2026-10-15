@@ -3,7 +3,9 @@
 Updated 2026-10-15. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
-release. The native fixture now exercises source, catalog, stream, and consumer
+release. All pending event-delivery changes are consolidated in PR #46 against
+main; PRs #47–#62 are superseded. Follow-ups update that same active PR rather
+than creating a stack. The native fixture now exercises source, catalog, stream, and consumer
 turns together; that local evidence does not satisfy the fleet/release gates.
 
 ## Current priorities and readiness
@@ -23,7 +25,8 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
 The next actionable correctness work is independent-process clock-refusal
-recovery and the node lease/folded-record loss contract, followed
+recovery and the remaining node lease/folded-record loss contract (especially
+stable node-name reuse after erased metadata), followed
 by remaining retention/lease and source-control transitions. The lost-expiry
 defect below is fixed; selected native owner-loss and publication cuts now extend
 its local qualification without closing the full proof/fault matrix.
@@ -57,6 +60,50 @@ development. Layout changes use hard cutovers with recreated state and rebuilt
 participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
+
+## Current follow-up: missing node lease recovery evidence
+
+A native log regression reproduces two premature-success paths. After a real
+follower fsync proves one SQL write, join both original domains, remove leader
+local state and verify no bucket payload exists. Delete only the old node lease
+root, preserving the cold follower bytes. Both ensure_recovered and explicit
+recover incorrectly return success (1.05s; repeat from the same pre-fix executable 1.04s).
+A separate decision-core regression shows a missing lease bypasses RecoverNodeLog
+and proceeds toward a claim. These failures establish a metadata-absence defect;
+they do not establish a complete process/store-loss contract.
+
+The core now sends named-owner missing leases through the ordinary recovery
+interlock. Log reads require a present, identity-matching node lease; only own-node
+first boot may read an optional root before installation. A present no-log lease
+and a present successor generation retain their recovery-before-replacement
+meaning. No schema, wire marker or version changes. The regression requires
+refusal without fabricated metadata or a restored cell, unchanged cold follower
+proof, and correct original SQL after the saved metadata returns, before command
+replay. Initial complete native-log qualification passes all seven cases (4.60s).
+The initial full Node admission case passes (8.84s): with actual authenticated
+peer routing and blocked payload uploads, a missing destination root refuses
+requests without changing the original owner/epoch or bucket payload prefix.
+Return the saved original proof fields with post-join expiry shortened; audit
+higher-epoch recovery before receipt reuse. Retained logical clock, exact event
+bytes, pending source identity, inbox effect and checkpoints all survive.
+All 13 decision-core tests, 238 library tests (6.92s), six actor, six external
+ingress and seven final native log cases (4.52s) pass.
+
+The first full Node run passes 60 cases and fails two older delayed-reply
+fixtures: they deliberately erase a node root to drive NodeLeaseMissing, then
+expect recovery to proceed while the evidence is still absent. Preserve that
+original missing-lease fence and complete join. The corrected private-SQLite
+fault uses DELETE RETURNING to atomically retain the exact removed root (no
+GET/DELETE window can discard an intervening log CAS), then conditionally
+restores those proof fields with only expiry shortened before successor
+recovery. The missing-metadata case above independently requires refusal until
+valid evidence returns. Final full Node/static qualification is pending below.
+
+Stable node-name reuse after metadata erasure remains a distinct open boundary:
+a first-ever node and an erased old root cannot be distinguished by optional
+boot lookup alone. Do not claim this selected guard establishes that contract,
+metadata rollback safety, independent-process or physical-store-loss recovery.
+The full design and release gates remain incomplete.
 
 ## Current follow-up: proven and unproven clock-only refusals
 

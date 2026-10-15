@@ -93,6 +93,15 @@ when the diagnostic is cached. Preserve the recovering predecessor and require
 valid evidence before retry can succeed. Local SQLite state alone is not a
 complete node-log witness; do not add a fallback that silently resets accepted
 outbox, stream, inbox or checkpoint state.
+A missing node lease root is unproven, not an absent folded log. The core must
+invoke RecoverNodeLog for a named foreign owner whose lease is missing; the log
+reader must refuse that root in explicit/takeover recovery. Only own-node first
+boot reads an optional root before lease installation. Retired leases remain
+present tombstones. Never fabricate a no-log record to unblock recovery. Keep
+node-name reuse after erased metadata separate from retained-root qualification.
+Delayed-reply fixtures retain the exact removed root atomically in their private
+SQLite store, assert NodeLeaseMissing and full join, then restore its proof fields
+with only expiry shortened before expecting retained-proof recovery.
 Returning-witness coverage belongs in tests/support/log_recovery.rs, included by
 native_log.rs. It must use cold follower stores and exact retained bytes, remove
 leader-local data and exclude bucket data before recovery, and check SQL state
@@ -888,11 +897,12 @@ smoke is `census_smoke.py`; keep census scope distinct from destination watermar
 
 ## Change discipline
 
-Create PRs against `main`, including work that depends on pending PRs. Record
-dependencies and oldest-first merge order in their descriptions. Do not use a
-deletable feature branch as a PR base: GitHub can close its dependent PRs when
-that branch is deleted. Squash merges can still require synchronizing later
-branches; preserve reviewed file contents when repairing ancestry.
+Use a single active PR against `main` for ongoing outbox, stream and subscription
+work. Reuse that PR's head branch for follow-ups; do not create stacked or
+successor PRs while it is open. After it merges, start any next PR from updated
+`main`. Do not base PRs on deletable feature branches. When consolidating,
+preserve all reviewed changes, close superseded PRs only after the surviving
+PR contains them, and record the consolidation in its description.
 
 The dashboard is an optional management application, separate from native cell
 execution. Browser JavaScript does not authorize adding a JavaScript engine to

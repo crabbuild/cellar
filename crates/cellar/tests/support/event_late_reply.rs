@@ -5,6 +5,68 @@ use super::*;
 use base64::Engine;
 use serde_json::{json, Value};
 
+// This fixture deliberately removes authority to exercise NodeLeaseMissing.
+// Atomically retain the exact deleted root: a separate GET followed by DELETE
+// could miss an intervening log/lease CAS and discard its proof metadata.
+async fn remove_authority(
+    domain: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+    node: &str,
+) -> Result<Value> {
+    ensure!(
+        bucket.scheme() == "dev",
+        "authority fault requires the private SQLite store"
+    );
+    let database = std::path::PathBuf::from(&bucket.name);
+    let key = format!("{}nodes/{node}.json", bucket.prefix);
+    let bytes = domain
+        .blocking(move || {
+            let connection = rusqlite::Connection::open(database)?;
+            connection.busy_timeout(Duration::from_secs(1))?;
+            connection.pragma_update(None, "synchronous", "FULL")?;
+            let bytes: Vec<u8> = connection.query_row(
+                "DELETE FROM __sys_local_objects WHERE key = ?1 RETURNING body",
+                [key],
+                |row| row.get(0),
+            )?;
+            Ok::<_, anyhow::Error>(bytes)
+        })?
+        .await??;
+    let saved: Value = serde_json::from_slice(&bytes)?;
+    ensure!(
+        saved["node"] == node,
+        "removed authority belongs to another node"
+    );
+    Ok(saved)
+}
+
+async fn restore_joined_authority(
+    domain: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+    node: &str,
+    saved: &Value,
+) -> Result<()> {
+    domain
+        .run(async {
+            let key = format!("nodes/{node}.json");
+            ensure!(
+                bucket.get(&key).await?.is_none(),
+                "removed lease was recreated before join"
+            );
+            let mut expired = saved.clone();
+            expired["expires_ms"] = json!(cellar::ownership_store::now_ms().saturating_sub(1));
+            ensure!(
+                bucket
+                    .put_cas(&key, serde_json::to_vec(&expired)?, None)
+                    .await?
+                    .is_some(),
+                "a concurrent node replaced the removed authority"
+            );
+            Ok::<_, anyhow::Error>(())
+        })
+        .await?
+}
+
 fn dispatch_observation(node: &Node) -> Result<[u64; 5]> {
     let snapshot = node.services().event_metrics();
     let counter = |name| {
@@ -428,10 +490,7 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
     // This drives the real authority readback; no shutdown path or fake proof
     // adapter is used to close the source execution domain.
     let faults = ExecutionDomain::new(tokio::runtime::Handle::current());
-    faults
-        .run(async { bucket.delete("nodes/late-source.json").await })
-        .await??;
-    faults.shutdown().await;
+    let removed = remove_authority(&faults, &bucket, "late-source").await?;
     let source_services = source.services();
     let outcome = tokio::time::timeout(
         Duration::from_secs(10),
@@ -450,6 +509,10 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
         .configure_metrics(Arc::new(HostMetricsSample::default))
         .is_err());
     ensure!(source_core.handle().spawn(async { 7 }).await? == 7);
+    // Missing authority fenced the old process. Return its exact proof fields
+    // only after join, with expiry shortened, before asking for a successor.
+    restore_joined_authority(&faults, &bucket, "late-source", &removed).await?;
+    faults.shutdown().await;
 
     let (config, services) = inputs(
         "late-successor",
@@ -674,9 +737,7 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
     );
 
     proxy.capture.expect_upstream_close();
-    observer
-        .run(async { bucket.delete("nodes/late-ack-destination.json").await })
-        .await??;
+    let removed = remove_authority(&observer, &bucket, "late-ack-destination").await?;
     let destination_services = destination.services();
     let outcome = tokio::time::timeout(
         Duration::from_secs(10),
@@ -696,6 +757,7 @@ async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_n
         .configure_metrics(Arc::new(HostMetricsSample::default))
         .is_err());
     ensure!(destination_core.handle().spawn(async { 7 }).await? == 7);
+    restore_joined_authority(&observer, &bucket, "late-ack-destination", &removed).await?;
     let (config, services) = inputs(
         "late-ack-replacement",
         &directory.path().join("replacement"),

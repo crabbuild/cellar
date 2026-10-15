@@ -508,7 +508,8 @@ pub fn eviction_policy_from_env() -> anyhow::Result<cellar_logic::log_evict::Evi
 // beside its authority fields, and a session's identity is the record's
 // generation. Reading "session X/G" means reading X's lease and answering
 // None unless it still carries generation G — a replaced record is a
-// recovered-then-superseded session, and absence keeps meaning complete.
+// recovered-then-superseded session. A present lease without a log also proves
+// bucket completeness. A missing lease cannot prove either condition.
 // Writes here are for DEAD sessions only (recovery's fence and seal): they
 // CAS the full wire record, carrying every authority field through
 // unchanged and never touching expiry. A LIVE session's own writes go
@@ -565,18 +566,27 @@ pub(crate) fn log_to_wire(
     }
 }
 
-pub(crate) async fn read_record(
+/// Read a node lease without assuming that an absent root proves recovery.
+/// Only first boot may proceed without this root; retired nodes retain it.
+async fn read_node_record(
     bucket: &Bucket,
-    session: &str,
-) -> anyhow::Result<Option<FoldedRead>> {
-    let (node, generation) = session.split_once('/').unwrap_or((session, ""));
+    node: &str,
+) -> anyhow::Result<Option<(crate::ownership_store::NodeLeaseWire, String)>> {
     let Some((bytes, token)) = bucket.get(&lease_key(node)).await? else {
         return Ok(None);
     };
     let wire: crate::ownership_store::NodeLeaseWire = serde_json::from_slice(&bytes)?;
-    // A bare node name reads whatever session the record carries; a full
-    // <node>/<generation> pins it, and a superseded generation is a
-    // recovered-then-replaced session whose absence means complete.
+    anyhow::ensure!(wire.node == node, "node lease identity mismatch for {node}");
+    Ok(Some((wire, token)))
+}
+
+fn folded_record(
+    wire: crate::ownership_store::NodeLeaseWire,
+    token: String,
+    generation: &str,
+) -> anyhow::Result<Option<FoldedRead>> {
+    // A present successor lease proves recovery-before-replacement. This
+    // conclusion requires the lease root; absence of that root is no proof.
     if !generation.is_empty() && wire.generation != generation {
         return Ok(None);
     }
@@ -589,6 +599,17 @@ pub(crate) async fn read_record(
         token,
         wire,
     }))
+}
+
+pub(crate) async fn read_record(
+    bucket: &Bucket,
+    session: &str,
+) -> anyhow::Result<Option<FoldedRead>> {
+    let (node, generation) = session.split_once('/').unwrap_or((session, ""));
+    let (wire, token) = read_node_record(bucket, node)
+        .await?
+        .ok_or_else(|| anyhow!("missing node lease for {session}; recovery is unproven"))?;
+    folded_record(wire, token, generation)
 }
 
 /// CAS a DEAD session's folded log fields. Authority fields ride through
@@ -4388,7 +4409,14 @@ impl NodeLogManager {
         if self.predecessors_clean.load(Ordering::SeqCst) {
             return Ok(());
         }
-        if let Some(folded) = read_record(&self.bucket, &self.node).await? {
+        // This node may never have booted before. Unlike recovery of an
+        // explicitly named predecessor, first boot has no lease to require.
+        let prior = read_node_record(&self.bucket, &self.node).await?;
+        if let Some(folded) = prior
+            .map(|(wire, token)| folded_record(wire, token, ""))
+            .transpose()?
+            .flatten()
+        {
             let session = format!("{}/{}", self.node, folded.wire.generation);
             if session != self.session
                 && log_tier::takeover_gate(Some(&folded.record))
@@ -5324,9 +5352,9 @@ impl NodeLogManager {
     /// reconciliation names the displaced owner exactly like one confirmed
     /// by the CAS response — the v0 ambiguous-CAS window is closed. `None`
     /// means the consumed record was released or absent, which the release
-    /// path already proved durable. Absence of a log record is a proof (the
-    /// node never acked past the bucket); a sealed record means recovery
-    /// already ran; anything else runs it now.
+    /// path already proved durable. A present lease without a log proves the
+    /// node never acked past the bucket; a sealed log proves recovery already
+    /// ran. A missing lease root is unproven and must refuse the takeover.
     pub async fn ensure_recovered(&self, prior: Option<&str>) -> anyhow::Result<()> {
         self.ensure_predecessors_recovered().await?;
         let Some(prior) = prior else {
@@ -5337,7 +5365,7 @@ impl NodeLogManager {
         }
         // ONE rule for every cold path, at the cost of ONE read the core
         // usually already performed: before restoring a cell last owned
-        // by node X, X's folded log state must be sealed or absent. The
+        // by node X, X's lease must exist and its log be sealed or absent. The
         // lease record holds at most one session's state — recovery-
         // before-install is what keeps a predecessor's Open state from
         // being replaced unrecovered — so a single GET decides.

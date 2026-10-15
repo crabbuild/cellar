@@ -571,3 +571,70 @@ fn terminal_adoption_failures_advance_drain_progress_without_counting_stale_repl
     assert_eq!(state.owned_cells(), 0);
     assert_eq!(state.handoffs_in_flight(), 0);
 }
+
+#[test]
+fn missing_owner_lease_requires_recovery_before_claiming() {
+    let mut limits = config();
+    limits.owner_log_recovery_attempts = 1;
+    let mut state = State::new("replacement", limits);
+    let op = request(&mut state, 1, "Account:missing-proof");
+    let effects = on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 0,
+            result: Ok(Some(OwnerRecord {
+                node: Some("missing-leader".into()),
+                epoch: 7,
+                etag: "original-owner".into(),
+            })),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReadNodeLease { op, .. } => Some(*op),
+            _ => None,
+        })
+        .expect("a foreign owner must read its lease");
+    let effects = on_event(
+        &mut state,
+        Event::NodeLeaseRead {
+            op,
+            now_ms: 0,
+            result: Ok(None),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::RecoverNodeLog { op, owner, .. } if owner == "missing-leader" => Some(*op),
+            _ => None,
+        })
+        .expect("missing metadata must not bypass the recovery interlock");
+    assert!(matches!(
+        state.phase("Account:missing-proof"),
+        Some(Phase::RecoveringOwnerLog { .. })
+    ));
+    state.validate().unwrap();
+    let effects = on_event(
+        &mut state,
+        Event::NodeLogRecovered {
+            op,
+            result: Err(Failure::Ambiguous),
+        },
+    );
+    assert!(effects.iter().any(|effect| matches!(
+        effect,
+        Effect::Complete {
+            request: 1,
+            result: Err(_),
+            ..
+        }
+    )));
+    assert!(matches!(
+        state.phase("Account:missing-proof"),
+        Some(Phase::Inactive)
+    ));
+    state.validate().unwrap();
+}
