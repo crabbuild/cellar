@@ -261,17 +261,20 @@ def audit_evidence(path, complete=True):
         elif event == "network_store_removed":
             require(store is not None and not removed and stopped == ROLES and row["container"] == store["container"], "fetch store removed before shutdown")
             removed = True
+        elif event in ("destination_proof_armed", "destination_follower_accepted", "destination_proof_discarded", "destination_follower_recovered"):
+            pass  # The independent proof auditor validates these before return.
         else:
             require(False, f"unknown fetch evidence event: {event}")
     if complete:
         require(set(snapshots) == passed and set(STAGES).issubset(passed) and killed and dropped and resumed
                 and successes == 2 and forwarded >= 2 and pending is None and stopped == ROLES
                 and (store is None or removed) and (startup_retries == 0 or store is not None), "incomplete fetch fault evidence")
+    from destination_proof import audit_proof
     return dict(audits=len(passed), destination_sigkills=1, response_drops=1, exact_fetch_replies=forwarded,
-                backend="s3" if store else "sqlite", lease_state=mode)
+                backend="s3" if store else "sqlite", lease_state=mode, **audit_proof(path,complete=complete,operation="fetch"))
 
 
-def exercise(binary, root, rustfs_image=None, lease_state="live"):
+def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=False):
     require(os.name == "posix", "fetch process qualification requires SIGKILL")
     root.mkdir(parents=True, exist_ok=False)
     node_lease_ms = 1000 if lease_state == "live" else 30000
@@ -283,13 +286,15 @@ def exercise(binary, root, rustfs_image=None, lease_state="live"):
             store.start()
         peer = free_address()
         proxy = PeerProxy(peer, ledger, "__streamNext")
-        destination = FleetProcess(binary, root, "destination", "destination-initial", peer, proxy.address, True, store, node_lease_ms=node_lease_ms)
+        destination = FleetProcess(binary, root, "destination", "destination-initial", peer, proxy.address, True, store,
+                                   node_lease_ms=node_lease_ms, replica_fault=follower_only)
         processes.append(destination)
         origins = {"destination": destination.ready()}
         require(read(origins["destination"], "/__test/events")["records"] == [], "fetch destination not initially empty")
         for node in ("producer", "consumer"):
             address = free_address()
-            process = FleetProcess(binary, root, node, node, address, address, False, store, node_lease_ms=node_lease_ms)
+            process = FleetProcess(binary, root, node, node, address, address, False, store,
+                                   node_lease_ms=node_lease_ms, fleet_durability=not follower_only)
             processes.append(process)
             origins[node] = process.ready()
         ledger.record("fetch_fleet_started", lease_state=lease_state, node_lease_ms=node_lease_ms, pids={node: process.child.pid for node, process in zip(("destination", "producer", "consumer"), processes)})
@@ -297,6 +302,11 @@ def exercise(binary, root, rustfs_image=None, lease_state="live"):
         from faults import eventually
         eventually(lambda: read(origins["producer"], "/orders/cross"), lambda state: state["outbox"]["pending_rows"] == "0")
         audit(ledger, origins, "accepted-before-fetch")
+        proof = None
+        if follower_only:
+            from destination_proof import DestinationProof
+            proof = DestinationProof(root, store, ledger, operation="fetch", node_lease_ms=node_lease_ms)
+            proof.arm()
         path = f"/projection/fetch?fetch_id={FETCH_ID}"
         proxy.arm()
         ledger.record("fetch_attempt", attempt=1, fetch_id=FETCH_ID)
@@ -305,17 +315,23 @@ def exercise(binary, root, rustfs_image=None, lease_state="live"):
             try:
                 require(proxy.entered.wait(5), "proven fetch boundary not reached")
                 audit(ledger, origins, "before-destination-loss")
+                if proof:
+                    proof.accepted(proxy.capture)
                 destination.crash(ledger, "destination-after-proven-fetch")
             finally:
                 proxy.release.set()
             result = future.result(timeout=15)
             ledger.record("fetch_outcome", attempt=1, result=result)
             require(result["status"] == "Ambiguous" and result["fresh_effects"] == 0, "consumer did not observe fetch reply loss")
+        if proof:
+            proof.discard()
         destination = FleetProcess(binary, root, "destination", "destination-recovered", peer, proxy.address, True, store, node_lease_ms=node_lease_ms)
         processes.append(destination)
         origins["destination"] = destination.ready()
         ledger.record("fetch_destination_restarted", pid=destination.child.pid)
         audit(ledger, origins, "recovered-before-replay")
+        if proof:
+            proof.recovered()
         proxy.resume("recovered-before-replay")
         attempt = 1
         for label in ("effect-proven", "effect-replayed"):
@@ -346,7 +362,8 @@ def exercise(binary, root, rustfs_image=None, lease_state="live"):
         if store:
             store.close()
         summary = dict(audit_evidence(ledger.path), status="passed", binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-                       output=str(root), scope="three independent loopback processes; lost proven fetch plus destination SIGKILL; explicit live/expired lease replay")
+                       output=str(root), scope="three independent loopback processes; lost proven fetch plus destination SIGKILL; explicit live/expired lease replay",
+                       follower_only=follower_only)
         (root / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         print(json.dumps(summary), flush=True)
     finally:
@@ -370,8 +387,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path)
     parser.add_argument("--rustfs-image")
     parser.add_argument("--lease-state", choices=("live", "expired"), default="live")
+    parser.add_argument("--follower-only", action="store_true", help="refuse destination replica uploads and delete its local data before recovery")
     args = parser.parse_args()
     if args.audit:
         print(json.dumps(audit_evidence(args.audit.resolve())), flush=True)
     else:
-        exercise(args.binary.resolve(), (args.output or Path(tempfile.mkdtemp(prefix="cellar-fetch-fault-parent-")) / "evidence").resolve(), args.rustfs_image, args.lease_state)
+        exercise(args.binary.resolve(), (args.output or Path(tempfile.mkdtemp(prefix="cellar-fetch-fault-parent-")) / "evidence").resolve(), args.rustfs_image, args.lease_state, args.follower_only)

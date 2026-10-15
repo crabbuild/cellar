@@ -680,8 +680,15 @@ held until the recovery prefix is independently audited: dropping it earlier
 allows retries to acquire another route and repair that prefix. Then drop the
 reply, release identical retries and verify one envelope/offset, effect and
 checkpoint plus full joins. destination_proof.py enforces the extra proof gates
-before dependent work and in saved evidence. This covers live retained followers;
-destination fetch/ack, follower disk and physical host/power/store cuts remain.
+before dependent work and in saved evidence. `ack_faults.py --follower-only` and
+`fetch_faults.py --follower-only` share those gates with their own method, restart
+and recovery-audit identities. Arm after the accepted-event audit; refuse source
+command replay after that point. Fetch keeps its original live/expired timing
+policy and must preserve the exact live lease or obtain higher authority only
+after expiry. Ack must recover checkpoint one and the exact saved inbox receipt
+before AlreadyAcknowledged replay. Every consumer effect stays unique. These
+cases retain live follower disks; other commit/proof cuts, follower disk and
+physical host/power/store loss remain separate qualification.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST

@@ -1702,6 +1702,20 @@ effect, and only the saved receipt advances the checkpoint. Runtime results and
 backend scope belong in the implementation status; the complete matrix remains
 required.
 
+Both ack/fetch drivers also support `--follower-only`, arming the shared
+destination replica refusal after the accepted-event audit. Require unchanged
+stream LTX and original-session log bucket bytes, an actual refused upload and
+an installed fleet-ack marker, then delete destination-local data after SIGKILL
+and observe old node-authority expiry. Producer/consumer leader writes use
+explicit bucket proof. Before any replay, ack must retain checkpoint one, its
+inbox effect and exact saved receipt; fetch must retain the original event and
+checkpoint zero with the original live lease or observed expiry. Live fetch
+repeats the exact receipt/response, expired fetch obtains higher lease authority
+and stable subsequent replay, and effects remain unique. The method-specific
+and shared proof auditors both apply. These selected live-follower cases do not
+replace other commit/proof, follower-disk, physical-host, power/store or live
+old-owner qualification.
+
 The independent `resumed_owner.py` case pauses a producer after a proven source
 commit but before dispatch, observes actual authority expiry and a higher-epoch
 successor's accepted event, and resumes the old process. It must fence for

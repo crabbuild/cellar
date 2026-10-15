@@ -360,9 +360,21 @@ python3 examples/durable-streams/ack_faults.py \
   --audit /tmp/cellar-ack-fault-evidence/ledger.jsonl
 ```
 
-Omit `--rustfs-image` for SQLite. These cases add independent-process ack-loss
-evidence on one machine. They do not qualify consumer process loss during exact
+Omit `--rustfs-image` for SQLite. Ordinary mode adds independent-process ack-loss
+evidence on one machine. It does not qualify consumer process loss during exact
 receipt replay, follower-only proof, power/store loss or all lease/ack cut points.
+
+Add `--follower-only` to refuse destination replica uploads after the accepted-
+event audit and before processing/acknowledgment. The shared destination proof
+gate requires an actual refused stream upload, an installed fleet-ack marker
+and unchanged stream LTX/session-log bucket bytes. After SIGKILL the harness
+deletes destination-local data, observes old authority expiry and requires a
+higher owner epoch/new process generation. Recovery must retain checkpoint 1,
+the original consumer effect and the exact saved receipt before replay returns
+`AlreadyAcknowledged`. This mode uses 1000ms node leases and explicit bucket
+proofs for producer/consumer leader writes; ordinary mode keeps its defaults.
+It covers this cut with live retained followers, not follower disk destruction,
+consumer loss during replay, physical hosts, power/store loss or every ack cut.
 
 ## Independent-process fetch loss
 
@@ -406,6 +418,28 @@ server managed by the measuring client; omit it for a private SQLite bucket.
 These are independent loopback processes on one machine. They do not qualify
 power loss, failed object-store persistence, follower-only proof, physical host
 isolation or an old owner still executing during takeover.
+
+Add `--follower-only` to either lease mode to isolate fetch proof on retained
+followers. It arms the destination replica refusal after the accepted-event
+audit, checks unchanged stream LTX/session-log bucket objects and actual fleet
+proof, then deletes destination-local data after SIGKILL. Actual node-authority
+expiry must precede restart, and the recovered original event, checkpoint zero
+and lease state must be audited before another fetch. The live case returns the
+exact original receipt/response; the expired case obtains higher lease authority
+before stable replay. Two successful replays produce one inbox effect, followed
+by acknowledgment of the saved receipt. Producer/consumer leader writes use
+explicit bucket proof. This selected fetch cut retains live follower disks;
+other commit/proof cuts, follower disk loss, physical hosts, power/store loss
+and live old-owner execution remain unqualified.
+
+```sh
+python3 examples/durable-streams/fetch_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --lease-state live --output /tmp/cellar-fetch-follower-live
+python3 examples/durable-streams/ack_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --output /tmp/cellar-ack-follower-evidence
+```
 
 ## Resume an expired source owner
 

@@ -22,11 +22,11 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are follower-only destination fetch/ack proof,
-remaining live old-owner execution during takeover, follower disk and physical
-store/host loss, and remaining lifecycle/capacity cuts. The current process
-fixtures cover selected follower-only source acknowledgment and destination
-append boundaries; they do not complete the follower-proof failure matrix.
+The next correctness priorities are remaining live old-owner execution during
+takeover, destination follower-disk recovery, physical store/host loss and the
+remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
+cover selected follower-only source acceptance and destination append/fetch/ack
+boundaries; they do not complete the follower-proof failure matrix.
 PRs #41 and #42 cover selected lost-fetch handoff and unproven-ack forced
 closure cases; neither is independent-process evidence. The process harnesses
 already cover append, ack and whole-fleet loss at selected boundaries; the
@@ -52,7 +52,56 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: follower-only destination append recovery
+## Current follow-up: follower-only subscription fetch and ack recovery
+
+`ack_faults.py --follower-only` and `fetch_faults.py --follower-only` share the
+destination proof gate from the append case, with operation-specific held replies,
+restart identities and recovery audits. The original destination uses real fleet
+durability; producer/consumer leader writes explicitly use bucket proof. Arming
+follows the accepted-event audit and precedes the target fetch/ack. Actual stream
+upload refusal, the installed fleet-ack marker and unchanged stream LTX plus
+original-session log bucket bytes are required before loss and restart. The
+destination is SIGKILLed, its private local data deleted, and its actual old node
+lease observed expired before replacement starts. Followers retain their disks.
+
+Ack audits checkpoint one, no active lease, one proven inbox effect and the
+saved receipt digest before replaying only that exact receipt. The result must
+be `AlreadyAcknowledged` without another fetch, effect or checkpoint advance.
+Fetch first observes an ambiguous original response with no effect. Recovery
+must audit the original event and checkpoint zero before another fetch. Live
+mode retains the exact original lease/response; expired mode observes expiry
+and obtains a higher lease generation, then repeats that fresh receipt/response
+unchanged. Two successful fetch replays produce exactly one inbox effect; only
+the saved receipt is acknowledged. Original stream lease and transport budgets
+are unchanged. Fetch proof policy is checked against its recorded live/expired
+node-authority policy instead of inferring timing from elapsed wall time.
+
+The shared proof auditor runs before dependent operations and in complete saved
+evidence. Mutation guards reject LTX or node-log bucket bypass, missing stages,
+false proof, retained local data, stale ownership/policy and replay before proof
+recovery. Method-specific guards continue to require exact wire/receipt bytes,
+subscription identity and lease/checkpoint/effect invariants. All survivors must
+join with complete preserving shutdown.
+
+All six selected follower-only runs pass: ack, live fetch and expired fetch on
+both private SQLite and pinned RustFS S3. The eight new saved ledgers, including
+ordinary SQLite ack/live-fetch regressions, pass offline audit. The shared proof
+auditor also accepts the prior SQLite/S3 append evidence. All 111 Python guards,
+formatting (506 Rust files), docs (36 documents/6 flows/386 references), dependency
+audit (403 packages/no JavaScript engine) and whitespace checks pass. Runtime
+cases use the unchanged current executable SHA-256
+`44d5806b33ca9b3d82231a53596535878565b36b68985a21ff0ff9e3524ce9e2`,
+built with Rust 1.97.0 on aarch64 macOS. No production Rust or Cellar-owned version
+markers change, and this qualification slice does not rerun or supersede earlier
+Rust suites. The ordinary expired-fetch process case is not rerun here; its
+existing oracle guards remain in the Python suite.
+
+This remains selected process-loss qualification on one machine with live
+retained followers. It does not qualify follower disk destruction, physical
+hosts, power/store loss, live stale-owner execution or every commit/proof cut.
+The full implementation/release goal remains incomplete.
+
+## 2026-10-15 follower-only destination append recovery
 
 `fleet_faults.py --follower-only` selects real fleet durability for the original
 destination and explicit bucket proofs for producer/consumer leader writes.
