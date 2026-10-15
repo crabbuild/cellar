@@ -1372,18 +1372,45 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
         ))
     })?;
     let (config, services) = inputs("cancelled", directory.path(), &core, None, 0).await?;
-    let mut startup = tokio::spawn(Node::start(config, services, graph(), apps));
+    let first_poll = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let polled = first_poll.clone();
+    let mut startup = tokio::spawn(async move {
+        polled.store(true, std::sync::atomic::Ordering::Release);
+        Node::start(config, services, graph(), apps).await
+    });
     let entry = tokio::task::spawn_blocking(move || received.recv_timeout(Duration::from_secs(5)))
         .await
         .context("factory-entry observer task failed")?;
     if let Err(error) = entry {
-        let completion = match futures_util::FutureExt::now_or_never(&mut startup) {
+        let polled = first_poll.load(std::sync::atomic::Ordering::Acquire);
+        // Observe completion before probing the lock. Keep any returned node
+        // alive until this failed observation finishes, so dropping it cannot
+        // change the directory state being reported.
+        let result = futures_util::FutureExt::now_or_never(&mut startup);
+        let completion = match &result {
             Some(Ok(Err(error))) => format!("startup failed: {error:#}"),
             Some(Err(error)) => format!("startup task failed: {error}"),
             Some(Ok(Ok(node))) => format!("startup returned a node: closed={}", node.is_closed()),
             None => "startup remains pending".into(),
         };
-        return Err(error).with_context(|| format!("factory-entry wait failed; {completion}"));
+        let directory_state = match std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(directory.path().join("__sys_node.lock"))
+        {
+            Ok(lock) => match lock.try_lock() {
+                Ok(()) => match lock.unlock() {
+                    Ok(()) => "available".to_owned(),
+                    Err(error) => format!("probe unlock failed: {error}"),
+                },
+                Err(std::fs::TryLockError::WouldBlock) => "held".into(),
+                Err(std::fs::TryLockError::Error(error)) => format!("probe failed: {error}"),
+            },
+            Err(error) => format!("not opened: {error}"),
+        };
+        return Err(error).with_context(|| format!(
+            "factory-entry wait failed: startup_polled={polled}, directory={directory_state}; {completion}",
+        ));
     }
     startup.abort();
     ensure!(startup.await.is_err(), "startup was not cancelled");
@@ -1593,7 +1620,9 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     );
     // A failed recovery must join its runtime before local storage can be reused.
     let local = start("local", "local", &path, &core, None, None, 0).await?;
-    stopped(local).await?;
+    stopped(local)
+        .await
+        .context("local-only shutdown after failed predecessor bootstrap")?;
     writer.shutdown().await;
     Ok(())
 }

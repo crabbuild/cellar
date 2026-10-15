@@ -29,6 +29,31 @@ async fn history(client: &reqwest::Client, node: &Node) -> Result<Value> {
         .clone())
 }
 
+async fn subscription(client: &reqwest::Client, node: &Node) -> Result<Value> {
+    Ok(stream_operator(
+        client,
+        node,
+        &binding(true),
+        json!({"kind":"subscription","name":"projection"}),
+        "late-ack-audit",
+    )
+    .await?["result"]
+        .clone())
+}
+
+async fn partition_owner(
+    domain: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+) -> Result<Value> {
+    domain
+        .run(async {
+            let key = format!("cells/{}/own.json", stream_scope()?);
+            let (bytes, _) = bucket.get(&key).await?.context("partition owner missing")?;
+            Ok::<_, anyhow::Error>(serde_json::from_slice(&bytes)?)
+        })
+        .await?
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> Result<()> {
     let directory = tempfile::tempdir()?;
@@ -246,5 +271,310 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
         .await
         .context("late-reply destination complete shutdown")?;
     proxy.stop().await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn delayed_proven_ack_survives_destination_fencing_without_consuming_the_next_lease(
+) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let destination_core = Executor::new("late-ack-destination-core")?;
+    let consumer_core = Executor::new("late-ack-consumer-core")?;
+    let replacement_core = Executor::new("late-ack-replacement-core")?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (mut config, services) = inputs(
+        "late-ack-destination",
+        &directory.path().join("destination"),
+        &destination_core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    config.actor.lease_ttl_ms = 5_000;
+    config.startup.recovery_retry_backoff = Duration::from_millis(5_000);
+    let mut proxy =
+        peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
+    config.identity.advertise = proxy.address.to_string();
+    let destination = Node::start(
+        config,
+        services,
+        graph(1, false),
+        applications("destination")?,
+    )
+    .await?;
+    super::super::ready(&destination).await?;
+    let client = client()?;
+    let original_owner = partition_owner(&observer, &bucket).await?;
+    ensure!(original_owner["node"] == "late-ack-destination");
+    let (config, services) = inputs(
+        "late-ack-consumer",
+        &directory.path().join("consumer"),
+        &consumer_core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let consumer = Node::start(config, services, external, applications("consumer")?).await?;
+    super::super::ready(&consumer).await?;
+    ensure!(call(&client, &consumer, reqwest::Method::POST, "/write").await? == "consumer:1");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while history(&client, &destination)
+            .await?
+            .as_array()
+            .map(Vec::len)
+            != Some(1)
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("wait for first event before delayed ack")??;
+    let accepted = history(&client, &destination).await?;
+    ensure!(accepted[0]["event"]["payload"] == json!({"value":1}) && accepted[0]["offset"] == "1");
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/process-save?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    let leased = subscription(&client, &destination).await?;
+    ensure!(leased["checkpoint"] == "0" && leased["observation"]["lease_active"] == true);
+    proxy.capture.delay_ack();
+    let mut acknowledging = Box::pin(call(
+        &client,
+        &consumer,
+        reqwest::Method::POST,
+        "/ack-original?source=projection",
+    ));
+    cellar::asyncrt::select! {
+        result = &mut acknowledging => anyhow::bail!("ack finished before its held proof boundary: {result:?}"),
+        entered = tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire()) => entered.context("wait for proven ack capture")??.forget(),
+    }
+    let ack = proxy
+        .capture
+        .exchanges
+        .lock()
+        .unwrap()
+        .iter()
+        .find(|exchange| exchange.method == "__streamAck")
+        .cloned()
+        .context("held ack missing")?;
+    ensure!(ack.delayed && !ack.dropped && ack.scope == stream_scope()?);
+    let request = cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
+        ack.request.clone().into(),
+    ))?
+    .to_json()?;
+    let receipt = Receipt::decode(
+        request[0]["receipt"]
+            .as_str()
+            .context("ack receipt missing")?,
+    )?;
+    let identity = serde_json::to_value(&receipt)?;
+    ensure!(
+        identity["resource"] == resource().id
+            && identity["name"] == "projection"
+            && identity["first"] == "1"
+            && identity["last"] == "1"
+    );
+    let reply = cellar::application::decode_rpc_result(&cellar::engine_api::RpcData::Structured(
+        ack.response.clone().into(),
+    ))?
+    .to_json()?;
+    ensure!(reply["ok"]["status"] == "acknowledged");
+    let committed = subscription(&client, &destination).await?;
+    ensure!(
+        committed["checkpoint"] == "1"
+            && committed["lease"].is_null()
+            && committed["identity"] == leased["identity"]
+    );
+
+    proxy.capture.expect_upstream_close();
+    observer
+        .run(async { bucket.delete("nodes/late-ack-destination.json").await })
+        .await??;
+    let destination_services = destination.services();
+    let outcome = tokio::time::timeout(
+        Duration::from_secs(10),
+        destination.run_until(std::future::pending()),
+    )
+    .await
+    .context("wait for destination authority fence and join")??;
+    ensure!(
+        outcome
+            == NodeOutcome::Fenced {
+                code: 3,
+                reason: FenceReason::NodeLeaseMissing
+            },
+        "destination lease removal returned {outcome:?}"
+    );
+    ensure!(destination_services
+        .configure_metrics(Arc::new(HostMetricsSample::default))
+        .is_err());
+    ensure!(destination_core.handle().spawn(async { 7 }).await? == 7);
+    let (config, services) = inputs(
+        "late-ack-replacement",
+        &directory.path().join("replacement"),
+        &replacement_core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let mut external = graph(1, false);
+    external.primary.event_streams.clear();
+    let replacement = Node::start(config, services, external, applications("replacement")?).await?;
+    super::super::ready(&replacement).await?;
+    // Activation/inspection can resolve another healthy host as the actual
+    // partition owner. Require its authoritative epoch to advance, without
+    // pretending that this test can dictate the placement winner.
+    let recovered = subscription(&client, &replacement).await?;
+    let new_owner = partition_owner(&observer, &bucket).await?;
+    ensure!(
+        new_owner["node"] != original_owner["node"]
+            && new_owner["epoch"].as_u64().context("new epoch missing")?
+                > original_owner["epoch"]
+                    .as_u64()
+                    .context("old epoch missing")?,
+        "partition did not change owner/epoch: {original_owner} -> {new_owner}"
+    );
+    ensure!(
+        recovered["identity"] == committed["identity"]
+            && recovered["checkpoint"] == "1"
+            && recovered["lease"].is_null(),
+        "ack was lost before saved-receipt replay: {recovered}"
+    );
+    ensure!(history(&client, &replacement).await? == accepted);
+
+    proxy.capture.release.add_permits(1);
+    tokio::time::timeout(Duration::from_secs(5), proxy.wait_for_release())
+        .await
+        .context("wait for held ack release")??;
+    let original_outcome = tokio::time::timeout(Duration::from_secs(5), &mut acknowledging)
+        .await
+        .context("wait for original ack caller after held reply release")??;
+    drop(acknowledging);
+    ensure!(
+        matches!(original_outcome.as_str(), "Acknowledged" | "Ambiguous"),
+        "delayed proven ack returned {original_outcome}"
+    );
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::GET,
+            "/processed?source=projection"
+        )
+        .await?
+            == "1"
+    );
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/ack-original?source=projection"
+        )
+        .await?
+            == "AlreadyAcknowledged"
+    );
+    ensure!(subscription(&client, &replacement).await?["checkpoint"] == "1");
+    ensure!(call(&client, &consumer, reqwest::Method::POST, "/write").await? == "consumer:2");
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while history(&client, &replacement)
+            .await?
+            .as_array()
+            .map(Vec::len)
+            != Some(2)
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("wait for second event after destination takeover")??;
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/process-save?source=projection"
+        )
+        .await?
+            == "3"
+    );
+    let second_lease = subscription(&client, &replacement).await?;
+    ensure!(
+        second_lease["checkpoint"] == "1"
+            && second_lease["lease"]["first"] == "2"
+            && second_lease["lease"]["last"] == "2"
+            && second_lease["observation"]["lease_active"] == true
+    );
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/ack-original?source=projection"
+        )
+        .await?
+            == "AlreadyAcknowledged"
+    );
+    let after_old_receipt = subscription(&client, &replacement).await?;
+    ensure!(
+        after_old_receipt["checkpoint"] == "1"
+            && after_old_receipt["lease"] == second_lease["lease"],
+        "old ack consumed the new lease: {after_old_receipt}"
+    );
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::POST,
+            "/ack-stored?source=projection"
+        )
+        .await?
+            == "Acknowledged"
+    );
+    ensure!(subscription(&client, &replacement).await?["checkpoint"] == "2");
+    ensure!(
+        call(
+            &client,
+            &consumer,
+            reqwest::Method::GET,
+            "/processed?source=projection"
+        )
+        .await?
+            == "3"
+    );
+    let attempts = proxy
+        .capture
+        .exchanges
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|exchange| exchange.method == "__streamAck")
+        .cloned()
+        .collect::<Vec<_>>();
+    ensure!(attempts.iter().filter(|exchange| exchange.delayed).count() == 1);
+    // Requests resolved to the new owner may bypass this dead owner's proxy.
+    // Any original-epoch duplicate observed here must retain the exact receipt.
+    for attempt in attempts {
+        ensure!(attempt.request == ack.request && attempt.scope == ack.scope);
+    }
+    stopped(consumer)
+        .await
+        .context("late-ack consumer complete shutdown")?;
+    stopped(replacement)
+        .await
+        .context("late-ack replacement complete shutdown")?;
+    proxy.stop().await?;
+    observer.shutdown().await;
     Ok(())
 }

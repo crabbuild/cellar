@@ -1,8 +1,9 @@
 //! Real peer tunnel proxy: capture a complete event RPC reply, then lose it.
 #![allow(clippy::disallowed_methods)]
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context, Result};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
@@ -27,6 +28,7 @@ pub(super) struct Exchange {
 pub(super) struct Capture {
     armed: Mutex<Option<(&'static str, Fault)>>,
     paused: watch::Sender<bool>,
+    upstream_closing: AtomicBool,
     pub entered: Semaphore,
     pub release: Semaphore,
     pub blocked: Semaphore,
@@ -39,6 +41,7 @@ impl Default for Capture {
         Self {
             armed: Mutex::new(None),
             paused: watch::channel(false).0,
+            upstream_closing: AtomicBool::new(false),
             entered: Semaphore::new(0),
             release: Semaphore::new(0),
             blocked: Semaphore::new(0),
@@ -61,6 +64,17 @@ impl Capture {
 
     pub fn resume_appends(&self) {
         self.paused.send_replace(false);
+    }
+
+    pub fn delay_ack(&self) {
+        *self.armed.lock().unwrap() = Some(("__streamAck", Fault::Delay));
+    }
+
+    /// A fenced destination closes existing tunnels and can refuse new ones
+    /// while cached callers discover its successor. Only controlled transport
+    /// closure is normal; framing and other relay failures still fail the test.
+    pub fn expect_upstream_close(&self) {
+        self.upstream_closing.store(true, Ordering::Release);
     }
 }
 
@@ -102,6 +116,21 @@ impl Proxy {
             stop: Some(stop),
             task: Some(task),
         })
+    }
+
+    pub async fn wait_for_release(&mut self) -> Result<()> {
+        cellar::asyncrt::select! {
+            permit = self.capture.released.acquire() => {
+                permit?.forget();
+                Ok(())
+            },
+            result = self.task.as_mut().context("proxy already joined")? => {
+                self.task.take();
+                result.context("peer proxy task failed")?
+                    .context("peer proxy relay failed")?;
+                anyhow::bail!("peer proxy ended before held reply release")
+            }
+        }
     }
 
     pub async fn stop(mut self) -> Result<()> {
@@ -230,8 +259,31 @@ async fn message(reader: &mut BufReader<TcpStream>, response: bool) -> Result<Op
 }
 
 async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
+    let result = relay_inner(socket, target, capture.clone()).await;
+    match result {
+        Err(error)
+            if capture.upstream_closing.load(Ordering::Acquire)
+                && error.downcast_ref::<std::io::Error>().is_some_and(|error| {
+                    matches!(
+                        error.kind(),
+                        std::io::ErrorKind::BrokenPipe
+                            | std::io::ErrorKind::ConnectionReset
+                            | std::io::ErrorKind::ConnectionAborted
+                            | std::io::ErrorKind::NotConnected
+                            | std::io::ErrorKind::ConnectionRefused
+                    )
+                }) =>
+        {
+            Ok(())
+        }
+        result => result,
+    }
+}
+
+async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> Result<()> {
     let mut client = BufReader::new(socket);
-    let mut owner = BufReader::new(TcpStream::connect(target).await?);
+    let upstream = TcpStream::connect(target).await?;
+    let mut owner = BufReader::new(upstream);
     while let Some(request) = message(&mut client, false).await? {
         let mut paused = capture.paused.subscribe();
         if request.header("x-cells-rpc-method") == Some("__streamAppend")
@@ -272,7 +324,9 @@ async fn relay(socket: TcpStream, target: SocketAddr, capture: Arc<Capture>) -> 
                 delayed,
             });
             if delayed {
-                capture.paused.send_replace(true);
+                if method == "__streamAppend" {
+                    capture.paused.send_replace(true);
+                }
                 capture.entered.add_permits(1);
                 capture.release.acquire().await?.forget();
                 let result = reply.write(client.get_mut()).await;
@@ -322,5 +376,31 @@ async fn bodyless_abort_response_keeps_next_message_framing_intact() -> Result<(
     ensure!(abort.head.starts_with(b"HTTP/1.1 204 ") && abort.body.is_empty());
     let next = message(&mut reader, true).await?.unwrap();
     ensure!(next.head.starts_with(b"HTTP/1.1 200 ") && next.body == b"ok");
+    Ok(())
+}
+
+#[tokio::test]
+async fn controlled_destination_closure_preserves_framing_failures() -> Result<()> {
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let ingress = TcpListener::bind("127.0.0.1:0").await?;
+    let mut caller = TcpStream::connect(ingress.local_addr()?).await?;
+    let (socket, _) = ingress.accept().await?;
+    let capture = Arc::new(Capture::default());
+    capture.expect_upstream_close();
+    let relay = tokio::spawn(relay(socket, upstream.local_addr()?, capture));
+    let (owner, _) = upstream.accept().await?;
+    caller
+        .write_all(b"GET / HTTP/1.1\r\nContent-Length: 0\r\n\r\n")
+        .await?;
+    let mut owner = BufReader::new(owner);
+    ensure!(message(&mut owner, false).await?.is_some());
+    owner
+        .get_mut()
+        .write_all(b"HTTP/1.1 200 OK\r\n\r\n")
+        .await?;
+    let error = tokio::time::timeout(std::time::Duration::from_secs(5), relay)
+        .await??
+        .expect_err("controlled closure hid malformed framing");
+    ensure!(error.to_string() == "unframed peer response", "{error:#}");
     Ok(())
 }
