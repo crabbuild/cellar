@@ -56,6 +56,7 @@ mod embedded;
 mod event_failure;
 mod event_inventory;
 mod event_metrics;
+mod event_reply;
 mod event_resources;
 mod event_state;
 mod ingress;
@@ -1742,18 +1743,13 @@ async fn dispatch_rpc_call(app: AppHandle, call: RpcCallReq) {
                         event_failure::annotate(failure,event_failure::response_code(response.headers(),response.status()))
                     } else { failure });
                 }
-                let collecting = response.into_body().collect();
-                let collected = match cancel.as_mut() {
-                    Some(cancel) => crate::asyncrt::select_biased! {
-                        "an RPC cancellation wins an undelivered result body";
-                        _ = cancel => anyhow::bail!("Durable Object RPC cancelled"),
-                        collected = collecting => collected,
-                    },
-                    None => collecting.await,
-                };
-                let body = collected
-                    .map_err(|error| remote_rpc_failure(error.into()).context("remote RPC body"))?
-                    .to_bytes();
+                let body = event_reply::receive(
+                    response.into_body(),
+                    event_call,
+                    cancel.as_mut(),
+                    event_call.then_some(dispatcher.deadline_ms),
+                )
+                .await?;
                 return Ok(if expects_structured_response {
                     crate::engine_api::RpcData::Structured(body)
                 } else {

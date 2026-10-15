@@ -2801,3 +2801,81 @@ cuts, physical metrics and inventory/recovery/capacity gaps. The full goal remai
 active, and all owned markers remain 1.
 
 Final untraced evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-sdk-reply-final-evidence-u9etj6yq`. Exact rebuilt library/stream/Node/outbox binaries, hashes, source diff and gate logs are archived.
+
+
+## Bounded peer event result collection (2026-10-14)
+
+`node/event_reply.rs` now collects event/control responses using the SDK's shared
+64 MiB wire ceiling. Declared oversize is refused before body polling; unknown-
+length overflow stops without collecting the suffix. The original route deadline
+continues through the body phase and cannot be reset by response-head arrival.
+Protocol overflow and deadline exhaustion return Ambiguous without the activation
+network retry tag. Genuine body transport errors retain that tag and their typed
+execution certainty. Caller cancellation retains precedence, including ties with
+ready bodies/expired deadlines, and releases stalled body buffers. The existing
+post-proven-head abort disarm remains in the caller; no collection failure may
+kill a proven handler's later waitUntil work. All owned markers remain 1.
+
+Twelve new tests cover exact/unknown-length budgets, declared-size admission,
+suffix refusal, I/O tag preservation, the actual shared ceiling, cancellation/
+dropped-sender ties, stalled-body/future release, actual Hyper declared-overflow
+versus truncated responses over an in-memory duplex, original-deadline exhaustion
+and deadline cleanup/ties. Combined library/Node/stream/outbox and workspace
+Clippy-D qualification is running. Hyper duplex exercises its Incoming body/error
+contract; it is not peer authentication, physical-host or store-fault evidence.
+Whole request/head deadline behavior, upstream transport allocation, every
+cancellation/ownership cut and the full release matrix remain separate gates.
+
+
+The initial limited-collector stage finishes **195 passed/2 failed** library
+cases. Both failures show genuine body I/O errors losing RemoteRpcTransportFailure
+after Limited boxes them: a concrete io::Error fixture and actual truncated Hyper
+Incoming both reproduce it. Clippy also refuses one redundant test async wrapper.
+Initial evidence is retained under
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-event-collector-initial-ob4u1czt`.
+These are before-fix results, not final qualification.
+
+The final collector reads frames into one buffer whose allocation growth is
+capped by the wire byte limit, rather than retaining a chunk list plus unused
+trailer maps. It ignores trailers and yields after bounded frame/byte work, even
+for immediately ready empty frames. This keeps cancellation/deadlines observable
+without per-frame accumulation. Wrapping each concrete body error directly
+preserves genuine I/O tags; overflow/allocation/deadline refusals remain untagged
+Ambiguous. The redundant test wrapper is removed. Four more regressions cover
+coalescing tiny frames, unused trailers, cancellation under always-ready empty
+frames, and a ready result under the largest captured budget. The locked Tokio
+sleep implementation uses checked instant addition/far-future fallback; no new
+budget rejection or timer policy is introduced. Sixteen collector tests (201
+expected total library cases) and fresh combined/Clippy gates are running.
+
+
+Final-source workspace/all-target/all-feature Clippy-D passes (5m06s), along with
+495-file formatting, 64 Python guards, documentation (35/6/373), dependency
+(403 packages/no JavaScript engine) and whitespace checks. The refined combined
+Rust run is compiling; the earlier 195/2 run remains before-fix evidence and
+cannot qualify this source.
+
+
+The refined library passes **all 201 cases** (23.75 seconds), including all
+**16 collector regressions**. The two I/O-tag failures now pass with concrete
+error wrapping, while declared/observed overflow and deadline/cancellation
+refusals remain untagged. The always-ready empty-frame cancellation test passes,
+as does the maximum captured-budget case. Native stream passes (12.54 seconds).
+The complete 39-case Node suite is running; native outbox follows it. These
+results do not refresh the full process-fault/backend/cancellation release matrix.
+
+
+The final collector batch passes **all 242 selected Rust cases**: 201 library
+(23.75s), native stream (12.54s), all 39 serial Node cases (394.21s), and native
+outbox (1.52s). Final workspace/all-target/all-feature Clippy-D, 495-file formatting,
+64 Python guards, docs (35/6/373), the 403-package/no-JavaScript-engine dependency
+audit and whitespace checks pass. The failed initial 195/2 stage remains archived
+separately; both concrete-I/O tag regressions pass after frame-level wrapping.
+No original lease, deadline, acknowledgment or shutdown assertion was weakened.
+Evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-event-collector-final-evidence-cwgk96g8`. Exact rebuilt binaries/hashes, source and logs
+are retained. This closes the peer event/control body collector gap, not every
+request/head/local-invocation deadline, upstream allocation or cancellation/
+ownership/process-fault cut. Earlier native startup/drain/analytics failures keep
+their separate unestablished-cause audits. All markers remain 1 and the full goal
+remains active; next prioritize whole-operation request/head/local cancellation
+and the remaining physical metrics/inventory/backend/capacity release work.

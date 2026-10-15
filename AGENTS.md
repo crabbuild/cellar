@@ -805,5 +805,12 @@ or undecodable submitted results are Ambiguous. Wire bytes are capped at 64 MiB
 before JSON/structured decode; encoded error metadata is capped at 16 KiB and
 message text at 4096 bytes. Valid typed errors retain their exact metadata.
 Do not clone a whole success/error object or reflect malformed body text in an
-error. This decoder bound does not bound peer body collection; retain the separate
-transport-allocation and cancellation qualification in the implementation status.
+error. Peer event/control body collection uses that same wire ceiling and the
+original route operation deadline. Coalesce frames into one bounded buffer, drop
+unused trailers and yield bounded frame/byte work so ready frames cannot starve
+cancellation or deadlines. Size/timeout refusals are Ambiguous without
+RemoteRpcTransportFailure; genuine body I/O errors retain the activation-only
+network tag. Cancellation wins undelivered body/deadline ties and releases the
+body. The proven response-head abort disarm remains intact; collection failure
+cannot kill the handler's later waitUntil work. Full request-phase allocation and
+cancellation qualification remain in the implementation status.

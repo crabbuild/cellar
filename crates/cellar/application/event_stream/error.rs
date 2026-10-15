@@ -87,7 +87,7 @@ pub(crate) fn error(code: ErrorCode, message: impl Into<String>) -> anyhow::Erro
     DeliveryError::new(code, message).into()
 }
 
-const MAX_REPLY_BYTES: usize = 64 << 20;
+pub(crate) const MAX_REPLY_BYTES: usize = 64 << 20;
 const MAX_ERROR_BYTES: usize = 16 << 10;
 const MAX_ERROR_MESSAGE_BYTES: usize = 4096;
 

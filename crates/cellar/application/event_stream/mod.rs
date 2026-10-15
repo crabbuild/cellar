@@ -42,6 +42,7 @@ pub use client::{Configuration, Cursor, Page, ReadOptions, Record};
 pub use config::{
     Definition, Grant, Retention, Start, SubscriptionDefinition, MAX_DEFINITION_BYTES,
 };
+pub(crate) use error::MAX_REPLY_BYTES as MAX_RPC_REPLY_BYTES;
 pub use error::{DeliveryError, ErrorCode};
 pub use inventory::{SubscriptionListOptions, SubscriptionPage};
 pub use lifecycle::{

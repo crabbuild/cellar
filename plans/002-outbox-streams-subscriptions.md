@@ -1219,6 +1219,20 @@ Move an accepted branch instead of cloning its payload. Valid protocol codes and
 exact bounded metadata survive acceptance. These decoder checks do not substitute
 for a bounded transport collector or the cancellation/response-loss matrix.
 
+Peer event/control response collection enforces the same ceiling before buffering
+an oversized declared body and while accumulating unknown-length chunks. Coalesce
+payloads into a bounded buffer, discard unused trailers, and yield bounded
+frame/byte work; a stream of immediately ready empty frames cannot starve
+cancellation or deadlines. Carry
+the route's original absolute operation deadline through body collection; a
+response head does not reset its budget. Overflow and deadline failure after
+submission are Ambiguous, without a network retry tag. Actual body transport
+failure retains its activation-only tag and cannot authorize ordinary RPC replay.
+Caller cancellation wins undelivered body/deadline ties and releases retained
+buffers. A proven response head has already disarmed handler abort, so failing
+collection cannot cancel later waitUntil work. These body checks do not qualify
+every request/head/ownership/cancellation cut or upstream transport allocation.
+
 Sequences, offsets, checkpoints, lease generations, and absolute timestamps
 travel as canonical decimal strings on structured RPC and diagnostic JSON.
 The retained structured-value number codec uses binary64; bare JSON integers
