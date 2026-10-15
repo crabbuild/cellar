@@ -1,6 +1,6 @@
 //! Caller-owned log transports, real follower proofs, and crash recovery.
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use bytes::Bytes;
 use cellar::bucket::Bucket;
 use cellar::ltx_repl::Shipper;
@@ -483,6 +483,54 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
     a.transport.follower_domain.shutdown().await;
     b.transport.follower_domain.shutdown().await;
     Ok(())
+}
+
+#[test]
+fn unreadable_retained_bundle_cannot_be_certified_as_an_empty_fold() -> Result<()> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    runtime.block_on(async {
+        let directory = tempfile::tempdir()?;
+        let mut pair = pair(
+            &directory.path().join("fleet.sqlite"),
+            directory.path(),
+            "corrupt",
+            LogOptions::default(),
+        )
+        .await?;
+        let key = format!("log/{}/bundle/e1-00000000.ltxb", pair.session);
+        let verdicts = pair
+            .domain
+            .run(async {
+                pair.bucket
+                    .put(&key, b"damaged retained bundle".to_vec())
+                    .await?;
+                let first = pair.log.uncovered_bundle_rows().await;
+                let second = pair.log.uncovered_bundle_rows().await;
+                let record = format!("log/{}.bundle-e1-00000000.ltxb.loss.json", pair.session);
+                let (body, _) = pair
+                    .bucket
+                    .get(&record)
+                    .await?
+                    .context("missing corruption record")?;
+                let recorded: serde_json::Value = serde_json::from_slice(&body)?;
+                // Remove only the injected private fixture object before joining.
+                pair.bucket.delete(&key).await?;
+                pair.owner.shutdown_local().await;
+                Ok::<_, anyhow::Error>((first.is_err(), second.is_err(), recorded))
+            })
+            .await??;
+        pair.domain.shutdown().await;
+        pair.transport.follower_domain.shutdown().await;
+        ensure!(
+            verdicts.0 && verdicts.1,
+            "unreadable retained bundle was certified as an empty fold, including after its loss record existed"
+        );
+        ensure!(
+            verdicts.2["recovery_blocked"] == true,
+            "corruption record permitted recovery to continue"
+        );
+        Ok(())
+    })
 }
 
 #[test]

@@ -16,7 +16,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Resolve the combined fleet-process/leader-local-data-loss case that removes another leader's sole follower witness. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout and explicit-policy closed-domain failure with the stage diagnostics from PR #36; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
@@ -52,7 +52,77 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: recover source proof after follower restart
+## Current follow-up: refuse recovery after durability proof loss
+
+The prior all-fleet S3 failure is not evidence that arbitrary disk loss must be
+recoverable. Fleet proof certifies follower fsync or bucket data; a surviving
+leader's local SQLite file does not certify a complete node-log prefix. Eventual
+delivery already requires recoverable storage. When a required witness is
+unavailable, refusing startup is safe. Restoring valid evidence can permit a
+later retry; destroying every authoritative copy cannot be hidden as successful
+recovery.
+
+Inspection found two unsafe continuations beyond that initial refusal. First,
+after all members were considered conclusive (including a long-expired,
+unreachable member), recovery wrote a loss record and proceeded to drain/seal
+the log despite possible fleet acknowledgments. A valid native startup
+regression reproduced successor admission on that path. Second, an unreadable
+retained bundle was recorded and skipped, so the uncovered-row scan could
+answer as if no outstanding bytes remained. A diagnostic is not durability
+evidence and cannot authorize either continuation.
+
+Recovery now retains the recovering predecessor and refuses to install a
+successor whenever a log may have fleet acknowledgments but no complete witness.
+The empty-ensemble/ack-marker case also refuses. Conclusive failures retain a
+`recovery_blocked` diagnostic; inconclusive failures retain their existing
+refusal. Neither expiry grace nor a diagnostic grants permission to abandon
+acknowledged writes. Unreadable retained bundles record diagnostics and refuse
+every scan, including after that diagnostic is cached. The record remains a
+timestamped observation, while the current log state remains authoritative.
+
+The original predecessor-recovery fixture lacked the required paced_handoff
+lease field and could fail at decoding while claiming to cover witness refusal.
+It now supplies the current lease shape and asserts the actual witness reason.
+The new startup case covers long-dead members and an empty ensemble, preserves
+the prior generation/recovering state, and checks that failed startup releases
+the local directory. The bundle regression covers repeated scans after a
+diagnostic exists. This change adds no version marker, compatibility reader or
+local-SQLite fallback.
+
+The valid pre-fix startup regression admitted a successor (failed in 1.62s),
+and the pre-fix corrupt-bundle regression accepted both empty folds (failed in
+0.03s). Those are the behavioral reproductions; the initial malformed lease and
+fixture compile failures are not counted as proof. With the fix, all 47 native
+node cases pass (349.35s), including both missing-proof inputs and the strengthened
+predecessor refusal. All five native log cases pass (2.37s), including the repeated
+corrupt scan and real successful follower recovery. Library tests pass 227 cases,
+native artifacts/CLI/log protocol pass 7/3/3 cases, and Python guards pass 101.
+Workspace/all-target/all-feature Clippy passes with warnings denied (3m47s),
+format checks 505 Rust files, docs validate 36 documents/6 flows/386 references
+and dependency audit checks 403 packages without a JavaScript engine.
+
+A freshly built executable also passes follower-disk restart on SQLite/S3
+(3.10s/5.66s), live-follower recovery on SQLite/S3 (3.03s/5.39s), and ordinary
+streams smoke (1.11s). These retain exact receipt/envelope checks, pre-replay
+audits, expected inbox/checkpoint results and complete process/server shutdown.
+The restart cases explicitly keep destination/consumer leader commits bucket-
+backed while the source uses follower-only proof; they are not successful recovery
+claims for destroyed witnesses. Rust 1.97.0/aarch64 macOS and symbols-disabled,
+nonincremental profiles were used; CI's configured toolchain is not claimed as
+locally exercised.
+
+This prevents false successful recovery. It does not recreate destroyed proof,
+retroactively repair development logs already sealed after loss, establish
+physical-disk/power tolerance, or close the older unexplained startup/recovery
+failures. Wider destination append/fetch/ack proof cuts, safe restoration of
+missing evidence and remaining lifecycle/capacity/operational gates stay open.
+An additional pre-existing internal-development policy gap was found during this
+audit: the owned tail wire still uses tail_format 2 / CLT2, and follower session
+discovery retains a former flat-layout branch. Normalize those with a hard
+cutover to marker one and current-layout-only readers; do not add compatibility
+negotiation. This safety fix does not claim that broader audit is complete.
+
+## 2026-10-15 recover source proof after follower restart
 
 The source-proof driver adds an explicit `--restart-followers` mode. It SIGKILLs
 every original process, archives the producer's original ensemble's committed

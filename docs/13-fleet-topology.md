@@ -34,6 +34,20 @@ Do not interpret “fleet proof” as a universal quorum configuration or promis
 that any arbitrary simultaneous failures preserve all acknowledged writes.
 Inspect the actual log/follower policy and loss assumptions.
 
+Expiry and an unreachable follower do not certify that its acknowledged data
+can be discarded. If a log may contain fleet-acknowledged writes, recovery needs
+a complete follower witness before sealing it and admitting a replacement.
+Without that evidence, recovery stays blocked, including after the follower's
+expiry grace. A retained bucket bundle that cannot be decoded also blocks a
+fold; a loss diagnostic cannot substitute for the missing bytes. Restore valid
+durability evidence before retrying recovery. Existing local SQLite files alone
+do not certify a complete node-log prefix.
+
+This preserves safety after proof loss; it does not promise availability after
+every durable copy is destroyed. Qualify the actual replica placement, retained
+disks and bucket behavior for each deployment. A recorded blocked recovery is
+an observation at its timestamp; the current node-log state remains authoritative.
+
 No built-in active-active multi-region certification is established by this
 baseline. Start with one qualified fleet region. If multiple regions are
 required, specify authority placement, inter-region latency, credential and

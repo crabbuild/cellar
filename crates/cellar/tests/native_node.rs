@@ -1576,7 +1576,7 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     let prior = PeerProbeSigner::generate().public_key_hex();
     let record = serde_json::json!({
         "node":"unrecovered", "generation": prior, "probe_public_key":prior,
-        "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION,
+        "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true,
         "log":{"state":"open", "epoch":2, "ensemble":["missing-follower"], "tiered":0, "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null}
     });
     writer
@@ -1606,7 +1606,8 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     );
     let error = result.err().unwrap();
     ensure!(
-        format!("{error:#}").contains("unrecovered predecessor"),
+        format!("{error:#}").contains("unrecovered predecessor")
+            && format!("{error:#}").contains("no complete true witness"),
         "startup did not enforce the recovery gate: {error:#}"
     );
     let (body, _) = writer
@@ -1624,6 +1625,86 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
         .await
         .context("local-only shutdown after failed predecessor bootstrap")?;
     writer.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conclusively_lost_fleet_proof_cannot_install_a_successor() -> Result<()> {
+    for ensemble in [vec!["lost-follower"], Vec::new()] {
+        let directory = tempfile::tempdir()?;
+        let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let writer = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let prior = PeerProbeSigner::generate().public_key_hex();
+        let record = serde_json::json!({
+            "node":"lost-proof", "generation":prior, "probe_public_key":prior,
+            "expires_ms":0, "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true,
+            "log":{"state":"open", "epoch":2, "ensemble":ensemble, "tiered":0,
+                "may_have_fleet_acks":true, "claimant":null, "claimed_ms":null}
+        });
+        // A persisted, long-expired member crosses the real conclusive-loss
+        // branch immediately. An absent member stays undecided and does not cover it.
+        let follower = serde_json::json!({
+            "node":"lost-follower", "generation":"retained-follower-generation",
+            "probe_public_key":"retained-follower-generation", "expires_ms":0,
+            "addr":"127.0.0.1:9", "peer_protocol":cellar::peer_auth::PROTOCOL_VERSION, "paced_handoff":true
+        });
+        writer
+            .run(async {
+                cellar::wake_format::ensure_ready(&bucket).await?;
+                bucket
+                    .put("nodes/lost-proof.json", serde_json::to_vec(&record)?)
+                    .await?;
+                bucket
+                    .put("nodes/lost-follower.json", serde_json::to_vec(&follower)?)
+                    .await
+            })
+            .await??;
+        let core = Executor::new("lost-proof-core")?;
+        let path = directory.path().join("lost-proof");
+        let (mut config, services) =
+            inputs("lost-proof", &path, &core, Some(bucket.clone()), 0).await?;
+        config.startup.recovery_attempts = 1;
+        config.startup.recovery_attempt_timeout = Duration::from_secs(2);
+        let error = match Node::start(config, services, graph(), applications("lost-proof", None)?)
+            .await
+        {
+            Ok(node) => {
+                stopped(node).await?;
+                anyhow::bail!("lost acknowledged fleet proof was silently accepted as recovered");
+            }
+            Err(error) => error,
+        };
+        ensure!(
+            format!("{error:#}").contains("no complete true witness"),
+            "wrong refusal: {error:#}"
+        );
+        let (preserved, loss) = writer
+            .run(async {
+                let (body, _) = bucket
+                    .get("nodes/lost-proof.json")
+                    .await?
+                    .context("predecessor disappeared")?;
+                let value: serde_json::Value = serde_json::from_slice(&body)?;
+                let loss = bucket
+                    .get(&format!("log/lost-proof/{prior}.e2.loss.json"))
+                    .await?;
+                Ok::<_, anyhow::Error>((value, loss))
+            })
+            .await??;
+        ensure!(
+            preserved["generation"] == prior && preserved["log"]["state"] == "recovering",
+            "lost proof sealed the predecessor or replaced its generation"
+        );
+        let (loss, _) = loss.context("conclusive loss was not recorded")?;
+        let loss: serde_json::Value = serde_json::from_slice(&loss)?;
+        ensure!(
+            loss["recovery_blocked"] == true,
+            "loss receipt authorized progress instead of recording a blocked recovery"
+        );
+        let local = start("local-after-loss", "local", &path, &core, None, None, 0).await?;
+        stopped(local).await?;
+        writer.shutdown().await;
+    }
     Ok(())
 }
 

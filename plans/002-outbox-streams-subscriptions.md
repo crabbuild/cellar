@@ -228,6 +228,11 @@ Required invariants:
   is reported explicitly rather than silently skipped.
 - Old activation completions cannot mutate new activation state. Already-sent
   packets may arrive late and are handled by destination deduplication.
+- Missing durability evidence cannot be converted into an empty restored state.
+  A log with possible fleet acknowledgments needs a complete follower witness;
+  expiry or prolonged unreachability does not authorize abandoning its writes.
+  An unreadable retained bundle blocks its fold. Loss diagnostics alone never
+  authorize sealing, replacement admission or dropping an outbox obligation.
 
 Eventual delivery assumes a recoverable source, an available and authorized
 destination with capacity, and fair scheduling. Permanent deletion, persistent

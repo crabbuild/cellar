@@ -57,6 +57,14 @@ behavior and unqualified correctness boundaries at the start of each turn.
 Prioritize loss, duplicate effects, fencing and recovery failures before API
 polish or additional metrics. State the selected risk and its acceptance gate;
 report what changed, exact verification and the highest remaining blocker.
+Node-log recovery cannot seal possible fleet acknowledgments without a complete
+witness, even after every member is long expired/unreachable or the ensemble is
+empty. Durable loss diagnostics do not authorize replacement admission. Retained
+bundle corruption also refuses the uncovered-row fold on every scan, including
+when the diagnostic is cached. Preserve the recovering predecessor and require
+valid evidence before retry can succeed. Local SQLite state alone is not a
+complete node-log witness; do not add a fallback that silently resets accepted
+outbox, stream, inbox or checkpoint state.
 Keep implemented behavior separate from release qualification. Passing reruns
 do not close unexplained failures or substitute for missing fault cases.
 Outbox dispatch uses immutable stored principal/grant identity after source

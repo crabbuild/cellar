@@ -5077,11 +5077,12 @@ impl NodeLogManager {
             // expired and unreachable, reachable with a different fragment
             // epoch, or reachable with an explicitly incomplete retained
             // range. A failed tail or an old response without that range is
-            // inconclusive. Only a fully conclusive, witness-free epoch with
-            // possible fleet acknowledgements may declare bounded loss.
+            // inconclusive. A witness-free epoch with possible fleet
+            // acknowledgements must remain blocked even when every member
+            // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
             let mut gathered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
-            // "A blink is not death" applies to loss declaration too: a
+            // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
             // power cycle) is NOT conclusively gone — its fsync'd fragments
             // boot back in seconds, and declaring loss against boot order
@@ -5230,13 +5231,12 @@ impl NodeLogManager {
             // acked frames can be missing. If any member's state remains
             // inconclusive, keep failing loudly because its data can still
             // become readable. If every member is conclusive, declare the
-            // bounded loss AS A RECORD: a permanent object beside the log
-            // record stating what was unrecoverable, then proceed to the
-            // drain and the seal. "Loss is a record, never a prompt." The
-            // verdict rests on the members alone, so it is reached before
-            // the bundle drain: a pass that must refuse to seal refuses
-            // before it reads the session, not after.
-            if complete_witnesses == 0 && may_have_fleet_acks && !record.ensemble.is_empty() {
+            // missing evidence in a diagnostic, but do not drain, seal or
+            // authorize a replacement from that record. Expiry or a dead
+            // connection cannot certify that acknowledged data may be
+            // discarded. An empty ensemble with the ack marker is likewise
+            // missing proof. A later pass can succeed if a witness returns.
+            if complete_witnesses == 0 && may_have_fleet_acks {
                 anyhow::ensure!(
                     inconclusive == 0,
                     "node-log recovery for {dead}: no complete true witness among {:?} and \
@@ -5250,8 +5250,9 @@ impl NodeLogManager {
                     "declared_at_ms": now,
                     "declared_by": self.node,
                     "ensemble": record.ensemble.iter().collect::<Vec<_>>(),
-                    "note": "no complete true witness survived; acked writes within the \
-                             final flush window may be unrecovered",
+                    "recovery_blocked": true,
+                    "note": "no complete true witness is available; acknowledged writes \
+                             may be missing and recovery must not seal this log",
                 });
                 self.bucket
                     .put(
@@ -5259,19 +5260,17 @@ impl NodeLogManager {
                         serde_json::to_vec(&loss)?,
                     )
                     .await?;
-                warn!(
-                    dead,
-                    epoch = record.epoch,
-                    "declared bounded loss: no complete true witness for an active log; \
-                     recovery record written"
+                anyhow::bail!(
+                    "node-log recovery for {dead}: no complete true witness among {:?}; \
+                     acknowledged writes may be missing; recovery remains blocked",
+                    record.ensemble
                 );
             }
             // The dead leader's un-drained bundles are bucket-durable
             // coverage that recovery folds into the per-cell prefixes —
             // one GET per bundle, sliced locally, the same idempotent
-            // per-cell PUTs as the follower gather. This runs regardless
-            // of the witness outcome: even a declared loss drains what
-            // the bucket already holds. EVERY retained bundle, not only
+            // per-cell PUTs as the follower gather. This runs only after
+            // the witness requirement passes. EVERY retained bundle, not only
             // the record epoch's: a live reconfiguration steps the epoch
             // behind a barrier that counts bundle coverage as tiered, so
             // rows can be durable only in a prior epoch's bundle — an
@@ -5992,8 +5991,8 @@ impl NodeLogManager {
         }
         drop(fetches);
         // Bundles whose bytes this pass read and could not use. They are
-        // declared together below, before the scan answers, so no caller
-        // proceeds past an undeclared loss.
+        // recorded together below before refusing the fold. A diagnostic
+        // cannot authorize a caller to restore or seal incomplete state.
         let mut unreadable: BTreeMap<String, (String, Vec<cellar_ltx::bundle::BundleRow>)> =
             BTreeMap::new();
         let mut bundles = Vec::new();
@@ -6098,11 +6097,18 @@ impl NodeLogManager {
                 }
             }
         }
-        // Declare before answering. A caller that seals or restores on this
-        // answer must do it against a durable record of what was lost.
+        // Record before refusing, including on later scans whose diagnostics
+        // are already cached. No caller may treat unreadable bytes as an
+        // empty set of outstanding rows.
+        let unreadable_count = unreadable.len();
         for (key, (reason, rows)) in unreadable {
             self.declare_bundle_loss(&key, &rows, &reason).await?;
         }
+        anyhow::ensure!(
+            unreadable_count == 0,
+            "session {} has {unreadable_count} unreadable retained bundle(s); recovery remains blocked",
+            self.session
+        );
         Ok(uncovered)
     }
 
@@ -6112,11 +6118,9 @@ impl NodeLogManager {
     /// The scan reads `log/<session>/bundle/` only, so the writer is this
     /// process running this binary. Bytes that do not decode are therefore
     /// corruption, not a newer envelope this reader does not know, and no
-    /// retry and no other reader can do better. That leaves a permanent
-    /// refusal or a record. A refusal wedges every activation waiting on
-    /// the fold, so the loss becomes a record and the scan continues --
-    /// the shape the amnesiac ensemble already uses, and the reason "loss
-    /// is a record, never a prompt" is a rule here.
+    /// retry alone cannot repair them. Persist a diagnostic before refusing
+    /// the fold; the record cannot certify an incomplete state as recovered.
+    /// A later scan may succeed after valid bytes are restored.
     ///
     /// `rows` names what was lost when one row failed to slice out of an
     /// envelope that decoded. It is empty when the envelope itself was
@@ -6145,6 +6149,7 @@ impl NodeLogManager {
             "bundle": key,
             "declared_at_ms": crate::ownership_store::now_ms(),
             "declared_by": self.node,
+            "recovery_blocked": true,
             "reason": reason,
             "rows": rows
                 .iter()
