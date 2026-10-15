@@ -48,7 +48,48 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: lost fetch response and owner handoff
+## Current follow-up: unproven acknowledgment and forced owner closure
+
+The native unproven-ack fixture decorates the destination's real ReplicaStorage
+client for the exact stream LTX prefix and selects bucket-only proof through
+NodeFleet::fleet_durability=false. Both ordinary and multipart publications are
+held after arming, then refused without forwarding writes. Lease/catalog/source
+storage and the successor's independent client remain healthy.
+
+An already proven inbox effect and saved lease receipt precede the cut. Once a
+real stream upload is held, a test-only read-only SQLite connection on the
+blocking executor independently observes local checkpoint one, no lease and the
+exact saved ack receipt. This is forensic observation, not a public read path.
+The actual caller must still return Ambiguous while publication is held, before
+forced closure. No success/proof adapter or RPC deadline extension is installed.
+
+Forced Node::cancel closes admission and joins; the fixture then observes the
+old node's actual authority lease expire before asking a successor to claim.
+An immediate recovery probe had returned Unavailable while that lease could
+still be live, so startup/transport/lease budgets are retained and authority
+expiry is an explicit prerequisite. Before any receipt retry, recovery must
+show a different owner and higher epoch, original subscription/checkpoint zero,
+and the exact unexpired original lease. Bucket-only proof and refused uploads
+make checkpoint one unavailable to recovery in this cut. The healthy consumer's
+proven inbox effect remains one; retrying the saved receipt must acknowledge
+once and then report AlreadyAcknowledged.
+
+A second event then acquires a new lease and the independently expected inbox
+sum three. The original receipt must preserve checkpoint one and the second
+lease; only its fresh receipt advances checkpoint two. Both node domains and
+the observer join. Three focused final-source runs pass (initial 10.10s), and
+all 46 serial Node integration tests pass in 386.81s. Formatting checks 504 Rust
+files; docs validate 36 documents, 6 flows and 386 references; the dependency
+audit checks 403 packages without a JavaScript engine. Workspace/all-target/all-feature
+Clippy passes with warnings denied (12.60s); whitespace checks pass.
+Local Rust 1.97.0/aarch64 macOS uses symbols-disabled, nonincremental dev/test
+profiles. This covers forced in-process domain closure and failed local-bucket publication, not power
+loss, an independent process kill, follower-only proof, physical network failure
+or concurrently executing old owners. The broader release matrix and earlier
+unexplained startup/recovery failures remain open. Production code, version-one
+markers and existing lease/RPC/shutdown budgets are unchanged by this slice.
+
+## 2026-10-15 lost fetch response and owner handoff
 
 The native peer fault proxy now captures and drops __streamNext responses as
 well as append/ack. The new SDK fixture supplies an explicit retained caller
