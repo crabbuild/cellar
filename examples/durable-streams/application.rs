@@ -80,12 +80,14 @@ pub fn definition() -> Definition {
 pub struct FaultControls {
     node: String,
     phase: Mutex<Option<Value>>,
+    owner: Option<Arc<super::owner_fault::Control>>,
 }
 
 impl FaultControls {
-    pub fn for_node(node: &str) -> Self {
+    pub fn for_node(node: &str, owner: Option<Arc<super::owner_fault::Control>>) -> Self {
         Self {
             node: node.into(),
+            owner,
             ..Default::default()
         }
     }
@@ -208,6 +210,49 @@ impl Cell for Order {
                 order_id: order_id.into(),
                 amount_cents,
             };
+            if let Some(cut) = url
+                .query_pairs()
+                .find(|(name, _)| name == "running_cut")
+                .map(|(_, value)| value.into_owned())
+            {
+                let control = self
+                    .faults
+                    .as_ref()
+                    .and_then(|controls| controls.owner.as_ref())
+                    .ok_or_else(|| anyhow::anyhow!("private owner fault is not configured"))?;
+                anyhow::ensure!(
+                    matches!(cut.as_str(), "before_tx" | "before_commit"),
+                    "invalid private callback cut"
+                );
+                let events = context.stream::<OrderConfirmed>("EVENTS")?;
+                let scope = context.identity().unwrap().scope.clone();
+                let result = if cut == "before_commit" {
+                    db.tx(|tx| {
+                        tx.put_json("order", &serde_json::to_value(&event)?)?;
+                        tx.emit(&events, event.clone())?;
+                        control.hold(&scope, &cut)?;
+                        Ok(())
+                    })
+                } else {
+                    control.hold(&scope, &cut)?;
+                    db.tx(|tx| {
+                        tx.put_json("order", &serde_json::to_value(&event)?)?;
+                        tx.emit(&events, event.clone())
+                    })
+                };
+                control.attempted(&scope, &cut, &result)?;
+                // Deliberately swallow the refusal: normal output gates still
+                // must prevent a fenced callback from returning success.
+                return Ok(Output::Http(cellar::engine_api::HttpResponse {
+                    status: 200,
+                    body: b"stale_success".to_vec(),
+                    headers: Vec::new(),
+                    stream: None,
+                    websocket: None,
+                    write_position: None,
+                    observed_position: None,
+                }));
+            }
             let hold = self.faults.as_ref().and_then(|controls| {
                 url.query_pairs()
                     .find(|(name, _)| name == "hold_before_send")

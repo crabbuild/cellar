@@ -477,6 +477,44 @@ This case qualifies a resumed expired owner with a held invocation/first dispatc
 It does not qualify physical partitions, power/store loss, follower-only proof,
 or every in-flight write/reply interleaving while an old owner is running.
 
+## Keep a live source callback entered through takeover
+
+[live_owner.py](live_owner.py) runs four independent processes with explicit
+bucket proof and 1000ms node leases. It first accepts and delivers one original
+order. A second, deliberately different probe stays inside the old source's
+native poll at either `--cut before_tx` (retained handles before starting a
+transaction) or `--cut before_commit` (business/event writes still uncommitted).
+The ordinary 10-second handler budget stays unchanged.
+
+Only the producer enables the private `owner_fault` fixture client. A private
+marker makes its actual ordinary, conditional and listing operations fail;
+the CAS wrapper retains the original no-retry client. The small fixture listing
+is capped at 1000 objects. No adapter supplies proof or alters another node's
+client. Callback phase files are observations, not authority or receipts.
+
+The measuring client requires real refused lease operations, observed lease
+expiry, a live/non-stopped old PID and higher-epoch successor ownership. It audits
+the original business receipt, envelope, producer progress and empty consumer
+state before releasing the callback. No source command is replayed. The stale
+operation must refuse closed-domain authority; its caught-error success-shaped
+response must not succeed. The old process must join with lease-expiry fencing.
+Its archived DB/WAL is queried only through disposable copies and must retain
+the original business state, next sequence 2, settlement 1 and zero pending rows.
+Another audit precedes the single consumer effect and complete survivor cleanup.
+
+```sh
+python3 examples/durable-streams/live_owner.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --cut before_commit --output /tmp/cellar-live-owner-evidence
+python3 examples/durable-streams/live_owner.py \
+  --audit /tmp/cellar-live-owner-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image` with a pinned RustFS digest for a private S3 bucket. These
+cuts qualify independent loopback processes on one machine with an injected
+node-client outage. Physical partitions, power/store loss, follower-only proofs
+and other stale settlement/reply interleavings retain their own qualification.
+
 ## Recover a follower-only source proof
 
 [follower_faults.py](follower_faults.py) runs independent destination, producer

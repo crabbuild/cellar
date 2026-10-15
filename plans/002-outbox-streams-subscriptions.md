@@ -1741,6 +1741,20 @@ node joins and unchanged producer progress/envelope remain required. This is an
 embedded-node/domain/executor cut with a private SQLite backend, not independent-
 process or physical-partition qualification.
 
+The independent-process `live_owner.py` driver extends those two source cuts to
+four processes with separate data and explicit bucket proofs. It records the
+original accepted command and different stale probe before keeping the original
+callback entered. Its opt-in file-controlled client refuses actual store/lease/
+listing operations on that node only, preserving the no-retry CAS client. The
+bounded private-fixture listing is not a capacity or general pagination surface.
+Require observed authority expiry, a live/non-stopped PID, higher-epoch successor
+recovery and the saved original prefix before releasing the callback within the
+unchanged handler budget. Closed-domain refusal, no successful stale response,
+joined expiry fencing and an unchanged old DB/WAL image must precede another
+audit and one consumer effect. SQLite and private RustFS S3 qualify only these
+selected client-outage cuts, not physical partition/power/store loss, follower-
+only proofs or every stale settlement/reply interleaving.
+
 ### Capacity and lifecycle qualification
 
 Measure transaction overhead, append throughput, latency percentiles, retry

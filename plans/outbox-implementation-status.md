@@ -22,8 +22,8 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next correctness priorities are remaining live old-owner execution during
-takeover, destination follower-disk recovery, physical store/host loss and the
+The next correctness priorities are destination follower-disk recovery, remaining
+stale settlement/reply interleavings, physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
 boundaries; they do not complete the follower-proof failure matrix.
@@ -52,7 +52,57 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: an executing source poll spans fenced takeover
+## Current follow-up: independent-process live source takeover
+
+`live_owner.py` extends the embedded running-poll case to four independent
+processes on one machine. A private producer-only `owner_fault` configuration
+wraps its real ordinary, conditional and listing clients. The conditional wrapper
+keeps the original no-retry client; the small private listing caps its materialized
+inventory at 1000 objects. An isolation marker causes actual store calls to fail
+and records bounded operation/path evidence. It never supplies durability credit
+or changes other nodes' clients. All leader writes use explicit bucket proof.
+
+The original order/receipt is accepted and settled before a different stale probe
+is submitted. The callback publishes an entered observation and stays inside its
+native poll, either before starting a transaction or after uncommitted business/
+outbox writes. The external measuring client records the original/probe intent,
+actual refused lease operations, current lease expiry and a live/non-stopped old
+PID. A different successor must recover the original source under a higher epoch
+and pass a saved source/event/inbox/checkpoint audit before callback release.
+No SIGSTOP, source-command replay or synthetic proof repairs that prefix.
+
+After release within the unchanged 10-second handler budget, the old callback
+must record closed-domain storage/commit refusal even though it then attempts a
+success-shaped response. The original request must terminate without success,
+and the old process must join with `NodeLeaseExpired` and no graceful-stop report.
+The joined old source's DB/WAL family is archived and read only through disposable
+copies: original business value/receipt, lane, next sequence 2, settlement 1 and
+zero pending events must remain. A second recovered-prefix audit precedes one
+consumer effect/checkpoint and complete preserving survivor/store cleanup.
+Complete offline audit rechecks the forensic archive's bytes.
+
+All four final cases pass: before-tx/before-commit on SQLite (2.91s/2.79s) and
+private pinned RustFS S3 (4.74s/4.40s). Ordinary smoke, resumed-owner and source
+follower-only cases also pass. The immutable final executable SHA-256 is
+`931d05edf72aff8740efb1db608c6b17ef7147a4a96663378190260c8082fcfd`.
+All 117 Python guards pass, including missing/reordered stages, changed probe
+intent, paused/dead/reused PIDs, stale authority/policy, false refusal, stale
+commits, source replay/prefix loss, archive mutation and incomplete cleanup.
+Workspace/all-target/all-feature check and Clippy with warnings denied, seven
+artifact tests, three CLI tests, formatting (509 Rust files), dependency checks
+(403 packages/no JavaScript engine), documentation validation (36 documents,
+6 flows, 386 references) and whitespace checks pass. Checks use Rust 1.97.0/aarch64 macOS; the
+initial adapter lifetime compile error was a fixture setup issue, not a runtime
+failure. Core runtime/SDK code and owned markers remain unchanged. Earlier library,
+Node and other process qualifications are not superseded by these selected runs.
+
+This qualifies the two independent-process source callback cuts under an injected
+node-client outage. Destination follower-disk recovery is next, followed by other
+stale settlement/reply interleavings and the existing physical-host/store/power,
+startup-cause, lifecycle, capacity and operational gates. The full goal remains
+incomplete.
+
+## 2026-10-15 an executing source poll spans fenced takeover
 
 The next native fixture holds a real source callback within a synchronous poll
 at two cuts: after retaining storage/stream handles but before a transaction,

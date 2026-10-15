@@ -72,6 +72,19 @@ the callback. Its caught storage refusal must not become HTTP success. Preserve
 the original producer revision/envelope and complete both node joins. These
 independent-domain/executor cases are not separate-process or physical partition
 qualification; do not relax their deadline or repair the prefix by command replay.
+`live_owner.py` carries those source cuts into four independent processes. Its
+opt-in owner_fault client refuses actual ordinary/CAS/list operations after a
+private marker; CAS keeps the original no-retry client. It supplies no proof.
+The private listing adapter caps its materialized inventory at 1000 objects;
+this is not a general pagination implementation or capacity fixture. The native
+callback publishes entered/attempted phase observations and remains in its poll
+until a measured release, with the ordinary 10s handler policy unchanged.
+Require lease expiry, live/non-stopped old PID, a higher-epoch successor and a
+saved original-prefix audit before release. Require closed-domain refusal,
+interrupted response, joined expiry fencing, immutable old DB/WAL inspection
+and one consumer effect before complete survivor/store cleanup. Never use an
+ordinary source replay or a signal to repair this boundary. Core runtime and
+all owned markers remain unchanged; physical fault qualification is separate.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained
