@@ -221,8 +221,9 @@ impl<E> Subscription<E> {
         if value.is_null() {
             return Ok(None);
         }
-        let (receipt, records, issued_at_ms, expires_at_ms) =
-            accept_batch(self.stream.resource(), &identity, options, limits, value)?;
+        let (receipt, records, issued_at_ms, expires_at_ms) = super::error::submitted_result(
+            accept_batch(self.stream.resource(), &identity, options, limits, value),
+        )?;
         Ok(Some(Batch {
             subscription: self.clone(),
             receipt,
@@ -248,15 +249,7 @@ impl<E> Subscription<E> {
         let value = self
             .call(context, "__streamAck", json!({"receipt":receipt.encode()?}))
             .await?;
-        match value["status"].as_str() {
-            Some("acknowledged") => Ok(Acknowledgment::Acknowledged),
-            Some("already_acknowledged") => Ok(Acknowledgment::AlreadyAcknowledged),
-            Some("obsolete") => Ok(Acknowledgment::Obsolete),
-            _ => Err(error(
-                ErrorCode::StaleReceipt,
-                "invalid acknowledgment response",
-            )),
-        }
+        accept_acknowledgment(&value)
     }
 
     pub async fn retry(&self, context: &Context, receipt: &Receipt, delay_ms: i64) -> Result<()> {
@@ -279,7 +272,7 @@ impl<E> Subscription<E> {
                 json!({"receipt":receipt.encode()?,"delay_ms":delay_ms.to_string()}),
             )
             .await?;
-        accept_retry(delay_ms, &value)
+        super::error::submitted_result(accept_retry(delay_ms, &value))
     }
 
     /// An absolute expiry is retry-safe: repeating the request cannot add time.
@@ -300,8 +293,20 @@ impl<E> Subscription<E> {
                 json!({"receipt":receipt.encode()?,"expires_ms":expires_ms.to_string()}),
             )
             .await?;
-        accept_extension(expires_ms, &value)
+        super::error::submitted_result(accept_extension(expires_ms, &value))
     }
+}
+
+fn accept_acknowledgment(value: &Value) -> Result<Acknowledgment> {
+    super::error::submitted_result(match value["status"].as_str() {
+        Some("acknowledged") => Ok(Acknowledgment::Acknowledged),
+        Some("already_acknowledged") => Ok(Acknowledgment::AlreadyAcknowledged),
+        Some("obsolete") => Ok(Acknowledgment::Obsolete),
+        _ => Err(error(
+            ErrorCode::StaleReceipt,
+            "invalid acknowledgment response",
+        )),
+    })
 }
 
 fn accept_retry(delay: i64, value: &Value) -> Result<()> {
