@@ -132,8 +132,12 @@ protection. Sync before acknowledgment so the remote checkpoint cannot outrun
 proven effects. Acknowledgment is for the entire exact batch, not a partial prefix.
 
 Use `next_with_id` with the same fetch ID to resolve an ambiguous fetch. Fetch
-IDs are 32 lowercase hexadecimal digits; save the ID before starting the call. Keep the
-returned receipt unchanged when retrying an ambiguous acknowledgment. `retry`
+IDs are 32 lowercase hexadecimal digits; save the ID before starting the call.
+While its lease remains live, replay recovers the same receipt, expiry and batch;
+a different fetch ID receives `LeaseBusy`. This identity is not a permanent batch
+receipt: after acknowledgment or lease expiry, the same fetch ID can obtain a
+fresh lease. Retained inbox receipts protect local effects when records repeat.
+Keep the returned receipt unchanged when retrying an ambiguous acknowledgment. `retry`
 releases work for later processing without advancing the checkpoint.
 `extend_until` uses a bounded absolute expiry so a repeated extension cannot
 continually add time. Expired/reset/obsolete authority must be handled explicitly.

@@ -22,11 +22,13 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable slice is diagnosing the observed Node startup/recovery and
-late-ack failures before adding further fault cases. PR #38 covers storage-isolated
+The next correctness slices are lost lease-fetch responses, unproven ack cuts,
+and live old-owner execution during takeover. PR #38 covers storage-isolated
 expiry and a late proven append response after joined source fencing. PR #39
-adds a proven ack across joined destination fencing. These do not qualify a live
-old owner concurrently executing during takeover or the complete failure matrix.
+adds a proven ack across joined destination fencing; PR #40 fixes a separately
+reproduced event-startup supervision hang. The earlier intermittent no-event
+bootstrap/recovery failures remain unexplained. Neither passing reruns nor
+joined local handoffs qualify the complete failure matrix.
 
 SQLite-only event deployment remains explicitly unsupported until local recovery
 inventory/discovery exists and is qualified. Multi-partition streams, push
@@ -46,7 +48,40 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: supervise event startup
+## Current follow-up: lost fetch response and owner handoff
+
+The native peer fault proxy now captures and drops __streamNext responses as
+well as append/ack. The new SDK fixture supplies an explicit retained caller
+fetch ID and saves its recovered receipt with inbox/business effects in one
+transaction, proving that commit before acknowledgment.
+
+The test audits the actual complete proven fetch response and independent
+checkpoint-zero/live-lease status before permitting reply loss. The original
+caller must report Ambiguous and have no applied effect. A competing fetch ID
+must report LeaseBusy without changing the lease. After complete joined owner
+handoff, independent owner metadata must show a different node and higher epoch;
+status must retain the original subscription identity, checkpoint and unexpired
+lease before any successful replay. The same fetch ID must recover the exact
+receipt, issue/expiry times and encoded records. Reprocessing that live batch
+must leave the inbox effect at one. Only acknowledgment advances checkpoint one.
+
+The same fetch ID is then reused after ack for event two: it must obtain a
+higher lease generation and different token, with the independent inbox sum
+three. Replaying the old receipt must leave this second lease intact; only its
+fresh receipt advances checkpoint two. Both nodes, proxy and observer join.
+Three focused runs pass (initial 6.17s), and the complete serial Node suite
+passes all 45 cases in 357.62s. Formatting checks 503 Rust files; docs validate
+36 documents, 6 flows and 386 references; the native dependency audit checks
+403 reachable packages without a JavaScript engine. Workspace/all-target/all-feature
+Clippy passes with warnings denied (54.55s); whitespace checks pass.
+Local verification uses Rust 1.97.0/aarch64 macOS with symbols-disabled,
+nonincremental dev/test profiles. Production code, owned markers and deadlines
+are unchanged by this slice. This is a lost proven reply with orderly joined handoff over a local
+SQLite-backed object store; abrupt process/storage loss, physical network
+isolation, post-expiry fetch replay, unproven ack and concurrently executing
+old-owner cuts remain separately unqualified.
+
+## 2026-10-15 event startup supervision
 
 A deterministic regression exposes a separate startup liveness bug. prepare()
 marks generation readiness pending before the driver polls event activation.

@@ -299,7 +299,10 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             break;
         };
         let method = request.header("x-cells-rpc-method");
-        if matches!(method, Some("__streamAppend" | "__streamAck")) {
+        if matches!(
+            method,
+            Some("__streamAppend" | "__streamAck" | "__streamNext")
+        ) {
             let method = method.unwrap();
             ensure!(
                 reply.head.starts_with(b"HTTP/1.1 200 "),
