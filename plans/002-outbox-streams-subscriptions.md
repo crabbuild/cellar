@@ -1578,6 +1578,15 @@ may run behind the incompatible-feature gate in isolated development fleets.
   duplicate/old/future/reset ack; expiry racing ack/extend; retry cooldown;
   out-of-range cursor; too-small fetch budget; clock jumps; long-poll lost-wake
   race. All returned batches remain bounded and ordered.
+- Hold original signed ack and extend requests before owner submission, then
+  reset at the same offset, replace an actually expired lease, or acknowledge
+  and lease the next event. Audit replacement identity/checkpoint/expiry before
+  release; both old results must leave that state unchanged. Preserve ordinary
+  lease and operation budgets so timeout cannot substitute for receipt fencing.
+  Competing fetches must remain busy while either lease is live. Replayed reset
+  receipts cannot reset progress again; same-database inbox redelivery must keep
+  one effect. This native-node cut does not qualify separate processes, clock
+  rollback, retention reclamation or independent worker databases.
 - Inbox receipt rollback, digest conflict, capacity, pruning contract, repeated
   batch with partial prior local commits, and two consumers racing on a receipt.
 - Same host with multiple execution domains: no policy, grants, tasks, or

@@ -150,6 +150,21 @@ releases work for later processing without advancing the checkpoint.
 `extend_until` uses a bounded absolute expiry so a repeated extension cannot
 continually add time. Expired/reset/obsolete authority must be handled explicitly.
 
+Several workers sharing a subscription compete for one live batch. Expiry allows
+another worker to receive the same records with a new receipt; it does not stop
+the old worker's effects. A delayed acknowledgment or extension cannot settle or
+extend that replacement lease. Reset changes the subscription incarnation even
+when replay starts at the same offset, so old receipts return `SubscriptionReset`.
+A replayed successful acknowledgment may return `AlreadyAcknowledged` while a
+later batch is leased; that result describes only the original receipt. Keep
+inbox receipts and business effects in the same stable consumer database and
+processing scope across redelivery. Separate worker databases do not share inbox
+deduplication; external effects still require destination idempotency.
+
+The SDK returns `Acknowledgment::Obsolete` for an older receipt whose range is
+already behind the checkpoint. Like `AlreadyAcknowledged`, this is settled
+progress, not an instruction to apply the events again.
+
 `BatchOptions` defaults to 100 records, 1 MiB and a 30-second poll. Host policy
 caps the requested budgets. Polling stops when work is available or its wait
 elapses; caller cancellation can stop it earlier. The pending RPC deadline
@@ -171,7 +186,7 @@ name used in JSON. Display text is diagnostic, not a retry decision.
 | `OwnershipLost` | Resolve current authority; a prior commit may still exist |
 | `Ambiguous` | Reconcile using the saved command ID, operation ID, fetch ID or exact receipt before repeating effects |
 | `LeaseBusy`, `SubscriptionPaused` | Wait for eligible work or an authorized lifecycle change |
-| `LeaseExpired`, `StaleReceipt`, `SubscriptionReset`, `AckObsolete` | Stop treating the old receipt as current processing authority |
+| `LeaseExpired`, `StaleReceipt`, `SubscriptionReset` | Stop treating the old receipt as current processing authority |
 | `CursorExpired` | Inspect the earliest retained offset and explicitly choose whether to restart or rebuild |
 | `InvalidCursor` | Use a cursor for the same resource and inspect its retained range before selecting another position |
 | `BatchTooSmall` | Increase record/byte budgets within host policy; preserve the fetch ID when retrying a leased batch |

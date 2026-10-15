@@ -22,9 +22,9 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable proof work is subscription expiry/reset/extend racing
-acknowledgments and competing consumers. Other source-control reply transitions
-remain unqualified. The startup/shutdown cause audit remains open and
+The next actionable correctness work is durable clock rollback and retention
+racing lease expiry/settlement, including required checkpoint protection. Other
+source-control reply transitions remain unqualified. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
 remaining commit/proof and lifecycle/capacity cuts. The current process fixtures
 cover selected follower-only source acceptance and destination append/fetch/ack
@@ -54,7 +54,59 @@ participants. Later sections retain historical verification notes; their old
 version numbers, migrations, legacy readers and fleet-upgrade tests describe
 removed implementations and are not current supported behavior.
 
-## Current follow-up: delayed append replies race guarded operator retry
+## Current follow-up: subscription settlement races
+
+Three real-node cases hold the original signed acknowledgment and extension
+requests before forwarding them to the stream owner. Separate consumer cells
+originate both requests; the destination still uses normal authorization,
+transaction, ownership and proof gates. Signed operator status audits the
+subscription before either old request can execute. Competing fetch IDs receive
+LeaseBusy while each original/replacement lease is live.
+
+Exercise three durable transitions while those requests are held: reset to the
+same original offset under a new incarnation; actual expiry and a higher lease
+generation for the same records; and acknowledgment followed by a lease for the
+next event. Audit the replacement before release. Old reset receipts must return
+SubscriptionReset, replaced receipts StaleReceipt, and an already committed ack
+AlreadyAcknowledged. The old extension must never change replacement expiry;
+checkpoint, identity and full lease must remain unchanged after both calls finish.
+Forward the exact captured request bytes. Replaying the retained reset operation
+must preserve the live replacement and later settled progress. The current lease
+alone can advance the checkpoint, and both nodes/proxy must fully join while
+caller-owned core executors remain usable.
+
+Keep the ordinary 30-second lease and three-second operation budget. The expiry
+case waits outside the calls until near expiry, captures both requests while the
+old lease is still live, and crosses actual expiry within the original call
+budget. Neither timeout nor domain closure can qualify stale-receipt refusal.
+An absolute extension repeated before acknowledgment keeps the same expiry.
+Reset/expiry redelivery preserves original encoded records and one effect in the
+same durable projection inbox; next-event processing adds only that event's
+effect. This does not promise global deduplication across separate databases or
+external effects.
+
+The initial three cases pass (53.77s). A targeted negative control bypasses only
+the pure policy's extension receipt comparison: the next-lease case fails in
+3.16s because the obsolete extension succeeds. Restore the production source
+exactly before qualification; this intentional failure establishes guard
+sensitivity, not a bug in the unchanged runtime. All three restored cases pass
+(58.29s). The saved immutable test executable passes all 55 serial Node cases
+(434.53s), with no other task-owned Rust builds/test suites running alongside it.
+Workspace/all-target/all-feature check and Clippy with warnings denied pass,
+as do seven artifact/three CLI tests, all 127 Python guards, formatting (510
+Rust files), docs (36 documents/6 flows/386 references), dependency checks (403
+packages/no JavaScript engine) and whitespace checks. Local checks use Rust
+1.97.0/aarch64 macOS. The changes are native qualification and operator/SDK
+guidance; all owned markers remain 1.
+
+These are separate native domains/core executors with real peer RPC and a private
+SQLite bucket. They do not qualify independent processes, clock rollback,
+protected-history reclamation, physical faults or the full release matrix.
+Next address durable clock/retention races, retaining the unresolved historical
+startup/shutdown investigation and remaining proof, lifecycle, capacity and
+operational work. The full design remains incomplete.
+
+## 2026-10-15 delayed append replies race guarded operator retry
 
 Two native cases now hold an actual append acceptance or actual Forbidden reply
 while the same live source accepts a signed operator retry. The refusal comes

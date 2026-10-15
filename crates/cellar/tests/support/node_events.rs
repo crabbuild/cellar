@@ -22,6 +22,9 @@ mod event_unproven_ack;
 #[path = "event_running_owner.rs"]
 mod event_running_owner;
 
+#[path = "event_settlement_race.rs"]
+mod event_settlement_race;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
@@ -110,6 +113,9 @@ impl Cell for Counter {
             let path = url::Url::parse(&request.url)?.path().to_owned();
             if path == "/fetch-save" {
                 return event_fetch_reply::fetch_and_save(context, &request.url).await;
+            }
+            if path == "/lease-call" {
+                return event_settlement_race::lease_call(context, &request.url).await;
             }
             if path == "/source-facet" || path == "/nested-facet" {
                 let class = context.exported_cell_class("SourceFacetCounter")?;

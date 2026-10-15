@@ -149,6 +149,17 @@ exposed stale settlement and stale blocking; any such probe must restore
 production bytes before qualification. These are embedded-node/domain cuts,
 not process/power proof.
 
+`event_settlement_race.rs` holds original signed ack/extend submissions at the
+real peer proxy before the destination owner sees them. Exercise reset at the
+same offset, actual lease expiry and replacement, and acknowledged progress with
+a next live lease. Audit the replacement before releasing the old requests and
+compare its full lease/checkpoint afterward. Preserve the ordinary 30s lease and
+3s operation budget; wait outside the calls until near expiry, then require both
+requests captured while the original lease is still live. A timeout cannot stand
+in for typed receipt refusal. Inbox deduplication is scoped to one stable consumer
+database; separate worker databases do not share it. These are native domain/
+executor cuts, not independent-process or clock/retention qualification.
+
 `cellar stream` describe/read/sources/status/audit and `cellar subscription`
 list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited
