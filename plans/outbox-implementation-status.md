@@ -24,12 +24,12 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next actionable correctness work is independent-process clock-refusal
-recovery and the remaining node lease/folded-record loss contract (especially
-stable node-name reuse after erased metadata), followed
-by remaining retention/lease and source-control transitions. The lost-expiry
-defect below is fixed; selected native owner-loss and publication cuts now extend
-its local qualification without closing the full proof/fault matrix.
+The highest actionable defect is same-name node restart after erased lease
+metadata. The probe below reproduces replacement admission and loss of a proven
+expiry clock. Fix that ownership/boot continuity boundary before extending
+independent-process clock-refusal qualification, then continue the remaining
+retention/lease and source-control transitions. The prior refused-mutation clock
+defect is fixed; its complete proof/fault matrix remains open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -97,13 +97,49 @@ fault uses DELETE RETURNING to atomically retain the exact removed root (no
 GET/DELETE window can discard an intervening log CAS), then conditionally
 restores those proof fields with only expiry shortened before successor
 recovery. The missing-metadata case above independently requires refusal until
-valid evidence returns. Final full Node/static qualification is pending below.
+valid evidence returns. The corrected four delayed-reply cases pass (27.67s), preserving the original
+fencing reasons and operation deadlines. Final serial Node qualification passes
+all 62 tests (491.61s). Saved focused/full-start/full-end executable SHA256 is
+79ed1c3d616d7fdec9ee47e24f90fc02a1cdb1dc6afad96c1ca0d3ae6c42e716;
+all seven changed Rust files retain identical bytes throughout that qualification.
+Artifact (seven) and CLI (three) tests pass. Workspace/all-target/all-feature
+check and Clippy with warnings denied pass. Formatting checks 514 Rust files;
+docs validate 36 documents/6 flows/388 local references; the dependency audit
+checks 403 packages without a JavaScript engine. The 127 Python guards also pass.
+All 15 additional integration tests pass across native cells, streams, log
+protocol, outbox, replication, runtime, storage and transactions. Workspace
+documentation tests pass: 11 passed and one existing Axum example ignored.
+Local Rust 1.97.0/aarch64 macOS. Hosted runs 38789605008 and 38789598754 for
+implementation commit 120126b were refused before any steps: GitHub reports
+failed account payments or a spending limit. Hosted toolchain qualification
+(Rust 1.98.1) remains unavailable.
 
-Stable node-name reuse after metadata erasure remains a distinct open boundary:
-a first-ever node and an erased old root cannot be distinguished by optional
-boot lookup alone. Do not claim this selected guard establishes that contract,
-metadata rollback safety, independent-process or physical-store-loss recovery.
-The full design and release gates remain incomplete.
+### Confirmed follow-up: same-name restart after metadata erasure
+
+After the preceding qualification, change only the replacement node name in
+the missing-destination-metadata fixture to the erased owner's name. Keep the
+old disk removed, real follower proof, blocked payload uploads, original 30s
+stream lease, 3s operation budget and original assertions. The replacement
+incorrectly claims epoch two and returns HTTP success with the old lease active:
+it has lost the previously proven future expiry clock. The original owner was
+epoch one with that same node name. This reproduces in 3.63s and repeats in
+4.93s from a saved probe executable (SHA256
+95a522ace8fa804acd696a9032afea3d26cf5311586eaeba34677d33036824db).
+
+A missing own-node root looks like first boot, and a cell naming this node takes
+the existing same-node ownership shortcut. The required foreign-owner interlock
+therefore does not establish same-name continuity. A fix must distinguish a
+legitimate first boot/preserving restart from reuse after lost recovery evidence;
+it must not disable ordinary new nodes, break preserving restarts, fabricate a
+no-log root as proof, or fall back to stale bucket state. Persisted owner identity
+and bootstrap/recovery evidence need to agree before existing-cell admission.
+Metadata rollback, independent-process and physical-store-loss gates remain open.
+
+The probe restores the original Rust source byte-for-byte, with all seven
+qualified Rust hashes rechecked. Its failing executable is retained separately;
+it is not the qualified runtime above. No temporary probe behavior is committed.
+The 62-case run qualifies the retained-source cases, not this newly exposed
+same-name loss case. The full design remains incomplete and not release-ready.
 
 ## Current follow-up: proven and unproven clock-only refusals
 

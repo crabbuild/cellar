@@ -254,7 +254,9 @@ That receipt proves the retry obligation, not destination acceptance.
 Node lease objects retain folded log recovery evidence even after expiry or
 retirement. An expired lease is eligible for recovery; a missing lease is not
 proof that bucket data is complete. When a cell names that displaced owner,
-missing metadata blocks takeover until valid evidence returns. Do not delete
+the current foreign-owner guard blocks takeover while metadata is missing.
+Same-name restart after erased metadata remains a confirmed release-blocking gap:
+it can admit stale state and lose a proven expiry clock. Do not delete
 node lease objects as a recovery or garbage-collection procedure. Restoring
 metadata must retain the original generation, ensemble and acknowledgment
 history. Node-name reuse after metadata erasure and physical store loss remain
