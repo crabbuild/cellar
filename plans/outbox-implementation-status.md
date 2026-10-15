@@ -2973,3 +2973,12 @@ results, definitive broker refusals, successful null values and private-detail
 removal. Formatting 498 and whitespace pass; Rust/Clippy/rustdoc remain pending.
 The older intermediate compile began before this change and cannot qualify it.
 All Cellar-owned markers remain 1.
+
+
+The developer-guide outcome audit compares its handling table against all 33
+current ErrorCode variants. Eight omitted outcomes now have explicit guidance:
+initialization, invalid cursor, too-small batch, unsupported protocol, subscription
+and operation capacity, unknown operations and pending delivery. Replay guidance
+retains fetch/operation identity; capacity guidance preserves correctness metadata,
+and unsupported layouts use the version-1 hard cutover policy. This is a docs-only
+follow-up: Rust source remains identical to c7be23d for queued validation.

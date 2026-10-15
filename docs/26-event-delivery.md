@@ -156,6 +156,14 @@ name used in JSON. Display text is diagnostic, not a retry decision.
 | `LeaseBusy`, `SubscriptionPaused` | Wait for eligible work or an authorized lifecycle change |
 | `LeaseExpired`, `StaleReceipt`, `SubscriptionReset`, `AckObsolete` | Stop treating the old receipt as current processing authority |
 | `CursorExpired` | Inspect the earliest retained offset and explicitly choose whether to restart or rebuild |
+| `InvalidCursor` | Use a cursor for the same resource and inspect its retained range before selecting another position |
+| `BatchTooSmall` | Increase record/byte budgets within host policy; preserve the fetch ID when retrying a leased batch |
+| `NotInitialized` | Verify declared bindings, resource provisioning and readiness; an identifier alone cannot provision or authorize a resource |
+| `SubscriptionLimit` | Inspect live and retained subscription/lease identities and captured limits; use an explicit administrative lifecycle rather than discarding checkpoints |
+| `OperationLimit` | Inspect retained operation-receipt capacity and the explicit source/resource lifecycle; preserve saved operation identities |
+| `OperationUnknown` | Check the resource/incarnation and saved operation ID; follow the original guarded operation's replay contract rather than assuming business state is absent |
+| `PendingDelivery` | Drain/settle obligations or follow the guarded retirement/destruction contract; ordinary reset cannot discard pending work |
+| `UnsupportedProtocol` | Rebuild matching participants and recreate unsupported development state; owned markers stay at 1 with no compatibility mode |
 | `Forbidden`, `ConfigConflict`, `DestinationDeleted`, `SequenceGap`, `ProducerSealed` | Inspect grants, lifecycle and producer state; operator repair may be needed |
 
 An invalid success body after a submitted fetch or mutation is `Ambiguous`,
