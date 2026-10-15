@@ -87,12 +87,56 @@ pub(crate) fn error(code: ErrorCode, message: impl Into<String>) -> anyhow::Erro
     DeliveryError::new(code, message).into()
 }
 
-pub(crate) fn unwrap_reply(value: serde_json::Value) -> anyhow::Result<serde_json::Value> {
-    if let Some(error) = value.get("error") {
-        return Err(serde_json::from_value::<DeliveryError>(error.clone())?.into());
-    }
-    value
-        .get("ok")
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("invalid event RPC reply"))
+const MAX_REPLY_BYTES: usize = 64 << 20;
+const MAX_ERROR_BYTES: usize = 16 << 10;
+const MAX_ERROR_MESSAGE_BYTES: usize = 4096;
+
+fn ambiguous_reply() -> anyhow::Error {
+    error(
+        ErrorCode::Ambiguous,
+        "event RPC returned an invalid result after submission",
+    )
 }
+
+pub(crate) fn decode_reply(data: &crate::engine_api::RpcData) -> anyhow::Result<serde_json::Value> {
+    let bytes = match data {
+        crate::engine_api::RpcData::Json(value) => value.len(),
+        crate::engine_api::RpcData::Structured(value) => value.len(),
+    };
+    if bytes > MAX_REPLY_BYTES {
+        return Err(ambiguous_reply());
+    }
+    let value = crate::application::decode_rpc_result(data)
+        .and_then(|value| value.to_json())
+        .map_err(|_| ambiguous_reply())?;
+    unwrap_reply(value)
+}
+
+pub(crate) fn unwrap_reply(value: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+    let serde_json::Value::Object(mut fields) = value else {
+        return Err(ambiguous_reply());
+    };
+    // The broker writes exactly one branch. A contradictory result cannot
+    // authorize success or a permanent refusal after a submitted mutation.
+    if fields.len() != 1 {
+        return Err(ambiguous_reply());
+    }
+    if let Some(value) = fields.remove("ok") {
+        return Ok(value);
+    }
+    let failure = fields.remove("error").ok_or_else(ambiguous_reply)?;
+    if !failure
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|message| message.len() <= MAX_ERROR_MESSAGE_BYTES)
+    {
+        return Err(ambiguous_reply());
+    }
+    super::encoding::json(&failure, MAX_ERROR_BYTES).map_err(|_| ambiguous_reply())?;
+    let failure: DeliveryError = serde_json::from_value(failure).map_err(|_| ambiguous_reply())?;
+    Err(failure.into())
+}
+
+#[cfg(test)]
+#[path = "error_tests.rs"]
+mod tests;

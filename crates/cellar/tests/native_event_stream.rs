@@ -883,7 +883,14 @@ async fn native_catalog_delivery_retention_and_revocation_preserve_durable_ident
     );
     assert_eq!(caught_up["observation"]["lease_active"], false);
     let analytics = fetch(&runtime, &next(first_id, "analytics")).await?;
-    let analytics_receipt = analytics["receipt"].as_str().unwrap();
+    let analytics_receipt = analytics["receipt"].as_str().ok_or_else(|| {
+        anyhow!(
+            "analytics fetch returned no receipt: error={}, data={}, null={}",
+            analytics["error"],
+            analytics["data"],
+            analytics.is_null(),
+        )
+    })?;
     assert!(runtime
         .rpc(
             recorded.scope.clone(),

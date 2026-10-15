@@ -784,3 +784,26 @@ epoch updates. It never drops/replaces those triggers as an upgrade. Recreate th
 development layout; all markers remain 1. Current projections preserve same-epoch
 publication identity and consumed tombstones; a new owner advances the epoch while
 retaining the monotonic sequence and independent alarm/work deadlines.
+
+
+SDK event administration independently validates response metadata. Configuration
+acceptance binds resource/operation and active definition revision/digest; pending
+creation requires revision 1, while status may report later operations. Lifecycle
+receipts bind action/reason/operator and identities, validate state/incarnation/
+checkpoint/loss-range consistency, and retain exact decimal positions. Audit pages
+allow monotonic sequence gaps and multiple authorized principals but enforce
+bounded counts/receipt bytes, scope, unique operations and exact continuation.
+Terminal retirement replies validate retained range/count/byte accounting; pending
+intent can precede captured loss metadata. Retry responses require canonical,
+nonnegative deadlines consistent with delay. All owned markers remain 1. These
+checks do not establish full transport allocation/cancellation or failure-matrix
+qualification; track remaining evidence in plans/outbox-implementation-status.md.
+
+
+Shared event reply acceptance consumes exactly one ok/error branch; contradictory
+or undecodable submitted results are Ambiguous. Wire bytes are capped at 64 MiB
+before JSON/structured decode; encoded error metadata is capped at 16 KiB and
+message text at 4096 bytes. Valid typed errors retain their exact metadata.
+Do not clone a whole success/error object or reflect malformed body text in an
+error. This decoder bound does not bound peer body collection; retain the separate
+transport-allocation and cancellation qualification in the implementation status.

@@ -124,7 +124,7 @@ impl<E> Stream<E> {
             json!([{"operation":operation,"definition":encoded}]),
         )
         .await?;
-        Ok(serde_json::from_value(value)?)
+        accept_configuration(self.resource(), Some((definition, operation)), value)
     }
 
     pub async fn configuration_status(&self, context: &Context) -> Result<Configuration> {
@@ -139,7 +139,7 @@ impl<E> Stream<E> {
             json!([{}]),
         )
         .await?;
-        Ok(serde_json::from_value(value)?)
+        accept_configuration(self.resource(), None, value)
     }
 
     pub async fn read(
@@ -178,6 +178,124 @@ impl<E> Stream<E> {
             super::call_bound(context, &self.binding, Action::Read, "__streamRead", args).await?;
         accept_page(self.resource(), cursor, options, limits, value)
     }
+}
+
+fn accept_configuration(
+    resource: &super::Resource,
+    request: Option<(&Definition, &str)>,
+    value: serde_json::Value,
+) -> Result<Configuration> {
+    let text = |field: &str, maximum: usize| -> Result<String> {
+        let value = value[field]
+            .as_str()
+            .filter(|s| s.len() <= maximum)
+            .ok_or_else(|| error(ErrorCode::InvalidRequest, "invalid configuration metadata"))?;
+        Ok(value.to_owned())
+    };
+    let last_error = match value.get("last_error") {
+        Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s)) if s.len() <= 4096 && s.chars().count() <= 1024 => {
+            Some(s.clone())
+        }
+        _ => {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "invalid configuration error metadata",
+            ))
+        }
+    };
+    let configuration = Configuration {
+        state: text("state", 16)?,
+        operation: text("operation", 32)?,
+        resource: text("resource", 32)?,
+        last_error,
+    };
+    super::store::validate_id(&configuration.operation)
+        .map_err(|_| error(ErrorCode::ConfigConflict, "invalid configuration operation"))?;
+    if configuration.resource != resource.id
+        || !matches!(
+            configuration.state.as_str(),
+            "creating" | "updating" | "active" | "retiring" | "deleted"
+        )
+        || configuration
+            .last_error
+            .as_ref()
+            .is_some_and(|s| s.len() > 4096 || s.chars().count() > 1024)
+    {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "configuration acceptance mismatch",
+        ));
+    }
+    let revision = match value.get("accepted_revision") {
+        Some(serde_json::Value::Null) => None,
+        Some(_) => Some(super::subscription_store::integer(
+            &value,
+            "accepted_revision",
+        )?),
+        None => {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "missing accepted revision",
+            ))
+        }
+    };
+    let digest = match value.get("accepted_digest") {
+        Some(serde_json::Value::Null) => None,
+        Some(serde_json::Value::String(s))
+            if s.len() == 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) =>
+        {
+            Some(s.as_str())
+        }
+        _ => return Err(error(ErrorCode::InvalidRequest, "invalid accepted digest")),
+    };
+    if revision.is_some_and(|n| n <= 0)
+        || revision.is_some() != digest.is_some()
+        || (configuration.state == "creating" && revision.is_some())
+        || (configuration.state != "creating" && revision.is_none())
+    {
+        return Err(error(
+            ErrorCode::ConfigConflict,
+            "configuration revision conflicts with state",
+        ));
+    }
+    if let Some((definition, operation)) = request {
+        if configuration.operation != operation
+            || !matches!(
+                configuration.state.as_str(),
+                "creating" | "updating" | "active"
+            )
+        {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "configuration operation acceptance mismatch",
+            ));
+        }
+        if configuration.state == "creating" && definition.revision != 1 {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "catalog creation requires revision one",
+            ));
+        }
+        if configuration.state == "active" {
+            use sha2::{Digest, Sha256};
+            let expected = hex::encode(Sha256::digest(serde_json::to_vec(definition)?));
+            if revision != Some(definition.revision) || digest != Some(expected.as_str()) {
+                return Err(error(
+                    ErrorCode::ConfigConflict,
+                    "accepted definition differs from request",
+                ));
+            }
+        } else if revision.is_some_and(|n| n >= definition.revision) {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "pending definition did not advance revision",
+            ));
+        }
+    }
+    Ok(configuration)
 }
 
 fn accept_page(

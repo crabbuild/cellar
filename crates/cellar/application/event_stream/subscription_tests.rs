@@ -295,3 +295,20 @@ fn fetch_bounds_second_envelope_by_remaining_batch_bytes() {
         ErrorCode::PayloadTooLarge
     );
 }
+
+#[test]
+fn retry_acceptance_requires_canonical_deadline_consistent_with_delay() -> Result<()> {
+    accept_retry(0, &json!({"retry_at_ms":"0"}))?;
+    accept_retry(100, &json!({"retry_at_ms":"200"}))?;
+    accept_retry(i64::MAX, &json!({"retry_at_ms":i64::MAX.to_string()}))?;
+    for value in [
+        json!({}),
+        json!({"retry_at_ms":"-1"}),
+        json!({"retry_at_ms":"99"}),
+        json!({"retry_at_ms":"0100"}),
+        json!({"retry_at_ms":100}),
+    ] {
+        assert!(accept_retry(100, &value).is_err());
+    }
+    Ok(())
+}

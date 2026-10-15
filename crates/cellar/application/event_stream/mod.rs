@@ -75,7 +75,7 @@ pub(crate) async fn call_bound(
         authority,
     )
     .await?;
-    error::unwrap_reply(super::decode_rpc_result(&result)?.to_json()?)
+    error::decode_reply(&result)
 }
 
 fn binding_ready(context: &Context) -> Result<()> {
@@ -100,7 +100,7 @@ pub(crate) async fn call_authorized(
         authority,
     )
     .await?;
-    error::unwrap_reply(super::decode_rpc_result(&result)?.to_json()?)
+    error::decode_reply(&result)
 }
 
 pub(crate) fn is_event_scope(scope: &str) -> bool {

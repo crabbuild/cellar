@@ -272,13 +272,14 @@ impl<E> Subscription<E> {
                 "retry delay exceeds policy",
             ));
         }
-        self.call(
-            context,
-            "__streamRetry",
-            json!({"receipt":receipt.encode()?,"delay_ms":delay_ms.to_string()}),
-        )
-        .await?;
-        Ok(())
+        let value = self
+            .call(
+                context,
+                "__streamRetry",
+                json!({"receipt":receipt.encode()?,"delay_ms":delay_ms.to_string()}),
+            )
+            .await?;
+        accept_retry(delay_ms, &value)
     }
 
     /// An absolute expiry is retry-safe: repeating the request cannot add time.
@@ -301,6 +302,17 @@ impl<E> Subscription<E> {
             .await?;
         accept_extension(expires_ms, &value)
     }
+}
+
+fn accept_retry(delay: i64, value: &Value) -> Result<()> {
+    let deadline = super::subscription_store::integer(value, "retry_at_ms")?;
+    if deadline < delay || deadline < 0 {
+        return Err(error(
+            ErrorCode::StaleReceipt,
+            "retry response deadline conflicts with delay",
+        ));
+    }
+    Ok(())
 }
 
 fn accept_extension(requested: i64, value: &Value) -> Result<i64> {

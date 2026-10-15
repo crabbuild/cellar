@@ -122,7 +122,7 @@ impl SubscriptionStatus {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ChangeAction {
     Pause,
@@ -192,6 +192,100 @@ pub struct LifecycleReceipt {
     pub at_ms: i64,
 }
 
+impl LifecycleReceipt {
+    pub(crate) fn validate(&self) -> Result<()> {
+        self.previous.validate().map_err(|_| {
+            error(
+                ErrorCode::ConfigConflict,
+                "invalid previous subscription identity",
+            )
+        })?;
+        self.current.validate().map_err(|_| {
+            error(
+                ErrorCode::ConfigConflict,
+                "invalid current subscription identity",
+            )
+        })?;
+        super::store::validate_id(&self.operation)
+            .map_err(|_| error(ErrorCode::ConfigConflict, "invalid lifecycle operation"))?;
+        if self.previous.resource != self.current.resource
+            || self.previous.id != self.current.id
+            || self.previous.name != self.current.name
+            || self.checkpoint < 0
+            || self.checkpoint == i64::MAX
+            || self.at_ms < 0
+            || self.reason.trim().is_empty()
+            || self.reason.len() > 512
+            || self
+                .operator
+                .as_ref()
+                .is_some_and(|s| s.is_empty() || s.len() > 256)
+            || self
+                .skipped
+                .as_ref()
+                .is_some_and(|r| r.first <= 0 || r.last < r.first || r.last == i64::MAX)
+        {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "invalid subscription lifecycle receipt",
+            ));
+        }
+        let changed = self.previous.generation != self.current.generation;
+        let valid = match &self.action {
+            ChangeAction::Pause => !changed && self.state == "paused" && self.skipped.is_none(),
+            ChangeAction::Resume => !changed && self.state == "active" && self.skipped.is_none(),
+            ChangeAction::Reset { cursor } => {
+                changed
+                    && self.state == "active"
+                    && cursor.resource == self.previous.resource
+                    && cursor.partition == 0
+                    && cursor.next > 0
+                    && self.checkpoint == cursor.next - 1
+                    && self
+                        .skipped
+                        .as_ref()
+                        .is_none_or(|r| r.last == self.checkpoint)
+            }
+            ChangeAction::Delete { force } => {
+                changed
+                    && self.state == "deleted"
+                    && (*force || self.skipped.is_none())
+                    && self
+                        .skipped
+                        .as_ref()
+                        .is_none_or(|r| self.checkpoint.checked_add(1) == Some(r.first))
+            }
+        };
+        if !valid {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "lifecycle action conflicts with receipt",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_acceptance(
+        &self,
+        change: &Change,
+        operator: Option<&str>,
+    ) -> Result<()> {
+        self.validate()?;
+        if self.operation != change.operation
+            || self.previous != change.expected
+            || self.action != change.action
+            || self.reason != change.reason
+            || self.operator.as_deref() != operator
+        {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "subscription operation acceptance mismatch",
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AuditRecord {
     #[serde(with = "super::decimal")]
@@ -207,6 +301,62 @@ pub struct AuditPage {
     #[serde(with = "super::decimal")]
     pub next: i64,
     pub has_more: bool,
+}
+
+impl AuditPage {
+    pub(crate) fn validate(
+        &self,
+        resource: &super::Resource,
+        after: i64,
+        maximum: usize,
+    ) -> Result<()> {
+        if after < 0
+            || !(1..=100).contains(&maximum)
+            || self.records.len() > maximum
+            || (self.has_more && self.records.is_empty())
+        {
+            return Err(error(
+                ErrorCode::InvalidRequest,
+                "invalid audit page bounds",
+            ));
+        }
+        let mut tail = after;
+        let mut bytes = 0usize;
+        let mut operations = std::collections::HashSet::new();
+        for record in &self.records {
+            record.receipt.validate()?;
+            if record.sequence <= tail
+                || !operations.insert(record.receipt.operation.as_str())
+                || record.receipt.previous.resource != resource.id
+                || record.principal.is_empty()
+                || record.principal.len() > 256
+                || record.grant.is_empty()
+                || record.grant.len() > 256
+            {
+                return Err(error(
+                    ErrorCode::ConfigConflict,
+                    "audit record identity or order conflicts",
+                ));
+            }
+            bytes = bytes
+                .checked_add(serde_json::to_vec(&record.receipt)?.len())
+                .ok_or_else(|| error(ErrorCode::PayloadTooLarge, "audit receipt byte overflow"))?;
+            if bytes > 512 << 10 {
+                return Err(error(
+                    ErrorCode::PayloadTooLarge,
+                    "audit receipt budget exceeded",
+                ));
+            }
+            tail = record.sequence;
+        }
+        if self.next != tail {
+            return Err(error(
+                ErrorCode::InvalidCursor,
+                "audit continuation conflicts with records",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl<E> Subscription<E> {
@@ -265,13 +415,9 @@ impl<E> Subscription<E> {
             )?,
         )
         .await?;
-        let receipt: LifecycleReceipt = serde_json::from_value(value)?;
-        if receipt.operation != change.operation || receipt.previous != change.expected {
-            return Err(error(
-                ErrorCode::ConfigConflict,
-                "subscription operation acceptance mismatch",
-            ));
-        }
+        let receipt: LifecycleReceipt = serde_json::from_value(value)
+            .map_err(|_| error(ErrorCode::InvalidRequest, "invalid lifecycle response"))?;
+        receipt.validate_acceptance(change, None)?;
         self.check_identity(&receipt.current)?;
         Ok(receipt)
     }
@@ -298,8 +444,35 @@ impl<E> Stream<E> {
             )?,
         )
         .await?;
-        Ok(serde_json::from_value(value)?)
+        accept_audit(self.resource(), after, max_records, value)
     }
+}
+
+fn accept_audit(
+    resource: &super::Resource,
+    after: i64,
+    maximum: usize,
+    value: serde_json::Value,
+) -> Result<AuditPage> {
+    if after < 0 || !(1..=100).contains(&maximum) {
+        return Err(error(
+            ErrorCode::InvalidRequest,
+            "invalid audit request bounds",
+        ));
+    }
+    let rows = value["records"]
+        .as_array()
+        .ok_or_else(|| error(ErrorCode::InvalidRequest, "missing audit records"))?;
+    if rows.len() > maximum {
+        return Err(error(
+            ErrorCode::PayloadTooLarge,
+            "audit response exceeds record budget",
+        ));
+    }
+    let page: AuditPage = serde_json::from_value(value)
+        .map_err(|_| error(ErrorCode::InvalidRequest, "invalid audit response"))?;
+    page.validate(resource, after, maximum)?;
+    Ok(page)
 }
 
 #[cfg(test)]
@@ -333,3 +506,7 @@ mod observation_tests {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "lifecycle_acceptance_tests.rs"]
+mod acceptance_tests;

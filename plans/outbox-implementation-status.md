@@ -2603,3 +2603,201 @@ recovery are qualified by the before/after and full scoped gates. Next work is t
 SDK acceptance audit above, followed by remaining transport/cancellation, physical
 metrics, capacity/ownership/backend and full release qualification. The full
 implementation goal remains active.
+
+
+## SDK administrative response acceptance (2026-10-14)
+
+Current SDK configuration replies now bind resource/operation and active accepted
+revision/digest to the exact requested definition. Pending creation requires
+revision 1; pending update retains an earlier accepted revision. Current status
+can legitimately report a later operation, while historical configure replay must
+match its original operation and definition. Known scalar metadata is bounded
+before copying; error text allows the server's 1024 Unicode characters/4096 bytes.
+No whole untrusted configuration object is cloned for acceptance.
+
+Lifecycle receipt validation checks identities, operation/action/reason/operator,
+state, incarnation preservation/invalidation, checkpoint/time and loss-range
+consistency. Reset validates its exact target; the receipt does not carry the
+previous checkpoint, so acceptance cannot independently reconstruct a skipped
+range's old start. Audit pages validate receipt scope, principal/grant bounds,
+unique operation IDs, ordered sequence/count/byte bounds and exact continuation,
+while allowing legitimate sequence gaps and other authorized principals.
+
+Retirement validates state, identity, operator/error/range bounds and terminal
+range/count/byte accounting; initial pending intent need not yet carry partition
+loss counters. Existing shared closure acceptance now rejects impossible byte/
+row accounting and offset exhaustion. Retry can no longer report success after
+discarding a malformed reply; its canonical nonnegative deadline must cover the
+requested delay. All owned markers remain 1. Qualification is in progress; these
+changes do not close full codec/allocation, execution-certainty/cancellation,
+physical metrics, historical/facet/backend/capacity or the release matrix.
+
+The initial library check passes **168 cases** (19.24 seconds), and the initial
+workspace/all-target/all-feature Clippy-D passes (9m06s including build-lock
+waits). These precede the final raw audit-count and partial-retirement-field
+checks; they are not final-source qualification. Finished source adds two further
+regressions (170 expected library cases). Final serial library/outbox/stream/Node,
+source Clippy-D and formatter-check handles remain live. Docs/dependency/whitespace
+and 62 Python guards pass. No initial result completes the outstanding gates.
+
+
+The final pre-merge SDK run passes **170 library cases**, native stream, all
+**31 Node cases**, and native outbox; final workspace/all-target/all-feature
+Clippy-D and 447-file formatting pass. Exact source hashes and logs are retained
+under `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-sdk-administration-9q78hy5_`.
+Those results qualify the saved pre-merge source only.
+
+PR #27 now incorporates main at `88886a8` through merge commit `6ccc964`.
+The merge retains both dashboard/cron management and event operator routing,
+reply budgets, RPC authority, outbox modules and version-1 cutover assertions.
+The published merge alone passes **206 Cellar tests** (162 library, 3 CLI,
+39 Node, stream and outbox), **24 dashboard/FleetCare tests**, workspace
+Clippy-D, 489-file formatting, 64 Python guards, docs (35/6/373), and the
+403-package/no-JavaScript-engine dependency audit. Merge evidence is retained
+under `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-pr27-merge-evidence-2ebna8hu`.
+The SDK batch was restored byte-for-byte except for AGENTS' merged main guidance.
+Combined SDK/merge qualification is running separately; neither earlier run
+proves that combined source.
+
+The next shared reply boundary audit finds two concrete gaps in
+`event_stream/error.rs` and `event_stream/mod.rs`: `unwrap_reply` clones entire
+success/error values and accepts a reply carrying both branches, while structured
+response decoding and invalid error envelopes can escape without a typed
+execution-certainty verdict. These are post-submission results; malformed bytes
+cannot establish that a mutation did not commit. Preserve valid protocol errors
+and their bounded pressure/cursor metadata, reject contradictory envelopes, and
+classify undecodable results as `Ambiguous` without copying payload text into
+messages. Full transport allocation, cancellation and cut-point qualification
+remain distinct requirements.
+
+
+## Enumerated core interleavings (2026-10-14)
+
+`crates/cellar-logic/tests/event_interleavings.rs` adds two exhaustive six-event
+permutation scenarios (720 orders each). The wake case varies three delayed PUT
+confirmations across predecessor retirement, tombstone retirement and cache loss.
+Its independent persisted-key set forbids either old certificate from deleting
+the successor's epoch and requires republishing to retain its exact identity.
+The subscription case varies acknowledgment/replay, expiry, extension, required
+retention and committed incarnation invalidation. An independent decision table
+checks advance versus duplicate/reset/expired outcomes; retention cannot delete
+unacknowledged required history. These exercise actual pure-core methods.
+Qualification is pending. They do not model the SQLite transaction, proof or
+output gate that authorizes those facts; combined commit/proof/append/ownership
+model enumeration and the full crash matrix remain required.
+
+
+The combined SDK/merge library passes **178 cases** (54.42 seconds).
+The first native stream execution fails at the analytics receipt unwrap
+(`native_event_stream.rs:886`, 4.24 seconds); the fixture did not retain the
+actual error response. The exact unchanged binary then passes isolated
+(12.10 seconds) and in a full serial replay (36.04 seconds). No validator,
+retention window, lease/deadline or assertion changed. The one-second history
+window is a hypothesis, not an established cause. Preserve all three logs;
+this remains an open release failure audit. Rebuilt native outbox passes
+(12.68 seconds). Workspace/all-target/all-feature Clippy-D passes (17m11s,
+including the lock wait), and 492-file formatting and docs (35/6/373) pass.
+The complete Node run is still live and has reported a bootstrap-cancellation
+failure; its terminal diagnostics and unchanged verification remain pending.
+These results do not establish a complete passing combined SDK gate.
+
+Both core enumeration cases pass **1,440 orders** in 0.02 seconds; the targeted
+Clippy-D gate passes too. The 10m17s Cargo elapsed time includes its shared build
+lock wait. Keep enumeration scope separate from SQLite/proof/network/crash tests.
+
+
+The rebuilt Node binary finishes **38 passed/1 failed** (490.80 seconds):
+`cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined`
+expires its unchanged five-second restart deadline after sampling the old directory
+as unavailable, with replacement startup pending. That sample does not prove the
+lock stayed held throughout replacement startup. The same binary fails isolated
+(46.26 seconds) with the same message. All event-specific Node cases pass, but
+that does not qualify the failed lifecycle gate or establish its cause.
+
+A diagnostic-only fixture change distinguishes replacement inputs from
+`Node::start`; it performs the same calls and preserves deadlines/assertions.
+The rebuilt diagnostic case passes once (33.53 seconds), then the unchanged
+repeat fails earlier (10.70 seconds) on the initial factory-entry channel timeout.
+No production fix is claimed. Both failure points require tracing; setup/executor
+or filesystem delays and unfinished cleanup are hypotheses, not proven causes.
+The SDK batch remains uncommitted pending that audit. The reply-boundary follow-up
+is specified in `/tmp/cellar-event-reply-boundary-plan.txt`; it is not implemented.
+
+Core enumeration is published in **86b7fe8** on PR #27, which remains mergeable.
+Current combined evidence is retained under
+`/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-sdk-merged-evidence-7im_h1n4`.
+The full implementation goal remains active, including unresolved native failures,
+shared reply/codec/cancellation checks and the complete release matrix.
+
+
+## Shared submitted-reply boundary (2026-10-14)
+
+Two new regressions fail on the prior decoder: success clones its payload, and a
+contradictory ok/error object retains a permanent Forbidden verdict. The new
+shared decoder consumes its sole branch, bounds wire bytes at 64 MiB before
+JSON/structured decoding, bounds encoded error metadata at 16 KiB and message
+text at 4096 bytes, and maps malformed or unprojectable submitted results to a
+generic Ambiguous without reflecting body text. Valid protocol codes and exact
+metadata remain intact. Both bound and authorized event calls use this boundary;
+pre-submission argument errors and host execution-certainty verdicts are unchanged.
+Seven regressions cover moved success allocations, null results, contradictory
+and invalid envelopes, error budgets, structured/JSON success and protocol errors,
+invalid bytes/capability/remote-error/cyclic results, and an oversized valid JSON
+success. Final-source qualification is pending. All owned markers remain 1.
+This does not qualify every operation-specific acceptance error, transport body
+allocation, timeout/cancellation or crash boundary.
+
+Startup diagnosis retains the repeated initial-factory and restart deadline
+failures. Bounded macOS sample/debugger probes returned no stacks; their owned
+sampler/debugger processes were stopped at 20/30 seconds, and the debugger child
+was resumed. Debugger-timed runs are diagnostic only. Temporary tagged
+[DEBUG-outbox-startup] traces now distinguish directory acquisition, reload
+certificate, blocking generation admission/entry/completion, root completion,
+domain join and directory release. A fixture subscriber captures only that target.
+The native stream fixture now reports absent-receipt error metadata instead of
+panicking without its response. Original calls, deadlines and assertions remain;
+these are instrumentation, not production fixes, and must be cleaned up after
+root-cause evidence is obtained.
+
+
+The peer success path at `node/mod.rs` still uses unbounded
+`response.into_body().collect()` before the SDK decoder. Bound event/control
+collection itself at the shared wire ceiling. A length-limit refusal is a
+submitted-result Ambiguous and must not carry RemoteRpcTransportFailure:
+activation retries only that network tag, never malformed/oversized protocol
+results. Genuine body transport errors must retain the tag and execution
+certainty. Preserve caller cancellation precedence and post-head abort-disarm
+semantics for already-proven handlers and their waitUntil work. Add chunked
+unknown-length/declared-size/error tests and verify no suffix collection after
+budget refusal. This is the next concrete transport implementation gap; the new
+SDK decoder alone does not close it.
+
+
+The instrumented reply-boundary run passes **185 library tests**, native stream,
+**39 Node tests** and native outbox (226 cases total); workspace Clippy-D passes.
+All five unchanged traced bootstrap repeats pass. Traces show the expected passing
+order: factory completion, old-domain join and directory release, then replacement
+build. They do not capture or establish the earlier failures' causes. Evidence is
+retained under `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-event-reply-traced-evidence-996bp16y`.
+The owned sample/debugger attempts returned no stacks within their bounded waits;
+no production fix follows from those attempts. A transient build-volume observation
+of 13 GiB free, later 40 GiB, is not evidence of failure causation. No unrelated
+process or cache was stopped or cleaned.
+
+Temporary startup tracing and its fixture subscriber are removed. The final
+untraced source passes **all 226 selected Rust cases**: 185 library (28.65s),
+native stream (12.02s), all 39 serial Node cases (370.95s) and native outbox
+(0.32s). Workspace/all-target/all-feature Clippy-D passes (12m15s including build
+lock wait); 493-file formatting, 64 Python guards, docs (35/6/373) and whitespace
+checks pass. The native fixtures retain only clearer failure diagnostics, with
+unchanged calls, deadlines and assertions. The seven reply regressions have
+before/after evidence: both initial regressions fail on the old implementation;
+all seven pass after the shared decoder change. This qualifies the administrative
+acceptance and outer decoder batch, not the whole process-fault or release matrix.
+Earlier native failures remain recorded and unexplained; no passing replay is
+called their fix. Next implementation priority is bounded peer response collection
+without false network retry tags, followed by cancellation and remaining release
+cuts, physical metrics and inventory/recovery/capacity gaps. The full goal remains
+active, and all owned markers remain 1.
+
+Final untraced evidence root: `/private/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-sdk-reply-final-evidence-u9etj6yq`. Exact rebuilt library/stream/Node/outbox binaries, hashes, source diff and gate logs are archived.

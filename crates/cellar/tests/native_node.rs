@@ -1389,18 +1389,15 @@ async fn cancelled_bootstrap_retains_directory_until_started_application_factory
                 Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
             };
             *restart_phase.lock().unwrap() = format!(
-                "attempt {attempts}: directory independently available={available}, replacement startup pending"
+                "attempt {attempts}: directory independently available={available}, replacement inputs pending"
             );
-            match start(
-                "replacement",
-                "replacement",
-                directory.path(),
-                &core,
-                None,
-                None,
-                0,
-            )
-            .await
+            let (config, services) =
+                inputs("replacement", directory.path(), &core, None, 0).await?;
+            *restart_phase.lock().unwrap() = format!(
+                "attempt {attempts}: directory independently available={available}, replacement Node::start pending"
+            );
+            match Node::start(config, services, graph(), applications("replacement", None)?)
+                .await
             {
                 Ok(node) => return Ok::<_, anyhow::Error>(node),
                 Err(error) if error.to_string().contains("directory is already owned") => {

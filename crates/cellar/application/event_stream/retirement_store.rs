@@ -131,7 +131,8 @@ pub(crate) fn acceptance(reply: &Value, operator: Option<&str>) -> Result<()> {
     let records = subscription_store::integer(reply, "records")?;
     let bytes = subscription_store::integer(reply, "bytes")?;
     if records < 0
-        || bytes < 0
+        || bytes < records
+        || (records == 0 && bytes != 0)
         || reply["records"].as_str() != Some(records.to_string().as_str())
         || reply["bytes"].as_str() != Some(bytes.to_string().as_str())
     {
@@ -151,6 +152,7 @@ pub(crate) fn acceptance(reply: &Value, operator: Option<&str>) -> Result<()> {
         None => records == 0,
         Some(range) => {
             range.first >= 1
+                && range.last < i64::MAX
                 && range
                     .last
                     .checked_sub(range.first)

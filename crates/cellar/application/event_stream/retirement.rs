@@ -67,6 +67,59 @@ pub struct RetirementStatus {
     pub last_error: Option<String>,
 }
 
+impl RetirementStatus {
+    pub(crate) fn validate(
+        &self,
+        resource: &super::Resource,
+        operation: &str,
+        operator: Option<&str>,
+    ) -> Result<()> {
+        if self.resource != resource.id
+            || self.operation != operation
+            || !matches!(self.state.as_str(), "retiring" | "deleted")
+            || self.operator.as_deref() != operator
+            || self
+                .operator
+                .as_ref()
+                .is_some_and(|s| s.is_empty() || s.len() > 256)
+            || self
+                .last_error
+                .as_ref()
+                .is_some_and(|s| s.len() > 4096 || s.chars().count() > 1024)
+            || self
+                .affected
+                .as_ref()
+                .is_some_and(|r| r.first <= 0 || r.last < r.first || r.last == i64::MAX)
+            || (self.state == "deleted" && self.last_error.is_some())
+        {
+            return Err(error(
+                ErrorCode::ConfigConflict,
+                "invalid retirement acceptance",
+            ));
+        }
+        Ok(())
+    }
+}
+
+fn accept_status(
+    resource: &super::Resource,
+    operation: &str,
+    value: serde_json::Value,
+) -> Result<RetirementStatus> {
+    if value["state"].as_str() == Some("deleted")
+        || value.get("records").is_some()
+        || value.get("bytes").is_some()
+        || value.get("affected").is_some()
+        || value.get("operator").is_some()
+    {
+        super::retirement_store::acceptance(&value, None)?;
+    }
+    let status: RetirementStatus = serde_json::from_value(value)
+        .map_err(|_| error(ErrorCode::InvalidRequest, "invalid retirement response"))?;
+    status.validate(resource, operation, None)?;
+    Ok(status)
+}
+
 impl<E> Stream<E> {
     /// Persist retirement intent at the catalog. `retiring` acknowledges that
     /// obligation; `deleted` confirms logical closure and bounded cleanup.
@@ -89,14 +142,7 @@ impl<E> Stream<E> {
             json!([{"request":encoded}]),
         )
         .await?;
-        let status: RetirementStatus = serde_json::from_value(value)?;
-        if status.resource != self.resource().id || status.operation != request.operation {
-            return Err(error(
-                ErrorCode::ConfigConflict,
-                "retirement acceptance identity mismatch",
-            ));
-        }
-        Ok(status)
+        accept_status(self.resource(), request.operation.as_str(), value)
     }
 
     pub async fn retirement_status(
@@ -116,13 +162,10 @@ impl<E> Stream<E> {
             json!([{"operation":operation}]),
         )
         .await?;
-        let status: RetirementStatus = serde_json::from_value(value)?;
-        if status.resource != self.resource().id || status.operation != operation {
-            return Err(error(
-                ErrorCode::ConfigConflict,
-                "retirement status identity mismatch",
-            ));
-        }
-        Ok(status)
+        accept_status(self.resource(), operation, value)
     }
 }
+
+#[cfg(test)]
+#[path = "retirement_acceptance_tests.rs"]
+mod acceptance_tests;

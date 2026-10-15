@@ -277,3 +277,128 @@ fn malformed_read_encoding_and_zero_event_version_are_typed_failures() {
         ErrorCode::InvalidRequest
     );
 }
+
+fn configuration_fixture() -> (Definition, String, serde_json::Value) {
+    use super::super::{Grant, Retention};
+    use sha2::{Digest, Sha256};
+    let definition = Definition {
+        resource: fixture().0,
+        revision: 7,
+        retention: Retention::Bounded,
+        max_bytes: 10000,
+        max_records: 100,
+        max_age_ms: 1000,
+        grants: vec![Grant {
+            id: "admin".into(),
+            principal: "app".into(),
+            publish: true,
+            read: true,
+            subscriptions: vec![],
+            administer: true,
+        }],
+        subscriptions: vec![],
+    };
+    let operation = "b".repeat(32);
+    let value = json!({"state":"active","operation":operation,"resource":definition.resource.id,"last_error":null,"accepted_revision":"7","accepted_digest":hex::encode(Sha256::digest(serde_json::to_vec(&definition).unwrap()))});
+    (definition, operation, value)
+}
+
+#[test]
+fn configuration_acceptance_binds_exact_definition_and_historical_operation() -> Result<()> {
+    let (definition, operation, value) = configuration_fixture();
+    assert_eq!(
+        accept_configuration(
+            &definition.resource,
+            Some((&definition, &operation)),
+            value.clone()
+        )?
+        .state,
+        "active"
+    );
+    // Current status can describe a later operation; operation replay must still match its original request.
+    let mut later = value.clone();
+    later["operation"] = json!("c".repeat(32));
+    later["accepted_revision"] = json!("9");
+    accept_configuration(&definition.resource, None, later.clone())?;
+    assert!(
+        accept_configuration(&definition.resource, Some((&definition, &operation)), later).is_err()
+    );
+    accept_configuration(&definition.resource, Some((&definition, &operation)), value)?;
+    Ok(())
+}
+
+#[test]
+fn configuration_rejects_wrong_identity_revision_digest_and_state() {
+    let (definition, operation, value) = configuration_fixture();
+    for (field, replacement) in [
+        ("resource", json!("c".repeat(32))),
+        ("operation", json!("c".repeat(32))),
+        ("state", json!("unknown")),
+        ("accepted_revision", json!("8")),
+        ("accepted_revision", json!("07")),
+        ("accepted_digest", json!("0".repeat(64))),
+        ("accepted_digest", serde_json::Value::Null),
+        ("last_error", json!("x".repeat(4097))),
+    ] {
+        let mut bad = value.clone();
+        bad[field] = replacement;
+        let failure =
+            accept_configuration(&definition.resource, Some((&definition, &operation)), bad)
+                .err()
+                .unwrap();
+        assert!(
+            failure
+                .downcast_ref::<super::super::DeliveryError>()
+                .is_some(),
+            "untyped {field} failure"
+        );
+    }
+}
+
+#[test]
+fn pending_configuration_allows_only_consistent_accepted_metadata() -> Result<()> {
+    let (definition, operation, mut value) = configuration_fixture();
+    value["state"] = json!("creating");
+    value["accepted_revision"] = serde_json::Value::Null;
+    value["accepted_digest"] = serde_json::Value::Null;
+    assert!(accept_configuration(
+        &definition.resource,
+        Some((&definition, &operation)),
+        value.clone()
+    )
+    .is_err());
+    let initial = Definition {
+        revision: 1,
+        ..definition.clone()
+    };
+    accept_configuration(
+        &initial.resource,
+        Some((&initial, &operation)),
+        value.clone(),
+    )?;
+    value["state"] = json!("updating");
+    assert!(accept_configuration(&definition.resource, None, value.clone()).is_err());
+    value["accepted_revision"] = json!("6");
+    value["accepted_digest"] = json!("d".repeat(64));
+    accept_configuration(
+        &definition.resource,
+        Some((&definition, &operation)),
+        value.clone(),
+    )?;
+    value["accepted_revision"] = json!("7");
+    assert!(
+        accept_configuration(&definition.resource, Some((&definition, &operation)), value).is_err()
+    );
+    Ok(())
+}
+
+#[test]
+fn configuration_error_metadata_retains_bounded_unicode_and_exact_revisions() -> Result<()> {
+    let (definition, _, mut value) = configuration_fixture();
+    value["last_error"] = json!("🌟".repeat(1024));
+    value["accepted_revision"] = json!(i64::MAX.to_string());
+    accept_configuration(&definition.resource, None, value.clone())?;
+    value["last_error"] = json!("🌟".repeat(1025));
+    assert!(accept_configuration(&definition.resource, None, value).is_err());
+    Ok(())
+}

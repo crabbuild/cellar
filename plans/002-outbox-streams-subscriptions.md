@@ -1211,6 +1211,14 @@ Structured RPCs carry a protocol version and bounded fields. Authenticate and
 authorize before returning payloads, configuration, or detailed state. Error
 messages and telemetry must not log event bodies or bearer credentials.
 
+The SDK's outer result has exactly one ok/error branch. Invalid or contradictory
+submitted results are Ambiguous and cannot establish a permanent refusal or
+non-execution. Decode wire bytes only within the 64 MiB structured ceiling;
+encoded error metadata is bounded at 16 KiB and error message text at 4096 bytes.
+Move an accepted branch instead of cloning its payload. Valid protocol codes and
+exact bounded metadata survive acceptance. These decoder checks do not substitute
+for a bounded transport collector or the cancellation/response-loss matrix.
+
 Sequences, offsets, checkpoints, lease generations, and absolute timestamps
 travel as canonical decimal strings on structured RPC and diagnostic JSON.
 The retained structured-value number codec uses binary64; bare JSON integers
