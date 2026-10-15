@@ -13,6 +13,9 @@ mod event_owner_outage;
 #[path = "event_late_reply.rs"]
 mod event_late_reply;
 
+#[path = "event_fetch_reply.rs"]
+mod event_fetch_reply;
+
 use super::{call, client, inputs, stopped, Executor};
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::{event_stream::*, *};
@@ -99,6 +102,9 @@ impl Cell for Counter {
                 return Ok(Output::Done);
             };
             let path = url::Url::parse(&request.url)?.path().to_owned();
+            if path == "/fetch-save" {
+                return event_fetch_reply::fetch_and_save(context, &request.url).await;
+            }
             if path == "/source-facet" || path == "/nested-facet" {
                 let class = context.exported_cell_class("SourceFacetCounter")?;
                 let child = context
