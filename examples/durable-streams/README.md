@@ -335,6 +335,49 @@ Omit `--rustfs-image` for SQLite. These cases add independent-process ack-loss
 evidence on one machine. They do not qualify consumer process loss during exact
 receipt replay, follower-only proof, power/store loss or all lease/ack cut points.
 
+## Independent-process fetch loss
+
+[fetch_faults.py](fetch_faults.py) holds a complete proven `__streamNext` reply
+while an independent measuring client audits the accepted event, checkpoint zero
+and live lease. It then observes destination SIGKILL and actual response loss.
+The consumer must report `Ambiguous` without applying an effect. Every recovered
+snapshot is validated before the proxy permits another fetch attempt.
+
+Two explicit modes keep the stream lease at its original 30 seconds:
+
+- `--lease-state live` records a 1-second node-authority policy for this fixture.
+  Recovery must retain the exact original live lease before replay, and replay
+  request/response bytes must match the held exchange exactly.
+- `--lease-state expired` retains the existing 30-second node-authority policy.
+  Recovery must observe original lease expiry before any fetch retry. The same
+  fetch ID must obtain a higher lease generation and a different response;
+  subsequent replay retains that fresh lease and identical response bytes.
+
+The opt-in `/projection/fetch?fetch_id=ID` route uses `next_with_id`, saves the
+receipt atomically with inbox/effects and syncs without acknowledging. Two
+successful fetch replays must apply one effect total. Only the saved receipt is
+then acknowledged, advancing checkpoint one. Saved evidence verifies identities,
+wire digests, lease times, effect receipts, SIGKILL/replacement PIDs and complete
+shutdown. An audit-only invocation requires complete evidence; internal prefix
+audits cannot stand in for that final gate.
+
+```sh
+python3 examples/durable-streams/fetch_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --lease-state live --output /tmp/cellar-fetch-live-evidence
+python3 examples/durable-streams/fetch_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --lease-state expired --output /tmp/cellar-fetch-expired-evidence
+python3 examples/durable-streams/fetch_faults.py \
+  --audit /tmp/cellar-fetch-live-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image rustfs/rustfs:1.0.0-beta.8-glibc` to use a fresh private S3
+server managed by the measuring client; omit it for a private SQLite bucket.
+These are independent loopback processes on one machine. They do not qualify
+power loss, failed object-store persistence, follower-only proof, physical host
+isolation or an old owner still executing during takeover.
+
 ## Discover sources from the fleet
 
 `cellar outbox census Order --limit 100 --json [FLEET OPTIONS]` lists root source

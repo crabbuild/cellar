@@ -75,9 +75,9 @@ def message(stream, response=False):
 
 class PeerProxy:
     def __init__(self, target, ledger, method="__streamAppend"):
-        require(method in ("__streamAppend","__streamAck"),"unsupported peer fault method")
+        require(method in ("__streamAppend","__streamAck","__streamNext"),"unsupported peer fault method")
         self.method=method
-        self.label="append" if method=="__streamAppend" else "ack"
+        self.label={"__streamAppend":"append","__streamAck":"ack","__streamNext":"fetch"}[method]
         self.target, self.ledger = target, ledger
         self.lock = threading.Lock()
         self.armed = False
@@ -169,13 +169,13 @@ class PeerProxy:
 
 
 class FleetProcess(Process):
-    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None, stream_rows=None):
+    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None, stream_rows=None, node_lease_ms=None):
         self.node = node
         data = root / "data" / node
         data.mkdir(parents=True, exist_ok=True)
         config = root / f"{label}-config.json"
         config.write_text(json.dumps(dict(node=node, bucket=store.config if store else str(root/"fleet.sqlite"), peer=f"{peer[0]}:{peer[1]}",
-            advertise=f"{advertise[0]}:{advertise[1]}", declare=declare, fleet_durability=fleet_durability,outbox_rows=outbox_rows,stream_rows=stream_rows)))
+            advertise=f"{advertise[0]}:{advertise[1]}", declare=declare, fleet_durability=fleet_durability,outbox_rows=outbox_rows,stream_rows=stream_rows,node_lease_ms=node_lease_ms)))
         self.log = root/f"{label}.log"
         self.output = self.log.open("xb")
         self.child = subprocess.Popen([str(binary),str(data),"0","--fleet-fixture",str(config)],

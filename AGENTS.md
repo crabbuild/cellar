@@ -601,6 +601,17 @@ CreateBucket 503s, injects separate no-retry conditional-write clients and remov
 its own server after complete node shutdown. Credentials stay outside saved
 configuration and ledgers. This adds network-store destination recovery evidence;
 it does not prove follower-only acknowledgment, store loss or physical-host loss.
+`fetch_faults.py` extends that process proxy to proven __streamNext response
+loss. Runtime prefix audits must validate original state before permitting each
+retry; audit-only mode requires complete evidence. Live mode explicitly records
+a 1000ms fixture node lease, while expired mode retains 30000ms; both keep the
+original 30000ms stream lease. Live replay requires exact request/response bytes;
+post-expiry replay requires a fresh receipt and stable subsequent reply. Two
+fetches apply one inbox effect, and only the saved receipt advances checkpoint.
+Run both modes on SQLite and private RustFS when changing this boundary, plus
+the Python guard suite. They do not qualify follower-only, power/store loss or
+concurrently executing old owners. The optional fixture authority setting must
+not change existing harness/default runtime policy.
 `capacity.py` fills one opt-in Backlog source/lane to its captured row quota while
 append traffic is paused. Overflow must roll back business state and sequence.
 It audits before producer SIGKILL and before resumed retry, without source POST
