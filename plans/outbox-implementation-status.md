@@ -20,7 +20,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Bound total retained-tail memory | Tail/process profiles pass; control candidate under qualification; bundle bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. Buffered diagnostic tail inspection, live-fold bundle helpers, large/concurrent bundle bodies and provider/progress inventories still materialize histories. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
+| 1 | Bound total retained-tail memory | Tail/control and own-session close/fold scoped bounds pass; other bundle/concurrency bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. The own-session close/fold follow-up passes its scoped disk-spool gate. Dead-session/GC/overlay readers, concurrent scans, diagnostics and provider/progress inventories still lack total bounds. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
 | 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
@@ -297,6 +297,56 @@ be one follow-up against updated main. GitHub reports identical root tree
 87a1cf2ba90343f8e89a375f65f9c676213a6ee0 for the qualified published parent bb7a91f
 and main's squash merge 51216ed3; changing the branch base does not change those
 source bytes.
+
+The provider fix is published as 5ec299b on PR #70, directly against main;
+there is no stack. Its two hosted jobs also execute zero steps, with their actual
+annotations again citing account payments/spending restrictions. Local macOS
+passes do not supply hosted Linux qualification.
+The bundle candidate then transfers to the primary checkout and repository
+formatting completes for 541 Rust files. Its captured 623-input run passes all
+five focused bundle cases (12.04s runtime), including the actual production scan
+with 55083008 bytes of RSS growth (about 52.5 MiB) under the same 64 MiB budget.
+All 32 original identities, lengths and digests verify. All 318 library cases
+then pass (18.87s). Native log/static phases are still running; the bundle change
+is not published or fully qualified. The old unreadable-bundle native regression
+calls only the diagnostic collector. A prepared extension also invokes the real
+graceful close after the loss diagnostic exists and requires an unchanged open
+folded log. That extension is still isolated and uncompiled; it transfers only
+after this captured run is terminal.
+
+That first bundle batch fails its native log phase: 20/21 cases pass, while
+independent_log_hosts_prove_follower_writes_and_recover_after_leader_loss returns
+an unclassified deadline error (70.59s suite runtime; 292.73s including build).
+All 623 inputs remain unchanged. The exact failed executable is preserved with
+SHA-256 c9e24be840ad0738acb0a559ec3cc6781eaa2e45dee664effd00954fced7d174.
+An unchanged isolated replay passes in 1.26s; this does not establish a cause.
+Later static phases do not run in that failed batch. Candidate memory and library
+passes do not turn it into a successful native gate.
+
+After preserving that failure, only native_log.rs changes: it exercises real
+graceful close after the corruption diagnostic is cached, adds failure-only
+context distinguishing the original five-second proof/recovery deadlines and
+joins fixture domains on Result errors before temporary-directory removal.
+Failed fixture setup also joins its source/follower domains. No production
+source, deadline, policy or proof assertion changes in this diagnostic step.
+The captured follow-up passes the real close case (0.03s) with the original open
+folded record unchanged, then all 21 native log cases (70.64s). Static phases
+are still running. Passing this run does not resolve the earlier deadline's
+cause, and the bundle candidate is not yet published.
+
+The close follow-up completes all nine captured phases: real cached-corruption
+close refusal, all 21 native log cases, workspace/all-target/all-feature checking,
+Clippy with warnings denied, formatting, docs/dependency policy, all 179 Python
+guards and whitespace checks. Two unclosed-SQLite ResourceWarnings remain in the
+Python fixtures; passing assertions do not close that audit. All 623 inputs stay
+unchanged. A subsequent unchanged-source run passes native outbox, shared streams
+and source/catalog/event-delivery fixtures, then the actual production Node
+catalog inventory/tombstone/owner-handoff case on its normal stack (5.64s).
+Those are scoped passes, not a full-workspace, fleet-matrix or release pass.
+The earlier native deadline cause remains unestablished despite passing replays.
+The next memory gates are overlapping own-session scans, dead-session recovery's
+whole-body bundle reads, GC/overlay readers and provider/progress inventories;
+one legal oversized upload row still has its existing allocation allowance.
 
 Both hosted SDK jobs for a83648f have
 no executed steps: GitHub annotations cite failed account payments or spending
