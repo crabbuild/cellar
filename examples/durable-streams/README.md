@@ -610,6 +610,54 @@ selected client-outage cuts on loopback processes. Follower-only consumer proof,
 physical partitions, power/store loss and the full fault/capacity matrix remain
 separate requirements.
 
+## Recover consumer inbox and effects from follower-only proof
+
+[consumer_recovery.py](consumer_recovery.py) uses the ordinary saved-fetch route
+to commit and prove inbox receipts, effects and an acknowledgment receipt while
+the subscription is still unacknowledged. After one seeded effect, the consumer's
+private replica fault refuses actual per-cell and node-session publication. The
+second fetch must return a proven effect using a real follower ensemble while
+its selected bucket objects stay unchanged. Source/destination nodes retain
+explicit Bucket proof. The consumer is SIGKILLed and its entire directory removed.
+
+The successor's first audit must recover both original effects, exact inbox
+identities and the saved receipt hash before any fetch replay or acknowledgment.
+The fixture retains both original events. A bounded raw SDK read checks both
+inbox acceptances in an always-rolled-back transaction before replay; both must
+report already processed. A missing receipt cannot be repaired by that probe.
+Replaying the same fetch ID must apply zero new effects. A live receipt remains
+exact; if its normal 30-second lease actually expired, fresh authority must have
+a higher generation and unchanged event bytes. The checkpoint advances only
+when the recovered receipt is explicitly acknowledged. Joined old/recovered
+SQLite/WAL archives must retain both inbox digests and the corresponding receipt.
+
+`--restart-followers` also kills every original process, archives the committed
+consumer witness batches, waits for real peer expiry and restarts peers from
+those retained disks with fresh generations. A private proxy temporarily refuses
+only seal requests for the original consumer session. A signed read-only
+framework request for that consumer scope must return explicit `Unavailable`
+before the unchanged operation deadline, without changing its owner, sealing the
+log or inventing bucket coverage. After the real witness service returns, the
+same successor PID/generation must recover the prefix on its first fresh read.
+No source command or consumer processing is replayed to repair that audit.
+
+```sh
+python3 examples/durable-streams/consumer_recovery.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --restart-followers --output /tmp/cellar-consumer-recovery-evidence
+python3 examples/durable-streams/consumer_recovery.py \
+  --audit /tmp/cellar-consumer-recovery-evidence/ledger.jsonl
+```
+
+Add a pinned `--rustfs-image` for a private S3 bucket. Saved evidence independently
+rechecks original/recovered SQLite/WAL and cold witness archives, exact commands,
+fresh process generations and complete node/proxy/store joins. This covers
+retained follower disks and transient witness-service unavailability. Lost or
+corrupt witness disks, physical host/power/store loss and the complete failure
+matrix remain separate gates. A generic application GET may wrap a nested
+routing failure as HTTP 500; that response does not qualify the explicit refusal
+check, which uses the existing authenticated framework event route.
+
 ## Recover a follower-only source proof
 
 [follower_faults.py](follower_faults.py) runs independent destination, producer

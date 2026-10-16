@@ -13,6 +13,40 @@ pub(super) fn audit(context: &Context, db: &Storage, controls: &FaultControls) -
     )
 }
 
+pub(super) async fn inbox_audit(context: &Context, db: &Storage) -> Result<Output> {
+    let page = context
+        .stream::<OrderConfirmed>("EVENTS")?
+        .read(
+            context,
+            None,
+            ReadOptions {
+                max_records: 2,
+                max_bytes: 64 << 10,
+            },
+        )
+        .await?;
+    ensure!(
+        page.records.len() == 2,
+        "inbox audit requires both original records"
+    );
+    let accepted = db.tx(|tx| {
+        let accepted = page
+            .records
+            .iter()
+            .map(|record| tx.inbox("order-projection-v1")?.accept(record))
+            .collect::<Result<Vec<_>>>()?;
+        // A missing receipt must fail the measuring client, never repair the
+        // prefix being measured. Roll back even when all receipts are present.
+        tx.rollback()?;
+        Ok(accepted)
+    })?;
+    reply(
+        context,
+        200,
+        json!({"accepted":accepted,"records":page.records.iter().map(event_receipt).collect::<Result<Vec<_>>>()?,"projection":projection(db)?}),
+    )
+}
+
 pub(super) async fn running(
     context: &Context,
     db: &Storage,

@@ -1,0 +1,51 @@
+"""The private fault refuses only the selected seal; it never supplies proof."""
+import http.server
+import json
+import threading
+import unittest
+import urllib.error
+import urllib.request
+
+from consumer_witness_gate import WitnessGate
+
+
+class WitnessGateTests(unittest.TestCase):
+    def setUp(self):
+        self.requests=[];requests=self.requests
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self,*args):pass
+            def do_POST(self):
+                body=self.rfile.read(int(self.headers["Content-Length"]))
+                requests.append((self.path,body,self.headers.get("x-private-fixture")))
+                self.send_response(200);self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
+        self.server=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
+        self.thread=threading.Thread(target=self.server.serve_forever);self.thread.start()
+        self.gate=WitnessGate(self.server.server_address,"consumer/"+"a"*32+"/"+"b"*64,7)
+
+    def tearDown(self):
+        self.gate.close();self.server.shutdown();self.server.server_close();self.thread.join(timeout=5)
+        self.assertFalse(self.thread.is_alive())
+
+    def request(self,path,leader=None,epoch=7):
+        body=json.dumps(dict(leader=leader or self.gate.leader,epoch=epoch)).encode()
+        request=urllib.request.Request("http://%s:%s%s"%(*self.gate.address,path),data=body,headers={"x-private-fixture":"unchanged"})
+        try:
+            with urllib.request.urlopen(request,timeout=5) as response:return response.status,response.read(),body
+        except urllib.error.HTTPError as error:
+            with error:return error.code,error.read(),body
+
+    def test_selected_unavailability_then_actual_response_after_release(self):
+        status,_,body=self.request("/peer/log/seal")
+        self.assertEqual(status,503);self.assertEqual(self.requests,[])
+        self.assertEqual(len(self.gate.observations()),1)
+        self.gate.release();status,response,body=self.request("/peer/log/seal")
+        self.assertEqual((status,response),(200,body));self.assertEqual(self.requests,[("/peer/log/seal",body,"unchanged")])
+
+    def test_other_sessions_epochs_and_methods_keep_exact_bytes(self):
+        for path,leader,epoch in (("/peer/log/tail",None,7),("/peer/log/seal","other",7),("/peer/log/seal",None,8)):
+            status,response,body=self.request(path,leader,epoch)
+            self.assertEqual((status,response),(200,body));self.assertEqual(self.requests[-1],(path,body,"unchanged"))
+        self.assertEqual(self.gate.observations(),[])
+
+
+if __name__=="__main__":unittest.main()

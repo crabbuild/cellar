@@ -24,7 +24,53 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice carries the consumer ownership cuts across four independent
+The current slice adds consumer-specific follower-only recovery qualification.
+After a seeded effect, actual consumer replica publication is refused while the
+second saved fetch proves inbox/effects/ack-receipt through the real ensemble.
+Selected per-cell and consumer-session bucket data must stay unchanged. The
+consumer is SIGKILLed and its entire directory removed; source/destination peers
+retain explicit Bucket proof. Recovery must expose the original effect prefix
+and saved receipt before replay. Both retained SDK records are then checked
+against the actual inbox in an always-rolled-back transaction: both must report
+already processed. The probe cannot repair a missing receipt. Repeated fetch
+adds zero effects, and only explicit acknowledgment advances checkpoint 2.
+
+Cold mode kills all original PIDs, archives actual committed consumer witness
+batches and restarts peers from retained disks with fresh generations and retained
+lineages. Selective loopback proxies refuse only seal requests for the original
+consumer session. A signed read-only framework request must return explicit
+`Unavailable` before the unchanged 10s operation budget, preserving the consumer
+owner, an unsealed recovering log and unchanged selected bucket data. Real
+witness service returns to the same successor PID/generation; its first fresh
+read must recover the original prefix before any fetch/ack replay. Joined old/
+recovered SQLite/WAL images retain both inbox digests and the saved receipt;
+original witness archives are independently reinspected after cleanup.
+
+All four strengthened cases pass on one frozen runtime (SHA256
+57d55e1eb601cb5e39cf4c0c3b7ac5e7b9b2e9156571898ad952172ae272121b):
+SQLite warm/cold in 5.44s/13.96s and pinned RustFS S3 in 10.75s/18.60s. The cold
+framework refusals arrive in 9036ms/9060ms, with ten real refused seal requests
+per witness, no fabricated proof and no recoverer restart. Every case passes
+four saved snapshots, a direct pre-replay rollback-only inbox probe and independent
+archive re-audits. The preliminary generic application-GET probe returned HTTP
+500 and was excluded; it cannot establish the framework's typed refusal. The
+qualified cases use the existing authenticated framework route instead.
+
+All four prior consumer owner-takeover cuts pass with this runtime, along with
+ordinary example smoke, the existing Rust CAS fixture unit and all 147 Python
+guards (ten new recovery/gate tests). The same two existing unclosed-SQLite
+ResourceWarnings remain. All 521 Rust and 61 Python sources stay fixed during
+qualification. Workspace all-target/all-feature checking (27.12s), Clippy with
+warnings denied (5.13s), formatting (521 files), docs (36 documents/six flows/
+388 references), dependency policy (403 packages/no JavaScript engine) and
+whitespace checks pass. SDK/core behavior and all owned markers remain unchanged;
+only private fixture routes, drivers and documentation are added. Prior 77-Node/
+full-workspace/doc-test results below remain prior unchanged-core evidence.
+Actual Docker inventory confirms every owned store removed after node/proxy joins.
+PR #66 merged during qualification as b928abf with the identical tested base tree;
+this follow-up starts from updated main as one active PR, without a stack.
+
+The previous slice carries the consumer ownership cuts across four independent
 loopback processes. The opt-in example routes retain an actual SDK delivery and
 hold the old callback before inbox acceptance or after receipt/effect writes
 before commit. Only that consumer's actual store client is isolated. Require
@@ -184,14 +230,15 @@ the tested base, so this follow-up starts there on one new main-based branch.
 The earlier native consumer-takeover slice adds embedded-domain evidence for
 inbox/effect fencing; subscription expiry alone did not cover that boundary.
 The process slice above now covers those selected consumer client-outage cuts.
-The next selected gate is recovering a consumer receipt/effect prefix from
-follower-only proof after losing its local disk before acknowledgment, including
-cold retained followers. Require the original committed inbox/effect audit
-before any fetch replay; unavailable witnesses must refuse recovery rather than
-reset deduplication. Missing source/destination failure cuts and unresolved
-intermittent-startup causes remain priorities; passing replays cannot diagnose
-those original failures. Physical loss, capacity and complete operational
-coverage remain release requirements.
+The follower-only consumer slice now covers local disk loss with warm/cold
+retained witnesses and transient witness-service unavailability. The next selected
+gate is actual missing/corrupt retained consumer witness data: recovery must
+refuse without changing ownership, sealing away accepted proof or resetting the
+inbox, including repeated attempts after diagnostics. Only actual valid original
+witness bytes may restore availability. Missing source/destination failure cuts
+and unresolved intermittent-startup causes remain priorities; passing replays
+cannot diagnose those original failures. Physical loss, capacity and complete
+operational coverage remain release requirements.
 This is a hard format cutover with all owned markers still 1; recreate old
 development state and rebuild all nodes.
 

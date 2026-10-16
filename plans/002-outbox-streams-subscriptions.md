@@ -1858,6 +1858,24 @@ reinspects both archives through disposable copies and requires complete private
 store cleanup. SQLite/RustFS client outages qualify these cuts, not consumer
 follower-only proof, physical loss or the full fault/capacity matrix.
 
+The consumer-specific `consumer_recovery.py` driver proves the coupled inbox,
+effects and saved acknowledgment receipt using real Fleet credit while consumer
+per-cell/session bucket publication is refused. It removes the killed consumer's
+entire directory and requires the original prefix before fetch/ack replay.
+Both retained SDK event records must report existing inbox receipts in an
+always-rolled-back acceptance probe before fetch replay; the probe cannot repair
+missing history. A repeated fetch must add zero effects; a live lease preserves the exact receipt,
+while actual expiry requires higher fresh authority for the same event bytes.
+Cold mode kills every original process, archives the consumer's committed witness
+batches and restarts peers from retained disks under fresh generations. Temporary
+selective witness-service refusal must yield explicit framework `Unavailable`
+before the unchanged operation budget, preserving the old owner and unsealed
+recovering log. Real service return must recover the prefix on the same live
+recoverer before any processing replay. Immutable old/recovered consumer and
+witness archives, exact inbox digests/saved receipt hashes and complete process/
+proxy/store joins are required. These cuts retain their disks; lost/corrupt
+witnesses, physical loss and the rest of the release matrix remain separate.
+
 Destination ack/fetch process drivers also support combining `--follower-only`
 with `--restart-followers`. Require SIGKILL of every original process, immutable
 archives of the original destination ensemble's committed CLB1/CLE1 batches and

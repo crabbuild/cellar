@@ -97,6 +97,22 @@ business totals alone cannot prove retained deduplication. Audit both archives
 through disposable copies. Keep the 10s handler and 30s delivery policies, private
 1000-object listing cap, Bucket proof scope and complete process/store cleanup.
 The SQLite/RustFS process cuts are not physical or follower-only qualification.
+`consumer_recovery.py` qualifies consumer inbox/effect/saved-receipt recovery
+from actual Fleet proof after SIGKILL and complete consumer directory removal.
+Keep consumer per-cell/session bucket inventory unchanged under the real replica
+publication refusal; peers use Bucket proof. Audit the original committed prefix
+before fetch/ack replay. Retain both event records and probe inbox acceptance
+through the SDK in an always-rolled-back transaction; require both false so a
+probe cannot repair a missing receipt. Require zero new effects on fetch replay
+and archive exact inbox digests and receipt hashes after joins. Cold mode kills all original PIDs, retains exact
+CLB1/CLE1 witness batches and restarts every peer with a fresh generation/retained
+lineage. Its selective loopback gate refuses only the old consumer session's
+seal requests. Require signed framework `Unavailable` before the original 10s
+operation budget, unchanged consumer owner and an unsealed recovering log.
+Returning real witness service must recover on the same PID/generation's first
+fresh read. Never treat a generic application 500 or timeout as that verdict.
+Reinspect all archives through copies and join every node/gate/private store.
+Do not turn these retained-disk/client-service cuts into physical-loss claims.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained
