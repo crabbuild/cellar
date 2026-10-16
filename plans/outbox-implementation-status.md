@@ -18,11 +18,82 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Other intermittent Node startup/shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
-| 2 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
-| 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
-| 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
-| 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | scan_committed_batches/read_tail, seal, transport bytes() and the leader gather still materialize whole histories. Bound enumeration, decoding, replies, transport collection and gather memory across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. A per-file bound alone is insufficient. |
+| 2 | Other intermittent Node startup/shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
+| 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
+| 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The next recovery audit reproduces four failures in 0.28s (57.15s including
+compilation): the batch constructor accepts more than 64 frames/64 MiB entries,
+a sparse 67108937-byte retained batch requests its entire payload before
+rejection, and direct follower append credits a cell name whose length cannot
+fit CLE1's u16 field. The first cold-fixture attempt failed outside an execution
+domain; that setup error is retained separately and is not the behavioral
+reproduction. The corrected before-fix run observes all four failures.
+
+The fix shares a pinned-handle bounded reader with state metadata and caps CLB1
+at 64 MiB of encoded entries plus its 72-byte envelope. Entry count/cell/payload
+lengths must be representable before any persistence. Excess frames are returned
+intact and the existing ordered server carries them into the next commit.
+An invalid first frame receives unknown-epoch refusal rather than end credit.
+The oversized-read regression preserves the independent end and refuses probes
+without requesting any batch payload. Eleven focused Rust cases pass, including
+an exact-budget commit/cold read and post-open batch stat/read/short/changed-length
+failures with original-byte recovery. The full-budget case also drives the
+real ordered server with an already-delivered burst and passes (1.02s runtime
+for the first focused set; 53.64s including rebuild for the ordered variant). All 171 Python guards pass after adding paths to the older synthetic
+batch fixture; the original unclosed-SQLite warnings remain. The new process
+oversize mode preserves original prefixes and metadata, with independently
+bounded prefix/zero-extension archive validation. The completed frozen-source qualification is
+recorded below. All markers remain 1; recreate old larger development batches. These
+bounds do not qualify total tail memory or the remaining capacity matrix.
+All 19 native log/five protocol cases pass (123.69s including rebuild). The
+preflight then stops on a test-only err_expect Clippy lint; that failed batch is
+retained. Replacing err().expect() with expect_err() and clarifying carried-frame
+comments suppresses no lint or assertion. Full workspace/all-target/all-feature
+Clippy with warnings denied passes in 51.01s. The rebuilt runtime passes both
+real oversized-batch process cases and independent re-audits (22.54s SQLite,
+25.33s RustFS), with original consumer state before replay and complete joins.
+These preliminary results remain distinct from the completed frozen-source
+batch below.
+The audit also identifies the next distinct implementation gap: the scanner and
+read_tail eagerly retain every decoded batch and all entries. seal also builds
+that tail; SignedPeerTransport collects bytes() and recovery gathers all follower
+entries before its existing bucket-bundle windows. Bounding each file cannot
+bound a large valid history. Total enumeration/decoding/response/transport/gather
+memory needs its own paged/streamed recovery protocol and complete-range proof;
+this is now priority 1 rather than being hidden in a generic soak-test item.
+Historical startup cause audits remain separate and open.
+
+Final batch-bound qualification freezes 528 Rust/68 Python sources plus manifests,
+locks and build/lint/CI configuration on Rust 1.98.1/aarch64 macOS. Runtime SHA256:
+9cff493aaab16703d07d5d3eeb13af26b792097d674b2174ed75744f6f08ed66.
+All 28 process cases and their independent re-audits pass: the previous 26-case
+matrix plus both oversized-batch variants. The new SQLite/RustFS cases pass in
+22.86s/25.14s with exact original-prefix/zero-extension archive checks, preserved
+seal state, original inbox/effects/receipt before replay and complete joins.
+The eleven focused log cases pass (0.99s runtime), including the real full-budget
+ordered burst, exact-limit cold load, zero-read oversized refusal, invalid first
+entry and post-open I/O faults. All seven startup tests, 19 native log/five
+protocol cases, 171 Python guards and ordinary smoke pass. The same two
+pre-existing unclosed-SQLite ResourceWarnings remain. Workspace checking
+(48.12s), Clippy with warnings denied (4.58s), 528-file formatting, documentation
+(36 documents/six flows/388 references), dependency policy (403 packages/no
+JavaScript engine) and whitespace checks pass. All 650 workspace tests across
+108 targets pass (796.13s), including all 77 Node cases (124.09s) and the dev-host
+case (196.31s) under unchanged deadlines. Doc-tests pass 11 with one existing
+ignored example (68.21s). Captured inputs and saved runtime remain unchanged
+through all 69 phases. Actual process/container inspection confirms no saved-
+runtime processes and all 16 owned stores from preliminary/final runs removed.
+Evidence is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-follower-batch-bound-zg0d4106/qualified`.
+Final documentation checks run again after this ledger update. This qualifies
+individual commit/read bounds and the exercised fault profile; total retained-
+tail/transport/gather memory remains a missing implementation. The historical
+startup failures and full ownership/lifecycle/capacity/operational release gates
+stay open. Local compiler matching does not establish hosted Linux qualification.
 
 Startup diagnosis reproduces a separate observability bug: the readiness-error
 path closes the domain and joins the supervisor but discards its outcome. Two

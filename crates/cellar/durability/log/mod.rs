@@ -36,6 +36,9 @@ use crate::log_options::LogOptions;
 use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
+#[cfg(test)]
+mod follower_batch_tests;
+mod follower_file;
 mod follower_state;
 mod recovery_progress;
 mod startup_retry;
@@ -176,8 +179,8 @@ where
 {
     use tokio::io::AsyncReadExt;
     let mut buf: Vec<u8> = Vec::new();
-    // A delivered frame that belongs to another fragment: it could not ride
-    // the batch it arrived with, so it opens the next one.
+    // A delivered frame for another fragment or beyond this commit's byte
+    // budget opens the next batch without being dropped or reordered.
     let mut carried: Option<AppendReq> = None;
     let mut cycle_started = mono_us();
     loop {
@@ -993,28 +996,45 @@ pub fn decode_tail_resp(mut body: &[u8]) -> anyhow::Result<TailResp> {
 }
 
 /// The frames one commit may carry: consecutive stream frames of ONE
-/// fragment. Growing a batch is the only way to build one, and it hands
-/// back a frame for another leader or epoch, so `append_batch` never has to
-/// decide what a mixed batch means — the caller keeps the refused frame and
-/// opens the next batch with it.
+/// fragment within its byte/frame bounds. Growing a batch is the only way
+/// to build one; a different fragment or excess frame is handed back to the
+/// caller to open the next batch, preserving ordered delivery.
 pub struct AppendBatch {
     frames: Vec<AppendReq>,
+    // None retains an invalid first request so append_batch can refuse it
+    // without touching disk. Later frames must fit before joining the burst.
+    entry_bytes: Option<usize>,
 }
 
 impl AppendBatch {
     pub fn new(first: AppendReq) -> Self {
+        let entry_bytes = committed_entry_bytes(&first.entries);
         Self {
             frames: vec![first],
+            entry_bytes,
         }
     }
 
-    /// Add a frame of the same fragment, or hand it back untouched.
+    /// Add a frame of the same fragment within the commit byte/frame bounds,
+    /// or hand it back untouched for the next commit.
     pub fn try_push(&mut self, req: AppendReq) -> Result<(), AppendReq> {
         let head = &self.frames[0];
-        if req.leader != head.leader || req.epoch != head.epoch {
+        if req.leader != head.leader
+            || req.epoch != head.epoch
+            || self.frames.len() >= SERVE_BATCH_FRAMES
+        {
             return Err(req);
         }
+        let Some(entry_bytes) = self
+            .entry_bytes
+            .zip(committed_entry_bytes(&req.entries))
+            .and_then(|(current, next)| current.checked_add(next))
+            .filter(|total| *total <= COMMITTED_BATCH_ENTRY_CAP)
+        else {
+            return Err(req);
+        };
         self.frames.push(req);
+        self.entry_bytes = Some(entry_bytes);
         Ok(())
     }
 
@@ -1163,6 +1183,26 @@ pub struct FollowerState {
 const COMMITTED_BATCH_MAGIC: &[u8; 4] = b"CLB1";
 const COMMITTED_BATCH_DIGEST_LEN: usize = 32;
 
+// One commit can merge frames, but its total encoded entry bytes stay within
+// one frame's budget. The stream carries any additional frame into the next
+// commit. Retained readers use the same bound plus the fixed CLB1 envelope.
+const COMMITTED_BATCH_ENTRY_CAP: usize = STREAM_FRAME_CAP;
+const COMMITTED_BATCH_MAX_BYTES: usize =
+    4 + 4 * 8 + 4 + COMMITTED_BATCH_ENTRY_CAP + COMMITTED_BATCH_DIGEST_LEN;
+
+fn committed_entry_bytes(entries: &[Entry]) -> Option<usize> {
+    u32::try_from(entries.len()).ok()?;
+    entries.iter().try_fold(0_usize, |total, entry| {
+        u16::try_from(entry.cell.len()).ok()?;
+        u32::try_from(entry.bytes.len()).ok()?;
+        total
+            .checked_add(4 + 8 + 2 + 8 + 8 + 4)?
+            .checked_add(entry.cell.len())?
+            .checked_add(entry.bytes.len())
+            .filter(|total| *total <= COMMITTED_BATCH_ENTRY_CAP)
+    })
+}
+
 struct CommittedBatch {
     state: FollowerState,
     entries: Vec<Entry>,
@@ -1267,6 +1307,10 @@ fn encode_committed_batch(state: FollowerState, entries: &[Entry]) -> Vec<u8> {
 fn decode_committed_batch(bytes: &[u8]) -> anyhow::Result<CommittedBatch> {
     use sha2::Digest as _;
 
+    anyhow::ensure!(
+        bytes.len() <= COMMITTED_BATCH_MAX_BYTES,
+        "follower batch exceeds format bound"
+    );
     let payload_len = bytes
         .len()
         .checked_sub(COMMITTED_BATCH_DIGEST_LEN)
@@ -1589,11 +1633,14 @@ impl FollowerStore {
                 );
                 continue;
             }
-            let decoded = self
-                .filesystem
-                .read(&item.path)
-                .map_err(anyhow::Error::from)
-                .and_then(|bytes| decode_committed_batch(&bytes));
+            let decoded = follower_file::read(
+                self.filesystem.as_ref(),
+                &item.path,
+                COMMITTED_BATCH_MAX_BYTES,
+                "follower batch",
+            )
+            .and_then(|bytes| bytes.context("committed follower batch disappeared"))
+            .and_then(|bytes| decode_committed_batch(&bytes));
             match decoded {
                 Ok(batch)
                     if batch.entries.first().map(|entry| entry.seq) == Some(named_first)
@@ -1874,6 +1921,19 @@ impl FollowerStore {
     /// the batch where a lone frame would have been refused. The cost this
     /// removes is one fsync chain per frame; see `serve_log_stream`.
     pub async fn append_batch(&self, batch: AppendBatch) -> Vec<AppendResp> {
+        if batch.entry_bytes.is_none() || batch.frames.len() > SERVE_BATCH_FRAMES {
+            warn!("append refused: invalid or oversized encoded follower batch");
+            return batch
+                .frames
+                .iter()
+                .map(|_| AppendResp {
+                    ok: false,
+                    end: 0,
+                    epoch: None,
+                })
+                .collect();
+        }
+
         fn refusals(count: usize, state: FollowerState) -> Vec<AppendResp> {
             (0..count)
                 .map(|_| AppendResp {

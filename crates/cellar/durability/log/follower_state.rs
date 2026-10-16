@@ -1,6 +1,5 @@
 //! Integrity and identity for the independent acknowledged-range/seal barrier.
 use super::{validate_log_leader, FollowerState};
-use anyhow::Context as _;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -85,28 +84,7 @@ pub(super) fn load(
     leader: &str,
     node: &str,
 ) -> anyhow::Result<Option<FollowerState>> {
-    let mut file = match filesystem.open(path) {
-        Ok(file) => file,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("cannot open follower state"),
-    };
-    // Pin one inode across the length checks and bounded read. A path stat
-    // followed by a whole-file read can race replacement and allocate without
-    // a bound. Only absence at open means optional state; later NotFound/IO
-    // errors must not turn retained metadata into a fresh empty fragment.
-    let length = file
-        .file_len()
-        .context("cannot stat opened follower state")?;
-    anyhow::ensure!(
-        length <= MAX_BYTES as u64,
-        "follower state exceeds format bound"
-    );
-    let bytes = file
-        .read_exact_at(0, length as usize)
-        .context("cannot read opened follower state")?;
-    anyhow::ensure!(
-        bytes.len() as u64 == length && file.file_len()? == length,
-        "follower state changed during read"
-    );
-    decode(&bytes, leader, node).map(Some)
+    super::follower_file::read(filesystem, path, MAX_BYTES, "follower state")?
+        .map(|bytes| decode(&bytes, leader, node))
+        .transpose()
 }

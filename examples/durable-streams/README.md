@@ -663,6 +663,16 @@ reads must return explicit `Unavailable`, with unchanged consumer ownership,
 an unsealed recovering log and no new selected bucket coverage. The second read
 must actually contact the witnesses despite the existing loss diagnostic.
 
+`--witness-data oversize` instead keeps each original batch prefix and extends
+its file with zeros to 64 MiB + 73 bytes, one byte above the format limit. State
+metadata remains intact. The same two real refusals and incomplete seals are
+required; the saved auditor checks exact lengths, original prefixes and zero
+extension with bounded reads. The native reader regression separately requires
+zero payload-read requests before rejection. Current group commits cap encoded
+entry bytes at 64 MiB plus their 72-byte envelope; excess ordered frames carry
+into consecutive commits, with no dropped records or reordered replies. A native
+full-budget ordered-stream/cold-load case checks the accepted boundary too.
+
 Both damaged peer processes must drain and join before original batch bytes
 return. Their persisted seal state is preserved. The proxies propagate the
 stopped upstreams' EOF before fresh peer generations start. The same successor's

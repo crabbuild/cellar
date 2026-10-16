@@ -26,9 +26,19 @@ struct Probe {
     peak: AtomicU64,
     persistence: AtomicUsize,
     fault: Fault,
+    batch: bool,
+    cap: u64,
 }
 
 impl Probe {
+    fn target(&self, path: &Path) -> bool {
+        if self.batch {
+            path.extension().is_some_and(|suffix| suffix == "batch")
+        } else {
+            path.file_name().is_some_and(|name| name == "state.json")
+        }
+    }
+
     fn request(&self, bytes: u64) {
         self.peak.fetch_max(bytes, Ordering::SeqCst);
     }
@@ -91,13 +101,13 @@ impl HostFileIo for File {
 
 impl FileSystem for Filesystem {
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
-        if path.file_name().is_some_and(|name| name == "state.json") {
+        if self.0.target(path) {
             let len = DirectFileSystem.metadata(path)?.len;
             self.0.request(len);
             // The test records the unbounded request without allocating an
             // attacker-sized buffer itself. Ordinary DirectFileSystem::read
             // delegates to std::fs::read and has no such protection.
-            if len > 4096 {
+            if len > self.0.cap {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "test prevented an oversized whole-file read",
@@ -111,7 +121,7 @@ impl FileSystem for Filesystem {
         Ok(HostFile::from_io(File {
             inner: DirectFileSystem.open(path)?,
             probe: self.0.clone(),
-            state: path.file_name().is_some_and(|name| name == "state.json"),
+            state: self.0.target(path),
             lengths: 0,
         }))
     }
@@ -188,10 +198,210 @@ fn fixture(
         peak: AtomicU64::new(0),
         persistence: AtomicUsize::new(0),
         fault,
+        batch: false,
+        cap: 4096,
     });
     let mut store = FollowerStore::new(root, None, "witness");
     store.filesystem = Arc::new(Filesystem(probe.clone()));
     Ok((store, probe, path))
+}
+
+#[tokio::test]
+async fn oversized_batch_preserves_the_required_end_without_requesting_payload(
+) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory
+        .path()
+        .join("peerlog")
+        .join(LEADER)
+        .join("1-1.batch");
+    DirectFileSystem.create_dir_all(path.parent().unwrap())?;
+    // Fault fixture only: create a sparse oversized file without allocating
+    // its payload. The instrumented reader also prevents the old whole-file
+    // path from allocating it while measuring that unbounded request.
+    let sparse = tempfile::NamedTempFile::new_in(directory.path())?;
+    sparse.as_file().set_len((64 << 20) + 73)?;
+    sparse.persist(&path)?;
+    let seed = FollowerState {
+        fragment_epoch: 7,
+        base: 0,
+        end: 1,
+        sealed_to: 7,
+    };
+    let metadata = encode(LEADER, "witness", seed)?;
+    DirectFileSystem.write(&path.with_file_name("state.json"), &metadata)?;
+    let probe = Arc::new(Probe {
+        peak: AtomicU64::new(0),
+        persistence: AtomicUsize::new(0),
+        fault: Fault::None,
+        batch: true,
+        cap: (64 << 20) + 72,
+    });
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let mut store = FollowerStore::new(directory.path(), None, "witness");
+            store.filesystem = Arc::new(Filesystem(probe.clone()));
+            for _ in 0..2 {
+                assert!(store.load(LEADER)? == seed);
+                let tail = store
+                    .tail(&TailReq {
+                        leader: LEADER.into(),
+                    })
+                    .await?;
+                assert_eq!(tail.range.end, 1);
+                assert!(!tail.range.complete);
+                assert!(tail.entries.is_empty());
+                let reply = store
+                    .append(AppendReq {
+                        leader: LEADER.into(),
+                        epoch: 7,
+                        truncate_to: 0,
+                        entries: vec![],
+                    })
+                    .await;
+                assert!(!reply.ok);
+                assert_eq!(reply.end, 1);
+            }
+            assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
+            assert_eq!(
+                probe.peak.load(Ordering::SeqCst),
+                0,
+                "oversized batch requested payload bytes before rejection"
+            );
+            assert_eq!(DirectFileSystem.metadata(&path)?.len, (64 << 20) + 73);
+            assert_eq!(
+                DirectFileSystem.read(&path.with_file_name("state.json"))?,
+                metadata
+            );
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn invalid_first_batch_cannot_acknowledge_an_unrepresentable_entry() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let (store, probe, _) = fixture(directory.path(), 1024, Fault::None)?;
+            let response = store
+                .append(AppendReq {
+                    leader: LEADER.into(),
+                    epoch: 7,
+                    truncate_to: 0,
+                    entries: vec![super::super::Entry {
+                        seq: 1,
+                        cell: "x".repeat(65536),
+                        cell_epoch: 1,
+                        txid: 1,
+                        bytes: vec![1],
+                    }],
+                })
+                .await;
+            assert!(
+                !response.ok,
+                "follower acknowledged an entry whose cell length cannot fit CLE1"
+            );
+            assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn opened_batch_read_failures_cannot_credit_the_acknowledged_end() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            for (index, fault) in [
+                Fault::LengthNotFound,
+                Fault::ReadNotFound,
+                Fault::ChangedLength,
+                Fault::ShortRead,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                let root = directory.path().join(index.to_string());
+                let path = root.join("peerlog").join(LEADER).join("1-1.batch");
+                DirectFileSystem.create_dir_all(path.parent().unwrap())?;
+                let seed = FollowerState {
+                    fragment_epoch: 7,
+                    base: 0,
+                    end: 1,
+                    sealed_to: 7,
+                };
+                let bytes = super::super::encode_committed_batch(
+                    seed,
+                    &[super::super::Entry {
+                        seq: 1,
+                        cell: "cell".into(),
+                        cell_epoch: 1,
+                        txid: 1,
+                        bytes: vec![1, 2, 3],
+                    }],
+                );
+                DirectFileSystem.write(&path, &bytes)?;
+                let metadata = encode(LEADER, "witness", seed)?;
+                DirectFileSystem.write(&path.with_file_name("state.json"), &metadata)?;
+                let probe = Arc::new(Probe {
+                    peak: AtomicU64::new(0),
+                    persistence: AtomicUsize::new(0),
+                    fault,
+                    batch: true,
+                    cap: (64 << 20) + 72,
+                });
+                let mut store = FollowerStore::new(&root, None, "witness");
+                store.filesystem = Arc::new(Filesystem(probe.clone()));
+                for _ in 0..2 {
+                    let tail = store
+                        .tail(&TailReq {
+                            leader: LEADER.into(),
+                        })
+                        .await?;
+                    assert_eq!(tail.range.end, 1);
+                    assert!(!tail.range.complete);
+                    assert!(tail.entries.is_empty());
+                    assert!(
+                        !store
+                            .append(AppendReq {
+                                leader: LEADER.into(),
+                                epoch: 7,
+                                truncate_to: 0,
+                                entries: vec![]
+                            })
+                            .await
+                            .ok
+                    );
+                }
+                assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
+                assert_eq!(DirectFileSystem.read(&path)?, bytes);
+                assert_eq!(
+                    DirectFileSystem.read(&path.with_file_name("state.json"))?,
+                    metadata
+                );
+                drop(store);
+                let fresh = FollowerStore::new(&root, None, "witness");
+                let recovered = fresh
+                    .tail(&TailReq {
+                        leader: LEADER.into(),
+                    })
+                    .await?;
+                assert!(recovered.range.complete && recovered.range.end == 1);
+                assert_eq!(recovered.entries[0].bytes, [1, 2, 3]);
+            }
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
 }
 
 #[tokio::test]

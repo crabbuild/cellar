@@ -9,10 +9,11 @@ from faults import require
 from whole_fleet import inventory
 
 OVERSIZED_STATE_BYTES = 64 << 10
+OVERSIZED_BATCH_BYTES = (64 << 20) + 73
 
 
 def validate_damage(mode, original, damaged):
-    require(mode in ("missing", "corrupt", "state-missing", "state-corrupt", "state-oversize"), "unknown consumer witness fault")
+    require(mode in ("missing", "corrupt", "oversize", "state-missing", "state-corrupt", "state-oversize"), "unknown consumer witness fault")
     before={entry["path"]:entry for entry in original}
     after={entry["path"]:entry for entry in damaged}
     batches={path for path in before if path.endswith(".batch")}
@@ -25,6 +26,8 @@ def validate_damage(mode, original, damaged):
     require({path:value for path,value in after.items() if path not in batches}=={path:value for path,value in before.items() if path not in batches}, "witness fault changed state or unrelated files")
     if mode=="missing":
         require(set(after)==set(before)-batches, "missing-witness fault retained a committed batch")
+    elif mode=="oversize":
+        require(set(after)==set(before) and all(before[path]["bytes"]<OVERSIZED_BATCH_BYTES and after[path]["bytes"]==OVERSIZED_BATCH_BYTES and after[path]["sha256"]!=before[path]["sha256"] for path in batches), "wrong oversized-batch fault length or untouched batch")
     else:
         require(set(after)==set(before) and all(after[path]["bytes"]==before[path]["bytes"] and after[path]["sha256"]!=before[path]["sha256"] for path in batches), "corrupt-witness fault did not damage each batch")
 
@@ -49,6 +52,9 @@ def damage(directories, root, mode):
             if not entry["path"].endswith(".batch"):continue
             path=directory/entry["path"]
             if mode=="missing":path.unlink()
+            elif mode=="oversize":
+                require(entry["bytes"]<OVERSIZED_BATCH_BYTES,"original follower batch exceeds its format bound")
+                with path.open("r+b") as file:file.truncate(OVERSIZED_BATCH_BYTES);file.flush();os.fsync(file.fileno())
             else:
                 require(mode=="corrupt", "unknown consumer witness fault")
                 raw=bytearray(path.read_bytes());require(len(raw)>=72, "short original witness batch")
@@ -88,3 +94,13 @@ def validate_return(original,before,after,mode="missing",damaged=None):
     def batches(files):return {entry["path"]:entry for entry in files if entry["path"].endswith(".batch")}
     require(batches(after)==batches(original),"returned witness batch differs from original bytes")
     require([entry for entry in before if not entry["path"].endswith(".batch")]==[entry for entry in after if not entry["path"].endswith(".batch")],"witness return rewrote seal state")
+
+
+def validate_oversized_batch(original, altered):
+    """Inspect the exact original prefix and zero extension with bounded reads."""
+    require(original.stat().st_size<OVERSIZED_BATCH_BYTES and altered.stat().st_size==OVERSIZED_BATCH_BYTES,"wrong oversized-batch archive length")
+    with original.open("rb") as expected,altered.open("rb") as actual:
+        while block:=expected.read(64<<10):
+            require(actual.read(len(block))==block,"oversized-batch fault changed the original prefix")
+        while block:=actual.read(64<<10):
+            require(not block.strip(b"\0"),"oversized-batch fault added nonzero padding")

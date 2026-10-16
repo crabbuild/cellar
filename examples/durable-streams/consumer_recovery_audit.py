@@ -11,7 +11,7 @@ import tempfile
 from consumer_owner_audit import FETCH_ID, inspect_image, validate_delivery
 from faults import digest, integer, require, validate_event, validate_source
 from follower_faults import inspect_follower_disk, log_lineage
-from consumer_witness_data import validate_damage, validate_return
+from consumer_witness_data import validate_damage, validate_return, validate_oversized_batch
 from whole_fleet import inventory
 from follower_state import read_state
 
@@ -85,7 +85,7 @@ def audit_evidence(path, complete=True):
             require(pids is None and set(row["pids"])==PEERS|{"consumer"} and len(set(row["pids"].values()))==3 and row["proof_mode"]=="fleet" and row["peer_proof"]=="bucket" and row["replica_fault_node"]=="consumer" and row["node_lease_ms"]==1000 and type(row["restart_followers"]) is bool,"wrong consumer proof policy/processes")
             pids,cold=row["pids"],row["restart_followers"]
             fault=row.get("witness_data")
-            require(fault is None or cold and fault in ("missing","corrupt","state-missing","state-corrupt","state-oversize"),"witness damage requires cold recovery")
+            require(fault is None or cold and fault in ("missing","corrupt","oversize","state-missing","state-corrupt","state-oversize"),"witness damage requires cold recovery")
         elif event=="attempt":
             key=row["key"]
             require(pids is not None and key==("a" if seed is None else "b") and row["attempt"]==1 and row["replay"] is False and operations[key]["attempts"]==0 and proven is None,"source replay concealed recovery")
@@ -257,6 +257,9 @@ def audit_evidence(path, complete=True):
                 require(inventory(path.parent/"returned-consumer-followers"/node)==restored[node]["after"],"returned consumer witness archive changed")
                 state=read_state(path.parent/"returned-consumer-followers"/node,leader=f"consumer/{log_lineage(proven['lease'])}/{proven['lease']['generation']}",node=node)
                 require(state==retained[node]["seed"] if fault.startswith("state-") else state["sealed_to"]>=proven["lease"]["log"]["epoch"],"return rolled back witness seal floor")
+                if fault=="oversize":
+                    for batch in retained[node]["batches"]:
+                        validate_oversized_batch(path.parent/"consumer-follower-images"/node/batch["path"],path.parent/"damaged-consumer-followers"/node/batch["path"])
                 if fault=="state-corrupt":
                     expected=json.loads((path.parent/"consumer-follower-images"/node/"state.json").read_bytes())
                     require(expected["state"]["base"]<expected["state"]["end"],"metadata fault did not hide actual retained work")

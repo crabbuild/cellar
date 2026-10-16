@@ -305,6 +305,23 @@ missing/unsupported markers and entries-only request shapes are refused. Native
 follower reads/writes require node/lineage/generation identities, and discovery visits
 only that current directory layout. Rebuild every participant on wire cutover;
 former flat-layout development state requires recreation, not a migration.
+Follower group commits admit at most 64 frames and 64 MiB of total encoded
+CLE1 entry bytes. Validate count/u16 cell/u32 payload representation before
+persistence; an invalid first frame receives refusal with unknown epoch. A frame
+that would exceed a burst's budget is returned untouched and carried into the
+next ordered commit. The maximum CLB1 file adds its 72-byte header/digest to
+that entry budget. follower_file.rs opens one handle, checks its length before
+reading, and requires an exact read and stable length for both metadata/batches.
+Oversized/disappeared/failed batch reads remain unreadable-range evidence; never
+lower the independently acknowledged end or credit a duplicate/probe. Native
+regressions exercise an already-delivered full-budget ordered burst, cold reload,
+zero payload reads above the bound, and post-open faults. The process oversize
+fault extends each original batch with zeros to 64 MiB + 73, preserves metadata,
+requires two real incomplete seals/refusals, and returns only original batch bytes
+after peer joins while preserving their seal floors. The archive auditor checks
+original prefixes and zero extension with bounded reads. All markers remain 1;
+rebuild all participants and recreate development state containing larger batches.
+This bounds individual batches, not total retained tails or fleet capacity.
 Only checksum-protected committed .batch files supply follower entries. Former
 .entry/.entries files are rejected without decoding or migrating their payloads;
 current cleanup reclaims only covered committed batches.

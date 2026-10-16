@@ -9,7 +9,7 @@ import unittest
 from unittest.mock import patch
 
 from consumer_recovery_audit import audit_evidence
-from consumer_witness_data import damage, restore, validate_damage, validate_return
+from consumer_witness_data import damage, restore, validate_damage, validate_return, validate_oversized_batch, OVERSIZED_BATCH_BYTES
 from faults import AuditError
 from test_consumer_recovery import fixture
 from test_consumer_owner import row
@@ -23,10 +23,12 @@ def data_fixture(mode):
     damaged={};restored={}
     for node,data in retained.items():
         data["seed"]=dict(fragment_epoch=1,base=0,end=2,sealed_to=0)
+        for batch,file in zip(data["batches"],(entry for entry in data["files"] if entry["path"].endswith(".batch"))):batch["path"]=file["path"]
         state=dict(path="state.json",bytes=50,sha256="2"*64)
         data["files"].append(state)
         changed=[copy.deepcopy(state)]
         if mode=="corrupt":changed.insert(0,dict(data["files"][0],sha256="3"*64))
+        if mode=="oversize":changed.insert(0,dict(data["files"][0],sha256="3"*64,bytes=OVERSIZED_BATCH_BYTES))
         if mode=="state-missing":changed=[copy.deepcopy(data["files"][0])]
         if mode=="state-corrupt":changed=[copy.deepcopy(data["files"][0]),dict(state,sha256="3"*64)]
         if mode=="state-oversize":changed=[copy.deepcopy(data["files"][0]),dict(state,sha256="3"*64,bytes=64<<10)]
@@ -69,7 +71,7 @@ def data_fixture(mode):
 
 
 class WitnessDataTests(unittest.TestCase):
-    def audit(self,rows,changed_archive=False,rolled_back=False,altered_oversize=False):
+    def audit(self,rows,changed_archive=False,rolled_back=False,altered_oversize=False,altered_batch=None):
         expected=data_fixture(row(rows,"consumer_recovery_started")["witness_data"])
         images={"lost-consumer-image":row(expected,"consumer_proof_image")["image"],"recovered-consumer-image":row(expected,"consumer_recovered_image")["image"]}
         retained=row(expected,"consumer_followers_retained")["followers"]
@@ -87,6 +89,16 @@ class WitnessDataTests(unittest.TestCase):
                 if not row(rows,"consumer_recovery_started")["witness_data"].startswith("state-"):state["sealed_to"]=0 if rolled_back else 1
                 (target/"state.json").write_bytes(state_bytes(state,leader=LEADER,node=node))
                 mode=row(rows,"consumer_recovery_started")["witness_data"]
+                if mode=="oversize":
+                    original=root/"consumer-follower-images"/node;original.mkdir(parents=True)
+                    bad=root/"damaged-consumer-followers"/node;bad.mkdir(parents=True)
+                    for batch in retained[node]["batches"]:
+                        size=next(entry["bytes"] for entry in retained[node]["files"] if entry["path"]==batch["path"])
+                        raw=b"x"*size;(original/batch["path"]).write_bytes(raw)
+                        with (bad/batch["path"]).open("wb") as file:
+                            file.write(b"y"+raw[1:] if altered_batch=="prefix" else raw)
+                            file.truncate(OVERSIZED_BATCH_BYTES)
+                            if altered_batch=="padding":file.seek(len(raw)+5);file.write(b"x")
                 if mode in ("state-corrupt","state-oversize"):
                     original=root/"consumer-follower-images"/node;original.mkdir(parents=True)
                     raw=state_bytes(state,leader=LEADER,node=node);(original/"state.json").write_bytes(raw)
@@ -103,7 +115,7 @@ class WitnessDataTests(unittest.TestCase):
                 return audit_evidence(path)
 
     def test_missing_and_corrupt_data_require_two_real_refusals_then_return(self):
-        for mode in ("missing","corrupt","state-missing","state-corrupt","state-oversize"):self.assertEqual(self.audit(data_fixture(mode))["consumer_fleet_recoveries"],1)
+        for mode in ("missing","corrupt","oversize","state-missing","state-corrupt","state-oversize"):self.assertEqual(self.audit(data_fixture(mode))["consumer_fleet_recoveries"],1)
 
     def test_metadata_errors_cannot_supply_a_seal_or_modify_state_before_return(self):
         for kind in ("success","blocked","hash","state","batch"):
@@ -131,6 +143,19 @@ class WitnessDataTests(unittest.TestCase):
     def test_oversized_archive_cannot_hide_a_changed_state_or_checksum(self):
         with self.assertRaisesRegex(AuditError,"changed fields or checksum"):
             self.audit(data_fixture("state-oversize"),altered_oversize=True)
+
+    def test_oversized_batch_requires_the_exact_fault_length(self):
+        rows=data_fixture("oversize")
+        original=row(rows,"consumer_followers_retained")["followers"]["destination"]["files"]
+        damaged=row(rows,"consumer_witness_data_damaged")["files"]["destination"]
+        for size in (OVERSIZED_BATCH_BYTES-1,OVERSIZED_BATCH_BYTES+1):
+            wrong=copy.deepcopy(damaged);next(entry for entry in wrong if entry["path"].endswith(".batch"))["bytes"]=size
+            with self.subTest(size=size),self.assertRaisesRegex(AuditError,"fault length"):validate_damage("oversize",original,wrong)
+
+    def test_oversized_batch_cannot_change_prefix_or_add_nonzero_padding(self):
+        for kind,message in (("prefix","original prefix"),("padding","nonzero padding")):
+            with self.subTest(kind=kind),self.assertRaisesRegex(AuditError,message):
+                self.audit(data_fixture("oversize"),altered_batch=kind)
 
     def test_actual_metadata_return_preserves_all_batches_and_refuses_newer_state(self):
         for mode in ("state-missing","state-corrupt","state-oversize"):
@@ -176,7 +201,7 @@ class WitnessDataTests(unittest.TestCase):
         with self.assertRaises(AuditError):self.audit(data_fixture("missing"),rolled_back=True)
 
     def test_actual_fault_and_return_modify_only_batch_bytes(self):
-        for mode in ("missing","corrupt"):
+        for mode in ("missing","corrupt","oversize"):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);live=root/"live";live.mkdir()
                 (live/"state.json").write_text('{"fragment_epoch":1,"end":2,"sealed_to":0}')
@@ -187,6 +212,8 @@ class WitnessDataTests(unittest.TestCase):
                     for name in ("1-1.batch","2-2.batch"):
                         before=(archive/name).read_bytes();after=(live/name).read_bytes()
                         self.assertEqual(sum(a!=b for a,b in zip(before,after)),1)
+                if mode=="oversize":
+                    for name in ("1-1.batch","2-2.batch"):validate_oversized_batch(archive/name,live/name)
                 # Runtime seal advancement is preserved by return.
                 (live/"state.json").write_text('{"fragment_epoch":1,"end":2,"sealed_to":1}')
                 retained={"peer":dict(files=original,batches=[dict(path=name) for name in ("1-1.batch","2-2.batch")])}

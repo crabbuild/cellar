@@ -1913,6 +1913,31 @@ need the state barrier when a cold scan recovered an earlier unacknowledged batc
 The additional fsyncs need fresh throughput/headroom measurement. All markers
 stay 1; recreate earlier development state instead of adding a legacy reader.
 
+Committed follower batches have one format admission budget: at most 64 frames
+and 64 MiB of total encoded CLE1 entry bytes. The fixed CLB1 state/count header
+and SHA-256 footer add 72 bytes. Check entry count and u16 cell/u32 payload
+length representation before persistence or acknowledgment. Invalid first frames
+receive refusal with unknown epoch; no range credit is inferred. If a later
+ordered frame would exceed either burst bound, carry that exact frame into the
+next commit and preserve reply order. An already-delivered two-frame full-budget
+burst followed by a third frame must persist as consecutive commits and recover
+all three records cold. Never solve the read bound by rejecting writer-admitted
+current-format state.
+
+Read each retained batch through the same pinned-handle contract as metadata:
+check length before requesting payload, require exact bytes and unchanged length,
+then verify checksum, range and entries. Oversized, disappeared and post-open
+failed reads retain unreadable-range evidence; the independent acknowledged end
+cannot shrink or authorize duplicate/probe credit. The oversize process variant
+extends every original batch to 64 MiB + 73 bytes with zeros, preserving the
+original byte prefix and all state files. Require the same real refusal, seal,
+loss-diagnostic, original-prefix-before-replay and seal-preserving return gates as
+batch corruption. Independently check exact lengths, original prefixes and zero
+extensions with bounded archive reads. All owned markers stay 1; rebuild every
+participant and recreate older development state containing larger batches.
+Individual batch bounds do not qualify total tail memory, metadata exhaustion,
+recovery headroom or the remaining physical/capacity gates.
+
 The independent follower state barrier also requires integrity and identity.
 Persist a strict JSON record with `format: 1`, the canonical leader session,
 stable follower node, `state` (four u64 fields: `fragment_epoch`, `base`, `end`,

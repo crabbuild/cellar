@@ -218,7 +218,7 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__);target=parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--binary",type=Path);target.add_argument("--audit",type=Path)
     parser.add_argument("--output",type=Path);parser.add_argument("--rustfs-image");parser.add_argument("--restart-followers",action="store_true")
-    parser.add_argument("--witness-data",choices=("missing","corrupt","state-missing","state-corrupt","state-oversize"))
+    parser.add_argument("--witness-data",choices=("missing","corrupt","oversize","state-missing","state-corrupt","state-oversize"))
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
     else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-consumer-recovery-parent-"))/"evidence").resolve(),args.rustfs_image,args.restart_followers,args.witness_data)
