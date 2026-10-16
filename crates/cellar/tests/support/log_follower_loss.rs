@@ -16,6 +16,120 @@ async fn corrupt_last_acknowledged_batch_preserves_the_required_end() -> Result<
     run(false, true).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn warm_observed_loss_refuses_previously_proven_credit() -> Result<()> {
+    for seal in [false, true] {
+        let directory = tempfile::tempdir()?;
+        let original = pair(
+            &directory.path().join("fleet.sqlite"),
+            directory.path(),
+            "warm-damaged",
+            LogOptions::default(),
+        )
+        .await?;
+        let result = async {
+            write(&original, 11, true).await?;
+            write(&original, 22, false).await?;
+            original
+                .transport
+                .follower_domain
+                .run(async {
+                    let follower = &original.transport.follower;
+                    let request = TailReq {
+                        leader: original.session.clone(),
+                    };
+                    let before = follower.tail(&request).await?;
+                    ensure!(before.range.complete && before.entries.len() >= 2);
+                    let state_end = before.range.end;
+                    let epoch = before.range.fragment_epoch;
+                    let root = directory
+                        .path()
+                        .join("follower-warm-damaged/peerlog")
+                        .join(&original.session);
+                    let mut paths = std::fs::read_dir(&root)?
+                        .map(|entry| entry.map(|entry| entry.path()))
+                        .collect::<std::io::Result<Vec<_>>>()?;
+                    paths.retain(|path| path.extension().is_some_and(|suffix| suffix == "batch"));
+                    ensure!(
+                        paths.len() >= 2,
+                        "independent writes did not leave distinct batches"
+                    );
+                    paths.sort_by_key(|path| {
+                        path.file_stem()
+                            .unwrap()
+                            .to_str()
+                            .unwrap()
+                            .split('-')
+                            .next()
+                            .unwrap()
+                            .parse::<u64>()
+                            .unwrap()
+                    });
+                    let path = paths.last().unwrap();
+                    let saved = std::fs::read(path)?;
+                    std::fs::remove_file(path)?;
+                    if seal {
+                        let reply = follower
+                            .seal(&SealReq {
+                                leader: original.session.clone(),
+                                epoch,
+                            })
+                            .await?;
+                        ensure!(reply.end == state_end && reply.fragment_epoch == 0);
+                    } else {
+                        let reply = follower.tail(&request).await?;
+                        ensure!(reply.range.end == state_end && !reply.range.complete);
+                    }
+                    let state_bytes = std::fs::read(root.join("state.json"))?;
+                    let repeated = before
+                        .entries
+                        .iter()
+                        .map(|entry| cellar::node_log::Entry {
+                            seq: entry.seq,
+                            cell: entry.cell.clone(),
+                            cell_epoch: entry.cell_epoch,
+                            txid: entry.txid,
+                            bytes: entry.bytes.clone(),
+                        })
+                        .collect();
+                    for entries in [Vec::new(), repeated] {
+                        let reply = follower
+                            .append(cellar::node_log::AppendReq {
+                                leader: original.session.clone(),
+                                epoch,
+                                truncate_to: 0,
+                                entries,
+                            })
+                            .await;
+                        ensure!(
+                            !reply.ok && reply.end == state_end,
+                            "warm known-damaged witness recredited proven data"
+                        );
+                    }
+                    ensure!(std::fs::read(root.join("state.json"))? == state_bytes);
+                    // Preserve the new seal and every original durable record;
+                    // only return the exact missing batch before cold verification.
+                    std::fs::write(path, saved)?;
+                    let cold = FollowerStore::new(
+                        &directory.path().join("follower-warm-damaged"),
+                        Some(original.bucket.clone()),
+                        &original.transport.follower_node,
+                    );
+                    let returned = cold.tail(&request).await?;
+                    ensure!(encode_tail_resp(&returned) == encode_tail_resp(&before));
+                    ensure!(std::fs::read(root.join("state.json"))? == state_bytes);
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await?
+        }
+        .await;
+        original.domain.shutdown().await;
+        original.transport.follower_domain.shutdown().await;
+        result?;
+    }
+    Ok(())
+}
+
 async fn run(all: bool, corrupt: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let original = pair(

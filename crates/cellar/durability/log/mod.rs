@@ -1804,6 +1804,55 @@ impl FollowerStore {
             .is_none_or(|loaded| loaded.disk_recovery_gap.is_none())
     }
 
+    /// A complete file observation can disprove the warm cache's retained
+    /// prefix too. Keep that refusal until cold verification, a covered base,
+    /// or verified epoch adoption establishes authority again. This changes no
+    /// durable watermark and cannot poison a later epoch or already covered
+    /// prefix from a stale observation.
+    fn mark_missing_range(&self, leader: &str, observed: FollowerState) {
+        let mut logs = self.logs.lock().unwrap();
+        if let Some(loaded) = logs.get_mut(leader) {
+            if loaded.state.fragment_epoch == observed.fragment_epoch
+                && loaded.state.base < observed.end
+            {
+                loaded.acknowledged_range_missing = true;
+            }
+        }
+    }
+
+    fn read_indexed_batch(
+        &self,
+        leader: &str,
+        state: FollowerState,
+        meta: follower_index::BatchMeta,
+    ) -> anyhow::Result<CommittedBatch> {
+        let path = self
+            .dir(leader)
+            .join(format!("{}-{}.batch", meta.first, meta.last));
+        let result = (|| {
+            let bytes = follower_file::read(
+                self.filesystem.as_ref(),
+                &path,
+                COMMITTED_BATCH_MAX_BYTES,
+                "follower batch",
+            )?
+            .context("indexed follower batch disappeared")?;
+            let batch = decode_committed_batch(&bytes)?;
+            anyhow::ensure!(
+                committed_batch_meta(&bytes, &batch) == meta,
+                "indexed follower batch changed"
+            );
+            Ok(batch)
+        })();
+        if result.is_err() && meta.first <= state.end && meta.last > state.base {
+            // The scan succeeded, but these acknowledged bytes could not be
+            // verified a second time. A later duplicate must not re-credit
+            // the original in-memory end over the unreadable source.
+            self.mark_missing_range(leader, state);
+        }
+        result
+    }
+
     #[doc(hidden)]
     pub fn persist(&self, leader: &str, state: FollowerState) -> anyhow::Result<()> {
         self.persist_timed(leader, state).map(|_| ())
@@ -2232,12 +2281,16 @@ impl FollowerStore {
         // metadata. The held guard freezes the range against append/adoption/GC;
         // certifying it does not require materializing a TailResp payload.
         let mut scan = self.scan_committed_batches(&req.leader)?;
+        let covered = scan.covers_acknowledged_range(state)?;
+        if !covered {
+            self.mark_missing_range(&req.leader, state);
+        }
         let retained_complete = state.end == end
             && scan.directory_present
             && !scan.unknown_unreadable_range
             && self.recovered_disk_range_complete(&req.leader)
             && scan.recovery_gap(state)?.is_none()
-            && scan.covers_acknowledged_range(state)?;
+            && covered;
         if !retained_complete {
             warn!(
                 leader = req.leader,
@@ -2342,6 +2395,10 @@ impl FollowerStore {
         let base = state.base;
         let end = state.end;
         let mut batch_scan = self.scan_committed_batches(&req.leader)?;
+        let covered = batch_scan.covers_acknowledged_range(state)?;
+        if !covered {
+            self.mark_missing_range(&req.leader, state);
+        }
         // A checksum-invalid batch above `base` is ambiguous after a restart:
         // it can be an unacknowledged interrupted write, or a committed batch
         // damaged after its acknowledgement. Treating it as complete can lose
@@ -2350,8 +2407,9 @@ impl FollowerStore {
         // behind. Sequence coverage, not the health of every overlapping file,
         // proves that its retained rows have replacements. An unparseable name
         // still has no bounded range that replacement coverage can discharge.
-        let mut retained_files_complete =
-            !batch_scan.unknown_unreadable_range && self.recovered_disk_range_complete(&req.leader);
+        let mut retained_files_complete = covered
+            && !batch_scan.unknown_unreadable_range
+            && self.recovered_disk_range_complete(&req.leader);
         let dir = self.dir(&req.leader);
         let mut entries = Vec::new();
         for position in 0..batch_scan.batches.len() {
@@ -2359,19 +2417,7 @@ impl FollowerStore {
             if meta.state.fragment_epoch != state.fragment_epoch {
                 continue;
             }
-            let path = dir.join(format!("{}-{}.batch", meta.first, meta.last));
-            let bytes = follower_file::read(
-                self.filesystem.as_ref(),
-                &path,
-                COMMITTED_BATCH_MAX_BYTES,
-                "follower batch",
-            )?
-            .context("indexed follower batch disappeared")?;
-            let batch = decode_committed_batch(&bytes)?;
-            anyhow::ensure!(
-                committed_batch_meta(&bytes, &batch) == meta,
-                "indexed follower batch changed"
-            );
+            let batch = self.read_indexed_batch(&req.leader, state, meta)?;
             entries.extend(batch.entries.into_iter().filter(|entry| entry.seq > base));
         }
         match self.filesystem.read_dir_iter(&dir) {
@@ -2381,6 +2427,7 @@ impl FollowerStore {
                 }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.mark_missing_range(&req.leader, state);
                 retained_files_complete = false;
                 if state.fragment_epoch != 0 {
                     warn!(

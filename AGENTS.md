@@ -129,6 +129,17 @@ bytes; never roll back state.json. Propagate proxy frontend EOF at the actual
 upstream join, then cold-reload fresh peer generations with the same recoverer.
 Audit original inbox/effects before replay. Recreate older development state;
 all markers remain 1. Added state barriers require fresh capacity measurement.
+A warm tail/seal scan that finds acknowledged coverage missing must also mark
+its cached range unreadable. Returning an incomplete certificate alone does not
+stop duplicate/probe/new-suffix append credit from the old cache. Indexed payload
+reread failures affecting that acknowledged range have the same refusal. Preserve
+the durable end/seal and leave original files untouched; only cold verification,
+a genuinely covered base or verified epoch adoption reestablishes append credit.
+A directory observation error alone is retryable, not evidence of missing bytes.
+The warm-cache unit matrix and log_follower_loss.rs native case exercise these
+boundaries; the native case uses previously proven LTX writes and original-byte
+return while retaining the seal, not a fabricated successful proof.
+
 Follower state.json is a format-1 record binding leader session, follower node,
 fragment epoch/base/end/seal floor with SHA-256 over canonical binary fields.
 Reject unknown/old shapes, unsupported markers, invalid ranges, identity/digest

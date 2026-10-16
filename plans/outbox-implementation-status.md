@@ -26,6 +26,41 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
+A new critical proof audit reproduces four warm-cache failures: after tail
+observes a missing or checksum-corrupt acknowledged batch, probe/duplicate/new-
+suffix requests all receive credit from the original cached end. After an
+incomplete seal, probes and duplicates still receive credit (new writes correctly
+refuse the seal). The four before-fix cases fail in 5.29s runtime (375.83s with
+dependency/SDK rebuilding), with credit=[true,true,true] for tail and
+[true,true,false] for seal. No cold restart or fabricated proof adapter is used
+by the reproduction: the store first commits/acknowledges real batch files and
+retains its warm cache across the file fault and negative observation.
+
+Tail and seal now propagate a verified missing acknowledged range to the cached
+append-refusal flag. A failed indexed reread affecting the acknowledged prefix
+also marks it unreadable; a stale observation cannot poison a later epoch or a
+base already covering that range. This writes no durable state and preserves the
+acknowledged end and seal floor. A failed directory traversal alone does not
+invent damage. The first 25 focused log cases pass (99.81s including rebuild).
+The final candidate additionally covers directory-error retry and a native
+previously proven LTX prefix, with probes/duplicates refused after tail or seal
+observes live batch loss. Only original missing bytes return before cold range
+verification; metadata is not rolled back. Final scoped qualification is recorded next.
+The final warm-proof candidate passes 26 focused log tests (1.51s runtime;
+113.47s including rebuilding), 20 native log/five protocol cases (200.21s including
+rebuilding), and all 77 Node tests (126.98s runtime; 153.86s including rebuilding).
+Workspace checking (90.50s), Clippy with warnings denied (79.95s), 530-file
+formatting, documentation and whitespace checks pass. All captured build/test
+inputs remain unchanged through eight scoped phases. Evidence is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-warm-proof-i0bxvn4u`.
+This is native/domain and filesystem-fault evidence for the observed warm-cache
+boundary; the full workspace/process matrix below qualified the preceding
+scan/seal commit, and was not rerun for this private cache/refusal change.
+Separate-process warm witness faults and the full physical/capacity release
+matrix remain open. Final docs are checked again after this ledger edit.
+This correctness fix does not replace priority 1: whole-tail transfer, HTTP
+collection, leader gathering and live-cell folding remain unbounded.
+
 The retained-history memory regression reproduces 137117696 bytes (about 131 MiB)
 of RSS growth while cold-loading sixteen valid 8 MiB batches, before transport.
 The scan now consumes a streaming directory and retains only verified range,

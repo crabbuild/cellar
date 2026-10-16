@@ -831,6 +831,16 @@ async fn tail_refuses_valid_payload_substitution_after_indexing() -> anyhow::Res
                 .err()
                 .context("changed payload cannot supply tail evidence")?;
             assert!(error.to_string().contains("indexed follower batch changed"));
+            let probe_reply = store
+                .append(AppendReq {
+                    leader: LEADER.into(),
+                    epoch: 7,
+                    truncate_to: 0,
+                    entries: Vec::new(),
+                })
+                .await;
+            assert!(!probe_reply.ok);
+            assert_eq!(probe_reply.end, 1);
             assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
             assert_eq!(DirectFileSystem.read(&path.join("1-1.batch"))?, bytes);
             anyhow::Ok(())
@@ -892,6 +902,171 @@ async fn noncanonical_batch_names_never_supply_recovery_proof() -> anyhow::Resul
             anyhow::Ok(())
         })
         .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn warm_tail_missing_batch_refuses_cached_credit() -> anyhow::Result<()> {
+    warm_observed_loss(false, false).await
+}
+
+#[tokio::test]
+async fn warm_tail_corrupt_batch_refuses_cached_credit() -> anyhow::Result<()> {
+    warm_observed_loss(false, true).await
+}
+
+#[tokio::test]
+async fn warm_seal_missing_batch_refuses_cached_credit() -> anyhow::Result<()> {
+    warm_observed_loss(true, false).await
+}
+
+#[tokio::test]
+async fn warm_seal_corrupt_batch_refuses_cached_credit() -> anyhow::Result<()> {
+    warm_observed_loss(true, true).await
+}
+
+#[tokio::test]
+async fn warm_directory_observation_failure_does_not_invent_missing_data() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let mut store = FollowerStore::new(directory.path(), None, "witness");
+            store.persist(LEADER, state())?;
+            assert!(
+                store
+                    .append(AppendReq {
+                        leader: LEADER.into(),
+                        epoch: 7,
+                        truncate_to: 0,
+                        entries: vec![super::super::Entry {
+                            seq: 1,
+                            cell: "cell".into(),
+                            cell_epoch: 1,
+                            txid: 1,
+                            bytes: vec![1]
+                        }],
+                    })
+                    .await
+                    .ok
+            );
+            let before = store
+                .tail(&TailReq {
+                    leader: LEADER.into(),
+                })
+                .await?;
+            assert!(before.range.complete);
+            let probe = Arc::new(Probe {
+                peak: AtomicU64::new(0),
+                persistence: AtomicUsize::new(0),
+                fault: Fault::DirectoryLate,
+                batch: false,
+                cap: 4096,
+                rss_peak: None,
+                reads: AtomicUsize::new(0),
+            });
+            store.filesystem = Arc::new(Filesystem(probe.clone()));
+            assert!(store
+                .tail(&TailReq {
+                    leader: LEADER.into()
+                })
+                .await
+                .is_err());
+            assert!(
+                !store
+                    .logs
+                    .lock()
+                    .unwrap()
+                    .get(LEADER)
+                    .unwrap()
+                    .acknowledged_range_missing
+            );
+            assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
+            store.filesystem = Arc::new(DirectFileSystem);
+            let returned = store
+                .tail(&TailReq {
+                    leader: LEADER.into(),
+                })
+                .await?;
+            assert_eq!(
+                super::super::encode_tail_resp(&returned),
+                super::super::encode_tail_resp(&before)
+            );
+            assert!(
+                store
+                    .append(AppendReq {
+                        leader: LEADER.into(),
+                        epoch: 7,
+                        truncate_to: 0,
+                        entries: Vec::new()
+                    })
+                    .await
+                    .ok
+            );
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+async fn warm_observed_loss(seal: bool, corrupt: bool) -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let store = FollowerStore::new(directory.path(), None, "witness");
+        let seed = FollowerState { fragment_epoch: 7, base: 0, end: 0, sealed_to: 0 };
+        store.persist(LEADER, seed)?;
+        let entry = |seq| super::super::Entry { seq, cell: "cell".into(), cell_epoch: 1, txid: seq, bytes: vec![seq as u8] };
+        for seq in 1..=2 {
+            let response = store.append(AppendReq { leader: LEADER.into(), epoch: 7, truncate_to: 0, entries: vec![entry(seq)] }).await;
+            assert!(response.ok);
+            assert_eq!(response.end, seq);
+        }
+        let before = store.tail(&TailReq { leader: LEADER.into() }).await?;
+        assert!(before.range.complete);
+        assert_eq!(before.entries.len(), 2);
+        let path = store.dir(LEADER).join("2-2.batch");
+        let saved = DirectFileSystem.read(&path)?;
+        if corrupt {
+            let mut damaged = saved.clone();
+            *damaged.last_mut().unwrap() ^= 1;
+            DirectFileSystem.write(&path, &damaged)?;
+        } else {
+            DirectFileSystem.remove_file(&path)?;
+        }
+        if seal {
+            let response = store.seal(&SealReq { leader: LEADER.into(), epoch: 7 }).await?;
+            assert_eq!(response.fragment_epoch, 0);
+            assert_eq!(response.end, 2);
+        } else {
+            let response = store.tail(&TailReq { leader: LEADER.into() }).await?;
+            assert!(!response.range.complete);
+            assert_eq!(response.range.end, 2);
+        }
+        let observed_state = DirectFileSystem.read(&store.dir(LEADER).join("state.json"))?;
+        let mut credit = Vec::new();
+        // Probe, exact retransmission and new suffix must all refuse after
+        // observing that the acknowledged prefix is no longer readable.
+        for entries in [Vec::new(), vec![entry(2)], vec![entry(3)]] {
+            credit.push(store.append(AppendReq { leader: LEADER.into(), epoch: 7, truncate_to: 0, entries }).await.ok);
+        }
+        anyhow::ensure!(credit.iter().all(|ok| !ok), "known damaged warm witness recredited data: seal={seal}, corrupt={corrupt}, credit={credit:?}");
+        assert_eq!(store.load(LEADER)?.end, 2);
+        assert_eq!(DirectFileSystem.read(&store.dir(LEADER).join("state.json"))?, observed_state);
+        // Restore only the original bytes. A warm cache stays conservative;
+        // a cold verification may reestablish the exact retained range.
+        DirectFileSystem.write(&path, &saved)?;
+        assert!(!store.append(AppendReq { leader: LEADER.into(), epoch: 7, truncate_to: 0, entries: Vec::new() }).await.ok);
+        let cold = FollowerStore::new(directory.path(), None, "witness");
+        let returned = cold.tail(&TailReq { leader: LEADER.into() }).await?;
+        assert!(returned.range.complete);
+        assert_eq!(super::super::encode_tail_resp(&returned), super::super::encode_tail_resp(&before));
+        assert!(cold.append(AppendReq { leader: LEADER.into(), epoch: 7, truncate_to: 0, entries: Vec::new() }).await.ok);
+        assert_eq!(DirectFileSystem.read(&store.dir(LEADER).join("state.json"))?, observed_state);
+        anyhow::Ok(())
+    }).await?;
     domain.shutdown().await;
     result
 }
