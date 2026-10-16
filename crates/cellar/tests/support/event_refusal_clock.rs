@@ -241,6 +241,18 @@ enum MetadataLoss {
     ReplacedAfterRecovery,
 }
 
+fn original_startup_error(
+    directory: tempfile::TempDir,
+    role: &str,
+    error: anyhow::Error,
+) -> anyhow::Error {
+    let path = directory.keep();
+    error.context(format!(
+        "start original {role} for clock refusal; retained fixture {}",
+        path.display()
+    ))
+}
+
 async fn replacement_inputs(
     directory: &std::path::Path,
     core: &Executor,
@@ -357,7 +369,10 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     definition.primary.event_streams[0].max_records = 1;
     definition.primary.event_streams[0].subscriptions[0].required = true;
     let destination =
-        Node::start(config, services, definition, applications("destination")?).await?;
+        match Node::start(config, services, definition, applications("destination")?).await {
+            Ok(node) => node,
+            Err(error) => return Err(original_startup_error(directory, "destination", error)),
+        };
     super::super::ready(&destination).await?;
     let first_owner = owner(&observer, &bucket).await?;
     ensure!(first_owner["node"] == "refusal-destination");
@@ -381,7 +396,10 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     ensure!(operation_budget == Duration::from_secs(3));
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
-    let mut source = Node::start(config, services, external, applications("source")?).await?;
+    let mut source = match Node::start(config, services, external, applications("source")?).await {
+        Ok(node) => node,
+        Err(error) => return Err(original_startup_error(directory, "source", error)),
+    };
     super::super::ready(&source).await?;
     let mut witness = if followers {
         let (mut config, mut services) = inputs(
@@ -402,7 +420,10 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         config.startup.recovery_retry_backoff = Duration::from_secs(120);
         let mut external = graph(1, false);
         external.primary.event_streams.clear();
-        let node = Node::start(config, services, external, applications("witness")?).await?;
+        let node = match Node::start(config, services, external, applications("witness")?).await {
+            Ok(node) => node,
+            Err(error) => return Err(original_startup_error(directory, "witness", error)),
+        };
         super::super::ready(&node).await?;
         Some(node)
     } else {
@@ -632,6 +653,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     // The separate metadata-loss cut deletes that proof root deliberately;
     // admission must remain blocked until its original fields return.
     let mut cold_replacement = None;
+    let mut cold_read_retries = 0;
     let old_lease = if missing_metadata {
         observer
             .run(async {
@@ -726,12 +748,19 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         )
         .await?;
         let successor_proxy = delivery_proxy(&mut config, &services).await?;
-        let start_replacement = Box::pin(Node::start(
-            config,
-            services,
-            external,
-            applications("replacement")?,
-        ));
+        let cold_started = Instant::now();
+        let start_replacement = Box::pin(async {
+            let node =
+                Node::start(config, services, external, applications("replacement")?).await?;
+            // The CAS-only fault prevents both peers from owning the partition.
+            // It cannot create ownership on the permitted successor: send its
+            // read-only request while the peers are still resolving bindings.
+            // The original post-startup state audit below remains independent.
+            let (_, read_retries) = recovered_status(&client, &node, expires)
+                .await
+                .context("cold successor read-only recovery audit")?;
+            Ok::<_, anyhow::Error>((node, read_retries))
+        });
         let start_source = Box::pin(Node::start(
             source_config,
             source_services,
@@ -746,6 +775,26 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         ));
         let (source_result, witness_result, replacement_result) =
             tokio::join!(start_source, start_witness, start_replacement);
+        let replacement_result = replacement_result.map(|(node, read_retries)| {
+            cold_read_retries = read_retries;
+            node
+        });
+        if source_result.is_err() || witness_result.is_err() || replacement_result.is_err() {
+            for (name, result) in [
+                ("source", &source_result),
+                ("witness", &witness_result),
+                ("replacement", &replacement_result),
+            ] {
+                let outcome = match result {
+                    Ok(_) => "ok".to_owned(),
+                    Err(error) => format!("{error:#}"),
+                };
+                eprintln!(
+                    "cold event restart after {}ms: {name}: {outcome}",
+                    cold_started.elapsed().as_millis()
+                );
+            }
+        }
         cold_replacement = Some((
             replacement_result.context("start cold recovery successor")?,
             successor_proxy,
@@ -1005,6 +1054,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     let (recovered, mut read_retries) = recovered_status(&client, &replacement_node, expires)
         .await
         .context("audit current replacement clock")?;
+    read_retries += cold_read_retries;
     let next_owner = owner(&observer, &bucket).await?;
     ensure!(
         next_owner["node"]

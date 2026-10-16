@@ -1995,3 +1995,17 @@ objects, other lineages, loss diagnostics and unproven/corrupt objects remain.
 The native regression audits cold SQL recovery of original Bucket-proven writes
 before replay, then eventual collection after recovery. Full storage-fault and
 capacity qualification remain release requirements.
+
+
+### Cold followers with a selected successor
+
+A recovery fixture may restrict the permitted stream claimant through CAS-only
+faults while preserving the other nodes' read, follower and lease services.
+Those refusals do not submit a request on the permitted successor. If cold
+peers resolve their stream bindings before it receives any partition request,
+waiting for all startup futures before the first successor read creates a test
+dependency cycle. Start the peers and successor concurrently and issue the
+successor's signed read-only recovery audit inside its startup future. Keep the
+independent audit after startup, original activation deadlines, retained witness
+bytes and accepted-prefix checks before any business command or receipt replay.
+This fixture ordering does not change runtime recovery or admission semantics.

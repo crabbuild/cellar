@@ -147,9 +147,15 @@ successor peer proxy before fetching a fresh lease and acknowledging retained
 history. Select that successor with the existing owner-key CAS-only peer fault
 in every cut, including cold restarts, and assert its name. Otherwise a source
 can legitimately claim the stream and dispatch locally without visiting the proxy.
-Start both cold followers and the selected successor concurrently so binding
-activation can resolve it; keep all startup futures heap-pinned and retain the
-original activation deadlines. Exclude producer ownership on that successor
+Start both cold followers and the selected successor concurrently. Inside the
+successor's start future, issue its signed read-only recovery audit while the
+peers resolve bindings: refusing their owner CAS writes cannot itself request
+ownership on the permitted successor. Retain the independent post-startup clock,
+history, identity and receipt audits. Keep all startup futures heap-pinned and
+retain the original activation deadlines. Unexpected original startup errors
+name the node role and retain the fixture directory; inspect it after its test
+process exits. Passing replays do not diagnose an earlier deadline failure.
+Exclude producer ownership on that successor
 with a producer-owner-key CAS-only fault and assert distinct owners: cold
 recovery can otherwise validly co-locate the outbox and stream and bypass the
 peer boundary. Required-history backpressure can save a retry up to 60s away;

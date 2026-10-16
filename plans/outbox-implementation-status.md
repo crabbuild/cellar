@@ -19,7 +19,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
 | 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
-| 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout and explicit-policy closed-domain failure with the stage diagnostics from PR #36; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
+| 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout, explicit-policy closed-domain failure and initial clock-fixture activation deadline with stage diagnostics and retained startup metadata; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
@@ -39,29 +39,61 @@ eight native log cases pass in 6.63s with matching executable hashes. They
 require eventual collection after another process uploads recovery data and
 preservation of excluded/corrupt/unproven objects.
 
-The full Node suite is red:
-66/67 pass in 521.13s; the cold-source/follower restart fails during catalog
-activation (`__catalogResolve`). In three isolated replays per saved executable,
-two pass and one fails on each of the new and pre-GC runtimes. Both replay
-failures report an activation deadline, so a cold-start failure predates this
-GC patch; this does not establish the full-suite failure's cause or rule out a
-timing contribution. Original assertions and deadlines are unchanged. Preserve
-the failed suite and both replay sets; do not count passing replays as a green
-gate. The startup cause/diagnostic audit is the next priority.
+The previous full Node suite was red: 66/67 passed in 521.13s; the cold-source/
+follower restart failed during catalog activation (`__catalogResolve`). Both
+pre-GC and new saved runtimes also produced activation deadlines in isolated
+replays. Preserve those failed runs; passing replays alone do not close a gate.
 
-Remaining workspace/tooling checks pass: 242 library cases (6.74s), 15 decision-core,
-six actor, six ingress, five protocol, seven artifact and three CLI cases.
-Workspace all-target/all-feature check (70.50s), Clippy with warnings denied
-(72.72s), formatting of 518 Rust files and workspace doc tests pass. Docs
-validate 36 documents/six flows/388 references; the dependency policy checks
-403 packages with no JavaScript engine; all 129 Python guards pass. All five
-changed Rust sources remain fixed through the focused/full log checks, Node
-suite, replays and remaining qualification. Focused/full native-log SHA256 is
-3e4564239e356b6c87a288cc5f9284b440402264c3b6b828811e171764ccb2e8;
-the failed Node executable is
-134496cf5a062358a333a0a8f35f6b6c7c574b6fcf74c8be382c0669b380d04e.
-Local Rust is 1.97.0/aarch64 macOS. The full Node gate remains failed, and
-hosted Rust 1.98.1/physical fault qualification remains separate.
+Temporary stage probes then reproduced two cold-start deadline failures with
+actual recovery sealed in 29ms, successful catalog reads, and both peers waiting
+in `__streamResolve`. The fixture forbids their partition-owner CAS writes but
+issued no partition request on the permitted replacement until after joining all
+three startup futures. Its binding activation could therefore wait indefinitely
+for a claimant that had never been asked to claim. Start the replacement's real
+signed read-only audit inside its startup future while both peers resolve their
+bindings. The original post-startup state audit and all ownership, clock,
+history, receipt and shutdown assertions remain. No production recovery/admission
+code, proof, schema marker or operation deadline changes.
+
+The one-variable ordering probe passes ten runs (cold startup 134–426ms), using
+identical runtime diagnostics before/after the fixture change. All temporary
+probes are removed. The final cleaned fixture passes seven isolated cold runs,
+all nine clock/refusal cases (115.12s) and all 67 serial Node cases (530.24s),
+with the independent post-startup audit retained. All three use the same saved
+Node runtime SHA256:
+2242ce2cd049aef574edc758835a6f850390cea9a0496f92489d463a7a385fe5.
+
+An earlier cleaned-fixture clock run was red: 8/9 passed in 120.09s and the
+unchanged missing-lease case reported an initial activation deadline before its
+metadata-loss cut. That failure's cause remains unestablished. Six isolated
+instrumented replays and 21 subsequent diagnostic runs passed; they do not
+explain the failed run. Original destination/source/witness startup errors now
+name the role and retain the fixture directory for inspection after the test
+process terminates. Failure-only cold-start diagnostics retain all three node
+outcomes. The traced stream-resolution dependency cycle is diagnosed; the
+initial/catalog-only contexts and the older cancelled-bootstrap/closed-domain
+failures retain their separate cause audits.
+
+Remaining selected local checks pass: eight native log cases (6.16s), 242 library
+cases (7.99s), 15 decision-core, six actor, six ingress, five protocol, seven
+artifact and three CLI cases. Workspace all-target/all-feature checking
+(240.28s), Clippy with warnings denied (82.80s), formatting of 518 Rust files,
+docs (36 documents/six flows/388 references), the 403-package dependency policy
+without a JavaScript engine, and all 129 Python guards pass. A compiler attempt
+failed when this checkout's target directory disappeared; the workspace volume
+was writable, the directory was recreated, and only unfinished checks were
+retried. The compiler failure and passing retry remain recorded. All seven
+captured Rust source hashes stayed fixed through qualification. The five GC
+implementation/fixture sources remain identical to 90f219f, and activation
+runtime code is restored byte for byte after probing. The previous workspace
+doc tests (11 passed, one existing ignored example) remain unchanged-production
+code evidence; this test-only follow-up did not rerun them.
+
+Local Rust is 1.97.0/aarch64 macOS. These local results do not complete the
+release fault/capacity matrix or establish the causes of earlier intermittent
+startup failures. Hosted Rust 1.98.1 validation remains separate. The next proof
+qualification priority remains loss during predecessor recovery, followed by
+metadata rollback, independent-process and physical storage/host cuts.
 
 The broader proof/fault matrix,
 loss during predecessor recovery, metadata rollback and independent-process
