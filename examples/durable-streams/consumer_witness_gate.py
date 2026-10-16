@@ -6,7 +6,7 @@ import socketserver
 import threading
 
 from faults import require
-from fleet_faults import message
+from fleet_faults import message, relay_upgrade
 
 
 class WitnessGate:
@@ -50,7 +50,7 @@ class WitnessGate:
                                 observation.update(response=metadata,status=int(response["first"].split()[1]),response_sha256=hashlib.sha256(response["body"]).hexdigest(),response_body=response["body"].decode(errors="replace"))
                         self.request.sendall(response["wire"])
                         if response["first"].split()[1]==b"101":
-                            gate.relay(self.request,upstream,stream,owner)
+                            relay_upgrade(self.request,upstream,stream,owner)
                             return
                 except (ConnectionResetError,BrokenPipeError):pass
                 except Exception as error:
@@ -65,25 +65,6 @@ class WitnessGate:
             allow_reuse_address=True
         self.server=Server(("127.0.0.1",0),Handler);self.address=self.server.server_address
         self.thread=threading.Thread(target=self.server.serve_forever);self.thread.start()
-
-    def relay(self,frontend,upstream,reader,owner):
-        # HTTP readers may already own binary bytes following the upgrade head.
-        # read1 forwards those bytes before receiving more, without waiting to
-        # fill a buffer. EOF/cancellation on either side wakes both directions.
-        def disconnect():
-            for connection in (frontend,upstream):
-                try:connection.shutdown(socket.SHUT_RDWR)
-                except OSError:pass
-        def pump(source,target):
-            try:
-                while chunk:=source.read1(64<<10):target.sendall(chunk)
-            except OSError:pass
-            finally:disconnect()
-        upload=threading.Thread(target=pump,args=(reader,upstream));upload.start()
-        try:pump(owner,frontend)
-        finally:
-            disconnect();upload.join(timeout=5)
-            require(not upload.is_alive(),"witness tail upload relay did not join")
 
     def observations(self):
         with self.lock:return list(self.observed)

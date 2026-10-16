@@ -26,8 +26,8 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The next tail-transfer candidate is under implementation after published commit
-674fae6 on PR #69. The actual pre-change server preparation path grows RSS by
+The tail-transfer candidate is published as a83648f on PR #69 and remains under
+qualification. The actual pre-change server preparation path grows RSS by
 254869504 bytes (about 243 MiB) for sixteen valid 8 MiB batches, failing the
 unchanged 64 MiB budget. Production recovery now opens the authenticated
 `/peer/log/tail` upgrade, stages an immutable disk snapshot under follower
@@ -92,6 +92,48 @@ exact-source log/native/asset cases, cold and warm consumer recovery, damaged
 witness refusals and source/destination recovery on SQLite/RustFS. Its eventual
 results must be recorded separately; the earlier process matrix is not evidence
 for this tail transport.
+The fresh example runtime builds successfully in 754.51s with all 618 inputs
+unchanged. Its SHA-256 is
+82ab01bd53466b83dae33b05607b5d5baec4ab88aedb52abfd668fcd6ba11b42.
+The exact-source log phase passes all 53 cases (4.80s runtime, 159.90s including
+the build). This run's source/receiver RSS growth is 8208384/8273920 bytes
+(about 7.8/7.9 MiB), below the original 64 MiB budgets. The preceding measured
+profiles above remain separate. Exact-source native qualification then passes
+21 log, five protocol and four asset-host cases (95.96s/23.17s/22.64s runtime;
+402.21s including the build). Cold and warm consumer recovery on SQLite/RustFS
+and cold SQLite source recovery pass their five independent process audits.
+The batch stops at cold SQLite acknowledgment recovery after 18.62s: the
+destination refuses an unproven predecessor, while PeerProxy treats binary tail
+frames after HTTP 101 as another HTTP head. Remaining process scenarios, smoke,
+workspace tests and doc-tests do not run in that batch. The failed batch remains
+separate; it is not a green full qualification.
+
+Two socket regressions reproduce stalled buffered binary forwarding and close
+waiting for an upgraded client to disconnect. A generic opaque-101 relay fixes
+those, but the first process replay then misses the held ACK boundary before any
+destination loss. Original joined database copies show one consumer inbox effect,
+checkpoint 1 and an ACK receipt without a captured reply. The outer /peer/tunnel
+upgrade carries HTTP RPC inside: relaying it opaquely bypasses the measuring gate.
+A third regression reproduces that bypass. Keep inspecting inner HTTP for the
+outer cellar-tunnel upgrade, while binary log/application upgrades use a shared
+buffer-preserving relay with joined cancellation. Retire both TCP endpoints
+before proxy joins. ACK cleanup now attempts all resources and preserves its
+primary readiness error even if a proxy close fails; its corrected regression
+also fails against the captured original driver. A first mock omitted its
+required address and is corrected before that original-driver comparison.
+
+All 16 focused proxy/cleanup cases pass. The original cold SQLite ACK case then
+passes in 4.35s, with its independent audit passing in 0.08s: original checkpoint
+and effects before replay, one exact receipt replay and full joins. The runtime
+bytes and all production Rust/build inputs remain unchanged; five Python
+fault-driver/test files change. The complete process/workspace qualification
+remains pending under those captured changes. The next captured batch passes all
+179 Python guards, docs and whitespace checks, then begins the complete process
+matrix with ACK recovery first on both backends. Its parent comparison verifies
+that only the five Python files change and the saved runtime is byte-identical.
+Both hosted SDK jobs for a83648f have
+no executed steps: GitHub annotations cite failed account payments or spending
+limits. That restriction does not make hosted Linux validation green.
 Signed control-response body collection also still needs its independent bound.
 Earlier gather/process evidence
 below qualifies its captured source only, not this changed production candidate.

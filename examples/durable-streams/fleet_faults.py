@@ -17,7 +17,7 @@ import time
 import urllib.request
 import urllib.error
 
-from faults import AuditError, Ledger, Process, eventually, read, require, validate_snapshot
+from faults import AuditError, Ledger, Process, cleanup_all, eventually, read, require, validate_snapshot
 
 
 def free_address():
@@ -74,6 +74,26 @@ def message(stream, response=False):
     return dict(wire=bytes(head)+bytes(wire), body=bytes(body), headers=headers, first=lines[0])
 
 
+def relay_upgrade(frontend,upstream,reader,owner):
+    # HTTP readers may already own binary bytes following the upgrade head.
+    # read1 forwards those bytes before receiving more, without filling a buffer.
+    # EOF/cancellation on either side wakes and joins both relay directions.
+    def disconnect():
+        for connection in (frontend,upstream):
+            try:connection.shutdown(socket.SHUT_RDWR)
+            except OSError:pass
+    def pump(source,target):
+        try:
+            while chunk:=source.read1(64<<10):target.sendall(chunk)
+        except OSError:pass
+        finally:disconnect()
+    upload=threading.Thread(target=pump,args=(reader,upstream));upload.start()
+    try:pump(owner,frontend)
+    finally:
+        disconnect();upload.join(timeout=5)
+        require(not upload.is_alive(),"peer upgrade upload relay did not join")
+
+
 class PeerProxy:
     def __init__(self, target, ledger, method="__streamAppend"):
         require(method in ("__streamAppend","__streamAck","__streamNext"),"unsupported peer fault method")
@@ -87,10 +107,14 @@ class PeerProxy:
         self.entered, self.release, self.lost = threading.Event(), threading.Event(), threading.Event()
         self.errors = []
         self.outage = False
+        self.connections=set();self.retiring=set();self.closing=False
         proxy = self
         class Handler(socketserver.BaseRequestHandler):
             def handle(self):
-                upstream = None
+                upstream = None;client = None;owner = None
+                with proxy.lock:
+                    if proxy.closing:return
+                    proxy.connections.add(self.request)
                 try:
                     client = self.request.makefile("rb")
                     while (request := message(client)) is not None:
@@ -104,6 +128,9 @@ class PeerProxy:
                         if upstream is None:
                             upstream = socket.create_connection(proxy.target, timeout=10)
                             upstream.settimeout(None)
+                            with proxy.lock:
+                                if proxy.closing:return
+                                proxy.connections.add(upstream)
                             owner = upstream.makefile("rb")
                         upstream.sendall(request["wire"])
                         reply = message(owner, response=True)
@@ -138,20 +165,33 @@ class PeerProxy:
                                 return
                             proxy.ledger.record(proxy.label+"_reply_forwarded", exchange=exchange)
                         self.request.sendall(reply["wire"])
+                        # The outer authenticated peer tunnel carries HTTP RPC
+                        # inside its upgrade. Keep the exact-reply gate there;
+                        # log streams and application upgrades carry opaque bytes.
+                        rpc_tunnel=request["first"].split()[1]==b"/peer/tunnel" and reply["headers"].get(b"upgrade",b"").lower()==b"cellar-tunnel"
+                        if reply["first"].split()[1]==b"101" and not rpc_tunnel:
+                            relay_upgrade(self.request,upstream,client,owner)
+                            return
                 except (ConnectionResetError, BrokenPipeError):
                     # A real node can close its pooled tunnel during retirement.
                     pass
                 except ConnectionRefusedError as error:
                     with proxy.lock:
-                        expected = proxy.paused or proxy.outage
+                        expected = proxy.paused or proxy.outage or proxy.closing
                         if not expected:proxy.errors.append(repr(error))
                     proxy.ledger.record("peer_unavailable", expected=expected, error=type(error).__name__)
                 except Exception as error:
                     with proxy.lock:
-                        proxy.errors.append(repr(error))
+                        if self.request not in proxy.retiring:proxy.errors.append(repr(error))
                 finally:
-                    if upstream is not None:
-                        upstream.close()
+                    actions=[("peer socket/reader",resource.close) for resource in (owner,client,upstream) if resource is not None]
+                    try:cleanup_all(actions)
+                    except Exception as error:
+                        with proxy.lock:proxy.errors.append(repr(error))
+                    finally:
+                        with proxy.lock:
+                            for connection in (self.request,upstream):
+                                proxy.connections.discard(connection);proxy.retiring.discard(connection)
         class Server(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
         self.server = Server(("127.0.0.1", 0), Handler)
@@ -171,6 +211,12 @@ class PeerProxy:
 
     def close(self):
         self.release.set()
+        with self.lock:
+            self.closing=True
+            connections=list(self.connections);self.retiring.update(connections)
+        for connection in connections:
+            try:connection.shutdown(socket.SHUT_RDWR)
+            except OSError:pass
         self.server.shutdown(); self.server.server_close()
         self.thread.join(timeout=5)
         require(not self.thread.is_alive() and not self.errors, f"peer proxy did not finish cleanly: {self.errors}")

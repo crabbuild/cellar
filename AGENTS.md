@@ -219,7 +219,14 @@ through cleanup_all, preserving the primary error even when a stopped node was
 fenced. WitnessGate.close disconnects persistent frontends before server_close
 joins handlers; otherwise a failed driver can remain in Python finalization.
 The Python regressions exercise the actual consumer finally branch and a real
-idle keepalive connection. --trace captures selected actor/lease-store events;
+idle keepalive connection. PeerProxy and WitnessGate share relay_upgrade for
+buffered binary upgrades. The outer /peer/tunnel upgrade carries HTTP RPC inside;
+PeerProxy must continue inspecting that HTTP to hold/drop the selected exact
+reply. Treating every 101 as opaque bypasses the fault gate and cannot qualify
+reply loss. Log/application upgrades are opaque and join both relay directions
+on EOF. PeerProxy close retires both TCP endpoints before joining handlers;
+ACK cleanup also uses cleanup_all so a proxy failure cannot mask readiness or
+skip the private store/ledger. --trace captures selected actor/lease-store events;
 unexpected-refusal files retain the exact verdict before further observation.
 Keep the original one-second fixture lease, typed Unavailable requirement and
 operation budgets. Cleanup repairs do not explain an observed NodeLeaseExpired.
