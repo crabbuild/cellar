@@ -257,6 +257,16 @@ in for typed receipt refusal. Inbox deduplication is scoped to one stable consum
 database; separate worker databases do not share it. These are native domain/
 executor cuts, not independent-process or clock/retention qualification.
 
+`event_consumer_overlap.rs` pauses an actual old delivery callback across
+natural expiry, then applies the replacement through the same stable consumer
+database and inbox scope. Hold outside transactions/input blocks. Preserve the
+ordinary 30s lease and 3s call budget; capture the old callback while its lease is
+live, commit/sync the replacement effect before releasing it, then compare full
+lease/checkpoint/history and effect state. Cover stale ack before replacement
+ack and obsolete ack after progress with the next batch leased. Separate worker
+databases do not share deduplication. These embedded-domain/executor cases do
+not qualify independent-process faults or external effects.
+
 `cellar stream` describe/read/sources/status/audit and `cellar subscription`
 list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited

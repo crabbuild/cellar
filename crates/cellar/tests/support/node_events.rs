@@ -25,6 +25,9 @@ mod event_running_owner;
 #[path = "event_settlement_race.rs"]
 mod event_settlement_race;
 
+#[path = "event_consumer_overlap.rs"]
+mod event_consumer_overlap;
+
 #[path = "event_clock_retention.rs"]
 mod event_clock_retention;
 

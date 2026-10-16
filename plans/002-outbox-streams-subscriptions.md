@@ -901,6 +901,20 @@ safely. Explicit `sync` or a correctly sampled source egress gate proves these
 effects before checkpoint advancement. External email, payment, or HTTP effects
 still require a receiver idempotency key or reconciliation.
 
+Lease expiry does not stop an application callback that already received the
+batch. A replacement worker can fetch the same event while the old callback is
+still running. Route both workers' local effects through the same durable
+consumer cell/database and processing scope. The inbox receipt and business
+writes serialize in that database; after either worker commits, the other skips
+the effect. Distinct worker databases have independent receipts and cannot
+provide this guarantee. External effects still need receiver idempotency.
+
+An old callback may still commit the first local effect if nobody has accepted
+the event yet. Its expired/replaced receipt cannot acknowledge a replacement
+lease. If the checkpoint already passed the old batch, an obsolete ack must
+leave a newer live lease intact. Keep effect deduplication and subscription
+receipt fencing as separate requirements.
+
 Receipts have no automatic TTL in the helper's first release. Bound their count
 and reject new acceptance at capacity. Administrative pruning explicitly ends
 deduplication for that range; replay after pruning may apply effects again.

@@ -24,7 +24,40 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice reproduces historical GC deleting real uncovered Bucket proof
+The current slice exercises overlapping workers through the same durable
+consumer database after a real lease expires. A paused old callback retains an
+actual SDK delivery while a replacement receives the identical envelope under
+a new receipt, commits the inbox receipt and local effect, and proves it before
+the old callback resumes. Before replacement ack, the old ack is `StaleReceipt`;
+after progress and a next leased offset, it is `Obsolete`. Both cuts preserve
+the current lease/checkpoint/history and skip the old local effect. The second
+event then applies exactly once and acknowledgment reaches checkpoint 2.
+
+Both focused cases pass in 76.88s using the normal 30s lease, real wall-clock
+expiry, independent node domains/executors and unchanged 3s call budgets. The
+held old calls finish in 1259ms/1024ms, including the final progress audit. A
+temporary negative control changes matching inbox acceptance from false to true;
+the first case fails in 31.88s with effects=2, processed=2 and winner=old while
+ack still correctly returns `StaleReceipt`. This verifies the effect-state oracle
+independently of acknowledgment fencing. The production inbox file is restored
+byte-for-byte before final qualification. These are same-database native-domain
+cases, not separate-process or physical-fault qualification; separate worker
+databases cannot share inbox deduplication. No production defect is asserted.
+
+Final qualification passes all 75 serial Node cases in 694.35s, including all
+fifteen clock/refusal cases and both overlaps (held intervals 934ms/985ms).
+The runtime matches the focused positive executable (SHA256
+eb4e38e3907272fd019bc99903c582ad7d27745b0482c33de6313963484ad42a).
+All 519 captured Rust files remain unchanged through the run. Workspace
+all-target/all-feature checking (43.00s), Clippy with warnings denied (50.12s),
+formatting (519 files), docs (36 documents/six flows/388 references), dependency
+policy (403 packages/no JavaScript engine) and whitespace checks pass. This
+follow-up changes tests/documentation only; the prior full workspace, doc-test
+and Python results below remain prior evidence, not additional runs in this
+slice. PR #66 remains the sole active main-based PR. Hosted qualification remains
+subject to GitHub's account payment/spending-limit restriction reported below.
+
+The previous slice reproduces historical GC deleting real uncovered Bucket proof
 when only the first footer TXID changes to zero. The writer has real Bucket
 credit, no follower data acknowledgment and no per-cell upload. GC compares the
 forged zero with an empty independent watermark and deletes the sole bundle.
@@ -63,11 +96,16 @@ These are Rust 1.97.0/aarch64 macOS results, not hosted Rust 1.98.1 qualificatio
 PR #65 merged during this run. Updated main at 6abd0be has the identical tree to
 the tested base, so this follow-up starts there on one new main-based branch.
 
-The next selected correctness gap is overlapping consumers after lease expiry.
-Require one durable effect in the same inbox, refusal of obsolete acknowledgment
-and monotonic checkpoints after the old worker resumes. No defect is asserted
-until reproduced. Physical/process loss, capacity, complete operational coverage
-and the earlier intermittent-startup cause audits remain release requirements.
+The overlapping-consumer slice above adds embedded-domain coverage for that
+boundary. The next selected correctness gate is inbox/effect authority across
+consumer ownership takeover while the old callback is still executing: require
+closed-domain refusal before starting acceptance and before committing receipt
+plus business writes, and audit the successor's original prefix before release
+or replay. Subscription expiry alone does not exercise that ownership boundary.
+The missing source/destination failure cuts and unresolved intermittent-startup
+causes remain priorities; passing replays cannot diagnose those original failures.
+Physical/process loss, capacity and complete operational coverage remain release
+requirements.
 This is a hard format cutover with all owned markers still 1; recreate old
 development state and rebuild all nodes.
 
