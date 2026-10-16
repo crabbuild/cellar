@@ -24,7 +24,34 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice extends the claim-phase root-loss boundary to a different
+The current slice tests live foreign recovery resumption after the same claimed
+root is erased or replaced. Two signed reads must return explicit Unavailable
+while retaining the old owner and acknowledged evidence. Return the actual
+metadata after both operations finish and require the first fresh audit to
+succeed under the original budget without a read retry, restart, operator retry
+or business-command replay. Host services, lease generation and persisted lineage
+must remain identical through the audit. Both initial native cases pass in
+20.04s, with live_recovery=true and read_retries=0. All 73 serial Node cases pass
+in 610.00s, including all fifteen clock/refusal cases. Both live cases retain zero
+read retries in the full run. Probe/full executable hashes match:
+bdc7608188830061228431baacaefb2e9c8afaa6e03a4a61778c0bb8effac03b.
+Workspace all-target/all-feature checking (8.06s) and Clippy with warnings denied
+(7.08s), formatting (518 Rust files), docs (36 documents/six flows/388 references),
+dependency policy (403 packages/no JavaScript engine), and whitespace checks pass.
+All eight captured Rust sources stayed fixed throughout qualification; no separate
+repeat of the clock suite was needed. The library/log/core/CLI/Python/doc-test
+results below remain prior unchanged-production evidence, not reruns in this
+slice. Production code and owned markers remain unchanged.
+
+The next selected loss-prevention check is historical bundle GC with structurally
+readable but invalid footer row bounds/transaction identity. Source inspection
+finds structural footer decoding before coverage comparison; it is not yet a
+reproduced deletion defect. Require a concrete native regression before changing
+production code. Invalid/unproven retained payload must survive GC, while valid
+independently covered objects still collect. This does not close the broader
+fault/capacity matrix or earlier intermittent-startup cause audits.
+
+The previous slice extends the claim-phase root-loss boundary to a different
 node taking ownership through a cold route. Its own startup may succeed; the
 foreign cell read must return an explicit Unavailable verdict within the original
 three-second budget after erasing/replacing the predecessor root. Join that
@@ -46,10 +73,10 @@ dependency policy (403 packages/no JavaScript engine) and whitespace checks pass
 All eight captured Rust source hashes stayed fixed throughout qualification.
 The library/log/core/CLI/Python and doc-test results below are prior evidence for
 unchanged production code; this test-only slice did not repeat those suites.
-No production recovery/admission or Cellar-owned markers changed. The next
-selected availability gap is resumption after a claim-phase refusal on the same
-running foreign recoverer. Other predecessor, rollback, process, physical-loss,
-capacity and intermittent-startup cause audits remain open.
+No production recovery/admission or Cellar-owned markers changed. That slice
+leaves same-process resumption to the follow-up above. Other predecessor,
+rollback, process, physical-loss, capacity and intermittent-startup cause audits
+remain open.
 
 The previous slice qualifies metadata loss after a real predecessor recovery
 claim, before the member gather and final seal. A selected same-name startup

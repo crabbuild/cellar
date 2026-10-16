@@ -2042,3 +2042,13 @@ audit original state before receipt replay. A startup-only test does not cover
 this boundary. This selected retry joins/restarts the foreign recoverer; it
 leaves same-process resumption, physical/process faults and other predecessor
 cut points separately qualified.
+
+Live foreign resumption keeps the actual Node after two explicit Unavailable
+reads while predecessor metadata is missing/replaced. Return the real claimed
+metadata only after both routed operations finish. The first fresh signed audit
+must recover the original state under its existing budget, without operator
+retry, a business command or an extra read attempt. Require the same host services,
+lease generation and persisted lineage, then retain the event/clock/history/
+source/inbox/checkpoint and receipt checks before normal delivery. Restarted
+recovery and live resumption are distinct availability cases; neither substitutes
+for the independent-process/physical failure matrix.

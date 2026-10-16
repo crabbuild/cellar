@@ -253,6 +253,16 @@ async fn foreign_root_replacement_during_recovery_refuses_takeover_until_claimed
     run(true, false, MetadataLoss::ReplacedForeignDuringRecovery).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_foreign_recovery_resumes_after_missing_claimed_metadata_returns() -> Result<()> {
+    run(true, false, MetadataLoss::LiveForeignDuringRecovery).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns() -> Result<()> {
+    run(true, false, MetadataLoss::ReplacedLiveForeignDuringRecovery).await
+}
+
 #[derive(Clone, Copy)]
 enum MetadataLoss {
     None,
@@ -266,6 +276,8 @@ enum MetadataLoss {
     ReplacedDuringRecovery,
     ForeignDuringRecovery,
     ReplacedForeignDuringRecovery,
+    LiveForeignDuringRecovery,
+    ReplacedLiveForeignDuringRecovery,
 }
 
 fn original_startup_error(
@@ -346,14 +358,25 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             | MetadataLoss::ReplacedDuringRecovery
             | MetadataLoss::ForeignDuringRecovery
             | MetadataLoss::ReplacedForeignDuringRecovery
+            | MetadataLoss::LiveForeignDuringRecovery
+            | MetadataLoss::ReplacedLiveForeignDuringRecovery
     );
     let foreign_recovery = matches!(
         loss,
-        MetadataLoss::ForeignDuringRecovery | MetadataLoss::ReplacedForeignDuringRecovery
+        MetadataLoss::ForeignDuringRecovery
+            | MetadataLoss::ReplacedForeignDuringRecovery
+            | MetadataLoss::LiveForeignDuringRecovery
+            | MetadataLoss::ReplacedLiveForeignDuringRecovery
+    );
+    let live_recovery = matches!(
+        loss,
+        MetadataLoss::LiveForeignDuringRecovery | MetadataLoss::ReplacedLiveForeignDuringRecovery
     );
     let replaced_during_recovery = matches!(
         loss,
-        MetadataLoss::ReplacedDuringRecovery | MetadataLoss::ReplacedForeignDuringRecovery
+        MetadataLoss::ReplacedDuringRecovery
+            | MetadataLoss::ReplacedForeignDuringRecovery
+            | MetadataLoss::ReplacedLiveForeignDuringRecovery
     );
     let replaced_root =
         replaced_after_capture || replaced_after_recovery || replaced_during_recovery;
@@ -887,6 +910,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         wall() < expires,
         "ordinary UTC could repair the future clock before recovery audit"
     );
+    let mut live_identity = None;
     let (mut replacement_node, mut successor_proxy) = if let Some(pair) = cold_replacement {
         pair
     } else {
@@ -932,6 +956,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             applications("replacement")?,
         ));
         let replacement_node = if let Some(cut) = cut.as_ref() {
+            let mut live_recoverer = None;
             let proof_before = follower_proof(directory.path(), &old_lease)?;
             let proof_at_cut = std::sync::Mutex::new((baseline.clone(), proof_before));
             let replacement_root = replaced_root.then(|| {
@@ -1014,15 +1039,48 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                 // recovery is required by the cold route, not its own boot.
                 let node = boot.await?;
                 super::super::ready(&node).await?;
+                if live_recovery {
+                    let root = observer
+                        .run(async {
+                            let (bytes, _) = bucket
+                                .get("nodes/refusal-replacement.json")
+                                .await?
+                                .context("live recoverer's own root missing")?;
+                            Ok::<_, anyhow::Error>(serde_json::from_slice::<Value>(&bytes)?)
+                        })
+                        .await??;
+                    ensure!(root["generation"] == node.info().lease_generation);
+                    live_identity = Some((node.services(), root));
+                }
                 let routed = Instant::now();
                 let attempt = Box::pin(status(&client, &node));
                 let (result, erased) = tokio::join!(attempt, erase);
                 erased?;
                 let elapsed = routed.elapsed();
-                successor_proxy.capture.expect_upstream_close();
-                stopped(node)
-                    .await
-                    .context("join foreign recovery attempt before returning metadata")?;
+                if live_recovery {
+                    // Seed another real resolution after the first interlock
+                    // finishes. Neither a cached refusal nor a stuck claim may
+                    // require restarting this node when valid metadata returns.
+                    let again = Instant::now();
+                    let failure = status(&client, &node)
+                        .await
+                        .err()
+                        .context("live recoverer admitted a second read without metadata")?;
+                    ensure!(
+                        again.elapsed() < operation_budget
+                            && format!("{failure:#}").contains(
+                                "Unavailable: event RPC did not return a proven result"
+                            )
+                            && !node.is_closed(),
+                        "second live recovery refusal changed certainty or closed its node: {failure:#}"
+                    );
+                    live_recoverer = Some(node);
+                } else {
+                    successor_proxy.capture.expect_upstream_close();
+                    stopped(node)
+                        .await
+                        .context("join foreign recovery attempt before returning metadata")?;
+                }
                 ensure!(
                     elapsed < operation_budget,
                     "foreign recovery did not refuse within the original route budget"
@@ -1127,17 +1185,21 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                 old_lease.clone()
             };
             restore_metadata(&observer, &bucket, &returned, replaced_root).await?;
-            successor_proxy.capture.expect_upstream_close();
-            successor_proxy.stop().await?;
-            let (mut config, services, external) = replacement_inputs(
-                directory.path(),
-                &replacement_core,
-                replacement_bucket.clone(),
-                same_name,
-            )
-            .await?;
-            successor_proxy = delivery_proxy(&mut config, &services).await?;
-            Node::start(config, services, external, applications("replacement")?).await?
+            if let Some(node) = live_recoverer {
+                node
+            } else {
+                successor_proxy.capture.expect_upstream_close();
+                successor_proxy.stop().await?;
+                let (mut config, services, external) = replacement_inputs(
+                    directory.path(),
+                    &replacement_core,
+                    replacement_bucket.clone(),
+                    same_name,
+                )
+                .await?;
+                successor_proxy = delivery_proxy(&mut config, &services).await?;
+                Node::start(config, services, external, applications("replacement")?).await?
+            }
         } else {
             boot.await?
         };
@@ -1191,10 +1253,36 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             restore_metadata(&observer, &bucket, &old_lease, false).await?;
         }
     }
+    let recovery_read = Instant::now();
     let (recovered, mut read_retries) = recovered_status(&client, &replacement_node, expires)
         .await
         .context("audit current replacement clock")?;
     read_retries += cold_read_retries;
+    if let Some((services, prior)) = &live_identity {
+        ensure!(
+            read_retries == 0
+                && recovery_read.elapsed() < operation_budget
+                && !replacement_node.is_closed()
+                && Arc::ptr_eq(services, &replacement_node.services())
+                && prior["generation"] == replacement_node.info().lease_generation,
+            "live recovery changed its process or required another audit attempt"
+        );
+        observer
+            .run(async {
+                let (bytes, _) = bucket
+                    .get("nodes/refusal-replacement.json")
+                    .await?
+                    .context("resumed recoverer's own root missing")?;
+                let root: Value = serde_json::from_slice(&bytes)?;
+                ensure!(
+                    root["generation"] == prior["generation"]
+                        && root["lineage"] == prior["lineage"],
+                    "recovery replaced the live node's persisted identity"
+                );
+                Ok::<_, anyhow::Error>(())
+            })
+            .await??;
+    }
     let next_owner = owner(&observer, &bucket).await?;
     ensure!(
         next_owner["node"]
@@ -1392,7 +1480,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     eprintln!(
         "CLOCK_REFUSAL_EVIDENCE {}",
         json!({"proof":if followers {"followers"}else{"bucket"},"old_owner":first_owner,"successor":next_owner,
-        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"after_recovery":after_recovery,"during_recovery":during_recovery,"foreign_recovery":foreign_recovery,"replaced_during_recovery":replaced_during_recovery,"replaced_after_recovery":replaced_after_recovery,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"retry_wait_ms":retry_wait_ms,"retry_held_ms":retry_held_ms,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
+        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"after_recovery":after_recovery,"during_recovery":during_recovery,"foreign_recovery":foreign_recovery,"live_recovery":live_recovery,"replaced_during_recovery":replaced_during_recovery,"replaced_after_recovery":replaced_after_recovery,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"retry_wait_ms":retry_wait_ms,"retry_held_ms":retry_held_ms,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
     );
     stopped(source)
         .await
