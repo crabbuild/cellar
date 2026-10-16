@@ -135,9 +135,28 @@ That corrected matrix passes all 28 separate-process scenarios and all 28
 independent audits on SQLite/RustFS, followed by smoke. All 618 captured inputs
 and the runtime hash stay unchanged through these 60 phases. Actual inspection
 finds no saved-matrix runtime process and all 15 private RustFS stores removed.
-The full workspace suite is now running; its result and the following doc-tests
-remain pending. These process passes do not explain the older actor lease/Axum
-failures or complete the feature's remaining release gates.
+The full workspace command subsequently fails after 1094.58s (17m45s building;
+18.74s library runtime): 296 of 297 library cases pass, while
+a_submitted_timeout_cannot_undo_an_already_committed_effect receives Unavailable
+instead of Ambiguous. Remaining workspace targets and doc-tests do not run.
+All 618 captured inputs remain unchanged. The exact failed executable is saved
+with SHA-256 8fce9738d2f6708e4de60c9167a6c9d8896a8f6060a74ce58032563df8e97083.
+Three direct executions of those same bytes pass; those replays alone do not
+diagnose the failure.
+
+A controlled wait-setup delay then reproduces the classification with the same
+10 ms budget: deadline 10, observed time 13, zero effects and one dropped
+operation. The fixture never reached submission, so Unavailable is correct; its
+asserted post-effect premise was missing. The post-submission and known-refusal
+fixtures now poll their owned pinned operation to the named pending checkpoint
+before installing the wait. The 10 ms deadline, 2s guard, original outcome/effect/
+drop assertions and production event_wait.rs remain unchanged. Added cases cover
+both an unsubmitted operation after setup expiry (zero effects/Unavailable) and
+an already-submitted effect whose wait installs after the original deadline
+(one effect/Ambiguous). All eleven focused event-wait cases pass in 0.27s (73.85s
+including the build). Full workspace requalification remains required; this
+test-only correction does not explain the older actor lease/Axum failures or
+complete the feature's remaining release gates.
 Both hosted SDK jobs for a83648f have
 no executed steps: GitHub annotations cite failed account payments or spending
 limits. That restriction does not make hosted Linux validation green.

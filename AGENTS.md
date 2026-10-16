@@ -1378,6 +1378,14 @@ through queue/result waiting. Expiry before submission is Unavailable; after
 submission it is Ambiguous and drops the exact request cancellation guard. The
 full cut matrix remains separately tracked; do not call this complete end-to-end
 deadline qualification.
+Post-submission/refusal deadline fixtures must establish their named state before
+installing the wait. A 10 ms budget may expire before an unpolled fixture begins;
+Unavailable with zero effects is then correct, not a lost committed effect.
+Poll an owned pinned operation to its pending checkpoint and preserve its drop
+guard; never extend the deadline or change the expected ambiguity to hide setup
+jitter. Keep both expired-before-submission/no-effect and submitted-effect cases,
+including wait installation after the original deadline. These synthetic wait
+tests do not replace the storage/process proof cuts.
 
 
 Event RPC deadline budgets include the canonical, nonnegative `__streamNext`

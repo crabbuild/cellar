@@ -1,4 +1,5 @@
 use super::*;
+use futures_util::FutureExt as _;
 use std::sync::{atomic::AtomicUsize, Arc};
 
 fn code(error: &anyhow::Error) -> ErrorCode {
@@ -60,14 +61,18 @@ async fn routing_and_definite_refusal_deadlines_preserve_non_execution_certainty
                 let budget = Budget::new(10);
                 let drops = Arc::new(AtomicUsize::new(0));
                 let guard = Dropped(drops.clone());
-                let operation = async {
+                let mut operation = Box::pin(async {
                     let _guard = guard;
                     if let Some(attempt) = attempt {
                         budget.submitted();
                         budget.refused(attempt);
                     }
                     std::future::pending::<Result<()>>().await
-                };
+                });
+                // These cases start after their named routing/refusal state.
+                // Keep the original budget, but establish that state before
+                // testing how an already-pending wait expires.
+                assert!(operation.as_mut().now_or_never().is_none());
                 let error = crate::asyncrt::timeout(
                     std::time::Duration::from_secs(2),
                     receive(operation, None, Some(&budget)),
@@ -87,6 +92,28 @@ async fn routing_and_definite_refusal_deadlines_preserve_non_execution_certainty
 
 #[tokio::test]
 async fn a_submitted_timeout_cannot_undo_an_already_committed_effect() -> Result<()> {
+    submitted_timeout_case(false).await
+}
+
+#[tokio::test]
+async fn submitted_effect_survives_wait_installation_after_the_original_deadline() -> Result<()> {
+    submitted_timeout_case(true).await
+}
+
+async fn wait_for_original_deadline(budget: &Budget) {
+    loop {
+        let remaining = budget
+            .deadline_ms()
+            .saturating_sub(crate::asyncrt::mono_ms());
+        if remaining == 0 {
+            return;
+        }
+        crate::asyncrt::sleep(std::time::Duration::from_millis(remaining)).await;
+    }
+}
+
+#[tokio::test]
+async fn expired_wait_setup_never_submits_or_commits_the_operation() -> Result<()> {
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let result = domain
         .run(async {
@@ -100,13 +127,57 @@ async fn a_submitted_timeout_cannot_undo_an_already_committed_effect() -> Result
                 effects.fetch_add(1, Ordering::SeqCst);
                 std::future::pending::<Result<()>>().await
             };
+            wait_for_original_deadline(&budget).await;
+            let error = receive(operation, None, Some(&budget)).await.unwrap_err();
+            assert_eq!(code(&error), ErrorCode::Unavailable);
+            untagged(&error);
+            assert_eq!(effects.load(Ordering::SeqCst), 0);
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
+}
+
+async fn submitted_timeout_case(delay_setup: bool) -> Result<()> {
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let budget = Budget::new(10);
+            let effects = AtomicUsize::new(0);
+            let drops = Arc::new(AtomicUsize::new(0));
+            let guard = Dropped(drops.clone());
+            let mut operation = Box::pin(async {
+                let _guard = guard;
+                budget.submitted();
+                effects.fetch_add(1, Ordering::SeqCst);
+                std::future::pending::<Result<()>>().await
+            });
+            // Model an operation that actually submitted and committed an
+            // effect before installing its wait. Poll the owned future once
+            // and retain it, so cancellation still has to drop its guard.
+            assert!(operation.as_mut().now_or_never().is_none());
+            assert_eq!(effects.load(Ordering::SeqCst), 1);
+            assert_eq!(drops.load(Ordering::SeqCst), 0);
+            if delay_setup {
+                wait_for_original_deadline(&budget).await;
+            }
             let error = crate::asyncrt::timeout(
                 std::time::Duration::from_secs(2),
                 receive(operation, None, Some(&budget)),
             )
             .await?
             .unwrap_err();
-            assert_eq!(code(&error), ErrorCode::Ambiguous);
+            assert_eq!(
+                code(&error),
+                ErrorCode::Ambiguous,
+                "delay_setup={delay_setup}, deadline={}, now={}, effects={}, drops={}",
+                budget.deadline_ms(),
+                crate::asyncrt::mono_ms(),
+                effects.load(Ordering::SeqCst),
+                drops.load(Ordering::SeqCst)
+            );
             untagged(&error);
             assert_eq!(effects.load(Ordering::SeqCst), 1);
             assert_eq!(drops.load(Ordering::SeqCst), 1);
