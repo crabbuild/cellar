@@ -39,6 +39,7 @@ use crate::peer_auth::PeerAuth;
 #[cfg(test)]
 mod follower_batch_tests;
 mod follower_file;
+mod follower_index;
 mod follower_state;
 mod recovery_progress;
 mod startup_retry;
@@ -1209,9 +1210,10 @@ struct CommittedBatch {
 }
 
 struct CommittedBatchScan {
-    batches: Vec<CommittedBatch>,
-    unreadable_ranges: Vec<(u64, u64)>,
+    batches: follower_index::Index,
+    unreadable_end: Option<u64>,
     unknown_unreadable_range: bool,
+    directory_present: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1234,55 +1236,45 @@ struct LoadedFollowerState {
 }
 
 impl CommittedBatchScan {
-    fn covers_acknowledged_range(&self, state: FollowerState) -> bool {
+    fn covers_acknowledged_range(&mut self, state: FollowerState) -> anyhow::Result<bool> {
         let mut covered = state.base;
-        for batch in self
-            .batches
-            .iter()
-            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
-        {
+        for index in 0..self.batches.len() {
             if covered >= state.end {
                 break;
             }
-            let first = batch
-                .entries
-                .first()
-                .expect("committed batches are nonempty")
-                .seq;
-            let last = batch.state.end;
-            if last <= covered {
+            let batch = self.batches.get(index)?;
+            if batch.state.fragment_epoch != state.fragment_epoch || batch.last <= covered {
                 continue;
             }
-            if first > covered.saturating_add(1) {
-                return false;
+            if batch.first > covered.saturating_add(1) {
+                return Ok(false);
             }
-            covered = last;
+            covered = batch.last;
         }
-        covered >= state.end
+        Ok(covered >= state.end)
     }
 
-    fn recovery_gap(&self, state: FollowerState) -> Option<DiskRecoveryGap> {
+    fn recovery_gap(&mut self, state: FollowerState) -> anyhow::Result<Option<DiskRecoveryGap>> {
         if state.fragment_epoch == 0 {
-            return None;
+            return Ok(None);
         }
         if self.unknown_unreadable_range {
-            return Some(DiskRecoveryGap {
+            return Ok(Some(DiskRecoveryGap {
                 fragment_epoch: state.fragment_epoch,
                 suspect_end: SuspectEnd::Unknown,
-            });
+            }));
         }
-        let suspect_end = self
-            .batches
-            .iter()
-            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
-            .map(|batch| batch.state.end)
-            .chain(self.unreadable_ranges.iter().map(|(_, last)| *last))
-            .max()
-            .filter(|end| *end > state.end)?;
-        Some(DiskRecoveryGap {
+        let mut suspect_end = self.unreadable_end.unwrap_or(0);
+        for index in 0..self.batches.len() {
+            let batch = self.batches.get(index)?;
+            if batch.state.fragment_epoch == state.fragment_epoch {
+                suspect_end = suspect_end.max(batch.state.end);
+            }
+        }
+        Ok((suspect_end > state.end).then_some(DiskRecoveryGap {
             fragment_epoch: state.fragment_epoch,
             suspect_end: SuspectEnd::Known(suspect_end),
-        })
+        }))
     }
 }
 
@@ -1349,6 +1341,18 @@ fn decode_committed_batch(bytes: &[u8]) -> anyhow::Result<CommittedBatch> {
         anyhow::bail!("follower batch starts at or below its base");
     }
     Ok(CommittedBatch { state, entries })
+}
+
+fn committed_batch_meta(bytes: &[u8], batch: &CommittedBatch) -> follower_index::BatchMeta {
+    follower_index::BatchMeta {
+        first: batch.entries[0].seq,
+        last: batch.state.end,
+        state: batch.state,
+        bytes: bytes.len() as u64,
+        digest: bytes[bytes.len() - COMMITTED_BATCH_DIGEST_LEN..]
+            .try_into()
+            .expect("validated batch digest"),
+    }
 }
 
 fn follower_batch_range(name: &str, suffix: &str) -> Option<(u64, u64)> {
@@ -1581,18 +1585,22 @@ impl FollowerStore {
 
     fn scan_committed_batches(&self, leader: &str) -> anyhow::Result<CommittedBatchScan> {
         let dir = self.dir(leader);
-        let read = match self.filesystem.read_dir(&dir) {
-            Ok(read) => read,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            // A failed observation is retryable, not evidence of a damaged
-            // batch. Caching it as an unknown gap would reject healthy tails
-            // for the rest of the epoch and could declare a false loss.
-            Err(error) => return Err(error.into()),
-        };
-        let mut batches = Vec::new();
-        let mut unreadable_ranges = Vec::new();
+        let (read, directory_present): (cellar_ltx::HostDirIterator, bool) =
+            match self.filesystem.read_dir_iter(&dir) {
+                Ok(read) => (read, true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    (Box::new(std::iter::empty()), false)
+                }
+                // A failed observation is retryable, not evidence of a damaged
+                // batch. Caching it as an unknown gap would reject healthy tails
+                // for the rest of the epoch and could declare a false loss.
+                Err(error) => return Err(error.into()),
+            };
+        let mut batches = follower_index::Builder::new(self.filesystem.as_ref(), &dir);
+        let mut unreadable_end = None;
         let mut unknown_unreadable_range = false;
         for item in read {
+            let item = item?;
             let Some(name) = item.file_name.to_str() else {
                 if item
                     .path
@@ -1624,12 +1632,12 @@ impl FollowerStore {
                 );
                 continue;
             };
-            if named_first > named_last {
+            if named_first > named_last || name != format!("{named_first}-{named_last}.batch") {
                 unknown_unreadable_range = true;
                 warn!(
                     leader,
                     path = %item.path.display(),
-                    "follower batch name contains a reversed range"
+                    "follower batch name is reversed or noncanonical"
                 );
                 continue;
             }
@@ -1640,16 +1648,17 @@ impl FollowerStore {
                 "follower batch",
             )
             .and_then(|bytes| bytes.context("committed follower batch disappeared"))
-            .and_then(|bytes| decode_committed_batch(&bytes));
+            .and_then(|bytes| {
+                let batch = decode_committed_batch(&bytes)?;
+                let meta = committed_batch_meta(&bytes, &batch);
+                Ok(meta)
+            });
             match decoded {
-                Ok(batch)
-                    if batch.entries.first().map(|entry| entry.seq) == Some(named_first)
-                        && batch.entries.last().map(|entry| entry.seq) == Some(named_last) =>
-                {
-                    batches.push(batch);
+                Ok(batch) if batch.first == named_first && batch.last == named_last => {
+                    batches.push(batch)?;
                 }
                 Ok(_) => {
-                    unreadable_ranges.push((named_first, named_last));
+                    unreadable_end = Some(unreadable_end.unwrap_or(0).max(named_last));
                     warn!(
                         leader,
                         path = %item.path.display(),
@@ -1657,7 +1666,7 @@ impl FollowerStore {
                     );
                 }
                 Err(error) => {
-                    unreadable_ranges.push((named_first, named_last));
+                    unreadable_end = Some(unreadable_end.unwrap_or(0).max(named_last));
                     warn!(
                         leader,
                         path = %item.path.display(),
@@ -1667,11 +1676,11 @@ impl FollowerStore {
                 }
             }
         }
-        batches.sort_by_key(|batch| batch.entries.first().map_or(0, |entry| entry.seq));
         Ok(CommittedBatchScan {
-            batches,
-            unreadable_ranges,
+            batches: batches.finish()?,
+            unreadable_end,
             unknown_unreadable_range,
+            directory_present,
         })
     }
 
@@ -1682,52 +1691,47 @@ impl FollowerStore {
     fn recover_committed_state(
         &self,
         seed: FollowerState,
-        batches: &[CommittedBatch],
-    ) -> FollowerState {
+        batches: &mut follower_index::Index,
+    ) -> anyhow::Result<FollowerState> {
         if seed.fragment_epoch == 0 {
-            return seed;
+            return Ok(seed);
         }
-        let mut candidates: Vec<&CommittedBatch> = batches
-            .iter()
-            .filter(|batch| {
-                batch.state.fragment_epoch == seed.fragment_epoch && batch.state.end > seed.end
-            })
-            .collect();
-        candidates.sort_by_key(|batch| std::cmp::Reverse(batch.state.end));
-        for candidate in candidates {
+        // Order candidate states separately from range coverage, spilling as
+        // needed. Trying the largest end first avoids rescanning every prefix
+        // in the normal case. Each candidate still uses the original seed:
+        // a higher bucket base can legitimately discharge a missing prefix.
+        let mut candidates =
+            follower_index::Builder::candidates(self.filesystem.as_ref(), &self.root);
+        for index in 0..batches.len() {
+            let batch = batches.get(index)?;
+            if batch.state.fragment_epoch == seed.fragment_epoch && batch.state.end > seed.end {
+                candidates.push(batch)?;
+            }
+        }
+        let mut candidates = candidates.finish()?;
+        for index in 0..candidates.len() {
+            let candidate = candidates.get(index)?;
             let mut covered = seed.end.max(candidate.state.base);
-            for batch in batches
-                .iter()
-                .filter(|batch| batch.state.fragment_epoch == seed.fragment_epoch)
-            {
-                let first = batch
-                    .entries
-                    .first()
-                    .expect("committed batches are non-empty")
-                    .seq;
-                let last = batch
-                    .entries
-                    .last()
-                    .expect("committed batches are non-empty")
-                    .seq;
-                if last <= covered {
+            for position in 0..batches.len() {
+                let batch = batches.get(position)?;
+                if batch.state.fragment_epoch != seed.fragment_epoch || batch.last <= covered {
                     continue;
                 }
-                if first > covered.saturating_add(1) {
+                if batch.first > covered.saturating_add(1) {
                     break;
                 }
-                covered = covered.max(last);
+                covered = covered.max(batch.last);
             }
             if covered >= candidate.state.end {
-                return FollowerState {
+                return Ok(FollowerState {
                     fragment_epoch: seed.fragment_epoch,
                     base: seed.base.max(candidate.state.base),
                     end: candidate.state.end,
                     sealed_to: seed.sealed_to.max(candidate.state.sealed_to),
-                };
+                });
             }
         }
-        seed
+        Ok(seed)
     }
 
     #[doc(hidden)]
@@ -1746,22 +1750,24 @@ impl FollowerStore {
         // Use one directory observation for both recovery and its evidence.
         // A second scan could lose the invalid or later file that explains why
         // recovery stopped, then certify the shortened state as complete.
-        let batch_scan = self.scan_committed_batches(leader)?;
+        let mut batch_scan = self.scan_committed_batches(leader)?;
         anyhow::ensure!(
             seed.is_some()
                 || batch_scan.batches.is_empty()
-                    && batch_scan.unreadable_ranges.is_empty()
+                    && batch_scan.unreadable_end.is_none()
                     && !batch_scan.unknown_unreadable_range,
             "missing follower state for retained fragment {leader}"
         );
         let seed = seed.unwrap_or_default();
-        let state = self.recover_committed_state(seed, &batch_scan.batches);
+        let state = self.recover_committed_state(seed, &mut batch_scan.batches)?;
+        let disk_recovery_gap = batch_scan.recovery_gap(state)?;
+        let acknowledged_range_missing = !batch_scan.covers_acknowledged_range(state)?;
         self.logs.lock().unwrap().insert(
             leader.to_string(),
             LoadedFollowerState {
                 state,
-                disk_recovery_gap: batch_scan.recovery_gap(state),
-                acknowledged_range_missing: !batch_scan.covers_acknowledged_range(state),
+                disk_recovery_gap,
+                acknowledged_range_missing,
             },
         );
         Ok(state)
@@ -2222,18 +2228,16 @@ impl FollowerStore {
                 ..state
             },
         )?;
-        // Inspect the frozen tail before certifying it. Keep the held epoch
-        // separate from the certificate so an incomplete fragment remains
-        // visible without proving durability.
-        let tail = self.read_tail(&TailReq {
-            leader: req.leader.clone(),
-        })?;
-        let range = tail.range;
-        let retained_complete = range.fragment_epoch == state.fragment_epoch
-            && range.base == state.base
-            && range.end == end
-            && range.complete
-            && tail_covers_sealed_range(range.base, range.end, &tail.entries);
+        // Verify each committed payload once while retaining only bounded
+        // metadata. The held guard freezes the range against append/adoption/GC;
+        // certifying it does not require materializing a TailResp payload.
+        let mut scan = self.scan_committed_batches(&req.leader)?;
+        let retained_complete = state.end == end
+            && scan.directory_present
+            && !scan.unknown_unreadable_range
+            && self.recovered_disk_range_complete(&req.leader)
+            && scan.recovery_gap(state)?.is_none()
+            && scan.covers_acknowledged_range(state)?;
         if !retained_complete {
             warn!(
                 leader = req.leader,
@@ -2337,7 +2341,7 @@ impl FollowerStore {
         let state = self.load(&req.leader)?;
         let base = state.base;
         let end = state.end;
-        let batch_scan = self.scan_committed_batches(&req.leader)?;
+        let mut batch_scan = self.scan_committed_batches(&req.leader)?;
         // A checksum-invalid batch above `base` is ambiguous after a restart:
         // it can be an unacknowledged interrupted write, or a committed batch
         // damaged after its acknowledgement. Treating it as complete can lose
@@ -2348,16 +2352,34 @@ impl FollowerStore {
         // still has no bounded range that replacement coverage can discharge.
         let mut retained_files_complete =
             !batch_scan.unknown_unreadable_range && self.recovered_disk_range_complete(&req.leader);
-        let mut entries: Vec<Entry> = batch_scan
-            .batches
-            .into_iter()
-            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
-            .flat_map(|batch| batch.entries)
-            .filter(|entry| entry.seq > base)
-            .collect();
         let dir = self.dir(&req.leader);
-        match self.filesystem.read_dir(&dir) {
-            Ok(_) => {}
+        let mut entries = Vec::new();
+        for position in 0..batch_scan.batches.len() {
+            let meta = batch_scan.batches.get(position)?;
+            if meta.state.fragment_epoch != state.fragment_epoch {
+                continue;
+            }
+            let path = dir.join(format!("{}-{}.batch", meta.first, meta.last));
+            let bytes = follower_file::read(
+                self.filesystem.as_ref(),
+                &path,
+                COMMITTED_BATCH_MAX_BYTES,
+                "follower batch",
+            )?
+            .context("indexed follower batch disappeared")?;
+            let batch = decode_committed_batch(&bytes)?;
+            anyhow::ensure!(
+                committed_batch_meta(&bytes, &batch) == meta,
+                "indexed follower batch changed"
+            );
+            entries.extend(batch.entries.into_iter().filter(|entry| entry.seq > base));
+        }
+        match self.filesystem.read_dir_iter(&dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    entry?;
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 retained_files_complete = false;
                 if state.fragment_epoch != 0 {

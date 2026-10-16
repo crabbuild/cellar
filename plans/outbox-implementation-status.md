@@ -4,7 +4,8 @@ Updated 2026-10-16. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
 release. The consolidated event-delivery work merged in PR #46; PRs #47–#62
-are superseded. Follow-ups use one active PR against updated main; subsequent
+are superseded. The follower-proof/read-bound follow-ups merged in PR #68.
+Follow-ups use one active PR against updated main; subsequent
 changes reuse that PR while it is open, without a stack. The native fixture now
 exercises source, catalog, stream, and consumer turns together; that local evidence does not satisfy the fleet/release gates.
 
@@ -18,12 +19,135 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | scan_committed_batches/read_tail, seal, transport bytes() and the leader gather still materialize whole histories. Bound enumeration, decoding, replies, transport collection and gather memory across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. A per-file bound alone is insufficient. |
-| 2 | Other intermittent Node startup/shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | Cold scans and seal use a bounded derived metadata index qualified within the exercised profile below. read_tail replies, transport bytes() and the leader gather still materialize whole histories. Bound replies, transport collection and gather across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. Per-file and scanner bounds alone are insufficient. |
+| 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The retained-history memory regression reproduces 137117696 bytes (about 131 MiB)
+of RSS growth while cold-loading sixteen valid 8 MiB batches, before transport.
+The scan now consumes a streaming directory and retains only verified range,
+state, file-length and digest metadata. Inventories over 128 records spill into
+anonymous scratch files. Fixed-size external merge buffers bound index sorting;
+source payloads are released before reading the next batch. Invalid-file evidence
+retains its maximum suspect end rather than an unbounded range vector. Recovery
+still selects the newest fully covered candidate, preserves the independent
+acknowledged end and seal floor, and cannot promote a watermark across a hole.
+
+With that index, the original cold-load fixture passes at 10502144 bytes growth.
+A separate warm-seal fixture still fails at 126976000 bytes (about 121 MiB): seal
+was calling read_tail and retaining every payload. Seal now verifies exact range
+coverage from the index without constructing a tail. Preliminary measurements
+are 10698752 bytes cold-load and 540672 bytes warm-seal growth; all 19 focused log
+cases pass. These figures describe this fixture, not a universal RSS ceiling.
+The single-batch decoder still owns bounded encoded and decoded copies.
+
+Spill/order tests cover partial multi-pass runs, damaged/short scratch reads,
+changed lengths, write/read errors and anonymous-handle cleanup. Cold-store tests
+exercise a late directory error without caching partial observation, a missing
+middle sequence across a spilled inventory, bucket-base advancement, and valid
+same-range payload substitution. Payload rereads compare verified digest, state,
+length and range with the captured descriptor. Noncanonical batch filenames
+remain explicit unknown gaps; custom filesystems must implement streaming
+listing and anonymous scratch rather than collect an eager fallback. Markers
+stay 1. Completed final-source qualification is recorded below; prior batches
+qualify their captured sources only. Whole-tail replies, transport collection,
+leader gathering, provider inventories and full capacity/recovery gates remain
+open. The full feature goal remains unchanged.
+
+The first frozen index/seal batch captures 530 Rust/68 Python sources and runtime
+SHA256 71ef9632899baddfc6546beb1ce80fd7e683413286686a3ab1afb99fea9485d5.
+Python 171, workspace check, Clippy with warnings denied, formatting, docs and
+dependency policy pass, as do seven startup, 21 log and native log/protocol/asset
+cases. Seventeen process cases plus their independent audits pass. The eighteenth,
+RustFS state-corrupt, returns OwnershipLost rather than the required Unavailable
+on its first witness refusal; the successor then reports NodeLeaseExpired.
+Its retained logs do not establish the expiry's cause. Cleanup then raises on
+the fenced successor, skips the two witness stops/gate/store close, and leaves
+Python in sampled wait_for_thread_shutdown. This is a failed batch: the remaining
+process matrix and workspace/doc-tests were not run. After preserving private
+store data and logs, both witnesses are manually drained with full stop reports;
+the failed driver is terminated only after its main exception and sampled Python
+finalization are verified. Actual PID inspection confirms all owned native/driver
+processes gone, and its one owned RustFS container is removed after preservation.
+Evidence remains under cellar-tail-index-php75q3j/qualified.
+
+Two before-fix Python regressions independently reproduce the cleanup failures:
+the actual consumer exercise finally branch replaces its primary readiness error
+with a secondary stop error and abandons remaining resources; closing the real
+witness proxy waits indefinitely for an idle persistent client. The consumer
+finally branch now uses cleanup_all and attempts every owned resource while
+preserving the original error. WitnessGate.close disconnects frontends before
+joining handlers. Both regressions and all 173 Python guards pass (the same two
+existing unclosed-SQLite ResourceWarnings remain). Optional --trace captures
+selected actor/lease-store events; unexpected refusal snapshots retain the exact
+verdict before diagnostic reads or cleanup. This does not fix or explain the
+observed successor expiry. Its lease/deadline and typed-refusal assertions stay
+unchanged; final-source qualification on the new source is recorded below.
+
+Three opt-in traced RustFS state-corrupt repeats and independent evidence audits
+pass on the updated fixture (25.39s, 24.86s, 26.04s), without changing the one-second
+lease, ordinary handler budget or required typed refusals. Successor lease-write
+maxima are 7642/11053/8163 microseconds with no watchdog fences. These passing
+traces do not establish the cause of the first failed ordinary run. Actual
+process/container inspection confirms no owned native processes and all nine
+owned stores from the first batch and three traced repeats removed. The saved
+failed store copy and all failure/trace evidence remain available. The replacement immutable
+full batch is recorded next; the original failure remains open independently of
+the cleanup fixes and bounded-memory work.
+
+Final index/seal/cleanup qualification captures 530 Rust/68 Python sources and
+all manifest/lock/build/lint/CI inputs on Rust 1.98.1/aarch64 macOS. Saved runtime
+SHA256: e50bc758397bac4226b69822d98ba7be95db94b7120b3b4471b22d971366047a.
+All 28 ordinary process cases and 28 independent audits pass, including the
+previously failed ordinary RustFS state-corrupt case (25.41s). That replay does
+not establish the cause of the original successor expiry. The two oversized-
+batch variants pass in 23.19s SQLite/27.60s RustFS. All 173 Python guards, seven
+startup tests, 21 log tests, 19 native log/five protocol/four asset-host cases and
+ordinary smoke pass. Workspace checking (3.06s), Clippy with warnings denied
+(1.63s), 530-file formatting, docs (36 documents/six flows/388 references),
+dependency policy (403 packages/no JavaScript engine) and whitespace gates pass.
+The complete workspace run passes 659 top-level tests across 107 Cargo targets
+(1340.53s), plus one nested child test: 660 reported passes across 108 result
+lines. This corrects target-count bookkeeping, rather than adding another Cargo
+target. All 77 Node cases pass (128.24s); the real dev-host case passes in 478.08s
+under its original per-step deadlines. Doc-tests pass 11 with one existing ignored
+example (126.94s). The two pre-existing Python SQLite ResourceWarnings remain.
+
+All captured inputs and the saved runtime remain identical through 69 phases.
+Actual post-run process/container inspection confirms no owned native processes
+and all 24 owned stores from the failed batch, diagnostic repeats and final batch
+removed; the original failed store copy remains preserved. The qualification and
+independent summary/process evidence are retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-tail-index-php75q3j/qualified-cleanup`.
+Final docs are checked again after recording this ledger. PR #68 merged during
+validation; its merged main tree exactly matches the old branch's base tree.
+The follow-up starts directly from that updated main, retaining the same checked
+source bytes. This qualifies the bounded scanner/seal and failure-cleanup changes
+in this profile. Whole-tail transfer/gather, the unexplained lease/startup causes
+and all remaining proof/lifecycle/physical/capacity/operational release gates stay
+open. Hosted Linux checks remain separate from matching-compiler local evidence.
+
+The next transfer audit includes both recover_once and live-session fold_cell;
+the latter currently reads every follower's whole tail even when restoring only
+one cell. uncovered_bundle_rows_for also accumulates fetched bundle payloads and
+then the uncovered rows. Replacing the recovery POST alone would leave those
+paths unbounded. The complete acceptance gate is one captured leader session,
+fragment epoch and original (base, end] range per transfer; exact contiguous
+coverage is required before counting a witness. A disconnect, changed range,
+partial/late page, failed index or malformed completion must not certify a
+shorter range. Cancellation/reconnect must preserve the claim/ownership checks
+and release derived storage. Page decoding and HTTP collection need independent
+pre-allocation limits. The leader must stage/fold rows with bounded memory in
+numeric per-cell epoch/TXID order; a later watermark cannot hide earlier bundled
+rows. Provider listings must actually paginate at the provider, and optional
+recovery-progress hints must remain bounded without becoming authority. The
+release cases must measure server, transport and gather residency separately
+and exercise interruption before the final completion proof, stale snapshots,
+corrupt late pages, and original receipts/effects before replay. This is the
+remaining implementation/qualification scope, not a completed protocol.
 
 The next recovery audit reproduces four failures in 0.28s (57.15s including
 compilation): the batch constructor accepts more than 64 frames/64 MiB entries,

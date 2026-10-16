@@ -75,5 +75,26 @@ class WitnessGateTests(unittest.TestCase):
         self.assertEqual(observed["status"],400);self.assertEqual(observed["response_body"],reply.decode())
         self.assertEqual(len(self.requests),1)
 
+    def test_close_disconnects_idle_keepalive_handlers_before_joining(self):
+        self.gate.release()
+        connection=http.client.HTTPConnection(*self.gate.address,timeout=5)
+        body=json.dumps(dict(leader=self.gate.leader,epoch=7)).encode()
+        connection.request("POST","/peer/log/seal",body)
+        self.assertEqual(connection.getresponse().read(),body)
+        done=threading.Event();errors=[]
+        def close():
+            try:self.gate.close()
+            except Exception as error:errors.append(error)
+            finally:done.set()
+        thread=threading.Thread(target=close);thread.start()
+        finished=done.wait(2)
+        # Failure cleanup must itself release the blocked handler so this
+        # regression reports an assertion rather than hanging the test runner.
+        if not finished:self.gate.disconnect()
+        connection.close();thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(finished,"close waited for a persistent client to disconnect")
+        self.assertEqual(errors,[])
+
 
 if __name__=="__main__":unittest.main()

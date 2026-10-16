@@ -1,6 +1,7 @@
 //! Check the actual cold-store read boundary, before metadata allocation.
 use super::super::{AppendReq, FollowerStore, SealReq, TailReq};
 use super::*;
+use anyhow::Context as _;
 use cellar_ltx::{DirectFileSystem, FileSystem, HostDirEntry, HostFile, HostFileIo, HostMetadata};
 use std::{
     io,
@@ -20,6 +21,8 @@ enum Fault {
     ReadNotFound,
     ChangedLength,
     ShortRead,
+    DirectoryLate,
+    SubstituteBatch,
 }
 
 struct Probe {
@@ -28,6 +31,8 @@ struct Probe {
     fault: Fault,
     batch: bool,
     cap: u64,
+    rss_peak: Option<Arc<AtomicU64>>,
+    reads: AtomicUsize,
 }
 
 impl Probe {
@@ -41,6 +46,9 @@ impl Probe {
 
     fn request(&self, bytes: u64) {
         self.peak.fetch_max(bytes, Ordering::SeqCst);
+        if let Some(peak) = &self.rss_peak {
+            peak.fetch_max(crate::memory::sample().rss_bytes, Ordering::SeqCst);
+        }
     }
 
     fn mutation(&self) {
@@ -71,7 +79,21 @@ impl HostFileIo for File {
                 return self.inner.read_exact_at(offset, len.saturating_sub(1));
             }
         }
-        self.inner.read_exact_at(offset, len)
+        let mut bytes = self.inner.read_exact_at(offset, len)?;
+        if self.state
+            && self.probe.batch
+            && matches!(self.probe.fault, Fault::SubstituteBatch)
+            && self.probe.reads.fetch_add(1, Ordering::SeqCst) % 2 == 1
+        {
+            // Simulate a valid same-range file replacement between index and
+            // payload reads, including a fresh valid source checksum.
+            use sha2::Digest as _;
+            let payload = bytes.len() - 32;
+            bytes[payload - 1] ^= 1;
+            let digest = sha2::Sha256::digest(&bytes[..payload]);
+            bytes[payload..].copy_from_slice(&digest);
+        }
+        Ok(bytes)
     }
 
     fn file_len(&mut self) -> io::Result<u64> {
@@ -100,6 +122,20 @@ impl HostFileIo for File {
 }
 
 impl FileSystem for Filesystem {
+    fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
+        DirectFileSystem.temporary_file(directory)
+    }
+
+    fn read_dir_iter(&self, path: &Path) -> io::Result<cellar_ltx::HostDirIterator> {
+        let entries = DirectFileSystem.read_dir_iter(path)?;
+        if matches!(self.0.fault, Fault::DirectoryLate) {
+            return Ok(Box::new(entries.chain(std::iter::once(Err(
+                io::Error::other("injected late directory failure"),
+            )))));
+        }
+        Ok(entries)
+    }
+
     fn read(&self, path: &Path) -> io::Result<Vec<u8>> {
         if self.0.target(path) {
             let len = DirectFileSystem.metadata(path)?.len;
@@ -127,6 +163,11 @@ impl FileSystem for Filesystem {
     }
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<HostDirEntry>> {
+        if self.0.rss_peak.is_some() {
+            return Err(io::Error::other(
+                "eager directory enumeration during cold scan",
+            ));
+        }
         DirectFileSystem.read_dir(path)
     }
 
@@ -200,6 +241,8 @@ fn fixture(
         fault,
         batch: false,
         cap: 4096,
+        rss_peak: None,
+        reads: AtomicUsize::new(0),
     });
     let mut store = FollowerStore::new(root, None, "witness");
     store.filesystem = Arc::new(Filesystem(probe.clone()));
@@ -236,6 +279,8 @@ async fn oversized_batch_preserves_the_required_end_without_requesting_payload(
         fault: Fault::None,
         batch: true,
         cap: (64 << 20) + 72,
+        rss_peak: None,
+        reads: AtomicUsize::new(0),
     });
     let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
     let result = domain
@@ -357,6 +402,8 @@ async fn opened_batch_read_failures_cannot_credit_the_acknowledged_end() -> anyh
                     fault,
                     batch: true,
                     cap: (64 << 20) + 72,
+                    rss_peak: None,
+                    reads: AtomicUsize::new(0),
                 });
                 let mut store = FollowerStore::new(&root, None, "witness");
                 store.filesystem = Arc::new(Filesystem(probe.clone()));
@@ -508,6 +555,339 @@ async fn opened_state_failures_never_become_a_fresh_fragment() -> anyhow::Result
                     clean.load(LEADER)? == state(),
                     "failed reader modified the original metadata"
                 );
+            }
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn cold_scan_payload_residency_stays_bounded() -> anyhow::Result<()> {
+    measured_history_residency("cold_scan_payload_residency_stays_bounded", false).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[tokio::test]
+async fn seal_payload_residency_stays_bounded() -> anyhow::Result<()> {
+    measured_history_residency("seal_payload_residency_stays_bounded", true).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn measured_history_residency(test_name: &str, seal: bool) -> anyhow::Result<()> {
+    const CHILD: &str = "CELLAR_TEST_FOLLOWER_SCAN_RSS";
+    if std::env::var_os(CHILD).is_none() {
+        // A separate exact test process isolates the RSS observation from the
+        // other SDK tests and their allocators. No production host reads this.
+        let module = module_path!().split_once("::").unwrap().1;
+        let name = format!("{module}::{test_name}");
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args(["--exact", &name, "--nocapture", "--test-threads=1"])
+            .env(CHILD, "1")
+            .output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::ensure!(
+            output.status.success() && stdout.contains("1 passed; 0 failed"),
+            "isolated cold scan failed: {stdout}\n{stderr}"
+        );
+        eprintln!("{stderr}");
+        return Ok(());
+    }
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain.run(async {
+        let path = directory.path().join("peerlog").join(LEADER);
+        DirectFileSystem.create_dir_all(&path)?;
+        // Sixteen valid 8 MiB batches expose eager payload accumulation but
+        // do not need a large file or an intentionally failed allocation.
+        let seed = FollowerState { fragment_epoch: 7, base: 0, end: 16, sealed_to: 7 };
+        for seq in 1..=16 {
+            let entry = super::super::Entry {
+                seq, cell: "cell".into(), cell_epoch: 1, txid: seq,
+                bytes: vec![seq as u8; 8 << 20],
+            };
+            let bytes = super::super::encode_committed_batch(FollowerState { end: seq, ..seed }, &[entry]);
+            DirectFileSystem.write(&path.join(format!("{seq}-{seq}.batch")), &bytes)?;
+        }
+        DirectFileSystem.write(&path.join("state.json"), &encode(LEADER, "witness", seed)?)?;
+        let memory = Arc::new(AtomicU64::new(0));
+        let probe = Arc::new(Probe {
+            peak: AtomicU64::new(0), persistence: AtomicUsize::new(0), fault: Fault::None,
+            batch: true, cap: (64 << 20) + 72, rss_peak: Some(memory.clone()), reads: AtomicUsize::new(0),
+        });
+        let mut store = FollowerStore::new(directory.path(), None, "witness");
+        store.filesystem = Arc::new(Filesystem(probe));
+        if seal {
+            assert!(store.load(LEADER)? == seed);
+        }
+        memory.store(0, Ordering::SeqCst);
+        let baseline = crate::memory::sample().rss_bytes;
+        anyhow::ensure!(baseline > 0, "cold-scan RSS unavailable on supported profile");
+        if seal {
+            let response = store.seal(&SealReq { leader: LEADER.into(), epoch: 8 }).await?;
+            assert_eq!(response.fragment_epoch, 7);
+            assert_eq!(response.base, Some(0));
+            assert_eq!(response.end, 16);
+            assert_eq!(store.load(LEADER)?.sealed_to, 8);
+        } else {
+            assert!(store.load(LEADER)? == seed);
+        }
+        let peak = memory.load(Ordering::SeqCst).max(crate::memory::sample().rss_bytes);
+        let growth = peak.saturating_sub(baseline);
+        eprintln!("{test_name} RSS: growth={growth}, baseline={baseline}, peak={peak}");
+        anyhow::ensure!(growth <= 64 << 20,
+            "cold scan retained payloads across batches: growth={growth}, baseline={baseline}, peak={peak}, budget={}", 64 << 20);
+        anyhow::Ok(())
+    }).await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn cold_inventory_refuses_late_directory_failure_without_caching() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let (mut store, probe, _) = fixture(directory.path(), 1024, Fault::DirectoryLate)?;
+            for _ in 0..2 {
+                let error = store
+                    .load(LEADER)
+                    .err()
+                    .context("late enumeration must fail")?;
+                assert!(error.to_string().contains("late directory failure"));
+                assert!(store.logs.lock().unwrap().is_empty());
+            }
+            assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
+            store.filesystem = Arc::new(DirectFileSystem);
+            assert!(store.load(LEADER)? == state());
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn cold_inventory_spills_and_retains_missing_suffix_evidence() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let path = directory.path().join("peerlog").join(LEADER);
+            DirectFileSystem.create_dir_all(&path)?;
+            let seed = FollowerState {
+                fragment_epoch: 7,
+                base: 0,
+                end: 0,
+                sealed_to: 6,
+            };
+            DirectFileSystem.write(&path.join("state.json"), &encode(LEADER, "witness", seed)?)?;
+            for seq in (1..=300).rev() {
+                if seq == 151 {
+                    continue;
+                }
+                let entry = super::super::Entry {
+                    seq,
+                    cell: "cell".into(),
+                    cell_epoch: 1,
+                    txid: seq,
+                    bytes: vec![seq as u8],
+                };
+                let bytes = super::super::encode_committed_batch(
+                    FollowerState { end: seq, ..seed },
+                    &[entry],
+                );
+                DirectFileSystem.write(&path.join(format!("{seq}-{seq}.batch")), &bytes)?;
+            }
+            let store = FollowerStore::new(directory.path(), None, "witness");
+            let loaded = store.load(LEADER)?;
+            assert_eq!(loaded.end, 150);
+            assert_eq!(loaded.sealed_to, 6);
+            assert!(!store.recovered_disk_range_complete(LEADER));
+            let tail = store
+                .tail(&TailReq {
+                    leader: LEADER.into(),
+                })
+                .await?;
+            assert!(!tail.range.complete);
+            assert_eq!(tail.entries.len(), 299);
+            assert_eq!(tail.entries[149].seq, 150);
+            assert_eq!(tail.entries[150].seq, 152);
+            assert_eq!(
+                DirectFileSystem.read_dir(&path)?.len(),
+                300,
+                "derived scratch left named files"
+            );
+            // The independent acknowledged end must not shrink to the last
+            // contiguous prefix when the same inventory has a retained gap.
+            DirectFileSystem.write(
+                &path.join("state.json"),
+                &encode(LEADER, "witness", FollowerState { end: 300, ..seed })?,
+            )?;
+            let acknowledged = FollowerStore::new(directory.path(), None, "witness");
+            assert_eq!(acknowledged.load(LEADER)?.end, 300);
+            let probe = acknowledged
+                .append(AppendReq {
+                    leader: LEADER.into(),
+                    epoch: 7,
+                    truncate_to: 0,
+                    entries: Vec::new(),
+                })
+                .await;
+            assert!(!probe.ok);
+            assert_eq!(probe.end, 300);
+            let seal = acknowledged
+                .seal(&SealReq {
+                    leader: LEADER.into(),
+                    epoch: 9,
+                })
+                .await?;
+            assert_eq!(seal.end, 300);
+            assert_eq!(seal.fragment_epoch, 0);
+            assert_eq!(acknowledged.load(LEADER)?.sealed_to, 9);
+            // Only a verified batch's bucket base may discharge the hole. The
+            // original durable seed alone cannot advance past missing sequence 151.
+            let entry = super::super::Entry {
+                seq: 301,
+                cell: "cell".into(),
+                cell_epoch: 1,
+                txid: 301,
+                bytes: vec![1],
+            };
+            let bytes = super::super::encode_committed_batch(
+                FollowerState {
+                    base: 151,
+                    end: 301,
+                    ..seed
+                },
+                &[entry],
+            );
+            DirectFileSystem.write(&path.join("301-301.batch"), &bytes)?;
+            let cold = FollowerStore::new(directory.path(), None, "witness");
+            let recovered = cold.load(LEADER)?;
+            assert_eq!(recovered.base, 151);
+            assert_eq!(recovered.end, 301);
+            assert_eq!(recovered.sealed_to, 9);
+            assert!(
+                cold.tail(&TailReq {
+                    leader: LEADER.into()
+                })
+                .await?
+                .range
+                .complete
+            );
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn tail_refuses_valid_payload_substitution_after_indexing() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let path = directory.path().join("peerlog").join(LEADER);
+            DirectFileSystem.create_dir_all(&path)?;
+            let seed = FollowerState {
+                fragment_epoch: 7,
+                base: 0,
+                end: 1,
+                sealed_to: 8,
+            };
+            DirectFileSystem.write(&path.join("state.json"), &encode(LEADER, "witness", seed)?)?;
+            let entry = super::super::Entry {
+                seq: 1,
+                cell: "cell".into(),
+                cell_epoch: 1,
+                txid: 1,
+                bytes: vec![1],
+            };
+            let bytes = super::super::encode_committed_batch(seed, &[entry]);
+            DirectFileSystem.write(&path.join("1-1.batch"), &bytes)?;
+            let probe = Arc::new(Probe {
+                peak: AtomicU64::new(0),
+                persistence: AtomicUsize::new(0),
+                fault: Fault::SubstituteBatch,
+                batch: true,
+                cap: (64 << 20) + 72,
+                rss_peak: None,
+                reads: AtomicUsize::new(0),
+            });
+            let mut store = FollowerStore::new(directory.path(), None, "witness");
+            store.filesystem = Arc::new(Filesystem(probe.clone()));
+            assert!(store.load(LEADER)? == seed);
+            let error = store
+                .tail(&TailReq {
+                    leader: LEADER.into(),
+                })
+                .await
+                .err()
+                .context("changed payload cannot supply tail evidence")?;
+            assert!(error.to_string().contains("indexed follower batch changed"));
+            assert_eq!(probe.persistence.load(Ordering::SeqCst), 0);
+            assert_eq!(DirectFileSystem.read(&path.join("1-1.batch"))?, bytes);
+            anyhow::Ok(())
+        })
+        .await?;
+    domain.shutdown().await;
+    result
+}
+
+#[tokio::test]
+async fn noncanonical_batch_names_never_supply_recovery_proof() -> anyhow::Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            for (index, name) in ["01-1.batch", "1-01.batch", "+1-1.batch"]
+                .into_iter()
+                .enumerate()
+            {
+                let root = directory.path().join(index.to_string());
+                let path = root.join("peerlog").join(LEADER);
+                DirectFileSystem.create_dir_all(&path)?;
+                let seed = FollowerState {
+                    fragment_epoch: 7,
+                    base: 0,
+                    end: 1,
+                    sealed_to: 0,
+                };
+                DirectFileSystem
+                    .write(&path.join("state.json"), &encode(LEADER, "witness", seed)?)?;
+                let entry = super::super::Entry {
+                    seq: 1,
+                    cell: "cell".into(),
+                    cell_epoch: 1,
+                    txid: 1,
+                    bytes: vec![1],
+                };
+                let bytes = super::super::encode_committed_batch(seed, &[entry]);
+                DirectFileSystem.write(&path.join(name), &bytes)?;
+                let store = FollowerStore::new(&root, None, "witness");
+                assert!(store.load(LEADER)? == seed);
+                let tail = store
+                    .tail(&TailReq {
+                        leader: LEADER.into(),
+                    })
+                    .await?;
+                assert!(!tail.range.complete);
+                assert!(tail.entries.is_empty());
+                let seal = store
+                    .seal(&SealReq {
+                        leader: LEADER.into(),
+                        epoch: 8,
+                    })
+                    .await?;
+                assert_eq!(seal.fragment_epoch, 0);
+                assert_eq!(seal.end, 1);
+                assert_eq!(DirectFileSystem.read(&path.join(name))?, bytes);
             }
             anyhow::Ok(())
         })

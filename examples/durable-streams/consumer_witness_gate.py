@@ -79,5 +79,5 @@ class WitnessGate:
         return len(connections)
 
     def close(self):
-        self.release();self.server.shutdown();self.server.server_close();self.thread.join(timeout=5)
+        self.release();self.disconnect();self.server.shutdown();self.server.server_close();self.thread.join(timeout=5)
         require(not self.thread.is_alive() and not self.errors,f"consumer witness gate did not join cleanly: {self.errors}")

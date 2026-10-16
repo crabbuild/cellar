@@ -1,8 +1,13 @@
 """A failing shutdown must not abandon remaining owned processes/stores."""
 from contextlib import redirect_stderr
 import io
+from pathlib import Path
+from types import SimpleNamespace
+import tempfile
 import unittest
+from unittest.mock import patch
 
+import consumer_recovery
 from faults import AuditError, cleanup_all
 
 
@@ -28,6 +33,32 @@ class CleanupTests(unittest.TestCase):
 
     def test_successful_cleanup_adds_no_failure(self):
         observed=[];cleanup_all([("store",lambda:observed.append("store"))]);self.assertEqual(observed,["store"])
+
+    def test_consumer_driver_keeps_original_failure_and_cleans_every_resource(self):
+        observed=[];original=AuditError("primary readiness failure")
+        def process(_binary,_root,node,*args,**kwargs):
+            def ready():
+                observed.append(node+"-ready")
+                if node=="producer":raise original
+                return "http://private"
+            def stop():
+                observed.append(node+"-stop")
+                if node=="producer":raise RuntimeError("secondary stop failure")
+            return SimpleNamespace(node=node,ready=ready,stop=stop)
+        store=SimpleNamespace(start=lambda:observed.append("store-start"),close=lambda:observed.append("store-close"))
+        ledger=SimpleNamespace(close=lambda:observed.append("ledger-close"))
+        caught=None;diagnostics=io.StringIO()
+        with tempfile.TemporaryDirectory() as directory,redirect_stderr(diagnostics), \
+             patch.object(consumer_recovery,"Ledger",return_value=ledger), \
+             patch.object(consumer_recovery,"NetworkStore",return_value=store), \
+             patch.object(consumer_recovery,"FleetProcess",side_effect=process), \
+             patch.object(consumer_recovery,"free_address",return_value=("127.0.0.1",1234)), \
+             patch.object(consumer_recovery,"read",return_value={"records":[]}):
+            try:consumer_recovery.exercise(Path("unused"),Path(directory)/"fixture",rustfs_image="private-fixture")
+            except Exception as error:caught=error
+        self.assertIs(caught,original)
+        self.assertEqual(observed,["store-start","destination-ready","producer-ready","producer-stop","destination-stop","store-close","ledger-close"])
+        self.assertIn("secondary stop failure",diagnostics.getvalue())
 
 
 if __name__=="__main__":unittest.main()

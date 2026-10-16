@@ -35,6 +35,10 @@ pub struct HostDirEntry {
     pub is_dir: bool,
 }
 
+/// A streaming directory observation. Errors remain observable at the entry
+/// that failed; implementations must not first materialize the directory.
+pub type HostDirIterator = Box<dyn Iterator<Item = io::Result<HostDirEntry>> + Send>;
+
 /// The operations on one open injected file.
 pub trait HostFileIo: Send {
     fn write_all(&mut self, bytes: &[u8]) -> io::Result<()>;
@@ -92,6 +96,15 @@ pub trait FileSystem: Send + Sync {
     fn read(&self, path: &Path) -> io::Result<Vec<u8>>;
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<HostDirEntry>>;
+
+    /// Enumerate without collecting the whole directory. Retained-log recovery
+    /// requires this contract; falling back to read_dir would lose its bound.
+    fn read_dir_iter(&self, _path: &Path) -> io::Result<HostDirIterator> {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "streaming directory enumeration is unsupported",
+        ))
+    }
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata>;
 
@@ -216,17 +229,19 @@ impl FileSystem for DirectFileSystem {
     }
 
     fn read_dir(&self, path: &Path) -> io::Result<Vec<HostDirEntry>> {
-        std::fs::read_dir(path)?
-            .map(|entry| {
-                let entry = entry?;
-                let file_type = entry.file_type()?;
-                Ok(HostDirEntry {
-                    path: entry.path(),
-                    file_name: entry.file_name(),
-                    is_dir: file_type.is_dir(),
-                })
+        self.read_dir_iter(path)?.collect()
+    }
+
+    fn read_dir_iter(&self, path: &Path) -> io::Result<HostDirIterator> {
+        Ok(Box::new(std::fs::read_dir(path)?.map(|entry| {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            Ok(HostDirEntry {
+                path: entry.path(),
+                file_name: entry.file_name(),
+                is_dir: file_type.is_dir(),
             })
-            .collect()
+        })))
     }
 
     fn metadata(&self, path: &Path) -> io::Result<HostMetadata> {

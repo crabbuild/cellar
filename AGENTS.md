@@ -151,6 +151,30 @@ the oversized input is guarded by the test filesystem to avoid a huge test
 allocation. consumer_recovery.py --witness-data state-oversize pads the original
 valid record to 64 KiB without changing fields/checksum. Require actual size
 refusals, untouched batches and exact original-state return after peer joins.
+Follower cold scans enumerate through FileSystem::read_dir_iter and release each
+verified batch payload before reading another. follower_index.rs keeps at most
+128 metadata records per run/buffer, spilling larger inventories into anonymous
+injected scratch files with checked lengths and per-record SHA-256. Scratch is
+derived, never authority. Read/sort/write failures refuse without caching a
+shorter inventory. Seal checks verified range coverage without building a tail;
+subsequent payload reads must match the indexed digest/state/length/range.
+Canonical numeric batch filenames are required; noncanonical names remain unknown
+gap evidence. Custom filesystems must supply streaming directories and scratch
+for large histories; no eager fallback. All owned markers remain 1. The isolated
+cold-load/seal RSS fixtures qualify only their 16-by-8-MiB profile. Whole-tail
+replies, peer collection and leader gathering remain unbounded and must be fixed
+before claiming total recovery memory bounds.
+
+Consumer-recovery failure cleanup must run every node/gate/store/ledger action
+through cleanup_all, preserving the primary error even when a stopped node was
+fenced. WitnessGate.close disconnects persistent frontends before server_close
+joins handlers; otherwise a failed driver can remain in Python finalization.
+The Python regressions exercise the actual consumer finally branch and a real
+idle keepalive connection. --trace captures selected actor/lease-store events;
+unexpected-refusal files retain the exact verdict before further observation.
+Keep the original one-second fixture lease, typed Unavailable requirement and
+operation budgets. Cleanup repairs do not explain an observed NodeLeaseExpired.
+
 Cold destination ack/fetch fixtures refuse only the consumer's selected stream
 ownership write, preserving other writes and real proof paths. A returning
 consumer may otherwise validly own the stream and replay locally, bypassing the
