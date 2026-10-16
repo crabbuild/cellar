@@ -867,3 +867,52 @@ async fn event_state_and_host_metrics_require_data_read_before_lookup() {
     }
     domain.shutdown().await;
 }
+
+#[tokio::test]
+async fn event_lifecycle_requires_both_operate_and_data_write() {
+    let (_dir, app, domain) = fixture().await;
+    let id = "a".repeat(32);
+    let actions = [
+        (
+            "/api/v1/fleets/alpha/cells/Customer:one/outbox",
+            json!({"operation_id":id,"action":{"kind":"destroy","incarnation":"b".repeat(32),"reason":"remove test source","data_loss_acknowledgment":"discard test data"}}),
+        ),
+        (
+            "/api/v1/fleets/alpha/cells/Customer:one/outbox",
+            json!({"operation_id":id,"action":{"kind":"recreate","incarnation":"b".repeat(32),"reason":"start empty"}}),
+        ),
+        (
+            "/api/v1/fleets/alpha/streams/missing/EVENTS/action",
+            json!({"operation_id":id,"resource_id":"b".repeat(32),"action":{"kind":"retire","revision":"1","reason":"retire test stream","mode":{"mode":"coordinated","procedure":"producers stopped"}}}),
+        ),
+    ];
+    for (path, body) in actions {
+        for token in [
+            "operator-test-token-with-32-or-more-bytes",
+            "editor-test-token-with-32-or-more-bytes",
+        ] {
+            assert_eq!(
+                event_request(&app, path, token, body.clone()).await.0,
+                StatusCode::FORBIDDEN
+            );
+        }
+    }
+    assert_eq!(
+        get(&app, "/api/v1/fleets/alpha/events/inventory?limit=25")
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        event_request(
+            &app,
+            "/api/v1/fleets/alpha/cells/Customer:one/event-inventory",
+            TOKEN,
+            json!({"op":"history","limit":25,"cursor":null})
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    domain.shutdown().await;
+}

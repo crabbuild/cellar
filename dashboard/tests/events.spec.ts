@@ -675,3 +675,311 @@ test("stream backing cells expose event state without an unsupported source outb
     page.getByRole("tab", { name: "Event state", exact: true })
   ).toBeVisible()
 })
+
+test("missing receipts remain unknown instead of confirming a write", async ({
+  page,
+}) => {
+  const calls = await setup(page, { unknown: true })
+  await page.route("**/cells/Order%3Aone/outbox", async (route) => {
+    const body = route.request().postDataJSON()
+    if (body.action.kind === "status")
+      await route.fulfill({ json: { failure: "Receipt unavailable" } })
+    else await route.fallback()
+  })
+  await open(page, "/fleets/main/cells/Order%3Aone?tab=outbox")
+  await page.getByRole("button", { name: "Retry lane" }).click()
+  await page.getByLabel("Reason", { exact: true }).fill("retry blocked lane")
+  await page.getByRole("button", { name: "Apply change" }).click()
+  await page.getByRole("button", { name: "Check receipt" }).click()
+  await expect(page.getByText("Outcome needs verification")).toBeVisible()
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Receipt unavailable" })
+  ).toBeVisible()
+  await expect(
+    page.getByText("The owning cell confirmed the durable receipt.")
+  ).toHaveCount(0)
+  expect(calls.filter((c) => c.body.action.kind === "retry")).toHaveLength(1)
+})
+
+test("source destruction pins incarnation and requires explicit loss acknowledgment", async ({
+  page,
+}) => {
+  const calls = await setup(page)
+  await page.route("**/cells/Order%3Aone/outbox", async (route) => {
+    const body = route.request().postDataJSON()
+    if (body.action.kind === "destroy") {
+      calls.push({ path: "outbox", body })
+      await route.fulfill({
+        json: {
+          result: { operation: body.operation_id, state: "checking" },
+          operation: { id: body.operation_id, status: "accepted" },
+        },
+      })
+    } else await route.fallback()
+  })
+  await open(page, "/fleets/main/cells/Order%3Aone?tab=outbox")
+  await page.getByRole("tab", { name: "Source lifecycle" }).click()
+  await page
+    .getByRole("button", { name: "Destroy source…", exact: true })
+    .click()
+  await page
+    .getByLabel("Reason", { exact: true })
+    .fill("remove a retired source")
+  await expect(
+    page.getByRole("button", { name: "Apply change" })
+  ).toBeDisabled()
+  await page
+    .getByLabel("Type the source incarnation to confirm")
+    .fill(revision.incarnation)
+  await page
+    .getByLabel("Data loss acknowledgment", { exact: true })
+    .fill("Discard this source’s test business state and obligations")
+  await page.getByRole("button", { name: "Apply change" }).click()
+  await expect(
+    page.getByText("Change accepted · cleanup in progress")
+  ).toBeVisible()
+  const write = calls.find((c) => c.body.action.kind === "destroy")!
+  expect(write.body.action.incarnation).toBe(revision.incarnation)
+  expect(write.body.action.data_loss_acknowledgment).toContain("obligations")
+  expect(calls.filter((c) => c.body.action.kind === "destroy")).toHaveLength(1)
+})
+
+test("stream retirement pins revision and terminal proof stays a read", async ({
+  page,
+}) => {
+  const calls = await setup(page)
+  await page.route("**/streams/orders/EVENTS/action", async (route) => {
+    const body = route.request().postDataJSON()
+    if (["retire", "retirement_proof"].includes(body.action.kind)) {
+      calls.push({ path: "stream", body })
+      await route.fulfill({
+        json: {
+          result: {
+            resource: resource.id,
+            operation: body.operation_id,
+            state: body.action.kind === "retire" ? "retiring" : "deleted",
+          },
+          operation:
+            body.action.kind === "retire"
+              ? { id: body.operation_id, status: "accepted" }
+              : null,
+        },
+      })
+    } else await route.fallback()
+  })
+  await open(page, "/fleets/main/streams/orders/EVENTS?view=lifecycle")
+  await page
+    .getByRole("button", { name: "Retire stream…", exact: true })
+    .click()
+  await page.getByLabel("Reason", { exact: true }).fill("retire old stream")
+  await page
+    .getByLabel("Producer coordination procedure")
+    .fill("All producers stopped and verified externally")
+  await expect(
+    page.getByRole("button", { name: "Apply change" })
+  ).toBeDisabled()
+  await page.getByLabel("Type the stream UUID to confirm").fill(resource.id)
+  await page.getByRole("button", { name: "Apply change" }).click()
+  await expect(
+    page.getByText("Change accepted · cleanup in progress")
+  ).toBeVisible()
+  const write = calls.find((c) => c.body.action.kind === "retire")!
+  expect(write.body.action.revision).toBe("1")
+  expect(write.body.action.mode).toEqual({
+    mode: "coordinated",
+    procedure: "All producers stopped and verified externally",
+  })
+  await page.getByRole("button", { name: "Verify terminal retirement" }).click()
+  await expect
+    .poll(
+      () =>
+        calls.filter((c) => c.body.action.kind === "retirement_proof").length
+    )
+    .toBe(1)
+  expect(calls.filter((c) => c.body.action.kind === "retire")).toHaveLength(1)
+})
+
+test("fleet inspection is explicit and unavailable roots never become empty", async ({
+  page,
+}) => {
+  await setup(page)
+  let inspections = 0
+  await page.route("**/events/inventory?**", async (route) => {
+    inspections++
+    await route.fulfill({
+      json: {
+        records: [{ scope: "Order:missing", status: "unavailable" }],
+        next: null,
+        scanned_prefixes: 1,
+        complete_probes: false,
+        totals: {
+          observed: 0,
+          unavailable: 1,
+          observed_gauges: { outbox_rows: "0", stream_rows: "0" },
+        },
+      },
+    })
+  })
+  await open(page, "/fleets/main/outboxes")
+  await page.getByRole("tab", { name: "Fleet inspection" }).click()
+  expect(inspections).toBe(0)
+  await page.getByRole("button", { name: "Inspect root page" }).click()
+  await expect(
+    page.getByText("Their state is unknown", { exact: false })
+  ).toBeVisible()
+  await expect(page.getByText("Unavailable", { exact: true })).toBeVisible()
+  await expect(
+    page.getByText("No current outbox", { exact: true })
+  ).toHaveCount(0)
+  expect(inspections).toBe(1)
+})
+
+test("subscription inspection refreshes owner state and explains expired history", async ({
+  page,
+}) => {
+  const calls = await setup(page)
+  await page.route("**/streams/orders/EVENTS/action", async (route) => {
+    const body = route.request().postDataJSON()
+    if (body.action.kind === "subscription") {
+      calls.push({ path: "stream", body })
+      await route.fulfill({
+        json: {
+          result: {
+            ...subscription,
+            observation: { ...subscription.observation, history_expired: true },
+            earliest: "2",
+          },
+        },
+      })
+    } else await route.fallback()
+  })
+  await open(page, "/fleets/main/streams/orders/EVENTS?view=subscriptions")
+  await page.getByRole("button", { name: "projection", exact: true }).click()
+  await expect(
+    page.getByText("Logical lag includes expired events", { exact: false })
+  ).toBeVisible()
+  await expect(
+    page.getByRole("progressbar", { name: "Retained delivery progress" })
+  ).toBeVisible()
+  expect(
+    calls.find((c) => c.body.action.kind === "subscription")?.body.action.name
+  ).toBe("projection")
+})
+
+test("cleanup continuation is reviewed and reuses the exact saved operation", async ({
+  page,
+}) => {
+  const calls = await setup(page)
+  const operation = "f".repeat(32)
+  const receipt = {
+    operation,
+    incarnation: revision.incarnation,
+    reason: "original destruction reason",
+    data_loss_acknowledgment: "original loss acknowledgment",
+    state: "checking",
+  }
+  await page.route("**/cells/Order%3Aone/outbox", async (route) => {
+    const body = route.request().postDataJSON()
+    if (body.action.kind === "status") {
+      await route.fulfill({ json: { result: receipt } })
+    } else if (body.action.kind === "destroy") {
+      calls.push({ path: "outbox", body })
+      await route.fulfill({
+        json: {
+          result: receipt,
+          operation: { id: operation, status: "accepted" },
+        },
+      })
+    } else await route.fallback()
+  })
+  await open(
+    page,
+    `/fleets/main/cells/Order%3Aone?tab=outbox&operation=${operation}`
+  )
+  await page.getByRole("button", { name: "Look up receipt" }).click()
+  await page.getByRole("button", { name: "Resume source cleanup…" }).click()
+  await page.getByRole("button", { name: "Cancel", exact: true }).click()
+  expect(calls.filter((c) => c.body.action.kind === "destroy")).toHaveLength(0)
+  await page.getByRole("button", { name: "Resume source cleanup…" }).click()
+  await page
+    .getByRole("button", { name: "Resume cleanup", exact: true })
+    .click()
+  await expect(
+    page.getByText("Change accepted · cleanup in progress")
+  ).toBeVisible()
+  const write = calls.find((c) => c.body.action.kind === "destroy")!
+  expect(write.body.operation_id).toBe(operation)
+  expect(write.body.action).toEqual({
+    kind: "destroy",
+    incarnation: receipt.incarnation,
+    reason: receipt.reason,
+    data_loss_acknowledgment: receipt.data_loss_acknowledgment,
+  })
+  expect((write.body as unknown as { resume: boolean }).resume).toBe(true)
+})
+
+test("lifecycle permissions keep changes explicit", async ({ page }) => {
+  const calls = await setup(page, { grants: ["metadata_read", "data_read"] })
+  await open(page, "/fleets/main/streams/orders/EVENTS?view=lifecycle")
+  await expect(
+    page.getByRole("button", { name: "Retire stream…", exact: true })
+  ).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "Verify terminal retirement" })
+  ).toBeEnabled()
+  await open(page, "/fleets/main/cells/Order%3Aone?tab=outbox")
+  await page.getByRole("tab", { name: "Source lifecycle" }).click()
+  await expect(
+    page.getByRole("button", { name: "Destroy source…", exact: true })
+  ).toBeDisabled()
+  await expect(
+    page.getByRole("button", { name: "Recreate deleted source…", exact: true })
+  ).toBeDisabled()
+  expect(
+    calls.some((c) =>
+      ["destroy", "recreate", "retire"].includes(c.body.action.kind)
+    )
+  ).toBe(false)
+})
+
+test("destructive reviews remain reachable on short narrow screens", async ({
+  page,
+}) => {
+  await setup(page)
+  await page.setViewportSize({ width: 320, height: 568 })
+  await open(page, "/fleets/main/streams/orders/EVENTS?view=lifecycle")
+  await page
+    .getByRole("button", { name: "Retire stream…", exact: true })
+    .click()
+  const dialog = page.getByRole("alertdialog")
+  const box = await dialog.boundingBox()
+  expect(box).not.toBeNull()
+  expect(box!.y).toBeGreaterThanOrEqual(15)
+  expect(box!.y + box!.height).toBeLessThanOrEqual(553)
+  await page
+    .getByRole("button", { name: "Cancel", exact: true })
+    .scrollIntoViewIfNeeded()
+  await page.getByRole("button", { name: "Cancel", exact: true }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(
+    await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)
+  ).toBe(false)
+})
+
+test("historic resource links cannot silently inspect a rebound stream", async ({
+  page,
+}) => {
+  const calls = await setup(page)
+  await open(
+    page,
+    `/fleets/main/streams/orders/EVENTS?resource=${"f".repeat(32)}&view=lifecycle&operation=${"e".repeat(32)}`
+  )
+  await expect(
+    page.getByText("This binding now targets another stream", { exact: true })
+  ).toBeVisible()
+  expect(
+    calls.filter((c) =>
+      ["describe", "retirement_status", "retire"].includes(c.body.action.kind)
+    )
+  ).toHaveLength(0)
+})

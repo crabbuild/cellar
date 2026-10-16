@@ -4177,6 +4177,40 @@ async fn console_event_adapters_use_signed_owner_routes_and_guarded_receipts() -
                     );
                 }
             }
+            // Restore the declaration before exercising new lifecycle adapters.
+            bucket.put("deploy/embedded-node/current.json",serde_json::to_vec(&json!({"version":"v1","prefix":"deploy/embedded-node/v1","rollout":{"percent":100}}))?).await?;
+            let inventory=console.event_inventory_page("console-test",cellar::management::PageRequest {prefix:Some("Account:".into()),limit:Some(1),cursor:None}).await?;
+            ensure!(inventory["scanned_prefixes"] == 1 && inventory["complete_probes"] == true);
+            ensure!(inventory["records"][0]["inventory"]["data"]["incarnation"] == page["incarnation"]);
+            ensure!(inventory["totals"]["observed_gauges"]["sources"] == "1");
+            let retirement="00000000000000000000000000000095";
+            console.event_stream("embedded-node","ADMIN_EVENTS",&resource().id,EventStreamAction::Retire {revision:stats["revision"].as_str().context("revision missing")?.into(),reason:"qualify console retirement".into(),mode:RetirementMode::Force {data_loss_acknowledgment:"discard isolated fixture history".into()}},"console-operator",retirement).await?;
+            tokio::time::timeout(Duration::from_secs(20),async {
+                loop {
+                    let status=console.event_stream("embedded-node","ADMIN_EVENTS",&resource().id,EventStreamAction::RetirementStatus {operation:retirement.into()},"console-operator","").await?;
+                    if status["state"] == "deleted" {break;}
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Ok::<_,anyhow::Error>(())
+            }).await??;
+            let proof=console.event_retirement_proof(resource(),"console-platform").await?;
+            ensure!(proof["state"] == "deleted" && proof["resource"]["id"] == resource().id);
+            let destroy_id="00000000000000000000000000000096";
+            let destroy=OutboxAction::Destroy {incarnation:page["incarnation"].as_str().context("incarnation missing")?.into(),reason:"erase isolated source".into(),data_loss_acknowledgment:"discard fixture business state".into()};
+            console.outbox(&scope,destroy.clone(),"console-operator",destroy_id).await?;
+            tokio::time::timeout(Duration::from_secs(20),async {
+                loop {
+                    let status=console.outbox(&scope,OutboxAction::Status {operation:destroy_id.into()},"console-operator","").await?;
+                    if status["state"] == "deleted" {break;}
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Ok::<_,anyhow::Error>(())
+            }).await??;
+            let recreated=console.outbox(&scope,OutboxAction::Recreate {incarnation:page["incarnation"].as_str().unwrap().into(),reason:"fresh fixture source".into()},"console-operator","00000000000000000000000000000097").await?;
+            ensure!(recreated["state"] == "live" && recreated["incarnation"] != page["incarnation"]);
+            ensure!(console.outbox(&scope,destroy,"console-operator",destroy_id).await?["state"] == "deleted");
+            let fresh=console.outbox(&scope,OutboxAction::Inspect {limit:1,cursor:None},"console-operator","").await?;
+            ensure!(fresh["incarnation"] == recreated["incarnation"],"historic destroy replay touched the replacement");
             let metrics = console
                 .node_event_metrics("console-events", &owner.info().lease_generation)
                 .await?;

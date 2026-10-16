@@ -45,11 +45,16 @@ import { useSession } from "@/lib/session"
 function eventReceiptPath(fleet: string, item: Operation) {
   const base = `/fleets/${encodeURIComponent(fleet)}`
   const operation = encodeURIComponent(item.id)
-  if (item.action === "outbox_retry" && item.target.startsWith("outbox/"))
+  if (
+    ["outbox_retry", "outbox_destroy", "outbox_recreate"].includes(
+      item.action
+    ) &&
+    item.target.startsWith("outbox/")
+  )
     return `${base}/cells/${encodeURIComponent(item.target.slice(7))}?tab=outbox&operation=${operation}`
   const stream = /^stream\/([^/]+)\/([^/]+)\/([a-f0-9]{32})$/.exec(item.target)
-  if (item.action === "subscription_change" && stream)
-    return `${base}/streams/${encodeURIComponent(stream[1])}/${encodeURIComponent(stream[2])}?resource=${stream[3]}&view=history&operation=${operation}`
+  if (["subscription_change", "stream_retire"].includes(item.action) && stream)
+    return `${base}/streams/${encodeURIComponent(stream[1])}/${encodeURIComponent(stream[2])}?resource=${stream[3]}&view=${item.action === "stream_retire" ? "lifecycle" : "history"}&operation=${operation}`
   return null
 }
 

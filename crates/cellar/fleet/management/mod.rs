@@ -5,6 +5,7 @@
 //! to the embedding management service.
 
 mod crons;
+mod event_inventory;
 mod events;
 pub use crons::CronConfiguration;
 pub use events::{EventStreamAction, OutboxAction};

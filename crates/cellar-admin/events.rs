@@ -16,6 +16,12 @@ use std::sync::Arc;
 pub(crate) struct OutboxRequest {
     operation_id: String,
     action: OutboxAction,
+    #[serde(default, skip_serializing_if = "is_false")]
+    resume: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !value
 }
 
 #[derive(Deserialize, Serialize)]
@@ -56,9 +62,13 @@ fn intent(
 ) -> anyhow::Result<Begin> {
     operation_id(id)?;
     let fingerprint = fingerprint(body)?;
+    let started = console
+        .audit
+        .begin(id, fleet, &principal.id, target, action, &fingerprint)?;
     console
         .audit
-        .begin(id, fleet, &principal.id, target, action, &fingerprint)
+        .remember_event(fleet, &principal.id, id, body)?;
+    Ok(started)
 }
 
 fn fingerprint(body: &impl Serialize) -> anyhow::Result<String> {
@@ -69,11 +79,14 @@ pub(crate) async fn outbox(
     State(console): State<Arc<Console>>,
     Extension(principal): Extension<Principal>,
     Path((fleet, scope)): Path<(String, String)>,
-    Json(body): Json<OutboxRequest>,
+    Json(mut body): Json<OutboxRequest>,
 ) -> Result<Json<Value>, ApiError> {
     principal.require(&fleet, Permission::DataRead)?;
     if body.action.is_write() {
         principal.require(&fleet, Permission::Operate)?;
+    }
+    if body.action.requires_data_write() {
+        principal.require(&fleet, Permission::DataWrite)?;
     }
     let client = &console
         .fleets
@@ -82,6 +95,27 @@ pub(crate) async fn outbox(
         .client;
     operation_id(&body.operation_id)?;
     body.action.validate(&scope, &body.operation_id)?;
+    let resume = body.resume;
+    body.resume = false;
+    if resume {
+        if !matches!(body.action, OutboxAction::Destroy { .. }) {
+            return Err(anyhow::anyhow!(
+                "Only recorded source destruction may be explicitly continued"
+            )
+            .into());
+        }
+        let original = console
+            .audit
+            .event_intent(&fleet, &principal.id, &body.operation_id)?
+            .ok_or_else(|| anyhow::anyhow!("Original destruction intent unavailable"))?;
+        let original: OutboxRequest =
+            serde_json::from_value(original).map_err(anyhow::Error::from)?;
+        if fingerprint(&original)? != fingerprint(&body)? {
+            return Err(
+                anyhow::anyhow!("Continuation differs from original destruction intent").into(),
+            );
+        }
+    }
     let target = format!("outbox/{scope}");
     let mut operation = if body.action.is_write() {
         match intent(
@@ -90,10 +124,13 @@ pub(crate) async fn outbox(
             &fleet,
             &body.operation_id,
             &target,
-            "outbox_retry",
+            body.action.audit_action(),
             &body,
         )? {
             Begin::Started(operation) => Some(operation),
+            Begin::Existing(operation) if resume && operation.status != "succeeded" => {
+                Some(operation)
+            }
             Begin::Existing(operation) => {
                 return Ok(Json(json!({"operation":operation,"replayed":true})))
             }
@@ -115,17 +152,12 @@ pub(crate) async fn outbox(
         )
         .await;
     if let Some(operation) = operation.as_mut() {
-        console.audit.finish(
-            operation,
-            if result.is_ok() {
-                "succeeded"
-            } else {
-                "outcome_unknown"
-            },
-        )?;
+        console.audit.finish(operation, receipt_state(&result))?;
     }
     if let (Some(id), Ok(receipt)) = (status_id, &result) {
-        if receipt["operation"] == id
+        if receipt.get("state").is_some() {
+            reconcile_lifecycle(&console, &principal, &fleet, &id, &target, receipt, false)?;
+        } else if receipt["operation"] == id
             && receipt["operator"] == operator(&fleet, &principal)
             && receipt["expected"]["source"] == scope
             && receipt["rearmed"].is_boolean()
@@ -181,7 +213,7 @@ pub(crate) async fn stream(
             &fleet,
             &body.operation_id,
             &target,
-            "subscription_change",
+            body.action.audit_action(),
             &body,
         )? {
             Begin::Started(operation) => Some(operation),
@@ -192,7 +224,10 @@ pub(crate) async fn stream(
     } else {
         None
     };
-    let status_id = if let EventStreamAction::Status { operation } = &body.action {
+    let retirement_status = matches!(body.action, EventStreamAction::RetirementStatus { .. });
+    let status_id = if let EventStreamAction::Status { operation }
+    | EventStreamAction::RetirementStatus { operation } = &body.action
+    {
         Some(operation.clone())
     } else {
         None
@@ -213,17 +248,12 @@ pub(crate) async fn stream(
         .await
         .and_then(|reply| stream_read_view(reply, read_payloads));
     if let Some(operation) = operation.as_mut() {
-        console.audit.finish(
-            operation,
-            if result.is_ok() {
-                "succeeded"
-            } else {
-                "outcome_unknown"
-            },
-        )?;
+        console.audit.finish(operation, receipt_state(&result))?;
     }
     if let (Some(id), Ok(receipt)) = (status_id, &result) {
-        if receipt["operation"] == id
+        if retirement_status {
+            reconcile_lifecycle(&console, &principal, &fleet, &id, &target, receipt, true)?;
+        } else if receipt["operation"] == id
             && receipt["operator"] == operator(&fleet, &principal)
             && receipt["previous"]["resource"] == body.resource_id
             && receipt["current"]["resource"] == body.resource_id
@@ -366,6 +396,142 @@ pub(crate) async fn metrics(
         .client;
     Ok(Json(
         client.node_event_metrics(&node, &query.generation).await?,
+    ))
+}
+
+fn receipt_state(result: &anyhow::Result<Value>) -> &'static str {
+    match result {
+        Ok(receipt)
+            if matches!(
+                receipt["state"].as_str(),
+                Some("checking" | "verified" | "cleaning" | "retiring")
+            ) =>
+        {
+            "accepted"
+        }
+        Ok(_) => "succeeded",
+        Err(_) => "outcome_unknown",
+    }
+}
+
+fn reconcile_lifecycle(
+    console: &Console,
+    principal: &Principal,
+    fleet: &str,
+    id: &str,
+    target: &str,
+    receipt: &Value,
+    retirement: bool,
+) -> anyhow::Result<()> {
+    let original = console
+        .audit
+        .event_intent(fleet, &principal.id, id)?
+        .ok_or_else(|| {
+            anyhow::anyhow!("Original lifecycle intent unavailable; outcome remains unknown")
+        })?;
+    anyhow::ensure!(
+        receipt["operation"] == id
+            && (receipt["operator"] == operator(fleet, principal)
+                || (retirement && receipt["state"] == "retiring" && receipt["operator"].is_null())),
+        "Lifecycle receipt identity differs from request"
+    );
+    let (action, digest) = if retirement {
+        let body: StreamRequest = serde_json::from_value(original)?;
+        anyhow::ensure!(
+            matches!(body.action, EventStreamAction::Retire { .. })
+                && receipt["resource"] == body.resource_id,
+            "Retirement receipt differs from request"
+        );
+        (body.action.audit_action(), fingerprint(&body)?)
+    } else {
+        let body: OutboxRequest = serde_json::from_value(original)?;
+        let matches = match &body.action {
+            OutboxAction::Destroy {
+                incarnation,
+                reason,
+                data_loss_acknowledgment,
+            } => {
+                receipt["incarnation"] == *incarnation
+                    && receipt["reason"] == *reason
+                    && receipt["data_loss_acknowledgment"] == *data_loss_acknowledgment
+                    && receipt["state"] != "live"
+            }
+            OutboxAction::Recreate {
+                incarnation,
+                reason,
+            } => {
+                receipt["retired_incarnation"] == *incarnation
+                    && receipt["reason"] == *reason
+                    && receipt["state"] == "live"
+            }
+            _ => false,
+        };
+        anyhow::ensure!(matches, "Source lifecycle receipt differs from request");
+        (body.action.audit_action(), fingerprint(&body)?)
+    };
+    anyhow::ensure!(
+        console.audit.reconcile_event_state(
+            fleet,
+            &principal.id,
+            id,
+            target,
+            (action, &digest),
+            receipt_state(&Ok(receipt.clone()))
+        )?,
+        "Receipt differs from recorded intent; outcome remains unknown"
+    );
+    Ok(())
+}
+
+pub(crate) async fn inventory_page(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path(fleet): Path<String>,
+    Query(page): Query<cellar::management::PageRequest>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&fleet, Permission::DataRead)?;
+    let client = &console
+        .fleets
+        .get(&fleet)
+        .ok_or_else(ApiError::forbidden)?
+        .client;
+    Ok(Json(client.event_inventory_page(&fleet, page).await?))
+}
+
+pub(crate) async fn inventory(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path((fleet, scope)): Path<(String, String)>,
+    Json(request): Json<cellar::event_inventory::InventoryRequest>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&fleet, Permission::DataRead)?;
+    let client = &console
+        .fleets
+        .get(&fleet)
+        .ok_or_else(ApiError::forbidden)?
+        .client;
+    Ok(Json(
+        serde_json::to_value(client.event_inventory(&scope, request).await?)
+            .map_err(anyhow::Error::from)?,
+    ))
+}
+
+pub(crate) async fn retirement_proof(
+    State(console): State<Arc<Console>>,
+    Extension(principal): Extension<Principal>,
+    Path(fleet): Path<String>,
+    Json(resource): Json<cellar::sdk::event_stream::Resource>,
+) -> Result<Json<Value>, ApiError> {
+    principal.require(&fleet, Permission::DataRead)?;
+    let client = &console
+        .fleets
+        .get(&fleet)
+        .ok_or_else(ApiError::forbidden)?
+        .client;
+    Ok(Json(
+        client
+            .event_retirement_proof(resource, &operator(&fleet, &principal))
+            .await?,
     ))
 }
 

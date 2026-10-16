@@ -4836,3 +4836,20 @@ failures. Earlier 37/39 failure evidence remains retained. Workspace/all-target/
 all-feature Clippy-D for this test-only change passes in 2m32s. No production Rust
 changed since 69b191d. The factory-entry and closed-domain root-cause audits remain
 open.
+
+## Concurrent source retirement verification (2026-10-15)
+
+The console adapter scenario reproduced a conflict when request-time source
+retirement verification and durable outbox work awaited the same catalog proof.
+The worker advanced the unchanged closure from `checking` to `verified` and
+installed a newer work generation; the older request then incorrectly reported a
+changed lane set. Verification now discards that superseded completion without
+rewriting evidence, lifecycle state or the newer deadline. Replaced source
+identity/generation and a changed snapshot in the current installation still
+fail closed.
+
+The real-node console test retains terminal stream proof, completed source
+cleanup, fresh-incarnation recreation, historic destruction replay isolation and
+complete returned shutdown assertions. This covers the observed overlap, not the
+remaining complete destruction fault, capacity, facet or lease-policy matrix.
+All owned schema/protocol markers remain 1.

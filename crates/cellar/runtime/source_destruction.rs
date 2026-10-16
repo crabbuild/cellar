@@ -269,7 +269,17 @@ pub(crate) async fn verify(context: &Context) -> Result<()> {
     db.tx(|tx| {
         let current=lifecycle(tx)?.ok_or_else(||error(ErrorCode::ConfigConflict,"source closure was replaced"))?;
         if text(&current,"operation")?!=operation || text(&current,"incarnation")?!=text(&state,"incarnation")?
-            || number(&current,"generation")?!=number(&state,"generation")? || number(&current,"work_generation")?!=number(&state,"work_generation")? || text(&current,"snapshot")?!=snapshot(tx)? {
+            || number(&current,"generation")?!=number(&state,"generation")? {
+            return Err(error(ErrorCode::ConfigConflict,"source closure was replaced"));
+        }
+        // A concurrent owner turn can finish verification or re-arm cleanup
+        // while this proof RPC is suspended. Its newer installation owns the
+        // continuation; discard this completion without rewriting its state.
+        if number(&current,"work_generation")?!=number(&state,"work_generation")?
+            || text(&current,"state")?!="checking" {
+            return Ok(());
+        }
+        if text(&current,"snapshot")?!=snapshot(tx)? {
             return Err(error(ErrorCode::ConfigConflict,"source lane set changed during retirement verification"));
         }
         if let Some((lane,evidence))=proof {

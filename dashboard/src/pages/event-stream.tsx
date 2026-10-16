@@ -1,4 +1,6 @@
 import { useState } from "react"
+import { StreamLifecycle } from "@/components/event-lifecycle"
+import { SubscriptionDetails } from "@/components/subscription-details"
 import { Link, useParams, useSearchParams } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { ArrowLeft, ArrowUpRight, Radio, Users, Workflow } from "lucide-react"
@@ -63,6 +65,7 @@ import {
   exact,
   eventTime,
   age,
+  receiptResult,
   type Resource,
   type Stats,
   type Subscription,
@@ -138,6 +141,17 @@ function ResolvedStream({
         r.resource.name === event.resource.name &&
         r.resource.family === event.resource.family
     ) ?? []
+  if (
+    params.get("resource") &&
+    event.resource.id &&
+    params.get("resource") !== event.resource.id
+  )
+    return (
+      <Nothing
+        title="This binding now targets another stream"
+        description="The saved link names an older resource UUID. Open Fleet inspection to find retained metadata and retirement proof; the current binding cannot authorize this older stream."
+      />
+    )
   if (!selected)
     return (
       <div className="space-y-5">
@@ -254,7 +268,7 @@ function StreamView({
     path,
     { kind: "describe" },
     resource,
-    event.administer && tab === "overview"
+    event.administer && (tab === "overview" || tab === "lifecycle")
   )
   return (
     <div className="space-y-5">
@@ -317,6 +331,7 @@ function StreamView({
             Producers
           </TabsTrigger>
           <TabsTrigger value="history">Operation history</TabsTrigger>
+          <TabsTrigger value="lifecycle">Lifecycle</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
           {!event.administer ? (
@@ -363,6 +378,14 @@ function StreamView({
                         {[
                           ["Earliest retained offset", stats.data.earliest],
                           ["End offset (exclusive)", stats.data.end],
+                          [
+                            "SQLite allocated bytes",
+                            stats.data.observation.sqlite_allocated_bytes,
+                          ],
+                          [
+                            "SQLite used bytes",
+                            stats.data.observation.sqlite_used_bytes,
+                          ],
                           [
                             "Retention frontier",
                             stats.data.observation.retention_frontier,
@@ -431,6 +454,16 @@ function StreamView({
           ) : (
             <AdminRequired />
           )}
+        </TabsContent>
+        <TabsContent value="lifecycle">
+          <StreamLifecycle
+            fleet={fleet}
+            path={path}
+            resource={resource}
+            revision={stats.data?.revision}
+            administer={event.administer}
+            onChanged={() => void stats.refetch()}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -618,7 +651,7 @@ function EventReader({ path, resource }: { path: string; resource: string }) {
               if (!open) setSelected(null)
             }}
           >
-            <SheetContent className="overflow-y-auto sm:max-w-2xl">
+            <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
               <SheetHeader>
                 <SheetTitle>
                   Event at offset {exact(selected.offset)}
@@ -721,7 +754,7 @@ function Subscriptions({
             path,
             { kind: "status", operation: id },
             resource
-          ).then((r) => r.result)
+          ).then(receiptResult)
         }
       />
       <Card>
@@ -870,7 +903,7 @@ function Subscriptions({
             if (!open) setSelected(null)
           }}
         >
-          <SheetContent className="overflow-y-auto sm:max-w-xl">
+          <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
             <SheetHeader>
               <SheetTitle>{selected.identity.name}</SheetTitle>
               <SheetDescription>
@@ -878,9 +911,11 @@ function Subscriptions({
                 summaries do not expose acknowledgment tokens.
               </SheetDescription>
             </SheetHeader>
-            <div className="p-4">
-              <JsonView value={selected} />
-            </div>
+            <SubscriptionDetails
+              path={path}
+              resource={resource}
+              selected={selected}
+            />
           </SheetContent>
         </Sheet>
       )}
