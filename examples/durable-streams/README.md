@@ -652,11 +652,69 @@ python3 examples/durable-streams/consumer_recovery.py \
 Add a pinned `--rustfs-image` for a private S3 bucket. Saved evidence independently
 rechecks original/recovered SQLite/WAL and cold witness archives, exact commands,
 fresh process generations and complete node/proxy/store joins. This covers
-retained follower disks and transient witness-service unavailability. Lost or
-corrupt witness disks, physical host/power/store loss and the complete failure
-matrix remain separate gates. A generic application GET may wrap a nested
+retained follower disks and transient witness-service unavailability.
+
+Add `--witness-data missing` or `--witness-data corrupt` together with
+`--restart-followers` to remove every committed consumer batch or flip a checksum
+byte in each batch on all original witnesses. All original processes are already
+killed, and exact valid archives remain separate. State/ownership metadata stays
+intact. Real witness services return incomplete seal certificates; two framework
+reads must return explicit `Unavailable`, with unchanged consumer ownership,
+an unsealed recovering log and no new selected bucket coverage. The second read
+must actually contact the witnesses despite the existing loss diagnostic.
+
+`--witness-data oversize` instead keeps each original batch prefix and extends
+its file with zeros to 64 MiB + 73 bytes, one byte above the format limit. State
+metadata remains intact. The same two real refusals and incomplete seals are
+required; the saved auditor checks exact lengths, original prefixes and zero
+extension with bounded reads. The native reader regression separately requires
+zero payload-read requests before rejection. Current group commits cap encoded
+entry bytes at 64 MiB plus their 72-byte envelope; excess ordered frames carry
+into consecutive commits, with no dropped records or reordered replies. A native
+full-budget ordered-stream/cold-load case checks the accepted boundary too.
+
+Both damaged peer processes must drain and join before original batch bytes
+return. Their persisted seal state is preserved. The proxies propagate the
+stopped upstreams' EOF before fresh peer generations start. The same successor's
+first fresh recovery audit must expose both original effects and the saved
+receipt, followed by two false inbox acceptances before any processing replay.
+Offline audits inspect original, damaged and returned witness archives as well
+as both consumer images. This covers batch loss/corruption with retained state,
+not arbitrary metadata loss, physical host/power/store loss or the complete
+failure matrix. A generic application GET may wrap a nested
 routing failure as HTTP 500; that response does not qualify the explicit refusal
 check, which uses the existing authenticated framework event route.
+
+`--witness-data state-missing` removes only the selected consumer state metadata;
+`--witness-data state-corrupt` changes its base to its end without updating the
+checksum. `--witness-data state-oversize` pads the original valid record to
+64 KiB without changing its fields or checksum. All preserve every committed
+batch. Real witness services must refuse
+before supplying a seal, and two framework calls must return explicit
+`Unavailable` without advancing the consumer owner or sealing its log. These
+metadata errors leave witness state inconclusive; they do not invent a loss
+certificate. Proxy observations retain the actual peer status/body digest.
+The oversized case requires the actual format-bound error and independently
+checks the exact original-byte prefix and padding. Native filesystem probes
+separately verify rejection before requesting any state payload bytes, not only
+a decoder error after allocation.
+
+After both peers drain and join, require their files to equal the damaged
+inventory exactly before returning the original valid metadata. Returning bytes
+must not overwrite a newer seal or other intervening state. Fresh peer
+generations and the same successor then run the original-prefix/inbox/replay
+audits. Archived state records have format 1, a checksum and both session and
+follower identities; the independent archive reader validates all of them.
+This is a hard development cutover: rebuild participants and recreate older
+unchecksummed state, with no legacy reader or migration.
+
+Cold destination ack/fetch replay fixtures also prevent the returning consumer
+from claiming the selected stream, while preserving its projection and other
+store operations. The recovered stream must live on a different node so exact
+receipt/reply replay actually crosses the measuring proxy. Configuration and
+marker custody are audited; normal application support for colocated consumers
+does not change. A local AlreadyAcknowledged result alone cannot establish the
+network replay boundary.
 
 ## Recover a follower-only source proof
 
@@ -816,3 +874,25 @@ the driver records host snapshots while replacement readiness is pending. These
 probes never invoke source cells and preserve the original readiness deadline.
 Keep diagnostic runs distinct from ordinary qualification: probes add traffic,
 and a successful replay cannot explain an earlier intermittent failure.
+
+The controlled cold-start case starts the destination before returning its
+witnesses. It waits for an actual missing-witness recovery refusal, records the
+unchanged predecessor/owner and old peer leases, then starts both retained peers.
+This reproduces the startup backoff/activation race without artificial proof or
+longer deadlines. The destination's trace is enabled for this case; its bounded
+diagnostic prefix is checked again by the independent evidence auditor.
+
+```sh
+python3 examples/durable-streams/fetch_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --restart-followers --lease-state expired --recovery-first \
+  --output /tmp/cellar-cold-start-evidence
+python3 examples/durable-streams/fetch_faults.py \
+  --audit /tmp/cellar-cold-start-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image` with the chosen pinned image to run against a private network
+store. Successful startup must retain the original fetched state before replay,
+then apply one effect and acknowledge with complete process/proxy/store joins.
+The case keeps the original 30-second node/delivery leases and 10-second event
+operation budget. Physical failures and other startup causes remain separate.

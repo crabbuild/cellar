@@ -113,6 +113,73 @@ Returning real witness service must recover on the same PID/generation's first
 fresh read. Never treat a generic application 500 or timeout as that verdict.
 Reinspect all archives through copies and join every node/gate/private store.
 Do not turn these retained-disk/client-service cuts into physical-loss claims.
+Follower append acknowledgments require both the committed batch barrier and an
+independent state.json base/end barrier. Batch-only end recovery cannot detect
+deletion of a previously acknowledged suffix. Cold load checks contiguous batch
+coverage of that retained end; missing coverage refuses duplicate/probe append
+credit as well as a complete seal certificate. Do not replace that obligation
+with a maximum over remaining files or advance the cache before state persistence.
+log_follower_loss.rs covers all/last missing batches, a corrupt last batch,
+duplicate/probe refusal and exact original-byte return preserving the seal floor.
+consumer_recovery.py --restart-followers --witness-data missing|corrupt removes
+or damages real batches only after every original PID joins. Require two explicit
+Unavailable results and actual incomplete seal replies, including after a loss
+diagnostic exists. Join both damaged peers before restoring only original batch
+bytes; never roll back state.json. Propagate proxy frontend EOF at the actual
+upstream join, then cold-reload fresh peer generations with the same recoverer.
+Audit original inbox/effects before replay. Recreate older development state;
+all markers remain 1. Added state barriers require fresh capacity measurement.
+Follower state.json is a format-1 record binding leader session, follower node,
+fragment epoch/base/end/seal floor with SHA-256 over canonical binary fields.
+Reject unknown/old shapes, unsupported markers, invalid ranges, identity/digest
+mismatch and read errors; never turn decode failure into an empty fragment.
+A genuinely absent state is fresh only when no retained batch evidence exists.
+Retain invalid metadata and batches unchanged, including across repeated failed
+tail/seal/probe calls. The native log_follower_metadata.rs regressions cover those
+boundaries and original-byte return. Python follower_state.py independently
+validates archived records. consumer_recovery.py --witness-data state-missing|
+state-corrupt requires real peer errors (not proxy-generated refusals), unchanged
+files before return, joined peers and the original inbox/effects before replay.
+Recreate old unchecksummed development state; no legacy reader or migration.
+Read follower state through one open HostFile: fstat before requesting at most
+4096 bytes, require an exact read and unchanged handle length, then decode.
+Whole-file read followed by a decoder bound allocates before rejecting oversized
+metadata. Only NotFound while opening means optional state; stat/read NotFound,
+short reads and changing lengths are errors and cannot cache an empty fragment.
+follower_state_tests.rs measures requested bytes at the actual cold-store seam;
+the oversized input is guarded by the test filesystem to avoid a huge test
+allocation. consumer_recovery.py --witness-data state-oversize pads the original
+valid record to 64 KiB without changing fields/checksum. Require actual size
+refusals, untouched batches and exact original-state return after peer joins.
+Cold destination ack/fetch fixtures refuse only the consumer's selected stream
+ownership write, preserving other writes and real proof paths. A returning
+consumer may otherwise validly own the stream and replay locally, bypassing the
+required network measurement. Retain exact forwarded receipt/reply assertions,
+assert a different recovered stream owner and audit claim-config/marker custody.
+The failed RustFS ack run returned AlreadyAcknowledged with unchanged effects/
+checkpoint but no captured replay; keep it as a fixture failure, not a pass.
+The cold RustFS expired-fetch run also exposed a separate startup/shutdown
+failure: returning peers exited at __catalogResolve while the destination kept
+the predecessor log recovering, then missed readiness and drain budgets. Passing
+traced/staggered/untraced replays alone did not establish its cause. The controlled
+recovery-first case and startup retry below reproduce and address this race. Activation
+readiness and debug diagnostics preserve the full error chain. Fixture cleanup
+uses cleanup_all to attempt every owned node/proxy/store/ledger after a stop
+failure without masking the original error; already-exited processes close their
+output handles. Cleanup of a failed run is not successful graceful-drain proof.
+Cold startup can fail one recovery pass before a retained witness publishes its
+new route. Waiting a full node TTL can outlast that witness's event activation
+deadline and lose its serving process before the retry. Missing-witness errors
+retain the exact member lease observations; startup_retry.rs polls those roots
+during the existing backoff and wakes only for a live current-protocol return
+or changed lineage/generation/address. Ordinary heartbeats, missing/invalid reads
+and untagged failures retain backoff. Both embedded and CLI boots use this wait;
+attempt counts, deadlines, fencing and actual witness proof remain unchanged.
+fetch_faults.py --recovery-first requires expired cold follower mode and observes
+the real first missing-witness refusal before returning peers. Audit its bounded
+log prefix, unchanged predecessor/owner and old peer leases, then require the
+original recovered prefix before replay and full joins. Trace mode includes
+recovery info and startup warnings. This does not explain other startup failures.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained
@@ -238,6 +305,23 @@ missing/unsupported markers and entries-only request shapes are refused. Native
 follower reads/writes require node/lineage/generation identities, and discovery visits
 only that current directory layout. Rebuild every participant on wire cutover;
 former flat-layout development state requires recreation, not a migration.
+Follower group commits admit at most 64 frames and 64 MiB of total encoded
+CLE1 entry bytes. Validate count/u16 cell/u32 payload representation before
+persistence; an invalid first frame receives refusal with unknown epoch. A frame
+that would exceed a burst's budget is returned untouched and carried into the
+next ordered commit. The maximum CLB1 file adds its 72-byte header/digest to
+that entry budget. follower_file.rs opens one handle, checks its length before
+reading, and requires an exact read and stable length for both metadata/batches.
+Oversized/disappeared/failed batch reads remain unreadable-range evidence; never
+lower the independently acknowledged end or credit a duplicate/probe. Native
+regressions exercise an already-delivered full-budget ordered burst, cold reload,
+zero payload reads above the bound, and post-open faults. The process oversize
+fault extends each original batch with zeros to 64 MiB + 73, preserves metadata,
+requires two real incomplete seals/refusals, and returns only original batch bytes
+after peer joins while preserving their seal floors. The archive auditor checks
+original prefixes and zero extension with bounded reads. All markers remain 1;
+rebuild all participants and recreate development state containing larger batches.
+This bounds individual batches, not total retained tails or fleet capacity.
 Only checksum-protected committed .batch files supply follower entries. Former
 .entry/.entries files are rejected without decoding or migrating their payloads;
 current cleanup reclaims only covered committed batches.
@@ -1251,8 +1335,12 @@ prepare() marks activation pending before the driver first polls activation; its
 cancellation guard therefore cannot cover every early driver exit. Keep
 wait_for_event_activation on the production Node::start path, reject completed
 supervisors even when readiness is simultaneously ready, and preserve close/join
-on activation failure. Focused embedded tests cover that cut without wall-clock
-timeouts. This does not explain the separate intermittent bootstrap/recovery cases.
+on activation failure. If readiness fails first, retain the supervisor's joined
+outcome alongside the activation error; preserve typed supervisor/join error chains.
+A generic activation refusal cannot replace a fence reason or component failure.
+Focused embedded tests force that branch by keeping supervision pending until
+closure, without wall-clock timeouts. This diagnostic preservation does not explain
+the separate intermittent bootstrap/recovery cases.
 
 
 A stopped remote attempt queues invalidation of its observed route without

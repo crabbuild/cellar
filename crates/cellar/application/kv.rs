@@ -200,7 +200,9 @@ fn cursor_decode(cursor: &str) -> Result<String> {
     );
     let bytes = cursor
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             let digit = |byte: u8| {
                 if byte <= b'9' {

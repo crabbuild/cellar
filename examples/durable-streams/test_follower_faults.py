@@ -186,7 +186,8 @@ class FollowerOracleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             seed = dict(fragment_epoch=1, base=0, end=0, sealed_to=0)
-            (root / "state.json").write_text(json.dumps(seed))
+            from test_follower_state import state_bytes
+            (root / "state.json").write_bytes(state_bytes(seed))
             cell, body = b"Order:source", b"actual-ltx-frame"
             entry = b"CLE1" + struct.pack("<QH", 4, len(cell)) + cell + struct.pack("<QQI", 1, 2, len(body)) + body
             payload = b"CLB1" + struct.pack("<QQQQI", 1, 3, 4, 0, 1) + entry

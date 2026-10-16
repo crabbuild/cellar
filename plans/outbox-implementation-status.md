@@ -1,6 +1,6 @@
 # Outbox implementation status
 
-Updated 2026-10-15. The goal remains the entire
+Updated 2026-10-16. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
 release. The consolidated event-delivery work merged in PR #46; PRs #47–#62
@@ -18,11 +18,330 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
-| 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout, explicit-policy closed-domain failure and initial clock-fixture activation deadline with stage diagnostics and retained startup metadata; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
-| 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
-| 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
-| 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | scan_committed_batches/read_tail, seal, transport bytes() and the leader gather still materialize whole histories. Bound enumeration, decoding, replies, transport collection and gather memory across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. A per-file bound alone is insufficient. |
+| 2 | Other intermittent Node startup/shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
+| 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
+| 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The next recovery audit reproduces four failures in 0.28s (57.15s including
+compilation): the batch constructor accepts more than 64 frames/64 MiB entries,
+a sparse 67108937-byte retained batch requests its entire payload before
+rejection, and direct follower append credits a cell name whose length cannot
+fit CLE1's u16 field. The first cold-fixture attempt failed outside an execution
+domain; that setup error is retained separately and is not the behavioral
+reproduction. The corrected before-fix run observes all four failures.
+
+The fix shares a pinned-handle bounded reader with state metadata and caps CLB1
+at 64 MiB of encoded entries plus its 72-byte envelope. Entry count/cell/payload
+lengths must be representable before any persistence. Excess frames are returned
+intact and the existing ordered server carries them into the next commit.
+An invalid first frame receives unknown-epoch refusal rather than end credit.
+The oversized-read regression preserves the independent end and refuses probes
+without requesting any batch payload. Eleven focused Rust cases pass, including
+an exact-budget commit/cold read and post-open batch stat/read/short/changed-length
+failures with original-byte recovery. The full-budget case also drives the
+real ordered server with an already-delivered burst and passes (1.02s runtime
+for the first focused set; 53.64s including rebuild for the ordered variant). All 171 Python guards pass after adding paths to the older synthetic
+batch fixture; the original unclosed-SQLite warnings remain. The new process
+oversize mode preserves original prefixes and metadata, with independently
+bounded prefix/zero-extension archive validation. The completed frozen-source qualification is
+recorded below. All markers remain 1; recreate old larger development batches. These
+bounds do not qualify total tail memory or the remaining capacity matrix.
+All 19 native log/five protocol cases pass (123.69s including rebuild). The
+preflight then stops on a test-only err_expect Clippy lint; that failed batch is
+retained. Replacing err().expect() with expect_err() and clarifying carried-frame
+comments suppresses no lint or assertion. Full workspace/all-target/all-feature
+Clippy with warnings denied passes in 51.01s. The rebuilt runtime passes both
+real oversized-batch process cases and independent re-audits (22.54s SQLite,
+25.33s RustFS), with original consumer state before replay and complete joins.
+These preliminary results remain distinct from the completed frozen-source
+batch below.
+The audit also identifies the next distinct implementation gap: the scanner and
+read_tail eagerly retain every decoded batch and all entries. seal also builds
+that tail; SignedPeerTransport collects bytes() and recovery gathers all follower
+entries before its existing bucket-bundle windows. Bounding each file cannot
+bound a large valid history. Total enumeration/decoding/response/transport/gather
+memory needs its own paged/streamed recovery protocol and complete-range proof;
+this is now priority 1 rather than being hidden in a generic soak-test item.
+Historical startup cause audits remain separate and open.
+
+Final batch-bound qualification freezes 528 Rust/68 Python sources plus manifests,
+locks and build/lint/CI configuration on Rust 1.98.1/aarch64 macOS. Runtime SHA256:
+9cff493aaab16703d07d5d3eeb13af26b792097d674b2174ed75744f6f08ed66.
+All 28 process cases and their independent re-audits pass: the previous 26-case
+matrix plus both oversized-batch variants. The new SQLite/RustFS cases pass in
+22.86s/25.14s with exact original-prefix/zero-extension archive checks, preserved
+seal state, original inbox/effects/receipt before replay and complete joins.
+The eleven focused log cases pass (0.99s runtime), including the real full-budget
+ordered burst, exact-limit cold load, zero-read oversized refusal, invalid first
+entry and post-open I/O faults. All seven startup tests, 19 native log/five
+protocol cases, 171 Python guards and ordinary smoke pass. The same two
+pre-existing unclosed-SQLite ResourceWarnings remain. Workspace checking
+(48.12s), Clippy with warnings denied (4.58s), 528-file formatting, documentation
+(36 documents/six flows/388 references), dependency policy (403 packages/no
+JavaScript engine) and whitespace checks pass. All 650 workspace tests across
+108 targets pass (796.13s), including all 77 Node cases (124.09s) and the dev-host
+case (196.31s) under unchanged deadlines. Doc-tests pass 11 with one existing
+ignored example (68.21s). Captured inputs and saved runtime remain unchanged
+through all 69 phases. Actual process/container inspection confirms no saved-
+runtime processes and all 16 owned stores from preliminary/final runs removed.
+Evidence is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-follower-batch-bound-zg0d4106/qualified`.
+Final documentation checks run again after this ledger update. This qualifies
+individual commit/read bounds and the exercised fault profile; total retained-
+tail/transport/gather memory remains a missing implementation. The historical
+startup failures and full ownership/lifecycle/capacity/operational release gates
+stay open. Local compiler matching does not establish hosted Linux qualification.
+
+Startup diagnosis reproduces a separate observability bug: the readiness-error
+path closes the domain and joins the supervisor but discards its outcome. Two
+new regressions fail in 0.01s (48.32s including compilation), losing a supplied
+NodeLeaseExpired outcome and a typed supervisor error chain. The fix retains the
+joined outcome alongside the activation failure, or preserves the typed supervisor/
+join error with activation context. Close/join ordering and budgets remain unchanged.
+The regressions hold supervisor completion until closure, so fair selection cannot
+bypass the measured branch. All seven embedded startup tests pass. This branch concerns
+resource activation; it does not diagnose the no-event cancelled-bootstrap or
+explicit-policy failures, nor establish the cause of the earlier clock-fixture
+activation failure. Priority 1 remains open.
+
+The final startup-diagnostic batch freezes 526 Rust/68 Python files plus
+manifests, locks and build/lint/CI configuration under Rust 1.98.1/aarch64 macOS.
+The saved runtime SHA256 is
+7a8ba6b4630df2eed224ee664152f3f7287ff392e75674fec3c93a60279d6f7d.
+All 77 Node cases pass in serial order (679.85s runtime/705.78s including build)
+and again under normal workspace concurrency (123.75s). The no-event factory,
+policy and predecessor cases pass in both profiles without establishing the
+causes of their historical failures. All 26 process cases and their independent
+evidence re-audits pass, including metadata/data/service faults, controlled
+startup and three ordinary RustFS expired-fetch runs. Actual process/container
+inspection confirms no saved-runtime processes and all 14 owned stores removed.
+The complete workspace suite passes 645 tests across 108 targets (733.76s),
+including the development-host case (203.73s) under unchanged deadlines.
+Doc-tests pass 11 with one existing ignored example (160.91s). All 169 Python
+guards, seven startup-admission tests, three read-bound/three retry-policy tests,
+19 native log/five protocol cases and ordinary smoke pass; the same two
+pre-existing SQLite ResourceWarnings remain. Workspace checking (74.90s), Clippy
+with warnings denied (43.63s), 526-file formatting, docs (36 documents/six flows/
+388 references), dependency policy (403 packages/no JavaScript engine) and
+whitespace checks pass. Every captured source and saved binary stays unchanged
+through all 67 phases. Evidence is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-startup-outcome-bo54km3p/qualified`.
+Final docs checks run again after this ledger update. These results qualify the
+reproduced loss of startup diagnostics, not a fix for the historical startup
+failures or the full fault/lifecycle/capacity/operational release matrix. All
+Cellar-owned markers remain 1; local compiler matching is not hosted Linux proof.
+
+The follower metadata allocation bug is reproduced and fixed. The former loader
+calls whole-file read before checking the 4096-byte decoder bound. An
+instrumented cold-store regression requests 8388608 bytes before rejection and
+fails in 0.07s (66.98s including compilation); the test filesystem records that
+request without allocating the oversized buffer itself. The new reader opens
+one handle, checks its length before requesting payload, requires an exact read
+and unchanged handle length, then decodes. Only open-time NotFound means optional
+state; later stat/read errors cannot become fresh or cached empty state.
+Three Rust regressions cover 4097-byte/8 MiB rejection without payload reads,
+4096-byte acceptance with the seal floor intact, and post-open NotFound, changed
+length and short-read refusal without mutation. Empty probes of a missing
+fragment were inspected too: the existing epoch-adoption guard already refuses
+them, so no probe fix is asserted. All owned markers remain 1.
+
+The state-oversize process case pads an original valid record to 64 KiB, retaining
+all fields/checksum and batches. The independent auditor requires actual peer
+size errors, unchanged files before return, joined peers, exact original bytes
+and original inbox/effects/receipt recovery before replay. Both SQLite/RustFS
+cases and their evidence re-audits pass in the final batch (22.19s/24.59s).
+
+Final qualification uses CI's declared Rust 1.98.1 on aarch64 macOS, with 526 Rust
+and 68 Python files plus manifests, locks and build/lint/CI configuration captured.
+The saved runtime SHA256 is
+b147f207617a0cc02c34dd51cec7ee52580b2ade19b40e113af052a00912519c.
+All 26 process cases and their independent re-audits pass: the prior 24-case
+matrix plus both oversized-state cases. This includes both controlled startup
+cuts and three ordinary RustFS expired-fetch runs. All 169 Python guards, three
+read-bound tests, three startup-retry tests, 19 native log/five protocol cases
+and ordinary smoke pass. The same two pre-existing unclosed-SQLite
+ResourceWarnings remain. Workspace checking (44.28s), Clippy with warnings denied
+(68.76s), 526-file formatting, docs (36 documents/six flows/388 references),
+dependency policy (403 packages/no JavaScript engine) and whitespace checks pass.
+The full all-feature workspace suite passes 643 tests across 108 targets
+(772.33s), including all 77 Node cases (121.62s) and the development-host case
+(202.52s) under unchanged deadlines. Doc-tests pass 11 with one existing ignored
+example (60.11s). Every captured source and the saved binary remain unchanged
+through all 65 phases. Process/container inspection confirms no saved-runtime
+processes and all 15 owned stores from preliminary/final runs removed. Evidence
+is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-follower-read-bound-cvk8l2bw/qualified-verified`.
+Final docs checks run again after this ledger update. These are local matching-
+compiler results; hosted Linux qualification and the full release gates remain
+separate. Passing startup regressions do not diagnose historical failures.
+
+The first Rust 1.98.1 frozen batch stops on newer Clippy rules after its Python
+and workspace-check gates pass; that failed batch remains retained. UTF-16 clone
+and KV hex decoding now use array chunks, retaining their even-length checks and
+byte order. The tunnel send helper boxes its large TrySendError while preserving
+take_message and the exact unsent request/body/headers; submitted requests still
+cannot enter ordinary replay. No lint is suppressed. These conformance changes
+are included in the successful final batch above. Preliminary runtime SHA256
+5d50c8185369081efaee7d700907abcb8ce1cb46984262251747d9c09716f827
+and older Rust 1.97 evidence below predate that final tree and remain distinct.
+
+The cold RustFS startup failure now has a reproduced cause. The first ordinary
+repeat fails with full error chains: both returning peers exhaust their 10s
+activation budget while the destination retains its recovering predecessor.
+A controlled boot starts the destination and observes its actual first
+missing-witness refusal before returning peers. Its next recovery attempt waits
+30s under the existing startup policy, so both peers exit first and the witness
+is unavailable again. The run misses the original readiness/drain budgets;
+failed metadata, logs and stopped store data are preserved. No tunnel protocol
+refusal was observed. A competing claim is not needed to reproduce this case.
+
+The fix retains the exact member lease observations on missing-witness errors.
+Both startup paths poll those roots during the original backoff, retrying early
+only when a live current-protocol witness returns or changes its route/identity.
+Unchanged live heartbeats, absent/corrupt reads and untagged errors retain backoff.
+The wait includes its reads in the existing deadline, spawns no task and changes
+neither proof admission nor attempts/boot/RPC/activation budgets. Three real-store
+unit cases pass. The new recovery-first process case records and re-audits the
+bounded actual refusal prefix, original owner/predecessor and old peer leases,
+then requires original-prefix recovery before replay. An initial SQLite run
+recovered but failed because the fetch auditor did not recognize the new event;
+that dispatch is corrected and independently guarded. The corrected SQLite and
+RustFS cases pass in 33.94s/35.23s with complete joins. These preliminary results
+are separate from final frozen-source qualification below and do not establish
+the causes of the other startup failures.
+
+The previous frozen-source run captures 525 Rust and 68 Python files and uses
+runtime SHA256
+c65e1e80cc519f2512d2d3c90533a394983b512308507386b6b076e129d6969e.
+All 24 process cases and saved-evidence re-audits pass: the existing 20-case
+matrix, both controlled startup cuts and two extra ordinary RustFS expired-fetch
+repeats (three ordinary runs total). Controlled retries occur 417.291ms/627.967ms
+after the first refusal on SQLite/RustFS, instead of the reproduced 30s wait.
+All 167 Python guards, three retry-policy tests, 19 native log/five protocol
+cases, ordinary smoke, all-target/all-feature checking (83.73s), Clippy with
+warnings denied (94.08s), formatting, docs and dependency policy pass. Source
+hashes remain fixed. Actual process/container inspection confirms no saved-
+runtime processes and all 20 owned stores across failed, diagnostic and current
+runs removed; failed manual cleanup is not graceful-drain evidence. The first
+batch was intentionally stopped after its active process case completed to
+correct a test-only use of a forbidden Tokio timer; the current batch uses the
+execution-domain clock. The full all-feature workspace suite passes 640 tests
+across 108 targets in 1281.19s, including all 77 Node cases (139.15s). The
+development-host case passes in 560.50s under its unchanged deadlines. Doc-tests
+pass 11 with one existing ignored example (89.03s), and whitespace checks pass.
+All source hashes remain unchanged through completion. Final documentation
+checks run again after this ledger update. This qualifies the reproduced cold-
+startup backoff race on the stated profile, not the entire release matrix.
+The local profile is Rust 1.97.0/aarch64 macOS. CI's declared Rust 1.98.1 compiler
+is qualified by the newer frozen-source batch above. Hosted jobs have been unable
+to start because of GitHub account payment/spending-limit restrictions.
+
+The current metadata investigation reproduces four native failures: corrupt base,
+malformed/missing state and foreign valid metadata all supplied a readable tail
+instead of refusing. State fields were unchecked, decode errors silently became
+empty fragments, and metadata was not bound to the leader/follower identities.
+The fix writes a strict checksummed format-1 record and refuses invalid metadata
+without caching an empty state or mutating retained files. Missing metadata with
+retained batch evidence also refuses. The independent Python archive reader
+validates the same record with no legacy reader. All markers remain 1; recreate
+earlier unchecksummed development state.
+
+Final qualification holds all 524 Rust and 66 Python sources fixed, using the
+saved runtime SHA256
+08f44c699c078eebeb66a9e8eab7f999339df66185ec4c9c257646f935f4c18a.
+All 20 selected process cases and their independent saved-evidence re-audits
+pass: cold follower-only source/ack/live-fetch/expired-fetch on SQLite and pinned
+RustFS, plus consumer missing/corrupt batches, missing/corrupt metadata and
+warm/cold service cases on both backends. The metadata cases return original
+bytes after joined peers, recover the original inbox/effects/receipt before
+replay on the same recoverer, and preserve complete cleanup evidence. SQLite
+missing/corrupt metadata cases pass in 23.41s/22.89s; RustFS in 27.62s/25.61s.
+
+The full all-feature workspace suite passes 637 tests across 108 targets in
+1306.25s, including all 77 Node, 19 native log and five log protocol cases.
+Doc-tests pass 11 with one existing ignored example (90.96s). All 163 Python
+guards, ordinary example smoke, all-target/all-feature checking (72.94s),
+Clippy with warnings denied (75.48s), formatting (524 files), documentation
+(36 documents/six flows/388 references), dependency policy (403 packages/no
+JavaScript engine) and whitespace checks pass. The same two pre-existing
+unclosed-SQLite ResourceWarnings remain. Source hashes stay unchanged through
+every phase. Final process inspection finds no saved-runtime processes and
+confirms all 24 owned stores across failed, diagnostic and successful runs
+removed; the failed run's manual removal remains distinct from graceful drain.
+These scoped passes do not close the startup failure below or the full release
+matrix. The prior results below do not qualify the new metadata layout.
+
+The first broader frozen run passed all twelve consumer modes and source cuts,
+but its cold RustFS ack audit failed: the recovered stream validly moved to the
+consumer, returning AlreadyAcknowledged locally with unchanged checkpoint/effect
+and zero forwarded replay observations. This is a fixture measurement gap, not
+evidence of lost settlement or a passing network cut. The private cold ack/fetch
+setup now refuses only that consumer's selected stream ownership write, audits
+config/marker custody and requires another recovered owner. Exact forwarded
+receipt/reply assertions remain unchanged. The final qualification above uses
+the new frozen fixture tree; the failed run remains retained.
+
+The next frozen run exposed a separate cold RustFS expired-fetch startup failure:
+both returning peers exited during __catalogResolve, while the destination kept
+its old log recovering and still owned the catalog/stream. Destination readiness
+exceeded 90s and its stop exceeded 80s before the fixture killed it. The original
+finally loop then skipped remaining cleanup. After verifying all native PIDs
+terminal, the owned store was stopped, its data copied and the container removed;
+only the failed Python proxy driver required termination. That is failed cleanup
+evidence, not graceful-drain proof. Full error chains now survive activation
+readiness/debug output, and fixture cleanup attempts all owned resources while
+preserving the primary error. Three cleanup guards pass. A traced repeat, a
+two-second destination-start stagger and a later ordinary repeat pass, but none
+establishes the original cause. The later controlled recovery-first investigation
+and qualification above address this specific failure. No startup, RPC, lease or
+shutdown deadline is relaxed; the new metadata proof rules remain.
+
+The current missing-consumer-batch investigation reproduced a real safety bug
+twice: deleting every committed witness batch left an old state.json with end
+zero, and recovery certified an empty witness and sealed the predecessor. An
+independent joined-image audit confirms the successor retained only one of two
+proven inbox receipts/effects; no processing replay preceded that measurement. Three
+native cases also reproduced loss of the acknowledged end after all/last batch
+deletion or last-batch corruption. The fix persists an independent base/end
+barrier before append success, preserves it on cold load, and refuses duplicate/
+probe credit when its acknowledged range is missing. The duplicate-credit guard
+has its own failing-before regression. Prior unchanged-core results below are
+historical evidence; the fresh qualification of this fix is recorded here.
+All four final missing/corrupt process cases pass:
+SQLite missing/corrupt in 22.40s/22.98s and pinned RustFS S3 in 30.10s/29.33s.
+Two typed refusals per case arrive in 9046–9218ms under the unchanged 10s budget,
+with actual incomplete seal replies and repeated scans after the loss diagnostic.
+The same live recoverer restores the original prefix; rollback-only inbox probes
+are `[false, false]`, and joined old/recovered images each retain both digests.
+Both damaged peers join before original batches return with their seal state
+preserved. Proxy EOF propagation at those joins avoids a stale frontend socket;
+the final recovery/inbox reads use no client retry. All four prior warm/cold
+consumer cases and all 153 Python guards also pass. Actual Docker inventory
+confirms all four owned stores removed. The same two pre-existing unclosed-SQLite
+ResourceWarnings remain in the Python guards.
+
+Fresh qualification holds all 522 Rust and 63 Python files fixed. The saved
+runtime SHA256 is a02cffe730ab95ea3e601ae69308b06f88ba49a4a80047ff34409056897c6038.
+The full all-feature workspace suite passes 630 tests across 108 targets in
+1015.26s, including all 77 Node cases and all 12 native log cases. Doc-tests pass
+11 with one existing ignored example (94.41s). Workspace all-target/all-feature
+checking (152.88s), Clippy with warnings denied (204.42s), formatting (522 files),
+docs, dependency policy and whitespace checks pass. The development-host case
+finishes in 288.66s under its existing deadlines; passing startup cases still do
+not establish the causes of older intermittents. PR #67 merged during this run
+as 0f96868 with the identical tested base tree. The next PR starts from updated
+main; no stack is created.
+
+Follower state metadata corruption/loss is addressed by the current slice above,
+separately from these retained-metadata batch cuts. The next selected priority is
+the observed cold-start recovery/activation failure. Keep the remaining physical
+failure matrix, retention/lifecycle races and operational implementation gaps
+open. This slice does not complete the goal.
+Added state barriers require fresh performance/capacity measurement. All markers
+remain 1; earlier development state must be recreated.
 
 The current slice adds consumer-specific follower-only recovery qualification.
 After a seeded effect, actual consumer replica publication is refused while the

@@ -489,7 +489,7 @@ async fn send_inner(
             Ok(response) => return Ok(response),
             Err(mut error) => {
                 let Some(unsent) = error.take_message() else {
-                    return Err(error.into_error().into());
+                    return Err((*error).into_error().into());
                 };
                 request = unsent;
             }
@@ -498,15 +498,16 @@ async fn send_inner(
     let sender = establish(peer, kind).await?;
     send_on_tunnel(&key, sender, request)
         .await
-        .map_err(|error| error.into_error().into())
+        .map_err(|error| (*error).into_error().into())
 }
 
 async fn send_on_tunnel(
     key: &str,
     mut sender: TunnelSender,
     request: Request<TunnelBody>,
-) -> Result<Response<PooledResponseBody>, hyper::client::conn::TrySendError<Request<TunnelBody>>> {
-    let response = sender.try_send_request(request).await?;
+) -> Result<Response<PooledResponseBody>, Box<hyper::client::conn::TrySendError<Request<TunnelBody>>>>
+{
+    let response = sender.try_send_request(request).await.map_err(Box::new)?;
     let reusable =
         (response.status() != StatusCode::SWITCHING_PROTOCOLS).then(|| (key.to_string(), sender));
     Ok(response.map(|body| PooledResponseBody { body, reusable }))

@@ -157,7 +157,7 @@ async fn follower_gc_discovers_current_sessions_and_requires_closed_authority() 
             let closed: serde_json::Value = serde_json::from_slice(&std::fs::read(closed_path)?)?;
             let active: serde_json::Value = serde_json::from_slice(&std::fs::read(active_path)?)?;
             ensure!(
-                closed["sealed_to"] == 1 && active["sealed_to"] == 0,
+                closed["state"]["sealed_to"] == 1 && active["state"]["sealed_to"] == 0,
                 "GC ignored current sessions or closed an active fragment"
             );
             for (generation, name) in [("entry", "1.entry"), ("entries", "1-1.entries")] {

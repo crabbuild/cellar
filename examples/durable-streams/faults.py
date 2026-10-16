@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import sys
 import socket
 import subprocess
 import tempfile
@@ -26,6 +27,20 @@ class AuditError(RuntimeError):
 def require(condition, message):
     if not condition:
         raise AuditError(message)
+
+
+def cleanup_all(actions):
+    """Attempt every owned cleanup and preserve an already failing scenario."""
+    original=sys.exc_info()[1];failures=[]
+    for label,action in actions:
+        try:action()
+        except Exception as error:failures.append((label,error))
+    if failures:
+        message="; ".join(f"{label}: {type(error).__name__}: {str(error)[:2048]}" for label,error in failures)
+        if original is not None:
+            print("fixture cleanup failures: "+message,file=sys.stderr)
+        else:
+            raise AuditError("fixture cleanup failures: "+message) from failures[0][1]
 
 
 def digest(payload):
@@ -259,6 +274,9 @@ class Process:
         ledger.record("process_killed", label=label, pid=self.child.pid, exit_code=code)
 
     def stop(self):
+        if self.child.poll() is not None:
+            self.output.close()
+            return
         if self.child.poll() is None:
             self.child.send_signal(signal.SIGTERM)
             try:

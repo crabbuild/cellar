@@ -11,6 +11,9 @@ import tempfile
 from consumer_owner_audit import FETCH_ID, inspect_image, validate_delivery
 from faults import digest, integer, require, validate_event, validate_source
 from follower_faults import inspect_follower_disk, log_lineage
+from consumer_witness_data import validate_damage, validate_return, validate_oversized_batch
+from whole_fleet import inventory
+from follower_state import read_state
 
 PEERS = {"destination", "producer"}
 STAGES = ("before-loss", "recovered-before-replay", "after-replay", "final")
@@ -61,6 +64,9 @@ def audit_evidence(path, complete=True):
     discarded=expired=acked=removed=False
     inbox_verified=False
     refused=returned=None
+    fault=damaged=restored=None
+    refusals=0;repair_joined={};repair_started=set();repair_ready=set()
+    connections_retired=False
     gate_joined=set()
     killed,started,ready,joined={}, {}, set(),set()
     stages=[]
@@ -78,6 +84,8 @@ def audit_evidence(path, complete=True):
         elif event=="consumer_recovery_started":
             require(pids is None and set(row["pids"])==PEERS|{"consumer"} and len(set(row["pids"].values()))==3 and row["proof_mode"]=="fleet" and row["peer_proof"]=="bucket" and row["replica_fault_node"]=="consumer" and row["node_lease_ms"]==1000 and type(row["restart_followers"]) is bool,"wrong consumer proof policy/processes")
             pids,cold=row["pids"],row["restart_followers"]
+            fault=row.get("witness_data")
+            require(fault is None or cold and fault in ("missing","corrupt","oversize","state-missing","state-corrupt","state-oversize"),"witness damage requires cold recovery")
         elif event=="attempt":
             key=row["key"]
             require(pids is not None and key==("a" if seed is None else "b") and row["attempt"]==1 and row["replay"] is False and operations[key]["attempts"]==0 and proven is None,"source replay concealed recovery")
@@ -136,6 +144,10 @@ def audit_evidence(path, complete=True):
         elif event=="consumer_proof_image":
             require("consumer" in killed and old_image is None and not discarded,"image preceded leader loss")
             old_image=row["image"];validate_image(old_image,operations,original["effects"],original["effects"]["ack_receipt_sha256"])
+        elif event=="consumer_witness_data_damaged":
+            require(fault is not None and row["mode"]==fault and retained is not None and damaged is None and not started and not discarded and set(row["files"])==set(retained),"witness damage preceded archive/join or followed startup")
+            for node,files in row["files"].items():validate_damage(fault,retained[node]["files"],files)
+            damaged=row["files"]
         elif event=="consumer_data_discarded":
             require(old_image is not None and not discarded and successor is None and row["files"] and row["remaining_entries"]==0 and (not cold or retained is not None),"consumer retained local state or lost it before witness custody")
             require(selected(row["objects"],armed["scope"],proven["lease"])==selected(armed["objects"],armed["scope"],proven["lease"]),"bucket data repaired consumer before restart")
@@ -145,7 +157,7 @@ def audit_evidence(path, complete=True):
             expired=True
         elif event=="consumer_witness_started":
             node=row["node"];require(cold and discarded and expired and retained is not None and node in PEERS-started.keys() and row["pid"] not in (*pids.values(),*started.values()) and row["lease"]==cold_leases[node] and row["observed_ms"]>row["lease"]["expires_ms"],"witness reused memory/live authority")
-            require(row["files"]==(retained[node]["files"] if node in retained else []),"retained witness bytes changed before restart")
+            require((fault is None or damaged is not None) and row["files"]==((damaged[node] if fault else retained[node]["files"]) if node in retained else []),"retained/damaged witness bytes changed before restart")
             started[node]=row["pid"]
         elif event=="consumer_witness_ready":
             node=row["node"];require(cold and successor is not None and set(started)==PEERS and node in PEERS-ready and row["pid"]==started[node] and row["lease"]["node"]==node and row["lease"]["generation"]!=cold_leases[node]["generation"] and log_lineage(row["lease"])==log_lineage(cold_leases[node]),"witness readiness lacks fresh generation/retained lineage")
@@ -154,14 +166,50 @@ def audit_evidence(path, complete=True):
             require(discarded and expired and successor is None and row["pid"] not in (*pids.values(),*started.values()) and (not cold or set(started)==PEERS),"successor reused old state/process")
             successor=row["pid"]
         elif event=="consumer_witness_refused":
-            require(cold and ready==PEERS and successor is not None and refused is None and stages==["before-loss"] and row["status"]==503 and "Unavailable: event RPC did not return a proven result" in row["body"] and 0<=row["elapsed_ms"]<10000,"consumer witness denial timed out or followed repair")
+            require(cold and ready==PEERS and successor is not None and returned is None and restored is None and refusals<(2 if fault else 1) and row.get("attempt",1)==refusals+1 and stages==["before-loss"] and row["status"]==503 and "Unavailable: event RPC did not return a proven result" in row["body"] and 0<=row["elapsed_ms"]<10000,"consumer witness denial timed out or followed repair")
             require(row["owner"]==proven["owner"] and row["lease"]["generation"]==proven["lease"]["generation"] and log_lineage(row["lease"])==log_lineage(proven["lease"]) and row["lease"]["log"]["state"]=="recovering" and row["lease"]["log"]["may_have_fleet_acks"] is True,"missing witness reset owner or sealed away consumer proof")
             require(selected(row["objects"],armed["scope"],proven["lease"])==selected(armed["objects"],armed["scope"],proven["lease"]),"unavailable witnesses fabricated bucket coverage")
             leader=f"consumer/{log_lineage(proven['lease'])}/{proven['lease']['generation']}"
             require(set(row["gates"])==PEERS and all(row["gates"][node] for node in proven["lease"]["log"]["ensemble"]) and all(v["leader"]==leader and v["epoch"]==proven["lease"]["log"]["epoch"] and len(v["request_sha256"])==64 for rows in row["gates"].values() for v in rows),"witness service fault was not exercised on the retained session")
-            refused=row
+            if fault:
+                diagnostic=row["diagnostic"]
+                require(damaged is not None,"refusal preceded witness damage")
+                if fault.startswith("state-"):
+                    message=(f"missing follower state for retained fragment {leader}" if fault=="state-missing" else f"invalid follower state for {leader}")
+                    reason={"state-corrupt":"follower state checksum mismatch","state-oversize":"follower state exceeds format bound"}.get(fault,"")
+                    require(diagnostic is None and all(v.get("blocked") is False and v.get("status")==400 and message in v.get("response_body","") and reason in v.get("response_body","") and v.get("response_sha256")==hashlib.sha256(v["response_body"].encode()).hexdigest() for rows in row["gates"].values() for v in rows),"metadata error replaced by a service fault or complete seal answer")
+                else:
+                    require(diagnostic["leader"]==leader and diagnostic["epoch"]==proven["lease"]["log"]["epoch"] and diagnostic["recovery_blocked"] is True and set(diagnostic["ensemble"])==set(retained),"missing retained-data loss diagnostic")
+                    require(all(v.get("blocked") is False and v.get("response",{}).get("fragment_epoch")==0 for rows in row["gates"].values() for v in rows),"data loss replaced by service refusal or a complete seal certificate")
+                if refused:require(all(len(row["gates"][node])>len(refused["gates"][node]) for node in retained),"cached diagnostic replaced actual repeated recovery")
+            else:require(all(v.get("blocked",True) is True for rows in row["gates"].values() for v in rows),"service refusal was not exercised")
+            refused=row;refusals+=1
+        elif event=="consumer_damaged_witness_joined":
+            node=row["node"]
+            require(fault is not None and refusals==2 and restored is None and node in PEERS-repair_joined.keys() and row["pid"]==started[node] and row["exit_code"]==0 and len(row["reports"])==1 and all(row["reports"][0].get(key) is True for key in ("ingress_drained","application_work_drained","cells_drained")),"witness data returned before complete peer joins")
+            require(row["lease"]["node"]==node and row["lease"]["generation"]!=cold_leases[node]["generation"] and log_lineage(row["lease"])==log_lineage(cold_leases[node]),"joined damaged witness changed lineage")
+            repair_joined[node]=row
+        elif event=="consumer_witness_connections_retired":
+            require(set(repair_joined)==PEERS and not connections_retired and restored is None and set(row["connections"])==PEERS and all(type(value) is int and 0<=value<=1000 for value in row["connections"].values()),"proxy EOF propagation preceded actual peer joins")
+            connections_retired=True
+        elif event=="consumer_witness_data_restored":
+            require(fault is not None and set(repair_joined)==PEERS and connections_retired and restored is None and returned is None and set(row["files"])==set(retained),"witness return preceded repeated refusal/joins")
+            for node,data in row["files"].items():
+                validate_return(retained[node]["files"],data["before"],data["after"],fault,damaged[node])
+                require(data["sha256"]=={entry["path"]:entry["sha256"] for entry in retained[node]["files"] if entry["path"].endswith(".batch")},"returned witness hash changed")
+            restored=row["files"]
+        elif event=="consumer_returned_witness_started":
+            node=row["node"]
+            require(restored is not None and node in PEERS-repair_started and row["lease"]==repair_joined[node]["lease"] and row["observed_ms"]>row["lease"]["expires_ms"] and row["pid"] not in (*pids.values(),*started.values(),successor,*[v["pid"] for v in repair_joined.values()]),"returned witness reused process/live authority")
+            require(row["files"]==(restored[node]["after"] if node in retained else []),"returned bytes changed before cold reload")
+            started[node]=row["pid"];repair_started.add(node)
+        elif event=="consumer_returned_witness_ready":
+            node=row["node"];lease=row["lease"]
+            require(repair_started==PEERS and node in PEERS-repair_ready and row["pid"]==started[node] and lease["node"]==node and lease["generation"]!=repair_joined[node]["lease"]["generation"] and log_lineage(lease)==log_lineage(cold_leases[node]),"returned witness lacks fresh process generation/retained lineage")
+            repair_ready.add(node)
         elif event=="consumer_witness_returned":
             require(refused is not None and returned is None and row["pid"]==successor and len(row["generation"])==64 and stages==["before-loss"],"witness returned after replay or recoverer restart")
+            require(fault is None or refusals==2 and repair_ready==PEERS,"witness returned without complete data recovery")
             returned=row
         elif event=="consumer_witness_gate_joined":
             require(cold and stages==list(STAGES) and joined==PEERS|{"successor"} and row["node"] in PEERS-gate_joined,"witness gate outlived cleanup")
@@ -202,4 +250,23 @@ def audit_evidence(path, complete=True):
         require(inspect_consumer(path.parent/"recovered-consumer-image",armed["scope"])==new_image["image"],"recovered consumer archive changed")
         if cold:
             for node,data in retained.items():require(inspect_follower_disk(path.parent/"consumer-follower-images"/node)==data,"consumer witness archive changed")
+        if fault:
+            require(damaged is not None and restored is not None,"missing witness-data custody")
+            for node in retained:
+                require(inventory(path.parent/"damaged-consumer-followers"/node)==damaged[node],"damaged consumer witness archive changed")
+                require(inventory(path.parent/"returned-consumer-followers"/node)==restored[node]["after"],"returned consumer witness archive changed")
+                state=read_state(path.parent/"returned-consumer-followers"/node,leader=f"consumer/{log_lineage(proven['lease'])}/{proven['lease']['generation']}",node=node)
+                require(state==retained[node]["seed"] if fault.startswith("state-") else state["sealed_to"]>=proven["lease"]["log"]["epoch"],"return rolled back witness seal floor")
+                if fault=="oversize":
+                    for batch in retained[node]["batches"]:
+                        validate_oversized_batch(path.parent/"consumer-follower-images"/node/batch["path"],path.parent/"damaged-consumer-followers"/node/batch["path"])
+                if fault=="state-corrupt":
+                    expected=json.loads((path.parent/"consumer-follower-images"/node/"state.json").read_bytes())
+                    require(expected["state"]["base"]<expected["state"]["end"],"metadata fault did not hide actual retained work")
+                    expected["state"]["base"]=expected["state"]["end"]
+                    require(json.loads((path.parent/"damaged-consumer-followers"/node/"state.json").read_bytes())==expected,"metadata fault changed more than the base or supplied a new checksum")
+                if fault=="state-oversize":
+                    original=(path.parent/"consumer-follower-images"/node/"state.json").read_bytes()
+                    altered=(path.parent/"damaged-consumer-followers"/node/"state.json").read_bytes()
+                    require(len(original)<=4096 and len(altered)==64<<10 and altered==original+b" "*((64<<10)-len(original)),"oversized-state fault changed fields or checksum instead of only padding")
     return dict(audits=len(stages),consumer_fleet_recoveries=int(len(stages)>1),cold_followers=len(ready),backend="s3" if store else "sqlite")

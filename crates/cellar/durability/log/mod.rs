@@ -36,7 +36,12 @@ use crate::log_options::LogOptions;
 use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
+#[cfg(test)]
+mod follower_batch_tests;
+mod follower_file;
+mod follower_state;
 mod recovery_progress;
+mod startup_retry;
 
 /// The one peer-POST boundary used by the node log.
 ///
@@ -174,8 +179,8 @@ where
 {
     use tokio::io::AsyncReadExt;
     let mut buf: Vec<u8> = Vec::new();
-    // A delivered frame that belongs to another fragment: it could not ride
-    // the batch it arrived with, so it opens the next one.
+    // A delivered frame for another fragment or beyond this commit's byte
+    // budget opens the next batch without being dropped or reordered.
     let mut carried: Option<AppendReq> = None;
     let mut cycle_started = mono_us();
     loop {
@@ -991,28 +996,45 @@ pub fn decode_tail_resp(mut body: &[u8]) -> anyhow::Result<TailResp> {
 }
 
 /// The frames one commit may carry: consecutive stream frames of ONE
-/// fragment. Growing a batch is the only way to build one, and it hands
-/// back a frame for another leader or epoch, so `append_batch` never has to
-/// decide what a mixed batch means — the caller keeps the refused frame and
-/// opens the next batch with it.
+/// fragment within its byte/frame bounds. Growing a batch is the only way
+/// to build one; a different fragment or excess frame is handed back to the
+/// caller to open the next batch, preserving ordered delivery.
 pub struct AppendBatch {
     frames: Vec<AppendReq>,
+    // None retains an invalid first request so append_batch can refuse it
+    // without touching disk. Later frames must fit before joining the burst.
+    entry_bytes: Option<usize>,
 }
 
 impl AppendBatch {
     pub fn new(first: AppendReq) -> Self {
+        let entry_bytes = committed_entry_bytes(&first.entries);
         Self {
             frames: vec![first],
+            entry_bytes,
         }
     }
 
-    /// Add a frame of the same fragment, or hand it back untouched.
+    /// Add a frame of the same fragment within the commit byte/frame bounds,
+    /// or hand it back untouched for the next commit.
     pub fn try_push(&mut self, req: AppendReq) -> Result<(), AppendReq> {
         let head = &self.frames[0];
-        if req.leader != head.leader || req.epoch != head.epoch {
+        if req.leader != head.leader
+            || req.epoch != head.epoch
+            || self.frames.len() >= SERVE_BATCH_FRAMES
+        {
             return Err(req);
         }
+        let Some(entry_bytes) = self
+            .entry_bytes
+            .zip(committed_entry_bytes(&req.entries))
+            .and_then(|(current, next)| current.checked_add(next))
+            .filter(|total| *total <= COMMITTED_BATCH_ENTRY_CAP)
+        else {
+            return Err(req);
+        };
         self.frames.push(req);
+        self.entry_bytes = Some(entry_bytes);
         Ok(())
     }
 
@@ -1143,6 +1165,7 @@ pub struct TailResp {
 // ── The follower side ───────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[doc(hidden)]
 pub struct FollowerState {
     pub fragment_epoch: u64,
@@ -1153,12 +1176,32 @@ pub struct FollowerState {
 
 // A committed follower batch carries the state transition that its entries
 // make durable. The SHA-256 footer distinguishes a complete fsynced batch from
-// a crash-torn direct write, so the batch itself can be the recovery commit
-// point without a second state-file fsync and rename.
+// a crash-torn direct write. Append credit also requires the independent
+// checksummed state-file barrier, so later batch loss cannot lower the end.
 //
 //   batch: "CLB1" fragment_epoch base end sealed_to count entry* sha256
 const COMMITTED_BATCH_MAGIC: &[u8; 4] = b"CLB1";
 const COMMITTED_BATCH_DIGEST_LEN: usize = 32;
+
+// One commit can merge frames, but its total encoded entry bytes stay within
+// one frame's budget. The stream carries any additional frame into the next
+// commit. Retained readers use the same bound plus the fixed CLB1 envelope.
+const COMMITTED_BATCH_ENTRY_CAP: usize = STREAM_FRAME_CAP;
+const COMMITTED_BATCH_MAX_BYTES: usize =
+    4 + 4 * 8 + 4 + COMMITTED_BATCH_ENTRY_CAP + COMMITTED_BATCH_DIGEST_LEN;
+
+fn committed_entry_bytes(entries: &[Entry]) -> Option<usize> {
+    u32::try_from(entries.len()).ok()?;
+    entries.iter().try_fold(0_usize, |total, entry| {
+        u16::try_from(entry.cell.len()).ok()?;
+        u32::try_from(entry.bytes.len()).ok()?;
+        total
+            .checked_add(4 + 8 + 2 + 8 + 8 + 4)?
+            .checked_add(entry.cell.len())?
+            .checked_add(entry.bytes.len())
+            .filter(|total| *total <= COMMITTED_BATCH_ENTRY_CAP)
+    })
+}
 
 struct CommittedBatch {
     state: FollowerState,
@@ -1187,9 +1230,37 @@ struct DiskRecoveryGap {
 struct LoadedFollowerState {
     state: FollowerState,
     disk_recovery_gap: Option<DiskRecoveryGap>,
+    acknowledged_range_missing: bool,
 }
 
 impl CommittedBatchScan {
+    fn covers_acknowledged_range(&self, state: FollowerState) -> bool {
+        let mut covered = state.base;
+        for batch in self
+            .batches
+            .iter()
+            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
+        {
+            if covered >= state.end {
+                break;
+            }
+            let first = batch
+                .entries
+                .first()
+                .expect("committed batches are nonempty")
+                .seq;
+            let last = batch.state.end;
+            if last <= covered {
+                continue;
+            }
+            if first > covered.saturating_add(1) {
+                return false;
+            }
+            covered = last;
+        }
+        covered >= state.end
+    }
+
     fn recovery_gap(&self, state: FollowerState) -> Option<DiskRecoveryGap> {
         if state.fragment_epoch == 0 {
             return None;
@@ -1236,6 +1307,10 @@ fn encode_committed_batch(state: FollowerState, entries: &[Entry]) -> Vec<u8> {
 fn decode_committed_batch(bytes: &[u8]) -> anyhow::Result<CommittedBatch> {
     use sha2::Digest as _;
 
+    anyhow::ensure!(
+        bytes.len() <= COMMITTED_BATCH_MAX_BYTES,
+        "follower batch exceeds format bound"
+    );
     let payload_len = bytes
         .len()
         .checked_sub(COMMITTED_BATCH_DIGEST_LEN)
@@ -1558,11 +1633,14 @@ impl FollowerStore {
                 );
                 continue;
             }
-            let decoded = self
-                .filesystem
-                .read(&item.path)
-                .map_err(anyhow::Error::from)
-                .and_then(|bytes| decode_committed_batch(&bytes));
+            let decoded = follower_file::read(
+                self.filesystem.as_ref(),
+                &item.path,
+                COMMITTED_BATCH_MAX_BYTES,
+                "follower batch",
+            )
+            .and_then(|bytes| bytes.context("committed follower batch disappeared"))
+            .and_then(|bytes| decode_committed_batch(&bytes));
             match decoded {
                 Ok(batch)
                     if batch.entries.first().map(|entry| entry.seq) == Some(named_first)
@@ -1658,22 +1736,32 @@ impl FollowerStore {
         if let Some(loaded) = self.logs.lock().unwrap().get(leader) {
             return Ok(loaded.state);
         }
-        let seed = self
-            .filesystem
-            .read(&self.dir(leader).join("state.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let seed = follower_state::load(
+            self.filesystem.as_ref(),
+            &self.dir(leader).join("state.json"),
+            leader,
+            &self.node,
+        )
+        .with_context(|| format!("invalid follower state for {leader}"))?;
         // Use one directory observation for both recovery and its evidence.
         // A second scan could lose the invalid or later file that explains why
         // recovery stopped, then certify the shortened state as complete.
         let batch_scan = self.scan_committed_batches(leader)?;
+        anyhow::ensure!(
+            seed.is_some()
+                || batch_scan.batches.is_empty()
+                    && batch_scan.unreadable_ranges.is_empty()
+                    && !batch_scan.unknown_unreadable_range,
+            "missing follower state for retained fragment {leader}"
+        );
+        let seed = seed.unwrap_or_default();
         let state = self.recover_committed_state(seed, &batch_scan.batches);
         self.logs.lock().unwrap().insert(
             leader.to_string(),
             LoadedFollowerState {
                 state,
                 disk_recovery_gap: batch_scan.recovery_gap(state),
+                acknowledged_range_missing: !batch_scan.covers_acknowledged_range(state),
             },
         );
         Ok(state)
@@ -1687,11 +1775,17 @@ impl FollowerStore {
                 && !matches!(gap.suspect_end, SuspectEnd::Known(end) if state.end >= end))
             .then_some(gap)
         });
+        let acknowledged_range_missing = logs.get(leader).is_some_and(|loaded| {
+            loaded.acknowledged_range_missing
+                && loaded.state.fragment_epoch == state.fragment_epoch
+                && state.base < loaded.state.end
+        });
         logs.insert(
             leader.to_string(),
             LoadedFollowerState {
                 state,
                 disk_recovery_gap,
+                acknowledged_range_missing,
             },
         );
     }
@@ -1720,7 +1814,8 @@ impl FollowerStore {
         let path = dir.join("state.json");
         let tmp = dir.join("state.json.tmp");
         let write_started = mono_us();
-        self.filesystem.write(&tmp, &serde_json::to_vec(&state)?)?;
+        self.filesystem
+            .write(&tmp, &follower_state::encode(leader, &self.node, state)?)?;
         let write_us = mono_us().saturating_sub(write_started);
         let fsync_started = mono_us();
         self.filesystem.sync_all(&tmp)?;
@@ -1826,6 +1921,19 @@ impl FollowerStore {
     /// the batch where a lone frame would have been refused. The cost this
     /// removes is one fsync chain per frame; see `serve_log_stream`.
     pub async fn append_batch(&self, batch: AppendBatch) -> Vec<AppendResp> {
+        if batch.entry_bytes.is_none() || batch.frames.len() > SERVE_BATCH_FRAMES {
+            warn!("append refused: invalid or oversized encoded follower batch");
+            return batch
+                .frames
+                .iter()
+                .map(|_| AppendResp {
+                    ok: false,
+                    end: 0,
+                    epoch: None,
+                })
+                .collect();
+        }
+
         fn refusals(count: usize, state: FollowerState) -> Vec<AppendResp> {
             (0..count)
                 .map(|_| AppendResp {
@@ -1888,6 +1996,19 @@ impl FollowerStore {
                 Err(_) => return refusals(frames.len(), state),
             };
         }
+        if self
+            .logs
+            .lock()
+            .unwrap()
+            .get(&leader)
+            .is_some_and(|loaded| loaded.acknowledged_range_missing)
+        {
+            // An end marker requires retained bytes; it is not proof that they
+            // remain readable. Neither duplicates nor probes may re-credit a
+            // damaged witness. Cold valid bytes, a genuinely covered base or
+            // adoption of a new epoch must establish its range again.
+            return refusals(frames.len(), state);
+        }
         // The shipping decision is cellar_logic::log_tier::FollowerLog; drive
         // it entry by entry so the seal and contiguity refusals are exactly
         // the modeled ones.
@@ -1903,10 +2024,11 @@ impl FollowerStore {
         }
         // The accepted prefix of every frame in the burst persists as ONE
         // checksum-protected commit file. It carries the entries and their
-        // resulting follower state, so one file fsync plus the directory
-        // barrier makes the whole transition recoverable — per burst, not
-        // per frame. A crash-torn direct write has no valid digest and is
-        // ignored; a later state-file rewrite is not on the hot append path.
+        // resulting follower state. The state file must independently retain
+        // the acknowledged end before answering: if a committed batch later
+        // disappears, scanning only the remaining batches could certify a
+        // shorter (or empty) fragment as complete. Both barriers are per burst,
+        // not per frame. A torn batch has no valid digest and is ignored.
         let persist_started = mono_ms();
         let mut entry_write_us = 0_u64;
         let mut entry_fsync_us = 0_u64;
@@ -2030,19 +2152,18 @@ impl FollowerStore {
         let state_started = mono_ms();
         let state_persist = if !commit_ok {
             Err(anyhow!("the follower batch did not reach its commit point"))
-        } else if !accepted.is_empty() {
-            self.cache_state(&leader, new_state);
-            // Reclaim committed ranges only after the new base is durable.
-            // The deletion is best-effort and needs no second directory sync:
-            // a crash can retain covered files, which `tail` already hides.
-            let _ = self.remove_entries_below(&leader, new_state.base);
-            Ok(FollowerPersistTiming::default())
-        } else if new_state != state {
-            // A duplicate append can still advance only the bucket watermark.
-            // With no new batch to carry it, retain the ordinary state chain.
-            self.persist_timed(&leader, new_state)
         } else {
-            Ok(FollowerPersistTiming::default())
+            // Also persist duplicate/probe responses: a cold load may have
+            // recovered a batch whose previous state commit was never acked.
+            // Returning its end without this barrier would reopen the same
+            // missing-batch hole. Cache advancement occurs only after persist.
+            let persisted = self.persist_timed(&leader, new_state);
+            if persisted.is_ok() && (!accepted.is_empty() || new_state.base > state.base) {
+                // Reclaim only after the independent base/end is durable.
+                // Best-effort deletion may retain already-covered files.
+                let _ = self.remove_entries_below(&leader, new_state.base);
+            }
+            persisted
         };
         let state_ok = state_persist.is_ok();
         let state_timing = state_persist.unwrap_or_default();
@@ -4976,6 +5097,7 @@ impl NodeLogManager {
             // acknowledgements must remain blocked even when every member
             // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
+            let mut witnesses = startup_retry::Witnesses::new(now);
             let mut gathered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
             // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
@@ -4989,6 +5111,7 @@ impl NodeLogManager {
             for member in &record.ensemble {
                 self.beat_claim(dead, &mut beat).await?;
                 let lease = self.ownership.read_node_lease(member).await;
+                witnesses.observe(member, lease.as_ref().ok().and_then(Option::as_ref));
                 let lease_live = matches!(&lease, Ok(Some(lease)) if lease.expires_ms > now);
                 let lease_long_dead = matches!(
                     &lease,
@@ -5132,13 +5255,15 @@ impl NodeLogManager {
             // discarded. An empty ensemble with the ack marker is likewise
             // missing proof. A later pass can succeed if a witness returns.
             if complete_witnesses == 0 && may_have_fleet_acks {
-                anyhow::ensure!(
-                    inconclusive == 0,
-                    "node-log recovery for {dead}: no complete true witness among {:?} and \
+                if inconclusive != 0 {
+                    return Err(anyhow::anyhow!(
+                        "node-log recovery for {dead}: no complete true witness among {:?} and \
                      {inconclusive} member(s) undecided; refusing to seal while \
                      member state remains unverified",
-                    record.ensemble
-                );
+                        record.ensemble
+                    )
+                    .context(witnesses));
+                }
                 let loss = serde_json::json!({
                     "leader": dead,
                     "epoch": record.epoch,
@@ -5155,11 +5280,12 @@ impl NodeLogManager {
                         serde_json::to_vec(&loss)?,
                     )
                     .await?;
-                anyhow::bail!(
+                return Err(anyhow::anyhow!(
                     "node-log recovery for {dead}: no complete true witness among {:?}; \
                      acknowledged writes may be missing; recovery remains blocked",
                     record.ensemble
-                );
+                )
+                .context(witnesses));
             }
             // The dead leader's un-drained bundles are bucket-durable
             // coverage that recovery folds into the per-cell prefixes —
@@ -5512,6 +5638,17 @@ impl NodeLogManager {
     /// is ordinary dead-session recovery under other keys.
     pub async fn recover_self(&self) -> anyhow::Result<()> {
         self.ensure_predecessors_recovered().await
+    }
+
+    /// A returning witness may need this recovery to finish before its own
+    /// application activation deadline. Its fresh lease is a reason to retry
+    /// the real proof, never permission to skip it or enlarge the boot budget.
+    pub(crate) async fn wait_for_startup_retry(
+        &self,
+        error: &anyhow::Error,
+        backoff: std::time::Duration,
+    ) {
+        startup_retry::wait(error, &self.ownership, backoff).await;
     }
 
     /// Is the fleet tier serving acknowledgements?

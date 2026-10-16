@@ -76,10 +76,10 @@ def audit_disks(path, complete=True):
                     "cold follower restart reused memory or live authority")
             require(row["files"] == (retained["followers"][node]["files"] if node in retained["followers"] else []),
                     "cold follower disk changed before restart")
-            if operation == "append":
+            if operation == "append" or operation in ("ack", "fetch") and node == "consumer":
                 gate = row["claim_gate"]
                 require(gate["scope"] == armed["scope"] and gate["marker_sha256"] == hashlib.sha256(b"").hexdigest()
-                        and len(gate["configuration_sha256"]) == 64, "source could acquire destination and bypass append gate")
+                        and len(gate["configuration_sha256"]) == 64, "caller could acquire destination and bypass the network gate")
             started[node] = row["pid"]
             started_rows[node] = row
         elif event == "destination_follower_process_ready":
@@ -97,6 +97,8 @@ def audit_disks(path, complete=True):
         elif event == "destination_follower_recovered" and armed:
             require(ready == PEERS and not recovered and (operation != "append" or append_gate is not None),
                     "recovery audit preceded cold follower readiness or append gate")
+            require(operation == "append" or row["owner"]["node"] in {"destination","producer"},
+                    "cold replay caller owns the destination and can bypass the network gate")
             recovered = True
         elif event in ("ack_audit", "fetch_audit", "fleet_audit") and armed and row["label"] in ("recovered-before-replay", "recovered-before-retry"):
             require(ready == PEERS, "saved recovery snapshot preceded cold follower readiness")
@@ -122,8 +124,8 @@ def audit_disks(path, complete=True):
         for node, data in retained["followers"].items():
             require(inspect_follower_disk(path.parent / "destination-follower-images" / node) == data,
                     "archived destination follower bytes changed")
-        if operation == "append":
-            for node in PEERS:
+        if operation in ("append","ack","fetch"):
+            for node in (PEERS if operation == "append" else {"consumer"}):
                 gate = started_rows[node]["claim_gate"]
                 config = path.parent / (node + "-cold-config.json")
                 marker = path.parent / "data" / node / "claim-block"
@@ -131,7 +133,9 @@ def audit_disks(path, complete=True):
                         and hashlib.sha256(config.read_bytes()).hexdigest() == gate["configuration_sha256"]
                         and hashlib.sha256(marker.read_bytes()).hexdigest() == gate["marker_sha256"]
                         and json.loads(config.read_text())["blocked_claim"] == armed["scope"], "cold append claim gate custody changed")
-    return dict(restarted_destination_followers=len(ready), cold_append_gates=int(append_gate is not None))
+    from destination_startup import audit as audit_startup
+    startup=audit_startup(path,complete)
+    return dict(restarted_destination_followers=len(ready), cold_append_gates=int(append_gate is not None), startup_recovery_cuts=startup)
 
 
 class ColdFollowers:
@@ -194,7 +198,7 @@ class ColdFollowers:
             proxy.paused = True
             self.proxies.append(proxy)
             claim_gate = None
-            if proof.operation == "append":
+            if proof.operation == "append" or proof.operation in ("ack", "fetch") and node == "consumer":
                 marker = proof.root / "data" / node / "claim-block"
                 with marker.open("xb") as file:
                     file.flush()

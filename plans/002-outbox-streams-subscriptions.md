@@ -1144,6 +1144,19 @@ current writer epoch.
 | Work task is rejected or cancelled | Registry releases owned resources; durable deadline still permits recovery |
 | Same-name process restart or fleet handoff | Recover predecessor proof history before serving; stable logical IDs are unchanged |
 
+During a correlated restart, a failed recovery pass may observe a witness's old
+address just before that peer publishes its fresh lease. Waiting a whole node
+TTL can exceed the peer's event activation budget and remove the witness again.
+Retain the exact lease observations on missing-witness failures. During the
+configured startup backoff, poll only those member roots and retry early when a
+live current-protocol witness returns with changed lineage, generation or
+address, or renews a lease observed expired. An unreadable/missing record or an
+ordinary heartbeat from an already-live peer cannot wake this wait. Include all
+reads in the backoff deadline and retain the enclosing boot/attempt budgets,
+attempt count and cancellation. A wake only schedules another full recovery
+proof; it cannot seal a predecessor, install authority or enable application
+admission. Both native host startup paths use the same rule.
+
 ### Shutdown and application upgrades
 
 Internal dispatch and stream maintenance are tracked execution-domain work,
@@ -1876,6 +1889,99 @@ witness archives, exact inbox digests/saved receipt hashes and complete process/
 proxy/store joins are required. These cuts retain their disks; lost/corrupt
 witnesses, physical loss and the rest of the release matrix remain separate.
 
+The additional `--witness-data missing|corrupt` cold mode damages the actual
+committed consumer batches on every original witness after process loss and
+archive custody. State metadata stays intact. Require two explicit framework
+refusals, actual incomplete seal responses, a durable loss diagnostic, unchanged
+owner/recovering log and no selected bucket repair. The second refusal must
+repeat the real witness scan rather than treating a cached diagnostic as proof.
+Drain/join both damaged peers, propagate upstream EOF through their proxies,
+then return only original batch bytes while preserving the persisted seal floor.
+Fresh peer generations and the same live successor must recover the original
+inbox/effect/receipt prefix before replay. Independently reinspect all archives.
+This is retained-metadata batch-loss qualification, not arbitrary metadata loss
+or physical host/power/store loss.
+
+Follower acknowledgments must persist an independent base/end state after the
+batch barrier and before returning success. Deriving the end only from surviving
+batches can certify an acknowledged lost suffix as a complete shorter witness.
+Cold load must check contiguous coverage of the retained end and refuse duplicate
+and probe append credit when those bytes are missing. The native
+`log_follower_loss.rs` cases cover all/last missing batches, a corrupt last batch
+and original-byte return without state rollback. Duplicate/probe responses also
+need the state barrier when a cold scan recovered an earlier unacknowledged batch.
+The additional fsyncs need fresh throughput/headroom measurement. All markers
+stay 1; recreate earlier development state instead of adding a legacy reader.
+
+Committed follower batches have one format admission budget: at most 64 frames
+and 64 MiB of total encoded CLE1 entry bytes. The fixed CLB1 state/count header
+and SHA-256 footer add 72 bytes. Check entry count and u16 cell/u32 payload
+length representation before persistence or acknowledgment. Invalid first frames
+receive refusal with unknown epoch; no range credit is inferred. If a later
+ordered frame would exceed either burst bound, carry that exact frame into the
+next commit and preserve reply order. An already-delivered two-frame full-budget
+burst followed by a third frame must persist as consecutive commits and recover
+all three records cold. Never solve the read bound by rejecting writer-admitted
+current-format state.
+
+Read each retained batch through the same pinned-handle contract as metadata:
+check length before requesting payload, require exact bytes and unchanged length,
+then verify checksum, range and entries. Oversized, disappeared and post-open
+failed reads retain unreadable-range evidence; the independent acknowledged end
+cannot shrink or authorize duplicate/probe credit. The oversize process variant
+extends every original batch to 64 MiB + 73 bytes with zeros, preserving the
+original byte prefix and all state files. Require the same real refusal, seal,
+loss-diagnostic, original-prefix-before-replay and seal-preserving return gates as
+batch corruption. Independently check exact lengths, original prefixes and zero
+extensions with bounded archive reads. All owned markers stay 1; rebuild every
+participant and recreate older development state containing larger batches.
+Individual batch bounds do not qualify total tail memory, metadata exhaustion,
+recovery headroom or the remaining physical/capacity gates.
+
+The independent follower state barrier also requires integrity and identity.
+Persist a strict JSON record with `format: 1`, the canonical leader session,
+stable follower node, `state` (four u64 fields: `fragment_epoch`, `base`, `end`,
+`sealed_to`) and a lowercase SHA-256 `checksum`. Hash the UTF-8 domain
+`cellar-follower-state` followed by a zero byte, the u32 format in little endian,
+each identity as u32 byte length plus UTF-8 bytes, then the four u64 state fields
+in the order above in little endian. Bound the encoded record to 4096 bytes and
+each identity to 1024 bytes; reject extra/duplicate fields, invalid ranges,
+unknown formats, wrong identity or checksum and I/O/parse errors.
+
+The size bound applies before requesting payload bytes. Open one file handle,
+check its length against 4096, read exactly that bounded length and recheck its
+length before decoding. Reject short/changed reads; only NotFound at open means
+the optional file is absent. Later NotFound errors cannot create fresh state.
+This avoids both an unbounded whole-file allocation and a path-stat/read race.
+
+Missing metadata beside retained batch evidence is unproven, not an empty new
+fragment. Refused tail/seal/append operations must preserve the metadata and
+batch bytes; repeated calls cannot cache an empty success. Original valid
+metadata can later recover the actual prefix. The native metadata cases cover
+base inflation, malformed/missing state, foreign sessions/followers and the hard
+format cutover. The process driver extends the cold consumer cases with actual
+state removal or unchecked base inflation on all witnesses, real peer refusals,
+two explicit framework refusals and identical damaged inventories before joined
+peers receive original metadata. Audit original consumer inbox/effects/receipt
+before replay and independently validate all state/batch archives. These cases
+do not qualify arbitrary historical rollback or physical power/store loss.
+
+The oversized-state variant appends only spaces to the original valid record,
+preserving all fields and its checksum, until the file is 64 KiB. Require real
+peer format-bound errors and no complete certificate, independently inspect the
+exact padded bytes, then return the original metadata after peer joins. Native
+filesystem probes separately require zero payload-read requests for 4097-byte
+and 8 MiB files, acceptance at exactly 4096 bytes, and refusal without mutation
+for failures after opening, short reads and changed lengths. A decoder rejection
+after a whole-file allocation cannot satisfy that bound.
+
+Cold ack/fetch network cuts must also keep the replay caller separate from the
+recovered stream owner. A private selected-own-key refusal on the returning
+consumer preserves its other store operations and all genuine witness proof.
+Audit marker/configuration custody and assert a different owner before opening
+the replay route. Keep exact forwarded request/reply requirements: a correct
+local AlreadyAcknowledged result does not qualify a measured network replay.
+
 Destination ack/fetch process drivers also support combining `--follower-only`
 with `--restart-followers`. Require SIGKILL of every original process, immutable
 archives of the original destination ensemble's committed CLB1/CLE1 batches and
@@ -1925,6 +2031,11 @@ its original deadline and independently diagnoses whether the old lock remains
 held or replacement startup is pending. That regression does not establish the
 cause of an earlier five-second bootstrap timeout; keep that failure's separate
 qualification audit open until reproduced and explained.
+If resource readiness fails first, closing/joining the supervisor must retain its
+actual outcome alongside the activation failure. Preserve specific fencing and
+component outcomes, and typed supervisor/join error chains. A readiness refusal
+cannot erase the evidence needed to distinguish failure causes. This is failure
+diagnostic coverage, not proof of the cause of historical startup timeouts.
 
 Factory-entry observation must also stay independent of the blocking executor
 that runs application factories. The native cancellation fixture uses an async
