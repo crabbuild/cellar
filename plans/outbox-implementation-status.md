@@ -131,10 +131,20 @@ remains pending under those captured changes. The next captured batch passes all
 179 Python guards, docs and whitespace checks, then begins the complete process
 matrix with ACK recovery first on both backends. Its parent comparison verifies
 that only the five Python files change and the saved runtime is byte-identical.
+That corrected matrix passes all 28 separate-process scenarios and all 28
+independent audits on SQLite/RustFS, followed by smoke. All 618 captured inputs
+and the runtime hash stay unchanged through these 60 phases. Actual inspection
+finds no saved-matrix runtime process and all 15 private RustFS stores removed.
+The full workspace suite is now running; its result and the following doc-tests
+remain pending. These process passes do not explain the older actor lease/Axum
+failures or complete the feature's remaining release gates.
 Both hosted SDK jobs for a83648f have
 no executed steps: GitHub annotations cite failed account payments or spending
 limits. That restriction does not make hosted Linux validation green.
-Signed control-response body collection also still needs its independent bound.
+Signed HTTP control-response collection also still needs its independent bound.
+The ordered append reply reader separately allows 64 MiB frames and an unbounded
+response mailbox; its metadata frame size, queue backpressure and joined
+retirement need explicit limits and regression coverage too.
 Earlier gather/process evidence
 below qualifies its captured source only, not this changed production candidate.
 
