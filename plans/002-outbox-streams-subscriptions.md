@@ -2009,3 +2009,24 @@ successor's signed read-only recovery audit inside its startup future. Keep the
 independent audit after startup, original activation deadlines, retained witness
 bytes and accepted-prefix checks before any business command or receipt replay.
 This fixture ordering does not change runtime recovery or admission semantics.
+
+### Root loss after a recovery claim
+
+A recovery root remains required between claim and final seal. A delayed real
+GET of a Recovering root cannot authorize a successor after the object is
+erased or replaced by another lineage. Qualification must observe the actual
+claimant and retain that exact response body/token, then mutate only the root.
+The in-flight gather may seal followers or publish safe per-cell copies before
+its final read refuses; those additions do not prove admission. Require the
+original cell owner, acknowledged follower batches and existing bucket objects
+to remain, with no fabricated root or replacement-lineage overwrite. After the
+failed startup joins, return its actual claimed metadata and recover/audit the
+original source obligation, stream clock/history, inbox and checkpoints before
+any receipt or business-command replay. This native cut does not substitute for
+foreign-owner recovery, metadata rollback or physical loss qualification.
+
+The follower-only fixture also waits for an actual blocked bucket upload under
+its original three-second operation budget. A Fleet proof may return before the
+independent upload task is polled; an immediate attempt counter was a scheduler
+assumption. Keep the exact bucket-prefix audit and original budget after observing
+the attempt. This observation neither creates proof nor changes production policy.

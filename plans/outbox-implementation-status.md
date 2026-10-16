@@ -24,7 +24,40 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice addresses reproduced startup-GC data loss. A competing boot
+The current slice qualifies metadata loss after a real predecessor recovery
+claim, before the member gather and final seal. A selected same-name startup
+holds its ordinary-bucket GET of the actual Recovering root. Erasure and a
+replacement lineage must each produce the specific recovery refusal, preserve
+the old cell owner, acknowledged follower .batch bytes and existing bucket
+objects, and never fabricate/overwrite a root. Safe uploads and follower seals
+may advance before the final read refuses. After failed startup joins, returning
+the actual claimed metadata must recover the original event/clock/source/inbox/
+checkpoints before receipt reuse. Both initial cases pass in 21.44s. The first
+frozen clock run passed 10/11 in 108.00s: an older post-seal case failed before
+root injection because it immediately expected a blocked bucket upload. Fleet
+proof can release output before the independent upload task runs. Four saved
+executable replays passed and do not erase that failure. The fixture now waits
+for the real blocked attempt within the unchanged three-second operation budget,
+then performs the exact original bucket-prefix audit. Its first amended run
+observed the late blocked upload after 4.518ms and passed; twelve further saved
+runtime diagnostic runs pass with three concurrent fixture processes. These
+runs diagnose the scheduler assumption but are not the serial qualification.
+The final focused run passes both new cuts in 22.81s, followed by all eleven
+clock/refusal cases in 128.34s. Their saved executable SHA256 matches:
+f503309d013e48a05c9f9778737e60081da83060556afebfdcdb3838f9d3a86e.
+All 69 serial Node cases pass in 568.16s with the same executable, as do eight
+native log cases (6.33s), 242 library cases (6.53s) and all 15 decision-core cases.
+All six actor, six ingress, five protocol, seven artifact and three CLI cases
+pass. Workspace all-target/all-feature checking (7.82s), Clippy with warnings
+denied (6.88s), formatting (518 Rust files), docs (36 documents/six flows/388
+references), dependency policy (403 packages/no JavaScript engine), and 129 Python
+guards pass. Python reports two unclosed-SQLite ResourceWarnings without a failed
+test. All eight captured Rust sources remain fixed through qualification.
+Production recovery/admission code and all Cellar-owned markers remain unchanged.
+The previous doc-test evidence below still applies to unchanged production code;
+this test-only follow-up did not repeat it.
+
+The previous slice addresses reproduced startup-GC data loss. A competing boot
 holds an actual no-log lease response while the live generation opens its log
 and receives real Bucket proof. The old sweep deletes that generation's bundle.
 With follower data appends excluded and the original writer force-joined/local
@@ -91,12 +124,12 @@ code evidence; this test-only follow-up did not rerun them.
 
 Local Rust is 1.97.0/aarch64 macOS. These local results do not complete the
 release fault/capacity matrix or establish the causes of earlier intermittent
-startup failures. Hosted Rust 1.98.1 validation remains separate. The next proof
-qualification priority remains loss during predecessor recovery, followed by
-metadata rollback, independent-process and physical storage/host cuts.
+startup failures. Hosted Rust 1.98.1 validation remains separate. Further proof
+qualification must cover foreign recovery and the other predecessor cut points,
+then metadata rollback, independent-process and physical storage/host cuts.
 
 The broader proof/fault matrix,
-loss during predecessor recovery, metadata rollback and independent-process
+other predecessor recovery cut points, metadata rollback and independent-process
 clock-refusal matrix remain open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and

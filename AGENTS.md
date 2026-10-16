@@ -124,10 +124,19 @@ Bucket proof, excludes follower/per-cell credit, then force-joins the writer and
 removes its local directory. Audit original SQL before replay. Require collection
 only after independent recovery uploads data; its paged fixture does not qualify
 provider memory bounds or the full capacity/fault matrix.
-The native root-read cut holds actual response bytes/token, erases or replaces
-the root, and requires refusal with owner, payload and follower bytes unchanged;
-returning the original metadata must recover before receipt reuse. Keep metadata
-rollback and physical loss qualification separate from retained-root evidence.
+Before-recovery and post-seal root cuts hold actual response bytes/token,
+erase or replace the root, and require refusal with owner, payload and follower
+bytes unchanged; returning the original metadata must recover before receipt
+reuse. Claim-phase cuts select the actual recovering process with scoped peer
+root-CAS refusals, then hold its ordinary-bucket GET of a real Recovering root.
+A stale claimed response can legitimately let recovery seal followers and add
+per-cell copies before its final root read refuses. Require the original cell
+owner, acknowledged .batch bytes and existing bucket objects to remain, and no
+fabricated missing root or overwritten replacement lineage. Return the actual
+claimed metadata after failed startup joins, then audit original clock/event/
+source/inbox/checkpoints before receipt reuse. State and batch preservation are
+distinct at this phase; do not relax the older cuts' exact-byte assertions. Keep
+metadata rollback and physical loss qualification separate from retained-root evidence.
 Delayed-reply fixtures retain the exact removed root atomically in their private
 SQLite store, assert NodeLeaseMissing and full join, then restore its proof fields
 with only expiry shortened before expecting retained-proof recovery.
@@ -142,6 +151,11 @@ as well as per-cell uploads. The bundle loop's first tick can otherwise win
 with legitimate Bucket proof before Fleet credit; a 1ms fixture-only flush probe
 exposes that route. Preserve real metadata CAS, reads and loss diagnostics;
 BundleFault excludes only the selected session's bundle PUTs, never supplies proof.
+Clock-refusal follower fixtures must observe a real blocked bucket upload within
+the original operation budget before auditing the unchanged replica prefix. Fleet
+proof can release a response before the independent bucket sync runs; an immediate
+zero attempt count does not prove that publication is unguarded. Do not extend
+the original budget or substitute a fake acknowledgment.
 Clock-refusal recovery fixtures select the next automatic append at the real
 successor peer proxy before fetching a fresh lease and acknowledging retained
 history. Select that successor with the existing owner-key CAS-only peer fault

@@ -230,6 +230,17 @@ async fn root_replacement_after_recovery_refuses_lease_install_until_sealed_meta
     run(true, false, MetadataLoss::ReplacedAfterRecovery).await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn root_loss_during_recovery_refuses_boot_until_claimed_metadata_returns() -> Result<()> {
+    run(true, false, MetadataLoss::DuringRecovery).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn root_replacement_during_recovery_refuses_boot_until_claimed_metadata_returns() -> Result<()>
+{
+    run(true, false, MetadataLoss::ReplacedDuringRecovery).await
+}
+
 #[derive(Clone, Copy)]
 enum MetadataLoss {
     None,
@@ -239,6 +250,8 @@ enum MetadataLoss {
     ReplacedAfterCapture,
     AfterRecovery,
     ReplacedAfterRecovery,
+    DuringRecovery,
+    ReplacedDuringRecovery,
 }
 
 fn original_startup_error(
@@ -300,6 +313,8 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             | MetadataLoss::ReplacedAfterCapture
             | MetadataLoss::AfterRecovery
             | MetadataLoss::ReplacedAfterRecovery
+            | MetadataLoss::DuringRecovery
+            | MetadataLoss::ReplacedDuringRecovery
     );
     let after_capture = matches!(
         loss,
@@ -311,7 +326,13 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
         MetadataLoss::AfterRecovery | MetadataLoss::ReplacedAfterRecovery
     );
     let replaced_after_recovery = matches!(loss, MetadataLoss::ReplacedAfterRecovery);
-    let replaced_root = replaced_after_capture || replaced_after_recovery;
+    let during_recovery = matches!(
+        loss,
+        MetadataLoss::DuringRecovery | MetadataLoss::ReplacedDuringRecovery
+    );
+    let replaced_during_recovery = matches!(loss, MetadataLoss::ReplacedDuringRecovery);
+    let replaced_root =
+        replaced_after_capture || replaced_after_recovery || replaced_during_recovery;
     let directory = tempfile::tempdir()?;
     let destination_data = directory.path().join("destination");
     let destination_core = Executor::new("refusal-clock-destination")?;
@@ -326,7 +347,13 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     let peer_claim = PublicationFault::with_prefixes(
         bucket.cas_store.clone(),
         format!("{}cells/{}/own.json", bucket.prefix, stream_scope()?),
-        Vec::new(),
+        if during_recovery {
+            // Select the recovering process as well as the eventual cell owner.
+            // Other peers retain their leases, reads and actual follower data.
+            vec![format!("{}nodes/refusal-destination.json", bucket.prefix)]
+        } else {
+            Vec::new()
+        },
     );
     let outage = PublicationFault::with_prefixes(
         bucket.store.clone(),
@@ -596,9 +623,23 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     );
     ensure!(history(&client, &destination).await? == accepted);
     if followers {
-        ensure!(
-            outage.refused() > 0,
-            "no actual destination publication was refused"
+        // Fleet proof can release the response before the independent bucket
+        // sync task attempts its blocked PUT. Observe that real attempt within
+        // the original call budget instead of assuming a particular poll order.
+        let publication_wait = Instant::now();
+        tokio::time::timeout_at(
+            tokio::time::Instant::from_std(submitted + operation_budget),
+            async {
+                while outage.refused() == 0 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            },
+        )
+        .await
+        .context("no actual destination publication was refused within the original budget")?;
+        eprintln!(
+            "clock refusal bucket attempt observed after {}us",
+            publication_wait.elapsed().as_micros()
         );
         ensure!(
             replicas(&observer, &bucket).await? == baseline,
@@ -832,9 +873,11 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             same_name,
         )
         .await?;
-        let cut = (after_capture || after_recovery).then(|| {
+        let cut = (after_capture || after_recovery || during_recovery).then(|| {
             let key = format!("{}nodes/refusal-destination.json", bucket.prefix);
-            if after_recovery {
+            if during_recovery {
+                RootReadCut::after_claim(bucket.store.clone(), key, config.identity.node.clone())
+            } else if after_recovery {
                 // Identity capture reads once. The next lease-pool GET is the
                 // core's acquisition read after recover_self has completed.
                 RootReadCut::after_reads(bucket.store.clone(), key, 1)
@@ -843,12 +886,17 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             }
         });
         if let Some(cut) = cut.as_ref() {
-            services
+            let fleet = services
                 .fleet
                 .as_mut()
-                .context("replacement fleet missing")?
-                .lease_bucket
-                .store = cut.clone();
+                .context("replacement fleet missing")?;
+            if during_recovery {
+                // The recovery reader uses the ordinary bucket; identity
+                // capture and the core's lease CAS retain their original pool.
+                fleet.bucket.store = cut.clone();
+            } else {
+                fleet.lease_bucket.store = cut.clone();
+            }
             config.startup.recovery_attempts = 1;
         }
         let mut successor_proxy = delivery_proxy(&mut config, &services).await?;
@@ -872,7 +920,23 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                     .await??
                     .forget();
                 let captured = cut.snapshot()?;
-                if after_recovery {
+                if during_recovery {
+                    ensure!(
+                        captured["node"] == old_lease["node"]
+                            && captured["lineage"] == old_lease["lineage"]
+                            && captured["generation"] == old_lease["generation"]
+                            && captured["log"]["state"] == "recovering"
+                            && captured["log"]["claimant"] == "refusal-destination"
+                            && captured["log"]["epoch"] == old_lease["log"]["epoch"]
+                            && captured["log"]["ensemble"] == old_lease["log"]["ensemble"]
+                            && captured["log"]["may_have_fleet_acks"] == true,
+                        "recovery did not capture its actual claimed predecessor: {captured}"
+                    );
+                    *proof_at_cut.lock().unwrap() = (
+                        replicas(&observer, &bucket).await?,
+                        follower_proof(directory.path(), &captured)?,
+                    );
+                } else if after_recovery {
                     ensure!(
                         captured["node"] == old_lease["node"]
                             && captured["lineage"] == old_lease["lineage"]
@@ -931,7 +995,11 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                     anyhow::bail!("root loss admitted a successor (after_recovery={after_recovery}): {view:?}; {first_owner} -> {actual}");
                 }
             };
-            let boundary = if after_recovery {
+            let boundary = if replaced_during_recovery {
+                "node lineage changed; recovery is unproven"
+            } else if during_recovery {
+                "missing node lease for refusal-destination/"
+            } else if after_recovery {
                 "node authority was not established before startup deadline"
             } else if replaced_after_capture {
                 "own node lineage changed before recovery"
@@ -963,11 +1031,33 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             );
             let payload_after = replicas(&observer, &bucket).await?;
             let followers_after = follower_proof(directory.path(), &old_lease)?;
-            ensure!(
-                (payload_after, followers_after) == *proof_at_cut.lock().unwrap(),
-                "failed startup changed payload or follower proof after the cut"
-            );
-            if after_recovery && !replaced_root {
+            if during_recovery {
+                // The stale response can legitimately let an in-flight gather
+                // seal followers and publish per-cell copies before its final
+                // root read refuses. That work cannot remove accepted bytes.
+                let before = proof_at_cut.lock().unwrap();
+                ensure!(
+                    before.0.iter().all(|entry| payload_after.contains(entry)),
+                    "failed recovery removed or changed retained bucket proof"
+                );
+                let batches = |proof: &[(String, Vec<u8>)]| {
+                    proof
+                        .iter()
+                        .filter(|(name, _)| name.ends_with(".batch"))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                ensure!(
+                    batches(&before.1) == batches(&followers_after),
+                    "failed recovery lost or changed the acknowledged follower batches"
+                );
+            } else {
+                ensure!(
+                    (payload_after, followers_after) == *proof_at_cut.lock().unwrap(),
+                    "failed startup changed payload or follower proof after the cut"
+                );
+            }
+            if (after_recovery || during_recovery) && !replaced_root {
                 observer
                     .run(async {
                         ensure!(
@@ -981,7 +1071,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                     })
                     .await??;
             }
-            let returned = if after_recovery {
+            let returned = if after_recovery || during_recovery {
                 cut.snapshot()?
             } else {
                 old_lease.clone()
@@ -1252,7 +1342,7 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
     eprintln!(
         "CLOCK_REFUSAL_EVIDENCE {}",
         json!({"proof":if followers {"followers"}else{"bucket"},"old_owner":first_owner,"successor":next_owner,
-        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"after_recovery":after_recovery,"replaced_after_recovery":replaced_after_recovery,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"retry_wait_ms":retry_wait_ms,"retry_held_ms":retry_held_ms,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
+        "cold_followers":cold_followers,"missing_metadata":missing_metadata,"same_name":same_name,"after_capture":after_capture,"after_recovery":after_recovery,"during_recovery":during_recovery,"replaced_during_recovery":replaced_during_recovery,"replaced_after_recovery":replaced_after_recovery,"replaced_after_capture":replaced_after_capture,"read_retries":read_retries,"retry_wait_ms":retry_wait_ms,"retry_held_ms":retry_held_ms,"expiry_cut":expiry_cut,"recovered_clock":recovered["observation"]["observed_ms"],"checkpoint":"2","processed":3,"settled_through":"2"})
     );
     stopped(source)
         .await
