@@ -1938,6 +1938,22 @@ participant and recreate older development state containing larger batches.
 Individual batch bounds do not qualify total tail memory, metadata exhaustion,
 recovery headroom or the remaining physical/capacity gates.
 
+Gathered recovery rows use derived anonymous disk scratch on the node data root,
+through the replica's captured filesystem. Spill payloads immediately and sort
+bounded variable-key metadata runs; do not retain a run inventory in memory.
+Verify exact run sizes/counts, metadata checksums, original descriptor identity
+tags stored beside payloads and selected payload digests. A valid copied index
+record cannot substitute a different original row. Check full descriptor order
+and identity before key deduplication or batch-budget decisions, including ignored
+duplicates and next-batch lookahead; detecting a copied descriptor after coverage
+advanced can already hide a lost transaction on retry. Preserve duplicate precedence and numeric per-cell epoch/TXID order, merging the
+final bundle window with follower rows before advancing any coverage watermark.
+Bound upload count and accounted bytes while allowing one legal oversized row.
+Scratch failure cannot authorize sealing. Blocking I/O remains owned/joined and
+must permit claim heartbeats and cooperative cancellation. This gather boundary
+does not bound whole-tail replies, HTTP collection, large bundle bodies, live-fold
+bundle helpers or provider/progress inventories; qualify those paths separately.
+
 The independent follower state barrier also requires integrity and identity.
 Persist a strict JSON record with `format: 1`, the canonical leader session,
 stable follower node, `state` (four u64 fields: `fragment_epoch`, `base`, `end`,

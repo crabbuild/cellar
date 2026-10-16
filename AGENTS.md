@@ -173,8 +173,28 @@ Canonical numeric batch filenames are required; noncanonical names remain unknow
 gap evidence. Custom filesystems must supply streaming directories and scratch
 for large histories; no eager fallback. All owned markers remain 1. The isolated
 cold-load/seal RSS fixtures qualify only their 16-by-8-MiB profile. Whole-tail
-replies, peer collection and leader gathering remain unbounded and must be fixed
-before claiming total recovery memory bounds.
+replies and peer collection remain unbounded; scanner bounds alone cannot qualify
+recovery memory. Dead-session recovery and live-cell folding stage rows through
+recovery_rows.rs. Payloads spill into anonymous files on the replica's injected
+filesystem under its data root, never ambient /tmp. Every nonempty gather requires
+anonymous scratch support, including histories small enough for an in-memory
+metadata run. Variable-length key runs hold
+at most 128 rows/1 MiB and merge through bounded caches without a run inventory.
+Verify scratch lengths/counts/checksums, original descriptor identity tags beside
+payloads and selected payload digests. Check every descriptor before key dedup or
+batch-budget decisions, including ignored duplicates and lookahead. Strict full
+metadata order includes priority/rank/original offset; an exact copied descriptor
+must refuse before returning a batch that could raise coverage past a lost row.
+A failure noticed only after that watermark can already make a retry skip lost
+data. Scratch identity cannot be inferred from a valid per-record checksum alone.
+Any failure must reach the caller before sealing. Recovery keeps last-follower precedence;
+live fold keeps first-follower precedence with bucket copies preferred. Sort the
+final bucket window and follower rows together numerically before any watermark
+can skip older rows. Upload batches cap rows and accounted bytes, allowing one
+legal oversized row. Owned blocking work beats the claim and cooperatively stops
+on caller cancellation; domain shutdown still joins entered work. Full tail/HTTP,
+live-fold bundle reads, oversized bundles and provider/progress inventories remain
+separate implementation gates before total recovery bounds can be claimed.
 
 Consumer-recovery failure cleanup must run every node/gate/store/ledger action
 through cleanup_all, preserving the primary error even when a stopped node was

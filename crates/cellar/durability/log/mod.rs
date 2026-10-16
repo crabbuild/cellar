@@ -42,6 +42,7 @@ mod follower_file;
 mod follower_index;
 mod follower_state;
 mod recovery_progress;
+mod recovery_rows;
 mod startup_retry;
 
 /// The one peer-POST boundary used by the node log.
@@ -286,16 +287,11 @@ const RECRUIT_FOLLOWERS: usize = 2;
 /// recovery in this phase; the bucket takes far more in flight than that.
 const RECOVERY_UPLOAD_CONCURRENCY: usize = 32;
 /// How many bytes of retained bundles one recovery gather window reads
-/// before it folds that window's rows into the per-cell layout and releases
-/// them. The whole-session gather held every row of every retained bundle
-/// until the last bundle was read: about 0.95 GB of process memory per GB
-/// of session, 7 GB for a ten-minute session at 2 MiB writes, and past 15 GB
-/// the kernel OOM cascade of #964, where each killed gatherer became the
-/// next dead session (#957). The fold holds at most about twice this budget
-/// (the window's rows plus the per-cell merges in flight), whatever the
-/// session's age. The cost is one L0 object per cell for each window the
-/// cell has rows in, instead of one for the whole session; a session under
-/// the budget folds exactly as before.
+/// before releasing their fetched bytes. Rows spill into derived disk scratch,
+/// then sorted bounded batches fold into per-cell objects. The window bounds
+/// concurrent bundle bodies, not a universal recovery RSS ceiling: a single
+/// oversized bundle, follower TailResp/HTTP collection, provider inventories and
+/// optional progress hints still need their own bounded implementations.
 const RECOVERY_GATHER_WINDOW_BYTES: u64 = 512 * 1024 * 1024;
 /// Per-cell coverage reads of the graceful seal and the uncovered-row scan
 /// stay below a small fleet's cell count, so a close does not fan out one
@@ -4959,6 +4955,92 @@ impl NodeLogManager {
         Ok(count)
     }
 
+    fn recovery_rows(&self) -> recovery_rows::Rows {
+        let (filesystem, directory) = self.ltx.recovery_scratch();
+        recovery_rows::Rows::new(filesystem, directory)
+    }
+
+    /// Blocking scratch I/O retains domain custody; cancellation asks the
+    /// worker to stop, while an entered worker stays joined by its domain.
+    async fn recovery_io<T: Send + 'static>(
+        &self,
+        cancellation: Arc<std::sync::atomic::AtomicBool>,
+        mut claim: Option<(&str, &mut ClaimBeat)>,
+        operation: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+    ) -> anyhow::Result<T> {
+        struct Cancel(Option<Arc<std::sync::atomic::AtomicBool>>);
+
+        impl Drop for Cancel {
+            fn drop(&mut self) {
+                if let Some(flag) = &self.0 {
+                    flag.store(true, Ordering::Release);
+                }
+            }
+        }
+        let mut cancel = Cancel(Some(cancellation));
+        let mut job = crate::asyncrt::try_blocking(operation)?;
+        let mut ticker = crate::asyncrt::interval(RECOVERY_HEARTBEAT);
+        loop {
+            crate::asyncrt::select! {
+                result = &mut job => {
+                    let result = result??;
+                    cancel.0 = None;
+                    return Ok(result);
+                },
+                _ = ticker.tick() => {
+                    if let Some((dead, beat)) = claim.as_mut() { self.beat_claim(dead, beat).await?; }
+                },
+            }
+        }
+    }
+
+    async fn upload_spilled(
+        &self,
+        rows: recovery_rows::Rows,
+        mut claim: Option<(&str, &mut ClaimBeat, &mut recovery_progress::Progress)>,
+    ) -> anyhow::Result<usize> {
+        let cancellation = rows.cancellation();
+        let mut rows = self
+            .recovery_io(
+                cancellation,
+                claim.as_mut().map(|(dead, beat, _)| (*dead, &mut **beat)),
+                move || rows.finish(),
+            )
+            .await?;
+        let mut count = 0;
+        loop {
+            let cancellation = rows.cancellation();
+            let (returned, batch) = self
+                .recovery_io(
+                    cancellation,
+                    claim.as_mut().map(|(dead, beat, _)| (*dead, &mut **beat)),
+                    move || {
+                        let batch = rows.next_batch()?;
+                        Ok((rows, batch))
+                    },
+                )
+                .await?;
+            rows = returned;
+            if batch.is_empty() {
+                break;
+            }
+            #[cfg(all(test, cellar_internal_tests))]
+            self.recovery_gather_peak_bytes.fetch_max(
+                batch.values().map(|bytes| bytes.len() as u64).sum(),
+                Ordering::SeqCst,
+            );
+            count += self
+                .upload_gathered(
+                    batch,
+                    claim
+                        .as_mut()
+                        .map(|(dead, beat, progress)| (*dead, &mut **beat, &mut **progress)),
+                )
+                .await?;
+        }
+        Ok(count)
+    }
+
     /// Recover one dead SESSION's log: `dead` is `<node>/<lineage>/<generation>`.
     pub async fn recover(&self, dead: &str) -> anyhow::Result<()> {
         self.recover_as(dead, RecoverMode::Sweep).await
@@ -5167,7 +5249,7 @@ impl NodeLogManager {
             // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
             let mut witnesses = startup_retry::Witnesses::new(now);
-            let mut gathered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
+            let mut tail_rows = self.recovery_rows();
             // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
             // power cycle) is NOT conclusively gone — its fsync'd fragments
@@ -5308,9 +5390,23 @@ impl NodeLogManager {
                         }
                     }
                 }
-                for entry in tail.entries {
-                    gathered.insert((entry.cell, entry.cell_epoch, entry.txid), entry.bytes);
-                }
+                tail_rows = self
+                    .recovery_io(
+                        tail_rows.cancellation(),
+                        Some((dead, &mut beat)),
+                        move || {
+                            for entry in tail.entries {
+                                tail_rows.insert(
+                                    (entry.cell, entry.cell_epoch, entry.txid),
+                                    entry.bytes,
+                                    recovery_rows::Priority::Preferred,
+                                    recovery_rows::Duplicates::Last,
+                                )?;
+                            }
+                            Ok(tail_rows)
+                        },
+                    )
+                    .await?;
             }
             let members_ms = mono_ms().saturating_sub(pass_started);
             // `may_have_fleet_acks` was CASed before the epoch's first fleet
@@ -5418,8 +5514,13 @@ impl NodeLogManager {
             let mut bundles_ms = 0_u64;
             let mut upload_ms = 0_u64;
             let mut gathered_bytes = 0_u64;
-            let mut tail = Some(std::mem::take(&mut gathered));
+            let mut tail = Some(tail_rows);
             for (index, window) in windows.into_iter().enumerate() {
+                let mut gathered = if index + 1 == window_count {
+                    tail.take().expect("tail folded only in final window")
+                } else {
+                    self.recovery_rows()
+                };
                 let fetch_started = mono_ms();
                 let fetches = window.into_iter().map(|key| {
                     let bucket = self.bucket.clone();
@@ -5438,31 +5539,35 @@ impl NodeLogManager {
                 while let Some(fetched) = futures_util::StreamExt::next(&mut fetches).await {
                     self.beat_claim(dead, &mut beat).await?;
                     let (key, bytes) = fetched?;
-                    let rows = cellar_ltx::bundle::decode_rows(&bytes)
-                        .with_context(|| format!("decode retained recovery bundle {key}"))?;
-                    for row in rows {
-                        let payload = cellar_ltx::bundle::slice(&bytes, &row)
-                            .with_context(|| format!("read a row from recovery bundle {key}"))?;
-                        gathered
-                            .entry((row.cell, row.cell_epoch, row.txid))
-                            .or_insert_with(|| payload.to_vec());
-                    }
+                    gathered = self
+                        .recovery_io(
+                            gathered.cancellation(),
+                            Some((dead, &mut beat)),
+                            move || {
+                                let rows =
+                                    cellar_ltx::bundle::decode_rows(&bytes).with_context(|| {
+                                        format!("decode retained recovery bundle {key}")
+                                    })?;
+                                for row in rows {
+                                    let payload = cellar_ltx::bundle::slice(&bytes, &row)
+                                        .with_context(|| {
+                                            format!("read a row from recovery bundle {key}")
+                                        })?;
+                                    gathered.insert(
+                                        (row.cell, row.cell_epoch, row.txid),
+                                        payload.to_vec(),
+                                        recovery_rows::Priority::Fallback,
+                                        recovery_rows::Duplicates::First,
+                                    )?;
+                                }
+                                Ok(gathered)
+                            },
+                        )
+                        .await?;
                 }
                 drop(fetches);
-                if index + 1 == window_count {
-                    // The same bytes under the same key wherever a row is
-                    // held; the follower's copy stays the one uploaded, as
-                    // it was when the whole session folded at once.
-                    for (key, bytes) in tail.take().into_iter().flatten() {
-                        gathered.insert(key, bytes);
-                    }
-                }
                 bundles_ms += mono_ms().saturating_sub(fetch_started);
-                let held: u64 = gathered.values().map(|bytes| bytes.len() as u64).sum();
-                #[cfg(all(test, cellar_internal_tests))]
-                self.recovery_gather_peak_bytes
-                    .fetch_max(held, Ordering::SeqCst);
-                gathered_bytes += held;
+                gathered_bytes = gathered_bytes.saturating_add(gathered.payload_bytes());
                 // Skip rows the drain points already folded into the
                 // per-cell prefix: one listing per cell bounds uploads to
                 // the true un-drained tail, so recovery cost tracks the
@@ -5481,14 +5586,12 @@ impl NodeLogManager {
                     progress =
                         Some(recovery_progress::Progress::load(self, dead, &mut beat).await?);
                 }
-                let loaded = progress
-                    .as_mut()
-                    .expect("the progress record is loaded before the first upload");
+                let loaded = progress.as_mut().expect("progress loaded before upload");
+                // The final spool includes all followers and its bucket
+                // window. Sort them together before advancing cell coverage;
+                // preferred follower duplicates retain their original rank.
                 count += self
-                    .upload_gathered(
-                        std::mem::take(&mut gathered),
-                        Some((dead, &mut beat, loaded)),
-                    )
+                    .upload_spilled(gathered, Some((dead, &mut beat, loaded)))
                     .await?;
                 upload_ms += mono_ms().saturating_sub(upload_started);
             }
@@ -7097,10 +7200,10 @@ impl NodeLogManager {
     /// sequence. Without that proof, activation fails rather than exposing a
     /// database that is missing acknowledged data.
     /// `upload_gathered` skips rows the per-cell watermark covers and
-    /// merges the contiguous tail into one object, so a re-run after a
-    /// partial failure repeats no upload.
+    /// merges contiguous rows within each bounded upload batch, so a re-run
+    /// after a partial failure skips covered rows.
     pub(crate) async fn fold_cell(&self, cell: &str) -> anyhow::Result<()> {
-        let mut gathered = BTreeMap::new();
+        let mut gathered = self.recovery_rows();
         let folded = read_record(&self.bucket, &self.session)
             .await?
             .ok_or_else(|| anyhow!("fold session {} has no log record", self.session))?;
@@ -7158,14 +7261,22 @@ impl NodeLogManager {
                     "live-session fold rejected an incomplete follower tail"
                 );
             }
-            for entry in tail.entries {
-                if entry.cell != cell {
-                    continue;
-                }
-                gathered
-                    .entry((entry.cell, entry.cell_epoch, entry.txid))
-                    .or_insert(entry.bytes);
-            }
+            let cell = cell.to_owned();
+            gathered = self
+                .recovery_io(gathered.cancellation(), None, move || {
+                    for entry in tail.entries {
+                        if entry.cell == cell {
+                            gathered.insert(
+                                (entry.cell, entry.cell_epoch, entry.txid),
+                                entry.bytes,
+                                recovery_rows::Priority::Fallback,
+                                recovery_rows::Duplicates::First,
+                            )?;
+                        }
+                    }
+                    Ok(gathered)
+                })
+                .await?;
         }
         // Activation is durable before the epoch's first fleet credit. An
         // epoch without fleet acknowledgements can credit a bundle PUT without
@@ -7181,11 +7292,21 @@ impl NodeLogManager {
         // the old fragments. An earlier snapshot could miss that bundle and
         // then accept a newer inactive epoch or already-truncated tail as
         // empty, losing the acknowledged rows that enabled the transition.
-        gathered.extend(self.uncovered_bundle_rows_for(Some(cell)).await?);
-        if gathered.is_empty() {
-            return Ok(());
-        }
-        let uploaded = self.upload_gathered(gathered, None).await?;
+        let bundle_rows = self.uncovered_bundle_rows_for(Some(cell)).await?;
+        gathered = self
+            .recovery_io(gathered.cancellation(), None, move || {
+                for (key, bytes) in bundle_rows {
+                    gathered.insert(
+                        key,
+                        bytes,
+                        recovery_rows::Priority::Preferred,
+                        recovery_rows::Duplicates::Last,
+                    )?;
+                }
+                Ok(gathered)
+            })
+            .await?;
+        let uploaded = self.upload_spilled(gathered, None).await?;
         info!(
             cell,
             uploaded, "folded a quietly stranded tail before reactivation"

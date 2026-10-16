@@ -2,6 +2,8 @@
 #![allow(clippy::disallowed_methods)]
 #[path = "support/html.rs"]
 mod fixture;
+#[path = "support/actor_lease_trace.rs"]
+mod lease_trace;
 use anyhow::{Context as _, Result};
 use cellar::actor::{AppHandle, DrainPinRegistry, Message};
 use cellar::engine_api::{HttpResponse, RuntimeFetch};
@@ -187,6 +189,7 @@ async fn build(
     AppHandle,
     mpsc::UnboundedReceiver<Message>,
     Replication,
+    mpsc::UnboundedReceiver<cellar::sdk::FenceReport>,
 )> {
     domain
         .run(async move {
@@ -228,7 +231,7 @@ async fn build(
             let drain_pins = actor_services.drain_pins.clone();
             let peer_http = actor_services.peer_http.clone();
             let peer_auth = actor_services.peer_auth.clone();
-            let (fence, _fenced) = mpsc::unbounded_channel();
+            let (fence, fenced) = mpsc::unbounded_channel();
             let max_outbound_websockets = actor_options.core.max_outbound_websockets;
             let operation_deadline_ms = actor_options.core.operation_deadline_ms.unwrap();
             let actor = Actor::new(actor_options, fence, actor_services, identity()).await?;
@@ -253,7 +256,7 @@ async fn build(
                 max_request_body_bytes: 1024,
                 operation_deadline_ms,
             };
-            Ok((actor, app, rx, replication))
+            Ok((actor, app, rx, replication, fenced))
         })
         .await?
 }
@@ -263,7 +266,8 @@ async fn fetch(app: &AppHandle) -> Result<HttpResponse> {
     let routed = app
         .request(cell.clone())
         .await
-        .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .context("actor route request failed")?;
     assert_eq!(routed.route, Route::Local);
     let completion = app
         .local_request(routed.request, cell.clone(), None, "embedded-test")
@@ -282,7 +286,10 @@ async fn fetch(app: &AppHandle) -> Result<HttpResponse> {
             None,
         ))
         .await;
-    let response = completion.result.map_err(|e| anyhow::anyhow!("{e:?}"))?;
+    let response = completion
+        .result
+        .map_err(|e| anyhow::anyhow!("{e:?}"))
+        .context("actor invocation or output proof failed")?;
     assert!(
         response.write_position.is_some(),
         "the real output gate must receive a SQLite position"
@@ -292,20 +299,21 @@ async fn fetch(app: &AppHandle) -> Result<HttpResponse> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn embedded_production_actors_route_and_prove_writes_on_caller_executors() -> Result<()> {
+    let lease_trace = lease_trace::install();
     // These executors and their lifetime belong to the application.
     let first_core = Executor::new("application-core-a")?;
     let second_core = Executor::new("application-core-b")?;
     let first = ExecutionDomain::new(tokio::runtime::Handle::current());
     let second = ExecutionDomain::new(tokio::runtime::Handle::current());
     let directory = tempfile::tempdir()?;
-    let (actor_a, app_a, rx_a, replica_a) = build(
+    let (actor_a, app_a, rx_a, replica_a, mut fences_a) = build(
         &first,
         "first",
         directory.path().join("first"),
         options("first", 700, 3),
     )
     .await?;
-    let (actor_b, app_b, rx_b, replica_b) = build(
+    let (actor_b, app_b, rx_b, replica_b, mut fences_b) = build(
         &second,
         "second",
         directory.path().join("second"),
@@ -328,18 +336,36 @@ async fn embedded_production_actors_route_and_prove_writes_on_caller_executors()
             .await??,
         6_000
     );
-    let task_a = actor_a.spawn(&first, first_core.handle(), rx_a)?;
-    let task_b = actor_b.spawn(&second, second_core.handle(), rx_b)?;
-    tokio::time::timeout(Duration::from_secs(15), async {
-        for (domain, app) in [(&first, &app_a), (&second, &app_b)] {
+    let mut task_a = actor_a.spawn(&first, first_core.handle(), rx_a)?;
+    let mut task_b = actor_b.spawn(&second, second_core.handle(), rx_b)?;
+    lease_trace.mark("both actor tasks spawned");
+    let mut joined_a = false;
+    let mut joined_b = false;
+    let result = tokio::time::timeout(Duration::from_secs(15), async {
+        for (phase, domain, app) in [
+            ("first actor healthy", &first, &app_a),
+            ("second actor healthy", &second, &app_b),
+        ] {
             while !domain.run(app.healthy()).await? {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
+            lease_trace.mark(phase);
         }
         for count in 1..=3 {
+            lease_trace.mark(&format!("starting fetch {count}"));
             let (a, b) = tokio::join!(first.run(fetch(&app_a)), second.run(fetch(&app_b)));
-            assert_eq!(a??.body, format!("first:{count}").as_bytes());
-            assert_eq!(b??.body, format!("second:{count}").as_bytes());
+            assert_eq!(
+                a.context("first actor fetch domain closed")?
+                    .with_context(|| format!("first actor fetch {count}"))?
+                    .body,
+                format!("first:{count}").as_bytes()
+            );
+            assert_eq!(
+                b.context("second actor fetch domain closed")?
+                    .with_context(|| format!("second actor fetch {count}"))?
+                    .body,
+                format!("second:{count}").as_bytes()
+            );
         }
         // Restoration reads completed LTX objects from the supplied store.
         // A fake gate acknowledgement cannot satisfy this check.
@@ -360,16 +386,59 @@ async fn embedded_production_actors_route_and_prove_writes_on_caller_executors()
         tokio::time::sleep(Duration::from_millis(1_200)).await;
         assert!(first.run(app_a.healthy()).await?);
         assert!(second.run(app_b.healthy()).await?);
+        anyhow::ensure!(
+            lease_trace.applied_renewal("application-core-a"),
+            "fixture did not observe the first core's successful renewal"
+        );
+        anyhow::ensure!(
+            lease_trace.applied_renewal("application-core-b"),
+            "fixture did not observe the second core's successful renewal"
+        );
         first.shutdown().await;
-        assert!(task_a.await.is_err());
-        assert_eq!(second.run(fetch(&app_b)).await??.body, b"second:4");
+        let finished = (&mut task_a).await;
+        joined_a = true;
+        assert!(finished.is_err());
+        assert_eq!(
+            second
+                .run(fetch(&app_b))
+                .await?
+                .context("second actor fetch after first domain shutdown")?
+                .body,
+            b"second:4"
+        );
         assert_eq!(tokio::spawn(async { 42 }).await?, 42);
         second.shutdown().await;
-        assert!(task_b.await.is_err());
+        let finished = (&mut task_b).await;
+        joined_b = true;
+        assert!(finished.is_err());
         Ok::<_, anyhow::Error>(())
     })
-    .await??;
-    Ok(())
+    .await
+    .context("embedded actor operation budget")
+    .and_then(|result| result);
+    if let Err(error) = &result {
+        use futures_util::FutureExt as _;
+        let first_task = (!joined_a).then(|| (&mut task_a).now_or_never());
+        let second_task = (!joined_b).then(|| (&mut task_b).now_or_never());
+        eprintln!(
+            "native actor failure: {error:#}; first_fence={:?}; second_fence={:?}; \
+             first_domain_open={}; second_domain_open={}; first_task={first_task:?}; \
+             second_task={second_task:?}",
+            fences_a.try_recv(),
+            fences_b.try_recv(),
+            !first.is_closed(),
+            !second.is_closed(),
+        );
+        eprintln!(
+            "native actor lease observations: {:#?}",
+            lease_trace.snapshot()
+        );
+    }
+    // A returned error must not abandon either domain's
+    // owned work before the fixture directory and caller executors are dropped.
+    first.shutdown().await;
+    second.shutdown().await;
+    result
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -377,7 +446,7 @@ async fn typed_actor_rejects_foreign_authority_and_inconsistent_policy() -> Resu
     let first = ExecutionDomain::new(tokio::runtime::Handle::current());
     let second = ExecutionDomain::new(tokio::runtime::Handle::current());
     let directory = tempfile::tempdir()?;
-    let (actor, app, receive, _) =
+    let (actor, app, receive, _, _fenced) =
         build(&first, "a", directory.path().into(), options("a", 1_000, 2)).await?;
     assert!(actor
         .spawn(&second, &tokio::runtime::Handle::current(), receive)
@@ -575,7 +644,7 @@ fn explicit_actor_policy_survives_unusable_process_environment() -> Result<()> {
     let output = command.output()?;
     anyhow::ensure!(
         output.status.success(),
-        "explicit actor policy depended on process environment:\n{}\n{}",
+        "explicit actor policy child failed under unusable process settings:\n{}\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

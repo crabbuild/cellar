@@ -19,12 +19,170 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | Cold scans and seal use a bounded derived metadata index qualified within the exercised profile below. read_tail replies, transport bytes() and the leader gather still materialize whole histories. Bound replies, transport collection and gather across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. Per-file and scanner bounds alone are insufficient. |
-| 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | Cold scans and seal use a bounded derived metadata index qualified within the exercised profile below. Gather rows now spill to disk with bounded metadata sorting and upload batches; read_tail replies, transport bytes(), live-fold bundle helpers and provider/progress inventories still materialize whole histories. Bound the remaining paths across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. Per-file and scanner bounds alone are insufficient. |
+| 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The current gather change replaces retained payload maps in dead-session recovery
+and live-cell folding with anonymous disk scratch under the replica's injected
+filesystem/data root. Metadata runs cap both count (128) and encoded bytes
+(1 MiB); pairwise merge uses two 128 KiB input caches and bounded output without
+an in-memory run directory. Selected payloads verify their original SHA-256,
+while run headers and records verify counts, lengths and checksums. Scratch is
+derived, not recovery proof. Disk/read/write/format failure aborts recovery.
+
+Recovery preserves last-follower duplicate precedence; live folding preserves
+first-follower precedence with bundle copies preferred. Followers join the final
+bucket window before numeric cell/epoch/TXID sorting and upload, so a later
+transaction cannot hide an older bundled row. Each upload batch has at most 128
+rows and 4 MiB of accounted payload/key/overhead, except one legal oversized row.
+All bundle windows use the spool. Owned blocking I/O retains the execution domain,
+beats the recovery claim while waiting and checks cooperative cancellation.
+No Cellar-owned marker changes from 1.
+
+The process-isolated gather regression fails before the disk replacement at
+136953856 bytes RSS growth while staging 32-by-4-MiB rows through the production
+gather store. The first replacement passes at 7487488 bytes growth, along with
+seven focused sort, precedence, payload, scratch-fault and cancellation cases.
+The first real native recovery case passes after publishing an original older
+prefix as a bundle, truncating only those proven sequences, and recovering the
+newer retained follower tail across metadata-run/upload-batch boundaries. It
+restores all 180 original SQLite writes before verifying the sealed log.
+These preliminary runs precede final all-window routing, late-damage and scratch-
+availability coverage. The first frozen preflight passes 173 Python guards and
+workspace checking, then stops on a new test's direct std::fs::read_dir call under
+Clippy's injected-filesystem rule. The test uses DirectFileSystem instead; no lint
+or assertion is relaxed. That failed batch is retained separately. Final-source
+validation is recorded below when complete.
+
+The pre-descriptor-audit candidate completes all 69 frozen phases: 675 top-level
+workspace tests across 107 Cargo targets plus one nested child; all 77 Node cases,
+35 log cases, 21 native log/five protocol/four asset-host cases, seven startup
+cases, 173 Python guards, 28 process scenarios and 28 independent audits, smoke,
+workspace checking, Clippy, formatting, docs/dependency/whitespace checks and
+doc-tests. Runtime SHA-256 is
+392a4cd50b3ada1948f7c1f97c12e26608ed7335272cd624e8dda5cf64de4322.
+All 614 captured inputs remain unchanged through that batch. Actual inspection
+finds no owned runtime processes and all 15 private RustFS stores removed.
+This qualifies that captured candidate's exercised boundaries, not the feature's
+complete contract or the subsequent integrity fix. The original unexplained
+lease/startup failures remain separate cause audits.
+
+A late audit then reproduces four correctness failures in the unpublished gather
+candidate (0.01s runtime, 83.99s including rebuilding). Copying a whole real,
+checksum-valid descriptor over its predecessor returns TXID 2 without 1. At the
+128-row boundary it returns TXIDs 1..127 and 129, omitting 128 before any upload
+can detect the gap. Valid foreign descriptor identity and duplicate-key variants
+also reach upload batches. Header count/length and individual checksums remain
+valid, so those checks alone cannot establish the original row inventory.
+
+The fix stores each original descriptor's identity digest beside its spooled
+payload, checks it before every key-dedup/budget decision (including ignored
+copies and lookahead), and requires strict full metadata order with original
+offset as a tie-break. An exact copied descriptor must refuse before returning
+a batch that could advance coverage past the missing row; an EOF-only failure is
+too late for subsequent retries. Payload digests still verify independently.
+Final-source qualification for that fix is recorded below when complete.
+
+The corrected tagged candidate passes 39 focused log cases, 21 native log/five
+protocol/four asset-host cases, seven startup cases, 173 Python guards, all 28
+process scenarios and 28 independent audits, smoke, workspace checking, Clippy
+with warnings denied, formatting, docs and dependency checks. Its isolated gather
+RSS growth is 7405568 bytes (3.16s for all 39 log cases). Runtime SHA-256 is
+a4f003ab4f6971e33c2e06bcf0886e1ce9b8318ee06dd3165b5f73ae5e631f10.
+Actual process/store inspection finds no owned matrix runtime process and all
+15 private RustFS stores removed.
+
+That final batch fails overall. The workspace run stops at native_actor: the
+ordinary embedded-production-actor case reports NodeFenced, and the explicit-
+policy wrapper's nested execution reports the same result (4/6 parent cases
+pass in 25.59s; the nested case fails in 24.62s). Remaining workspace targets and
+doc-tests are not run in this batch. This is not a green workspace gate, and
+NodeFenced alone does not identify lease expiry, core-task exit or a lost reply
+channel. Production source/build/test inputs stay unchanged until that terminal
+failure; its record is qualified-tagged/failure-summary.json in the gather evidence.
+
+An unchanged focused rebuild then passes all six actor cases (1.72s runtime,
+106.10s including rebuilding), but produces a different Cargo binary from the
+failed workspace target. The exact failed executable is separately preserved
+with SHA-256 d235d3c2f625798f20199ece7dd9e609b6c9b8c7019c37c55395a377c3b89da8;
+three direct replays of its unchanged bytes pass in 1.72/1.75/1.90s. These passes
+do not establish the original failure's cause. Failure-only fixture diagnostics
+now retain the typed fencing receiver, identify route/output/first/second/fetch
+stages, sample already-finished core tasks without waiting, and report domain
+closure. Returned errors join both domains before directory/executor release.
+The original 700/1100ms leases, 15-second operation budget, expected state and
+proof assertions remain intact. The first diagnostic build attempt references a
+private host-services method; it is corrected to public ExecutionDomain::is_closed
+without changing production visibility. The resulting run reproduces both
+failures: the first fetch's route request fails, both actors report the real
+NodeLeaseExpired reason, both domains are open and both core tasks are still
+pending. The parent suite takes 43.13s and its policy child 40.97s; backtrace
+capture/formatting is included in those observations and does not establish the
+lease-delay duration. Compilation takes 8m50s; a live compiler sample shows type
+layout/metadata analysis before later linker progress, not a stopped test.
+
+The next fixture observation captures only existing lease-attempt/completion/
+fence events into a bounded memory ring, tagged by core thread and elapsed time,
+and prints it only on failure. This avoids synchronous trace I/O during lease
+operation. The policy wrapper now describes a failed child under unusable process
+settings rather than claiming that environment was consulted. Cause and final
+diagnostic qualification remain open; no production actor behavior is changed
+or claimed fixed.
+
+The following frozen diagnostic batch captures 615 inputs. Its workspace run
+passes the six actor cases, all 77 Node cases (124.10s), 21 native log cases
+(71.31s), five log protocol cases and native outbox/storage/transaction suites,
+then fails in cellar-axum's overload-forwarding test: the HTTP connection closes
+before a complete response instead of returning the expected classified 503.
+The workspace command exits 101 after 1368.72s; remaining workspace targets,
+doc-tests and the following static gates do not run in that batch. All captured
+inputs remain unchanged. Its exact failed executable is retained with SHA-256
+7f157d9384c4d111c157409fff1af6337979b50c813b1ba749fd31fb74750e54.
+The first unchanged direct replay passes in 0.58s runtime, which does not explain
+the failure. The six actor cases passing also do not close their earlier real
+NodeLeaseExpired cause audit. Preserve both failed batches independently.
+Fifty further direct executions of the exact Axum binary all pass (0.53–0.93s
+including process setup); they do not establish a cause. Its fixture now records
+host mode, startup/response phases, actual handler entry count, domain closure,
+the bounded lease event ring and the joined typed cancellation outcome on a
+returned request failure. The 1s lease, 5s actor operation budget, 10s client
+budget and classified-503/header assertions stay unchanged. Two existing tracing
+workspace dependencies are added only as Axum test dependencies, without version
+changes. This observation change and subsequent validation remain separate from
+the failed workspace batch and unchanged production gather/process evidence.
+
+The separate observation-check batch passes all eleven selected phases: 31 Axum
+tests with all features and 25 with no default features (each also has one passed
+and one ignored doc-test), the counter's generated-client test against both hosts,
+its no-default-features binary check, workspace doc-tests (11 passed, one ignored),
+workspace/all-target/all-feature checking and Clippy with warnings denied,
+533-file formatting, documentation, dependency policy and whitespace checks.
+All 615 captured build/test inputs stay unchanged throughout. Production Rust
+sources match the earlier 28-case process matrix; the recorded input delta is
+only test observations and the two test dependencies. This does not rerun or
+replace either failed full-workspace gate. Evidence and source snapshots remain in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-gather-spill-6unyva1c`;
+`qualified-observation-checks/qualification-summary.json` records the scoped passes
+and `qualified-diagnostics/failure-summary.json` retains the last workspace refusal.
+The final test-only edit requires exactly one actual overload-handler invocation,
+so a pre-handler admission 503 cannot supply the forwarding test's success.
+Both feature-mode targeted cases pass, followed by Axum all-target Clippy with
+warnings denied, formatting, docs and whitespace checks (six frozen phases,
+615 unchanged inputs). The sole source difference from the eleven-phase batch
+is that stronger assertion. It does not establish the earlier connection loss's
+cause or make the full-workspace gate green. Final docs are checked again after
+this ledger edit.
+
+
+This removes gathered-row history residency, not total recovery residency:
+whole TailResp construction and HTTP collection, fetched bundle sizes, the live
+fold's uncovered_bundle_rows_for helper, provider inventories and optional progress
+hints retain their independent implementation/qualification requirements. Disk
+headroom, total transfer/gather RSS and the full release gates remain open.
 
 A new critical proof audit reproduces four warm-cache failures: after tail
 observes a missing or checksum-corrupt acknowledged batch, probe/duplicate/new-
@@ -58,8 +216,10 @@ boundary; the full workspace/process matrix below qualified the preceding
 scan/seal commit, and was not rerun for this private cache/refusal change.
 Separate-process warm witness faults and the full physical/capacity release
 matrix remain open. Final docs are checked again after this ledger edit.
-This correctness fix does not replace priority 1: whole-tail transfer, HTTP
-collection, leader gathering and live-cell folding remain unbounded.
+At that warm-proof checkpoint, whole-tail transfer, HTTP collection, leader
+gathering and live-cell folding still retained whole histories. The current
+gather change above addresses retained row maps; the remaining memory paths
+retain their independent priority-1 implementation and qualification gates.
 
 The retained-history memory regression reproduces 137117696 bytes (about 131 MiB)
 of RSS growth while cold-loading sixteen valid 8 MiB batches, before transport.
