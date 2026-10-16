@@ -436,8 +436,18 @@ async fn wait_for_event_activation(
         result = readiness.wait() => {
             if let Err(error) = result {
                 domain.close();
-                let _ = supervisor.await;
-                return Err(error.context("node event resource activation failed"));
+                let completion = supervisor
+                    .await
+                    .context("node supervisor task failed during event resource activation")
+                    .and_then(|result| result);
+                return Err(match completion {
+                    Ok(outcome) => error.context(format!(
+                        "node event resource activation failed; supervisor ended: {outcome:?}"
+                    )),
+                    Err(supervisor) => supervisor.context(format!(
+                        "node event resource activation failed: {error:#}"
+                    )),
+                });
             }
             // Readiness and completion can both be ready in this poll. A
             // completed supervisor must never become a successful Node handle.

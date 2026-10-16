@@ -200,3 +200,76 @@ async fn event_startup_activation_failure_closes_and_joins_before_returning() {
     assert_eq!(joined.load(Ordering::SeqCst), 1);
     domain.shutdown().await;
 }
+
+async fn activation_failure_with_outcome(outcome: anyhow::Result<NodeOutcome>) -> anyhow::Error {
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let readiness = crate::application::event_stream::readiness::Readiness::new(false);
+    readiness.finish(Err("catalog activation refused".into()));
+    let closing = domain.clone();
+    let joined = Arc::new(AtomicUsize::new(0));
+    let observed = joined.clone();
+    let supervisor = tokio::spawn(async move {
+        // Completion stays pending until the readiness-error path closes the
+        // domain. A simultaneous-ready select cannot bypass the measured path.
+        while !closing.is_closed() {
+            tokio::task::yield_now().await;
+        }
+        observed.fetch_add(1, Ordering::SeqCst);
+        outcome
+    });
+    let error = wait_for_event_activation(&readiness, &domain, supervisor)
+        .await
+        .expect_err("failed activation admitted a node");
+    assert!(domain.is_closed());
+    assert_eq!(joined.load(Ordering::SeqCst), 1);
+    domain.shutdown().await;
+    error
+}
+
+#[tokio::test]
+async fn event_startup_activation_failure_preserves_the_supervisor_outcome() {
+    for outcome in [
+        NodeOutcome::Fenced {
+            code: 3,
+            reason: crate::node_lifecycle::FenceReason::NodeLeaseExpired,
+        },
+        NodeOutcome::Fenced {
+            code: 3,
+            reason: crate::node_lifecycle::FenceReason::NodeLeaseMissing,
+        },
+        NodeOutcome::Fenced {
+            code: 3,
+            reason: crate::node_lifecycle::FenceReason::NodeLeaseMismatch,
+        },
+        NodeOutcome::CoreFailed {
+            error: "core failed before activation".into(),
+        },
+        NodeOutcome::ReplicationFailed {
+            error: "replication failed before activation".into(),
+        },
+        NodeOutcome::Cancelled,
+    ] {
+        let expected = format!("{outcome:?}");
+        let error = activation_failure_with_outcome(Ok(outcome)).await;
+        let message = format!("{error:#}");
+        assert!(message.contains("catalog activation refused"));
+        assert!(
+            message.contains(&expected),
+            "lost supervisor outcome: {message}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn event_startup_activation_failure_preserves_the_supervisor_error_chain() {
+    let error =
+        activation_failure_with_outcome(Err(anyhow::Error::new(crate::asyncrt::DomainClosed)
+            .context("supervisor stopped before activation")))
+        .await;
+    let message = format!("{error:#}");
+    assert!(message.contains("catalog activation refused"));
+    assert!(message.contains("supervisor stopped before activation"));
+    assert!(error
+        .downcast_ref::<crate::asyncrt::DomainClosed>()
+        .is_some());
+}

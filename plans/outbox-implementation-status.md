@@ -24,6 +24,45 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
+Startup diagnosis reproduces a separate observability bug: the readiness-error
+path closes the domain and joins the supervisor but discards its outcome. Two
+new regressions fail in 0.01s (48.32s including compilation), losing a supplied
+NodeLeaseExpired outcome and a typed supervisor error chain. The fix retains the
+joined outcome alongside the activation failure, or preserves the typed supervisor/
+join error with activation context. Close/join ordering and budgets remain unchanged.
+The regressions hold supervisor completion until closure, so fair selection cannot
+bypass the measured branch. All seven embedded startup tests pass. This branch concerns
+resource activation; it does not diagnose the no-event cancelled-bootstrap or
+explicit-policy failures, nor establish the cause of the earlier clock-fixture
+activation failure. Priority 1 remains open.
+
+The final startup-diagnostic batch freezes 526 Rust/68 Python files plus
+manifests, locks and build/lint/CI configuration under Rust 1.98.1/aarch64 macOS.
+The saved runtime SHA256 is
+7a8ba6b4630df2eed224ee664152f3f7287ff392e75674fec3c93a60279d6f7d.
+All 77 Node cases pass in serial order (679.85s runtime/705.78s including build)
+and again under normal workspace concurrency (123.75s). The no-event factory,
+policy and predecessor cases pass in both profiles without establishing the
+causes of their historical failures. All 26 process cases and their independent
+evidence re-audits pass, including metadata/data/service faults, controlled
+startup and three ordinary RustFS expired-fetch runs. Actual process/container
+inspection confirms no saved-runtime processes and all 14 owned stores removed.
+The complete workspace suite passes 645 tests across 108 targets (733.76s),
+including the development-host case (203.73s) under unchanged deadlines.
+Doc-tests pass 11 with one existing ignored example (160.91s). All 169 Python
+guards, seven startup-admission tests, three read-bound/three retry-policy tests,
+19 native log/five protocol cases and ordinary smoke pass; the same two
+pre-existing SQLite ResourceWarnings remain. Workspace checking (74.90s), Clippy
+with warnings denied (43.63s), 526-file formatting, docs (36 documents/six flows/
+388 references), dependency policy (403 packages/no JavaScript engine) and
+whitespace checks pass. Every captured source and saved binary stays unchanged
+through all 67 phases. Evidence is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-startup-outcome-bo54km3p/qualified`.
+Final docs checks run again after this ledger update. These results qualify the
+reproduced loss of startup diagnostics, not a fix for the historical startup
+failures or the full fault/lifecycle/capacity/operational release matrix. All
+Cellar-owned markers remain 1; local compiler matching is not hosted Linux proof.
+
 The follower metadata allocation bug is reproduced and fixed. The former loader
 calls whole-file read before checking the 4096-byte decoder bound. An
 instrumented cold-store regression requests 8388608 bytes before rejection and

@@ -1318,8 +1318,12 @@ prepare() marks activation pending before the driver first polls activation; its
 cancellation guard therefore cannot cover every early driver exit. Keep
 wait_for_event_activation on the production Node::start path, reject completed
 supervisors even when readiness is simultaneously ready, and preserve close/join
-on activation failure. Focused embedded tests cover that cut without wall-clock
-timeouts. This does not explain the separate intermittent bootstrap/recovery cases.
+on activation failure. If readiness fails first, retain the supervisor's joined
+outcome alongside the activation error; preserve typed supervisor/join error chains.
+A generic activation refusal cannot replace a fence reason or component failure.
+Focused embedded tests force that branch by keeping supervision pending until
+closure, without wall-clock timeouts. This diagnostic preservation does not explain
+the separate intermittent bootstrap/recovery cases.
 
 
 A stopped remote attempt queues invalidation of its observed route without

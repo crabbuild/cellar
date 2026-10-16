@@ -2006,6 +2006,11 @@ its original deadline and independently diagnoses whether the old lock remains
 held or replacement startup is pending. That regression does not establish the
 cause of an earlier five-second bootstrap timeout; keep that failure's separate
 qualification audit open until reproduced and explained.
+If resource readiness fails first, closing/joining the supervisor must retain its
+actual outcome alongside the activation failure. Preserve specific fencing and
+component outcomes, and typed supervisor/join error chains. A readiness refusal
+cannot erase the evidence needed to distinguish failure causes. This is failure
+diagnostic coverage, not proof of the cause of historical startup timeouts.
 
 Factory-entry observation must also stay independent of the blocking executor
 that runs application factories. The native cancellation fixture uses an async
