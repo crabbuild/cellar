@@ -51,6 +51,15 @@ BSD 3-Clause License text is in
 
 ## File compatibility
 
+Cellar's node-bundle envelope contains verbatim L0 files followed by row metadata,
+a little-endian CRC64-ISO checksum, a little-endian u32 footer length and `CLB1`.
+Integrity covers payload, footer, length and magic before row metadata can
+authorize recovery or collection. Rows must partition the payload, have positive
+epoch/TXID and agree with their L0 header transaction range. The development
+layout hard-cutover retains marker 1: recreate earlier unchecksummed bundle state
+and rebuild participants. There is no legacy bundle reader or migration. This
+container change does not rewrite the upstream LTX files described below.
+
 Cellar and Litestream v0.5.16 can read the new block files and the older frame
 files. Litestream v0.5.11 can read only the older frame files. This is a reader
 compatibility boundary because LTX keeps file version 3 for both layouts.

@@ -24,7 +24,54 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice tests live foreign recovery resumption after the same claimed
+The current slice reproduces historical GC deleting real uncovered Bucket proof
+when only the first footer TXID changes to zero. The writer has real Bucket
+credit, no follower data acknowledgment and no per-cell upload. GC compares the
+forged zero with an empty independent watermark and deletes the sole bundle.
+The first pre-fix case fails in 0.10s; replaying its saved executable fails in
+0.16s. The failure is observed before any repair or command replay.
+
+The bundle envelope now binds payload and row metadata with CRC64-ISO and rejects
+empty/duplicate identities, zero epochs/TXIDs, incomplete/overlapping ranges and
+footer/L0-header transaction mismatches. GC still requires independent contiguous
+coverage. The native regression keeps damaged bytes, returns the actual original
+bytes only after retention is proven, then audits cold SQL before replay and
+requires collection only after real recovery uploads. Additional envelope cases
+cover bit flips across payload/metadata/trailer, self-consistent invalid metadata,
+duplicates, unindexed payload and the previous unchecksummed development layout.
+The focused post-fix case passes in 1.78s, including cold SQL `(1,11)` before
+replay and eventual covered-object collection. All nine native log cases also
+pass in the full workspace run (7.96s), as do all 73 Node cases (632.08s), including
+all fifteen clock/refusal cases, and five native replication cases (0.96s).
+The complete workspace library/integration command passes 623 tests across
+108 targets in 1748.57s (0 ignored). The development-restart test completes
+its nested external Cargo build and passes in 503.26s; live lock/process evidence
+ruled out a suspected self-deadlock without intervention or timeout changes.
+All 518 captured Rust sources remain unchanged through the full run. Workspace
+feature unification produces distinct Log/Node artifacts from the initial focused
+profile. The exact saved workspace Log executable also passes the isolated
+regression in 1.83s (SHA256
+55ac03e2387aa30c33c2c2ad8a310ed699500cf50b888cbba98becb4423a03e9).
+The workspace Node executable is
+cee0591012f0ff50f53862b6ccc6b1c4e782edafac152279ca60bfcc3ce836de.
+Workspace doc tests pass (11, with one existing ignored example); all-target/
+all-feature checking (59.64s), Clippy with warnings denied (57.76s), formatting
+(518 files), docs (36 documents/six flows/388 references), dependency policy
+(403 packages/no JavaScript engine), 129 Python guards and whitespace checks pass.
+Python reports the same two unclosed-SQLite ResourceWarnings without a failure.
+These are Rust 1.97.0/aarch64 macOS results, not hosted Rust 1.98.1 qualification.
+PR #65 merged during this run. Updated main at 6abd0be has the identical tree to
+the tested base, so this follow-up starts there on one new main-based branch.
+
+The next selected correctness gap is overlapping consumers after lease expiry.
+Require one durable effect in the same inbox, refusal of obsolete acknowledgment
+and monotonic checkpoints after the old worker resumes. No defect is asserted
+until reproduced. Physical/process loss, capacity, complete operational coverage
+and the earlier intermittent-startup cause audits remain release requirements.
+This is a hard format cutover with all owned markers still 1; recreate old
+development state and rebuild all nodes.
+
+The previous slice tests live foreign recovery resumption after the same claimed
 root is erased or replaced. Two signed reads must return explicit Unavailable
 while retaining the old owner and acknowledged evidence. Return the actual
 metadata after both operations finish and require the first fresh audit to
@@ -43,13 +90,9 @@ repeat of the clock suite was needed. The library/log/core/CLI/Python/doc-test
 results below remain prior unchanged-production evidence, not reruns in this
 slice. Production code and owned markers remain unchanged.
 
-The next selected loss-prevention check is historical bundle GC with structurally
-readable but invalid footer row bounds/transaction identity. Source inspection
-finds structural footer decoding before coverage comparison; it is not yet a
-reproduced deletion defect. Require a concrete native regression before changing
-production code. Invalid/unproven retained payload must survive GC, while valid
-independently covered objects still collect. This does not close the broader
-fault/capacity matrix or earlier intermittent-startup cause audits.
+The subsequent GC regression above confirms the structurally readable footer
+risk. The broader fault/capacity matrix and earlier intermittent-startup cause
+audits remain open.
 
 The previous slice extends the claim-phase root-loss boundary to a different
 node taking ownership through a cold route. Its own startup may succeed; the

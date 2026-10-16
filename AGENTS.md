@@ -119,6 +119,15 @@ requires fresh contiguous per-cell coverage or a persisted epoch-retirement
 certificate. Never use another writer's cached zero, resident watermark or a
 maximum past a recovery hole as deletion authority. Corrupt/unavailable objects,
 current-session data, other lineages and loss diagnostics stay retained.
+Bucket bundle CLB1 envelopes checksum payload, footer identities/ranges, footer
+length and magic with CRC64-ISO. Fresh decode rejects missing integrity, empty/
+duplicate identities, zero epoch/TXID, incomplete/overlapping ranges and footer
+TXIDs differing from L0 header min/max. Verified metadata precedes any coverage
+or recovery decision. Row extraction from a verified envelope/trusted writer index
+checks bounds and L0 identity without rehashing the whole object for every row.
+This is a hard development cutover: rebuild all participants and recreate older
+unchecksummed bundle state. CLB1 and all Cellar-owned markers remain 1; no legacy
+reader or migration is supported.
 log_startup_gc.rs holds a real no-log response while a live generation obtains
 Bucket proof, excludes follower/per-cell credit, then force-joins the writer and
 removes its local directory. Audit original SQL before replay. Require collection

@@ -1992,6 +1992,13 @@ Validated content-addressed checkpoints remain hints and need the same coverage
 before deletion. Fresh listings on later passes observe uploads by a different
 recoverer; resident/process-local watermarks cannot certify them. Current-session
 objects, other lineages, loss diagnostics and unproven/corrupt objects remain.
+Fresh bundle row metadata is trusted only after verifying the current CLB1
+CRC64-ISO envelope, positive identities, contiguous nonoverlapping ranges covering
+all payload bytes and L0 header transaction identity. An empty watermark cannot
+cover a corrupted footer that says TXID zero. The checksum binds the payload,
+cell/epoch/TXID/ranges, footer length and magic; structural parsing is insufficient.
+Recreate older unchecksummed development state and rebuild all participants,
+keeping every owned marker at 1 without a legacy reader or migration.
 The native regression audits cold SQL recovery of original Bucket-proven writes
 before replay, then eventual collection after recovery. Full storage-fault and
 capacity qualification remain release requirements.

@@ -147,6 +147,15 @@ impl Drop for Release {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn startup_gc_preserves_a_competing_generations_real_bucket_proof() -> Result<()> {
+    run(false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn historical_gc_retains_corrupt_footer_on_real_uncovered_bucket_proof() -> Result<()> {
+    run(true).await
+}
+
+async fn run(corrupt_footer: bool) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let hold = Arc::new(AppendHold {
         entered: Semaphore::new(0),
@@ -307,6 +316,7 @@ async fn startup_gc_preserves_a_competing_generations_real_bucket_proof() -> Res
                         .context("credited bundle missing")?;
                     ensure!(bytes.len() <= 16 << 20);
                     let rows = cellar_ltx::bundle::decode_rows(&bytes)?;
+                    verify_envelope(&bytes)?;
                     ensure!(rows
                         .iter()
                         .any(|row| row.cell == CELL && row.cell_epoch == 1 && row.txid > 0));
@@ -320,11 +330,42 @@ async fn startup_gc_preserves_a_competing_generations_real_bucket_proof() -> Res
     let outcome = async {
         recovered??;
         let retained = retained?;
+        let mut expected = retained.clone();
+        if corrupt_footer {
+            for (_, bytes) in &mut expected {
+                // Change only the first footer TXID; every acknowledged LTX
+                // payload byte remains. An empty per-cell watermark must not
+                // become coverage because the corrupted footer now says zero.
+                let rows = cellar_ltx::bundle::decode_rows(bytes)?;
+                let row = rows.first().context("credited bundle has no rows")?;
+                ensure!(row.txid > 0);
+                let footer = usize::try_from(
+                    rows.iter().map(|row| row.offset + row.len).max()
+                        .context("credited bundle payload missing")?,
+                )?;
+                let txid = footer + 2 + row.cell.len() + 8;
+                let mut changed = bytes.to_vec();
+                changed[txid..txid + 8].copy_from_slice(&0u64.to_le_bytes());
+                let payload = cellar_ltx::bundle::slice(bytes, row)?;
+                ensure!(
+                    &changed[row.offset as usize..row.offset as usize + payload.len()]
+                        == payload,
+                    "footer fault changed acknowledged payload bytes"
+                );
+                *bytes = changed.into();
+            }
+            cold.run(async {
+                for (key, bytes) in &expected {
+                    live.bucket.put(key, bytes.to_vec()).await?;
+                }
+                Ok::<_, anyhow::Error>(())
+            }).await??;
+        }
         cold.run(contender.gc_other_generations()).await??;
         live.domain
             .run(async {
                 let mut missing = Vec::new();
-                for (key, expected) in &retained {
+                for (key, expected) in &expected {
                     if live.bucket.get(key).await?.map(|(bytes, _)| bytes) != Some(expected.clone())
                     {
                         missing.push(key.clone());
@@ -344,6 +385,17 @@ async fn startup_gc_preserves_a_competing_generations_real_bucket_proof() -> Res
                     "live generation moved during the retirement audit"
                 );
                 ensure!(percell.is_empty(), "per-cell data masked the bundle proof");
+                if corrupt_footer {
+                    ensure!(
+                        missing.is_empty(),
+                        "GC deleted real uncovered Bucket proof using a corrupted footer: {missing:?}"
+                    );
+                    // Return only the original metadata/payload after proving
+                    // GC retained the damaged object; never repair a deletion.
+                    for (key, bytes) in &retained {
+                        live.bucket.put(key, bytes.to_vec()).await?;
+                    }
+                }
                 Ok::<_, anyhow::Error>((missing, retained.clone()))
             })
             .await?
@@ -469,6 +521,19 @@ async fn startup_gc_preserves_a_competing_generations_real_bucket_proof() -> Res
         live.bucket.put(&foreign, bytes.to_vec()).await?;
         live.bucket.put(&corrupt, b"not a bundle".to_vec()).await?;
         let mut keep = vec![current, foreign, corrupt];
+        // Even after real coverage arrives, corrupt metadata must not be
+        // interpreted as a different set of independently covered positions.
+        let rows = cellar_ltx::bundle::decode_rows(&bytes)?;
+        let footer = rows.iter().map(|row| row.offset + row.len).max().context("missing payload")? as usize;
+        let mut damaged = bytes.to_vec();
+        damaged[footer + 2 + rows[0].cell.len() + 8] ^= 1;
+        for (name, repair_checksum) in [("bad-checksum", false), ("invalid-row", true)] {
+            let mut body = damaged.clone();
+            if repair_checksum { reseal(&mut body); }
+            let key = format!("log/{}/bundle/{name}.ltxb", live.session);
+            live.bucket.put(&key, body).await?;
+            keep.push(key);
+        }
         let mut eligible = retained.iter().map(|(key,_)| key.clone()).collect::<Vec<_>>();
         for (cell, version, deletable) in [(CELL, 1, true), ("never-covered", 1, false), (CELL, 2, false)] {
             let bytes = serde_json::to_vec(&serde_json::json!({"version":version,"cells":[{"cell":cell,"epoch":1,"through":1}]}))?;
@@ -501,5 +566,123 @@ async fn startup_gc_preserves_a_competing_generations_real_bucket_proof() -> Res
     ensure!(missing.is_empty() && restored == Some((1,11)),
         "startup GC lost original Bucket proof before cold recovery: missing={missing:?}; restored={restored:?}; follower_data_appends={}",
         live.transport.appends.load(Ordering::SeqCst));
+    Ok(())
+}
+
+fn reseal(bytes: &mut [u8]) {
+    let trailer = bytes.len() - 16;
+    let mut checksum = cellar_ltx::ltx::Crc64::new();
+    checksum.update(&bytes[..trailer]);
+    checksum.update(&bytes[trailer + 8..]);
+    bytes[trailer..trailer + 8].copy_from_slice(&checksum.sum64().to_le_bytes());
+}
+
+fn verify_envelope(bytes: &[u8]) -> Result<()> {
+    use cellar_ltx::bundle::{decode_rows, encode, slice, BundleEntry};
+
+    let rows = decode_rows(bytes)?;
+    let entries = rows
+        .iter()
+        .map(|row| {
+            Ok(BundleEntry {
+                cell: row.cell.clone(),
+                cell_epoch: row.cell_epoch,
+                txid: row.txid,
+                bytes: slice(bytes, row)?.to_vec(),
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    ensure!(
+        encode(&entries)? == bytes,
+        "bundle roundtrip changed verbatim payload"
+    );
+    let footer = rows
+        .iter()
+        .map(|row| row.offset + row.len)
+        .max()
+        .context("missing payload")? as usize;
+    let epoch = footer + 2 + rows[0].cell.len();
+    for at in [
+        0,
+        footer + 2,
+        epoch,
+        epoch + 8,
+        epoch + 16,
+        epoch + 24,
+        bytes.len() - 16,
+        bytes.len() - 8,
+        bytes.len() - 4,
+    ] {
+        let mut changed = bytes.to_vec();
+        changed[at] ^= 1;
+        ensure!(
+            decode_rows(&changed).is_err(),
+            "unprotected bundle byte at {at}"
+        );
+    }
+    // Check semantic validation independently of checksum rejection. The
+    // corruption adapter recomputes integrity bytes, never supplies proof.
+    for (at, value) in [
+        (epoch, 0),
+        (epoch + 8, 0),
+        (epoch + 8, rows[0].txid + 1),
+        (epoch + 16, 1),
+        (epoch + 24, 0),
+        (epoch + 24, u64::MAX),
+    ] {
+        let mut changed = bytes.to_vec();
+        changed[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        reseal(&mut changed);
+        ensure!(
+            decode_rows(&changed).is_err(),
+            "self-consistent invalid footer at {at}: {value}"
+        );
+    }
+    let mut old_layout = bytes.to_vec();
+    old_layout.drain(bytes.len() - 16..bytes.len() - 8);
+    ensure!(
+        decode_rows(&old_layout).is_err(),
+        "unchecksummed development layout was accepted"
+    );
+    ensure!(
+        encode(&[]).is_err(),
+        "empty bundle cannot authorize deletion"
+    );
+    let mut no_rows = bytes.to_vec();
+    let end = no_rows.len();
+    no_rows[end - 8..end - 4].copy_from_slice(&0u32.to_le_bytes());
+    reseal(&mut no_rows);
+    ensure!(
+        decode_rows(&no_rows).is_err(),
+        "unindexed payload accepted as empty coverage"
+    );
+    let first = &entries[0];
+    let copy = || BundleEntry {
+        cell: first.cell.clone(),
+        cell_epoch: first.cell_epoch,
+        txid: first.txid,
+        bytes: first.bytes.clone(),
+    };
+    ensure!(
+        encode(&[copy(), copy()]).is_err(),
+        "duplicate row identities accepted"
+    );
+    let one = encode(&[copy()])?;
+    let footer = &one[first.bytes.len()..one.len() - 16];
+    let mut duplicate = first.bytes.clone();
+    duplicate.extend_from_slice(&first.bytes);
+    duplicate.extend_from_slice(footer);
+    let second = duplicate.len();
+    duplicate.extend_from_slice(footer);
+    let offset = second + 2 + first.cell.len() + 16;
+    duplicate[offset..offset + 8].copy_from_slice(&(first.bytes.len() as u64).to_le_bytes());
+    duplicate.extend_from_slice(&[0; 8]);
+    duplicate.extend_from_slice(&((footer.len() * 2) as u32).to_le_bytes());
+    duplicate.extend_from_slice(b"CLB1");
+    reseal(&mut duplicate);
+    ensure!(
+        decode_rows(&duplicate).is_err(),
+        "checksummed duplicate row identities accepted"
+    );
     Ok(())
 }

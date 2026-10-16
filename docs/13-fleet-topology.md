@@ -16,6 +16,14 @@ development state; the runtime does not migrate it. Former `.entry`/`.entries`
 payload layouts are also rejected; only current checksum-protected `.batch` files supply follower
 entries. Epochs and sequence counters keep their meaning.
 
+Bucket node bundles also require the current CLB1 integrity envelope: CRC64-ISO
+covers the verbatim LTX payload, row footer, footer length and magic. Recovery
+and GC validate that envelope, positive row identities, complete nonoverlapping
+ranges and matching L0 header transaction IDs before using freshly read metadata.
+Recreate older unchecksummed development bundle state and rebuild all nodes.
+The marker stays 1; no legacy reader or migration is provided. Upstream LTX bytes
+and versioning are unchanged.
+
 ![Proposed fleet failure domains](diagrams/fleet-topology.svg)
 
 ## Define the environment
