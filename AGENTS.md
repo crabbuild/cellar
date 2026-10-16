@@ -267,6 +267,18 @@ ack and obsolete ack after progress with the next batch leased. Separate worker
 databases do not share deduplication. These embedded-domain/executor cases do
 not qualify independent-process faults or external effects.
 
+`event_consumer_takeover.rs` holds a real consumer callback inside one native
+poll before inbox acceptance or after receipt/effect writes before commit.
+Isolate only the old client's store, observe lease-expiry domain closure and a
+higher consumer owner epoch, then audit the successor's original prefix before
+release/replay. Record acceptance separately from transaction failure so later
+write refusal cannot hide illegal inbox admission. Require interrupted output,
+joined expiry fencing, unchanged destination receipt/checkpoint/history and
+copied old SQLite/WAL evidence of one original receipt/effect after rollback.
+Only after those audits may the successor probe receipt identity and process the
+pending event. Keep normal operation/handler/lease budgets. These independent
+embedded domains/executors do not establish separate-process or physical faults.
+
 `cellar stream` describe/read/sources/status/audit and `cellar subscription`
 list/describe/pause/resume/reset/delete use signed
 `/streams/` ingress and delegated durable grants. Operator authority is limited

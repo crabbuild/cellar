@@ -24,7 +24,51 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice exercises overlapping workers through the same durable
+The current slice exercises consumer inbox/effect ownership fencing with a real
+old callback still executing in one native poll. It uses two real single-record
+SDK deliveries, proves and acknowledges the first effect, then holds the second
+before inbox acceptance or after receipt/effect writes before commit. Only the
+old store client is isolated. Require lease-expiry domain closure and a higher
+consumer owner epoch; the successor's first call reads the original effect
+prefix before the old callback is released or any processing is replayed.
+
+Acceptance is observed independently from transaction completion. The first cut
+must refuse the retained inbox handle itself; failure of a later effect write
+cannot conceal illegal acceptance. The second cut confirms acceptance before
+fencing but requires commit refusal. Both require interrupted HTTP output,
+joined NodeLeaseExpired fencing, unchanged destination receipt/checkpoint/history
+and a copied old SQLite/WAL audit with one original receipt, exact digest and
+one original effect. The original files remain byte-identical through that audit.
+Only then does the successor confirm the first receipt suppresses duplication,
+accept the second event once and acknowledge checkpoint 2. Both strengthened
+focused cases pass in 12.83s under the original operation/handler/lease policies.
+These are independent embedded domains/executors; no production defect is
+asserted and independent-process/physical faults remain separate gates.
+
+Two targeted negative controls establish that the new assertions detect the
+actual authority violations. Bypassing only inbox admission fails the first cut
+in 2.64s with `closed consumer accepted an inbox receipt: true`, despite a later
+business-write refusal. Bypassing only commit admission fails the second cut in
+4.60s with `stale inbox/effect transaction committed`. Both production files
+are restored byte-for-byte before final qualification. Unexpected returned
+fixture errors retain their directory and identify the startup role/cut rather
+than deleting the evidence. The initial focused runtime and both control
+runtimes/sources are saved separately from the final diagnostic-wrapper build.
+
+Final qualification passes all 77 serial Node tests in 696.37s, including both
+consumer takeover cuts, both expiry-overlap cuts and all fifteen clock/refusal
+cases. All 520 captured Rust files stay unchanged through qualification. The
+final diagnostic-wrapper runtime is SHA256
+76b3866cb7ddcb7bb9a84c9c2bde3a93ec886a9cdb4b5a45a46adcfcd3bc1c93;
+it is separate from the earlier focused/control builds. Workspace all-target/
+all-feature checking (90.57s), Clippy with warnings denied (54.30s), formatting
+(520 files), docs (36 documents/six flows/388 references), dependency policy
+(403 packages/no JavaScript engine) and whitespace checks pass. This slice adds
+tests and documentation only; prior full-workspace/doc/Python results remain
+prior evidence. PR #66 is still the sole main-based PR and receives this follow-up.
+All owned markers remain 1; full release qualification remains incomplete.
+
+The previous slice exercises overlapping workers through the same durable
 consumer database after a real lease expires. A paused old callback retains an
 actual SDK delivery while a replacement receives the identical envelope under
 a new receipt, commits the inbox receipt and local effect, and proves it before
@@ -96,16 +140,15 @@ These are Rust 1.97.0/aarch64 macOS results, not hosted Rust 1.98.1 qualificatio
 PR #65 merged during this run. Updated main at 6abd0be has the identical tree to
 the tested base, so this follow-up starts there on one new main-based branch.
 
-The overlapping-consumer slice above adds embedded-domain coverage for that
-boundary. The next selected correctness gate is inbox/effect authority across
-consumer ownership takeover while the old callback is still executing: require
-closed-domain refusal before starting acceptance and before committing receipt
-plus business writes, and audit the successor's original prefix before release
-or replay. Subscription expiry alone does not exercise that ownership boundary.
-The missing source/destination failure cuts and unresolved intermittent-startup
-causes remain priorities; passing replays cannot diagnose those original failures.
-Physical/process loss, capacity and complete operational coverage remain release
-requirements.
+The current consumer-takeover slice above adds embedded-domain evidence for
+inbox/effect fencing; subscription expiry alone did not cover that boundary.
+The next selected gate carries those consumer cuts across independent processes,
+with the old process still executing, an original successor prefix audit before
+release/replay, explicit closed-domain storage refusal, typed expiry fencing,
+full joins and immutable old local receipt/effect evidence. Missing source/destination failure cuts and unresolved
+intermittent-startup causes remain priorities; passing replays cannot diagnose
+those original failures. Physical loss, capacity and complete operational
+coverage remain release requirements.
 This is a hard format cutover with all owned markers still 1; recreate old
 development state and rebuild all nodes.
 

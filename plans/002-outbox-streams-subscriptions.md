@@ -915,6 +915,15 @@ lease. If the checkpoint already passed the old batch, an obsolete ack must
 leave a newer live lease intact. Keep effect deduplication and subscription
 receipt fencing as separate requirements.
 
+Consumer ownership is separate from the subscription delivery lease. A callback
+already executing when its consumer cell loses authority must refuse retained
+inbox acceptance and ordinary storage access. If receipt/effect writes already
+ran, commit must recheck authority and roll them back on the original connection;
+a local refusal cannot become a successful response or advance the checkpoint.
+A successor must recover the original proven inbox and effect prefix before
+accepting further work. Expired-delivery deduplication alone does not prove this
+consumer ownership boundary.
+
 Receipts have no automatic TTL in the helper's first release. Bound their count
 and reject new acceptance at capacity. Administrative pruning explicitly ends
 deduplication for that range; replay after pruning may apply effects again.

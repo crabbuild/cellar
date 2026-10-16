@@ -28,6 +28,9 @@ mod event_settlement_race;
 #[path = "event_consumer_overlap.rs"]
 mod event_consumer_overlap;
 
+#[path = "event_consumer_takeover.rs"]
+mod event_consumer_takeover;
+
 #[path = "event_clock_retention.rs"]
 mod event_clock_retention;
 
