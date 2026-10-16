@@ -44,7 +44,10 @@ class WitnessGate:
                         if response is None:return
                         if matches:
                             require(len(response["body"])<=4096,"private seal response bound exceeded")
-                            with gate.lock:observation["response"]=json.loads(response["body"])
+                            try:metadata=json.loads(response["body"])
+                            except json.JSONDecodeError:metadata=None
+                            with gate.lock:
+                                observation.update(response=metadata,status=int(response["first"].split()[1]),response_sha256=hashlib.sha256(response["body"]).hexdigest(),response_body=response["body"].decode(errors="replace"))
                         self.request.sendall(response["wire"])
                 except (ConnectionResetError,BrokenPipeError):pass
                 except Exception as error:

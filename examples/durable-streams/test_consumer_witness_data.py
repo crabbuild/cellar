@@ -14,6 +14,7 @@ from faults import AuditError
 from test_consumer_recovery import fixture
 from test_consumer_owner import row
 from whole_fleet import inventory
+from test_follower_state import state_bytes, LEADER
 
 
 def data_fixture(mode):
@@ -21,22 +22,31 @@ def data_fixture(mode):
     retained=row(rows,"consumer_followers_retained")["followers"]
     damaged={};restored={}
     for node,data in retained.items():
+        data["seed"]=dict(fragment_epoch=1,base=0,end=2,sealed_to=0)
         state=dict(path="state.json",bytes=50,sha256="2"*64)
         data["files"].append(state)
         changed=[copy.deepcopy(state)]
         if mode=="corrupt":changed.insert(0,dict(data["files"][0],sha256="3"*64))
+        if mode=="state-missing":changed=[copy.deepcopy(data["files"][0])]
+        if mode=="state-corrupt":changed=[copy.deepcopy(data["files"][0]),dict(state,sha256="3"*64)]
         damaged[node]=changed
         row(rows,"consumer_witness_started",node=node)["files"]=copy.deepcopy(changed)
         sealed=dict(state,sha256="4"*64)
         before=[sealed] if mode=="missing" else [changed[0],sealed]
         restored[node]=dict(before=before,after=[copy.deepcopy(data["files"][0]),sealed],sha256={data["files"][0]["path"]:data["files"][0]["sha256"]})
+        if mode.startswith("state-"):restored[node].update(before=copy.deepcopy(changed),after=copy.deepcopy(data["files"]))
     at=rows.index(row(rows,"consumer_followers_retained"))+1
     rows.insert(at,dict(event="consumer_witness_data_damaged",mode=mode,files=damaged))
     refused=row(rows,"consumer_witness_refused");refused["attempt"]=1
     leader="consumer/"+"c"*32+"/"+"c"*64
     refused["diagnostic"]=dict(leader=leader,epoch=1,recovery_blocked=True,ensemble=sorted(retained))
     for observations in refused["gates"].values():
-        for observation in observations:observation.update(blocked=False,response=dict(fragment_epoch=0,held_fragment_epoch=1,base=0,end=2))
+        for observation in observations:
+            observation.update(blocked=False,response=dict(fragment_epoch=0,held_fragment_epoch=1,base=0,end=2))
+            if mode.startswith("state-"):
+                body=(f"missing follower state for retained fragment {leader}" if mode=="state-missing" else f"invalid follower state for {leader}: follower state checksum mismatch")
+                observation.update(status=400,response=None,response_body=body,response_sha256=hashlib.sha256(body.encode()).hexdigest())
+    if mode.startswith("state-"):refused["diagnostic"]=None
     second=copy.deepcopy(refused);second["attempt"]=2
     for node in second["gates"]:second["gates"][node]*=2
     steps=[second]
@@ -71,12 +81,45 @@ class WitnessDataTests(unittest.TestCase):
             root=Path(directory);path=root/"ledger.jsonl";path.write_text("".join(json.dumps(value)+"\n" for value in rows))
             for node in retained:
                 target=root/"returned-consumer-followers"/node;target.mkdir(parents=True)
-                (target/"state.json").write_text(json.dumps(dict(sealed_to=0 if rolled_back else 1)))
+                state=dict(retained[node]["seed"])
+                if not row(rows,"consumer_recovery_started")["witness_data"].startswith("state-"):state["sealed_to"]=0 if rolled_back else 1
+                (target/"state.json").write_bytes(state_bytes(state,leader=LEADER,node=node))
+                if row(rows,"consumer_recovery_started")["witness_data"]=="state-corrupt":
+                    original=root/"consumer-follower-images"/node;original.mkdir(parents=True)
+                    raw=state_bytes(state,leader=LEADER,node=node);(original/"state.json").write_bytes(raw)
+                    altered=json.loads(raw);altered["state"]["base"]=altered["state"]["end"]
+                    bad=root/"damaged-consumer-followers"/node;bad.mkdir(parents=True)
+                    (bad/"state.json").write_text(json.dumps(altered))
             with patch("consumer_recovery_audit.inspect_consumer",side_effect=lambda archive,scope:images[archive.name]),patch("consumer_recovery_audit.inspect_follower_disk",side_effect=lambda archive:retained[archive.name]),patch("consumer_recovery_audit.inventory",side_effect=files):
                 return audit_evidence(path)
 
     def test_missing_and_corrupt_data_require_two_real_refusals_then_return(self):
-        for mode in ("missing","corrupt"):self.assertEqual(self.audit(data_fixture(mode))["consumer_fleet_recoveries"],1)
+        for mode in ("missing","corrupt","state-missing","state-corrupt"):self.assertEqual(self.audit(data_fixture(mode))["consumer_fleet_recoveries"],1)
+
+    def test_metadata_errors_cannot_supply_a_seal_or_modify_state_before_return(self):
+        for kind in ("success","blocked","hash","state","batch"):
+            rows=data_fixture("state-corrupt");refusal=row(rows,"consumer_witness_refused",attempt=2)
+            if kind=="success":refusal["gates"]["destination"][0]["status"]=200
+            elif kind=="blocked":refusal["gates"]["destination"][0]["blocked"]=True
+            elif kind=="hash":refusal["gates"]["destination"][0]["response_sha256"]=""
+            else:
+                value=row(rows,"consumer_witness_data_restored")["files"]["destination"]
+                value["before" if kind=="state" else "after"][1 if kind=="state" else 0]["sha256"]="0"*64
+            with self.subTest(kind=kind),self.assertRaises(AuditError):self.audit(rows)
+
+    def test_actual_metadata_return_preserves_all_batches_and_refuses_newer_state(self):
+        for mode in ("state-missing","state-corrupt"):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
+                root=Path(directory);live=root/"live";live.mkdir()
+                raw=state_bytes(dict(fragment_epoch=1,base=1,end=2,sealed_to=0))
+                (live/"state.json").write_bytes(raw);(live/"2-2.batch").write_bytes(b"retained batch")
+                original=inventory(live);archive=root/"consumer-follower-images/peer";shutil.copytree(live,archive)
+                changed=damage({"peer":live},root,mode)
+                retained={"peer":dict(files=original,batches=[dict(path="2-2.batch")])}
+                restored=restore({"peer":live},root,retained,mode,changed)["peer"]
+                self.assertEqual(restored["after"],original);self.assertEqual((live/"state.json").read_bytes(),raw)
+                # Returning bytes must never erase a state written since refusal.
+                with self.assertRaises(AuditError):restore({"peer":live},root,retained,mode,changed)
 
     def test_missing_custody_refusals_joins_and_reload_are_rejected(self):
         events=("consumer_witness_data_damaged","consumer_damaged_witness_joined","consumer_witness_connections_retired","consumer_witness_data_restored","consumer_returned_witness_started","consumer_returned_witness_ready")

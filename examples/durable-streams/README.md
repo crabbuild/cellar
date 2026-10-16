@@ -675,6 +675,31 @@ failure matrix. A generic application GET may wrap a nested
 routing failure as HTTP 500; that response does not qualify the explicit refusal
 check, which uses the existing authenticated framework event route.
 
+`--witness-data state-missing` removes only the selected consumer state metadata;
+`--witness-data state-corrupt` changes its base to its end without updating the
+checksum. Both preserve every committed batch. Real witness services must refuse
+before supplying a seal, and two framework calls must return explicit
+`Unavailable` without advancing the consumer owner or sealing its log. These
+metadata errors leave witness state inconclusive; they do not invent a loss
+certificate. Proxy observations retain the actual peer status/body digest.
+
+After both peers drain and join, require their files to equal the damaged
+inventory exactly before returning the original valid metadata. Returning bytes
+must not overwrite a newer seal or other intervening state. Fresh peer
+generations and the same successor then run the original-prefix/inbox/replay
+audits. Archived state records have format 1, a checksum and both session and
+follower identities; the independent archive reader validates all of them.
+This is a hard development cutover: rebuild participants and recreate older
+unchecksummed state, with no legacy reader or migration.
+
+Cold destination ack/fetch replay fixtures also prevent the returning consumer
+from claiming the selected stream, while preserving its projection and other
+store operations. The recovered stream must live on a different node so exact
+receipt/reply replay actually crosses the measuring proxy. Configuration and
+marker custody are audited; normal application support for colocated consumers
+does not change. A local AlreadyAcknowledged result alone cannot establish the
+network replay boundary.
+
 ## Recover a follower-only source proof
 
 [follower_faults.py](follower_faults.py) runs independent destination, producer

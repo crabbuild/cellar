@@ -1900,6 +1900,35 @@ need the state barrier when a cold scan recovered an earlier unacknowledged batc
 The additional fsyncs need fresh throughput/headroom measurement. All markers
 stay 1; recreate earlier development state instead of adding a legacy reader.
 
+The independent follower state barrier also requires integrity and identity.
+Persist a strict JSON record with `format: 1`, the canonical leader session,
+stable follower node, `state` (four u64 fields: `fragment_epoch`, `base`, `end`,
+`sealed_to`) and a lowercase SHA-256 `checksum`. Hash the UTF-8 domain
+`cellar-follower-state` followed by a zero byte, the u32 format in little endian,
+each identity as u32 byte length plus UTF-8 bytes, then the four u64 state fields
+in the order above in little endian. Bound the encoded record to 4096 bytes and
+each identity to 1024 bytes; reject extra/duplicate fields, invalid ranges,
+unknown formats, wrong identity or checksum and I/O/parse errors.
+
+Missing metadata beside retained batch evidence is unproven, not an empty new
+fragment. Refused tail/seal/append operations must preserve the metadata and
+batch bytes; repeated calls cannot cache an empty success. Original valid
+metadata can later recover the actual prefix. The native metadata cases cover
+base inflation, malformed/missing state, foreign sessions/followers and the hard
+format cutover. The process driver extends the cold consumer cases with actual
+state removal or unchecked base inflation on all witnesses, real peer refusals,
+two explicit framework refusals and identical damaged inventories before joined
+peers receive original metadata. Audit original consumer inbox/effects/receipt
+before replay and independently validate all state/batch archives. These cases
+do not qualify arbitrary historical rollback or physical power/store loss.
+
+Cold ack/fetch network cuts must also keep the replay caller separate from the
+recovered stream owner. A private selected-own-key refusal on the returning
+consumer preserves its other store operations and all genuine witness proof.
+Audit marker/configuration custody and assert a different owner before opening
+the replay route. Keep exact forwarded request/reply requirements: a correct
+local AlreadyAcknowledged result does not qualify a measured network replay.
+
 Destination ack/fetch process drivers also support combining `--follower-only`
 with `--restart-followers`. Require SIGKILL of every original process, immutable
 archives of the original destination ensemble's committed CLB1/CLE1 batches and

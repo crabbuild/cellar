@@ -19,8 +19,12 @@ class WitnessGateTests(unittest.TestCase):
             def do_POST(self):
                 body=self.rfile.read(int(self.headers["Content-Length"]))
                 requests.append((self.path,body,self.headers.get("x-private-fixture")))
+                if self.server.reject:
+                    body=b"invalid follower state: checksum mismatch"
+                    self.send_response(400);self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body);return
                 self.send_response(200);self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body)
         self.server=http.server.ThreadingHTTPServer(("127.0.0.1",0),Handler)
+        self.server.reject=False
         self.thread=threading.Thread(target=self.server.serve_forever);self.thread.start()
         self.gate=WitnessGate(self.server.server_address,"consumer/"+"a"*32+"/"+"b"*64,7)
 
@@ -61,6 +65,15 @@ class WitnessGateTests(unittest.TestCase):
             status,reply,sent=self.request("/peer/log/seal")
             self.assertEqual((status,reply),(200,sent))
         finally:connection.close()
+
+    def test_actual_non_json_peer_error_is_preserved_and_observed(self):
+        self.gate.release();self.server.reject=True
+        status,reply,_=self.request("/peer/log/seal")
+        self.assertEqual((status,reply),(400,b"invalid follower state: checksum mismatch"))
+        observed=self.gate.observations()[0]
+        self.assertIs(observed["blocked"],False);self.assertIsNone(observed["response"])
+        self.assertEqual(observed["status"],400);self.assertEqual(observed["response_body"],reply.decode())
+        self.assertEqual(len(self.requests),1)
 
 
 if __name__=="__main__":unittest.main()

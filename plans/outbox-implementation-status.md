@@ -18,11 +18,70 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
-| 2 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | Reproduce cancelled-bootstrap timeout, explicit-policy closed-domain failure and initial clock-fixture activation deadline with stage diagnostics and retained startup metadata; identify the cause, add a regression at the failing boundary, and pass the original failing scenario without relaxing deadlines/assertions. Passing isolated replays do not close this gate. |
+| 1 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | First diagnose the cold RustFS expired-fetch failure: returning peers failed __catalogResolve while the destination retained a recovering predecessor and missed readiness/drain budgets. Preserve failed evidence, reproduce with full error chains, add a regression at the actual failing boundary and pass the original scenario without relaxing deadlines/assertions. Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures also remain open; passing isolated replays do not close them. |
+| 2 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The current metadata investigation reproduces four native failures: corrupt base,
+malformed/missing state and foreign valid metadata all supplied a readable tail
+instead of refusing. State fields were unchecked, decode errors silently became
+empty fragments, and metadata was not bound to the leader/follower identities.
+The fix writes a strict checksummed format-1 record and refuses invalid metadata
+without caching an empty state or mutating retained files. Missing metadata with
+retained batch evidence also refuses. The independent Python archive reader
+validates the same record with no legacy reader. All markers remain 1; recreate
+earlier unchecksummed development state.
+
+Final qualification holds all 524 Rust and 66 Python sources fixed, using the
+saved runtime SHA256
+08f44c699c078eebeb66a9e8eab7f999339df66185ec4c9c257646f935f4c18a.
+All 20 selected process cases and their independent saved-evidence re-audits
+pass: cold follower-only source/ack/live-fetch/expired-fetch on SQLite and pinned
+RustFS, plus consumer missing/corrupt batches, missing/corrupt metadata and
+warm/cold service cases on both backends. The metadata cases return original
+bytes after joined peers, recover the original inbox/effects/receipt before
+replay on the same recoverer, and preserve complete cleanup evidence. SQLite
+missing/corrupt metadata cases pass in 23.41s/22.89s; RustFS in 27.62s/25.61s.
+
+The full all-feature workspace suite passes 637 tests across 108 targets in
+1306.25s, including all 77 Node, 19 native log and five log protocol cases.
+Doc-tests pass 11 with one existing ignored example (90.96s). All 163 Python
+guards, ordinary example smoke, all-target/all-feature checking (72.94s),
+Clippy with warnings denied (75.48s), formatting (524 files), documentation
+(36 documents/six flows/388 references), dependency policy (403 packages/no
+JavaScript engine) and whitespace checks pass. The same two pre-existing
+unclosed-SQLite ResourceWarnings remain. Source hashes stay unchanged through
+every phase. Final process inspection finds no saved-runtime processes and
+confirms all 24 owned stores across failed, diagnostic and successful runs
+removed; the failed run's manual removal remains distinct from graceful drain.
+These scoped passes do not close the startup failure below or the full release
+matrix. The prior results below do not qualify the new metadata layout.
+
+The first broader frozen run passed all twelve consumer modes and source cuts,
+but its cold RustFS ack audit failed: the recovered stream validly moved to the
+consumer, returning AlreadyAcknowledged locally with unchanged checkpoint/effect
+and zero forwarded replay observations. This is a fixture measurement gap, not
+evidence of lost settlement or a passing network cut. The private cold ack/fetch
+setup now refuses only that consumer's selected stream ownership write, audits
+config/marker custody and requires another recovered owner. Exact forwarded
+receipt/reply assertions remain unchanged. The final qualification above uses
+the new frozen fixture tree; the failed run remains retained.
+
+The next frozen run exposed a separate cold RustFS expired-fetch startup failure:
+both returning peers exited during __catalogResolve, while the destination kept
+its old log recovering and still owned the catalog/stream. Destination readiness
+exceeded 90s and its stop exceeded 80s before the fixture killed it. The original
+finally loop then skipped remaining cleanup. After verifying all native PIDs
+terminal, the owned store was stopped, its data copied and the container removed;
+only the failed Python proxy driver required termination. That is failed cleanup
+evidence, not graceful-drain proof. Full error chains now survive activation
+readiness/debug output, and fixture cleanup attempts all owned resources while
+preserving the primary error. Three cleanup guards pass. A traced repeat, a
+two-second destination-start stagger and a later ordinary repeat pass, but none
+establishes the original cause. Keep this startup/shutdown gate open. No startup,
+RPC, lease or shutdown deadline is relaxed; the new metadata proof rules remain.
 
 The current missing-consumer-batch investigation reproduced a real safety bug
 twice: deleting every committed witness batch left an old state.json with end
@@ -60,10 +119,11 @@ not establish the causes of older intermittents. PR #67 merged during this run
 as 0f96868 with the identical tested base tree. The next PR starts from updated
 main; no stack is created.
 
-The next selected proof gap is corruption/loss of follower state metadata,
-separate from these retained-metadata batch cuts. Keep the startup/shutdown
-intermittents, remaining physical failure matrix, retention/lifecycle races and
-operational implementation gaps open. This slice does not complete the goal.
+Follower state metadata corruption/loss is addressed by the current slice above,
+separately from these retained-metadata batch cuts. The next selected priority is
+the observed cold-start recovery/activation failure. Keep the remaining physical
+failure matrix, retention/lifecycle races and operational implementation gaps
+open. This slice does not complete the goal.
 Added state barriers require fresh performance/capacity measurement. All markers
 remain 1; earlier development state must be recreated.
 

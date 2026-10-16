@@ -65,7 +65,7 @@ pub(super) async fn activate(app: AppHandle, generation: &Generation) -> Result<
         result
             .as_ref()
             .map(|_| ())
-            .map_err(|error| error.to_string()),
+            .map_err(|error| format!("{error:#}")),
     );
     result
 }
@@ -108,12 +108,18 @@ async fn rpc(
             // state so unoptimized polling fits a normal executor stack.
             let dispatch = Box::pin(super::dispatch_rpc_call(app.clone(), request));
             let (_, result) = futures_util::future::join(dispatch, receiver).await;
+            let failure = match &result {
+                Ok(Err(error)) => Some(format!("{error:#}")),
+                Err(error) => Some(error.to_string()),
+                Ok(Ok(_)) => None,
+            };
             tracing::debug!(
                 event = "event_activation_exchange",
                 phase = "completed",
                 method,
                 elapsed_ms = started.elapsed().as_millis(),
                 succeeded = result.as_ref().is_ok_and(|value| value.is_ok()),
+                failure,
                 "activation exchange completed"
             );
             result.context("resource activation response channel closed")?

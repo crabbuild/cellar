@@ -6,6 +6,9 @@ mod log_recovery;
 #[path = "support/log_follower_loss.rs"]
 mod log_follower_loss;
 
+#[path = "support/log_follower_metadata.rs"]
+mod log_follower_metadata;
+
 #[path = "support/log_bundle_fault.rs"]
 mod log_bundle_fault;
 

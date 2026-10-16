@@ -129,6 +129,33 @@ bytes; never roll back state.json. Propagate proxy frontend EOF at the actual
 upstream join, then cold-reload fresh peer generations with the same recoverer.
 Audit original inbox/effects before replay. Recreate older development state;
 all markers remain 1. Added state barriers require fresh capacity measurement.
+Follower state.json is a format-1 record binding leader session, follower node,
+fragment epoch/base/end/seal floor with SHA-256 over canonical binary fields.
+Reject unknown/old shapes, unsupported markers, invalid ranges, identity/digest
+mismatch and read errors; never turn decode failure into an empty fragment.
+A genuinely absent state is fresh only when no retained batch evidence exists.
+Retain invalid metadata and batches unchanged, including across repeated failed
+tail/seal/probe calls. The native log_follower_metadata.rs regressions cover those
+boundaries and original-byte return. Python follower_state.py independently
+validates archived records. consumer_recovery.py --witness-data state-missing|
+state-corrupt requires real peer errors (not proxy-generated refusals), unchanged
+files before return, joined peers and the original inbox/effects before replay.
+Recreate old unchecksummed development state; no legacy reader or migration.
+Cold destination ack/fetch fixtures refuse only the consumer's selected stream
+ownership write, preserving other writes and real proof paths. A returning
+consumer may otherwise validly own the stream and replay locally, bypassing the
+required network measurement. Retain exact forwarded receipt/reply assertions,
+assert a different recovered stream owner and audit claim-config/marker custody.
+The failed RustFS ack run returned AlreadyAcknowledged with unchanged effects/
+checkpoint but no captured replay; keep it as a fixture failure, not a pass.
+The cold RustFS expired-fetch run also exposed a separate startup/shutdown
+failure: returning peers exited at __catalogResolve while the destination kept
+the predecessor log recovering, then missed readiness and drain budgets. Keep
+that failure open despite passing traced/staggered/untraced replays. Activation
+readiness and debug diagnostics preserve the full error chain. Fixture cleanup
+uses cleanup_all to attempt every owned node/proxy/store/ledger after a stop
+failure without masking the original error; already-exited processes close their
+output handles. Cleanup of a failed run is not successful graceful-drain proof.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained

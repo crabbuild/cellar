@@ -19,6 +19,7 @@ from fleet_faults import FleetProcess, NetworkStore, free_address
 from resumed_owner import authority, store_json, store_read
 from whole_fleet import inventory
 from before_send import inspect_crash_image
+from follower_state import read_state
 
 
 ROLES = ("destination", "producer", "consumer")
@@ -76,7 +77,7 @@ def archive_pending_source(root, scope):
 
 def inspect_follower_disk(directory):
     files = inventory(directory)
-    state = json.loads((directory / "state.json").read_text())
+    state = read_state(directory)
     batches = []
     for file in files:
         if not file["path"].endswith(".batch"):

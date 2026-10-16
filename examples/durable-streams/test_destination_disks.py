@@ -47,7 +47,7 @@ def fixture(operation="ack", expired=False):
         dict(event="destination_follower_process_started",node=node,pid=pid,lease=peers[node],observed_ms=1001,
              files=files if node=="producer" else []) for node,pid in (("producer",5),("consumer",6))]
     for row in rows:
-        if operation=="append" and row["event"]=="destination_follower_process_started":
+        if row["event"]=="destination_follower_process_started" and (operation=="append" or row["node"]=="consumer"):
             config=json.dumps(dict(node=row["node"],blocked_claim=scope)).encode()
             row["claim_gate"]=dict(scope=scope,marker_sha256=hashlib.sha256(b"").hexdigest(),configuration_sha256=hashlib.sha256(config).hexdigest())
     recovered_label="recovered-before-retry" if operation=="append" else "recovered-before-replay"
@@ -77,9 +77,9 @@ class DestinationDiskTests(unittest.TestCase):
             path.write_text("".join(json.dumps(row)+"\n" for row in rows))
             disk=copy.deepcopy(next(row["followers"]["producer"] for row in fixture(operation) if row["event"]=="destination_followers_retained"))
             if changed:disk["files"][0]["sha256"]="f"*64
-            if operation=="append":
-                scope=next(row["scope"] for row in fixture("append") if row["event"]=="destination_proof_armed")
-                for node in ("producer","consumer"):
+            if operation in ("append","ack","fetch"):
+                scope=next(row["scope"] for row in fixture(operation) if row["event"]=="destination_proof_armed")
+                for node in (("producer","consumer") if operation=="append" else ("consumer",)):
                     (Path(directory)/(node+"-cold-config.json")).write_text(json.dumps(dict(node=node,blocked_claim=scope)))
                     data=Path(directory)/"data"/node;data.mkdir(parents=True)
                     (data/"claim-block").write_bytes(b"changed" if changed_gate else b"")
@@ -168,6 +168,18 @@ class DestinationDiskTests(unittest.TestCase):
         self.assertEqual(self.audit(rows,"append")["cold_append_gates"],1)
         next(row for row in rows if row["event"]=="fleet_audit" and row["label"]=="recovered-before-retry")["snapshot"]["sources"]["cross"]["host"]="destination"
         with self.assertRaises(AuditError):self.audit(rows,"append")
+
+    def test_ack_and_fetch_cannot_replay_locally_or_lose_the_claim_gate(self):
+        for operation in ("ack","fetch"):
+            for kind in ("owner","gate","scope","marker","config"):
+                rows=fixture(operation)
+                if kind=="owner":next(row for row in rows if row["event"]=="destination_follower_recovered")["owner"]["node"]="consumer"
+                else:
+                    started=next(row for row in rows if row["event"]=="destination_follower_process_started" and row["node"]=="consumer")
+                    if kind=="gate":started.pop("claim_gate")
+                    else:started["claim_gate"][{"scope":"scope","marker":"marker_sha256","config":"configuration_sha256"}[kind]]="wrong"
+                with self.subTest(operation=operation,kind=kind),self.assertRaises((AuditError,KeyError)):self.audit(rows,operation)
+            with self.assertRaisesRegex(AuditError,"claim gate custody changed"):self.audit(fixture(operation),operation,changed_gate=True)
 
     def saved(self,rows):
         directory=tempfile.TemporaryDirectory();self.addCleanup(directory.cleanup)

@@ -36,6 +36,7 @@ use crate::log_options::LogOptions;
 use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
+mod follower_state;
 mod recovery_progress;
 
 /// The one peer-POST boundary used by the node log.
@@ -1143,6 +1144,7 @@ pub struct TailResp {
 // ── The follower side ───────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 #[doc(hidden)]
 pub struct FollowerState {
     pub fragment_epoch: u64,
@@ -1153,8 +1155,8 @@ pub struct FollowerState {
 
 // A committed follower batch carries the state transition that its entries
 // make durable. The SHA-256 footer distinguishes a complete fsynced batch from
-// a crash-torn direct write, so the batch itself can be the recovery commit
-// point without a second state-file fsync and rename.
+// a crash-torn direct write. Append credit also requires the independent
+// checksummed state-file barrier, so later batch loss cannot lower the end.
 //
 //   batch: "CLB1" fragment_epoch base end sealed_to count entry* sha256
 const COMMITTED_BATCH_MAGIC: &[u8; 4] = b"CLB1";
@@ -1686,16 +1688,26 @@ impl FollowerStore {
         if let Some(loaded) = self.logs.lock().unwrap().get(leader) {
             return Ok(loaded.state);
         }
-        let seed = self
-            .filesystem
-            .read(&self.dir(leader).join("state.json"))
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default();
+        let seed = match self.filesystem.read(&self.dir(leader).join("state.json")) {
+            Ok(bytes) => Some(
+                follower_state::decode(&bytes, leader, &self.node)
+                    .with_context(|| format!("invalid follower state for {leader}"))?,
+            ),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error).context("cannot read follower state"),
+        };
         // Use one directory observation for both recovery and its evidence.
         // A second scan could lose the invalid or later file that explains why
         // recovery stopped, then certify the shortened state as complete.
         let batch_scan = self.scan_committed_batches(leader)?;
+        anyhow::ensure!(
+            seed.is_some()
+                || batch_scan.batches.is_empty()
+                    && batch_scan.unreadable_ranges.is_empty()
+                    && !batch_scan.unknown_unreadable_range,
+            "missing follower state for retained fragment {leader}"
+        );
+        let seed = seed.unwrap_or_default();
         let state = self.recover_committed_state(seed, &batch_scan.batches);
         self.logs.lock().unwrap().insert(
             leader.to_string(),
@@ -1755,7 +1767,8 @@ impl FollowerStore {
         let path = dir.join("state.json");
         let tmp = dir.join("state.json.tmp");
         let write_started = mono_us();
-        self.filesystem.write(&tmp, &serde_json::to_vec(&state)?)?;
+        self.filesystem
+            .write(&tmp, &follower_state::encode(leader, &self.node, state)?)?;
         let write_us = mono_us().saturating_sub(write_started);
         let fsync_started = mono_us();
         self.filesystem.sync_all(&tmp)?;

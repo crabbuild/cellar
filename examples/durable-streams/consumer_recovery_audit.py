@@ -13,6 +13,7 @@ from faults import digest, integer, require, validate_event, validate_source
 from follower_faults import inspect_follower_disk, log_lineage
 from consumer_witness_data import validate_damage, validate_return
 from whole_fleet import inventory
+from follower_state import read_state
 
 PEERS = {"destination", "producer"}
 STAGES = ("before-loss", "recovered-before-replay", "after-replay", "final")
@@ -84,7 +85,7 @@ def audit_evidence(path, complete=True):
             require(pids is None and set(row["pids"])==PEERS|{"consumer"} and len(set(row["pids"].values()))==3 and row["proof_mode"]=="fleet" and row["peer_proof"]=="bucket" and row["replica_fault_node"]=="consumer" and row["node_lease_ms"]==1000 and type(row["restart_followers"]) is bool,"wrong consumer proof policy/processes")
             pids,cold=row["pids"],row["restart_followers"]
             fault=row.get("witness_data")
-            require(fault is None or cold and fault in ("missing","corrupt"),"witness damage requires cold recovery")
+            require(fault is None or cold and fault in ("missing","corrupt","state-missing","state-corrupt"),"witness damage requires cold recovery")
         elif event=="attempt":
             key=row["key"]
             require(pids is not None and key==("a" if seed is None else "b") and row["attempt"]==1 and row["replay"] is False and operations[key]["attempts"]==0 and proven is None,"source replay concealed recovery")
@@ -172,8 +173,13 @@ def audit_evidence(path, complete=True):
             require(set(row["gates"])==PEERS and all(row["gates"][node] for node in proven["lease"]["log"]["ensemble"]) and all(v["leader"]==leader and v["epoch"]==proven["lease"]["log"]["epoch"] and len(v["request_sha256"])==64 for rows in row["gates"].values() for v in rows),"witness service fault was not exercised on the retained session")
             if fault:
                 diagnostic=row["diagnostic"]
-                require(damaged is not None and diagnostic["leader"]==leader and diagnostic["epoch"]==proven["lease"]["log"]["epoch"] and diagnostic["recovery_blocked"] is True and set(diagnostic["ensemble"])==set(retained),"missing retained-data loss diagnostic")
-                require(all(v.get("blocked") is False and v.get("response",{}).get("fragment_epoch")==0 for rows in row["gates"].values() for v in rows),"data loss replaced by service refusal or a complete seal certificate")
+                require(damaged is not None,"refusal preceded witness damage")
+                if fault.startswith("state-"):
+                    message=(f"missing follower state for retained fragment {leader}" if fault=="state-missing" else f"invalid follower state for {leader}")
+                    require(diagnostic is None and all(v.get("blocked") is False and v.get("status")==400 and message in v.get("response_body","") and (fault!="state-corrupt" or "follower state checksum mismatch" in v["response_body"]) and v.get("response_sha256")==hashlib.sha256(v["response_body"].encode()).hexdigest() for rows in row["gates"].values() for v in rows),"metadata error replaced by a service fault or complete seal answer")
+                else:
+                    require(diagnostic["leader"]==leader and diagnostic["epoch"]==proven["lease"]["log"]["epoch"] and diagnostic["recovery_blocked"] is True and set(diagnostic["ensemble"])==set(retained),"missing retained-data loss diagnostic")
+                    require(all(v.get("blocked") is False and v.get("response",{}).get("fragment_epoch")==0 for rows in row["gates"].values() for v in rows),"data loss replaced by service refusal or a complete seal certificate")
                 if refused:require(all(len(row["gates"][node])>len(refused["gates"][node]) for node in retained),"cached diagnostic replaced actual repeated recovery")
             else:require(all(v.get("blocked",True) is True for rows in row["gates"].values() for v in rows),"service refusal was not exercised")
             refused=row;refusals+=1
@@ -188,7 +194,7 @@ def audit_evidence(path, complete=True):
         elif event=="consumer_witness_data_restored":
             require(fault is not None and set(repair_joined)==PEERS and connections_retired and restored is None and returned is None and set(row["files"])==set(retained),"witness return preceded repeated refusal/joins")
             for node,data in row["files"].items():
-                validate_return(retained[node]["files"],data["before"],data["after"])
+                validate_return(retained[node]["files"],data["before"],data["after"],fault,damaged[node])
                 require(data["sha256"]=={entry["path"]:entry["sha256"] for entry in retained[node]["files"] if entry["path"].endswith(".batch")},"returned witness hash changed")
             restored=row["files"]
         elif event=="consumer_returned_witness_started":
@@ -248,6 +254,11 @@ def audit_evidence(path, complete=True):
             for node in retained:
                 require(inventory(path.parent/"damaged-consumer-followers"/node)==damaged[node],"damaged consumer witness archive changed")
                 require(inventory(path.parent/"returned-consumer-followers"/node)==restored[node]["after"],"returned consumer witness archive changed")
-                state=json.loads((path.parent/"returned-consumer-followers"/node/"state.json").read_text())
-                require(state["sealed_to"]>=proven["lease"]["log"]["epoch"],"return rolled back witness seal floor")
+                state=read_state(path.parent/"returned-consumer-followers"/node,leader=f"consumer/{log_lineage(proven['lease'])}/{proven['lease']['generation']}",node=node)
+                require(state==retained[node]["seed"] if fault.startswith("state-") else state["sealed_to"]>=proven["lease"]["log"]["epoch"],"return rolled back witness seal floor")
+                if fault=="state-corrupt":
+                    expected=json.loads((path.parent/"consumer-follower-images"/node/"state.json").read_bytes())
+                    require(expected["state"]["base"]<expected["state"]["end"],"metadata fault did not hide actual retained work")
+                    expected["state"]["base"]=expected["state"]["end"]
+                    require(json.loads((path.parent/"damaged-consumer-followers"/node/"state.json").read_bytes())==expected,"metadata fault changed more than the base or supplied a new checksum")
     return dict(audits=len(stages),consumer_fleet_recoveries=int(len(stages)>1),cold_followers=len(ready),backend="s3" if store else "sqlite")

@@ -163,7 +163,7 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
                     require(len(body)<=4096 and error.code==503 and b"Unavailable: event RPC did not return a proven result" in body,"consumer refusal was not explicit Unavailable")
                     elapsed=int((time.monotonic()-began)*1000)
                     require(elapsed<10000,"request timeout cannot qualify witness refusal")
-                    diagnostic=store_json(root,store,f"log/consumer/{log_lineage(proof)}/{proof['generation']}.e{proof['log']['epoch']}.loss.json") if witness_data else None
+                    diagnostic=store_json(root,store,f"log/consumer/{log_lineage(proof)}/{proof['generation']}.e{proof['log']['epoch']}.loss.json") if witness_data and not witness_data.startswith("state-") else None
                     ledger.record("consumer_witness_refused",attempt=attempt+1,status=error.code,body=body.decode(),elapsed_ms=elapsed,owner=authority(root,store,scope),lease=store_json(root,store,"nodes/consumer.json"),objects=replica_inventory(root,store),gates={node:gate.observations() for node,gate in gates.items()},diagnostic=diagnostic)
                 audit_evidence(ledger.path,complete=False)
             require(successor.child.poll() is None,"recoverer exited before real witness service returned")
@@ -176,7 +176,7 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
                     reports=[json.loads(line) for line in process.log.read_text().splitlines() if line.startswith('{"') and json.loads(line).get("outcome")=="stopped"]
                     ledger.record("consumer_damaged_witness_joined",node=name,pid=process.child.pid,exit_code=process.child.returncode,reports=reports,lease=stopped_leases[name])
                 ledger.record("consumer_witness_connections_retired",connections={node:gate.disconnect() for node,gate in gates.items()})
-                restored=restore({node:follower_directory(root,node,proof) for node in retained},root,retained)
+                restored=restore({node:follower_directory(root,node,proof) for node in retained},root,retained,witness_data,changed)
                 ledger.record("consumer_witness_data_restored",files=restored)
                 replacements={}
                 for name in sorted(PEERS):
@@ -218,7 +218,7 @@ if __name__=="__main__":
     parser=argparse.ArgumentParser(description=__doc__);target=parser.add_mutually_exclusive_group(required=True)
     target.add_argument("--binary",type=Path);target.add_argument("--audit",type=Path)
     parser.add_argument("--output",type=Path);parser.add_argument("--rustfs-image");parser.add_argument("--restart-followers",action="store_true")
-    parser.add_argument("--witness-data",choices=("missing","corrupt"))
+    parser.add_argument("--witness-data",choices=("missing","corrupt","state-missing","state-corrupt"))
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
     else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-consumer-recovery-parent-"))/"evidence").resolve(),args.rustfs_image,args.restart_followers,args.witness_data)

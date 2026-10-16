@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 import tempfile
 
-from faults import AuditError, Ledger, integer, read, require, validate_event, validate_snapshot
+from faults import AuditError, Ledger, cleanup_all, integer, read, require, validate_event, validate_snapshot
 from fleet_faults import FleetProcess, NetworkStore, PeerProxy, free_address
 
 FETCH_ID = "000000000000000000000000000000c1"
@@ -391,15 +391,12 @@ def exercise(binary, root, rustfs_image=None, lease_state="live", follower_only=
             proxy.outage = True
         if cold:
             cold.quiesce()
-        for process in reversed(processes):
-            process.stop()
-        if proxy:
-            proxy.close()
-        if cold:
-            cold.close()
-        if store:
-            store.close()
-        ledger.close()
+        actions=[("node "+process.node,process.stop) for process in reversed(processes)]
+        if proxy:actions.append(("destination proxy",proxy.close))
+        if cold:actions.append(("cold peer proxies",cold.close))
+        if store:actions.append(("private store",store.close))
+        actions.append(("ledger",ledger.close))
+        cleanup_all(actions)
 
 
 if __name__ == "__main__":
