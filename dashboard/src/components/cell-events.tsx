@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { SourceLifecycle } from "@/components/event-lifecycle"
 import { Link, useSearchParams } from "react-router-dom"
 import { useMutation } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
@@ -49,6 +50,7 @@ import {
   exact,
   age,
   eventTime,
+  receiptResult,
   type Outbox,
   type Lane,
   type EventReply,
@@ -110,7 +112,7 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
         error={write.error}
         checkReceipt={(id) =>
           eventRequest(token, path, { kind: "status", operation: id }).then(
-            (r) => r.result
+            receiptResult
           )
         }
       />
@@ -118,6 +120,7 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
         <TabsList variant="line">
           <TabsTrigger value="lanes">Delivery lanes</TabsTrigger>
           <TabsTrigger value="history">Operation history</TabsTrigger>
+          <TabsTrigger value="lifecycle">Source lifecycle</TabsTrigger>
         </TabsList>
         <TabsContent value="lanes">
           <Feedback loading={page.isPending} error={page.error}>
@@ -273,6 +276,14 @@ export function CellOutbox({ fleet, scope }: { fleet: string; scope: string }) {
         <TabsContent value="history">
           <EventAudit path={path} source />
         </TabsContent>
+        <TabsContent value="lifecycle">
+          <SourceLifecycle
+            fleet={fleet}
+            scope={scope}
+            incarnation={data?.incarnation ?? null}
+            onChanged={() => void page.refetch()}
+          />
+        </TabsContent>
       </Tabs>
       {selected && (
         <Sheet
@@ -355,6 +366,22 @@ export function CellEventState({
     gauges: Record<string, string>
   }>(`${cellEventsPath(fleet, scope)}/event-state`)
   const groups = [
+    {
+      title: "Blocked delivery reasons",
+      keys: [
+        "blocked_forbidden",
+        "blocked_destination_deleted",
+        "blocked_sequence_gap",
+        "blocked_payload_too_large",
+        "blocked_unsupported_protocol",
+        "blocked_config_conflict",
+        "blocked_producer_sealed",
+      ],
+    },
+    {
+      title: "Root SQLite allocation",
+      keys: ["sqlite_allocated_bytes", "sqlite_used_bytes"],
+    },
     {
       title: "Source delivery",
       keys: ["sources", "outbox_rows", "outbox_bytes", "outbox_oldest_age_ms"],

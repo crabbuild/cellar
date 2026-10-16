@@ -59,6 +59,18 @@ pub fn router(console: Console) -> Result<Router> {
     let state = Arc::new(console);
     let api = Router::new()
         .route("/session", get(api::session))
+        .route(
+            "/fleets/{fleet}/events/retirement-proof",
+            post(events::retirement_proof),
+        )
+        .route(
+            "/fleets/{fleet}/events/inventory",
+            get(events::inventory_page),
+        )
+        .route(
+            "/fleets/{fleet}/cells/{scope}/event-inventory",
+            post(events::inventory),
+        )
         .route("/fleets/{fleet}/cells/{scope}/outbox", post(events::outbox))
         .route(
             "/fleets/{fleet}/cells/{scope}/event-state",

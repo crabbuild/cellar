@@ -99,7 +99,17 @@ export type Stats = {
   }
 }
 export type StreamAction =
-  | { kind: "describe" }
+  | { kind: "describe" | "retirement_proof" }
+  | { kind: "subscription"; name: string }
+  | {
+      kind: "retire"
+      revision: string
+      reason: string
+      mode:
+        | { mode: "coordinated"; procedure: string }
+        | { mode: "force"; data_loss_acknowledgment: string }
+    }
+  | { kind: "retirement_status"; operation: string }
   | {
       kind: "read"
       cursor: string | null
@@ -121,6 +131,13 @@ export type SubscriptionChange =
   | { kind: "reset"; cursor: { resource: string; partition: 0; next: string } }
   | { kind: "delete"; force: boolean }
 export type OutboxAction =
+  | {
+      kind: "destroy"
+      incarnation: string
+      reason: string
+      data_loss_acknowledgment: string
+    }
+  | { kind: "recreate"; incarnation: string; reason: string }
   | { kind: "inspect"; limit: number; cursor: string | null }
   | { kind: "audit"; after: string | null; limit: number }
   | { kind: "status"; operation: string }
@@ -157,7 +174,8 @@ export async function eventRequest<T>(
   action: OutboxAction | StreamAction,
   resource?: string,
   operation = newOperation(),
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  resume = false
 ) {
   try {
     const reply = await request<EventReply<T>>(token, path, {
@@ -166,13 +184,19 @@ export async function eventRequest<T>(
         operation_id: operation,
         ...(resource ? { resource_id: resource } : {}),
         action,
+        ...(resume ? { resume: true } : {}),
       }),
       signal,
     })
     return { ...reply, operation_id: operation }
   } catch (error) {
-    if (action.kind !== "retry" && action.kind !== "change") throw error
-    // Keep the client-chosen ID after a lost HTTP response. Never resubmit a write.
+    if (
+      !["retry", "change", "destroy", "recreate", "retire"].includes(
+        action.kind
+      )
+    )
+      throw error
+    // Keep the client-chosen ID after a lost HTTP response. Never automatically resubmit a write.
     return {
       operation_id: operation,
       failure: error instanceof Error ? error.message : "Write response lost",
@@ -225,4 +249,22 @@ export function age(value: string | null | undefined) {
   if (ms < 60_000n) return `${exact((ms / 1000n).toString())} s`
   if (ms < 3_600_000n) return `${exact((ms / 60_000n).toString())} min`
   return `${exact((ms / 3_600_000n).toString())} h`
+}
+
+export function receiptResult<T>(reply: EventReply<T>): T {
+  if (reply.result === undefined || reply.result === null)
+    throw new Error(
+      reply.failure ?? "No durable receipt returned; outcome remains unknown."
+    )
+  return reply.result
+}
+export function cleanupPending(value: unknown) {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "state" in value &&
+    ["checking", "verified", "cleaning", "retiring"].includes(
+      String(value.state)
+    )
+  )
 }

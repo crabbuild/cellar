@@ -41,6 +41,7 @@ pub(crate) mod readiness;
 mod retirement;
 pub(crate) mod retirement_proof;
 mod retirement_store;
+pub(crate) use retirement_store::acceptance as validate_retirement_acceptance;
 mod schema;
 pub(crate) mod service;
 pub(crate) mod source_inventory;

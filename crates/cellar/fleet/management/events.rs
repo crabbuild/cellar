@@ -20,6 +20,15 @@ pub enum OutboxAction {
         expected: OutboxRevision,
         reason: String,
     },
+    Destroy {
+        incarnation: String,
+        reason: String,
+        data_loss_acknowledgment: String,
+    },
+    Recreate {
+        incarnation: String,
+        reason: String,
+    },
     Status {
         operation: String,
     },
@@ -30,7 +39,7 @@ pub enum OutboxAction {
 }
 
 impl OutboxAction {
-    fn request(&self, operation: &str) -> source_control::Request {
+    fn request(&self, scope: &str, operation: &str) -> source_control::Request {
         match self {
             Self::Inspect { limit, cursor } => source_control::Request::Inspect {
                 limit: *limit,
@@ -40,6 +49,30 @@ impl OutboxAction {
                 change: source_control::Retry {
                     operation: operation.into(),
                     expected: expected.clone(),
+                    reason: reason.clone(),
+                },
+            },
+            Self::Destroy {
+                incarnation,
+                reason,
+                data_loss_acknowledgment,
+            } => source_control::Request::Destroy {
+                change: crate::runtime::source_destruction::Destroy {
+                    source: scope.into(),
+                    incarnation: incarnation.clone(),
+                    operation: operation.into(),
+                    reason: reason.clone(),
+                    data_loss_acknowledgment: data_loss_acknowledgment.clone(),
+                },
+            },
+            Self::Recreate {
+                incarnation,
+                reason,
+            } => source_control::Request::Recreate {
+                change: crate::runtime::source_destruction::Recreate {
+                    source: scope.into(),
+                    incarnation: incarnation.clone(),
+                    operation: operation.into(),
                     reason: reason.clone(),
                 },
             },
@@ -60,7 +93,7 @@ impl OutboxAction {
                 && !events::is_event_scope(scope),
             "invalid outbox source scope"
         );
-        self.request(operation).validate()?;
+        self.request(scope, operation).validate()?;
         if let Self::Retry { expected, .. } = self {
             ensure!(expected.source == scope, "retry names another source");
         }
@@ -68,7 +101,22 @@ impl OutboxAction {
     }
 
     pub fn is_write(&self) -> bool {
-        matches!(self, Self::Retry { .. })
+        matches!(
+            self,
+            Self::Retry { .. } | Self::Destroy { .. } | Self::Recreate { .. }
+        )
+    }
+
+    pub fn requires_data_write(&self) -> bool {
+        matches!(self, Self::Destroy { .. } | Self::Recreate { .. })
+    }
+
+    pub fn audit_action(&self) -> &'static str {
+        match self {
+            Self::Destroy { .. } => "outbox_destroy",
+            Self::Recreate { .. } => "outbox_recreate",
+            _ => "outbox_retry",
+        }
     }
 }
 
@@ -76,6 +124,15 @@ impl OutboxAction {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EventStreamAction {
     Describe,
+    Retire {
+        revision: String,
+        reason: String,
+        mode: events::RetirementMode,
+    },
+    RetirementStatus {
+        operation: String,
+    },
+    RetirementProof,
     Read {
         cursor: Option<String>,
         limit: usize,
@@ -108,9 +165,27 @@ pub enum EventStreamAction {
 }
 
 impl EventStreamAction {
-    fn command(&self, operation: &str) -> stream_control::Command {
-        match self {
+    fn command(&self, operation: &str) -> Result<stream_control::Command> {
+        Ok(match self {
             Self::Describe => stream_control::Command::Describe,
+            Self::Retire {
+                revision,
+                reason,
+                mode,
+            } => stream_control::Command::Retire {
+                request: events::Retirement {
+                    operation: operation.into(),
+                    revision: revision.parse()?,
+                    reason: reason.clone(),
+                    mode: mode.clone(),
+                },
+            },
+            Self::RetirementStatus { operation } => stream_control::Command::RetirementStatus {
+                operation: operation.clone(),
+            },
+            Self::RetirementProof => {
+                anyhow::bail!("platform retirement proof has its own catalog route")
+            }
             Self::Read {
                 cursor,
                 limit,
@@ -152,21 +227,30 @@ impl EventStreamAction {
                 after: after.clone(),
                 limit: *limit,
             },
-        }
+        })
     }
 
     pub fn is_write(&self) -> bool {
-        matches!(self, Self::Change { .. })
+        matches!(self, Self::Change { .. } | Self::Retire { .. })
     }
 
     pub fn requires_data_write(&self) -> bool {
         matches!(
             self,
-            Self::Change {
-                action: ChangeAction::Reset { .. } | ChangeAction::Delete { .. },
-                ..
-            }
+            Self::Retire { .. }
+                | Self::Change {
+                    action: ChangeAction::Reset { .. } | ChangeAction::Delete { .. },
+                    ..
+                }
         )
+    }
+
+    pub fn audit_action(&self) -> &'static str {
+        if matches!(self, Self::Retire { .. }) {
+            "stream_retire"
+        } else {
+            "subscription_change"
+        }
     }
 
     pub fn validate(&self, resource: &str, operation: &str) -> Result<()> {
@@ -229,7 +313,26 @@ impl EventStreamAction {
                     "invalid audit bounds"
                 );
             }
-            Self::Describe => {}
+            Self::Retire {
+                revision,
+                reason,
+                mode,
+            } => {
+                let n: i64 = revision.parse()?;
+                ensure!(
+                    n.to_string() == *revision,
+                    "noncanonical retirement revision"
+                );
+                events::Retirement {
+                    operation: operation.into(),
+                    revision: n,
+                    reason: reason.clone(),
+                    mode: mode.clone(),
+                }
+                .validate()?;
+            }
+            Self::RetirementStatus { operation } => validate_resource_id(operation)?,
+            Self::RetirementProof | Self::Describe => {}
         }
         Ok(())
     }
@@ -290,7 +393,7 @@ impl FleetClient {
                 scope,
                 "outbox",
                 operator,
-                serde_json::to_value(action.request(operation))?,
+                serde_json::to_value(action.request(scope, operation))?,
             )
             .await?;
         match &action {
@@ -313,6 +416,36 @@ impl FleetClient {
                         && reply["rearmed"].is_boolean(),
                     "invalid outbox retry receipt"
                 );
+            }
+            OutboxAction::Destroy {
+                incarnation,
+                reason,
+                data_loss_acknowledgment,
+            } => {
+                validate_source_receipt(&reply, scope, operator, operation)?;
+                ensure!(
+                    reply["incarnation"] == *incarnation
+                        && reply["reason"] == *reason
+                        && reply["data_loss_acknowledgment"] == *data_loss_acknowledgment
+                        && reply["state"] != "live",
+                    "source destruction receipt differs from request"
+                );
+            }
+            OutboxAction::Recreate {
+                incarnation,
+                reason,
+            } => {
+                validate_source_receipt(&reply, scope, operator, operation)?;
+                ensure!(
+                    reply["reason"] == *reason
+                        && reply["retired_incarnation"] == *incarnation
+                        && reply["incarnation"] != *incarnation
+                        && reply["state"] == "live",
+                    "source lifecycle receipt differs from request"
+                );
+            }
+            OutboxAction::Status { operation } if reply.get("state").is_some() => {
+                validate_source_receipt(&reply, scope, operator, operation)?
             }
             OutboxAction::Status { operation } => {
                 ensure!(
@@ -479,9 +612,15 @@ impl FleetClient {
             };
             declaration.resolve(resource)?
         };
+        if matches!(action, EventStreamAction::RetirementProof) {
+            return self
+                .event_retirement_proof(binding.resource, operator)
+                .await;
+        }
+        let bound_resource = binding.resource.clone();
         let request = stream_control::Request {
             binding,
-            command: action.command(operation),
+            command: action.command(operation)?,
         };
         request.prepare(operator.into())?;
         let reply = self
@@ -519,9 +658,58 @@ impl FleetClient {
                     "invalid subscription operation receipt"
                 );
             }
+            EventStreamAction::Retire { .. } | EventStreamAction::RetirementStatus { .. } => {
+                let id = if let EventStreamAction::RetirementStatus { operation } = &action {
+                    operation.as_str()
+                } else {
+                    operation
+                };
+                let status: events::RetirementStatus = serde_json::from_value(reply.clone())?;
+                status.validate(
+                    &bound_resource,
+                    id,
+                    if status.state == "retiring" && status.operator.is_none() {
+                        None
+                    } else {
+                        Some(operator)
+                    },
+                )?;
+                if status.state == "deleted" {
+                    events::validate_retirement_acceptance(&reply, Some(operator))?;
+                }
+            }
             _ => {}
         }
         Ok(reply)
+    }
+
+    /// Read-only platform evidence for an exact identity, independent of resource grants.
+    pub async fn event_retirement_proof(
+        &self,
+        resource: events::Resource,
+        operator: &str,
+    ) -> Result<Value> {
+        let request = crate::runtime::catalog_control::Request {
+            namespace: events::CatalogNamespace {
+                tenant: resource.tenant.clone(),
+                application: resource.application.clone(),
+            },
+            cursor: None,
+            limit: 1,
+            retired_resource: Some(resource.clone()),
+        };
+        request.prepare(operator.into())?;
+        let proof: events::RetirementProof = serde_json::from_value(
+            self.event_control(
+                &request.scope()?,
+                "catalogs",
+                operator,
+                serde_json::to_value(request)?,
+            )
+            .await?,
+        )?;
+        proof.validate(&resource)?;
+        Ok(serde_json::to_value(proof)?)
     }
 
     /// Host-lifetime counters, not resident-cell aggregates. Two signed probes
@@ -663,6 +851,156 @@ mod tests {
         value = schema.clone();
         value["payload"] = json!("not a metric");
         assert!(validate_metrics(&value, &schema).is_err());
+        Ok(())
+    }
+}
+
+fn validate_source_receipt(
+    reply: &Value,
+    scope: &str,
+    operator: &str,
+    operation: &str,
+) -> Result<()> {
+    ensure!(
+        reply["operation"] == operation
+            && reply["operator"] == operator
+            && reply["source"] == scope
+            && reply["incarnation"]
+                .as_str()
+                .is_some_and(|s| validate_resource_id(s).is_ok())
+            && matches!(
+                reply["state"].as_str(),
+                Some("checking" | "verified" | "cleaning" | "deleted" | "live")
+            ),
+        "invalid source lifecycle receipt"
+    );
+    let fields = [
+        "operation",
+        "operator",
+        "source",
+        "incarnation",
+        "generation",
+        "reason",
+        "state",
+        "data_loss_acknowledgment",
+        "retired_incarnation",
+        "captured_rows",
+        "captured_bytes",
+        "discarded_rows",
+        "discarded_bytes",
+    ];
+    ensure!(
+        reply
+            .as_object()
+            .is_some_and(|object| object.keys().all(|key| fields.contains(&key.as_str()))),
+        "unexpected source receipt fields"
+    );
+    let number = |key: &str| -> Result<i64> {
+        let text = reply[key]
+            .as_str()
+            .context("source receipt counter missing")?;
+        let value: i64 = text.parse()?;
+        ensure!(
+            value >= 0 && value.to_string() == text,
+            "invalid source receipt counter"
+        );
+        Ok(value)
+    };
+    ensure!(
+        number("generation")? > 0
+            && reply["reason"]
+                .as_str()
+                .is_some_and(|s| !s.trim().is_empty() && s.len() <= 512),
+        "invalid source receipt generation or reason"
+    );
+    if reply["state"] == "live" {
+        let retired = reply["retired_incarnation"]
+            .as_str()
+            .context("retired incarnation missing")?;
+        validate_resource_id(retired)?;
+        ensure!(
+            reply["incarnation"] != retired,
+            "recreation reused a retired incarnation"
+        );
+    } else {
+        ensure!(
+            reply["data_loss_acknowledgment"]
+                .as_str()
+                .is_some_and(|s| !s.trim().is_empty() && s.len() <= 1024),
+            "source destruction acknowledgment missing"
+        );
+        let rows = number("captured_rows")?;
+        let bytes = number("captured_bytes")?;
+        let discarded_rows = number("discarded_rows")?;
+        let discarded_bytes = number("discarded_bytes")?;
+        ensure!(
+            discarded_rows <= rows
+                && discarded_bytes <= bytes
+                && (reply["state"] != "deleted"
+                    || (rows == discarded_rows && bytes == discarded_bytes)),
+            "invalid source discard accounting"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn source_lifecycle_receipts_reject_foreign_payloads_and_false_completion() -> Result<()> {
+        let valid = json!({"operation":"a".repeat(32),"operator":"console","source":"Order:one","incarnation":"b".repeat(32),"generation":"1","reason":"discard test source","data_loss_acknowledgment":"discard fixture","state":"deleted","captured_rows":"2","captured_bytes":"200","discarded_rows":"2","discarded_bytes":"200"});
+        validate_source_receipt(&valid, "Order:one", "console", &"a".repeat(32))?;
+        for (key, value) in [
+            ("discarded_rows", json!("1")),
+            ("generation", json!("01")),
+            ("payload", json!({"must":"not leak"})),
+        ] {
+            let mut forged = valid.clone();
+            forged[key] = value;
+            assert!(
+                validate_source_receipt(&forged, "Order:one", "console", &"a".repeat(32)).is_err()
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn lifecycle_actions_pin_scope_incarnation_and_exact_revision() -> Result<()> {
+        let id = "a".repeat(32);
+        let destroy = OutboxAction::Destroy {
+            incarnation: id.clone(),
+            reason: "retire test source".into(),
+            data_loss_acknowledgment: "discard test data".into(),
+        };
+        assert!(destroy.is_write() && destroy.requires_data_write());
+        destroy.validate("Order:one", &id)?;
+        assert!(destroy.validate("__EventStream:one", &id).is_err());
+        let encoded = serde_json::to_value(destroy.request("Order:one", &id))?;
+        assert_eq!(encoded["change"]["source"], "Order:one");
+        assert_eq!(encoded["change"]["incarnation"], id);
+        assert_eq!(encoded["op"], "destroy");
+        for revision in ["0", "01", "9223372036854775808"] {
+            let action = EventStreamAction::Retire {
+                revision: revision.into(),
+                reason: "retire".into(),
+                mode: events::RetirementMode::Coordinated {
+                    procedure: "all producers stopped".into(),
+                },
+            };
+            assert!(action.validate(&id, &id).is_err());
+        }
+        let action = EventStreamAction::Retire {
+            revision: "9223372036854775807".into(),
+            reason: "retire".into(),
+            mode: events::RetirementMode::Coordinated {
+                procedure: "all producers stopped".into(),
+            },
+        };
+        action.validate(&id, &id)?;
+        assert!(action.is_write() && action.requires_data_write());
+        assert!(!EventStreamAction::RetirementProof.is_write());
         Ok(())
     }
 }

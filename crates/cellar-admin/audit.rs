@@ -38,7 +38,8 @@ impl AuditStore {
                 target TEXT NOT NULL, action TEXT NOT NULL, fingerprint TEXT NOT NULL,
                 status TEXT NOT NULL, started_at INTEGER NOT NULL, finished_at INTEGER,
                 PRIMARY KEY (fleet, actor, id)
-            );",
+            );
+            CREATE TABLE IF NOT EXISTS event_intents (fleet TEXT NOT NULL, actor TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(fleet,actor,id));",
         )?;
         Ok(Self(Mutex::new(connection)))
     }
@@ -103,7 +104,7 @@ impl AuditStore {
             .lock()
             .map_err(|_| anyhow::anyhow!("audit store unavailable"))?;
         connection.execute(
-                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change') OR status NOT IN ('succeeded','incomplete','failed'))",
+                "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND (action NOT IN ('stop','outbox_retry','subscription_change','outbox_destroy','outbox_recreate','stream_retire') OR status NOT IN ('succeeded','incomplete','failed'))",
                 params![
                     status,
                     finished,
@@ -158,15 +159,78 @@ impl AuditStore {
         action: &str,
         fingerprint: &str,
     ) -> Result<bool> {
+        self.reconcile_event_state(fleet, actor, id, target, (action, fingerprint), "succeeded")
+    }
+
+    pub(crate) fn reconcile_event_state(
+        &self,
+        fleet: &str,
+        actor: &str,
+        id: &str,
+        target: &str,
+        expected: (&str, &str),
+        status: &str,
+    ) -> Result<bool> {
+        let (action, fingerprint) = expected;
         ensure!(
-            matches!(action, "outbox_retry" | "subscription_change"),
+            matches!(status, "succeeded" | "accepted"),
+            "invalid event receipt state"
+        );
+        ensure!(
+            matches!(
+                action,
+                "outbox_retry"
+                    | "subscription_change"
+                    | "outbox_destroy"
+                    | "outbox_recreate"
+                    | "stream_retire"
+            ),
             "invalid event audit action"
         );
         let changed = self.0.lock().map_err(|_| anyhow::anyhow!("audit store unavailable"))?.execute(
-            "UPDATE operations SET status='succeeded',finished_at=? WHERE fleet=? AND actor=? AND id=? AND target=? AND action=? AND fingerprint=?",
-            params![now(),fleet,actor,id,target,action,fingerprint],
+            "UPDATE operations SET status=?,finished_at=? WHERE fleet=? AND actor=? AND id=? AND target=? AND action=? AND fingerprint=? AND (status!='succeeded' OR ?='succeeded')",
+            params![status,now(),fleet,actor,id,target,action,fingerprint,status],
         )?;
         Ok(changed == 1)
+    }
+
+    pub(crate) fn remember_event(
+        &self,
+        fleet: &str,
+        actor: &str,
+        id: &str,
+        body: &impl Serialize,
+    ) -> Result<()> {
+        let body = serde_json::to_string(body)?;
+        ensure!(body.len() <= 16 << 10, "event intent exceeds bounds");
+        self.0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("audit store unavailable"))?
+            .execute(
+                "INSERT OR IGNORE INTO event_intents(fleet,actor,id,body) VALUES(?,?,?,?)",
+                params![fleet, actor, id, body],
+            )?;
+        Ok(())
+    }
+
+    pub(crate) fn event_intent(
+        &self,
+        fleet: &str,
+        actor: &str,
+        id: &str,
+    ) -> Result<Option<serde_json::Value>> {
+        let body: Option<String> = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("audit store unavailable"))?
+            .query_row(
+                "SELECT body FROM event_intents WHERE fleet=? AND actor=? AND id=?",
+                params![fleet, actor, id],
+                |row| row.get(0),
+            )
+            .optional()?;
+        body.map(|body| serde_json::from_str(&body).map_err(Into::into))
+            .transpose()
     }
 
     pub fn list(&self, fleet: &str) -> Result<Vec<Operation>> {
@@ -257,6 +321,63 @@ mod tests {
         )?;
         audit.finish(&mut operation, "outcome_unknown")?;
         assert_eq!(operation.status, "succeeded");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn lifecycle_intents_are_actor_scoped_and_terminal_proofs_survive_late_acceptance() -> Result<()>
+    {
+        let dir = tempfile::tempdir()?;
+        let store = AuditStore::open(&dir.path().join("audit.sqlite"))?;
+        let body = serde_json::json!({"operation_id":"a".repeat(32),"action":{"kind":"destroy","reason":"retire source"}});
+        let Begin::Started(mut operation) = store.begin(
+            "operation",
+            "fleet",
+            "alice",
+            "outbox/Order:one",
+            "outbox_destroy",
+            "digest",
+        )?
+        else {
+            panic!("new operation")
+        };
+        store.remember_event("fleet", "alice", "operation", &body)?;
+        assert_eq!(
+            store.event_intent("fleet", "alice", "operation")?,
+            Some(body)
+        );
+        assert_eq!(store.event_intent("fleet", "bob", "operation")?, None);
+        assert!(!store.reconcile_event_state(
+            "fleet",
+            "alice",
+            "operation",
+            "outbox/Order:one",
+            ("outbox_destroy", "wrong"),
+            "succeeded"
+        )?);
+        assert!(store.reconcile_event_state(
+            "fleet",
+            "alice",
+            "operation",
+            "outbox/Order:one",
+            ("outbox_destroy", "digest"),
+            "succeeded"
+        )?);
+        store.finish(&mut operation, "accepted")?;
+        assert_eq!(operation.status, "succeeded");
+        assert!(!store.reconcile_event_state(
+            "fleet",
+            "alice",
+            "operation",
+            "outbox/Order:one",
+            ("outbox_destroy", "digest"),
+            "accepted"
+        )?);
         Ok(())
     }
 }

@@ -167,14 +167,26 @@ Each request enters the domain explicitly; no global Cellar host is installed.
 Cells expose outbox lanes and root event-state gauges; node pages expose
 generation-pinned host event metrics. Stream workspaces resolve deployed
 bindings and provide bounded catalog discovery, non-consuming event reads,
-producer watermarks and subscription inspection. Payload reads are explicit;
+producer watermarks and subscription inspection. An explicit fleet inspection
+walks one bounded root-directory page with at most four concurrent owner probes;
+it includes undispatched sources and catalog/stream identities beyond deployed
+bindings. Page gauges exclude unavailable roots and never claim whole-fleet
+completeness. Metadata sheets page retained resources, producers and source
+operation history; exact-resource terminal proof is independent of resource grants.
+Payload reads are explicit;
 payload JSON text and decimal-string counters preserve large integer values.
 
 Reads require `data_read`. Outbox retry and subscription pause/resume additionally
-require `operate`; subscription reset/delete also require `data_write`.
+require `operate`; subscription reset/delete, source destruction/recreation and
+stream retirement also require `data_write`. Destruction and retirement reviews
+require exact identity confirmation and an explicit loss or coordination
+attestation. Acceptance is distinct from completed cleanup. Source cleanup can
+be explicitly continued only with the original persisted request and operator;
+ordinary writes are never automatically replayed.
 Stream actions recheck the current binding's read/administer capability and
 native grant. Mutation reviews pin the observed source revision or subscription
-identity and require a reason. Native receipts use a principal-bound operator
+identity and require a reason. Retirement pins the observed configuration
+revision; source lifecycle pins the observed producer incarnation. Native receipts use a principal-bound operator
 identity and reconcile only the exact locally recorded request. The Operations
 page links to receipt lookup after navigation or reload; lookup never replays a
 mutation. Cold inspection can activate a cell and progress existing work.
