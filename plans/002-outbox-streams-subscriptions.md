@@ -1977,3 +1977,21 @@ output proofs, release and garbage collection preserve that identity boundary.
 Log sessions use node/lineage/process-generation so a fresh lineage cannot
 collect another lineage’s retained bundles or follower fragments. This is a
 version-1 development hard cutover with recreated state, not a migration.
+
+
+### Historical bundle collection
+
+A cached startup lease cannot authorize collecting other generations. A live
+writer can open its log and receive actual Bucket credit after a competing boot
+reads its no-log root. Recovery admission therefore performs no historical
+sweep. Maintenance in both Bucket and Fleet postures examines at most 512
+same-lineage objects per pass under a two-second deadline and resumes after
+skipped or unreadable objects. Each bundle row must have independently observed
+contiguous per-cell coverage, or a persisted epoch-retirement certificate.
+Validated content-addressed checkpoints remain hints and need the same coverage
+before deletion. Fresh listings on later passes observe uploads by a different
+recoverer; resident/process-local watermarks cannot certify them. Current-session
+objects, other lineages, loss diagnostics and unproven/corrupt objects remain.
+The native regression audits cold SQL recovery of original Bucket-proven writes
+before replay, then eventual collection after recovery. Full storage-fault and
+capacity qualification remain release requirements.

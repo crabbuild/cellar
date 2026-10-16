@@ -24,22 +24,48 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice fixes a reproduced retained-root continuity gap after
-predecessor recovery seals its log but before initial lease installation.
-The native cut holds the core's actual sealed response, erases the root, then
-returns its unchanged bytes/token. The pre-fix path rejects a stale Match,
-reads absence and creates a new lease under the retained lineage. Two saved
-runtime runs admit epoch 2 with the recovered clock intact; this is a continuity
-defect, not evidence of lost data. The bucket writer now refuses Absent guards
-when identity capture saw a root. Both selected post-recovery cuts pass native
-qualification. The regressions retain the original owner and cut-time
-payload/follower evidence, then return the actual sealed metadata and recover
-before receipt reuse, within unchanged operation/startup budgets. The preceding timing/placement correction passes
-all 65 Node cases and local checks.
-Concurrent-startup generation GC, loss during predecessor recovery, metadata
-rollback and the independent-process clock-refusal matrix remain separate open
-gates. The full proof/fault matrix
-remains open.
+The current slice addresses reproduced startup-GC data loss. A competing boot
+holds an actual no-log lease response while the live generation opens its log
+and receives real Bucket proof. The old sweep deletes that generation's bundle.
+With follower data appends excluded and the original writer force-joined/local
+directory removed, cold recovery restores no database. The saved pre-fix
+executable fails the original-prefix audit in 1.06s (no command replay).
+
+Historical collection now runs outside admission and requires fresh contiguous
+per-cell coverage or persisted epoch retirement for every row, including
+validated checkpoint hints. Maintenance pages at most 512 same-lineage objects
+under a two-second deadline. The focused regression passes in 1.76s and all
+eight native log cases pass in 6.63s with matching executable hashes. They
+require eventual collection after another process uploads recovery data and
+preservation of excluded/corrupt/unproven objects.
+
+The full Node suite is red:
+66/67 pass in 521.13s; the cold-source/follower restart fails during catalog
+activation (`__catalogResolve`). In three isolated replays per saved executable,
+two pass and one fails on each of the new and pre-GC runtimes. Both replay
+failures report an activation deadline, so a cold-start failure predates this
+GC patch; this does not establish the full-suite failure's cause or rule out a
+timing contribution. Original assertions and deadlines are unchanged. Preserve
+the failed suite and both replay sets; do not count passing replays as a green
+gate. The startup cause/diagnostic audit is the next priority.
+
+Remaining workspace/tooling checks pass: 242 library cases (6.74s), 15 decision-core,
+six actor, six ingress, five protocol, seven artifact and three CLI cases.
+Workspace all-target/all-feature check (70.50s), Clippy with warnings denied
+(72.72s), formatting of 518 Rust files and workspace doc tests pass. Docs
+validate 36 documents/six flows/388 references; the dependency policy checks
+403 packages with no JavaScript engine; all 129 Python guards pass. All five
+changed Rust sources remain fixed through the focused/full log checks, Node
+suite, replays and remaining qualification. Focused/full native-log SHA256 is
+3e4564239e356b6c87a288cc5f9284b440402264c3b6b828811e171764ccb2e8;
+the failed Node executable is
+134496cf5a062358a333a0a8f35f6b6c7c574b6fcf74c8be382c0669b380d04e.
+Local Rust is 1.97.0/aarch64 macOS. The full Node gate remains failed, and
+hosted Rust 1.98.1/physical fault qualification remains separate.
+
+The broader proof/fault matrix,
+loss during predecessor recovery, metadata rollback and independent-process
+clock-refusal matrix remain open.
 Selected local rollback/reopen and subscription handoff cases below do not close
 that matrix. The startup/shutdown cause audit remains open and
 must resume on recurrence, followed by physical store/host loss and the
@@ -116,11 +142,9 @@ move to updated main (same base tree). Local Rust is 1.97.0/aarch64 macOS;
 hosted Rust 1.98.1 and the process drivers remain separately unqualified.
 Erasure during predecessor recovery, metadata rollback, independent-process
 and physical fault matrices remain open.
-The next safety investigation must also exercise concurrent-startup generation
-GC: the current sweep lists/deletes other generations in the same lineage after
-its observed predecessor recovery. A competing generation's real bundle must
-remain protected until that generation's proof is retired. This is an
-unqualified candidate from source inspection, not a reproduced loss claim.
+Concurrent-startup GC is now a reproduced loss case, rather than the earlier
+source-inspection candidate. The current follow-up above records its evidence;
+complete qualification and remaining physical/metadata cuts stay open.
 
 ## Current follow-up: delivery after recovery backpressure
 

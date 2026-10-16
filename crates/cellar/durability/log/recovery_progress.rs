@@ -31,6 +31,19 @@ struct Checkpoint {
     cells: Vec<CoveredCell>,
 }
 
+/// Validate content addressing and format before treating a checkpoint as
+/// a hint. Deletion still requires independent coverage of every listed cell.
+pub(super) fn decode_checkpoint(key: &str, bytes: &[u8]) -> anyhow::Result<Vec<CoveredCell>> {
+    let digest = format!("{:x}.json", sha2::Sha256::digest(bytes));
+    anyhow::ensure!(
+        key.rsplit('/').next() == Some(digest.as_str()),
+        "checkpoint digest mismatch"
+    );
+    let checkpoint: Checkpoint = serde_json::from_slice(bytes)?;
+    anyhow::ensure!(checkpoint.version == 1, "unknown checkpoint version");
+    Ok(checkpoint.cells)
+}
+
 pub(super) struct Progress {
     prefix: String,
     covered: BTreeMap<(String, u64), u64>,
@@ -72,14 +85,7 @@ impl Progress {
                 // Content-addressing keeps interrupted or corrupt metadata
                 // from over-reporting coverage. Unknown versions are hints
                 // we cannot use, not a reason to refuse a recoverable log.
-                let digest = format!("{:x}.json", sha2::Sha256::digest(&bytes));
-                anyhow::ensure!(
-                    key.rsplit('/').next() == Some(digest.as_str()),
-                    "checkpoint digest mismatch"
-                );
-                let checkpoint: Checkpoint = serde_json::from_slice(&bytes)?;
-                anyhow::ensure!(checkpoint.version == 1, "unknown checkpoint version");
-                Ok::<_, anyhow::Error>(checkpoint.cells)
+                decode_checkpoint(key, &bytes)
             };
             let result = asyncrt::timeout(IO_TIMEOUT, read)
                 .await

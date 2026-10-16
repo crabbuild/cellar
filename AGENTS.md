@@ -111,6 +111,19 @@ under a retained lineage. Refuse before transport and applied-log notification;
 true first boot can still create its root. The post-recovery read cut requires a
 real sealed predecessor and payload, preserves cut-time evidence on refusal,
 then returns those actual sealed bytes before recovery and receipt reuse.
+Startup does not collect other generations from its cached lease observation.
+A no-log root can race a real writer opening and crediting a bundle. Historical
+GC runs in both postures during maintenance, with an independent 512-object
+cursor and two-second deadline. Every bundle row and validated checkpoint hint
+requires fresh contiguous per-cell coverage or a persisted epoch-retirement
+certificate. Never use another writer's cached zero, resident watermark or a
+maximum past a recovery hole as deletion authority. Corrupt/unavailable objects,
+current-session data, other lineages and loss diagnostics stay retained.
+log_startup_gc.rs holds a real no-log response while a live generation obtains
+Bucket proof, excludes follower/per-cell credit, then force-joins the writer and
+removes its local directory. Audit original SQL before replay. Require collection
+only after independent recovery uploads data; its paged fixture does not qualify
+provider memory bounds or the full capacity/fault matrix.
 The native root-read cut holds actual response bytes/token, erases or replaces
 the root, and requires refusal with owner, payload and follower bytes unchanged;
 returning the original metadata must recover before receipt reuse. Keep metadata
