@@ -349,6 +349,9 @@ impl Cell for Projection {
                 if path == "/projection/owner-audit" && request.method == "GET" {
                     return consumer_owner::audit(&context, &db, controls);
                 }
+                if path == "/projection/inbox-audit" && request.method == "GET" {
+                    return consumer_owner::inbox_audit(&context, &db).await;
+                }
                 if path == "/projection/running" && request.method == "POST" {
                     return consumer_owner::running(&context, &db, &url, controls).await;
                 }
