@@ -1840,6 +1840,24 @@ audit and one consumer effect. SQLite and private RustFS S3 qualify only these
 selected client-outage cuts, not physical partition/power/store loss, follower-
 only proofs or every stale settlement/reply interleaving.
 
+The independent-process `consumer_owner.py` driver carries the analogous
+consumer cuts across four separate data directories/processes with explicit
+Bucket proof. It seeds one proven receipt/effect, then holds a real second SDK
+delivery before retained inbox acceptance or after receipt/effect writes before
+commit. Require a live/non-stopped old PID, actual refused lease operations,
+expiry, higher-epoch successor recovery and the original effect prefix before
+release or any fetch replay, within the unchanged handler budget. Separate
+acceptance and transaction observations prevent a later write refusal from
+concealing an illegal inbox receipt. Closed-domain refusal, interrupted output,
+joined expiry fencing and an old SQLite/WAL image with exactly the original
+receipt/digest/effect precede replay of the saved fetch ID. That replay must
+return the identical receipt/batch, apply the second effect once, skip repetition
+and acknowledge checkpoint 2. After all survivor joins, the successor's immutable
+archive must contain both exact inbox digests/effects. Saved ledger validation
+reinspects both archives through disposable copies and requires complete private
+store cleanup. SQLite/RustFS client outages qualify these cuts, not consumer
+follower-only proof, physical loss or the full fault/capacity matrix.
+
 Destination ack/fetch process drivers also support combining `--follower-only`
 with `--restart-followers`. Require SIGKILL of every original process, immutable
 archives of the original destination ensemble's committed CLB1/CLE1 batches and

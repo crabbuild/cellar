@@ -24,7 +24,48 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice exercises consumer inbox/effect ownership fencing with a real
+The current slice carries the consumer ownership cuts across four independent
+loopback processes. The opt-in example routes retain an actual SDK delivery and
+hold the old callback before inbox acceptance or after receipt/effect writes
+before commit. Only that consumer's actual store client is isolated. Require
+real refused lease operations, expiry, a live/non-stopped old PID, higher-epoch
+successor ownership and the original committed effect prefix before releasing
+the callback or replaying a fetch. Acceptance and commit outcomes are observed
+separately; caught refusal cannot become successful HTTP output.
+
+The joined old process's archived SQLite/WAL retains only the original inbox
+digest/effect. Replaying the saved fetch ID on the successor must recover the
+identical pending receipt/batch, apply once, skip repetition, and acknowledge
+checkpoint 2. After all survivor joins, its archive must retain both exact inbox
+digests/effects; correct business totals alone cannot conceal a lost first inbox
+receipt. Saved evidence rechecks both archives through disposable copies and
+requires complete private process/store cleanup.
+
+All four strengthened process cases pass on one frozen executable (SHA256
+a29828e710259130d679ba5bb5bd861a99bc4a499d96a50cfa1d3190d7227815):
+SQLite before-accept/before-commit in 2.50s/2.33s, RustFS S3 in 5.23s/4.58s.
+Held callbacks span 1006ms/1005ms/1468ms/1474ms, below the unchanged 10s handler
+budget; node leases remain 1000ms and delivery leases 30s. Every case has four
+independent saved audits and one old/two successor inbox digests. Independent
+ledger/archive re-audits pass; actual Docker inventory confirms both owned
+RustFS servers removed after joins. The initial probes preceded the strengthened
+successor archive gate; only the final cases supply this evidence.
+
+Both original live-source cuts pass again with this executable (2.46s/2.53s),
+as do ordinary example smoke (1.51s), the existing Rust CAS fixture unit test,
+and all 137 Python guards, including eight new oracle tests. The Python suite
+retains the same two unclosed-SQLite ResourceWarnings. All 521 Rust and 56 Python
+sources stay fixed during qualification. Workspace all-target/all-feature
+checking (6.64s), Clippy with warnings denied (3.12s), formatting (521 files),
+docs (36 documents/six flows/388 references), dependency policy (403 packages/no
+JavaScript engine) and whitespace checks pass. SDK/core behavior and all owned
+markers remain unchanged. The prior 77-Node/full-workspace/doc-test results below
+remain prior unchanged-core evidence, not reruns in this example-fixture slice.
+This qualifies selected client-outage process cuts on SQLite and private RustFS,
+not physical partitions/power/store loss, follower-only consumer proof or the
+complete release matrix. PR #66 remains the single active main-based PR.
+
+The previous slice exercises consumer inbox/effect ownership fencing with a real
 old callback still executing in one native poll. It uses two real single-record
 SDK deliveries, proves and acknowledges the first effect, then holds the second
 before inbox acceptance or after receipt/effect writes before commit. Only the
@@ -140,12 +181,14 @@ These are Rust 1.97.0/aarch64 macOS results, not hosted Rust 1.98.1 qualificatio
 PR #65 merged during this run. Updated main at 6abd0be has the identical tree to
 the tested base, so this follow-up starts there on one new main-based branch.
 
-The current consumer-takeover slice above adds embedded-domain evidence for
+The earlier native consumer-takeover slice adds embedded-domain evidence for
 inbox/effect fencing; subscription expiry alone did not cover that boundary.
-The next selected gate carries those consumer cuts across independent processes,
-with the old process still executing, an original successor prefix audit before
-release/replay, explicit closed-domain storage refusal, typed expiry fencing,
-full joins and immutable old local receipt/effect evidence. Missing source/destination failure cuts and unresolved
+The process slice above now covers those selected consumer client-outage cuts.
+The next selected gate is recovering a consumer receipt/effect prefix from
+follower-only proof after losing its local disk before acknowledgment, including
+cold retained followers. Require the original committed inbox/effect audit
+before any fetch replay; unavailable witnesses must refuse recovery rather than
+reset deduplication. Missing source/destination failure cuts and unresolved
 intermittent-startup causes remain priorities; passing replays cannot diagnose
 those original failures. Physical loss, capacity and complete operational
 coverage remain release requirements.

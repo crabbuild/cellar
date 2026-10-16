@@ -85,6 +85,18 @@ interrupted response, joined expiry fencing, immutable old DB/WAL inspection
 and one consumer effect before complete survivor/store cleanup. Never use an
 ordinary source replay or a signal to repair this boundary. Core runtime and
 all owned markers remain unchanged; physical fault qualification is separate.
+`consumer_owner.py` carries the inbox/effect cuts across four independent
+processes using the same private store-outage control and actual SDK deliveries.
+Keep the original effect audit before release/replay, a live/non-stopped old PID,
+real expiry/higher epoch, separate acceptance/commit observations, interrupted
+output and joined expiry fencing. The old joined SQLite/WAL archive must retain
+only the first inbox digest/effect. Replaying the saved fetch ID must recover the
+exact pending receipt/batch, apply once and skip repetition before ack. After
+survivor joins, inspect the successor archive for both exact inbox digests/effects;
+business totals alone cannot prove retained deduplication. Audit both archives
+through disposable copies. Keep the 10s handler and 30s delivery policies, private
+1000-object listing cap, Bucket proof scope and complete process/store cleanup.
+The SQLite/RustFS process cuts are not physical or follower-only qualification.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained
