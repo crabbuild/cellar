@@ -4,8 +4,9 @@ Updated 2026-10-16. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
 release. The consolidated event-delivery work merged in PR #46; PRs #47–#62
-are superseded. The follower-proof/read-bound follow-ups merged in PR #68.
-Follow-ups use one active PR against updated main; subsequent
+are superseded. The follower-proof/read-bound follow-ups merged in PR #68,
+and the tail/control memory follow-ups merged in PR #69. Follow-ups use one
+active PR against updated main; subsequent
 changes reuse that PR while it is open, without a stack. The native fixture now
 exercises source, catalog, stream, and consumer turns together; that local evidence does not satisfy the fleet/release gates.
 
@@ -20,7 +21,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
 | 1 | Bound total retained-tail memory | Tail/process profiles pass; control candidate under qualification; bundle bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. Buffered diagnostic tail inspection, live-fold bundle helpers, large/concurrent bundle bodies and provider/progress inventories still materialize histories. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
-| 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
@@ -215,8 +216,87 @@ lane regression and all seven reply-reader cases. A saved protocol executable
 from the interrupted pre-guard batch independently passes both signed HTTP cases
 in 0.22s, including exact-limit acceptance and refusal from an oversized header
 whose body remains pending. Those HTTP functions/test bytes are unchanged by
-the wire-admission guard. Final whole-source native, static and workspace gates
-remain running; no full qualification pass is inferred from these scoped results.
+the wire-admission guard. The same captured source then passes all five selected
+native suites: 21 log recovery cases (68.72s), seven protocol cases (2.15s), four
+asset-host cases (5.68s, plus one nested child), outbox (2.66s) and streams (2.20s).
+The native command takes 398.14s including compilation. Workspace/all-target/all-
+feature checking and Clippy with warnings denied pass (102.83s/85.51s), followed
+by repository formatting, docs, dependency policy and all 179 Python guards.
+The original full workspace lib/tests command fails overall after 1341.28s:
+all six external-ingress cases reach the unchanged authority-startup deadline.
+Native dev/reload passes in 504.20s before that failure. The original executable
+is retained with SHA-256
+2f8f5f1ea8331f9ea5aa6812cc99efb2c21649fcb5bd50ba7f26de095bd9dc90.
+Its isolated case passes in 0.20s, its unchanged full six-case run passes in
+0.66s, and 20 runs with the qualification runner's explicit environment each
+pass all six (0.46..0.94s). The local-reload-requires-replication warning also
+occurs in the passing cases; it is not an established failure cause. No skip,
+replication requirement, deadline change or code repair is inferred. All 619
+inputs stay unchanged through the failed original batch; later workspace targets,
+doc-tests and the final diff phase do not execute. This remains a failed gate,
+and the startup/fencing cause audit stays open. Both hosted jobs for published bb7a91f again execute no steps;
+their own annotations cite account payment/spending restrictions.
+
+Preparing the bounded bundle read exposed a prerequisite in the SQLite object
+backend: get_opts materializes the entire BLOB even for HEAD and a 4 KiB range.
+Two independent child profiles over a parent-prepared 80 MiB object grow RSS by
+168869888/168886272 bytes, both failing the fixed 16 MiB budget. These exercise
+the actual public store path, not a replacement decoder. The isolated candidate
+reads metadata without BLOB materialization and defers body reads into 128 KiB
+incremental BLOB operations bound to the original ETag, size and execution
+domain. After the original gate terminates, the candidate transfers to the primary
+checkout. Its first build fails on the test module path before running any tests;
+the explicit path is corrected without changing assertions. All eight focused
+provider tests then pass (seven new cases and the existing schema/reopen case).
+They cover HEAD/range/full-stream memory, byte/metadata/condition fidelity,
+replacement during a stream, and original-domain admission/joined entered SQLite
+I/O under a foreign consumer. HEAD, range and full-stream RSS growth is
+6668288/7438336/8273920 bytes for the same 80 MiB object, below the unchanged
+16 MiB budgets. These are focused local results; the candidate remains unpublished
+and broader qualification is pending. A separate full-read experiment takes
+9.86s, or 8.17s with a prototype covering index added only to its private database.
+Both query plans still choose the primary index, so that timing difference does
+not establish an index fix; throughput remains under investigation. Fixing this
+provider prerequisite alone does not bound retained-bundle close/fold maps,
+whole-envelope verification, metadata inventories or total recovery memory.
+
+The next frozen provider batch passes all 313 library cases (10.64s runtime),
+native blob/storage/log/protocol/outbox/stream suites, workspace/all-target/all-
+feature checking and Clippy with warnings denied, formatting, docs, dependency
+policy and all 179 Python guards. The same batch subsequently passes native
+dev/reload (706.58s runtime; 767.09s including compilation) and its final whitespace
+check, completing all ten scoped phases with all 620 captured inputs unchanged.
+This is not a full-workspace or release pass. The separate component probe measures
+0.61s for repeated metadata queries versus 6.57s for reopening/seeking/reading
+the BLOB, and 6.56s for indexed queries plus BLOB reads. That narrows the measured
+cost to BLOB access; it does not establish a linear-throughput implementation.
+In the isolated worktree, a prepared production close/fold replacement stages
+each envelope to disk, binds streamed payload copies to their descriptors and
+validates complete CRC/partition/header/unique-identity proof before returning
+rows. A standalone build of the copied production decoder/spool modules passes
+16 cases, including malformed envelopes and a source changing between hash and
+copy. A second standalone probe of the prepared decoder/spool modules passes all
+17 cases (12.64s), adding duplicate rejection across a 128-row sort-run boundary;
+that fixture copies a full valid original LTX payload and recomputes the outer CRC.
+The manager integration remains uncompiled, and its memory, shutdown and fault
+gates remain unqualified. This prepared candidate is not published.
+
+The actual existing production uncovered-row helper then fails the new bundle
+memory gate at 190464000 bytes of RSS growth (about 182 MiB), against the fixed
+64 MiB budget. All 32 original LTX identities, lengths and SHA-256 digests verify
+before that assertion; the sampler, local owner and domain are joined too.
+Objects are prepared in the parent process, whose node lineage is persisted
+through the real lease CAS so the measured child resolves the same session.
+The first external harness build fails on missing imports and mismatched explicit
+Tokio linkage without running tests; it is not red evidence. Correct imports and
+dependency linkage pinned to the actual Cellar fingerprint produce the RSS
+failure above against the real helper, not a replacement decoder or map.
+The integrated disk-spool candidate must pass the same corpus checks and budget
+before a bundle bound is claimed. PR #69 has merged; the next publication must
+be one follow-up against updated main. GitHub reports identical root tree
+87a1cf2ba90343f8e89a375f65f9c676213a6ee0 for the qualified published parent bb7a91f
+and main's squash merge 51216ed3; changing the branch base does not change those
+source bytes.
 
 Both hosted SDK jobs for a83648f have
 no executed steps: GitHub annotations cite failed account payments or spending

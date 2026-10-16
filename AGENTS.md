@@ -1457,3 +1457,16 @@ waiting for actor cleanup. Its Ambiguous verdict never authorizes replay; the
 next independent call can resolve a replacement endpoint. Ready retries still
 await invalidation under their captured deadline. Keep the regression that polls
 the stopped future once, checks exactly one invalidation and no queued replay.
+
+The SQLite development object store reads metadata without materializing BLOBs.
+HEAD has no body; streamed and ranged reads use at most 128 KiB per incremental
+BLOB operation, checking the captured ETag and length in that operation's read
+transaction. A replacement refuses the stream rather than mixing versions.
+Body work belongs to the response's original execution domain even when another
+domain consumes it; closed admission and undelivered completion preserve typed
+DomainClosed, and shutdown joins entered SQLite I/O. No connection or transaction
+is held while a body is idle. Isolated HEAD/range/full-read RSS fixtures populate
+their 80 MiB object in a parent process and keep the fixed 16 MiB growth budgets.
+Reopening the BLOB for each chunk has a measured large-read throughput cost;
+these memory passes do not qualify throughput, eager copy/multipart operations,
+provider inventories or total retained-bundle recovery memory.
