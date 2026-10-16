@@ -1869,6 +1869,17 @@ impl LtxRepl {
         covered
     }
 
+    /// Historical-session GC must observe another writer's progress again
+    /// on each pass. Resident handles and cached zero/high watermarks describe
+    /// this process, and a maximum past an incomplete recovery hole cannot
+    /// retire the only remaining bundle. A failed listing preserves the data.
+    pub(crate) async fn observed_covered_txid(&self, cell: &str, epoch: u64) -> u64 {
+        if cellar_logic::epoch_gc::retired(epoch, self.retired_mark(cell).await) {
+            return u64::MAX;
+        }
+        self.contiguous_covered_txid(cell, epoch).await.unwrap_or(0)
+    }
+
     /// Remember that the bucket holds this cell epoch through `txid`.
     fn note_covered(&self, cell: &str, epoch: u64, txid: u64) {
         let mut covered = self.covered_by_cell.lock().unwrap();

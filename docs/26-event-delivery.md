@@ -273,6 +273,13 @@ Returning metadata must preserve the original lineage, generation, ensemble and
 acknowledgment history. Metadata rollback, independent-process and physical
 store-loss behavior remain separate release qualifications.
 
+A process generation change does not retire its acknowledged bundles. Historical
+bundle cleanup independently checks that per-cell storage covers every row, or
+that a persisted epoch-retirement certificate supersedes it. Startup lease
+observations and recovery checkpoints alone do not authorize deletion. Cleanup
+rechecks storage progress in bounded maintenance passes after recovery uploads;
+unavailable coverage preserves the proof.
+
 Start with the [executable walkthrough](../examples/durable-streams/README.md).
 Its smoke test checks publication, retry, preserving restart, inbox suppression
 and acknowledgment. Its process-fault harnesses retain independent ledgers and

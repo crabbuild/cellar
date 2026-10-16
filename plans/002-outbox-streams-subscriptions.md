@@ -1977,3 +1977,78 @@ output proofs, release and garbage collection preserve that identity boundary.
 Log sessions use node/lineage/process-generation so a fresh lineage cannot
 collect another lineage’s retained bundles or follower fragments. This is a
 version-1 development hard cutover with recreated state, not a migration.
+
+
+### Historical bundle collection
+
+A cached startup lease cannot authorize collecting other generations. A live
+writer can open its log and receive actual Bucket credit after a competing boot
+reads its no-log root. Recovery admission therefore performs no historical
+sweep. Maintenance in both Bucket and Fleet postures examines at most 512
+same-lineage objects per pass under a two-second deadline and resumes after
+skipped or unreadable objects. Each bundle row must have independently observed
+contiguous per-cell coverage, or a persisted epoch-retirement certificate.
+Validated content-addressed checkpoints remain hints and need the same coverage
+before deletion. Fresh listings on later passes observe uploads by a different
+recoverer; resident/process-local watermarks cannot certify them. Current-session
+objects, other lineages, loss diagnostics and unproven/corrupt objects remain.
+The native regression audits cold SQL recovery of original Bucket-proven writes
+before replay, then eventual collection after recovery. Full storage-fault and
+capacity qualification remain release requirements.
+
+
+### Cold followers with a selected successor
+
+A recovery fixture may restrict the permitted stream claimant through CAS-only
+faults while preserving the other nodes' read, follower and lease services.
+Those refusals do not submit a request on the permitted successor. If cold
+peers resolve their stream bindings before it receives any partition request,
+waiting for all startup futures before the first successor read creates a test
+dependency cycle. Start the peers and successor concurrently and issue the
+successor's signed read-only recovery audit inside its startup future. Keep the
+independent audit after startup, original activation deadlines, retained witness
+bytes and accepted-prefix checks before any business command or receipt replay.
+This fixture ordering does not change runtime recovery or admission semantics.
+
+### Root loss after a recovery claim
+
+A recovery root remains required between claim and final seal. A delayed real
+GET of a Recovering root cannot authorize a successor after the object is
+erased or replaced by another lineage. Qualification must observe the actual
+claimant and retain that exact response body/token, then mutate only the root.
+The in-flight gather may seal followers or publish safe per-cell copies before
+its final read refuses; those additions do not prove admission. Require the
+original cell owner, acknowledged follower batches and existing bucket objects
+to remain, with no fabricated root or replacement-lineage overwrite. After the
+failed startup joins, return its actual claimed metadata and recover/audit the
+original source obligation, stream clock/history, inbox and checkpoints before
+any receipt or business-command replay. This native cut does not substitute for
+foreign-owner recovery, metadata rollback or physical loss qualification.
+
+The follower-only fixture also waits for an actual blocked bucket upload under
+its original three-second operation budget. A Fleet proof may return before the
+independent upload task is polled; an immediate attempt counter was a scheduler
+assumption. Keep the exact bucket-prefix audit and original budget after observing
+the attempt. This observation neither creates proof nor changes production policy.
+
+Foreign recovery uses the same retained-root invariant through the routing
+interlock. Starting under a different node's own lease is legitimate; serving a
+cell whose predecessor proof is absent is not. Select a real foreign recovery
+claim, hold its actual root response and erase/replace that predecessor root.
+The routed read must receive an explicit refusal under its original budget,
+without replacing the old cell owner or losing retained payload/batch bytes.
+Join the failed recoverer before returning the actual claimed metadata, then
+audit original state before receipt replay. A startup-only test does not cover
+this boundary. This selected retry joins/restarts the foreign recoverer; it
+leaves same-process resumption, physical/process faults and other predecessor
+cut points separately qualified.
+
+Live foreign resumption keeps the actual Node after two explicit Unavailable
+reads while predecessor metadata is missing/replaced. Return the real claimed
+metadata only after both routed operations finish. The first fresh signed audit
+must recover the original state under its existing budget, without operator
+retry, a business command or an extra read attempt. Require the same host services,
+lease generation and persisted lineage, then retain the event/clock/history/
+source/inbox/checkpoint and receipt checks before normal delivery. Restarted
+recovery and live resumption are distinct availability cases; neither substitutes
+for the independent-process/physical failure matrix.

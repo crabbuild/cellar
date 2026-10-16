@@ -16,6 +16,7 @@ pub(super) struct RootReadCut {
     store: Arc<dyn ObjectStore>,
     key: String,
     skip: AtomicUsize,
+    claimant: Option<String>,
     captured: AtomicBool,
     bytes: Mutex<Option<Bytes>>,
     pub entered: Semaphore,
@@ -28,10 +29,24 @@ impl RootReadCut {
     }
 
     pub fn after_reads(store: Arc<dyn ObjectStore>, key: String, skip: usize) -> Arc<Self> {
+        Self::configured(store, key, skip, None)
+    }
+
+    pub fn after_claim(store: Arc<dyn ObjectStore>, key: String, claimant: String) -> Arc<Self> {
+        Self::configured(store, key, 0, Some(claimant))
+    }
+
+    fn configured(
+        store: Arc<dyn ObjectStore>,
+        key: String,
+        skip: usize,
+        claimant: Option<String>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             store,
             key,
             skip: AtomicUsize::new(skip),
+            claimant,
             captured: AtomicBool::new(false),
             bytes: Mutex::new(None),
             entered: Semaphore::new(0),
@@ -86,7 +101,7 @@ impl ObjectStore for RootReadCut {
                 left.checked_sub(1)
             })
             .is_ok()
-            || self.captured.swap(true, Ordering::AcqRel)
+            || self.captured.load(Ordering::Acquire)
         {
             return Ok(result);
         }
@@ -94,16 +109,26 @@ impl ObjectStore for RootReadCut {
         let range = result.range.clone();
         let attributes = result.attributes.clone();
         let bytes = result.bytes().await?;
-        *self.bytes.lock().unwrap() = Some(bytes.clone());
-        self.entered.add_permits(1);
-        self.release
-            .acquire()
-            .await
-            .map_err(|error| object_store::Error::Generic {
-                store: "root-read-cut",
-                source: Box::new(error),
-            })?
-            .forget();
+        let selected = self.claimant.as_ref().is_none_or(|claimant| {
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .ok()
+                .is_some_and(|root| {
+                    root["log"]["state"] == "recovering"
+                        && root["log"]["claimant"] == claimant.as_str()
+                })
+        });
+        if selected && !self.captured.swap(true, Ordering::AcqRel) {
+            *self.bytes.lock().unwrap() = Some(bytes.clone());
+            self.entered.add_permits(1);
+            self.release
+                .acquire()
+                .await
+                .map_err(|error| object_store::Error::Generic {
+                    store: "root-read-cut",
+                    source: Box::new(error),
+                })?
+                .forget();
+        }
         Ok(GetResult {
             payload: GetResultPayload::Stream(
                 futures_util::stream::once(async move { Ok(bytes) }).boxed(),

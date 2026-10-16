@@ -5,6 +5,9 @@ mod log_recovery;
 
 #[path = "support/log_bundle_fault.rs"]
 mod log_bundle_fault;
+
+#[path = "support/log_startup_gc.rs"]
+mod log_startup_gc;
 use anyhow::{ensure, Context as _, Result};
 use bytes::Bytes;
 use cellar::bucket::Bucket;
@@ -183,10 +186,25 @@ struct Pair {
 }
 
 async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> Result<Pair> {
+    pair_with_proof(shared, directory, id, policy, None, true).await
+}
+
+async fn pair_with_proof(
+    shared: &Path,
+    directory: &Path,
+    id: &str,
+    policy: LogOptions,
+    append_hold: Option<Arc<log_startup_gc::AppendHold>>,
+    recruit: bool,
+) -> Result<Pair> {
     let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
     let follower_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let leader = format!("leader-{id}");
-    let generation = format!("generation-{id}");
+    let generation = if append_hold.is_some() {
+        cellar::sdk::PeerProbeSigner::generate().public_key_hex()
+    } else {
+        format!("generation-{id}")
+    };
     let follower_node = format!("follower-{id}");
     let mut bucket = Bucket::open_dev(shared)?;
     bucket.prefix = format!("fleets/{id}/");
@@ -205,7 +223,11 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
             (*bucket).clone(),
             (*bucket).clone(),
             follower_node.clone(),
-            format!("follower-generation-{id}"),
+            if append_hold.is_some() {
+                cellar::sdk::PeerProbeSigner::generate().public_key_hex()
+            } else {
+                format!("follower-generation-{id}")
+            },
         )
         .with_lease_ttl_ms(TTL),
     );
@@ -240,7 +262,17 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
         format!("{}log/{session}/bundle/", bucket.prefix),
     );
     let mut log_bucket = (*bucket).clone();
-    log_bucket.store = bundle_fault.clone();
+    if append_hold.is_none() {
+        log_bucket.store = bundle_fault.clone();
+    }
+    let bucket_proof = append_hold.is_some();
+    let manager_transport: Arc<dyn LogTransport> = match append_hold {
+        Some(hold) => Arc::new(log_startup_gc::HeldTransport {
+            base: transport.clone(),
+            hold,
+        }),
+        None => transport.clone(),
+    };
     let (replica, log, owner) = domain
         .run(async {
             let store: Arc<dyn ObjectStore> = Arc::new(ThrottledStore::new(
@@ -260,7 +292,11 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
                     },
                 )?,
                 ReplicationOptions {
-                    flush_interval: Duration::from_secs(3600),
+                    flush_interval: if bucket_proof {
+                        Duration::from_millis(1)
+                    } else {
+                        Duration::from_secs(3600)
+                    },
                     compaction: None,
                     hydrate_bytes_per_second: 0,
                     ..Default::default()
@@ -277,13 +313,15 @@ async fn pair(shared: &Path, directory: &Path, id: &str, policy: LogOptions) -> 
                     write_lock: tokio::sync::Mutex::new(()),
                 }),
                 replica.ltx(),
-                transport.clone(),
+                manager_transport,
                 policy,
             )?);
             log.recover_self().await?;
             let owner = DurabilityOwner::new(log.clone(), true);
-            log.maintain().await?;
-            ensure!(log.healthy() && log.ensemble_width() == 1);
+            if recruit {
+                log.maintain().await?;
+                ensure!(log.healthy() && log.ensemble_width() == 1);
+            }
             Ok::<_, anyhow::Error>((replica, log, owner))
         })
         .await??;

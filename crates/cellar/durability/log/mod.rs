@@ -3821,6 +3821,8 @@ pub struct NodeLogManager {
     /// Resume after examined bundles, including those not yet covered.
     /// Serialize passes so overlapping callers cannot move the cursor back.
     bundle_gc_cursor: tokio::sync::Mutex<Option<String>>,
+    /// Historical sessions share a bounded, independently covered sweep.
+    other_generation_gc_cursor: tokio::sync::Mutex<Option<String>>,
     /// Sessions whose bundle subtree one sweep pass confirmed empty:
     /// a permanent tombstone (dead-lease GC never deletes a folded
     /// record) must not cost a bundle LIST on every sweep tick forever
@@ -4398,6 +4400,7 @@ impl NodeLogManager {
             bundle_seq: std::sync::atomic::AtomicU64::new(0),
             bundle_index: Mutex::new(BundleIndex::default()),
             bundle_gc_cursor: tokio::sync::Mutex::new(None),
+            other_generation_gc_cursor: tokio::sync::Mutex::new(None),
             bundle_cache: tokio::sync::Mutex::new(None),
             health: Arc::new(Mutex::new(
                 cellar_logic::log_evict::FollowerHealth::default(),
@@ -4474,59 +4477,10 @@ impl NodeLogManager {
                 self.recover_as(&session, RecoverMode::Boot).await?;
             }
         }
-        // The install about to follow erases the record's only pointer to
-        // the predecessor generation, and no GC path can rediscover a
-        // sealed subtree with no pointer: the boot is
-        // the one moment that knows every stale generation, so it sweeps
-        // them here. Non-fatal — the leak is storage cost, not safety,
-        // and the next restart retries.
-        if let Err(error) = self.gc_stale_generation_bundles().await {
-            warn!(%error, "stale-generation bundle GC failed; retried at the next restart");
-        }
+        // A root read cannot authorize deleting other generations: its
+        // no-log or sealed snapshot can race a writer opening a new log.
+        // Historical GC independently proves per-cell coverage in maintenance.
         self.predecessors_clean.store(true, Ordering::SeqCst);
-        Ok(())
-    }
-
-    /// Delete every bundle and recovery checkpoint under this node from a
-    /// generation other than the running session's. Recovery-before-
-    /// install has already sealed the predecessor by the time this runs,
-    /// and a sealed session's bundles are garbage (recovery folded every
-    /// acked row per-cell first). Its recovery checkpoints are obsolete too.
-    /// Loss declarations and all other keys stay untouched.
-    async fn gc_stale_generation_bundles(&self) -> anyhow::Result<()> {
-        let prefix = format!("log/{}/{}/", self.node, self.lineage);
-        let mut stale: Vec<String> = Vec::new();
-        for meta in self.bucket.list(&prefix).await? {
-            let key = meta.location.as_ref().to_string();
-            let Some(rest) = key.strip_prefix(&prefix) else {
-                continue;
-            };
-            let Some((generation, tail)) = rest.split_once('/') else {
-                continue;
-            };
-            if !tail.starts_with("bundle/") && !tail.starts_with("recovered/") {
-                continue;
-            }
-            if format!("{}/{}/{generation}", self.node, self.lineage) == self.session {
-                continue;
-            }
-            stale.push(key);
-        }
-        if stale.is_empty() {
-            return Ok(());
-        }
-        let count = stale.len();
-        let gone = self.bucket.delete_many(&stale).await;
-        if gone.len() != count {
-            anyhow::bail!(
-                "{} of {count} stale-generation recovery objects survived the delete",
-                count - gone.len()
-            );
-        }
-        info!(
-            objects = count,
-            "stale predecessor generations' recovery objects retired"
-        );
         Ok(())
     }
 
@@ -6231,6 +6185,100 @@ impl NodeLogManager {
         Ok(())
     }
 
+    /// Collect other generations only after independent, current storage
+    /// coverage proves every row safe. A cached root observation, recovery
+    /// checkpoint or generation mismatch is never deletion authority.
+    /// Runs in both Bucket and Fleet postures, outside startup admission.
+    pub async fn gc_other_generations(&self) -> anyhow::Result<()> {
+        crate::asyncrt::timeout(std::time::Duration::from_secs(2), async {
+            let mut cursor = self.other_generation_gc_cursor.lock().await;
+            let prefix = format!("log/{}/{}/", self.node, self.lineage);
+            let page = self
+                .bucket
+                .list_page(
+                    &prefix,
+                    cursor.as_deref(),
+                    BUNDLE_GC_EXAMINED_PER_TICK,
+                    None,
+                )
+                .await?;
+            let mut covered = HashMap::new();
+            let mut deletable = Vec::new();
+            for meta in page.objects {
+                let key = meta.key;
+                // Advance even on skipped, corrupt or unavailable objects.
+                // Cancellation keeps this progress and the next pass wraps.
+                *cursor = Some(key.clone());
+                let Some(rest) = key.strip_prefix(&prefix) else {
+                    continue;
+                };
+                let Some((generation, tail)) = rest.split_once('/') else {
+                    continue;
+                };
+                if format!("{}/{}/{generation}", self.node, self.lineage) == self.session {
+                    continue;
+                }
+                let bundle = tail.starts_with("bundle/");
+                if !bundle && !tail.starts_with("recovered/") {
+                    continue;
+                }
+                let Ok(Some((bytes, _))) = self.bucket.get(&key).await else {
+                    continue;
+                };
+                let cells = if bundle {
+                    let Ok(rows) = cellar_ltx::bundle::decode_rows(&bytes) else {
+                        continue;
+                    };
+                    rows.into_iter()
+                        .map(|row| recovery_progress::CoveredCell {
+                            cell: row.cell,
+                            epoch: row.cell_epoch,
+                            through: row.txid,
+                        })
+                        .collect()
+                } else {
+                    let Ok(cells) = recovery_progress::decode_checkpoint(&key, &bytes) else {
+                        continue;
+                    };
+                    cells
+                };
+                let mut safe = true;
+                for cell in cells {
+                    let identity = (cell.cell.clone(), cell.epoch);
+                    let watermark = match covered.get(&identity) {
+                        Some(through) => *through,
+                        None => {
+                            let through =
+                                self.ltx.observed_covered_txid(&cell.cell, cell.epoch).await;
+                            covered.insert(identity, through);
+                            through
+                        }
+                    };
+                    if !log_tier::bundle_deletable([(cell.through, watermark)]) {
+                        safe = false;
+                        break;
+                    }
+                }
+                if safe {
+                    deletable.push(key);
+                }
+            }
+            if !page.truncated {
+                *cursor = None;
+            }
+            if !deletable.is_empty() {
+                let gone = self.bucket.delete_many(&deletable).await;
+                info!(
+                    objects = gone.len(),
+                    "covered historical recovery objects retired"
+                );
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("historical generation GC timed out")?
+    }
+
     pub async fn gc_bundles(&self) -> anyhow::Result<()> {
         // Bound both the listing and the work. Restarting at the prefix
         // every tick starved newer, covered bundles behind an undrained
@@ -6494,12 +6542,16 @@ fn spawn_maintenance(
             // archaeology session. The pass still runs to completion —
             // this observes, it does not cancel: an aborted maintenance
             // phase could orphan a half-installed ensemble.
-            let mut phases = Vec::with_capacity(4);
+            let mut phases = Vec::with_capacity(5);
             if fleet {
                 phases.push(("maintain", manager.maintain().boxed()));
                 phases.push(("dead-leader sweep", manager.sweep_dead_leaders().boxed()));
                 phases.push(("bundle GC", manager.gc_bundles().boxed()));
             }
+            phases.push((
+                "historical generation GC",
+                manager.gc_other_generations().boxed(),
+            ));
             phases.push(("epoch GC", manager.gc_superseded_epochs().boxed()));
             for (phase, work) in phases {
                 let started = mono_ms();
