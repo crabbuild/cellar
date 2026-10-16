@@ -113,6 +113,22 @@ Returning real witness service must recover on the same PID/generation's first
 fresh read. Never treat a generic application 500 or timeout as that verdict.
 Reinspect all archives through copies and join every node/gate/private store.
 Do not turn these retained-disk/client-service cuts into physical-loss claims.
+Follower append acknowledgments require both the committed batch barrier and an
+independent state.json base/end barrier. Batch-only end recovery cannot detect
+deletion of a previously acknowledged suffix. Cold load checks contiguous batch
+coverage of that retained end; missing coverage refuses duplicate/probe append
+credit as well as a complete seal certificate. Do not replace that obligation
+with a maximum over remaining files or advance the cache before state persistence.
+log_follower_loss.rs covers all/last missing batches, a corrupt last batch,
+duplicate/probe refusal and exact original-byte return preserving the seal floor.
+consumer_recovery.py --restart-followers --witness-data missing|corrupt removes
+or damages real batches only after every original PID joins. Require two explicit
+Unavailable results and actual incomplete seal replies, including after a loss
+diagnostic exists. Join both damaged peers before restoring only original batch
+bytes; never roll back state.json. Propagate proxy frontend EOF at the actual
+upstream join, then cold-reload fresh peer generations with the same recoverer.
+Audit original inbox/effects before replay. Recreate older development state;
+all markers remain 1. Added state barriers require fresh capacity measurement.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained

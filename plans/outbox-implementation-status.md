@@ -1,6 +1,6 @@
 # Outbox implementation status
 
-Updated 2026-10-15. The goal remains the entire
+Updated 2026-10-16. The goal remains the entire
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
 The feature is under implementation and is not ready for normal deployment or
 release. The consolidated event-delivery work merged in PR #46; PRs #47–#62
@@ -23,6 +23,49 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The current missing-consumer-batch investigation reproduced a real safety bug
+twice: deleting every committed witness batch left an old state.json with end
+zero, and recovery certified an empty witness and sealed the predecessor. An
+independent joined-image audit confirms the successor retained only one of two
+proven inbox receipts/effects; no processing replay preceded that measurement. Three
+native cases also reproduced loss of the acknowledged end after all/last batch
+deletion or last-batch corruption. The fix persists an independent base/end
+barrier before append success, preserves it on cold load, and refuses duplicate/
+probe credit when its acknowledged range is missing. The duplicate-credit guard
+has its own failing-before regression. Prior unchanged-core results below are
+historical evidence; the fresh qualification of this fix is recorded here.
+All four final missing/corrupt process cases pass:
+SQLite missing/corrupt in 22.40s/22.98s and pinned RustFS S3 in 30.10s/29.33s.
+Two typed refusals per case arrive in 9046–9218ms under the unchanged 10s budget,
+with actual incomplete seal replies and repeated scans after the loss diagnostic.
+The same live recoverer restores the original prefix; rollback-only inbox probes
+are `[false, false]`, and joined old/recovered images each retain both digests.
+Both damaged peers join before original batches return with their seal state
+preserved. Proxy EOF propagation at those joins avoids a stale frontend socket;
+the final recovery/inbox reads use no client retry. All four prior warm/cold
+consumer cases and all 153 Python guards also pass. Actual Docker inventory
+confirms all four owned stores removed. The same two pre-existing unclosed-SQLite
+ResourceWarnings remain in the Python guards.
+
+Fresh qualification holds all 522 Rust and 63 Python files fixed. The saved
+runtime SHA256 is a02cffe730ab95ea3e601ae69308b06f88ba49a4a80047ff34409056897c6038.
+The full all-feature workspace suite passes 630 tests across 108 targets in
+1015.26s, including all 77 Node cases and all 12 native log cases. Doc-tests pass
+11 with one existing ignored example (94.41s). Workspace all-target/all-feature
+checking (152.88s), Clippy with warnings denied (204.42s), formatting (522 files),
+docs, dependency policy and whitespace checks pass. The development-host case
+finishes in 288.66s under its existing deadlines; passing startup cases still do
+not establish the causes of older intermittents. PR #67 merged during this run
+as 0f96868 with the identical tested base tree. The next PR starts from updated
+main; no stack is created.
+
+The next selected proof gap is corruption/loss of follower state metadata,
+separate from these retained-metadata batch cuts. Keep the startup/shutdown
+intermittents, remaining physical failure matrix, retention/lifecycle races and
+operational implementation gaps open. This slice does not complete the goal.
+Added state barriers require fresh performance/capacity measurement. All markers
+remain 1; earlier development state must be recreated.
 
 The current slice adds consumer-specific follower-only recovery qualification.
 After a seeded effect, actual consumer replica publication is refused while the

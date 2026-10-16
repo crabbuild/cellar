@@ -1876,6 +1876,30 @@ witness archives, exact inbox digests/saved receipt hashes and complete process/
 proxy/store joins are required. These cuts retain their disks; lost/corrupt
 witnesses, physical loss and the rest of the release matrix remain separate.
 
+The additional `--witness-data missing|corrupt` cold mode damages the actual
+committed consumer batches on every original witness after process loss and
+archive custody. State metadata stays intact. Require two explicit framework
+refusals, actual incomplete seal responses, a durable loss diagnostic, unchanged
+owner/recovering log and no selected bucket repair. The second refusal must
+repeat the real witness scan rather than treating a cached diagnostic as proof.
+Drain/join both damaged peers, propagate upstream EOF through their proxies,
+then return only original batch bytes while preserving the persisted seal floor.
+Fresh peer generations and the same live successor must recover the original
+inbox/effect/receipt prefix before replay. Independently reinspect all archives.
+This is retained-metadata batch-loss qualification, not arbitrary metadata loss
+or physical host/power/store loss.
+
+Follower acknowledgments must persist an independent base/end state after the
+batch barrier and before returning success. Deriving the end only from surviving
+batches can certify an acknowledged lost suffix as a complete shorter witness.
+Cold load must check contiguous coverage of the retained end and refuse duplicate
+and probe append credit when those bytes are missing. The native
+`log_follower_loss.rs` cases cover all/last missing batches, a corrupt last batch
+and original-byte return without state rollback. Duplicate/probe responses also
+need the state barrier when a cold scan recovered an earlier unacknowledged batch.
+The additional fsyncs need fresh throughput/headroom measurement. All markers
+stay 1; recreate earlier development state instead of adding a legacy reader.
+
 Destination ack/fetch process drivers also support combining `--follower-only`
 with `--restart-followers`. Require SIGKILL of every original process, immutable
 archives of the original destination ensemble's committed CLB1/CLE1 batches and

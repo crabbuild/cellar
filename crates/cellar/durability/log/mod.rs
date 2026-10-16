@@ -1187,9 +1187,37 @@ struct DiskRecoveryGap {
 struct LoadedFollowerState {
     state: FollowerState,
     disk_recovery_gap: Option<DiskRecoveryGap>,
+    acknowledged_range_missing: bool,
 }
 
 impl CommittedBatchScan {
+    fn covers_acknowledged_range(&self, state: FollowerState) -> bool {
+        let mut covered = state.base;
+        for batch in self
+            .batches
+            .iter()
+            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
+        {
+            if covered >= state.end {
+                break;
+            }
+            let first = batch
+                .entries
+                .first()
+                .expect("committed batches are nonempty")
+                .seq;
+            let last = batch.state.end;
+            if last <= covered {
+                continue;
+            }
+            if first > covered.saturating_add(1) {
+                return false;
+            }
+            covered = last;
+        }
+        covered >= state.end
+    }
+
     fn recovery_gap(&self, state: FollowerState) -> Option<DiskRecoveryGap> {
         if state.fragment_epoch == 0 {
             return None;
@@ -1674,6 +1702,7 @@ impl FollowerStore {
             LoadedFollowerState {
                 state,
                 disk_recovery_gap: batch_scan.recovery_gap(state),
+                acknowledged_range_missing: !batch_scan.covers_acknowledged_range(state),
             },
         );
         Ok(state)
@@ -1687,11 +1716,17 @@ impl FollowerStore {
                 && !matches!(gap.suspect_end, SuspectEnd::Known(end) if state.end >= end))
             .then_some(gap)
         });
+        let acknowledged_range_missing = logs.get(leader).is_some_and(|loaded| {
+            loaded.acknowledged_range_missing
+                && loaded.state.fragment_epoch == state.fragment_epoch
+                && state.base < loaded.state.end
+        });
         logs.insert(
             leader.to_string(),
             LoadedFollowerState {
                 state,
                 disk_recovery_gap,
+                acknowledged_range_missing,
             },
         );
     }
@@ -1888,6 +1923,19 @@ impl FollowerStore {
                 Err(_) => return refusals(frames.len(), state),
             };
         }
+        if self
+            .logs
+            .lock()
+            .unwrap()
+            .get(&leader)
+            .is_some_and(|loaded| loaded.acknowledged_range_missing)
+        {
+            // An end marker requires retained bytes; it is not proof that they
+            // remain readable. Neither duplicates nor probes may re-credit a
+            // damaged witness. Cold valid bytes, a genuinely covered base or
+            // adoption of a new epoch must establish its range again.
+            return refusals(frames.len(), state);
+        }
         // The shipping decision is cellar_logic::log_tier::FollowerLog; drive
         // it entry by entry so the seal and contiguity refusals are exactly
         // the modeled ones.
@@ -1903,10 +1951,11 @@ impl FollowerStore {
         }
         // The accepted prefix of every frame in the burst persists as ONE
         // checksum-protected commit file. It carries the entries and their
-        // resulting follower state, so one file fsync plus the directory
-        // barrier makes the whole transition recoverable — per burst, not
-        // per frame. A crash-torn direct write has no valid digest and is
-        // ignored; a later state-file rewrite is not on the hot append path.
+        // resulting follower state. The state file must independently retain
+        // the acknowledged end before answering: if a committed batch later
+        // disappears, scanning only the remaining batches could certify a
+        // shorter (or empty) fragment as complete. Both barriers are per burst,
+        // not per frame. A torn batch has no valid digest and is ignored.
         let persist_started = mono_ms();
         let mut entry_write_us = 0_u64;
         let mut entry_fsync_us = 0_u64;
@@ -2030,19 +2079,18 @@ impl FollowerStore {
         let state_started = mono_ms();
         let state_persist = if !commit_ok {
             Err(anyhow!("the follower batch did not reach its commit point"))
-        } else if !accepted.is_empty() {
-            self.cache_state(&leader, new_state);
-            // Reclaim committed ranges only after the new base is durable.
-            // The deletion is best-effort and needs no second directory sync:
-            // a crash can retain covered files, which `tail` already hides.
-            let _ = self.remove_entries_below(&leader, new_state.base);
-            Ok(FollowerPersistTiming::default())
-        } else if new_state != state {
-            // A duplicate append can still advance only the bucket watermark.
-            // With no new batch to carry it, retain the ordinary state chain.
-            self.persist_timed(&leader, new_state)
         } else {
-            Ok(FollowerPersistTiming::default())
+            // Also persist duplicate/probe responses: a cold load may have
+            // recovered a batch whose previous state commit was never acked.
+            // Returning its end without this barrier would reopen the same
+            // missing-batch hole. Cache advancement occurs only after persist.
+            let persisted = self.persist_timed(&leader, new_state);
+            if persisted.is_ok() && (!accepted.is_empty() || new_state.base > state.base) {
+                // Reclaim only after the independent base/end is durable.
+                // Best-effort deletion may retain already-covered files.
+                let _ = self.remove_entries_below(&leader, new_state.base);
+            }
+            persisted
         };
         let state_ok = state_persist.is_ok();
         let state_timing = state_persist.unwrap_or_default();

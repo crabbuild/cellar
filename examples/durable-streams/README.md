@@ -652,9 +652,26 @@ python3 examples/durable-streams/consumer_recovery.py \
 Add a pinned `--rustfs-image` for a private S3 bucket. Saved evidence independently
 rechecks original/recovered SQLite/WAL and cold witness archives, exact commands,
 fresh process generations and complete node/proxy/store joins. This covers
-retained follower disks and transient witness-service unavailability. Lost or
-corrupt witness disks, physical host/power/store loss and the complete failure
-matrix remain separate gates. A generic application GET may wrap a nested
+retained follower disks and transient witness-service unavailability.
+
+Add `--witness-data missing` or `--witness-data corrupt` together with
+`--restart-followers` to remove every committed consumer batch or flip a checksum
+byte in each batch on all original witnesses. All original processes are already
+killed, and exact valid archives remain separate. State/ownership metadata stays
+intact. Real witness services return incomplete seal certificates; two framework
+reads must return explicit `Unavailable`, with unchanged consumer ownership,
+an unsealed recovering log and no new selected bucket coverage. The second read
+must actually contact the witnesses despite the existing loss diagnostic.
+
+Both damaged peer processes must drain and join before original batch bytes
+return. Their persisted seal state is preserved. The proxies propagate the
+stopped upstreams' EOF before fresh peer generations start. The same successor's
+first fresh recovery audit must expose both original effects and the saved
+receipt, followed by two false inbox acceptances before any processing replay.
+Offline audits inspect original, damaged and returned witness archives as well
+as both consumer images. This covers batch loss/corruption with retained state,
+not arbitrary metadata loss, physical host/power/store loss or the complete
+failure matrix. A generic application GET may wrap a nested
 routing failure as HTTP 500; that response does not qualify the explicit refusal
 check, which uses the existing authenticated framework event route.
 

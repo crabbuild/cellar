@@ -1,5 +1,6 @@
 """The private fault refuses only the selected seal; it never supplies proof."""
 import http.server
+import http.client
 import json
 import threading
 import unittest
@@ -13,6 +14,7 @@ class WitnessGateTests(unittest.TestCase):
     def setUp(self):
         self.requests=[];requests=self.requests
         class Handler(http.server.BaseHTTPRequestHandler):
+            protocol_version="HTTP/1.1"
             def log_message(self,*args):pass
             def do_POST(self):
                 body=self.rfile.read(int(self.headers["Content-Length"]))
@@ -46,6 +48,19 @@ class WitnessGateTests(unittest.TestCase):
             status,response,body=self.request(path,leader,epoch)
             self.assertEqual((status,response),(200,body));self.assertEqual(self.requests[-1],(path,body,"unchanged"))
         self.assertEqual(self.gate.observations(),[])
+
+    def test_joined_upstream_restart_propagates_frontend_eof(self):
+        self.gate.release()
+        connection=http.client.HTTPConnection(*self.gate.address,timeout=5)
+        body=json.dumps(dict(leader=self.gate.leader,epoch=7)).encode()
+        try:
+            connection.request("POST","/peer/log/seal",body)
+            response=connection.getresponse();self.assertEqual(response.read(),body)
+            self.assertGreaterEqual(self.gate.disconnect(),1)
+            self.assertEqual(connection.sock.recv(1),b"")
+            status,reply,sent=self.request("/peer/log/seal")
+            self.assertEqual((status,reply),(200,sent))
+        finally:connection.close()
 
 
 if __name__=="__main__":unittest.main()
