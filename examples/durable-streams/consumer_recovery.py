@@ -17,7 +17,7 @@ from consumer_owner_audit import FETCH_ID
 from consumer_recovery_audit import PEERS, audit_evidence, inspect_consumer
 from consumer_witness_gate import WitnessGate
 from consumer_witness_data import damage, restore
-from faults import Ledger, eventually, read, require
+from faults import Ledger, cleanup_all, eventually, read, require
 from fleet_faults import FleetProcess, NetworkStore, free_address
 from follower_faults import inspect_follower_disk, log_lineage, replica_inventory
 from live_owner import marker
@@ -75,7 +75,7 @@ def framework_read(root,store,scope):
     return urllib.request.urlopen(urllib.request.Request("http://"+address+path,data=body,headers=headers,method="POST"),timeout=15)
 
 
-def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=None):
+def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=None,trace=False):
     require(os.name=="posix","consumer proof qualification requires SIGKILL")
     require(witness_data is None or restart_followers,"witness data loss requires cold peers")
     root.mkdir(parents=True,exist_ok=False);ledger=Ledger(root)
@@ -85,7 +85,7 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
         if store:store.start()
         for name in ("destination","producer","consumer"):
             address=free_address();process=FleetProcess(binary,root,name,name,address,address,name=="destination",store,
-                fleet_durability=name=="consumer",replica_fault=name=="consumer",node_lease_ms=1000,stream_rows=2)
+                fleet_durability=name=="consumer",replica_fault=name=="consumer",node_lease_ms=1000,stream_rows=2,fixture_trace=trace)
             processes.append(process);origins[name]=process.ready()
             if name=="destination":require(read(origins[name],"/__test/events")["records"]==[],"nonempty fixture stream")
         ledger.record("consumer_recovery_started",pids={p.node:p.child.pid for p in processes},proof_mode="fleet",peer_proof="bucket",replica_fault_node="consumer",node_lease_ms=1000,restart_followers=restart_followers,witness_data=witness_data)
@@ -140,10 +140,10 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
                 require(files==((changed if witness_data else {node:data["files"] for node,data in retained.items()}).get(name,[])),"consumer witness files changed before restart")
                 address=free_address();gate=WitnessGate(address,f"consumer/{log_lineage(proof)}/{proof['generation']}",proof["log"]["epoch"]);gates[name]=gate
                 if witness_data:gate.release()
-                process=FleetProcess(binary,root,name,name+"-cold",address,gate.address,name=="destination",store,fleet_durability=False,node_lease_ms=1000,stream_rows=2)
+                process=FleetProcess(binary,root,name,name+"-cold",address,gate.address,name=="destination",store,fleet_durability=False,node_lease_ms=1000,stream_rows=2,fixture_trace=trace)
                 processes.append(process);replacements[name]=process
                 ledger.record("consumer_witness_started",node=name,pid=process.child.pid,lease=lease,observed_ms=observed,files=files)
-        address=free_address();successor=FleetProcess(binary,root,"successor","successor",address,address,False,store,fleet_durability=False,node_lease_ms=1000,stream_rows=2)
+        address=free_address();successor=FleetProcess(binary,root,"successor","successor",address,address,False,store,fleet_durability=False,node_lease_ms=1000,stream_rows=2,fixture_trace=trace)
         processes.append(successor);ledger.record("consumer_successor_started",pid=successor.child.pid)
         # All replacements run before any readiness wait. Recovery can require
         # peer log service while those peers are resolving their own bindings.
@@ -159,9 +159,18 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
                         raise AssertionError(f"consumer recovered without a complete witness: {response.status}")
                 except urllib.error.HTTPError as error:
                     body=error.read(4097)
-                    (root/f"witness-refusal-{attempt+1}.json").write_text(json.dumps(dict(status=error.code,body=body.decode(errors="replace"))))
-                    require(len(body)<=4096 and error.code==503 and b"Unavailable: event RPC did not return a proven result" in body,"consumer refusal was not explicit Unavailable")
                     elapsed=int((time.monotonic()-began)*1000)
+                    explicit=len(body)<=4096 and error.code==503 and b"Unavailable: event RPC did not return a proven result" in body
+                    observation=dict(status=error.code,body=body.decode(errors="replace"),elapsed_ms=elapsed,observed_ms=time.time_ns()//1000000)
+                    saved=root/f"witness-refusal-{attempt+1}.json"
+                    saved.write_text(json.dumps(observation,indent=2))
+                    if not explicit:
+                        # Diagnostic only: retain the failed verdict before
+                        # cleanup changes leases or closes the peer sockets.
+                        try:observation.update(pid=successor.child.pid,exit_code=successor.child.poll(),successor_lease=store_json(root,store,"nodes/successor.json"),owner=authority(root,store,scope),gates={node:gate.observations() for node,gate in gates.items()})
+                        except Exception as diagnostic:observation["diagnostic_error"]=type(diagnostic).__name__
+                        saved.write_text(json.dumps(observation,indent=2))
+                    require(explicit,"consumer refusal was not explicit Unavailable")
                     require(elapsed<10000,"request timeout cannot qualify witness refusal")
                     diagnostic=store_json(root,store,f"log/consumer/{log_lineage(proof)}/{proof['generation']}.e{proof['log']['epoch']}.loss.json") if witness_data and not witness_data.startswith("state-") else None
                     ledger.record("consumer_witness_refused",attempt=attempt+1,status=error.code,body=body.decode(),elapsed_ms=elapsed,owner=authority(root,store,scope),lease=store_json(root,store,"nodes/consumer.json"),objects=replica_inventory(root,store),gates={node:gate.observations() for node,gate in gates.items()},diagnostic=diagnostic)
@@ -182,7 +191,7 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
                 for name in sorted(PEERS):
                     old=stopped_leases[name];observed=eventually(lambda:time.time_ns()//1000000,lambda now:now>old["expires_ms"])
                     address=gates[name].target
-                    process=FleetProcess(binary,root,name,name+"-returned",address,gates[name].address,name=="destination",store,fleet_durability=False,node_lease_ms=1000,stream_rows=2)
+                    process=FleetProcess(binary,root,name,name+"-returned",address,gates[name].address,name=="destination",store,fleet_durability=False,node_lease_ms=1000,stream_rows=2,fixture_trace=trace)
                     processes.append(process);replacements[name]=process
                     ledger.record("consumer_returned_witness_started",node=name,pid=process.child.pid,observed_ms=observed,lease=old,files=inventory(follower_directory(root,name,proof)) if name in retained else [])
                 for name,process in replacements.items():
@@ -205,13 +214,13 @@ def exercise(binary,root,rustfs_image=None,restart_followers=False,witness_data=
         summary=dict(audit_evidence(ledger.path),status="passed",binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),output=str(root),scope="consumer fleet-only effect/inbox proof; SIGKILL and local disk removal; original prefix audit before fetch/ack replay")
         (root/"summary.json").write_text(json.dumps(summary,indent=2)+"\n");print(json.dumps(summary),flush=True)
     finally:
-        for gate in gates.values():gate.release()
-        for process in reversed(processes):process.stop()
+        actions=[("release witness gate "+node,gate.release) for node,gate in gates.items()]
+        actions.extend(("node "+process.node,process.stop) for process in reversed(processes))
         # Successful gates are already closed; close only live servers on error.
-        for gate in gates.values():
-            if gate.thread.is_alive():gate.close()
-        if store:store.close()
-        ledger.close()
+        actions.extend(("witness gate "+node,gate.close) for node,gate in gates.items() if gate.thread.is_alive())
+        if store:actions.append(("private store",store.close))
+        actions.append(("ledger",ledger.close))
+        cleanup_all(actions)
 
 
 if __name__=="__main__":
@@ -219,6 +228,7 @@ if __name__=="__main__":
     target.add_argument("--binary",type=Path);target.add_argument("--audit",type=Path)
     parser.add_argument("--output",type=Path);parser.add_argument("--rustfs-image");parser.add_argument("--restart-followers",action="store_true")
     parser.add_argument("--witness-data",choices=("missing","corrupt","oversize","state-missing","state-corrupt","state-oversize"))
+    parser.add_argument("--trace",action="store_true",help="Capture selected lease/recovery diagnostics in the isolated fixture")
     args=parser.parse_args()
     if args.audit:print(json.dumps(audit_evidence(args.audit.resolve())),flush=True)
-    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-consumer-recovery-parent-"))/"evidence").resolve(),args.rustfs_image,args.restart_followers,args.witness_data)
+    else:exercise(args.binary.resolve(),(args.output or Path(tempfile.mkdtemp(prefix="cellar-consumer-recovery-parent-"))/"evidence").resolve(),args.rustfs_image,args.restart_followers,args.witness_data,args.trace)

@@ -229,7 +229,7 @@ pub use cellar_logic::event_stream::Limits as EventLimits;
 pub use cellar_logic::queue::Limits as QueueLimits;
 pub use cellar_ltx::TimestampMetadataKey as ReplicaTimestampMetadataKey;
 pub use cellar_ltx::{
-    DirectFileSystem, FileSystem, HostDirEntry, HostFile, HostFileIo, HostMetadata,
+    DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo, HostMetadata,
 };
 pub use cellar_native as primitives;
 pub use cellar_native::{clone, compression, crypto, encoding, json, rpc, web};

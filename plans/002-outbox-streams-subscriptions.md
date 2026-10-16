@@ -1542,8 +1542,10 @@ for internal work reasons and event-stream ownership.
 Cellar is in internal development and has no backward compatibility contract.
 All Cellar-owned protocol, format and schema markers remain at version 1,
 including peer, native host, ranged log tail, bucket/wake, catalog, stream,
-outbox and inbox. Ranged tails use tail_format 1 / CLT1 and require their current
-range fields. Follower discovery and native access require node/lineage/generation
+outbox and inbox. Tail request frames require tail_format 1. CTS1 stream manifests
+bind their full original range; CTP1 carries preparation progress without proof.
+CLT1 is a buffered diagnostic/fixture codec, never a peer-network fallback.
+Follower discovery and native access require node/lineage/generation
 identities and checksum-protected committed batches; former flat or individual-
 entry layouts are not compatibility inputs.
 `event-delivery-v1` names the current feature. Breaking layout changes use a hard
@@ -1937,6 +1939,39 @@ extensions with bounded archive reads. All owned markers stay 1; rebuild every
 participant and recreate older development state containing larger batches.
 Individual batch bounds do not qualify total tail memory, metadata exhaustion,
 recovery headroom or the remaining physical/capacity gates.
+
+Gathered recovery rows use derived anonymous disk scratch on the node data root,
+through the replica's captured filesystem. Spill payloads immediately and sort
+bounded variable-key metadata runs; do not retain a run inventory in memory.
+Verify exact run sizes/counts, metadata checksums, original descriptor identity
+tags stored beside payloads and selected payload digests. A valid copied index
+record cannot substitute a different original row. Check full descriptor order
+and identity before key deduplication or batch-budget decisions, including ignored
+duplicates and next-batch lookahead; detecting a copied descriptor after coverage
+advanced can already hide a lost transaction on retry. Preserve duplicate precedence and numeric per-cell epoch/TXID order, merging the
+final bundle window with follower rows before advancing any coverage watermark.
+Bound upload count and accounted bytes while allowing one legal oversized row.
+Scratch failure cannot authorize sealing. Blocking I/O remains owned/joined and
+must permit claim heartbeats and cooperative cancellation. This gather boundary
+does not bound whole-tail replies, HTTP collection, large bundle bodies, live-fold
+bundle helpers or provider/progress inventories; qualify those paths separately.
+
+Production tail transfer stages an immutable anonymous snapshot under the
+follower's per-leader guard, then releases that guard before networking. Bound
+active snapshots/transfers per follower and frame payloads independently of the
+maximum legal entry size. The format-1 manifest binds the requested leader digest,
+fragment epoch, original base/end, completeness, u64 counts/bytes and whole-body
+SHA-256. Each receiver stages its peer independently and verifies all sequence
+coverage, identity, counts, digest, explicit completion and EOF before counting a
+witness. A later reread/merge failure aborts the entire gather; partial rows cannot
+escape into another peer's successful proof. Reconnects restart verification of
+the full required range, never splice a shorter successor into the old proof.
+Preparation progress reflects actual completed filesystem work, not an idle timer.
+Monitor client EOF and cancellation while preparing, continue claim heartbeats,
+and join entered blocking work before releasing domain/directory custody. Network
+idle/upgrade deadlines do not impose a total retained-history cutoff. Preserve
+recovery-startup access to the same authenticated route before lease installation.
+All participants rebuild together; no buffered network fallback is supported.
 
 The independent follower state barrier also requires integrity and identity.
 Persist a strict JSON record with `format: 1`, the canonical leader session,

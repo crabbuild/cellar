@@ -30,6 +30,8 @@ utoipa-axum = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
 fastwebsockets.workspace = true
 object_store.workspace = true
 async-trait.workspace = true

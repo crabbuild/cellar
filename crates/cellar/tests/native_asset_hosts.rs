@@ -103,6 +103,22 @@ impl HostFileIo for File {
 }
 
 impl FileSystem for Filesystem {
+    fn read_dir_iter(&self, p: &Path) -> io::Result<cellar::sdk::HostDirIterator> {
+        self.0.record(p);
+        DirectFileSystem.read_dir_iter(p)
+    }
+
+    fn temporary_file(&self, directory: Option<&Path>) -> io::Result<HostFile> {
+        if let Some(path) = directory {
+            self.0.record(path);
+        }
+        Ok(HostFile::from_io(File {
+            file: DirectFileSystem.temporary_file(directory)?,
+            probe: self.0.clone(),
+            owner: cellar::asyncrt::services(),
+        }))
+    }
+
     fn read(&self, p: &Path) -> io::Result<Vec<u8>> {
         self.0.record(p);
         DirectFileSystem.read(p)

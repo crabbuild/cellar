@@ -1632,6 +1632,11 @@ impl LtxRepl {
         &self.host_services
     }
 
+    /// Recovery scratch shares this replica's injected filesystem and data root.
+    pub(crate) fn recovery_scratch(&self) -> (Arc<dyn cellar_ltx::FileSystem>, PathBuf) {
+        (self.ltx_host.filesystem(), self.watch.clone())
+    }
+
     pub(crate) fn storage_prefix(&self) -> &str {
         &self.prefix
     }

@@ -2,12 +2,14 @@
 import http.server
 import http.client
 import json
+import socket
 import threading
 import unittest
 import urllib.error
 import urllib.request
 
 from consumer_witness_gate import WitnessGate
+from fleet_faults import message
 
 
 class WitnessGateTests(unittest.TestCase):
@@ -19,6 +21,15 @@ class WitnessGateTests(unittest.TestCase):
             def do_POST(self):
                 body=self.rfile.read(int(self.headers["Content-Length"]))
                 requests.append((self.path,body,self.headers.get("x-private-fixture")))
+                if self.headers.get("Upgrade")=="cellar-log-stream":
+                    self.send_response(101);self.send_header("Connection","upgrade");self.send_header("Upgrade","cellar-log-stream");self.end_headers()
+                    self.wfile.write(b"\x00\xffserver");self.wfile.flush()
+                    try:
+                        data=self.rfile.read(14)
+                        self.wfile.write(data);self.wfile.flush()
+                    except (BrokenPipeError,ConnectionResetError):pass
+                    self.close_connection=True
+                    return
                 if self.server.reject:
                     body=b"invalid follower state: checksum mismatch"
                     self.send_response(400);self.send_header("Content-Length",str(len(body)));self.end_headers();self.wfile.write(body);return
@@ -74,6 +85,62 @@ class WitnessGateTests(unittest.TestCase):
         self.assertIs(observed["blocked"],False);self.assertIsNone(observed["response"])
         self.assertEqual(observed["status"],400);self.assertEqual(observed["response_body"],reply.decode())
         self.assertEqual(len(self.requests),1)
+
+    def test_close_disconnects_idle_keepalive_handlers_before_joining(self):
+        self.gate.release()
+        connection=http.client.HTTPConnection(*self.gate.address,timeout=5)
+        body=json.dumps(dict(leader=self.gate.leader,epoch=7)).encode()
+        connection.request("POST","/peer/log/seal",body)
+        self.assertEqual(connection.getresponse().read(),body)
+        done=threading.Event();errors=[]
+        def close():
+            try:self.gate.close()
+            except Exception as error:errors.append(error)
+            finally:done.set()
+        thread=threading.Thread(target=close);thread.start()
+        finished=done.wait(2)
+        # Failure cleanup must itself release the blocked handler so this
+        # regression reports an assertion rather than hanging the test runner.
+        if not finished:self.gate.disconnect()
+        connection.close();thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(finished,"close waited for a persistent client to disconnect")
+        self.assertEqual(errors,[])
+
+    def upgrade(self,payload=b""):
+        connection=socket.create_connection(self.gate.address,timeout=2)
+        connection.sendall(b"POST /peer/log/tail HTTP/1.1\r\nHost: fixture\r\nContent-Length: 0\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\n\r\n"+payload)
+        stream=connection.makefile("rb")
+        response=message(stream,response=True)
+        self.assertEqual(response["first"].split()[1],b"101")
+        return connection,stream
+
+    def test_upgraded_tail_forwards_buffered_binary_both_ways_and_eof(self):
+        payload=b"\x00\x01binary\x00tail\xff"
+        self.assertEqual(len(payload),14)
+        connection,stream=self.upgrade(payload)
+        try:
+            expected=b"\x00\xffserver"+payload
+            self.assertEqual(stream.read(len(expected)),expected)
+            self.assertEqual(stream.read(1),b"")
+        finally:stream.close();connection.close()
+
+    def test_close_disconnects_idle_upgraded_tail_before_joining(self):
+        connection,stream=self.upgrade()
+        try:
+            self.assertEqual(stream.read(8),b"\x00\xffserver")
+            done=threading.Event();errors=[]
+            def close():
+                try:self.gate.close()
+                except Exception as error:errors.append(error)
+                finally:done.set()
+            worker=threading.Thread(target=close);worker.start()
+            finished=done.wait(2)
+            if not finished:self.gate.disconnect()
+            worker.join(timeout=5)
+            self.assertTrue(finished,"close abandoned an upgraded tail relay")
+            self.assertFalse(worker.is_alive());self.assertEqual(errors,[])
+        finally:stream.close();connection.close()
 
 
 if __name__=="__main__":unittest.main()

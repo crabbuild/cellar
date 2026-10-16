@@ -6,7 +6,7 @@ import socketserver
 import threading
 
 from faults import require
-from fleet_faults import message
+from fleet_faults import message, relay_upgrade
 
 
 class WitnessGate:
@@ -17,7 +17,7 @@ class WitnessGate:
         gate=self
         class Handler(socketserver.BaseRequestHandler):
             def handle(self):
-                upstream=None
+                upstream=None;stream=None;owner=None
                 with gate.lock:gate.connections.add(self.request)
                 try:
                     stream=self.request.makefile("rb")
@@ -49,11 +49,16 @@ class WitnessGate:
                             with gate.lock:
                                 observation.update(response=metadata,status=int(response["first"].split()[1]),response_sha256=hashlib.sha256(response["body"]).hexdigest(),response_body=response["body"].decode(errors="replace"))
                         self.request.sendall(response["wire"])
+                        if response["first"].split()[1]==b"101":
+                            relay_upgrade(self.request,upstream,stream,owner)
+                            return
                 except (ConnectionResetError,BrokenPipeError):pass
                 except Exception as error:
                     with gate.lock:
                         if self.request not in gate.retiring:gate.errors.append(repr(error))
                 finally:
+                    if owner is not None:owner.close()
+                    if stream is not None:stream.close()
                     if upstream is not None:upstream.close()
                     with gate.lock:gate.connections.discard(self.request);gate.retiring.discard(self.request)
         class Server(socketserver.ThreadingTCPServer):
@@ -79,5 +84,5 @@ class WitnessGate:
         return len(connections)
 
     def close(self):
-        self.release();self.server.shutdown();self.server.server_close();self.thread.join(timeout=5)
+        self.release();self.disconnect();self.server.shutdown();self.server.server_close();self.thread.join(timeout=5)
         require(not self.thread.is_alive() and not self.errors,f"consumer witness gate did not join cleanly: {self.errors}")

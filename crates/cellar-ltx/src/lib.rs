@@ -53,8 +53,8 @@ pub mod internal {
 // Re-export the error model at the crate root.
 pub use error::{new_ltx_error, Error, LTXError, Result};
 pub use host::{
-    DirectFileSystem, FileSystem, HostDirEntry, HostFile, HostFileIo, HostMetadata, HostTaskError,
-    LtxHost,
+    DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo,
+    HostMetadata, HostTaskError, LtxHost,
 };
 
 /// A SQLite database managed for replication (WAL-mode checkpoint takeover plus

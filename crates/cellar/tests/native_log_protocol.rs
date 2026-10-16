@@ -357,7 +357,7 @@ async fn receive(
     if path != "/missing-version" {
         response = response.header(RESPONSE_VERSION_HEADER, PROTOCOL_VERSION_TEXT);
     }
-    if path == "/peer/log/stream" {
+    if matches!(path.as_str(), "/peer/log/stream" | "/peer/log/tail") {
         assert_eq!(headers["x-caller-pool"], "streams");
         assert_eq!(headers["upgrade"], "cellar-log-stream");
         probe.streams.fetch_add(1, Ordering::SeqCst);
@@ -375,7 +375,30 @@ async fn receive(
     } else {
         assert_eq!(headers["x-caller-pool"], "requests");
         probe.http.fetch_add(1, Ordering::SeqCst);
-        response.body(Body::from(body)).unwrap()
+        if path == "/control-head-only" {
+            response
+                .header("content-length", (64 << 10) + 1)
+                .body(Body::from_stream(futures_util::stream::pending::<
+                    Result<bytes::Bytes, std::convert::Infallible>,
+                >()))
+                .unwrap()
+        } else if path == "/control-chunked" {
+            let chunks: Vec<_> = body
+                .chunks(4096)
+                .map(bytes::Bytes::copy_from_slice)
+                .collect();
+            response
+                .header("transfer-encoding", "chunked")
+                .body(Body::from_stream(futures_util::stream::iter(
+                    chunks.into_iter().map(Ok::<_, std::convert::Infallible>),
+                )))
+                .unwrap()
+        } else {
+            response
+                .header("content-length", body.len())
+                .body(Body::from(body))
+                .unwrap()
+        }
     }
 }
 
@@ -430,10 +453,10 @@ async fn signed_transport_retains_both_caller_pools_and_authenticates_requests()
         )
         .await
         .is_err());
-    for _ in 0..2 {
+    for path in ["/peer/log/stream", "/peer/log/tail"] {
         let mut io = tokio::time::timeout(
             Duration::from_secs(2),
-            transport.open_stream("follower", &addr, "/peer/log/stream"),
+            transport.open_stream("follower", &addr, path),
         )
         .await??;
         write_frame(&mut io, b"ordered").await?;
@@ -462,6 +485,104 @@ async fn signed_transport_retains_both_caller_pools_and_authenticates_requests()
     server.abort();
     let _ = server.await;
     Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn signed_control_reply_rejects_excess_declared_length() -> Result<()> {
+    signed_control_reply_bound("/control-length").await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn signed_control_reply_rejects_excess_chunked_bytes() -> Result<()> {
+    signed_control_reply_bound("/control-chunked").await
+}
+
+async fn signed_control_reply_bound(path: &str) -> Result<()> {
+    const LIMIT: usize = 64 << 10;
+    let key = [44; 32];
+    let probe = Arc::new(Probe {
+        auth: PeerAuth::new(key, "follower")?,
+        http: AtomicUsize::new(0),
+        streams: AtomicUsize::new(0),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?.to_string();
+    let router = axum::Router::new()
+        .fallback(receive)
+        .with_state(probe.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, router).await });
+    let result = async {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "x-caller-pool",
+            reqwest::header::HeaderValue::from_static("requests"),
+        );
+        let client = reqwest::Client::builder()
+            .http1_only()
+            .no_proxy()
+            .default_headers(headers)
+            .build()?;
+        let transport = SignedPeerTransport::from_clients(
+            client.clone(),
+            client,
+            Arc::new(PeerAuth::new(key, "leader")?),
+        );
+        // JSON whitespace preserves a valid control answer. A parse failure
+        // cannot substitute for the transport refusing excess response bytes.
+        let mut body = serde_json::to_vec(&serde_json::json!({"ok":true,"end":1,"epoch":1}))?;
+        body.resize(LIMIT, b' ');
+        let accepted = transport
+            .post(
+                "follower",
+                &addr,
+                path,
+                body.clone(),
+                Some(Duration::from_secs(2)),
+            )
+            .await?;
+        ensure!(accepted.as_ref() == body);
+        ensure!(serde_json::from_slice::<AppendResp>(&accepted)?.ok);
+        body.push(b' ');
+        let refused = transport
+            .post("follower", &addr, path, body, Some(Duration::from_secs(2)))
+            .await;
+        let error = refused
+            .err()
+            .ok_or_else(|| anyhow::anyhow!("signed control response accepted more than 64 KiB"))?;
+        ensure!(
+            error.to_string().contains("log control reply exceeds"),
+            "{error:#}"
+        );
+        if path == "/control-length" {
+            let error = transport
+                .post(
+                    "follower",
+                    &addr,
+                    "/control-head-only",
+                    Vec::new(),
+                    Some(Duration::from_secs(2)),
+                )
+                .await
+                .err()
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "oversized declared length must refuse before reading its pending body"
+                    )
+                })?;
+            ensure!(
+                error.to_string().contains("log control reply exceeds"),
+                "{error:#}"
+            );
+            ensure!(probe.http.load(Ordering::SeqCst) == 3);
+        } else {
+            ensure!(probe.http.load(Ordering::SeqCst) == 2);
+        }
+        Ok(())
+    }
+    .await;
+    server.abort();
+    let _ = server.await;
+    result
 }
 
 #[tokio::test]

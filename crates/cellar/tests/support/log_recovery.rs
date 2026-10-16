@@ -58,15 +58,20 @@ fn rows(tail: cellar::node_log::TailResp) -> Vec<(u64, String, u64, u64, Vec<u8>
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn returned_cold_witness_recovers_original_state_after_recorded_refusal() -> Result<()> {
-    run(false).await
+    run(false, 1).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn missing_node_lease_blocks_takeover_until_original_metadata_returns() -> Result<()> {
-    run(true).await
+    run(true, 1).await
 }
 
-async fn run(missing_lease: bool) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn spilled_recovery_merges_older_bundle_rows_before_newer_follower_rows() -> Result<()> {
+    run(false, 180).await
+}
+
+async fn run(missing_lease: bool, transactions: u64) -> Result<()> {
     let directory = tempfile::tempdir()?;
     let original = pair(
         &directory.path().join("fleet.sqlite"),
@@ -75,16 +80,73 @@ async fn run(missing_lease: bool) -> Result<()> {
         LogOptions::default(),
     )
     .await?;
-    write(&original, 11, true).await?;
+    for transaction in 0..transactions {
+        write(&original, 11 + transaction as i64, transaction == 0).await?;
+    }
     let request = TailReq {
         leader: original.session.clone(),
     };
-    let proven = original
+    let mut proven = original
         .transport
         .follower_domain
         .run(original.transport.follower.tail(&request))
         .await??;
     ensure!(proven.range.complete && !proven.entries.is_empty());
+    let mut retained_bundle = None;
+    if transactions > 1 {
+        ensure!(
+            proven.entries.len() > 128,
+            "fixture did not cross gather run/batch limits"
+        );
+        // Publish only the original lower prefix, then legitimately truncate
+        // those exact sequences. Recovery must merge older bucket rows with
+        // newer followers before the first upload can raise cell coverage.
+        let prefix_count = proven.entries.len() / 4;
+        let entries = proven.entries[..prefix_count]
+            .iter()
+            .map(|entry| cellar_ltx::bundle::BundleEntry {
+                cell: entry.cell.clone(),
+                cell_epoch: entry.cell_epoch,
+                txid: entry.txid,
+                bytes: entry.bytes.clone(),
+            })
+            .collect::<Vec<_>>();
+        let key = format!(
+            "log/{}/bundle/e{}-00000000.ltxb",
+            original.session, proven.range.fragment_epoch
+        );
+        let body = cellar_ltx::bundle::encode(&entries)?;
+        original
+            .domain
+            .run(original.bucket.put(&key, body.clone()))
+            .await??;
+        let acknowledged = original
+            .transport
+            .follower_domain
+            .run(
+                original
+                    .transport
+                    .follower
+                    .append(cellar::node_log::AppendReq {
+                        leader: original.session.clone(),
+                        epoch: proven.range.fragment_epoch,
+                        truncate_to: proven.entries[prefix_count - 1].seq,
+                        entries: vec![],
+                    }),
+            )
+            .await?;
+        ensure!(
+            acknowledged.ok,
+            "published prefix did not permit truncation"
+        );
+        proven = original
+            .transport
+            .follower_domain
+            .run(original.transport.follower.tail(&request))
+            .await??;
+        ensure!(proven.range.complete && proven.range.base > 0 && proven.entries.len() > 128);
+        retained_bundle = Some((key, body));
+    }
     let original_range = proven.range;
     let original_rows = rows(proven);
     let bucket = original.bucket.clone();
@@ -105,10 +167,14 @@ async fn run(missing_lease: bool) -> Result<()> {
                 !objects.iter().any(|object| {
                     let key = object.location.as_ref();
                     key.starts_with(&format!("{}cells/", bucket.prefix))
-                        || key.starts_with(&format!("{}log/{session}/", bucket.prefix))
+                        || (key.starts_with(&format!("{}log/{session}/", bucket.prefix))
+                            && !retained_bundle.as_ref().is_some_and(|(saved, _)| key == format!("{}{saved}", bucket.prefix)))
                 }),
                 "bucket data could mask missing follower proof"
             );
+            if let Some((key, bytes)) = &retained_bundle {
+                ensure!(bucket.get(key).await?.is_some_and(|(body, _)| body.as_ref() == bytes), "original prefix bundle changed");
+            }
             let empty = peer
                 .run(async {
                     Arc::new(FollowerStore::new(
@@ -262,9 +328,18 @@ async fn run(missing_lease: bool) -> Result<()> {
                     Ok((row.get(0)?, row.get(1)?))
                 })?;
             ensure!(
-                recovered == (1, 11),
+                recovered == (transactions as i64, (transactions * (transactions + 21) / 2) as i64),
                 "recovery lost or repeated the original command"
             );
+            let mut query = connection.prepare("SELECT value FROM accounts ORDER BY rowid")?;
+            let actual = query
+                .query_map([], |row| row.get::<_, i64>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            let expected = (0..transactions)
+                .map(|transaction| 11 + transaction as i64)
+                .collect::<Vec<_>>();
+            ensure!(actual == expected, "recovery changed original row contents");
+            drop(query);
             let (body, _) = bucket.get(&format!("nodes/{leader}.json")).await?.unwrap();
             let sealed: serde_json::Value = serde_json::from_slice(&body)?;
             ensure!(

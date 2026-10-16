@@ -39,9 +39,15 @@ use crate::peer_auth::PeerAuth;
 #[cfg(test)]
 mod follower_batch_tests;
 mod follower_file;
+mod follower_index;
 mod follower_state;
 mod recovery_progress;
+mod recovery_rows;
+mod reply_reader;
 mod startup_retry;
+mod tail_stream;
+
+pub use tail_stream::serve_tail_stream;
 
 /// The one peer-POST boundary used by the node log.
 ///
@@ -60,10 +66,9 @@ pub trait LogTransport: Send + Sync + 'static {
         Box<dyn std::future::Future<Output = anyhow::Result<bytes::Bytes>> + Send + 'a>,
     >;
 
-    /// Open one long-lived ordered byte stream to a member
-    /// (the ordered-transport design). The default refuses, so
-    /// every test transport keeps its request-shaped world unless a test
-    /// opts in.
+    /// Open an authenticated duplex for ordered appends or immutable recovery
+    /// snapshots. Recovery requires this capability; there is no buffered tail
+    /// POST fallback. The default refuses unsupported custom transports.
     fn open_stream<'a>(
         &'a self,
         node: &'a str,
@@ -91,8 +96,19 @@ pub type LogStreamIo = Box<dyn LogStreamDuplex>;
 /// order. The cap bounds a corrupt or hostile length prefix.
 const STREAM_FRAME_CAP: usize = 64 * 1024 * 1024;
 
+// Append and seal answers contain scalar metadata, not retained payloads.
+// This limit applies to their HTTP bodies and ordered reply frames only.
+const CONTROL_REPLY_CAP: usize = 64 * 1024;
+
 #[doc(hidden)]
 pub async fn read_frame<R>(io: &mut R) -> anyhow::Result<Option<Vec<u8>>>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    read_frame_limited(io, STREAM_FRAME_CAP).await
+}
+
+async fn read_frame_limited<R>(io: &mut R, cap: usize) -> anyhow::Result<Option<Vec<u8>>>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -104,7 +120,7 @@ where
     // Once a header begins, EOF is a torn frame, never a clean close.
     io.read_exact(&mut len[1..]).await?;
     let len = u32::from_le_bytes(len) as usize;
-    if len > STREAM_FRAME_CAP {
+    if len > cap {
         anyhow::bail!("stream frame of {len} bytes exceeds the cap");
     }
     let mut payload = vec![0_u8; len];
@@ -285,16 +301,11 @@ const RECRUIT_FOLLOWERS: usize = 2;
 /// recovery in this phase; the bucket takes far more in flight than that.
 const RECOVERY_UPLOAD_CONCURRENCY: usize = 32;
 /// How many bytes of retained bundles one recovery gather window reads
-/// before it folds that window's rows into the per-cell layout and releases
-/// them. The whole-session gather held every row of every retained bundle
-/// until the last bundle was read: about 0.95 GB of process memory per GB
-/// of session, 7 GB for a ten-minute session at 2 MiB writes, and past 15 GB
-/// the kernel OOM cascade of #964, where each killed gatherer became the
-/// next dead session (#957). The fold holds at most about twice this budget
-/// (the window's rows plus the per-cell merges in flight), whatever the
-/// session's age. The cost is one L0 object per cell for each window the
-/// cell has rows in, instead of one for the whole session; a session under
-/// the budget folds exactly as before.
+/// before releasing their fetched bytes. Rows spill into derived disk scratch,
+/// then sorted bounded batches fold into per-cell objects. The window bounds
+/// concurrent bundle bodies, not a universal recovery RSS ceiling: a single
+/// oversized bundle, follower TailResp/HTTP collection, provider inventories and
+/// optional progress hints still need their own bounded implementations.
 const RECOVERY_GATHER_WINDOW_BYTES: u64 = 512 * 1024 * 1024;
 /// Per-cell coverage reads of the graceful seal and the uncovered-row scan
 /// stay below a small fleet's cell count, so a close does not fan out one
@@ -780,15 +791,15 @@ impl LiveLogTransition<'_> {
 
 // ── Wire types for the peer endpoints ───────────────────────────────────────
 //
-// The two byte-dominated messages — the append request and the tail
-// response — travel as a small binary framing; every control message
-// (append response, seal, tail request) stays JSON. Entries use the same
-// encoding on the wire and inside checksum-protected committed batches.
+// Appends and buffered diagnostic tails share this entry codec. Production
+// recovery transfers immutable CTS1 snapshots through tail_stream.rs, never
+// the buffered CLT1 body below. Control messages and the tail request frame
+// use JSON. Entries share their encoding with committed follower batches.
 // All integers little-endian:
 //
 //   append body:   "CLA1" u16 leader_len leader u64 epoch u64 truncate_to
 //                  u32 count entry*
-//   ranged tail:   "CLT1" u64 fragment_epoch u64 base u64 end
+//   diagnostic:    "CLT1" u64 fragment_epoch u64 base u64 end
 //                  u8 complete u32 count entry*
 //   entry:         "CLE1" u64 seq u16 cell_len cell u64 cell_epoch
 //                  u64 txid u32 len bytes
@@ -1141,10 +1152,6 @@ impl TailWireReq {
             tail_format: TailFormat::Ranged,
         }
     }
-
-    pub fn encode_response(&self, response: &TailResp) -> anyhow::Result<Vec<u8>> {
-        Ok(encode_tail_resp(response))
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1209,9 +1216,10 @@ struct CommittedBatch {
 }
 
 struct CommittedBatchScan {
-    batches: Vec<CommittedBatch>,
-    unreadable_ranges: Vec<(u64, u64)>,
+    batches: follower_index::Index,
+    unreadable_end: Option<u64>,
     unknown_unreadable_range: bool,
+    directory_present: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -1233,56 +1241,64 @@ struct LoadedFollowerState {
     acknowledged_range_missing: bool,
 }
 
+fn check_follower_work(cancelled: Option<&std::sync::atomic::AtomicBool>) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        cancelled.is_none_or(|flag| !flag.load(Ordering::Acquire)),
+        "follower work cancelled"
+    );
+    Ok(())
+}
+
 impl CommittedBatchScan {
-    fn covers_acknowledged_range(&self, state: FollowerState) -> bool {
+    fn covers_acknowledged_range(
+        &mut self,
+        state: FollowerState,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<bool> {
         let mut covered = state.base;
-        for batch in self
-            .batches
-            .iter()
-            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
-        {
+        for index in 0..self.batches.len() {
+            check_follower_work(cancelled)?;
             if covered >= state.end {
                 break;
             }
-            let first = batch
-                .entries
-                .first()
-                .expect("committed batches are nonempty")
-                .seq;
-            let last = batch.state.end;
-            if last <= covered {
+            let batch = self.batches.get(index)?;
+            if batch.state.fragment_epoch != state.fragment_epoch || batch.last <= covered {
                 continue;
             }
-            if first > covered.saturating_add(1) {
-                return false;
+            if batch.first > covered.saturating_add(1) {
+                return Ok(false);
             }
-            covered = last;
+            covered = batch.last;
         }
-        covered >= state.end
+        Ok(covered >= state.end)
     }
 
-    fn recovery_gap(&self, state: FollowerState) -> Option<DiskRecoveryGap> {
+    fn recovery_gap(
+        &mut self,
+        state: FollowerState,
+        cancelled: Option<&std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<Option<DiskRecoveryGap>> {
         if state.fragment_epoch == 0 {
-            return None;
+            return Ok(None);
         }
         if self.unknown_unreadable_range {
-            return Some(DiskRecoveryGap {
+            return Ok(Some(DiskRecoveryGap {
                 fragment_epoch: state.fragment_epoch,
                 suspect_end: SuspectEnd::Unknown,
-            });
+            }));
         }
-        let suspect_end = self
-            .batches
-            .iter()
-            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
-            .map(|batch| batch.state.end)
-            .chain(self.unreadable_ranges.iter().map(|(_, last)| *last))
-            .max()
-            .filter(|end| *end > state.end)?;
-        Some(DiskRecoveryGap {
+        let mut suspect_end = self.unreadable_end.unwrap_or(0);
+        for index in 0..self.batches.len() {
+            check_follower_work(cancelled)?;
+            let batch = self.batches.get(index)?;
+            if batch.state.fragment_epoch == state.fragment_epoch {
+                suspect_end = suspect_end.max(batch.state.end);
+            }
+        }
+        Ok((suspect_end > state.end).then_some(DiskRecoveryGap {
             fragment_epoch: state.fragment_epoch,
             suspect_end: SuspectEnd::Known(suspect_end),
-        })
+        }))
     }
 }
 
@@ -1351,6 +1367,18 @@ fn decode_committed_batch(bytes: &[u8]) -> anyhow::Result<CommittedBatch> {
     Ok(CommittedBatch { state, entries })
 }
 
+fn committed_batch_meta(bytes: &[u8], batch: &CommittedBatch) -> follower_index::BatchMeta {
+    follower_index::BatchMeta {
+        first: batch.entries[0].seq,
+        last: batch.state.end,
+        state: batch.state,
+        bytes: bytes.len() as u64,
+        digest: bytes[bytes.len() - COMMITTED_BATCH_DIGEST_LEN..]
+            .try_into()
+            .expect("validated batch digest"),
+    }
+}
+
 fn follower_batch_range(name: &str, suffix: &str) -> Option<(u64, u64)> {
     let stem = name.strip_suffix(suffix)?;
     let (first, last) = stem.split_once('-')?;
@@ -1394,6 +1422,7 @@ pub struct FollowerStore {
     /// persists writes the stale `sealed_to` back afterwards — the seal
     /// mark is atomic in the model and must be atomic here.
     guards: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+    tail_transfers: Arc<tokio::sync::Semaphore>,
     /// Leaders whose directory chain this process has already fsynced to
     /// the data root. Ancestor directory entries only change when the
     /// leader directory is created, so re-syncing them on every state
@@ -1417,6 +1446,7 @@ impl FollowerStore {
             node: node.to_string(),
             logs: Mutex::new(HashMap::new()),
             guards: Mutex::new(HashMap::new()),
+            tail_transfers: Arc::new(tokio::sync::Semaphore::new(2)),
             synced_namespaces: Mutex::new(std::collections::BTreeSet::new()),
             #[cfg(cellar_internal_tests)]
             directory_sync_for_test: Arc::new(move |path| directory_filesystem.sync_all(path)),
@@ -1580,19 +1610,35 @@ impl FollowerStore {
     }
 
     fn scan_committed_batches(&self, leader: &str) -> anyhow::Result<CommittedBatchScan> {
+        self.scan_committed_batches_cancellable(leader, None, self.filesystem.as_ref())
+    }
+
+    fn scan_committed_batches_cancellable(
+        &self,
+        leader: &str,
+        cancelled: Option<Arc<std::sync::atomic::AtomicBool>>,
+        filesystem: &dyn cellar_ltx::FileSystem,
+    ) -> anyhow::Result<CommittedBatchScan> {
+        check_follower_work(cancelled.as_deref())?;
         let dir = self.dir(leader);
-        let read = match self.filesystem.read_dir(&dir) {
-            Ok(read) => read,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
-            // A failed observation is retryable, not evidence of a damaged
-            // batch. Caching it as an unknown gap would reject healthy tails
-            // for the rest of the epoch and could declare a false loss.
-            Err(error) => return Err(error.into()),
-        };
-        let mut batches = Vec::new();
-        let mut unreadable_ranges = Vec::new();
+        let (read, directory_present): (cellar_ltx::HostDirIterator, bool) =
+            match filesystem.read_dir_iter(&dir) {
+                Ok(read) => (read, true),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    (Box::new(std::iter::empty()), false)
+                }
+                // A failed observation is retryable, not evidence of a damaged
+                // batch. Caching it as an unknown gap would reject healthy tails
+                // for the rest of the epoch and could declare a false loss.
+                Err(error) => return Err(error.into()),
+            };
+        let mut batches =
+            follower_index::Builder::new(filesystem, &dir).with_cancellation(cancelled.clone());
+        let mut unreadable_end = None;
         let mut unknown_unreadable_range = false;
         for item in read {
+            check_follower_work(cancelled.as_deref())?;
+            let item = item?;
             let Some(name) = item.file_name.to_str() else {
                 if item
                     .path
@@ -1624,32 +1670,34 @@ impl FollowerStore {
                 );
                 continue;
             };
-            if named_first > named_last {
+            if named_first > named_last || name != format!("{named_first}-{named_last}.batch") {
                 unknown_unreadable_range = true;
                 warn!(
                     leader,
                     path = %item.path.display(),
-                    "follower batch name contains a reversed range"
+                    "follower batch name is reversed or noncanonical"
                 );
                 continue;
             }
             let decoded = follower_file::read(
-                self.filesystem.as_ref(),
+                filesystem,
                 &item.path,
                 COMMITTED_BATCH_MAX_BYTES,
                 "follower batch",
             )
             .and_then(|bytes| bytes.context("committed follower batch disappeared"))
-            .and_then(|bytes| decode_committed_batch(&bytes));
+            .and_then(|bytes| {
+                let batch = decode_committed_batch(&bytes)?;
+                let meta = committed_batch_meta(&bytes, &batch);
+                Ok(meta)
+            });
+            check_follower_work(cancelled.as_deref())?;
             match decoded {
-                Ok(batch)
-                    if batch.entries.first().map(|entry| entry.seq) == Some(named_first)
-                        && batch.entries.last().map(|entry| entry.seq) == Some(named_last) =>
-                {
-                    batches.push(batch);
+                Ok(batch) if batch.first == named_first && batch.last == named_last => {
+                    batches.push(batch)?;
                 }
                 Ok(_) => {
-                    unreadable_ranges.push((named_first, named_last));
+                    unreadable_end = Some(unreadable_end.unwrap_or(0).max(named_last));
                     warn!(
                         leader,
                         path = %item.path.display(),
@@ -1657,7 +1705,7 @@ impl FollowerStore {
                     );
                 }
                 Err(error) => {
-                    unreadable_ranges.push((named_first, named_last));
+                    unreadable_end = Some(unreadable_end.unwrap_or(0).max(named_last));
                     warn!(
                         leader,
                         path = %item.path.display(),
@@ -1667,11 +1715,11 @@ impl FollowerStore {
                 }
             }
         }
-        batches.sort_by_key(|batch| batch.entries.first().map_or(0, |entry| entry.seq));
         Ok(CommittedBatchScan {
-            batches,
-            unreadable_ranges,
+            batches: batches.finish()?,
+            unreadable_end,
             unknown_unreadable_range,
+            directory_present,
         })
     }
 
@@ -1682,62 +1730,72 @@ impl FollowerStore {
     fn recover_committed_state(
         &self,
         seed: FollowerState,
-        batches: &[CommittedBatch],
-    ) -> FollowerState {
+        batches: &mut follower_index::Index,
+        cancelled: Option<Arc<std::sync::atomic::AtomicBool>>,
+        filesystem: &dyn cellar_ltx::FileSystem,
+    ) -> anyhow::Result<FollowerState> {
         if seed.fragment_epoch == 0 {
-            return seed;
+            return Ok(seed);
         }
-        let mut candidates: Vec<&CommittedBatch> = batches
-            .iter()
-            .filter(|batch| {
-                batch.state.fragment_epoch == seed.fragment_epoch && batch.state.end > seed.end
-            })
-            .collect();
-        candidates.sort_by_key(|batch| std::cmp::Reverse(batch.state.end));
-        for candidate in candidates {
+        // Order candidate states separately from range coverage, spilling as
+        // needed. Trying the largest end first avoids rescanning every prefix
+        // in the normal case. Each candidate still uses the original seed:
+        // a higher bucket base can legitimately discharge a missing prefix.
+        let mut candidates = follower_index::Builder::candidates(filesystem, &self.root)
+            .with_cancellation(cancelled.clone());
+        for index in 0..batches.len() {
+            check_follower_work(cancelled.as_deref())?;
+            let batch = batches.get(index)?;
+            if batch.state.fragment_epoch == seed.fragment_epoch && batch.state.end > seed.end {
+                candidates.push(batch)?;
+            }
+        }
+        let mut candidates = candidates.finish()?;
+        for index in 0..candidates.len() {
+            check_follower_work(cancelled.as_deref())?;
+            let candidate = candidates.get(index)?;
             let mut covered = seed.end.max(candidate.state.base);
-            for batch in batches
-                .iter()
-                .filter(|batch| batch.state.fragment_epoch == seed.fragment_epoch)
-            {
-                let first = batch
-                    .entries
-                    .first()
-                    .expect("committed batches are non-empty")
-                    .seq;
-                let last = batch
-                    .entries
-                    .last()
-                    .expect("committed batches are non-empty")
-                    .seq;
-                if last <= covered {
+            for position in 0..batches.len() {
+                check_follower_work(cancelled.as_deref())?;
+                let batch = batches.get(position)?;
+                if batch.state.fragment_epoch != seed.fragment_epoch || batch.last <= covered {
                     continue;
                 }
-                if first > covered.saturating_add(1) {
+                if batch.first > covered.saturating_add(1) {
                     break;
                 }
-                covered = covered.max(last);
+                covered = covered.max(batch.last);
             }
             if covered >= candidate.state.end {
-                return FollowerState {
+                return Ok(FollowerState {
                     fragment_epoch: seed.fragment_epoch,
                     base: seed.base.max(candidate.state.base),
                     end: candidate.state.end,
                     sealed_to: seed.sealed_to.max(candidate.state.sealed_to),
-                };
+                });
             }
         }
-        seed
+        Ok(seed)
     }
 
     #[doc(hidden)]
     pub fn load(&self, leader: &str) -> anyhow::Result<FollowerState> {
+        self.load_cancellable(leader, None, self.filesystem.as_ref())
+    }
+
+    fn load_cancellable(
+        &self,
+        leader: &str,
+        cancelled: Option<Arc<std::sync::atomic::AtomicBool>>,
+        filesystem: &dyn cellar_ltx::FileSystem,
+    ) -> anyhow::Result<FollowerState> {
+        check_follower_work(cancelled.as_deref())?;
         validate_log_leader(leader)?;
         if let Some(loaded) = self.logs.lock().unwrap().get(leader) {
             return Ok(loaded.state);
         }
         let seed = follower_state::load(
-            self.filesystem.as_ref(),
+            filesystem,
             &self.dir(leader).join("state.json"),
             leader,
             &self.node,
@@ -1746,22 +1804,32 @@ impl FollowerStore {
         // Use one directory observation for both recovery and its evidence.
         // A second scan could lose the invalid or later file that explains why
         // recovery stopped, then certify the shortened state as complete.
-        let batch_scan = self.scan_committed_batches(leader)?;
+        let mut batch_scan =
+            self.scan_committed_batches_cancellable(leader, cancelled.clone(), filesystem)?;
         anyhow::ensure!(
             seed.is_some()
                 || batch_scan.batches.is_empty()
-                    && batch_scan.unreadable_ranges.is_empty()
+                    && batch_scan.unreadable_end.is_none()
                     && !batch_scan.unknown_unreadable_range,
             "missing follower state for retained fragment {leader}"
         );
         let seed = seed.unwrap_or_default();
-        let state = self.recover_committed_state(seed, &batch_scan.batches);
+        let state = self.recover_committed_state(
+            seed,
+            &mut batch_scan.batches,
+            cancelled.clone(),
+            filesystem,
+        )?;
+        let disk_recovery_gap = batch_scan.recovery_gap(state, cancelled.as_deref())?;
+        let acknowledged_range_missing =
+            !batch_scan.covers_acknowledged_range(state, cancelled.as_deref())?;
+        check_follower_work(cancelled.as_deref())?;
         self.logs.lock().unwrap().insert(
             leader.to_string(),
             LoadedFollowerState {
                 state,
-                disk_recovery_gap: batch_scan.recovery_gap(state),
-                acknowledged_range_missing: !batch_scan.covers_acknowledged_range(state),
+                disk_recovery_gap,
+                acknowledged_range_missing,
             },
         );
         Ok(state)
@@ -1796,6 +1864,56 @@ impl FollowerStore {
             .unwrap()
             .get(leader)
             .is_none_or(|loaded| loaded.disk_recovery_gap.is_none())
+    }
+
+    /// A complete file observation can disprove the warm cache's retained
+    /// prefix too. Keep that refusal until cold verification, a covered base,
+    /// or verified epoch adoption establishes authority again. This changes no
+    /// durable watermark and cannot poison a later epoch or already covered
+    /// prefix from a stale observation.
+    fn mark_missing_range(&self, leader: &str, observed: FollowerState) {
+        let mut logs = self.logs.lock().unwrap();
+        if let Some(loaded) = logs.get_mut(leader) {
+            if loaded.state.fragment_epoch == observed.fragment_epoch
+                && loaded.state.base < observed.end
+            {
+                loaded.acknowledged_range_missing = true;
+            }
+        }
+    }
+
+    fn read_indexed_batch(
+        &self,
+        filesystem: &dyn cellar_ltx::FileSystem,
+        leader: &str,
+        state: FollowerState,
+        meta: follower_index::BatchMeta,
+    ) -> anyhow::Result<CommittedBatch> {
+        let path = self
+            .dir(leader)
+            .join(format!("{}-{}.batch", meta.first, meta.last));
+        let result = (|| {
+            let bytes = follower_file::read(
+                filesystem,
+                &path,
+                COMMITTED_BATCH_MAX_BYTES,
+                "follower batch",
+            )?
+            .context("indexed follower batch disappeared")?;
+            let batch = decode_committed_batch(&bytes)?;
+            anyhow::ensure!(
+                committed_batch_meta(&bytes, &batch) == meta,
+                "indexed follower batch changed"
+            );
+            Ok(batch)
+        })();
+        if result.is_err() && meta.first <= state.end && meta.last > state.base {
+            // The scan succeeded, but these acknowledged bytes could not be
+            // verified a second time. A later duplicate must not re-credit
+            // the original in-memory end over the unreadable source.
+            self.mark_missing_range(leader, state);
+        }
+        result
     }
 
     #[doc(hidden)]
@@ -2222,18 +2340,20 @@ impl FollowerStore {
                 ..state
             },
         )?;
-        // Inspect the frozen tail before certifying it. Keep the held epoch
-        // separate from the certificate so an incomplete fragment remains
-        // visible without proving durability.
-        let tail = self.read_tail(&TailReq {
-            leader: req.leader.clone(),
-        })?;
-        let range = tail.range;
-        let retained_complete = range.fragment_epoch == state.fragment_epoch
-            && range.base == state.base
-            && range.end == end
-            && range.complete
-            && tail_covers_sealed_range(range.base, range.end, &tail.entries);
+        // Verify each committed payload once while retaining only bounded
+        // metadata. The held guard freezes the range against append/adoption/GC;
+        // certifying it does not require materializing a TailResp payload.
+        let mut scan = self.scan_committed_batches(&req.leader)?;
+        let covered = scan.covers_acknowledged_range(state, None)?;
+        if !covered {
+            self.mark_missing_range(&req.leader, state);
+        }
+        let retained_complete = state.end == end
+            && scan.directory_present
+            && !scan.unknown_unreadable_range
+            && self.recovered_disk_range_complete(&req.leader)
+            && scan.recovery_gap(state, None)?.is_none()
+            && covered;
         if !retained_complete {
             warn!(
                 leader = req.leader,
@@ -2322,7 +2442,8 @@ impl FollowerStore {
         }
     }
 
-    /// Return the range and its entries while append, seal, adoption, and GC
+    /// Buffered inspection for diagnostics. Production recovery uses the bounded
+    /// tail snapshot stream instead. Return entries while append, seal, adoption, and GC
     /// cannot change the fragment. The range and the data therefore describe
     /// one follower state rather than two observations around a concurrent write.
     pub async fn tail(&self, req: &TailReq) -> anyhow::Result<TailResp> {
@@ -2332,12 +2453,43 @@ impl FollowerStore {
     }
 
     fn read_tail(&self, req: &TailReq) -> anyhow::Result<TailResp> {
+        let mut entries = Vec::new();
+        let mut range = self.visit_tail(
+            self.filesystem.as_ref(),
+            req,
+            &Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            |entry| {
+                entries.push(entry);
+                Ok(())
+            },
+        )?;
+        entries.sort_by_key(|entry| entry.seq);
+        entries.dedup_by_key(|entry| entry.seq);
+        range.complete &= tail_covers_sealed_range(range.base, range.end, &entries);
+        Ok(TailResp { range, entries })
+    }
+
+    fn visit_tail(
+        &self,
+        filesystem: &dyn cellar_ltx::FileSystem,
+        req: &TailReq,
+        cancelled: &Arc<std::sync::atomic::AtomicBool>,
+        mut visit: impl FnMut(Entry) -> anyhow::Result<()>,
+    ) -> anyhow::Result<TailRange> {
         // Only checksum-protected committed batches supply retained entries.
         // Unsupported development layouts cannot supply recovery evidence.
-        let state = self.load(&req.leader)?;
+        let state = self.load_cancellable(&req.leader, Some(cancelled.clone()), filesystem)?;
         let base = state.base;
         let end = state.end;
-        let batch_scan = self.scan_committed_batches(&req.leader)?;
+        let mut batch_scan = self.scan_committed_batches_cancellable(
+            &req.leader,
+            Some(cancelled.clone()),
+            filesystem,
+        )?;
+        let covered = batch_scan.covers_acknowledged_range(state, Some(cancelled))?;
+        if !covered {
+            self.mark_missing_range(&req.leader, state);
+        }
         // A checksum-invalid batch above `base` is ambiguous after a restart:
         // it can be an unacknowledged interrupted write, or a committed batch
         // damaged after its acknowledgement. Treating it as complete can lose
@@ -2346,19 +2498,37 @@ impl FollowerStore {
         // behind. Sequence coverage, not the health of every overlapping file,
         // proves that its retained rows have replacements. An unparseable name
         // still has no bounded range that replacement coverage can discharge.
-        let mut retained_files_complete =
-            !batch_scan.unknown_unreadable_range && self.recovered_disk_range_complete(&req.leader);
-        let mut entries: Vec<Entry> = batch_scan
-            .batches
-            .into_iter()
-            .filter(|batch| batch.state.fragment_epoch == state.fragment_epoch)
-            .flat_map(|batch| batch.entries)
-            .filter(|entry| entry.seq > base)
-            .collect();
+        let mut retained_files_complete = covered
+            && !batch_scan.unknown_unreadable_range
+            && self.recovered_disk_range_complete(&req.leader);
         let dir = self.dir(&req.leader);
-        match self.filesystem.read_dir(&dir) {
-            Ok(_) => {}
+        for position in 0..batch_scan.batches.len() {
+            anyhow::ensure!(
+                !cancelled.load(Ordering::Acquire),
+                "tail snapshot cancelled"
+            );
+            let meta = batch_scan.batches.get(position)?;
+            if meta.state.fragment_epoch != state.fragment_epoch {
+                continue;
+            }
+            let batch = self.read_indexed_batch(filesystem, &req.leader, state, meta)?;
+            for entry in batch.entries.into_iter().filter(|entry| entry.seq > base) {
+                anyhow::ensure!(
+                    !cancelled.load(Ordering::Acquire),
+                    "tail snapshot cancelled"
+                );
+                visit(entry)?;
+            }
+        }
+        match filesystem.read_dir_iter(&dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    check_follower_work(Some(cancelled))?;
+                    entry?;
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                self.mark_missing_range(&req.leader, state);
                 retained_files_complete = false;
                 if state.fragment_epoch != 0 {
                     warn!(
@@ -2370,24 +2540,11 @@ impl FollowerStore {
             }
             Err(error) => return Err(error.into()),
         }
-        entries.sort_by_key(|entry| entry.seq);
-        // Batch files can overlap: a torn batch leaves its file above the
-        // persisted end, and the retransmission of its unanswered frames
-        // commits again under whatever batch boundaries the socket had
-        // then. One fragment sequence is one set of bytes — a leader
-        // assigns each sequence once per epoch and adoption clears an old
-        // epoch's files — so a repeated sequence is the same entry twice,
-        // never a conflict.
-        entries.dedup_by_key(|entry| entry.seq);
-        let complete = retained_files_complete && tail_covers_sealed_range(base, end, &entries);
-        Ok(TailResp {
-            range: TailRange {
-                fragment_epoch: state.fragment_epoch,
-                base,
-                end,
-                complete,
-            },
-            entries,
+        Ok(TailRange {
+            fragment_epoch: state.fragment_epoch,
+            base,
+            end,
+            complete: retained_files_complete,
         })
     }
 }
@@ -2516,7 +2673,7 @@ impl LogTransport for SignedPeerTransport {
                 builder = builder.timeout(deadline);
             }
             let request = self.auth.sign(builder, "POST", path, &body, node)?;
-            let response = request.body(body).send().await?;
+            let mut response = request.body(body).send().await?;
             // Status before response-auth: a peer can answer an unsigned
             // route error, and callers need that status to classify
             // a protocol-incapable member separately from transport failure.
@@ -2526,7 +2683,29 @@ impl LogTransport for SignedPeerTransport {
                     .context(format!("peer {node} answered {status}")));
             }
             crate::peer_auth::validate_response(response.headers())?;
-            Ok(response.bytes().await?)
+            if response
+                .content_length()
+                .is_some_and(|length| length > CONTROL_REPLY_CAP as u64)
+            {
+                anyhow::bail!("log control reply exceeds {CONTROL_REPLY_CAP} byte limit");
+            }
+            let mut collected = Vec::new();
+            let mut frames = 0;
+            while let Some(chunk) = response.chunk().await? {
+                if chunk.len() > CONTROL_REPLY_CAP.saturating_sub(collected.len()) {
+                    anyhow::bail!("log control reply exceeds {CONTROL_REPLY_CAP} byte limit");
+                }
+                // Reserve only accepted bytes, including with an absent or
+                // misleading Content-Length. Do not retain a chunk list.
+                collected.try_reserve_exact(chunk.len())?;
+                collected.extend_from_slice(&chunk);
+                frames += 1;
+                if frames == 16 {
+                    frames = 0;
+                    tokio::task::yield_now().await;
+                }
+            }
+            Ok(bytes::Bytes::from(collected))
         })
     }
 
@@ -3178,7 +3357,7 @@ impl RetiredStream {
 /// `retire` then joins the reader before a replacement stream can start.
 struct StreamConnection {
     write: tokio::io::WriteHalf<LogStreamIo>,
-    responses: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    responses: reply_reader::Responses,
     reader: crate::asyncrt::TaskHandle<()>,
     progress: StreamProgress,
 }
@@ -3186,7 +3365,7 @@ struct StreamConnection {
 impl StreamConnection {
     fn new(
         write: tokio::io::WriteHalf<LogStreamIo>,
-        responses: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+        responses: reply_reader::Responses,
         reader: crate::asyncrt::TaskHandle<()>,
     ) -> Self {
         Self {
@@ -3258,34 +3437,6 @@ async fn stream_lane(
         std::collections::VecDeque::new();
     let mut hedge_rx: Option<tokio::sync::oneshot::Receiver<AppendSend>> = None;
 
-    fn spawn_reader(
-        read: tokio::io::ReadHalf<LogStreamIo>,
-    ) -> (
-        tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-        crate::asyncrt::TaskHandle<()>,
-    ) {
-        let (send, receive) = tokio::sync::mpsc::unbounded_channel();
-        let reader = crate::asyncrt::spawn(async move {
-            let mut read = read;
-            loop {
-                let frame = crate::asyncrt::select_biased! {
-                    "reader cancellation wins a tie with a frame from the retired connection";
-                    _ = send.closed() => return,
-                    frame = read_frame(&mut read) => frame,
-                };
-                match frame {
-                    Ok(Some(frame)) => {
-                        if send.send(frame).is_err() {
-                            return;
-                        }
-                    }
-                    Ok(None) | Err(_) => return,
-                }
-            }
-        });
-        (receive, reader)
-    }
-
     async fn dial(
         member: &Member,
         transport: &Arc<dyn LogTransport>,
@@ -3294,7 +3445,7 @@ async fn stream_lane(
             .open_stream(&member.node, &member.addr, "/peer/log/stream")
             .await?;
         let (read, write) = tokio::io::split(io);
-        let (responses, reader) = spawn_reader(read);
+        let (responses, reader) = reply_reader::spawn(read)?;
         Ok(StreamConnection::new(write, responses, reader))
     }
 
@@ -3485,8 +3636,12 @@ async fn stream_lane(
                     } => stopped,
                     event = async {
                         crate::asyncrt::select_biased! {
-                            "a queued append wins a tie with a response to preserve lane order";
-                            job = jobs.recv() => LaneEvent::Job(job),
+                            "a queued append with reply capacity wins a tie with a response to preserve lane order";
+                            // Every written frame needs a reply slot. Larger
+                            // configured submission windows wait here while
+                            // answers drain; otherwise bidirectional socket
+                            // backpressure can deadlock this writer and reader.
+                            job = jobs.recv(), if inflight.len() < reply_reader::CAPACITY => LaneEvent::Job(job),
                             response = responses.recv() => LaneEvent::Response(response),
                         }
                     } => event,
@@ -4765,20 +4920,27 @@ impl NodeLogManager {
         Ok(serde_json::from_slice(&bytes)?)
     }
 
-    /// The tail POST: a JSON request, a binary response (the entries
-    /// dominate it).
-    async fn post_tail(&self, node: &str, addr: &str, req: &TailReq) -> anyhow::Result<TailResp> {
-        let bytes = self
-            .transport
-            .post(
-                node,
-                addr,
-                "/peer/log/tail",
-                serde_json::to_vec(&TailWireReq::ranged(req.clone()))?,
-                None,
+    /// One verified snapshot; a partial connection never supplies a witness.
+    async fn post_tail(
+        &self,
+        node: &str,
+        addr: &str,
+        req: &TailReq,
+        claim: Option<(&str, &mut ClaimBeat)>,
+    ) -> anyhow::Result<tail_stream::Snapshot> {
+        let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = cancellation.clone();
+        self.recovery_wait(cancellation, claim, async {
+            let io = crate::asyncrt::timeout(
+                std::time::Duration::from_secs(10),
+                self.transport.open_stream(node, addr, "/peer/log/tail"),
             )
-            .await?;
-        decode_tail_resp(&bytes)
+            .await
+            .context("tail upgrade deadline")??;
+            let (filesystem, directory) = self.ltx.recovery_scratch();
+            tail_stream::receive(io, req, filesystem, directory, flag).await
+        })
+        .await
     }
 
     /// Node-log recovery, the model's StartRecovery/SealFollower/
@@ -4886,6 +5048,94 @@ impl NodeLogManager {
                 progress.completed(&self.bucket, cell).await;
                 self.beat_claim(dead, beat).await?;
             }
+        }
+        Ok(count)
+    }
+
+    fn recovery_rows(&self) -> recovery_rows::Rows {
+        let (filesystem, directory) = self.ltx.recovery_scratch();
+        recovery_rows::Rows::new(filesystem, directory)
+    }
+
+    /// Every long recovery wait beats its claim and propagates cancellation
+    /// to entered disk work. The domain still joins those workers on closure.
+    async fn recovery_wait<T>(
+        &self,
+        cancellation: Arc<std::sync::atomic::AtomicBool>,
+        mut claim: Option<(&str, &mut ClaimBeat)>,
+        operation: impl std::future::Future<Output = anyhow::Result<T>>,
+    ) -> anyhow::Result<T> {
+        let mut cancel = tail_stream::StopOnDrop(Some(cancellation));
+        futures_util::pin_mut!(operation);
+        let mut ticker = crate::asyncrt::interval(RECOVERY_HEARTBEAT);
+        loop {
+            crate::asyncrt::select! {
+                result = &mut operation => {
+                    let result = result?;
+                    cancel.0 = None;
+                    return Ok(result);
+                },
+                _ = ticker.tick() => {
+                    if let Some((dead, beat)) = claim.as_mut() { self.beat_claim(dead, beat).await?; }
+                },
+            }
+        }
+    }
+
+    async fn recovery_io<T: Send + 'static>(
+        &self,
+        cancellation: Arc<std::sync::atomic::AtomicBool>,
+        claim: Option<(&str, &mut ClaimBeat)>,
+        operation: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+    ) -> anyhow::Result<T> {
+        let job = crate::asyncrt::try_blocking(operation)?;
+        self.recovery_wait(cancellation, claim, async { job.await? })
+            .await
+    }
+
+    async fn upload_spilled(
+        &self,
+        rows: recovery_rows::Rows,
+        mut claim: Option<(&str, &mut ClaimBeat, &mut recovery_progress::Progress)>,
+    ) -> anyhow::Result<usize> {
+        let cancellation = rows.cancellation();
+        let mut rows = self
+            .recovery_io(
+                cancellation,
+                claim.as_mut().map(|(dead, beat, _)| (*dead, &mut **beat)),
+                move || rows.finish(),
+            )
+            .await?;
+        let mut count = 0;
+        loop {
+            let cancellation = rows.cancellation();
+            let (returned, batch) = self
+                .recovery_io(
+                    cancellation,
+                    claim.as_mut().map(|(dead, beat, _)| (*dead, &mut **beat)),
+                    move || {
+                        let batch = rows.next_batch()?;
+                        Ok((rows, batch))
+                    },
+                )
+                .await?;
+            rows = returned;
+            if batch.is_empty() {
+                break;
+            }
+            #[cfg(all(test, cellar_internal_tests))]
+            self.recovery_gather_peak_bytes.fetch_max(
+                batch.values().map(|bytes| bytes.len() as u64).sum(),
+                Ordering::SeqCst,
+            );
+            count += self
+                .upload_gathered(
+                    batch,
+                    claim
+                        .as_mut()
+                        .map(|(dead, beat, progress)| (*dead, &mut **beat, &mut **progress)),
+                )
+                .await?;
         }
         Ok(count)
     }
@@ -5098,7 +5348,7 @@ impl NodeLogManager {
             // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
             let mut witnesses = startup_retry::Witnesses::new(now);
-            let mut gathered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
+            let mut tail_rows = self.recovery_rows();
             // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
             // power cycle) is NOT conclusively gone — its fsync'd fragments
@@ -5156,7 +5406,10 @@ impl NodeLogManager {
                 let tail = TailReq {
                     leader: dead.to_string(),
                 };
-                let mut tail = match self.post_tail(member, &addr, &tail).await {
+                let tail = match self
+                    .post_tail(member, &addr, &tail, Some((dead, &mut beat)))
+                    .await
+                {
                     Ok(tail) => tail,
                     Err(error) => {
                         // The seal answer and the fragment are TWO requests,
@@ -5180,7 +5433,6 @@ impl NodeLogManager {
                         continue;
                     }
                 };
-                tail.entries.sort_by_key(|entry| entry.seq);
                 // A matching fragment epoch identifies the right fragment,
                 // but it does not prove that every retained sequence is still
                 // readable. The seal and tail responses must describe the same
@@ -5188,25 +5440,19 @@ impl NodeLogManager {
                 if held_fragment_epoch == record.epoch {
                     match sealed.base {
                         Some(base)
-                            if tail.range.fragment_epoch == held_fragment_epoch
-                                && tail.range.base == base
-                                && tail.range.end == sealed.end
-                                && tail.range.complete
-                                && sealed.fragment_epoch == held_fragment_epoch
-                                && tail_covers_sealed_range(base, sealed.end, &tail.entries) =>
+                            if tail.range().fragment_epoch == held_fragment_epoch
+                                && tail.range().base == base
+                                && tail.range().end == sealed.end
+                                && tail.range().complete
+                                && sealed.fragment_epoch == held_fragment_epoch =>
                         {
                             complete_witnesses += 1;
                         }
                         Some(base)
-                            if tail.range.fragment_epoch == held_fragment_epoch
-                                && tail.range.base == base
-                                && tail.range.end == sealed.end
-                                && (!tail.range.complete
-                                    || !tail_covers_sealed_range(
-                                        base,
-                                        sealed.end,
-                                        &tail.entries,
-                                    )) =>
+                            if tail.range().fragment_epoch == held_fragment_epoch
+                                && tail.range().base == base
+                                && tail.range().end == sealed.end
+                                && !tail.range().complete =>
                         {
                             warn!(
                                 dead,
@@ -5223,10 +5469,10 @@ impl NodeLogManager {
                                 member,
                                 base,
                                 end = sealed.end,
-                                tail_epoch = tail.range.fragment_epoch,
-                                tail_base = tail.range.base,
-                                tail_end = tail.range.end,
-                                tail_complete = tail.range.complete,
+                                tail_epoch = tail.range().fragment_epoch,
+                                tail_base = tail.range().base,
+                                tail_end = tail.range().end,
+                                tail_complete = tail.range().complete,
                                 "sealed follower returned inconsistent tail metadata"
                             );
                         }
@@ -5239,9 +5485,20 @@ impl NodeLogManager {
                         }
                     }
                 }
-                for entry in tail.entries {
-                    gathered.insert((entry.cell, entry.cell_epoch, entry.txid), entry.bytes);
-                }
+                tail_rows = self
+                    .recovery_io(
+                        tail_rows.cancellation(),
+                        Some((dead, &mut beat)),
+                        move || {
+                            tail.gather_into(
+                                tail_rows,
+                                recovery_rows::Priority::Preferred,
+                                recovery_rows::Duplicates::Last,
+                                None,
+                            )
+                        },
+                    )
+                    .await?;
             }
             let members_ms = mono_ms().saturating_sub(pass_started);
             // `may_have_fleet_acks` was CASed before the epoch's first fleet
@@ -5349,8 +5606,13 @@ impl NodeLogManager {
             let mut bundles_ms = 0_u64;
             let mut upload_ms = 0_u64;
             let mut gathered_bytes = 0_u64;
-            let mut tail = Some(std::mem::take(&mut gathered));
+            let mut tail = Some(tail_rows);
             for (index, window) in windows.into_iter().enumerate() {
+                let mut gathered = if index + 1 == window_count {
+                    tail.take().expect("tail folded only in final window")
+                } else {
+                    self.recovery_rows()
+                };
                 let fetch_started = mono_ms();
                 let fetches = window.into_iter().map(|key| {
                     let bucket = self.bucket.clone();
@@ -5369,31 +5631,35 @@ impl NodeLogManager {
                 while let Some(fetched) = futures_util::StreamExt::next(&mut fetches).await {
                     self.beat_claim(dead, &mut beat).await?;
                     let (key, bytes) = fetched?;
-                    let rows = cellar_ltx::bundle::decode_rows(&bytes)
-                        .with_context(|| format!("decode retained recovery bundle {key}"))?;
-                    for row in rows {
-                        let payload = cellar_ltx::bundle::slice(&bytes, &row)
-                            .with_context(|| format!("read a row from recovery bundle {key}"))?;
-                        gathered
-                            .entry((row.cell, row.cell_epoch, row.txid))
-                            .or_insert_with(|| payload.to_vec());
-                    }
+                    gathered = self
+                        .recovery_io(
+                            gathered.cancellation(),
+                            Some((dead, &mut beat)),
+                            move || {
+                                let rows =
+                                    cellar_ltx::bundle::decode_rows(&bytes).with_context(|| {
+                                        format!("decode retained recovery bundle {key}")
+                                    })?;
+                                for row in rows {
+                                    let payload = cellar_ltx::bundle::slice(&bytes, &row)
+                                        .with_context(|| {
+                                            format!("read a row from recovery bundle {key}")
+                                        })?;
+                                    gathered.insert(
+                                        (row.cell, row.cell_epoch, row.txid),
+                                        payload.to_vec(),
+                                        recovery_rows::Priority::Fallback,
+                                        recovery_rows::Duplicates::First,
+                                    )?;
+                                }
+                                Ok(gathered)
+                            },
+                        )
+                        .await?;
                 }
                 drop(fetches);
-                if index + 1 == window_count {
-                    // The same bytes under the same key wherever a row is
-                    // held; the follower's copy stays the one uploaded, as
-                    // it was when the whole session folded at once.
-                    for (key, bytes) in tail.take().into_iter().flatten() {
-                        gathered.insert(key, bytes);
-                    }
-                }
                 bundles_ms += mono_ms().saturating_sub(fetch_started);
-                let held: u64 = gathered.values().map(|bytes| bytes.len() as u64).sum();
-                #[cfg(all(test, cellar_internal_tests))]
-                self.recovery_gather_peak_bytes
-                    .fetch_max(held, Ordering::SeqCst);
-                gathered_bytes += held;
+                gathered_bytes = gathered_bytes.saturating_add(gathered.payload_bytes());
                 // Skip rows the drain points already folded into the
                 // per-cell prefix: one listing per cell bounds uploads to
                 // the true un-drained tail, so recovery cost tracks the
@@ -5412,14 +5678,12 @@ impl NodeLogManager {
                     progress =
                         Some(recovery_progress::Progress::load(self, dead, &mut beat).await?);
                 }
-                let loaded = progress
-                    .as_mut()
-                    .expect("the progress record is loaded before the first upload");
+                let loaded = progress.as_mut().expect("progress loaded before upload");
+                // The final spool includes all followers and its bucket
+                // window. Sort them together before advancing cell coverage;
+                // preferred follower duplicates retain their original rank.
                 count += self
-                    .upload_gathered(
-                        std::mem::take(&mut gathered),
-                        Some((dead, &mut beat, loaded)),
-                    )
+                    .upload_spilled(gathered, Some((dead, &mut beat, loaded)))
                     .await?;
                 upload_ms += mono_ms().saturating_sub(upload_started);
             }
@@ -7028,10 +7292,10 @@ impl NodeLogManager {
     /// sequence. Without that proof, activation fails rather than exposing a
     /// database that is missing acknowledged data.
     /// `upload_gathered` skips rows the per-cell watermark covers and
-    /// merges the contiguous tail into one object, so a re-run after a
-    /// partial failure repeats no upload.
+    /// merges contiguous rows within each bounded upload batch, so a re-run
+    /// after a partial failure skips covered rows.
     pub(crate) async fn fold_cell(&self, cell: &str) -> anyhow::Result<()> {
-        let mut gathered = BTreeMap::new();
+        let mut gathered = self.recovery_rows();
         let folded = read_record(&self.bucket, &self.session)
             .await?
             .ok_or_else(|| anyhow!("fold session {} has no log record", self.session))?;
@@ -7049,13 +7313,14 @@ impl NodeLogManager {
                     continue;
                 }
             };
-            let mut tail = match self
+            let tail = match self
                 .post_tail(
                     member,
                     &addr,
                     &TailReq {
                         leader: self.session.clone(),
                     },
+                    None,
                 )
                 .await
             {
@@ -7065,8 +7330,7 @@ impl NodeLogManager {
                     continue;
                 }
             };
-            tail.entries.sort_by_key(|entry| entry.seq);
-            let range = tail.range;
+            let range = tail.range();
             if range.fragment_epoch != record.epoch {
                 warn!(
                     cell,
@@ -7077,7 +7341,7 @@ impl NodeLogManager {
                 );
                 continue;
             }
-            if range.complete && tail_covers_sealed_range(range.base, range.end, &tail.entries) {
+            if range.complete {
                 complete_witnesses += 1;
             } else {
                 warn!(
@@ -7089,14 +7353,17 @@ impl NodeLogManager {
                     "live-session fold rejected an incomplete follower tail"
                 );
             }
-            for entry in tail.entries {
-                if entry.cell != cell {
-                    continue;
-                }
-                gathered
-                    .entry((entry.cell, entry.cell_epoch, entry.txid))
-                    .or_insert(entry.bytes);
-            }
+            let cell = cell.to_owned();
+            gathered = self
+                .recovery_io(gathered.cancellation(), None, move || {
+                    tail.gather_into(
+                        gathered,
+                        recovery_rows::Priority::Fallback,
+                        recovery_rows::Duplicates::First,
+                        Some(&cell),
+                    )
+                })
+                .await?;
         }
         // Activation is durable before the epoch's first fleet credit. An
         // epoch without fleet acknowledgements can credit a bundle PUT without
@@ -7112,11 +7379,21 @@ impl NodeLogManager {
         // the old fragments. An earlier snapshot could miss that bundle and
         // then accept a newer inactive epoch or already-truncated tail as
         // empty, losing the acknowledged rows that enabled the transition.
-        gathered.extend(self.uncovered_bundle_rows_for(Some(cell)).await?);
-        if gathered.is_empty() {
-            return Ok(());
-        }
-        let uploaded = self.upload_gathered(gathered, None).await?;
+        let bundle_rows = self.uncovered_bundle_rows_for(Some(cell)).await?;
+        gathered = self
+            .recovery_io(gathered.cancellation(), None, move || {
+                for (key, bytes) in bundle_rows {
+                    gathered.insert(
+                        key,
+                        bytes,
+                        recovery_rows::Priority::Preferred,
+                        recovery_rows::Duplicates::Last,
+                    )?;
+                }
+                Ok(gathered)
+            })
+            .await?;
+        let uploaded = self.upload_spilled(gathered, None).await?;
         info!(
             cell,
             uploaded, "folded a quietly stranded tail before reactivation"

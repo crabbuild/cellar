@@ -129,6 +129,17 @@ bytes; never roll back state.json. Propagate proxy frontend EOF at the actual
 upstream join, then cold-reload fresh peer generations with the same recoverer.
 Audit original inbox/effects before replay. Recreate older development state;
 all markers remain 1. Added state barriers require fresh capacity measurement.
+A warm tail/seal scan that finds acknowledged coverage missing must also mark
+its cached range unreadable. Returning an incomplete certificate alone does not
+stop duplicate/probe/new-suffix append credit from the old cache. Indexed payload
+reread failures affecting that acknowledged range have the same refusal. Preserve
+the durable end/seal and leave original files untouched; only cold verification,
+a genuinely covered base or verified epoch adoption reestablishes append credit.
+A directory observation error alone is retryable, not evidence of missing bytes.
+The warm-cache unit matrix and log_follower_loss.rs native case exercise these
+boundaries; the native case uses previously proven LTX writes and original-byte
+return while retaining the seal, not a fabricated successful proof.
+
 Follower state.json is a format-1 record binding leader session, follower node,
 fragment epoch/base/end/seal floor with SHA-256 over canonical binary fields.
 Reject unknown/old shapes, unsupported markers, invalid ranges, identity/digest
@@ -151,6 +162,94 @@ the oversized input is guarded by the test filesystem to avoid a huge test
 allocation. consumer_recovery.py --witness-data state-oversize pads the original
 valid record to 64 KiB without changing fields/checksum. Require actual size
 refusals, untouched batches and exact original-state return after peer joins.
+Follower cold scans enumerate through FileSystem::read_dir_iter and release each
+verified batch payload before reading another. follower_index.rs keeps at most
+128 metadata records per run/buffer, spilling larger inventories into anonymous
+injected scratch files with checked lengths and per-record SHA-256. Scratch is
+derived, never authority. Read/sort/write failures refuse without caching a
+shorter inventory. Seal checks verified range coverage without building a tail;
+subsequent payload reads must match the indexed digest/state/length/range.
+Canonical numeric batch filenames are required; noncanonical names remain unknown
+gap evidence. Custom filesystems must supply streaming directories and scratch
+for large histories; no eager fallback. All owned markers remain 1. The isolated
+cold-load/seal RSS fixtures qualify only their 16-by-8-MiB profile. Production
+tail transfer uses tail_stream.rs through the existing authenticated tail upgrade,
+including the recovery-startup HTTP surface. No buffered POST fallback exists;
+rebuild all participants on this format-1 cutover. The buffered tail helper is
+for diagnostic/fixture inspection, not production recovery. Stage an immutable
+snapshot under the original leader guard in owned blocking work; release the
+guard before network waiting. Retain at most two active snapshots/transfers per
+follower and split raw data into at most 1 MiB frames, including within one legal
+maximum writer entry. A format-1 manifest binds leader digest, epoch/base/end,
+completeness, u64 counts/bytes and payload SHA-256. Each receiver stages its peer
+independently and verifies full sequence coverage, counts, digest, completion
+frame and EOF before exposing the snapshot. Progress frames supply no proof.
+During preparation, progress.rs wraps the same captured filesystem, reporting
+completed chunk/metadata work; an idle timer alone cannot keep a stalled attempt
+alive. Monitor client EOF during preparation and propagate cancellation through
+cold scans, index/row merging and entered workers. Domain shutdown still joins
+uninterruptible entered I/O. A late snapshot reread/merge failure aborts the whole
+gather: never keep its partial rows and continue on another witness. Source and
+receiver RSS fixtures qualify their measured profiles only. Large bundle bodies,
+live-fold bundle helpers, provider/progress inventories and total recovery memory
+remain separate gates. Dead-session recovery and live-cell folding stage rows through
+recovery_rows.rs. Payloads spill into anonymous files on the replica's injected
+filesystem under its data root, never ambient /tmp. Every nonempty gather requires
+anonymous scratch support, including histories small enough for an in-memory
+metadata run. Variable-length key runs hold
+at most 128 rows/1 MiB and merge through bounded caches without a run inventory.
+Verify scratch lengths/counts/checksums, original descriptor identity tags beside
+payloads and selected payload digests. Check every descriptor before key dedup or
+batch-budget decisions, including ignored duplicates and lookahead. Strict full
+metadata order includes priority/rank/original offset; an exact copied descriptor
+must refuse before returning a batch that could raise coverage past a lost row.
+A failure noticed only after that watermark can already make a retry skip lost
+data. Scratch identity cannot be inferred from a valid per-record checksum alone.
+Any failure must reach the caller before sealing. Recovery keeps last-follower precedence;
+live fold keeps first-follower precedence with bucket copies preferred. Sort the
+final bucket window and follower rows together numerically before any watermark
+can skip older rows. Upload batches cap rows and accounted bytes, allowing one
+legal oversized row. Owned blocking work beats the claim and cooperatively stops
+on caller cancellation; domain shutdown still joins entered work. Full tail/HTTP,
+live-fold bundle reads, oversized bundles and provider/progress inventories remain
+separate implementation gates before total recovery bounds can be claimed.
+
+Node-log append/seal HTTP replies and ordered reply frames contain scalar
+metadata; collect at most 64 KiB and reject an excess frame header before its
+payload allocation/read. Keep the distinct 64 MiB writer-data frame allowance
+and bounded raw recovery-tail protocol. Signed HTTP checks status and response
+authentication before bounded collection, retains supplied pools/deadlines and
+never treats size refusal as durability credit or protocol-incapable status.
+reply_reader.rs reserves finite mailbox capacity before reading another frame;
+receiver drop must release both blocked reservation and blocked read, and retire
+must join the actual tracked reader before redial. Keep unanswered wire appends
+at or below that same mailbox capacity. Larger configured submission windows
+wait for responses rather than being refused; a writer that keeps taking queued
+jobs can deadlock both socket directions after the finite reply queue fills.
+The actual 128-job/128-byte-duplex lane regression checks exact FIFO replies and
+normal peer/lane joins, separately from the pump-only queue tests. Admission uses try_spawn so
+closure within an entered poll returns DomainClosed without panic. The real
+signed length/chunked/pending-body and ordered-reader regressions cover these
+seams; they do not establish a total recovery memory ceiling or explain the
+independent native-actor lease-expiry failures.
+
+Consumer-recovery failure cleanup must run every node/gate/store/ledger action
+through cleanup_all, preserving the primary error even when a stopped node was
+fenced. WitnessGate.close disconnects persistent frontends before server_close
+joins handlers; otherwise a failed driver can remain in Python finalization.
+The Python regressions exercise the actual consumer finally branch and a real
+idle keepalive connection. PeerProxy and WitnessGate share relay_upgrade for
+buffered binary upgrades. The outer /peer/tunnel upgrade carries HTTP RPC inside;
+PeerProxy must continue inspecting that HTTP to hold/drop the selected exact
+reply. Treating every 101 as opaque bypasses the fault gate and cannot qualify
+reply loss. Log/application upgrades are opaque and join both relay directions
+on EOF. PeerProxy close retires both TCP endpoints before joining handlers;
+ACK cleanup also uses cleanup_all so a proxy failure cannot mask readiness or
+skip the private store/ledger. --trace captures selected actor/lease-store events;
+unexpected-refusal files retain the exact verdict before further observation.
+Keep the original one-second fixture lease, typed Unavailable requirement and
+operation budgets. Cleanup repairs do not explain an observed NodeLeaseExpired.
+
 Cold destination ack/fetch fixtures refuse only the consumer's selected stream
 ownership write, preserving other writes and real proof paths. A returning
 consumer may otherwise validly own the stream and replay locally, bypassing the
@@ -300,8 +399,10 @@ version-1 markers; activation rejects unsupported markers, inconsistent retained
 accounting and outbox events exceeding the captured host policy. Cellar is in internal development: all Cellar-owned protocol, format and
 schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
 readers, layout migrations, version negotiation or fleet upgrade commands.
-The ranged log-tail request uses tail_format 1 and its response uses CLT1;
-missing/unsupported markers and entries-only request shapes are refused. Native
+The log-tail request frame uses tail_format 1; streamed manifests and preparation
+progress use CTS1/CTP1. CLT1 is only the buffered diagnostic/fixture codec, never
+a network fallback. Missing/unsupported markers and entries-only request shapes
+are refused. Native
 follower reads/writes require node/lineage/generation identities, and discovery visits
 only that current directory layout. Rebuild every participant on wire cutover;
 former flat-layout development state requires recreation, not a migration.
@@ -1296,6 +1397,14 @@ through queue/result waiting. Expiry before submission is Unavailable; after
 submission it is Ambiguous and drops the exact request cancellation guard. The
 full cut matrix remains separately tracked; do not call this complete end-to-end
 deadline qualification.
+Post-submission/refusal deadline fixtures must establish their named state before
+installing the wait. A 10 ms budget may expire before an unpolled fixture begins;
+Unavailable with zero effects is then correct, not a lost committed effect.
+Poll an owned pinned operation to its pending checkpoint and preserve its drop
+guard; never extend the deadline or change the expected ambiguity to hide setup
+jitter. Keep both expired-before-submission/no-effect and submitted-effect cases,
+including wait installation after the original deadline. These synthetic wait
+tests do not replace the storage/process proof cuts.
 
 
 Event RPC deadline budgets include the canonical, nonnegative `__streamNext`

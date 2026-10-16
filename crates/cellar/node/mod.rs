@@ -3055,12 +3055,21 @@ async fn internal_log(request: Request<Incoming>, app: AppHandle, path: String) 
             "method not allowed",
         ));
     }
-    if path == "/peer/log/stream" {
-        // The ordered append stream (the ordered-transport design):
-        // the handshake is fleet-HMAC verified above like every log route,
-        // the 101 carries the response auth the leader validates before it
-        // upgrades, and the upgraded duplex is served by one reader so
-        // apply order equals arrival order.
+    if matches!(path.as_str(), "/peer/log/stream" | "/peer/log/tail") {
+        // Ordered appends and immutable recovery snapshots share the same
+        // authenticated upgrade. The 101 carries response auth before the
+        // caller takes the duplex; each owned task serves its selected protocol.
+        if !body.is_empty()
+            || parts
+                .headers
+                .get(hyper::header::UPGRADE)
+                .is_none_or(|header| header != "cellar-log-stream")
+        {
+            return peer_response(response(
+                StatusCode::BAD_REQUEST,
+                "log streams require an empty authenticated upgrade",
+            ));
+        }
         let Some(upgrade) = parts.extensions.remove::<hyper::upgrade::OnUpgrade>() else {
             return peer_response(response(
                 StatusCode::BAD_REQUEST,
@@ -3068,18 +3077,32 @@ async fn internal_log(request: Request<Incoming>, app: AppHandle, path: String) 
             ));
         };
         let store = follower.clone();
-        crate::asyncrt::spawn(async move {
+        let tail = path == "/peer/log/tail";
+        let task = crate::asyncrt::try_spawn(async move {
             match upgrade.await {
                 Ok(upgraded) => {
                     let io = TokioIo::new(upgraded);
-                    if let Err(error) = crate::node_log::serve_log_stream(io, store).await {
+                    let result = if tail {
+                        crate::node_log::serve_tail_stream(io, store).await
+                    } else {
+                        crate::node_log::serve_log_stream(io, store).await
+                    };
+                    if let Err(error) = result {
                         tracing::debug!(%error, "log stream ended");
                     }
                 }
                 Err(error) => tracing::debug!(%error, "log stream upgrade failed"),
             }
-        })
-        .detach();
+        });
+        match task {
+            Ok(task) => task.detach(),
+            Err(_) => {
+                return peer_response(response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "log stream execution domain closed",
+                ))
+            }
+        }
         let mut reply = response(StatusCode::SWITCHING_PROTOCOLS, "");
         reply.headers_mut().insert(
             hyper::header::UPGRADE,
@@ -3092,8 +3115,8 @@ async fn internal_log(request: Request<Incoming>, app: AppHandle, path: String) 
         return peer_response(reply);
     }
     let result: anyhow::Result<Vec<u8>> = match path.as_str() {
-        // The append body and the tail response are binary — the entries
-        // dominate both — while every control message stays JSON.
+        // Append bodies are binary; these ordinary control replies stay JSON.
+        // Recovery tails use the bounded upgrade above.
         INTERNAL_LOG_APPEND_PATH => match crate::node_log::decode_append(&body) {
             Ok(req) => {
                 let collected = crate::asyncrt::mono_us();
@@ -3112,13 +3135,6 @@ async fn internal_log(request: Request<Incoming>, app: AppHandle, path: String) 
         "/peer/log/seal" => match serde_json::from_slice::<crate::node_log::SealReq>(&body) {
             Ok(req) => match follower.seal(&req).await {
                 Ok(resp) => serde_json::to_vec(&resp).map_err(Into::into),
-                Err(error) => Err(error),
-            },
-            Err(error) => Err(error.into()),
-        },
-        "/peer/log/tail" => match serde_json::from_slice::<crate::node_log::TailWireReq>(&body) {
-            Ok(req) => match follower.tail(&req.request).await {
-                Ok(response) => req.encode_response(&response),
                 Err(error) => Err(error),
             },
             Err(error) => Err(error.into()),
