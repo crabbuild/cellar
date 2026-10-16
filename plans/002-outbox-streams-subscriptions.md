@@ -2030,3 +2030,15 @@ its original three-second operation budget. A Fleet proof may return before the
 independent upload task is polled; an immediate attempt counter was a scheduler
 assumption. Keep the exact bucket-prefix audit and original budget after observing
 the attempt. This observation neither creates proof nor changes production policy.
+
+Foreign recovery uses the same retained-root invariant through the routing
+interlock. Starting under a different node's own lease is legitimate; serving a
+cell whose predecessor proof is absent is not. Select a real foreign recovery
+claim, hold its actual root response and erase/replace that predecessor root.
+The routed read must receive an explicit refusal under its original budget,
+without replacing the old cell owner or losing retained payload/batch bytes.
+Join the failed recoverer before returning the actual claimed metadata, then
+audit original state before receipt replay. A startup-only test does not cover
+this boundary. This selected retry joins/restarts the foreign recoverer; it
+leaves same-process resumption, physical/process faults and other predecessor
+cut points separately qualified.

@@ -24,7 +24,34 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice qualifies metadata loss after a real predecessor recovery
+The current slice extends the claim-phase root-loss boundary to a different
+node taking ownership through a cold route. Its own startup may succeed; the
+foreign cell read must return an explicit Unavailable verdict within the original
+three-second budget after erasing/replacing the predecessor root. Join that
+recoverer before returning actual captured metadata. Require unchanged old cell
+ownership, acknowledged follower batches and preexisting bucket objects, then
+recover original event/clock/source/inbox/checkpoints before receipt replay.
+Both initial native cases pass in 23.24s. Runtime diagnostics show the missing
+session root and changed-lineage guards refusing the actual recovery, followed
+by a higher-epoch foreign successor with the original clock, one protected
+event/effect, final checkpoint two and producer settlement two. This selected
+retry joins and restarts the failed foreign recoverer; it does not establish
+in-place resumption on that same running process. The frozen focused run passes
+in 18.15s and all thirteen clock/refusal cases pass in 137.62s, using the same
+saved executable SHA256: b1d234f7d6d55d07ad2cee041676bc15a3b1950da46d3ec64f5140a2de595e7a.
+All 71 serial Node cases pass in 580.93s with that same executable. Workspace
+all-target/all-feature checking (9.66s), Clippy with warnings denied (8.01s),
+formatting (518 Rust files), docs (36 documents/six flows/388 references),
+dependency policy (403 packages/no JavaScript engine) and whitespace checks pass.
+All eight captured Rust source hashes stayed fixed throughout qualification.
+The library/log/core/CLI/Python and doc-test results below are prior evidence for
+unchanged production code; this test-only slice did not repeat those suites.
+No production recovery/admission or Cellar-owned markers changed. The next
+selected availability gap is resumption after a claim-phase refusal on the same
+running foreign recoverer. Other predecessor, rollback, process, physical-loss,
+capacity and intermittent-startup cause audits remain open.
+
+The previous slice qualifies metadata loss after a real predecessor recovery
 claim, before the member gather and final seal. A selected same-name startup
 holds its ordinary-bucket GET of the actual Recovering root. Erasure and a
 replacement lineage must each produce the specific recovery refusal, preserve
@@ -125,8 +152,9 @@ code evidence; this test-only follow-up did not rerun them.
 Local Rust is 1.97.0/aarch64 macOS. These local results do not complete the
 release fault/capacity matrix or establish the causes of earlier intermittent
 startup failures. Hosted Rust 1.98.1 validation remains separate. Further proof
-qualification must cover foreign recovery and the other predecessor cut points,
-then metadata rollback, independent-process and physical storage/host cuts.
+qualification must cover same-process resumption and other foreign/predecessor
+cut points, then metadata rollback, independent-process and physical storage/host
+cuts.
 
 The broader proof/fault matrix,
 other predecessor recovery cut points, metadata rollback and independent-process

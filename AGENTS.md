@@ -137,6 +137,12 @@ claimed metadata after failed startup joins, then audit original clock/event/
 source/inbox/checkpoints before receipt reuse. State and batch preservation are
 distinct at this phase; do not relax the older cuts' exact-byte assertions. Keep
 metadata rollback and physical loss qualification separate from retained-root evidence.
+Foreign claim-phase cuts start under a different node's own lease and trigger the
+predecessor interlock through a signed cold read. Require explicit Unavailable
+before the unchanged routing deadline; a timeout is not the expected refusal.
+Join the failed recoverer before returning real claimed metadata, then audit the
+original prefix before receipt reuse. Successful own-node startup is independent
+of admission to a cell last owned by the missing/replaced predecessor.
 Delayed-reply fixtures retain the exact removed root atomically in their private
 SQLite store, assert NodeLeaseMissing and full join, then restore its proof fields
 with only expiry shortened before expecting retained-proof recovery.
