@@ -4784,11 +4784,13 @@ async fn async_main(
                         eprintln!(
                             "cellar predecessor recovery attempt {attempt} failed: {error:#}"
                         );
+                        // Retain the TTL backoff for a live predecessor or an
+                        // unchanged failure. A returning witness is a reason
+                        // to retry proof before its own activation expires.
+                        manager
+                            .wait_for_startup_retry(error, ttl_backoff.saturating_mul(attempt))
+                            .await;
                     }
-                    // At least one full TTL between attempts, so a
-                    // refused-because-live predecessor lease has expired
-                    // by the retry.
-                    tokio::time::sleep(ttl_backoff.saturating_mul(attempt)).await;
                 }
                 recovered.map_err(|error| {
                     anyhow::anyhow!(

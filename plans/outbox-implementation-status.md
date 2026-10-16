@@ -18,11 +18,63 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Intermittent Node startup/shutdown failures | Observed failures with unestablished causes | First diagnose the cold RustFS expired-fetch failure: returning peers failed __catalogResolve while the destination retained a recovering predecessor and missed readiness/drain budgets. Preserve failed evidence, reproduce with full error chains, add a regression at the actual failing boundary and pass the original scenario without relaxing deadlines/assertions. Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures also remain open; passing isolated replays do not close them. |
+| 1 | Other intermittent Node startup/shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain and clock-fixture activation failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 2 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 3 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+The cold RustFS startup failure now has a reproduced cause. The first ordinary
+repeat fails with full error chains: both returning peers exhaust their 10s
+activation budget while the destination retains its recovering predecessor.
+A controlled boot starts the destination and observes its actual first
+missing-witness refusal before returning peers. Its next recovery attempt waits
+30s under the existing startup policy, so both peers exit first and the witness
+is unavailable again. The run misses the original readiness/drain budgets;
+failed metadata, logs and stopped store data are preserved. No tunnel protocol
+refusal was observed. A competing claim is not needed to reproduce this case.
+
+The fix retains the exact member lease observations on missing-witness errors.
+Both startup paths poll those roots during the original backoff, retrying early
+only when a live current-protocol witness returns or changes its route/identity.
+Unchanged live heartbeats, absent/corrupt reads and untagged errors retain backoff.
+The wait includes its reads in the existing deadline, spawns no task and changes
+neither proof admission nor attempts/boot/RPC/activation budgets. Three real-store
+unit cases pass. The new recovery-first process case records and re-audits the
+bounded actual refusal prefix, original owner/predecessor and old peer leases,
+then requires original-prefix recovery before replay. An initial SQLite run
+recovered but failed because the fetch auditor did not recognize the new event;
+that dispatch is corrected and independently guarded. The corrected SQLite and
+RustFS cases pass in 33.94s/35.23s with complete joins. These preliminary results
+are separate from final frozen-source qualification below and do not establish
+the causes of the other startup failures.
+
+The current frozen-source run captures 525 Rust and 68 Python files and uses
+runtime SHA256
+c65e1e80cc519f2512d2d3c90533a394983b512308507386b6b076e129d6969e.
+All 24 process cases and saved-evidence re-audits pass: the existing 20-case
+matrix, both controlled startup cuts and two extra ordinary RustFS expired-fetch
+repeats (three ordinary runs total). Controlled retries occur 417.291ms/627.967ms
+after the first refusal on SQLite/RustFS, instead of the reproduced 30s wait.
+All 167 Python guards, three retry-policy tests, 19 native log/five protocol
+cases, ordinary smoke, all-target/all-feature checking (83.73s), Clippy with
+warnings denied (94.08s), formatting, docs and dependency policy pass. Source
+hashes remain fixed. Actual process/container inspection confirms no saved-
+runtime processes and all 20 owned stores across failed, diagnostic and current
+runs removed; failed manual cleanup is not graceful-drain evidence. The first
+batch was intentionally stopped after its active process case completed to
+correct a test-only use of a forbidden Tokio timer; the current batch uses the
+execution-domain clock. The full all-feature workspace suite passes 640 tests
+across 108 targets in 1281.19s, including all 77 Node cases (139.15s). The
+development-host case passes in 560.50s under its unchanged deadlines. Doc-tests
+pass 11 with one existing ignored example (89.03s), and whitespace checks pass.
+All source hashes remain unchanged through completion. Final documentation
+checks run again after this ledger update. This qualifies the reproduced cold-
+startup backoff race on the stated profile, not the entire release matrix.
+The local profile is Rust 1.97.0/aarch64 macOS. CI's declared Rust 1.98.1 compiler
+is also installed locally; its Clippy/rustfmt components are now available and
+matching-toolchain qualification is the next check. Hosted jobs have been unable
+to start because of GitHub account payment/spending-limit restrictions.
 
 The current metadata investigation reproduces four native failures: corrupt base,
 malformed/missing state and foreign valid metadata all supplied a readable tail
@@ -80,8 +132,9 @@ evidence, not graceful-drain proof. Full error chains now survive activation
 readiness/debug output, and fixture cleanup attempts all owned resources while
 preserving the primary error. Three cleanup guards pass. A traced repeat, a
 two-second destination-start stagger and a later ordinary repeat pass, but none
-establishes the original cause. Keep this startup/shutdown gate open. No startup,
-RPC, lease or shutdown deadline is relaxed; the new metadata proof rules remain.
+establishes the original cause. The later controlled recovery-first investigation
+and qualification above address this specific failure. No startup, RPC, lease or
+shutdown deadline is relaxed; the new metadata proof rules remain.
 
 The current missing-consumer-batch investigation reproduced a real safety bug
 twice: deleting every committed witness batch left an old state.json with end

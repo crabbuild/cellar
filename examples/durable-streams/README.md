@@ -858,3 +858,25 @@ the driver records host snapshots while replacement readiness is pending. These
 probes never invoke source cells and preserve the original readiness deadline.
 Keep diagnostic runs distinct from ordinary qualification: probes add traffic,
 and a successful replay cannot explain an earlier intermittent failure.
+
+The controlled cold-start case starts the destination before returning its
+witnesses. It waits for an actual missing-witness recovery refusal, records the
+unchanged predecessor/owner and old peer leases, then starts both retained peers.
+This reproduces the startup backoff/activation race without artificial proof or
+longer deadlines. The destination's trace is enabled for this case; its bounded
+diagnostic prefix is checked again by the independent evidence auditor.
+
+```sh
+python3 examples/durable-streams/fetch_faults.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --follower-only --restart-followers --lease-state expired --recovery-first \
+  --output /tmp/cellar-cold-start-evidence
+python3 examples/durable-streams/fetch_faults.py \
+  --audit /tmp/cellar-cold-start-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image` with the chosen pinned image to run against a private network
+store. Successful startup must retain the original fetched state before replay,
+then apply one effect and acknowledge with complete process/proxy/store joins.
+The case keeps the original 30-second node/delivery leases and 10-second event
+operation budget. Physical failures and other startup causes remain separate.

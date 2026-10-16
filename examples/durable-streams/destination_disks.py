@@ -133,7 +133,9 @@ def audit_disks(path, complete=True):
                         and hashlib.sha256(config.read_bytes()).hexdigest() == gate["configuration_sha256"]
                         and hashlib.sha256(marker.read_bytes()).hexdigest() == gate["marker_sha256"]
                         and json.loads(config.read_text())["blocked_claim"] == armed["scope"], "cold append claim gate custody changed")
-    return dict(restarted_destination_followers=len(ready), cold_append_gates=int(append_gate is not None))
+    from destination_startup import audit as audit_startup
+    startup=audit_startup(path,complete)
+    return dict(restarted_destination_followers=len(ready), cold_append_gates=int(append_gate is not None), startup_recovery_cuts=startup)
 
 
 class ColdFollowers:

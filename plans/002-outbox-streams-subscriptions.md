@@ -1144,6 +1144,19 @@ current writer epoch.
 | Work task is rejected or cancelled | Registry releases owned resources; durable deadline still permits recovery |
 | Same-name process restart or fleet handoff | Recover predecessor proof history before serving; stable logical IDs are unchanged |
 
+During a correlated restart, a failed recovery pass may observe a witness's old
+address just before that peer publishes its fresh lease. Waiting a whole node
+TTL can exceed the peer's event activation budget and remove the witness again.
+Retain the exact lease observations on missing-witness failures. During the
+configured startup backoff, poll only those member roots and retry early when a
+live current-protocol witness returns with changed lineage, generation or
+address, or renews a lease observed expired. An unreadable/missing record or an
+ordinary heartbeat from an already-live peer cannot wake this wait. Include all
+reads in the backoff deadline and retain the enclosing boot/attempt budgets,
+attempt count and cancellation. A wake only schedules another full recovery
+proof; it cannot seal a predecessor, install authority or enable application
+admission. Both native host startup paths use the same rule.
+
 ### Shutdown and application upgrades
 
 Internal dispatch and stream maintenance are tracked execution-domain work,

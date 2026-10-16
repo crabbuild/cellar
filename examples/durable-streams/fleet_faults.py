@@ -177,7 +177,7 @@ class PeerProxy:
 
 
 class FleetProcess(Process):
-    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None, stream_rows=None, node_lease_ms=None, replica_fault=False, owner_fault=False, blocked_claim=None):
+    def __init__(self, binary, root, node, label, peer, advertise, declare, store=None, fleet_durability=True, outbox_rows=None, stream_rows=None, node_lease_ms=None, replica_fault=False, owner_fault=False, blocked_claim=None, fixture_trace=False):
         self.node = node
         data = root / "data" / node
         data.mkdir(parents=True, exist_ok=True)
@@ -189,7 +189,7 @@ class FleetProcess(Process):
         self.log = root/f"{label}.log"
         self.output = self.log.open("xb")
         self.child = subprocess.Popen([str(binary),str(data),"0","--fleet-fixture",str(config)],
-            stdout=self.output, stderr=subprocess.STDOUT, env=dict(os.environ,NO_COLOR="1", **(store.credentials if store else {})))
+            stdout=self.output, stderr=subprocess.STDOUT, env=dict(os.environ,NO_COLOR="1", **(store.credentials if store else {}), **(dict(CELLAR_STREAM_FIXTURE_TRACE="1") if fixture_trace else {})))
 
 
     def stop_recorded(self, ledger):

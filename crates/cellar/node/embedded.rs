@@ -954,15 +954,14 @@ async fn prepare(
                     match recovered {
                         Ok(()) => return Ok(()),
                         Err(error) if attempt == config.startup.recovery_attempts => anyhow::bail!("refusing to install a lease over an unrecovered predecessor log: {error:#}"),
-                        Err(error) => tracing::warn!(attempt, %error, "predecessor recovery failed; retrying before lease installation"),
+                        Err(error) => {
+                            tracing::warn!(attempt, error = format!("{error:#}"), "predecessor recovery failed; retrying before lease installation");
+                            manager.wait_for_startup_retry(
+                                &error,
+                                config.startup.recovery_retry_backoff.saturating_mul(attempt),
+                            ).await;
+                        }
                     }
-                    tokio::time::sleep(
-                        config
-                            .startup
-                            .recovery_retry_backoff
-                            .saturating_mul(attempt),
-                    )
-                    .await;
                 }
                 unreachable!("recovery policy requires a positive attempt count")
             };

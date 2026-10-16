@@ -38,6 +38,7 @@ use crate::peer_auth::PeerAuth;
 
 mod follower_state;
 mod recovery_progress;
+mod startup_retry;
 
 /// The one peer-POST boundary used by the node log.
 ///
@@ -5037,6 +5038,7 @@ impl NodeLogManager {
             // acknowledgements must remain blocked even when every member
             // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
+            let mut witnesses = startup_retry::Witnesses::new(now);
             let mut gathered: BTreeMap<(String, u64, u64), Vec<u8>> = BTreeMap::new();
             // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
@@ -5050,6 +5052,7 @@ impl NodeLogManager {
             for member in &record.ensemble {
                 self.beat_claim(dead, &mut beat).await?;
                 let lease = self.ownership.read_node_lease(member).await;
+                witnesses.observe(member, lease.as_ref().ok().and_then(Option::as_ref));
                 let lease_live = matches!(&lease, Ok(Some(lease)) if lease.expires_ms > now);
                 let lease_long_dead = matches!(
                     &lease,
@@ -5193,13 +5196,15 @@ impl NodeLogManager {
             // discarded. An empty ensemble with the ack marker is likewise
             // missing proof. A later pass can succeed if a witness returns.
             if complete_witnesses == 0 && may_have_fleet_acks {
-                anyhow::ensure!(
-                    inconclusive == 0,
-                    "node-log recovery for {dead}: no complete true witness among {:?} and \
+                if inconclusive != 0 {
+                    return Err(anyhow::anyhow!(
+                        "node-log recovery for {dead}: no complete true witness among {:?} and \
                      {inconclusive} member(s) undecided; refusing to seal while \
                      member state remains unverified",
-                    record.ensemble
-                );
+                        record.ensemble
+                    )
+                    .context(witnesses));
+                }
                 let loss = serde_json::json!({
                     "leader": dead,
                     "epoch": record.epoch,
@@ -5216,11 +5221,12 @@ impl NodeLogManager {
                         serde_json::to_vec(&loss)?,
                     )
                     .await?;
-                anyhow::bail!(
+                return Err(anyhow::anyhow!(
                     "node-log recovery for {dead}: no complete true witness among {:?}; \
                      acknowledged writes may be missing; recovery remains blocked",
                     record.ensemble
-                );
+                )
+                .context(witnesses));
             }
             // The dead leader's un-drained bundles are bucket-durable
             // coverage that recovery folds into the per-cell prefixes —
@@ -5573,6 +5579,17 @@ impl NodeLogManager {
     /// is ordinary dead-session recovery under other keys.
     pub async fn recover_self(&self) -> anyhow::Result<()> {
         self.ensure_predecessors_recovered().await
+    }
+
+    /// A returning witness may need this recovery to finish before its own
+    /// application activation deadline. Its fresh lease is a reason to retry
+    /// the real proof, never permission to skip it or enlarge the boot budget.
+    pub(crate) async fn wait_for_startup_retry(
+        &self,
+        error: &anyhow::Error,
+        backoff: std::time::Duration,
+    ) {
+        startup_retry::wait(error, &self.ownership, backoff).await;
     }
 
     /// Is the fleet tier serving acknowledgements?

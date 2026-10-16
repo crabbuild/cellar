@@ -71,10 +71,11 @@ def fixture(operation="ack", expired=False):
 
 
 class DestinationDiskTests(unittest.TestCase):
-    def audit(self, rows, operation="ack", changed=False, changed_gate=False):
+    def audit(self, rows, operation="ack", changed=False, changed_gate=False, startup_prefix=None):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/"ledger.jsonl"
             path.write_text("".join(json.dumps(row)+"\n" for row in rows))
+            if startup_prefix is not None:(Path(directory)/"destination-recovered.log").write_bytes(startup_prefix)
             disk=copy.deepcopy(next(row["followers"]["producer"] for row in fixture(operation) if row["event"]=="destination_followers_retained"))
             if changed:disk["files"][0]["sha256"]="f"*64
             if operation in ("append","ack","fetch"):

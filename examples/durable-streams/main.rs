@@ -191,7 +191,7 @@ fn main() -> Result<()> {
         tracing_subscriber::fmt()
             .with_ansi(false)
             .with_writer(std::io::stderr)
-            .with_env_filter("off,cellar::daemon::event_resources=debug")
+            .with_env_filter("off,cellar::daemon::event_resources=debug,cellar::daemon::embedded=warn,cellar::node_log=info")
             .try_init()
             .map_err(|error| anyhow::anyhow!("fixture tracing: {error}"))?;
     }

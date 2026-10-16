@@ -150,12 +150,26 @@ The failed RustFS ack run returned AlreadyAcknowledged with unchanged effects/
 checkpoint but no captured replay; keep it as a fixture failure, not a pass.
 The cold RustFS expired-fetch run also exposed a separate startup/shutdown
 failure: returning peers exited at __catalogResolve while the destination kept
-the predecessor log recovering, then missed readiness and drain budgets. Keep
-that failure open despite passing traced/staggered/untraced replays. Activation
+the predecessor log recovering, then missed readiness and drain budgets. Passing
+traced/staggered/untraced replays alone did not establish its cause. The controlled
+recovery-first case and startup retry below reproduce and address this race. Activation
 readiness and debug diagnostics preserve the full error chain. Fixture cleanup
 uses cleanup_all to attempt every owned node/proxy/store/ledger after a stop
 failure without masking the original error; already-exited processes close their
 output handles. Cleanup of a failed run is not successful graceful-drain proof.
+Cold startup can fail one recovery pass before a retained witness publishes its
+new route. Waiting a full node TTL can outlast that witness's event activation
+deadline and lose its serving process before the retry. Missing-witness errors
+retain the exact member lease observations; startup_retry.rs polls those roots
+during the existing backoff and wakes only for a live current-protocol return
+or changed lineage/generation/address. Ordinary heartbeats, missing/invalid reads
+and untagged failures retain backoff. Both embedded and CLI boots use this wait;
+attempt counts, deadlines, fencing and actual witness proof remain unchanged.
+fetch_faults.py --recovery-first requires expired cold follower mode and observes
+the real first missing-witness refusal before returning peers. Audit its bounded
+log prefix, unchanged predecessor/owner and old peer leases, then require the
+original recovered prefix before replay and full joins. Trace mode includes
+recovery info and startup warnings. This does not explain other startup failures.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained
