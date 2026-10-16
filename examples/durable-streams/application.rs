@@ -10,6 +10,9 @@ use std::sync::{Arc, Mutex};
 #[path = "backlog.rs"]
 mod backlog;
 
+#[path = "consumer_owner.rs"]
+mod consumer_owner;
+
 pub const SCRIPT: &str = "stream-example";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -341,6 +344,14 @@ impl Cell for Projection {
                     json!({"projection":projection(&db)?,"receipts":db.get_json("effect_receipts")?.unwrap_or_else(||json!({})), "host":controls.node,
                         "ack_receipt_sha256":db.get_json("ack_receipt")?.and_then(|value|value.as_str().map(|value|hex::encode(Sha256::digest(value.as_bytes()))))}),
                 );
+            }
+            if let Some(controls) = &self.faults {
+                if path == "/projection/owner-audit" && request.method == "GET" {
+                    return consumer_owner::audit(&context, &db, controls);
+                }
+                if path == "/projection/running" && request.method == "POST" {
+                    return consumer_owner::running(&context, &db, &url, controls).await;
+                }
             }
             let hold = path == "/projection/hold" && self.faults.is_some();
             let token = if hold {

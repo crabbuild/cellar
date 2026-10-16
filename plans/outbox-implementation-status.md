@@ -24,7 +24,178 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current slice tests live foreign recovery resumption after the same claimed
+The current slice carries the consumer ownership cuts across four independent
+loopback processes. The opt-in example routes retain an actual SDK delivery and
+hold the old callback before inbox acceptance or after receipt/effect writes
+before commit. Only that consumer's actual store client is isolated. Require
+real refused lease operations, expiry, a live/non-stopped old PID, higher-epoch
+successor ownership and the original committed effect prefix before releasing
+the callback or replaying a fetch. Acceptance and commit outcomes are observed
+separately; caught refusal cannot become successful HTTP output.
+
+The joined old process's archived SQLite/WAL retains only the original inbox
+digest/effect. Replaying the saved fetch ID on the successor must recover the
+identical pending receipt/batch, apply once, skip repetition, and acknowledge
+checkpoint 2. After all survivor joins, its archive must retain both exact inbox
+digests/effects; correct business totals alone cannot conceal a lost first inbox
+receipt. Saved evidence rechecks both archives through disposable copies and
+requires complete private process/store cleanup.
+
+All four strengthened process cases pass on one frozen executable (SHA256
+a29828e710259130d679ba5bb5bd861a99bc4a499d96a50cfa1d3190d7227815):
+SQLite before-accept/before-commit in 2.50s/2.33s, RustFS S3 in 5.23s/4.58s.
+Held callbacks span 1006ms/1005ms/1468ms/1474ms, below the unchanged 10s handler
+budget; node leases remain 1000ms and delivery leases 30s. Every case has four
+independent saved audits and one old/two successor inbox digests. Independent
+ledger/archive re-audits pass; actual Docker inventory confirms both owned
+RustFS servers removed after joins. The initial probes preceded the strengthened
+successor archive gate; only the final cases supply this evidence.
+
+Both original live-source cuts pass again with this executable (2.46s/2.53s),
+as do ordinary example smoke (1.51s), the existing Rust CAS fixture unit test,
+and all 137 Python guards, including eight new oracle tests. The Python suite
+retains the same two unclosed-SQLite ResourceWarnings. All 521 Rust and 56 Python
+sources stay fixed during qualification. Workspace all-target/all-feature
+checking (6.64s), Clippy with warnings denied (3.12s), formatting (521 files),
+docs (36 documents/six flows/388 references), dependency policy (403 packages/no
+JavaScript engine) and whitespace checks pass. SDK/core behavior and all owned
+markers remain unchanged. The prior 77-Node/full-workspace/doc-test results below
+remain prior unchanged-core evidence, not reruns in this example-fixture slice.
+This qualifies selected client-outage process cuts on SQLite and private RustFS,
+not physical partitions/power/store loss, follower-only consumer proof or the
+complete release matrix. PR #66 remains the single active main-based PR.
+
+The previous slice exercises consumer inbox/effect ownership fencing with a real
+old callback still executing in one native poll. It uses two real single-record
+SDK deliveries, proves and acknowledges the first effect, then holds the second
+before inbox acceptance or after receipt/effect writes before commit. Only the
+old store client is isolated. Require lease-expiry domain closure and a higher
+consumer owner epoch; the successor's first call reads the original effect
+prefix before the old callback is released or any processing is replayed.
+
+Acceptance is observed independently from transaction completion. The first cut
+must refuse the retained inbox handle itself; failure of a later effect write
+cannot conceal illegal acceptance. The second cut confirms acceptance before
+fencing but requires commit refusal. Both require interrupted HTTP output,
+joined NodeLeaseExpired fencing, unchanged destination receipt/checkpoint/history
+and a copied old SQLite/WAL audit with one original receipt, exact digest and
+one original effect. The original files remain byte-identical through that audit.
+Only then does the successor confirm the first receipt suppresses duplication,
+accept the second event once and acknowledge checkpoint 2. Both strengthened
+focused cases pass in 12.83s under the original operation/handler/lease policies.
+These are independent embedded domains/executors; no production defect is
+asserted and independent-process/physical faults remain separate gates.
+
+Two targeted negative controls establish that the new assertions detect the
+actual authority violations. Bypassing only inbox admission fails the first cut
+in 2.64s with `closed consumer accepted an inbox receipt: true`, despite a later
+business-write refusal. Bypassing only commit admission fails the second cut in
+4.60s with `stale inbox/effect transaction committed`. Both production files
+are restored byte-for-byte before final qualification. Unexpected returned
+fixture errors retain their directory and identify the startup role/cut rather
+than deleting the evidence. The initial focused runtime and both control
+runtimes/sources are saved separately from the final diagnostic-wrapper build.
+
+Final qualification passes all 77 serial Node tests in 696.37s, including both
+consumer takeover cuts, both expiry-overlap cuts and all fifteen clock/refusal
+cases. All 520 captured Rust files stay unchanged through qualification. The
+final diagnostic-wrapper runtime is SHA256
+76b3866cb7ddcb7bb9a84c9c2bde3a93ec886a9cdb4b5a45a46adcfcd3bc1c93;
+it is separate from the earlier focused/control builds. Workspace all-target/
+all-feature checking (90.57s), Clippy with warnings denied (54.30s), formatting
+(520 files), docs (36 documents/six flows/388 references), dependency policy
+(403 packages/no JavaScript engine) and whitespace checks pass. This slice adds
+tests and documentation only; prior full-workspace/doc/Python results remain
+prior evidence. PR #66 is still the sole main-based PR and receives this follow-up.
+All owned markers remain 1; full release qualification remains incomplete.
+
+The previous slice exercises overlapping workers through the same durable
+consumer database after a real lease expires. A paused old callback retains an
+actual SDK delivery while a replacement receives the identical envelope under
+a new receipt, commits the inbox receipt and local effect, and proves it before
+the old callback resumes. Before replacement ack, the old ack is `StaleReceipt`;
+after progress and a next leased offset, it is `Obsolete`. Both cuts preserve
+the current lease/checkpoint/history and skip the old local effect. The second
+event then applies exactly once and acknowledgment reaches checkpoint 2.
+
+Both focused cases pass in 76.88s using the normal 30s lease, real wall-clock
+expiry, independent node domains/executors and unchanged 3s call budgets. The
+held old calls finish in 1259ms/1024ms, including the final progress audit. A
+temporary negative control changes matching inbox acceptance from false to true;
+the first case fails in 31.88s with effects=2, processed=2 and winner=old while
+ack still correctly returns `StaleReceipt`. This verifies the effect-state oracle
+independently of acknowledgment fencing. The production inbox file is restored
+byte-for-byte before final qualification. These are same-database native-domain
+cases, not separate-process or physical-fault qualification; separate worker
+databases cannot share inbox deduplication. No production defect is asserted.
+
+Final qualification passes all 75 serial Node cases in 694.35s, including all
+fifteen clock/refusal cases and both overlaps (held intervals 934ms/985ms).
+The runtime matches the focused positive executable (SHA256
+eb4e38e3907272fd019bc99903c582ad7d27745b0482c33de6313963484ad42a).
+All 519 captured Rust files remain unchanged through the run. Workspace
+all-target/all-feature checking (43.00s), Clippy with warnings denied (50.12s),
+formatting (519 files), docs (36 documents/six flows/388 references), dependency
+policy (403 packages/no JavaScript engine) and whitespace checks pass. This
+follow-up changes tests/documentation only; the prior full workspace, doc-test
+and Python results below remain prior evidence, not additional runs in this
+slice. PR #66 remains the sole active main-based PR. Hosted qualification remains
+subject to GitHub's account payment/spending-limit restriction reported below.
+
+The previous slice reproduces historical GC deleting real uncovered Bucket proof
+when only the first footer TXID changes to zero. The writer has real Bucket
+credit, no follower data acknowledgment and no per-cell upload. GC compares the
+forged zero with an empty independent watermark and deletes the sole bundle.
+The first pre-fix case fails in 0.10s; replaying its saved executable fails in
+0.16s. The failure is observed before any repair or command replay.
+
+The bundle envelope now binds payload and row metadata with CRC64-ISO and rejects
+empty/duplicate identities, zero epochs/TXIDs, incomplete/overlapping ranges and
+footer/L0-header transaction mismatches. GC still requires independent contiguous
+coverage. The native regression keeps damaged bytes, returns the actual original
+bytes only after retention is proven, then audits cold SQL before replay and
+requires collection only after real recovery uploads. Additional envelope cases
+cover bit flips across payload/metadata/trailer, self-consistent invalid metadata,
+duplicates, unindexed payload and the previous unchecksummed development layout.
+The focused post-fix case passes in 1.78s, including cold SQL `(1,11)` before
+replay and eventual covered-object collection. All nine native log cases also
+pass in the full workspace run (7.96s), as do all 73 Node cases (632.08s), including
+all fifteen clock/refusal cases, and five native replication cases (0.96s).
+The complete workspace library/integration command passes 623 tests across
+108 targets in 1748.57s (0 ignored). The development-restart test completes
+its nested external Cargo build and passes in 503.26s; live lock/process evidence
+ruled out a suspected self-deadlock without intervention or timeout changes.
+All 518 captured Rust sources remain unchanged through the full run. Workspace
+feature unification produces distinct Log/Node artifacts from the initial focused
+profile. The exact saved workspace Log executable also passes the isolated
+regression in 1.83s (SHA256
+55ac03e2387aa30c33c2c2ad8a310ed699500cf50b888cbba98becb4423a03e9).
+The workspace Node executable is
+cee0591012f0ff50f53862b6ccc6b1c4e782edafac152279ca60bfcc3ce836de.
+Workspace doc tests pass (11, with one existing ignored example); all-target/
+all-feature checking (59.64s), Clippy with warnings denied (57.76s), formatting
+(518 files), docs (36 documents/six flows/388 references), dependency policy
+(403 packages/no JavaScript engine), 129 Python guards and whitespace checks pass.
+Python reports the same two unclosed-SQLite ResourceWarnings without a failure.
+These are Rust 1.97.0/aarch64 macOS results, not hosted Rust 1.98.1 qualification.
+PR #65 merged during this run. Updated main at 6abd0be has the identical tree to
+the tested base, so this follow-up starts there on one new main-based branch.
+
+The earlier native consumer-takeover slice adds embedded-domain evidence for
+inbox/effect fencing; subscription expiry alone did not cover that boundary.
+The process slice above now covers those selected consumer client-outage cuts.
+The next selected gate is recovering a consumer receipt/effect prefix from
+follower-only proof after losing its local disk before acknowledgment, including
+cold retained followers. Require the original committed inbox/effect audit
+before any fetch replay; unavailable witnesses must refuse recovery rather than
+reset deduplication. Missing source/destination failure cuts and unresolved
+intermittent-startup causes remain priorities; passing replays cannot diagnose
+those original failures. Physical loss, capacity and complete operational
+coverage remain release requirements.
+This is a hard format cutover with all owned markers still 1; recreate old
+development state and rebuild all nodes.
+
+The previous slice tests live foreign recovery resumption after the same claimed
 root is erased or replaced. Two signed reads must return explicit Unavailable
 while retaining the old owner and acknowledged evidence. Return the actual
 metadata after both operations finish and require the first fresh audit to
@@ -43,13 +214,9 @@ repeat of the clock suite was needed. The library/log/core/CLI/Python/doc-test
 results below remain prior unchanged-production evidence, not reruns in this
 slice. Production code and owned markers remain unchanged.
 
-The next selected loss-prevention check is historical bundle GC with structurally
-readable but invalid footer row bounds/transaction identity. Source inspection
-finds structural footer decoding before coverage comparison; it is not yet a
-reproduced deletion defect. Require a concrete native regression before changing
-production code. Invalid/unproven retained payload must survive GC, while valid
-independently covered objects still collect. This does not close the broader
-fault/capacity matrix or earlier intermittent-startup cause audits.
+The subsequent GC regression above confirms the structurally readable footer
+risk. The broader fault/capacity matrix and earlier intermittent-startup cause
+audits remain open.
 
 The previous slice extends the claim-phase root-loss boundary to a different
 node taking ownership through a cold route. Its own startup may succeed; the

@@ -56,6 +56,10 @@ impl Control {
 
     pub fn hold(&self, scope: &str, cut: &str) -> Result<()> {
         self.publish(json!({"boundary":"source_poll_entered","scope":scope,"cut":cut,"pid":std::process::id()}))?;
+        self.wait_release()
+    }
+
+    fn wait_release(&self) -> Result<()> {
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             match std::fs::read(self.directory.join("owner-release")) {
@@ -77,6 +81,29 @@ impl Control {
     pub fn attempted(&self, scope: &str, cut: &str, result: &Result<()>) -> Result<()> {
         self.publish(json!({"boundary":"source_poll_attempted","scope":scope,"cut":cut,"pid":std::process::id(),
             "refused":result.is_err(),"closed_domain":result.as_ref().err().is_some_and(|error| format!("{error:#}").contains("execution domain is closed"))}))
+    }
+
+    pub fn hold_consumer(
+        &self,
+        scope: &str,
+        cut: &str,
+        delivery: &Value,
+        accepted: Option<bool>,
+    ) -> Result<()> {
+        self.publish(json!({"boundary":"consumer_poll_entered","scope":scope,"cut":cut,"pid":std::process::id(),"delivery":delivery,"accepted":accepted}))?;
+        self.wait_release()
+    }
+
+    pub fn attempted_consumer(
+        &self,
+        scope: &str,
+        cut: &str,
+        acceptance: &std::result::Result<bool, String>,
+        result: &Result<()>,
+    ) -> Result<()> {
+        self.publish(json!({"boundary":"consumer_poll_attempted","scope":scope,"cut":cut,"pid":std::process::id(),
+            "accepted":acceptance.as_ref().ok(),"acceptance_closed_domain":acceptance.as_ref().err().is_some_and(|error|error.contains("execution domain is closed")),
+            "refused":result.is_err(),"closed_domain":result.as_ref().err().is_some_and(|error|format!("{error:#}").contains("execution domain is closed"))}))
     }
 
     fn check(&self, operation: &str, path: &str) -> std::io::Result<bool> {

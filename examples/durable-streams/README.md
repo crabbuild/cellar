@@ -571,6 +571,45 @@ cuts qualify independent loopback processes on one machine with an injected
 node-client outage. Physical partitions, power/store loss, follower-only proofs
 and other stale settlement/reply interleavings retain their own qualification.
 
+## Keep a live consumer callback entered through takeover
+
+[consumer_owner.py](consumer_owner.py) extends the consumer ownership cuts to
+four independent processes with explicit Bucket proof. It commits/acknowledges
+one original effect, then holds a second actual SDK delivery inside the old
+consumer's native poll. `--cut before_accept` retains the inbox handle and enters
+the transaction before fencing; `--cut before_commit` has already written the
+receipt and effect. The normal 1000ms node lease, 10-second handler budget and
+30-second delivery lease stay unchanged.
+
+Only the consumer enables the private owner fault. The observer requires actual
+refused lease operations, expiry, a live/non-stopped old PID and higher-epoch
+successor ownership. Its first successor audit checks the original effect prefix
+before callback release or fetch replay. Acceptance is reported separately from
+transaction completion so a later write refusal cannot hide illegal acceptance.
+Require closed-domain refusal, interrupted output and joined expiry fencing.
+
+The old process's archived SQLite/WAL must retain exactly the first inbox digest
+and effect. Only after that audit may the successor replay the same saved fetch
+ID, receive the exact original receipt/batch, apply the pending effect once,
+skip it on repeated fetch and acknowledge checkpoint 2. After complete survivor
+joins, a successor archive must retain both exact inbox digests and effects.
+[consumer_owner_audit.py](consumer_owner_audit.py) rechecks the saved ledger and
+both archives through disposable copies; it never opens measured archives as
+SQLite databases or repairs state by replay.
+
+```sh
+python3 examples/durable-streams/consumer_owner.py \
+  --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams" \
+  --cut before_commit --output /tmp/cellar-consumer-owner-evidence
+python3 examples/durable-streams/consumer_owner.py \
+  --audit /tmp/cellar-consumer-owner-evidence/ledger.jsonl
+```
+
+Add `--rustfs-image` with a pinned digest for a private S3 bucket. This qualifies
+selected client-outage cuts on loopback processes. Follower-only consumer proof,
+physical partitions, power/store loss and the full fault/capacity matrix remain
+separate requirements.
+
 ## Recover a follower-only source proof
 
 [follower_faults.py](follower_faults.py) runs independent destination, producer

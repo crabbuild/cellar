@@ -901,6 +901,29 @@ safely. Explicit `sync` or a correctly sampled source egress gate proves these
 effects before checkpoint advancement. External email, payment, or HTTP effects
 still require a receiver idempotency key or reconciliation.
 
+Lease expiry does not stop an application callback that already received the
+batch. A replacement worker can fetch the same event while the old callback is
+still running. Route both workers' local effects through the same durable
+consumer cell/database and processing scope. The inbox receipt and business
+writes serialize in that database; after either worker commits, the other skips
+the effect. Distinct worker databases have independent receipts and cannot
+provide this guarantee. External effects still need receiver idempotency.
+
+An old callback may still commit the first local effect if nobody has accepted
+the event yet. Its expired/replaced receipt cannot acknowledge a replacement
+lease. If the checkpoint already passed the old batch, an obsolete ack must
+leave a newer live lease intact. Keep effect deduplication and subscription
+receipt fencing as separate requirements.
+
+Consumer ownership is separate from the subscription delivery lease. A callback
+already executing when its consumer cell loses authority must refuse retained
+inbox acceptance and ordinary storage access. If receipt/effect writes already
+ran, commit must recheck authority and roll them back on the original connection;
+a local refusal cannot become a successful response or advance the checkpoint.
+A successor must recover the original proven inbox and effect prefix before
+accepting further work. Expired-delivery deduplication alone does not prove this
+consumer ownership boundary.
+
 Receipts have no automatic TTL in the helper's first release. Bound their count
 and reject new acceptance at capacity. Administrative pruning explicitly ends
 deduplication for that range; replay after pruning may apply effects again.
@@ -1817,6 +1840,24 @@ audit and one consumer effect. SQLite and private RustFS S3 qualify only these
 selected client-outage cuts, not physical partition/power/store loss, follower-
 only proofs or every stale settlement/reply interleaving.
 
+The independent-process `consumer_owner.py` driver carries the analogous
+consumer cuts across four separate data directories/processes with explicit
+Bucket proof. It seeds one proven receipt/effect, then holds a real second SDK
+delivery before retained inbox acceptance or after receipt/effect writes before
+commit. Require a live/non-stopped old PID, actual refused lease operations,
+expiry, higher-epoch successor recovery and the original effect prefix before
+release or any fetch replay, within the unchanged handler budget. Separate
+acceptance and transaction observations prevent a later write refusal from
+concealing an illegal inbox receipt. Closed-domain refusal, interrupted output,
+joined expiry fencing and an old SQLite/WAL image with exactly the original
+receipt/digest/effect precede replay of the saved fetch ID. That replay must
+return the identical receipt/batch, apply the second effect once, skip repetition
+and acknowledge checkpoint 2. After all survivor joins, the successor's immutable
+archive must contain both exact inbox digests/effects. Saved ledger validation
+reinspects both archives through disposable copies and requires complete private
+store cleanup. SQLite/RustFS client outages qualify these cuts, not consumer
+follower-only proof, physical loss or the full fault/capacity matrix.
+
 Destination ack/fetch process drivers also support combining `--follower-only`
 with `--restart-followers`. Require SIGKILL of every original process, immutable
 archives of the original destination ensemble's committed CLB1/CLE1 batches and
@@ -1992,6 +2033,13 @@ Validated content-addressed checkpoints remain hints and need the same coverage
 before deletion. Fresh listings on later passes observe uploads by a different
 recoverer; resident/process-local watermarks cannot certify them. Current-session
 objects, other lineages, loss diagnostics and unproven/corrupt objects remain.
+Fresh bundle row metadata is trusted only after verifying the current CLB1
+CRC64-ISO envelope, positive identities, contiguous nonoverlapping ranges covering
+all payload bytes and L0 header transaction identity. An empty watermark cannot
+cover a corrupted footer that says TXID zero. The checksum binds the payload,
+cell/epoch/TXID/ranges, footer length and magic; structural parsing is insufficient.
+Recreate older unchecksummed development state and rebuild all participants,
+keeping every owned marker at 1 without a legacy reader or migration.
 The native regression audits cold SQL recovery of original Bucket-proven writes
 before replay, then eventual collection after recovery. Full storage-fault and
 capacity qualification remain release requirements.

@@ -85,6 +85,18 @@ interrupted response, joined expiry fencing, immutable old DB/WAL inspection
 and one consumer effect before complete survivor/store cleanup. Never use an
 ordinary source replay or a signal to repair this boundary. Core runtime and
 all owned markers remain unchanged; physical fault qualification is separate.
+`consumer_owner.py` carries the inbox/effect cuts across four independent
+processes using the same private store-outage control and actual SDK deliveries.
+Keep the original effect audit before release/replay, a live/non-stopped old PID,
+real expiry/higher epoch, separate acceptance/commit observations, interrupted
+output and joined expiry fencing. The old joined SQLite/WAL archive must retain
+only the first inbox digest/effect. Replaying the saved fetch ID must recover the
+exact pending receipt/batch, apply once and skip repetition before ack. After
+survivor joins, inspect the successor archive for both exact inbox digests/effects;
+business totals alone cannot prove retained deduplication. Audit both archives
+through disposable copies. Keep the 10s handler and 30s delivery policies, private
+1000-object listing cap, Bucket proof scope and complete process/store cleanup.
+The SQLite/RustFS process cuts are not physical or follower-only qualification.
 Node-log recovery cannot seal possible fleet acknowledgments without a complete
 witness, even after every member is long expired/unreachable or the ensemble is
 empty. Durable loss diagnostics do not authorize replacement admission. Retained
@@ -119,6 +131,15 @@ requires fresh contiguous per-cell coverage or a persisted epoch-retirement
 certificate. Never use another writer's cached zero, resident watermark or a
 maximum past a recovery hole as deletion authority. Corrupt/unavailable objects,
 current-session data, other lineages and loss diagnostics stay retained.
+Bucket bundle CLB1 envelopes checksum payload, footer identities/ranges, footer
+length and magic with CRC64-ISO. Fresh decode rejects missing integrity, empty/
+duplicate identities, zero epoch/TXID, incomplete/overlapping ranges and footer
+TXIDs differing from L0 header min/max. Verified metadata precedes any coverage
+or recovery decision. Row extraction from a verified envelope/trusted writer index
+checks bounds and L0 identity without rehashing the whole object for every row.
+This is a hard development cutover: rebuild all participants and recreate older
+unchecksummed bundle state. CLB1 and all Cellar-owned markers remain 1; no legacy
+reader or migration is supported.
 log_startup_gc.rs holds a real no-log response while a live generation obtains
 Bucket proof, excludes follower/per-cell credit, then force-joins the writer and
 removes its local directory. Audit original SQL before replay. Require collection
@@ -247,6 +268,28 @@ requests captured while the original lease is still live. A timeout cannot stand
 in for typed receipt refusal. Inbox deduplication is scoped to one stable consumer
 database; separate worker databases do not share it. These are native domain/
 executor cuts, not independent-process or clock/retention qualification.
+
+`event_consumer_overlap.rs` pauses an actual old delivery callback across
+natural expiry, then applies the replacement through the same stable consumer
+database and inbox scope. Hold outside transactions/input blocks. Preserve the
+ordinary 30s lease and 3s call budget; capture the old callback while its lease is
+live, commit/sync the replacement effect before releasing it, then compare full
+lease/checkpoint/history and effect state. Cover stale ack before replacement
+ack and obsolete ack after progress with the next batch leased. Separate worker
+databases do not share deduplication. These embedded-domain/executor cases do
+not qualify independent-process faults or external effects.
+
+`event_consumer_takeover.rs` holds a real consumer callback inside one native
+poll before inbox acceptance or after receipt/effect writes before commit.
+Isolate only the old client's store, observe lease-expiry domain closure and a
+higher consumer owner epoch, then audit the successor's original prefix before
+release/replay. Record acceptance separately from transaction failure so later
+write refusal cannot hide illegal inbox admission. Require interrupted output,
+joined expiry fencing, unchanged destination receipt/checkpoint/history and
+copied old SQLite/WAL evidence of one original receipt/effect after rollback.
+Only after those audits may the successor probe receipt identity and process the
+pending event. Keep normal operation/handler/lease budgets. These independent
+embedded domains/executors do not establish separate-process or physical faults.
 
 `cellar stream` describe/read/sources/status/audit and `cellar subscription`
 list/describe/pause/resume/reset/delete use signed
