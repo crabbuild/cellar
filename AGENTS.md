@@ -172,9 +172,27 @@ subsequent payload reads must match the indexed digest/state/length/range.
 Canonical numeric batch filenames are required; noncanonical names remain unknown
 gap evidence. Custom filesystems must supply streaming directories and scratch
 for large histories; no eager fallback. All owned markers remain 1. The isolated
-cold-load/seal RSS fixtures qualify only their 16-by-8-MiB profile. Whole-tail
-replies and peer collection remain unbounded; scanner bounds alone cannot qualify
-recovery memory. Dead-session recovery and live-cell folding stage rows through
+cold-load/seal RSS fixtures qualify only their 16-by-8-MiB profile. Production
+tail transfer uses tail_stream.rs through the existing authenticated tail upgrade,
+including the recovery-startup HTTP surface. No buffered POST fallback exists;
+rebuild all participants on this format-1 cutover. The buffered tail helper is
+for diagnostic/fixture inspection, not production recovery. Stage an immutable
+snapshot under the original leader guard in owned blocking work; release the
+guard before network waiting. Retain at most two active snapshots/transfers per
+follower and split raw data into at most 1 MiB frames, including within one legal
+maximum writer entry. A format-1 manifest binds leader digest, epoch/base/end,
+completeness, u64 counts/bytes and payload SHA-256. Each receiver stages its peer
+independently and verifies full sequence coverage, counts, digest, completion
+frame and EOF before exposing the snapshot. Progress frames supply no proof.
+During preparation, progress.rs wraps the same captured filesystem, reporting
+completed chunk/metadata work; an idle timer alone cannot keep a stalled attempt
+alive. Monitor client EOF during preparation and propagate cancellation through
+cold scans, index/row merging and entered workers. Domain shutdown still joins
+uninterruptible entered I/O. A late snapshot reread/merge failure aborts the whole
+gather: never keep its partial rows and continue on another witness. Source and
+receiver RSS fixtures qualify their measured profiles only. Large bundle bodies,
+live-fold bundle helpers, provider/progress inventories and total recovery memory
+remain separate gates. Dead-session recovery and live-cell folding stage rows through
 recovery_rows.rs. Payloads spill into anonymous files on the replica's injected
 filesystem under its data root, never ambient /tmp. Every nonempty gather requires
 anonymous scratch support, including histories small enough for an in-memory
@@ -355,8 +373,10 @@ version-1 markers; activation rejects unsupported markers, inconsistent retained
 accounting and outbox events exceeding the captured host policy. Cellar is in internal development: all Cellar-owned protocol, format and
 schema markers stay at version 1. Hard cutovers are permitted. Do not add legacy
 readers, layout migrations, version negotiation or fleet upgrade commands.
-The ranged log-tail request uses tail_format 1 and its response uses CLT1;
-missing/unsupported markers and entries-only request shapes are refused. Native
+The log-tail request frame uses tail_format 1; streamed manifests and preparation
+progress use CTS1/CTP1. CLT1 is only the buffered diagnostic/fixture codec, never
+a network fallback. Missing/unsupported markers and entries-only request shapes
+are refused. Native
 follower reads/writes require node/lineage/generation identities, and discovery visits
 only that current directory layout. Rebuild every participant on wire cutover;
 former flat-layout development state requires recreation, not a migration.

@@ -19,14 +19,84 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Bound total retained-tail memory | Missing implementation identified in this audit | Cold scans and seal use a bounded derived metadata index qualified within the exercised profile below. Gather rows now spill to disk with bounded metadata sorting and upload batches; read_tail replies, transport bytes(), live-fold bundle helpers and provider/progress inventories still materialize whole histories. Bound the remaining paths across stable sealed-range pages or streaming, preserving exact complete-range proof through reconnect/cancellation and recovery. Per-file and scanner bounds alone are insufficient. |
+| 1 | Bound total retained-tail memory | Tail snapshot candidate under qualification; other implementations missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; preliminary native cases and final static checks pass, while process/recovery qualification is pending. Buffered diagnostic tail inspection, live-fold bundle helpers, large/concurrent bundle bodies and provider/progress inventories still materialize histories. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
 | 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
-The current gather change replaces retained payload maps in dead-session recovery
+The next tail-transfer candidate is under implementation after published commit
+674fae6 on PR #69. The actual pre-change server preparation path grows RSS by
+254869504 bytes (about 243 MiB) for sixteen valid 8 MiB batches, failing the
+unchanged 64 MiB budget. Production recovery now opens the authenticated
+`/peer/log/tail` upgrade, stages an immutable disk snapshot under follower
+exclusion, releases that guard before networking and transfers at most 1 MiB per
+frame. Per-follower admission holds at most two active snapshots/transfers.
+The fixed format-1 manifest binds leader digest, epoch/base/end, completeness,
+u64 row/byte counts and a whole-payload SHA-256. Entries can cross frames, so a
+maximum writer-admitted row is not rejected for transfer framing overhead.
+The receiver stages each peer independently and requires explicit completion,
+EOF, digest/count/sequence verification before returning a snapshot. A later
+scratch reread/merge failure aborts the entire gather, including any previously
+staged rows; catching that error and keeping partial rows would be unsafe.
+Claim heartbeats cover network and blocking waits, while cancellation reaches
+cold scans, index merges and row sorting. All markers remain 1; old HTTP tail
+responses are not a fallback. The recovery-startup allowlist still serves this
+same tail path before lease installation. The small buffered tail helper remains
+for diagnostic/fixture inspection, outside the production recovery path.
+
+The first seven stream tests pass, including exact original rows, missing-range
+refusal, transfer capacity/drop, maximum admitted entry, partial/corrupt/foreign-
+identity streams, valid-digest gaps/duplicates and pre-allocation frame refusal.
+The isolated receiver profile reports 6946816 bytes of RSS growth (about 6.6 MiB).
+Two new Python proxy tests fail before relay changes by timing out after HTTP 101;
+all seven proxy tests then pass with buffered binary forwarding, EOF and joined
+cancellation. The next complete log run passes 53 cases, including receiver and
+cold-index scratch faults, late snapshot damage, preparation-only progress refusal,
+trailing bytes and disconnect while an actual scratch write remains blocked.
+That last case requires the serving future to notice client EOF before the
+write is released, and domain shutdown to remain pending until entered I/O ends.
+Original state and cache refusal are checked after the join. Progress frames now
+reflect completed work through an explicitly captured filesystem wrapper; an
+idle disk cannot manufacture progress. Writes/reads report bounded chunk work,
+and no total-history timeout is introduced. Upgrade, idle network frames and
+completion-close waits retain bounded deadlines.
+
+The latest server and receiver fixtures report 5750784 and 6176768 bytes of RSS
+growth respectively (about 5.5/5.9 MiB), under the same 64 MiB budgets. The earlier
+51-case candidate measured 12140544/8093696 bytes; those profiles remain separate.
+The first native compilation stops on a fixture-only missing `encode_tail_resp`
+import after removal of its obsolete HTTP-tail branch. Existing original-receipt
+comparisons still need that diagnostic codec, so the import is restored; no native
+test runs in the failed build. After restoring that import, all 21 native log
+cases and five protocol cases pass (71.49s/9.05s runtime; 753.48s including the
+build). This includes the original 180-write mixed bundle/follower restoration,
+missing/corrupt retained proof refusals, warm-cache damage and signed pool/auth
+checks on both stream routes. The 618 captured source/build inputs remain
+unchanged. A compiler sample during the long build records Rust archive/Mach-O
+symbol-table work; that compile duration is not a test stall or lease-delay
+measurement. Static and process qualification remain pending.
+The first frozen preflight passes workspace/all-target/all-feature checking,
+then stops on Clippy's redundant `Ok(job.await??)` wrapper in the new recovery
+wait helper. It is simplified to `job.await?`; the failed batch is preserved
+separately and a new captured-source preflight is required. No lint or test
+assertion is weakened.
+The repeated preflight passes all seven phases: workspace/all-target/all-feature
+checking and Clippy with warnings denied, repository formatting, documentation,
+dependency policy, all 175 Python guards and whitespace checks. All 618 captured
+build/test inputs remain unchanged. The Python run emits two unclosed SQLite
+connection ResourceWarnings; its passing assertions do not close that fixture
+cleanup audit. A fresh-runtime process qualification is now running, with
+exact-source log/native/asset cases, cold and warm consumer recovery, damaged
+witness refusals and source/destination recovery on SQLite/RustFS. Its eventual
+results must be recorded separately; the earlier process matrix is not evidence
+for this tail transport.
+Signed control-response body collection also still needs its independent bound.
+Earlier gather/process evidence
+below qualifies its captured source only, not this changed production candidate.
+
+The published gather change replaces retained payload maps in dead-session recovery
 and live-cell folding with anonymous disk scratch under the replica's injected
 filesystem/data root. Metadata runs cap both count (128) and encoded bytes
 (1 MiB); pairwise merge uses two 128 KiB input caches and bounded output without
@@ -178,11 +248,13 @@ cause or make the full-workspace gate green. Final docs are checked again after
 this ledger edit.
 
 
-This removes gathered-row history residency, not total recovery residency:
-whole TailResp construction and HTTP collection, fetched bundle sizes, the live
-fold's uncovered_bundle_rows_for helper, provider inventories and optional progress
-hints retain their independent implementation/qualification requirements. Disk
-headroom, total transfer/gather RSS and the full release gates remain open.
+The published gather change removes gathered-row history residency, not total
+recovery residency. The tail snapshot candidate above addresses production
+TailResp construction and HTTP collection, with qualification still underway.
+Fetched bundle sizes, the live fold and graceful close's
+uncovered_bundle_rows_for helper, provider inventories and optional progress hints
+retain their independent implementation/qualification requirements. Disk headroom,
+total transfer/gather RSS and the full release gates remain open.
 
 A new critical proof audit reproduces four warm-cache failures: after tail
 observes a missing or checksum-corrupt acknowledged batch, probe/duplicate/new-

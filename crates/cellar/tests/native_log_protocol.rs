@@ -357,7 +357,7 @@ async fn receive(
     if path != "/missing-version" {
         response = response.header(RESPONSE_VERSION_HEADER, PROTOCOL_VERSION_TEXT);
     }
-    if path == "/peer/log/stream" {
+    if matches!(path.as_str(), "/peer/log/stream" | "/peer/log/tail") {
         assert_eq!(headers["x-caller-pool"], "streams");
         assert_eq!(headers["upgrade"], "cellar-log-stream");
         probe.streams.fetch_add(1, Ordering::SeqCst);
@@ -430,10 +430,10 @@ async fn signed_transport_retains_both_caller_pools_and_authenticates_requests()
         )
         .await
         .is_err());
-    for _ in 0..2 {
+    for path in ["/peer/log/stream", "/peer/log/tail"] {
         let mut io = tokio::time::timeout(
             Duration::from_secs(2),
-            transport.open_stream("follower", &addr, "/peer/log/stream"),
+            transport.open_stream("follower", &addr, path),
         )
         .await??;
         write_frame(&mut io, b"ordered").await?;

@@ -566,17 +566,23 @@ async fn opened_state_failures_never_become_a_fresh_fragment() -> anyhow::Result
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test]
 async fn cold_scan_payload_residency_stays_bounded() -> anyhow::Result<()> {
-    measured_history_residency("cold_scan_payload_residency_stays_bounded", false).await
+    measured_history_residency("cold_scan_payload_residency_stays_bounded", false, false).await
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test]
 async fn seal_payload_residency_stays_bounded() -> anyhow::Result<()> {
-    measured_history_residency("seal_payload_residency_stays_bounded", true).await
+    measured_history_residency("seal_payload_residency_stays_bounded", true, false).await
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-async fn measured_history_residency(test_name: &str, seal: bool) -> anyhow::Result<()> {
+#[tokio::test]
+async fn tail_transfer_payload_residency_stays_bounded() -> anyhow::Result<()> {
+    measured_history_residency("tail_transfer_payload_residency_stays_bounded", false, true).await
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn measured_history_residency(test_name: &str, seal: bool, tail: bool) -> anyhow::Result<()> {
     const CHILD: &str = "CELLAR_TEST_FOLLOWER_SCAN_RSS";
     if std::env::var_os(CHILD).is_none() {
         // A separate exact test process isolates the RSS observation from the
@@ -620,13 +626,30 @@ async fn measured_history_residency(test_name: &str, seal: bool) -> anyhow::Resu
         });
         let mut store = FollowerStore::new(directory.path(), None, "witness");
         store.filesystem = Arc::new(Filesystem(probe));
+        let store = Arc::new(store);
         if seal {
             assert!(store.load(LEADER)? == seed);
         }
         memory.store(0, Ordering::SeqCst);
         let baseline = crate::memory::sample().rss_bytes;
         anyhow::ensure!(baseline > 0, "cold-scan RSS unavailable on supported profile");
-        if seal {
+        let mut retained = None;
+        if tail {
+            let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let mut snapshot = store.snapshot_tail(TailReq { leader: LEADER.into() }, flag.clone()).await?;
+            assert!(snapshot.range().complete);
+            let mut count = 0;
+            snapshot.visit(&flag, |entry| {
+                count += 1;
+                assert_eq!(entry.seq, count);
+                assert_eq!(entry.bytes.len(), 8 << 20);
+                assert!(entry.bytes.iter().all(|byte| *byte == count as u8));
+                memory.fetch_max(crate::memory::sample().rss_bytes, Ordering::SeqCst);
+                Ok(())
+            })?;
+            assert_eq!(count, 16);
+            retained = Some(snapshot);
+        } else if seal {
             let response = store.seal(&SealReq { leader: LEADER.into(), epoch: 8 }).await?;
             assert_eq!(response.fragment_epoch, 7);
             assert_eq!(response.base, Some(0));
@@ -637,6 +660,7 @@ async fn measured_history_residency(test_name: &str, seal: bool) -> anyhow::Resu
         }
         let peak = memory.load(Ordering::SeqCst).max(crate::memory::sample().rss_bytes);
         let growth = peak.saturating_sub(baseline);
+        std::hint::black_box(&retained);
         eprintln!("{test_name} RSS: growth={growth}, baseline={baseline}, peak={peak}");
         anyhow::ensure!(growth <= 64 << 20,
             "cold scan retained payloads across batches: growth={growth}, baseline={baseline}, peak={peak}, budget={}", 64 << 20);

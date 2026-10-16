@@ -213,6 +213,11 @@ impl Rows {
         self.cancelled.clone()
     }
 
+    pub fn with_cancellation(mut self, cancelled: Arc<AtomicBool>) -> Self {
+        self.cancelled = cancelled;
+        self
+    }
+
     pub fn is_empty(&self) -> bool {
         self.ordinal == 0
     }

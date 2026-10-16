@@ -19,7 +19,7 @@ use bytes::Bytes;
 use cellar::bucket::Bucket;
 use cellar::ltx_repl::Shipper;
 use cellar::node_log::{
-    decode_append, encode_tail_resp, serve_log_stream, SealReq, TailReq, TailWireReq,
+    decode_append, encode_tail_resp, serve_log_stream, serve_tail_stream, SealReq, TailReq,
 };
 use cellar::ownership_store::BucketOwnership;
 use cellar::replication::ActivationOptions;
@@ -146,13 +146,6 @@ impl LogTransport for Transport {
                                 .await?,
                         )?
                         .into()),
-                        "/peer/log/tail" => {
-                            let request: TailWireReq = serde_json::from_slice(&body)?;
-                            Ok(
-                                encode_tail_resp(&self.follower.tail(&request.request).await?)
-                                    .into(),
-                            )
-                        }
                         _ => anyhow::bail!("unexpected log route {path}"),
                     }
                 })
@@ -168,12 +161,23 @@ impl LogTransport for Transport {
     ) -> Pin<Box<dyn std::future::Future<Output = Result<LogStreamIo>> + Send + 'a>> {
         Box::pin(async move {
             assert!(Arc::ptr_eq(&self.owner, &cellar::asyncrt::services()));
-            ensure!(node == self.follower_node && path == "/peer/log/stream");
-            self.streams.fetch_add(1, Ordering::SeqCst);
+            ensure!(
+                node == self.follower_node && matches!(path, "/peer/log/stream" | "/peer/log/tail")
+            );
+            let tail = path == "/peer/log/tail";
+            if !tail {
+                self.streams.fetch_add(1, Ordering::SeqCst);
+            }
             let (client, server) = tokio::io::duplex(64 * 1024);
             let follower = self.follower.clone();
             self.follower_domain
-                .spawn(async move { serve_log_stream(server, follower).await })?
+                .spawn(async move {
+                    if tail {
+                        serve_tail_stream(server, follower).await
+                    } else {
+                        serve_log_stream(server, follower).await
+                    }
+                })?
                 .detach();
             Ok(Box::new(client) as LogStreamIo)
         })

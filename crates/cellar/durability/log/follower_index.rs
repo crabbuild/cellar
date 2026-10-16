@@ -10,6 +10,7 @@ use anyhow::{ensure, Context, Result};
 use cellar_ltx::{FileSystem, HostFile};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::sync::{atomic::AtomicBool, Arc};
 
 const RECORD_BYTES: usize = 120;
 const CHUNK_RECORDS: usize = 128;
@@ -80,6 +81,7 @@ pub(super) struct Builder<'a> {
     spill: Option<HostFile>,
     len: usize,
     order: Order,
+    cancelled: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Clone, Copy)]
@@ -97,6 +99,7 @@ impl<'a> Builder<'a> {
             spill: None,
             len: 0,
             order: Order::Range,
+            cancelled: None,
         }
     }
 
@@ -108,6 +111,7 @@ impl<'a> Builder<'a> {
     }
 
     pub fn push(&mut self, record: BatchMeta) -> Result<()> {
+        super::check_follower_work(self.cancelled.as_deref())?;
         if self.pending.len() == CHUNK_RECORDS {
             if self.spill.is_none() {
                 self.spill = Some(self.filesystem.temporary_file(Some(self.directory))?);
@@ -133,6 +137,7 @@ impl<'a> Builder<'a> {
     }
 
     pub fn finish(mut self) -> Result<Index> {
+        super::check_follower_work(self.cancelled.as_deref())?;
         if self.spill.is_none() {
             self.pending.sort_by_key(|record| record.key(self.order));
             return Ok(Index::Memory(self.pending));
@@ -153,6 +158,7 @@ impl<'a> Builder<'a> {
                 let mut a = left.next(&mut source)?;
                 let mut b = right.next(&mut source)?;
                 while a.is_some() || b.is_some() {
+                    super::check_follower_work(self.cancelled.as_deref())?;
                     let take_left = match (a, b) {
                         (Some(a), Some(b)) => a.key(self.order) <= b.key(self.order),
                         (Some(_), None) => true,
@@ -188,6 +194,11 @@ impl<'a> Builder<'a> {
             cached_start: 0,
             cached: Vec::new(),
         })
+    }
+
+    pub fn with_cancellation(mut self, cancelled: Option<Arc<AtomicBool>>) -> Self {
+        self.cancelled = cancelled;
+        self
     }
 }
 
