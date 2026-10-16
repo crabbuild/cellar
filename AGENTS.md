@@ -214,6 +214,25 @@ on caller cancellation; domain shutdown still joins entered work. Full tail/HTTP
 live-fold bundle reads, oversized bundles and provider/progress inventories remain
 separate implementation gates before total recovery bounds can be claimed.
 
+Node-log append/seal HTTP replies and ordered reply frames contain scalar
+metadata; collect at most 64 KiB and reject an excess frame header before its
+payload allocation/read. Keep the distinct 64 MiB writer-data frame allowance
+and bounded raw recovery-tail protocol. Signed HTTP checks status and response
+authentication before bounded collection, retains supplied pools/deadlines and
+never treats size refusal as durability credit or protocol-incapable status.
+reply_reader.rs reserves finite mailbox capacity before reading another frame;
+receiver drop must release both blocked reservation and blocked read, and retire
+must join the actual tracked reader before redial. Keep unanswered wire appends
+at or below that same mailbox capacity. Larger configured submission windows
+wait for responses rather than being refused; a writer that keeps taking queued
+jobs can deadlock both socket directions after the finite reply queue fills.
+The actual 128-job/128-byte-duplex lane regression checks exact FIFO replies and
+normal peer/lane joins, separately from the pump-only queue tests. Admission uses try_spawn so
+closure within an entered poll returns DomainClosed without panic. The real
+signed length/chunked/pending-body and ordered-reader regressions cover these
+seams; they do not establish a total recovery memory ceiling or explain the
+independent native-actor lease-expiry failures.
+
 Consumer-recovery failure cleanup must run every node/gate/store/ledger action
 through cleanup_all, preserving the primary error even when a stopped node was
 fenced. WitnessGate.close disconnects persistent frontends before server_close

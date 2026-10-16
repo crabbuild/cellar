@@ -19,7 +19,7 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Bound total retained-tail memory | Tail snapshot candidate under qualification; other implementations missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; preliminary native cases and final static checks pass, while process/recovery qualification is pending. Buffered diagnostic tail inspection, live-fold bundle helpers, large/concurrent bundle bodies and provider/progress inventories still materialize histories. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
+| 1 | Bound total retained-tail memory | Tail/process profiles pass; control candidate under qualification; bundle bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. Buffered diagnostic tail inspection, live-fold bundle helpers, large/concurrent bundle bodies and provider/progress inventories still materialize histories. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
 | 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
@@ -157,13 +157,76 @@ an already-submitted effect whose wait installs after the original deadline
 including the build). Full workspace requalification remains required; this
 test-only correction does not explain the older actor lease/Axum failures or
 complete the feature's remaining release gates.
+The test-only wait correction then passes all 299 library cases (14.51s) in
+another captured original workspace command. The batch still fails overall
+(exit 101, 347.83s including compilation): native_actor passes four of six,
+with the direct embedded production actor and explicit-policy child both
+observing first-actor lease expiry at the first fetch. The saved failed native
+executable has SHA-256
+0abf9996fd26881b983d2aa1886da233e8a7703eb068d71fd5142044f7850286.
+The first actor's acquisition returns with 352 ms of its original 700 ms TTL
+remaining; no renewal attempt appears before its watchdog fence, while the
+second actor renews. Both domains remain open and actor tasks pending. This
+narrows the observed boundary but does not distinguish delayed timers, blocking
+core work or host scheduling. Three unchanged full native-actor binary replays
+pass; none supplies a sample of the failing window or closes its cause audit.
+Later workspace targets, doc-tests and subsequent static phases do not execute
+in that failed batch. Original lease, operation and fixture deadlines remain
+unchanged. The 28 process passes retain their separately captured scope.
+Both hosted jobs for current head 3cd6f93 also execute no steps: their annotations
+again cite account payment/spending restrictions. Local passing cases do not
+qualify hosted Linux. Five control-response/reader regressions reproduce the original gaps. The
+first Cargo reader filter matches zero cases and is not evidence; the actual
+saved executable's listed node_log::reply_reader filter runs all three cases.
+They observe a 65,537-byte payload read, all 256 replies queued, and a caught
+DomainClosed admission panic. Both actual signed HTTP length/chunked cases also
+accept the excess valid JSON body and fail. The candidate caps control replies
+at 64 KiB, reserves one of 64 mailbox slots before reading, and uses try_spawn.
+Positive candidates cover exact-limit JSON/FIFO, normal EOF, retirement while
+reservation is blocked, unchanged larger data framing and an oversized HTTP
+head whose body never arrives. Qualification is running, not yet a pass. Full
+lane flow control with a configured window above the reply mailbox also needs
+its own test; pump-only backpressure cannot qualify that interaction.
+
+The initial control-bound candidate passes all 305 library cases (5.66s;
+290.28s including compilation), but a separately compiled probe against its
+actual production library exposes a new bidirectional lane deadlock. With 128
+queued valid appends and a 128-byte duplex, it reaches 68 received requests and
+67 replies but zero settled jobs at the original five-second cutoff. The lane
+continues writing while its finite reply mailbox fills, preventing either socket
+direction from progressing. That candidate is not publishable on pump-only passes.
+Its remaining qualification is deliberately interrupted for this observed bug,
+not restarted for slow observation. The actual terminal log shows four asset
+cases (plus one nested child) pass and 20/21 log cases pass before interruption;
+the native batch has no complete result and later phases do not run. No owned
+process remains in its group; all 619 captured inputs remain unchanged.
+
+The corrected candidate couples unanswered wire appends to the same 64 reply
+slots. A larger configured submission window waits while replies drain; its
+policy is not narrowed and no valid event is rejected. The exact actual-lane
+probe is now a repository regression requiring all 128 original matching replies
+and normal peer/lane joins under the same five-second cutoff. The pre-guard
+executable/library hashes and failure counts are retained. Fresh captured-source
+qualification is running; a passing result is not yet claimed. HTTP response
+limits/authentication and the original writer-data limit remain unchanged by
+this second correction. Its new captured library run passes all 306 cases
+(5.67s runtime, 137.38s including compilation), including the actual large-window
+lane regression and all seven reply-reader cases. A saved protocol executable
+from the interrupted pre-guard batch independently passes both signed HTTP cases
+in 0.22s, including exact-limit acceptance and refusal from an oversized header
+whose body remains pending. Those HTTP functions/test bytes are unchanged by
+the wire-admission guard. Final whole-source native, static and workspace gates
+remain running; no full qualification pass is inferred from these scoped results.
+
 Both hosted SDK jobs for a83648f have
 no executed steps: GitHub annotations cite failed account payments or spending
 limits. That restriction does not make hosted Linux validation green.
-Signed HTTP control-response collection also still needs its independent bound.
-The ordered append reply reader separately allows 64 MiB frames and an unbounded
-response mailbox; its metadata frame size, queue backpressure and joined
-retirement need explicit limits and regression coverage too.
+The published parent still has unbounded signed HTTP control-response collection
+and an ordered append reply reader admitting 64 MiB frames into an unbounded
+mailbox. The candidate above supplies their independent limits, finite wire/queue
+flow control and joined retirement coverage; full captured-source qualification
+is still pending. Bundle helpers and provider/progress inventories remain
+separate missing bounds before any total recovery memory claim.
 Earlier gather/process evidence
 below qualifies its captured source only, not this changed production candidate.
 

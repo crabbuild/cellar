@@ -43,6 +43,7 @@ mod follower_index;
 mod follower_state;
 mod recovery_progress;
 mod recovery_rows;
+mod reply_reader;
 mod startup_retry;
 mod tail_stream;
 
@@ -95,8 +96,19 @@ pub type LogStreamIo = Box<dyn LogStreamDuplex>;
 /// order. The cap bounds a corrupt or hostile length prefix.
 const STREAM_FRAME_CAP: usize = 64 * 1024 * 1024;
 
+// Append and seal answers contain scalar metadata, not retained payloads.
+// This limit applies to their HTTP bodies and ordered reply frames only.
+const CONTROL_REPLY_CAP: usize = 64 * 1024;
+
 #[doc(hidden)]
 pub async fn read_frame<R>(io: &mut R) -> anyhow::Result<Option<Vec<u8>>>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    read_frame_limited(io, STREAM_FRAME_CAP).await
+}
+
+async fn read_frame_limited<R>(io: &mut R, cap: usize) -> anyhow::Result<Option<Vec<u8>>>
 where
     R: tokio::io::AsyncRead + Unpin,
 {
@@ -108,7 +120,7 @@ where
     // Once a header begins, EOF is a torn frame, never a clean close.
     io.read_exact(&mut len[1..]).await?;
     let len = u32::from_le_bytes(len) as usize;
-    if len > STREAM_FRAME_CAP {
+    if len > cap {
         anyhow::bail!("stream frame of {len} bytes exceeds the cap");
     }
     let mut payload = vec![0_u8; len];
@@ -2661,7 +2673,7 @@ impl LogTransport for SignedPeerTransport {
                 builder = builder.timeout(deadline);
             }
             let request = self.auth.sign(builder, "POST", path, &body, node)?;
-            let response = request.body(body).send().await?;
+            let mut response = request.body(body).send().await?;
             // Status before response-auth: a peer can answer an unsigned
             // route error, and callers need that status to classify
             // a protocol-incapable member separately from transport failure.
@@ -2671,7 +2683,29 @@ impl LogTransport for SignedPeerTransport {
                     .context(format!("peer {node} answered {status}")));
             }
             crate::peer_auth::validate_response(response.headers())?;
-            Ok(response.bytes().await?)
+            if response
+                .content_length()
+                .is_some_and(|length| length > CONTROL_REPLY_CAP as u64)
+            {
+                anyhow::bail!("log control reply exceeds {CONTROL_REPLY_CAP} byte limit");
+            }
+            let mut collected = Vec::new();
+            let mut frames = 0;
+            while let Some(chunk) = response.chunk().await? {
+                if chunk.len() > CONTROL_REPLY_CAP.saturating_sub(collected.len()) {
+                    anyhow::bail!("log control reply exceeds {CONTROL_REPLY_CAP} byte limit");
+                }
+                // Reserve only accepted bytes, including with an absent or
+                // misleading Content-Length. Do not retain a chunk list.
+                collected.try_reserve_exact(chunk.len())?;
+                collected.extend_from_slice(&chunk);
+                frames += 1;
+                if frames == 16 {
+                    frames = 0;
+                    tokio::task::yield_now().await;
+                }
+            }
+            Ok(bytes::Bytes::from(collected))
         })
     }
 
@@ -3323,7 +3357,7 @@ impl RetiredStream {
 /// `retire` then joins the reader before a replacement stream can start.
 struct StreamConnection {
     write: tokio::io::WriteHalf<LogStreamIo>,
-    responses: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    responses: reply_reader::Responses,
     reader: crate::asyncrt::TaskHandle<()>,
     progress: StreamProgress,
 }
@@ -3331,7 +3365,7 @@ struct StreamConnection {
 impl StreamConnection {
     fn new(
         write: tokio::io::WriteHalf<LogStreamIo>,
-        responses: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+        responses: reply_reader::Responses,
         reader: crate::asyncrt::TaskHandle<()>,
     ) -> Self {
         Self {
@@ -3403,34 +3437,6 @@ async fn stream_lane(
         std::collections::VecDeque::new();
     let mut hedge_rx: Option<tokio::sync::oneshot::Receiver<AppendSend>> = None;
 
-    fn spawn_reader(
-        read: tokio::io::ReadHalf<LogStreamIo>,
-    ) -> (
-        tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
-        crate::asyncrt::TaskHandle<()>,
-    ) {
-        let (send, receive) = tokio::sync::mpsc::unbounded_channel();
-        let reader = crate::asyncrt::spawn(async move {
-            let mut read = read;
-            loop {
-                let frame = crate::asyncrt::select_biased! {
-                    "reader cancellation wins a tie with a frame from the retired connection";
-                    _ = send.closed() => return,
-                    frame = read_frame(&mut read) => frame,
-                };
-                match frame {
-                    Ok(Some(frame)) => {
-                        if send.send(frame).is_err() {
-                            return;
-                        }
-                    }
-                    Ok(None) | Err(_) => return,
-                }
-            }
-        });
-        (receive, reader)
-    }
-
     async fn dial(
         member: &Member,
         transport: &Arc<dyn LogTransport>,
@@ -3439,7 +3445,7 @@ async fn stream_lane(
             .open_stream(&member.node, &member.addr, "/peer/log/stream")
             .await?;
         let (read, write) = tokio::io::split(io);
-        let (responses, reader) = spawn_reader(read);
+        let (responses, reader) = reply_reader::spawn(read)?;
         Ok(StreamConnection::new(write, responses, reader))
     }
 
@@ -3630,8 +3636,12 @@ async fn stream_lane(
                     } => stopped,
                     event = async {
                         crate::asyncrt::select_biased! {
-                            "a queued append wins a tie with a response to preserve lane order";
-                            job = jobs.recv() => LaneEvent::Job(job),
+                            "a queued append with reply capacity wins a tie with a response to preserve lane order";
+                            // Every written frame needs a reply slot. Larger
+                            // configured submission windows wait here while
+                            // answers drain; otherwise bidirectional socket
+                            // backpressure can deadlock this writer and reader.
+                            job = jobs.recv(), if inflight.len() < reply_reader::CAPACITY => LaneEvent::Job(job),
                             response = responses.recv() => LaneEvent::Response(response),
                         }
                     } => event,
