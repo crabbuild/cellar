@@ -453,8 +453,10 @@ impl Reader<'_> {
                 ensure!(len.is_multiple_of(2), "odd clone UTF-16 byte length");
                 Value::String(
                     self.raw(len)?
-                        .chunks_exact(2)
-                        .map(|bytes| u16::from_le_bytes([bytes[0], bytes[1]]))
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|bytes| u16::from_le_bytes(*bytes))
                         .collect(),
                 )
             }

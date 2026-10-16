@@ -1,6 +1,14 @@
 //! Integrity and identity for the independent acknowledged-range/seal barrier.
 use super::{validate_log_leader, FollowerState};
+use anyhow::Context as _;
 use sha2::{Digest, Sha256};
+use std::path::Path;
+
+#[cfg(test)]
+#[path = "follower_state_tests.rs"]
+mod tests;
+
+const MAX_BYTES: usize = 4096;
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,12 +51,18 @@ pub(super) fn encode(leader: &str, node: &str, state: FollowerState) -> anyhow::
         state,
         checksum: checksum(leader, node, state)?,
     })?;
-    anyhow::ensure!(bytes.len() <= 4096, "follower state exceeds format bound");
+    anyhow::ensure!(
+        bytes.len() <= MAX_BYTES,
+        "follower state exceeds format bound"
+    );
     Ok(bytes)
 }
 
 pub(super) fn decode(bytes: &[u8], leader: &str, node: &str) -> anyhow::Result<FollowerState> {
-    anyhow::ensure!(bytes.len() <= 4096, "follower state exceeds format bound");
+    anyhow::ensure!(
+        bytes.len() <= MAX_BYTES,
+        "follower state exceeds format bound"
+    );
     let record: Record = serde_json::from_slice(bytes)?;
     anyhow::ensure!(
         record.format == 1,
@@ -63,4 +77,36 @@ pub(super) fn decode(bytes: &[u8], leader: &str, node: &str) -> anyhow::Result<F
         "follower state checksum mismatch"
     );
     Ok(record.state)
+}
+
+pub(super) fn load(
+    filesystem: &dyn cellar_ltx::FileSystem,
+    path: &Path,
+    leader: &str,
+    node: &str,
+) -> anyhow::Result<Option<FollowerState>> {
+    let mut file = match filesystem.open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("cannot open follower state"),
+    };
+    // Pin one inode across the length checks and bounded read. A path stat
+    // followed by a whole-file read can race replacement and allocate without
+    // a bound. Only absence at open means optional state; later NotFound/IO
+    // errors must not turn retained metadata into a fresh empty fragment.
+    let length = file
+        .file_len()
+        .context("cannot stat opened follower state")?;
+    anyhow::ensure!(
+        length <= MAX_BYTES as u64,
+        "follower state exceeds format bound"
+    );
+    let bytes = file
+        .read_exact_at(0, length as usize)
+        .context("cannot read opened follower state")?;
+    anyhow::ensure!(
+        bytes.len() as u64 == length && file.file_len()? == length,
+        "follower state changed during read"
+    );
+    decode(&bytes, leader, node).map(Some)
 }

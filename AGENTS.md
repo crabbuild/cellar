@@ -141,6 +141,16 @@ validates archived records. consumer_recovery.py --witness-data state-missing|
 state-corrupt requires real peer errors (not proxy-generated refusals), unchanged
 files before return, joined peers and the original inbox/effects before replay.
 Recreate old unchecksummed development state; no legacy reader or migration.
+Read follower state through one open HostFile: fstat before requesting at most
+4096 bytes, require an exact read and unchanged handle length, then decode.
+Whole-file read followed by a decoder bound allocates before rejecting oversized
+metadata. Only NotFound while opening means optional state; stat/read NotFound,
+short reads and changing lengths are errors and cannot cache an empty fragment.
+follower_state_tests.rs measures requested bytes at the actual cold-store seam;
+the oversized input is guarded by the test filesystem to avoid a huge test
+allocation. consumer_recovery.py --witness-data state-oversize pads the original
+valid record to 64 KiB without changing fields/checksum. Require actual size
+refusals, untouched batches and exact original-state return after peer joins.
 Cold destination ack/fetch fixtures refuse only the consumer's selected stream
 ownership write, preserving other writes and real proof paths. A returning
 consumer may otherwise validly own the stream and replay locally, bypassing the

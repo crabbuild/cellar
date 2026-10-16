@@ -24,6 +24,60 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 4 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 5 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
+The follower metadata allocation bug is reproduced and fixed. The former loader
+calls whole-file read before checking the 4096-byte decoder bound. An
+instrumented cold-store regression requests 8388608 bytes before rejection and
+fails in 0.07s (66.98s including compilation); the test filesystem records that
+request without allocating the oversized buffer itself. The new reader opens
+one handle, checks its length before requesting payload, requires an exact read
+and unchanged handle length, then decodes. Only open-time NotFound means optional
+state; later stat/read errors cannot become fresh or cached empty state.
+Three Rust regressions cover 4097-byte/8 MiB rejection without payload reads,
+4096-byte acceptance with the seal floor intact, and post-open NotFound, changed
+length and short-read refusal without mutation. Empty probes of a missing
+fragment were inspected too: the existing epoch-adoption guard already refuses
+them, so no probe fix is asserted. All owned markers remain 1.
+
+The state-oversize process case pads an original valid record to 64 KiB, retaining
+all fields/checksum and batches. The independent auditor requires actual peer
+size errors, unchanged files before return, joined peers, exact original bytes
+and original inbox/effects/receipt recovery before replay. Both SQLite/RustFS
+cases and their evidence re-audits pass in the final batch (22.19s/24.59s).
+
+Final qualification uses CI's declared Rust 1.98.1 on aarch64 macOS, with 526 Rust
+and 68 Python files plus manifests, locks and build/lint/CI configuration captured.
+The saved runtime SHA256 is
+b147f207617a0cc02c34dd51cec7ee52580b2ade19b40e113af052a00912519c.
+All 26 process cases and their independent re-audits pass: the prior 24-case
+matrix plus both oversized-state cases. This includes both controlled startup
+cuts and three ordinary RustFS expired-fetch runs. All 169 Python guards, three
+read-bound tests, three startup-retry tests, 19 native log/five protocol cases
+and ordinary smoke pass. The same two pre-existing unclosed-SQLite
+ResourceWarnings remain. Workspace checking (44.28s), Clippy with warnings denied
+(68.76s), 526-file formatting, docs (36 documents/six flows/388 references),
+dependency policy (403 packages/no JavaScript engine) and whitespace checks pass.
+The full all-feature workspace suite passes 643 tests across 108 targets
+(772.33s), including all 77 Node cases (121.62s) and the development-host case
+(202.52s) under unchanged deadlines. Doc-tests pass 11 with one existing ignored
+example (60.11s). Every captured source and the saved binary remain unchanged
+through all 65 phases. Process/container inspection confirms no saved-runtime
+processes and all 15 owned stores from preliminary/final runs removed. Evidence
+is retained in
+`/var/folders/rn/k2b7mvbs2dgb__6ys6_h94pm0000gn/T/cellar-follower-read-bound-cvk8l2bw/qualified-verified`.
+Final docs checks run again after this ledger update. These are local matching-
+compiler results; hosted Linux qualification and the full release gates remain
+separate. Passing startup regressions do not diagnose historical failures.
+
+The first Rust 1.98.1 frozen batch stops on newer Clippy rules after its Python
+and workspace-check gates pass; that failed batch remains retained. UTF-16 clone
+and KV hex decoding now use array chunks, retaining their even-length checks and
+byte order. The tunnel send helper boxes its large TrySendError while preserving
+take_message and the exact unsent request/body/headers; submitted requests still
+cannot enter ordinary replay. No lint is suppressed. These conformance changes
+are included in the successful final batch above. Preliminary runtime SHA256
+5d50c8185369081efaee7d700907abcb8ce1cb46984262251747d9c09716f827
+and older Rust 1.97 evidence below predate that final tree and remain distinct.
+
 The cold RustFS startup failure now has a reproduced cause. The first ordinary
 repeat fails with full error chains: both returning peers exhaust their 10s
 activation budget while the destination retains its recovering predecessor.
@@ -49,7 +103,7 @@ RustFS cases pass in 33.94s/35.23s with complete joins. These preliminary result
 are separate from final frozen-source qualification below and do not establish
 the causes of the other startup failures.
 
-The current frozen-source run captures 525 Rust and 68 Python files and uses
+The previous frozen-source run captures 525 Rust and 68 Python files and uses
 runtime SHA256
 c65e1e80cc519f2512d2d3c90533a394983b512308507386b6b076e129d6969e.
 All 24 process cases and saved-evidence re-audits pass: the existing 20-case
@@ -72,8 +126,7 @@ All source hashes remain unchanged through completion. Final documentation
 checks run again after this ledger update. This qualifies the reproduced cold-
 startup backoff race on the stated profile, not the entire release matrix.
 The local profile is Rust 1.97.0/aarch64 macOS. CI's declared Rust 1.98.1 compiler
-is also installed locally; its Clippy/rustfmt components are now available and
-matching-toolchain qualification is the next check. Hosted jobs have been unable
+is qualified by the newer frozen-source batch above. Hosted jobs have been unable
 to start because of GitHub account payment/spending-limit restrictions.
 
 The current metadata investigation reproduces four native failures: corrupt base,

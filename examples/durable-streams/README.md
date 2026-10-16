@@ -677,11 +677,17 @@ check, which uses the existing authenticated framework event route.
 
 `--witness-data state-missing` removes only the selected consumer state metadata;
 `--witness-data state-corrupt` changes its base to its end without updating the
-checksum. Both preserve every committed batch. Real witness services must refuse
+checksum. `--witness-data state-oversize` pads the original valid record to
+64 KiB without changing its fields or checksum. All preserve every committed
+batch. Real witness services must refuse
 before supplying a seal, and two framework calls must return explicit
 `Unavailable` without advancing the consumer owner or sealing its log. These
 metadata errors leave witness state inconclusive; they do not invent a loss
 certificate. Proxy observations retain the actual peer status/body digest.
+The oversized case requires the actual format-bound error and independently
+checks the exact original-byte prefix and padding. Native filesystem probes
+separately verify rejection before requesting any state payload bytes, not only
+a decoder error after allocation.
 
 After both peers drain and join, require their files to equal the damaged
 inventory exactly before returning the original valid metadata. Returning bytes

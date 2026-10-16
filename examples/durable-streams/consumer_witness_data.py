@@ -1,4 +1,4 @@
-"""Damage and return only real committed batches while witness processes are joined."""
+"""Damage and return retained follower files only after witness processes join."""
 import hashlib
 import json
 import os
@@ -8,9 +8,11 @@ import shutil
 from faults import require
 from whole_fleet import inventory
 
+OVERSIZED_STATE_BYTES = 64 << 10
+
 
 def validate_damage(mode, original, damaged):
-    require(mode in ("missing", "corrupt", "state-missing", "state-corrupt"), "unknown consumer witness fault")
+    require(mode in ("missing", "corrupt", "state-missing", "state-corrupt", "state-oversize"), "unknown consumer witness fault")
     before={entry["path"]:entry for entry in original}
     after={entry["path"]:entry for entry in damaged}
     batches={path for path in before if path.endswith(".batch")}
@@ -18,6 +20,7 @@ def validate_damage(mode, original, damaged):
     if mode.startswith("state-"):
         require("state.json" in before and {key:value for key,value in after.items() if key!="state.json"}=={key:value for key,value in before.items() if key!="state.json"},"metadata fault changed committed batches")
         require(set(after)==set(before)-{"state.json"} if mode=="state-missing" else set(after)==set(before) and after["state.json"]["sha256"]!=before["state.json"]["sha256"],"metadata fault was not exercised")
+        if mode=="state-oversize":require(after["state.json"]["bytes"]==OVERSIZED_STATE_BYTES,"wrong oversized-state fault length")
         return
     require({path:value for path,value in after.items() if path not in batches}=={path:value for path,value in before.items() if path not in batches}, "witness fault changed state or unrelated files")
     if mode=="missing":
@@ -33,6 +36,9 @@ def damage(directories, root, mode):
         if mode.startswith("state-"):
             path=directory/"state.json"
             if mode=="state-missing":path.unlink()
+            elif mode=="state-oversize":
+                raw=path.read_bytes();require(len(raw)<=4096,"original follower state exceeds its format bound")
+                with path.open("wb") as file:file.write(raw+b" "*(OVERSIZED_STATE_BYTES-len(raw)));file.flush();os.fsync(file.fileno())
             else:
                 require(mode=="state-corrupt","unknown metadata fault")
                 value=json.loads(path.read_bytes());state=value["state"]
@@ -59,8 +65,8 @@ def restore(directories, root, retained, mode="missing", damaged=None):
     result={}
     for node,directory in directories.items():
         before=inventory(directory)
-        # Preserve the live implementation's persisted seal floor. Returning an
-        # old state.json would roll it back and could conceal a fencing bug.
+        # Batch return preserves the live seal floor. Metadata return separately
+        # requires that failed calls wrote no intervening state at all.
         names=["state.json"] if mode.startswith("state-") else [batch["path"] for batch in retained[node]["batches"]]
         if mode.startswith("state-"):require(before==damaged[node],"metadata refusal changed witness files before return")
         for name in names:

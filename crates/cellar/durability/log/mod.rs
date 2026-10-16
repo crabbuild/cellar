@@ -1689,14 +1689,13 @@ impl FollowerStore {
         if let Some(loaded) = self.logs.lock().unwrap().get(leader) {
             return Ok(loaded.state);
         }
-        let seed = match self.filesystem.read(&self.dir(leader).join("state.json")) {
-            Ok(bytes) => Some(
-                follower_state::decode(&bytes, leader, &self.node)
-                    .with_context(|| format!("invalid follower state for {leader}"))?,
-            ),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(error) => return Err(error).context("cannot read follower state"),
-        };
+        let seed = follower_state::load(
+            self.filesystem.as_ref(),
+            &self.dir(leader).join("state.json"),
+            leader,
+            &self.node,
+        )
+        .with_context(|| format!("invalid follower state for {leader}"))?;
         // Use one directory observation for both recovery and its evidence.
         // A second scan could lose the invalid or later file that explains why
         // recovery stopped, then certify the shortened state as complete.

@@ -1923,6 +1923,12 @@ in the order above in little endian. Bound the encoded record to 4096 bytes and
 each identity to 1024 bytes; reject extra/duplicate fields, invalid ranges,
 unknown formats, wrong identity or checksum and I/O/parse errors.
 
+The size bound applies before requesting payload bytes. Open one file handle,
+check its length against 4096, read exactly that bounded length and recheck its
+length before decoding. Reject short/changed reads; only NotFound at open means
+the optional file is absent. Later NotFound errors cannot create fresh state.
+This avoids both an unbounded whole-file allocation and a path-stat/read race.
+
 Missing metadata beside retained batch evidence is unproven, not an empty new
 fragment. Refused tail/seal/append operations must preserve the metadata and
 batch bytes; repeated calls cannot cache an empty success. Original valid
@@ -1934,6 +1940,15 @@ two explicit framework refusals and identical damaged inventories before joined
 peers receive original metadata. Audit original consumer inbox/effects/receipt
 before replay and independently validate all state/batch archives. These cases
 do not qualify arbitrary historical rollback or physical power/store loss.
+
+The oversized-state variant appends only spaces to the original valid record,
+preserving all fields and its checksum, until the file is 64 KiB. Require real
+peer format-bound errors and no complete certificate, independently inspect the
+exact padded bytes, then return the original metadata after peer joins. Native
+filesystem probes separately require zero payload-read requests for 4097-byte
+and 8 MiB files, acceptance at exactly 4096 bytes, and refusal without mutation
+for failures after opening, short reads and changed lengths. A decoder rejection
+after a whole-file allocation cannot satisfy that bound.
 
 Cold ack/fetch network cuts must also keep the replay caller separate from the
 recovered stream owner. A private selected-own-key refusal on the returning

@@ -85,7 +85,7 @@ def audit_evidence(path, complete=True):
             require(pids is None and set(row["pids"])==PEERS|{"consumer"} and len(set(row["pids"].values()))==3 and row["proof_mode"]=="fleet" and row["peer_proof"]=="bucket" and row["replica_fault_node"]=="consumer" and row["node_lease_ms"]==1000 and type(row["restart_followers"]) is bool,"wrong consumer proof policy/processes")
             pids,cold=row["pids"],row["restart_followers"]
             fault=row.get("witness_data")
-            require(fault is None or cold and fault in ("missing","corrupt","state-missing","state-corrupt"),"witness damage requires cold recovery")
+            require(fault is None or cold and fault in ("missing","corrupt","state-missing","state-corrupt","state-oversize"),"witness damage requires cold recovery")
         elif event=="attempt":
             key=row["key"]
             require(pids is not None and key==("a" if seed is None else "b") and row["attempt"]==1 and row["replay"] is False and operations[key]["attempts"]==0 and proven is None,"source replay concealed recovery")
@@ -176,7 +176,8 @@ def audit_evidence(path, complete=True):
                 require(damaged is not None,"refusal preceded witness damage")
                 if fault.startswith("state-"):
                     message=(f"missing follower state for retained fragment {leader}" if fault=="state-missing" else f"invalid follower state for {leader}")
-                    require(diagnostic is None and all(v.get("blocked") is False and v.get("status")==400 and message in v.get("response_body","") and (fault!="state-corrupt" or "follower state checksum mismatch" in v["response_body"]) and v.get("response_sha256")==hashlib.sha256(v["response_body"].encode()).hexdigest() for rows in row["gates"].values() for v in rows),"metadata error replaced by a service fault or complete seal answer")
+                    reason={"state-corrupt":"follower state checksum mismatch","state-oversize":"follower state exceeds format bound"}.get(fault,"")
+                    require(diagnostic is None and all(v.get("blocked") is False and v.get("status")==400 and message in v.get("response_body","") and reason in v.get("response_body","") and v.get("response_sha256")==hashlib.sha256(v["response_body"].encode()).hexdigest() for rows in row["gates"].values() for v in rows),"metadata error replaced by a service fault or complete seal answer")
                 else:
                     require(diagnostic["leader"]==leader and diagnostic["epoch"]==proven["lease"]["log"]["epoch"] and diagnostic["recovery_blocked"] is True and set(diagnostic["ensemble"])==set(retained),"missing retained-data loss diagnostic")
                     require(all(v.get("blocked") is False and v.get("response",{}).get("fragment_epoch")==0 for rows in row["gates"].values() for v in rows),"data loss replaced by service refusal or a complete seal certificate")
@@ -261,4 +262,8 @@ def audit_evidence(path, complete=True):
                     require(expected["state"]["base"]<expected["state"]["end"],"metadata fault did not hide actual retained work")
                     expected["state"]["base"]=expected["state"]["end"]
                     require(json.loads((path.parent/"damaged-consumer-followers"/node/"state.json").read_bytes())==expected,"metadata fault changed more than the base or supplied a new checksum")
+                if fault=="state-oversize":
+                    original=(path.parent/"consumer-follower-images"/node/"state.json").read_bytes()
+                    altered=(path.parent/"damaged-consumer-followers"/node/"state.json").read_bytes()
+                    require(len(original)<=4096 and len(altered)==64<<10 and altered==original+b" "*((64<<10)-len(original)),"oversized-state fault changed fields or checksum instead of only padding")
     return dict(audits=len(stages),consumer_fleet_recoveries=int(len(stages)>1),cold_followers=len(ready),backend="s3" if store else "sqlite")

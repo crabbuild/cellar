@@ -29,6 +29,7 @@ def data_fixture(mode):
         if mode=="corrupt":changed.insert(0,dict(data["files"][0],sha256="3"*64))
         if mode=="state-missing":changed=[copy.deepcopy(data["files"][0])]
         if mode=="state-corrupt":changed=[copy.deepcopy(data["files"][0]),dict(state,sha256="3"*64)]
+        if mode=="state-oversize":changed=[copy.deepcopy(data["files"][0]),dict(state,sha256="3"*64,bytes=64<<10)]
         damaged[node]=changed
         row(rows,"consumer_witness_started",node=node)["files"]=copy.deepcopy(changed)
         sealed=dict(state,sha256="4"*64)
@@ -44,7 +45,8 @@ def data_fixture(mode):
         for observation in observations:
             observation.update(blocked=False,response=dict(fragment_epoch=0,held_fragment_epoch=1,base=0,end=2))
             if mode.startswith("state-"):
-                body=(f"missing follower state for retained fragment {leader}" if mode=="state-missing" else f"invalid follower state for {leader}: follower state checksum mismatch")
+                reason="follower state exceeds format bound" if mode=="state-oversize" else "follower state checksum mismatch"
+                body=(f"missing follower state for retained fragment {leader}" if mode=="state-missing" else f"invalid follower state for {leader}: {reason}")
                 observation.update(status=400,response=None,response_body=body,response_sha256=hashlib.sha256(body.encode()).hexdigest())
     if mode.startswith("state-"):refused["diagnostic"]=None
     second=copy.deepcopy(refused);second["attempt"]=2
@@ -67,7 +69,7 @@ def data_fixture(mode):
 
 
 class WitnessDataTests(unittest.TestCase):
-    def audit(self,rows,changed_archive=False,rolled_back=False):
+    def audit(self,rows,changed_archive=False,rolled_back=False,altered_oversize=False):
         expected=data_fixture(row(rows,"consumer_recovery_started")["witness_data"])
         images={"lost-consumer-image":row(expected,"consumer_proof_image")["image"],"recovered-consumer-image":row(expected,"consumer_recovered_image")["image"]}
         retained=row(expected,"consumer_followers_retained")["followers"]
@@ -84,17 +86,24 @@ class WitnessDataTests(unittest.TestCase):
                 state=dict(retained[node]["seed"])
                 if not row(rows,"consumer_recovery_started")["witness_data"].startswith("state-"):state["sealed_to"]=0 if rolled_back else 1
                 (target/"state.json").write_bytes(state_bytes(state,leader=LEADER,node=node))
-                if row(rows,"consumer_recovery_started")["witness_data"]=="state-corrupt":
+                mode=row(rows,"consumer_recovery_started")["witness_data"]
+                if mode in ("state-corrupt","state-oversize"):
                     original=root/"consumer-follower-images"/node;original.mkdir(parents=True)
                     raw=state_bytes(state,leader=LEADER,node=node);(original/"state.json").write_bytes(raw)
-                    altered=json.loads(raw);altered["state"]["base"]=altered["state"]["end"]
                     bad=root/"damaged-consumer-followers"/node;bad.mkdir(parents=True)
-                    (bad/"state.json").write_text(json.dumps(altered))
+                    if mode=="state-corrupt":
+                        altered=json.loads(raw);altered["state"]["base"]=altered["state"]["end"]
+                        (bad/"state.json").write_text(json.dumps(altered))
+                    else:
+                        padded=raw
+                        if altered_oversize:
+                            value=json.loads(raw);value["state"]["base"]=value["state"]["end"];padded=json.dumps(value).encode()
+                        (bad/"state.json").write_bytes(padded+b" "*((64<<10)-len(padded)))
             with patch("consumer_recovery_audit.inspect_consumer",side_effect=lambda archive,scope:images[archive.name]),patch("consumer_recovery_audit.inspect_follower_disk",side_effect=lambda archive:retained[archive.name]),patch("consumer_recovery_audit.inventory",side_effect=files):
                 return audit_evidence(path)
 
     def test_missing_and_corrupt_data_require_two_real_refusals_then_return(self):
-        for mode in ("missing","corrupt","state-missing","state-corrupt"):self.assertEqual(self.audit(data_fixture(mode))["consumer_fleet_recoveries"],1)
+        for mode in ("missing","corrupt","state-missing","state-corrupt","state-oversize"):self.assertEqual(self.audit(data_fixture(mode))["consumer_fleet_recoveries"],1)
 
     def test_metadata_errors_cannot_supply_a_seal_or_modify_state_before_return(self):
         for kind in ("success","blocked","hash","state","batch"):
@@ -107,8 +116,24 @@ class WitnessDataTests(unittest.TestCase):
                 value["before" if kind=="state" else "after"][1 if kind=="state" else 0]["sha256"]="0"*64
             with self.subTest(kind=kind),self.assertRaises(AuditError):self.audit(rows)
 
+    def test_oversized_metadata_needs_a_real_size_refusal_and_the_measured_length(self):
+        rows=data_fixture("state-oversize");refused=row(rows,"consumer_witness_refused",attempt=2)
+        value=refused["gates"]["destination"][0];value["response_body"]=value["response_body"].replace("exceeds format bound","checksum mismatch")
+        value["response_sha256"]=hashlib.sha256(value["response_body"].encode()).hexdigest()
+        with self.assertRaisesRegex(AuditError,"metadata error replaced"):self.audit(rows)
+        rows=data_fixture("state-oversize")
+        original=row(rows,"consumer_followers_retained")["followers"]["destination"]["files"]
+        damaged=row(rows,"consumer_witness_data_damaged")["files"]["destination"]
+        for size in (4096,(64<<10)-1,(64<<10)+1):
+            wrong=copy.deepcopy(damaged);next(item for item in wrong if item["path"]=="state.json")["bytes"]=size
+            with self.subTest(size=size),self.assertRaisesRegex(AuditError,"fault length"):validate_damage("state-oversize",original,wrong)
+
+    def test_oversized_archive_cannot_hide_a_changed_state_or_checksum(self):
+        with self.assertRaisesRegex(AuditError,"changed fields or checksum"):
+            self.audit(data_fixture("state-oversize"),altered_oversize=True)
+
     def test_actual_metadata_return_preserves_all_batches_and_refuses_newer_state(self):
-        for mode in ("state-missing","state-corrupt"):
+        for mode in ("state-missing","state-corrupt","state-oversize"):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
                 root=Path(directory);live=root/"live";live.mkdir()
                 raw=state_bytes(dict(fragment_epoch=1,base=1,end=2,sealed_to=0))
