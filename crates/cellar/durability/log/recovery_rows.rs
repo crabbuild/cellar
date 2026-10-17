@@ -190,6 +190,7 @@ pub(super) struct Rows {
     pending: Vec<Meta>,
     pending_bytes: usize,
     ordinal: u64,
+    guards: Vec<Arc<dyn Send + Sync>>,
 }
 
 impl Rows {
@@ -206,7 +207,14 @@ impl Rows {
             pending: Vec::new(),
             pending_bytes: 0,
             ordinal: 0,
+            guards: Vec::new(),
         }
+    }
+
+    /// Reservations only retain resources; they grant no proof or authority.
+    /// Move them with the spool through blocking work and sorted consumption.
+    pub fn keep_alive(&mut self, guard: Arc<dyn Send + Sync>) {
+        self.guards.push(guard);
     }
 
     pub fn cancellation(&self) -> Arc<AtomicBool> {
@@ -501,6 +509,7 @@ impl Rows {
             pending: None,
             previous: None,
             previous_descriptor: None,
+            _guards: self.guards,
         })
     }
 }
@@ -516,6 +525,7 @@ pub(super) struct SortedRows {
     pending: Option<Meta>,
     previous: Option<Key>,
     previous_descriptor: Option<Meta>,
+    _guards: Vec<Arc<dyn Send + Sync>>,
 }
 
 impl SortedRows {

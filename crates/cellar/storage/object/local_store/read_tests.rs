@@ -378,3 +378,91 @@ async fn closed_response_owner_refuses_a_new_read_on_another_domain() -> Result<
     ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 0);
     Ok(())
 }
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_body_reader_retains_its_native_io_reservation() -> Result<()> {
+    cancelled_reserved_read(false).await
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_metadata_reader_retains_its_native_io_reservation() -> Result<()> {
+    cancelled_reserved_read(true).await
+}
+
+#[cfg(not(cellar_internal_tests))]
+async fn cancelled_reserved_read(metadata: bool) -> Result<()> {
+    use futures_util::FutureExt as _;
+    let directory = tempfile::tempdir()?;
+    let owner = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = ReadGate::new(&owner);
+    let prepared = owner
+        .run(async {
+            let mut store = LocalStore::open(directory.path().join("reserved.sqlite"))?;
+            store
+                .put_opts(
+                    &Path::from("key"),
+                    Bytes::from_static(b"original").into(),
+                    PutOptions::default(),
+                )
+                .await?;
+            if metadata {
+                store.metadata_gate = Some(gate.clone());
+            } else {
+                store.read_gate = Some(gate.clone());
+            }
+            Ok::<_, anyhow::Error>(store)
+        })
+        .await;
+    let prepared = prepared
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
+    if prepared.is_err() {
+        gate.release();
+        owner.shutdown().await;
+    }
+    let store = prepared?;
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = Arc::new(slots.clone().try_acquire_owned()?);
+    let mut options = GetOptions {
+        head: metadata,
+        ..Default::default()
+    };
+    options
+        .extensions
+        .insert(crate::bucket::ReadGuard::new(permit));
+    let task = match owner.spawn(async move {
+        let response = store.get_opts(&Path::from("key"), options).await?;
+        response.bytes().await?;
+        Ok::<_, anyhow::Error>(())
+    }) {
+        Ok(task) => task,
+        Err(error) => {
+            gate.release();
+            owner.shutdown().await;
+            return Err(error.into());
+        }
+    };
+    // The test driver owns the guard and always releases/joins native I/O.
+    #[allow(clippy::disallowed_methods)]
+    let entered = tokio::time::timeout(Duration::from_secs(2), gate.entered.notified()).await;
+    task.abort();
+    let cancelled = task.await;
+    let reserved = slots.available_permits() == 0;
+    owner.close();
+    let mut shutdown = Box::pin(owner.shutdown());
+    let joined = shutdown.as_mut().now_or_never().is_none();
+    gate.release();
+    shutdown.await;
+    entered?;
+    ensure!(cancelled.is_err(), "caller did not cancel");
+    ensure!(
+        reserved,
+        "cancelled read returned admission while SQLite I/O still ran"
+    );
+    ensure!(joined, "shutdown returned before SQLite I/O joined");
+    ensure!(slots.available_permits() == 1);
+    ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 1);
+    Ok(())
+}

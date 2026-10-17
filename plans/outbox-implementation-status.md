@@ -27,6 +27,46 @@ storage failures. The ordered list below supersedes historical next-step notes.
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
 
+### Current follow-up: concurrent live-fold admission
+
+PR #70 merged as `e802867c1cddce958747c296b7832d514a7a969a`. Its published single-scan
+spooling and SQLite streaming prerequisites do not bound overlapping folds for
+different cells. The concurrency follow-up starts from that updated `main` on
+`codex/bound-concurrent-bundle-scans`; the squash merge and original published
+head have identical trees, and all 625 captured inputs remain unchanged through
+the branch transition. No follow-up is based on the merged feature branch. The new regression uses two real writer membership lookups over
+32 shared mixed-cell bundles; each scan verifies all 32 original row identities,
+lengths and SHA-256 digests before the RSS assertion. The unmodified production
+scan path grows RSS by 104693760 bytes (about 99.8 MiB), failing the unchanged
+67108864-byte (64 MiB) node budget. Both scans and domain/owner cleanup complete;
+this is a memory failure, not missing event evidence. The earlier whole-session
+helper-overlap profile is separate and is not production overlap qualification.
+
+The local candidate shares one admission reservation across live folds and
+close, retaining it through follower staging, bundle decoding, derived row spools
+and sorted consumption. Scratch files and entered SQLite metadata/body work keep
+the reservation after caller cancellation; capacity retention grants no execution
+or durability authority. The first frozen candidate run passes all eight focused bundle cases. Single-
+scan RSS growth is 54444032 bytes (about 51.9 MiB); the two indexed cell scans
+grow by 55083008 bytes (about 52.5 MiB), below the same 64 MiB budget while each
+original row digest/identity/length is checked. The entered scratch-I/O cancellation
+and sorted-consumption reservation cases pass too. All ten SQLite store cases also pass, including cancelled entered metadata/body
+workers; HEAD/range/full-read RSS growth is 6864896/7618560/8421376 bytes under
+their unchanged 16 MiB budgets. The full library run exits 101 after 142.84s
+including build validation: 322 cases pass, including both bundle memory profiles,
+and `daemon::driver::tests::fencing_during_application_drain_preserves_the_authority_report`
+fails with an unlocalized deadline. All 625 captured Rust/Python/build inputs stay
+unchanged. The exact failed executable is preserved with SHA-256
+`2940b35891be4ce03f6d6d1d1b130c695963f8ee965efa4f439197a125180170`;
+its unchanged isolated case passes in 0.32s with the same local-reload warning.
+That warning is therefore not established as the cause, and a passing replay
+does not close the full-library gate or diagnose which original three-second
+phase elapsed. Native recovery/SDK/Node and static qualification are running
+separately. These scoped passes do not establish a total process bound,
+throughput claim or complete release gate. Dead-session recovery, GC/overlay/diagnostic
+readers, provider/progress metadata inventories and the legal oversized upload row
+retain their independent memory and capacity gates.
+
 The tail-transfer candidate is published as a83648f on PR #69 and remains under
 qualification. The actual pre-change server preparation path grows RSS by
 254869504 bytes (about 243 MiB) for sixteen valid 8 MiB batches, failing the

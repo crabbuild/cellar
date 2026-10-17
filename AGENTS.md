@@ -1486,7 +1486,16 @@ actual close caller and requires the original open folded log unchanged.
 Native log fixture Result errors and failed setup join source/recovery/follower
 domains before directory cleanup. Preserve five-second proof/recovery guards,
 captured publication policies and original crash/proof assertions; failure-only
-stage context is not a runtime timeout repair. Diagnostic collectors, dead-session
-bundle reads, GC/overlay helpers, concurrent scans, metadata inventories and one
-legal oversized upload row remain separate memory/capacity gates. All owned
-markers remain 1.
+stage context is not a runtime timeout repair. Live folds and graceful close share one node-local scan reservation. Acquire it
+before follower staging and retain it through the derived Rows/SortedRows spool,
+including uniqueness rewinds and asynchronous upload consumption. Entered scratch
+file work, returned scratch handles and SQLite metadata/body workers retain that
+reservation after caller cancellation; an async-future-only permit is insufficient.
+The opaque object-store ReadGuard is capacity retention, never execution or proof
+authority; the original domain admission/result checks still apply. The indexed
+two-cell memory regression verifies each original mixed-bundle row before its
+unchanged RSS budget; native blocking cancellation cases require both admission
+and shutdown to remain pending until real entered I/O joins. Qualification of this
+candidate is tracked in the status ledger. Diagnostic collectors, dead-session
+bundle reads, GC/overlay helpers, metadata inventories and one legal oversized
+upload row retain separate memory/capacity gates. All owned markers remain 1.

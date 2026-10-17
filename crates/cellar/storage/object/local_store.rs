@@ -38,6 +38,8 @@ pub(crate) struct LocalStore {
     database: PathBuf,
     #[cfg(test)]
     read_gate: Option<Arc<read_tests::ReadGate>>,
+    #[cfg(test)]
+    metadata_gate: Option<Arc<read_tests::ReadGate>>,
 }
 
 #[derive(Debug)]
@@ -64,6 +66,8 @@ impl LocalStore {
             database,
             #[cfg(test)]
             read_gate: None,
+            #[cfg(test)]
+            metadata_gate: None,
         };
         let connection = store.connect()?;
         connection
@@ -123,6 +127,10 @@ impl LocalStore {
                  FROM __sys_local_objects WHERE key = ?1",
                 [key],
                 |row| {
+                    #[cfg(test)]
+                    if let Some(gate) = &self.metadata_gate {
+                        gate.wait();
+                    }
                     Ok(StoredObject {
                         key: row.get(0)?,
                         body: Vec::new(),
@@ -357,9 +365,17 @@ impl ObjectStore for LocalStore {
         let owner = crate::asyncrt::services()
             .domain_token()
             .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?;
-        let object = store_blocking!(move || store.read_metadata(&key))
-            .await
-            .map_err(db_error)??;
+        let guard = options
+            .extensions
+            .get::<crate::bucket::ReadGuard>()
+            .cloned();
+        let metadata_guard = guard.as_ref().map(crate::bucket::ReadGuard::keep_alive);
+        let object = store_blocking!(move || {
+            let _reservation = metadata_guard;
+            store.read_metadata(&key)
+        })
+        .await
+        .map_err(db_error)??;
         let meta = object_meta(&object)?;
         options.check_preconditions(&meta)?;
         let full = 0..object.size;
@@ -377,6 +393,7 @@ impl ObjectStore for LocalStore {
                 size: object.size,
                 cursor: range.start,
                 end: range.end,
+                guard,
                 #[cfg(not(cellar_internal_tests))]
                 owner,
             };
@@ -477,6 +494,7 @@ struct ReadBody {
     size: u64,
     cursor: u64,
     end: u64,
+    guard: Option<crate::bucket::ReadGuard>,
     #[cfg(not(cellar_internal_tests))]
     owner: crate::asyncrt::DomainToken,
 }
@@ -495,7 +513,14 @@ impl ReadBody {
             self.size,
             self.cursor,
         );
-        let operation = move || store.read_chunk(&key, etag, size, offset, length);
+        let guard = self
+            .guard
+            .as_ref()
+            .map(crate::bucket::ReadGuard::keep_alive);
+        let operation = move || {
+            let _reservation = guard;
+            store.read_chunk(&key, etag, size, offset, length)
+        };
         #[cfg(not(cellar_internal_tests))]
         let bytes = {
             let result = self.owner.blocking(operation).map_err(domain_error)?.await;

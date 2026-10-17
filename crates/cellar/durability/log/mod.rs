@@ -36,6 +36,7 @@ use crate::log_options::LogOptions;
 use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
+mod bundle_budget;
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod bundle_scan_tests;
 mod bundle_snapshot;
@@ -4097,6 +4098,9 @@ pub struct NodeLogManager {
     /// metadata stays bounded. A restart loses the index safely because it
     /// creates a new session and recovers the previous session as one unit.
     bundle_index: Mutex<BundleIndex>,
+    /// Shared across cell folds and close; a cancelled caller's entered I/O
+    /// and derived spool retain admission until their actual resources drop.
+    bundle_scan_budget: bundle_budget::Budget,
     /// Resume after examined bundles, including those not yet covered.
     /// Serialize passes so overlapping callers cannot move the cursor back.
     bundle_gc_cursor: tokio::sync::Mutex<Option<String>>,
@@ -4678,6 +4682,7 @@ impl NodeLogManager {
             inner: Mutex::new(None),
             bundle_seq: std::sync::atomic::AtomicU64::new(0),
             bundle_index: Mutex::new(BundleIndex::default()),
+            bundle_scan_budget: bundle_budget::Budget::default(),
             bundle_gc_cursor: tokio::sync::Mutex::new(None),
             other_generation_gc_cursor: tokio::sync::Mutex::new(None),
             bundle_cache: tokio::sync::Mutex::new(None),
@@ -4930,6 +4935,7 @@ impl NodeLogManager {
         addr: &str,
         req: &TailReq,
         claim: Option<(&str, &mut ClaimBeat)>,
+        budget: Option<&bundle_budget::Scope>,
     ) -> anyhow::Result<tail_stream::Snapshot> {
         let cancellation = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = cancellation.clone();
@@ -4941,6 +4947,10 @@ impl NodeLogManager {
             .await
             .context("tail upgrade deadline")??;
             let (filesystem, directory) = self.ltx.recovery_scratch();
+            let filesystem = match budget {
+                Some(budget) => budget.filesystem(filesystem),
+                None => filesystem,
+            };
             tail_stream::receive(io, req, filesystem, directory, flag).await
         })
         .await
@@ -5410,7 +5420,7 @@ impl NodeLogManager {
                     leader: dead.to_string(),
                 };
                 let tail = match self
-                    .post_tail(member, &addr, &tail, Some((dead, &mut beat)))
+                    .post_tail(member, &addr, &tail, Some((dead, &mut beat)), None)
                     .await
                 {
                     Ok(tail) => tail,
@@ -6438,8 +6448,20 @@ impl NodeLogManager {
     async fn gather_uncovered_bundles(
         &self,
         only_cell: Option<&str>,
-        mut gathered: recovery_rows::Rows,
+        gathered: recovery_rows::Rows,
     ) -> anyhow::Result<recovery_rows::Rows> {
+        let budget = self.bundle_scan_budget.acquire().await?;
+        self.gather_bundles_in_scope(only_cell, gathered, budget)
+            .await
+    }
+
+    async fn gather_bundles_in_scope(
+        &self,
+        only_cell: Option<&str>,
+        mut gathered: recovery_rows::Rows,
+        budget: bundle_budget::Scope,
+    ) -> anyhow::Result<recovery_rows::Rows> {
+        budget.hold_rows(&mut gathered);
         let candidates = match only_cell {
             Some(cell) => self.bundle_index.lock().unwrap().bundles_for(cell),
             None => self
@@ -6471,6 +6493,7 @@ impl NodeLogManager {
             let flag = cancellation.clone();
             let fetches = window.into_iter().map(|(key, indexed)| {
                 let cancellation = flag.clone();
+                let budget = budget.clone();
                 async move {
                     if let Some(indexed) = indexed {
                         let mut complete = true;
@@ -6492,7 +6515,7 @@ impl NodeLogManager {
                         }
                     }
                     Ok(self
-                        .stage_bundle(&key, cancellation)
+                        .stage_bundle(&key, cancellation, budget)
                         .await?
                         .map(|file| (key, file)))
                 }
@@ -6507,7 +6530,8 @@ impl NodeLogManager {
             }
             drop(fetches);
             for (key, file) in staged {
-                let rows = self.recovery_rows().with_cancellation(cancellation.clone());
+                let mut rows = self.recovery_rows().with_cancellation(cancellation.clone());
+                budget.hold_rows(&mut rows);
                 let mut bundle = match self
                     .recovery_io(cancellation.clone(), None, move || {
                         bundle_snapshot::decode(file, rows)
@@ -6578,9 +6602,14 @@ impl NodeLogManager {
         &self,
         key: &str,
         cancellation: Arc<std::sync::atomic::AtomicBool>,
+        budget: bundle_budget::Scope,
     ) -> anyhow::Result<Option<cellar_ltx::HostFile>> {
         let response = self
-            .recovery_wait(cancellation.clone(), None, self.bucket.get_streamed(key))
+            .recovery_wait(
+                cancellation.clone(),
+                None,
+                self.bucket.get_streamed(key, budget.read_guard()),
+            )
             .await?;
         let Some(response) = response else {
             return Ok(None);
@@ -6590,7 +6619,7 @@ impl NodeLogManager {
         let mut file = self
             .recovery_io(cancellation.clone(), None, move || {
                 filesystem.create_dir_all(&directory)?;
-                Ok(filesystem.temporary_file(Some(&directory))?)
+                Ok(budget.file(filesystem.temporary_file(Some(&directory))?))
             })
             .await?;
         let mut stream = response.into_stream();
@@ -7493,7 +7522,9 @@ impl NodeLogManager {
     /// merges contiguous rows within each bounded upload batch, so a re-run
     /// after a partial failure skips covered rows.
     pub(crate) async fn fold_cell(&self, cell: &str) -> anyhow::Result<()> {
+        let budget = self.bundle_scan_budget.acquire().await?;
         let mut gathered = self.recovery_rows();
+        budget.hold_rows(&mut gathered);
         let folded = read_record(&self.bucket, &self.session)
             .await?
             .ok_or_else(|| anyhow!("fold session {} has no log record", self.session))?;
@@ -7519,6 +7550,7 @@ impl NodeLogManager {
                         leader: self.session.clone(),
                     },
                     None,
+                    Some(&budget),
                 )
                 .await
             {
@@ -7577,7 +7609,9 @@ impl NodeLogManager {
         // the old fragments. An earlier snapshot could miss that bundle and
         // then accept a newer inactive epoch or already-truncated tail as
         // empty, losing the acknowledged rows that enabled the transition.
-        gathered = self.gather_uncovered_bundles(Some(cell), gathered).await?;
+        gathered = self
+            .gather_bundles_in_scope(Some(cell), gathered, budget)
+            .await?;
         let uploaded = self.upload_spilled(gathered, None).await?;
         info!(
             cell,
