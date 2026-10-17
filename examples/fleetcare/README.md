@@ -126,6 +126,103 @@ Repeated case options are rejected because they would reuse command IDs.
 The `fleetcare-v2` workload contract includes pre-admission classification of
 dropped attachment arrivals; comparisons reject older workload contracts.
 
+## Three-node 3,000-cell capacity test
+
+Use a separate Colima profile to keep existing development containers out of the
+measurement. The capacity resource class gives each application container exactly
+2 vCPU and 4 GiB RAM, with a private 10-GiB ext4 disk and two host/core runtime
+threads each. Nodes use CPU pairs 0–1, 2–3 and 4–5; RustFS uses 6–7 and the
+independent client uses 8–9. Measured ingress uses the private Docker bridge
+gateway directly; Colima's `host-gateway` resolves to macOS and would add a host
+port-forwarding round trip. Per-window hosts files record the actual mapping.
+The technician simulator shares CPU 9; core business
+traffic can invoke it. Child-container diagnostics run outside measurements and
+are not included in the application's 2-vCPU/4-GiB cgroup.
+
+```sh
+colima start cellar-capacity --cpu 12 --memory 24 --disk 70 --activate=false
+DOCKER_CONTEXT=colima-cellar-capacity COLIMA_PROFILE=cellar-capacity \
+python3 tools/perf/fleetcare.py --profile capacity --node-resources capacity \
+  --store-cpus 4 --store-memory-gib 8 \
+  --hosts embedded --durability fleet --suite smoke \
+  --max-resident 1200 --max-requests 512 --concurrency 1024 --rates 25 100 \
+  --mixes core --seconds 30 --warmup-seconds 10 --repeats 2 \
+  --rustfs-image rustfs/rustfs@sha256:040304b66e029a5cde4bed140b41513e925909839a9b912a40a98340610d1f66
+```
+
+Use `--durability bucket --wake-ms 5000` for a separate Bucket case. Wake pacing
+changes discovery and cleanup latency, so hold it fixed when comparing runtime
+variants. Save each case's configuration and keep its receipt, reload and
+shutdown checks enabled.
+
+The example gives RustFS four CPUs (6, 7, 10 and 11) and 8 GiB. These backend
+budgets require a 12-CPU/24-GiB VM and do not change the application containers.
+Vary `--store-cpus` and `--store-memory-gib` to measure backend constraints
+independently. RustFS receives a 65,536 file-descriptor limit. Pin the same
+RustFS image in every compared case.
+
+The capacity inventory has 1,793 Devices, 720 WorkOrderBooks, 300 Inventory
+partitions, 156 workflows, 18 SQL databases, six KV cells, six Queue/DLQ brokers
+and one Cron across six tenants: exactly 3,000 fleet roots. Seed ownership must
+be within 5% of 1,000 per node before measurement; exact observed counts are saved.
+The `smoke` suite still checks full-inventory receipts, business invariants and
+local reloads; use `standard` to add crashes, store outage and bucket restore.
+The profile controls inventory independently of the suite's recovery gates.
+Increase rates until overload is observed, then repeat longer windows around the
+SLO boundary. A shared VM and physical disk cannot establish a universal or
+independent-host performance ceiling. Preserve overload and failed runs.
+
+### HTTP load balancer
+
+Add `--ingress haproxy --store-cpus 2 --store-memory-gib 8` to put a private
+HAProxy HTTP listener in front of the three capacity nodes. Every client action
+(including measured traffic, seed, receipts and replay) uses only
+`http://loadbalancer:8080`. Direct control listeners remain available for
+resource/ownership observations and shutdown. Request-level round robin has no
+sticky cookies, retries or redispatch. Cellar still routes each request to its
+authoritative cell owner; ingress balance and cell-owner balance are distinct.
+
+Capacity runs first initialize the three primary queues, three DLQs, eighteen
+SQL databases and each tenant's Inventory cell 0 through serial HTTP calls.
+This precedes workflow/business seeding. Only these setup requests close their
+frontend connections; measured traffic retains normal keep-alive. SQL schema
+initialization runs once, then the native seed client reads the prepared schema.
+Setup must observe one primary queue, one DLQ, six SQL databases and two
+Inventory cells with id 0 per node. Each owner must match its recorded ingress
+backend. The exact mapping is checked after seed and immediately before/after
+each load window, outside measured traffic. A missing, duplicate, concentrated
+or changed critical owner refuses qualification. Total root counts alone can
+hide a concentrated write pipeline. The captured `ownership_setup` policy
+participates in baseline compatibility; older uncontrolled setup cannot
+establish a matched optimization comparison.
+
+On the 12-CPU VM, nodes occupy 0–5, RustFS 6–7, the client 8–9, HAProxy 10
+(one CPU/256 MiB), and the simulator 11. The two-CPU store budget leaves room
+for independently pinned ingress; it differs from the four-CPU direct-route
+experiment. Store eight-GiB memory still requires the 24-GiB VM. HAProxy is
+pinned by image digest; the actual identity and resource limits are recorded.
+
+Use `--mixes all-read --rates 100 400 1200 3000 --seconds 30 --repeats 1` for a
+cyclic scan of every manifest root, including workflow/queue/SQL/KV/Cron system
+routes. At least 3,000 sent arrivals are needed for complete per-window target
+coverage. Cron's GET performs reconciliation and can cause maintenance writes;
+this is a whole-inventory read/status workload, not a pure SQLite GET benchmark.
+Use separate fresh runs with `--mixes core` or `--mixes write` to measure mixed
+business traffic or commands. These retain their documented operation weights
+and uniform random targets within each kind. Their per-window coverage may be
+smaller than the full inventory; the untimed seed and audit cover all roots.
+
+`--stop-at-overload` stops further rate escalation after a measured API
+success/p99 SLO failure and proceeds to the original receipt/replay/reload and
+shutdown checks. It records the boundary; it does not turn overload into an
+SLO pass. Generator debt and provisional tails still constrain qualification.
+Per-window artifacts include before/after HAProxy counters, backend selection
+and response deltas, client hosts files, successful/sent cell coverage by kind,
+business-owner response counts and resource samples including HAProxy. Proxy
+counter resets, retries or redispatch refuse a valid distribution report.
+The client also receives an explicit 65,536-descriptor limit. Transport errors
+retain their underlying error chain in the bounded journal message.
+
 ## Application state
 
 | Root authority | Full | Smoke |
@@ -140,7 +237,8 @@ dropped attachment arrivals; comparisons reject older workload contracts.
 | Cron | 1 | 1 |
 | Total | **10,000** | **100** |
 
-Scopes use SDK identity construction, with 20 tenants in full and two in smoke.
+Scopes use SDK identity construction, with 20 tenants in full, six in capacity,
+and two in smoke.
 Placement is natural, with equal node weights. The report records exact owner
 counts, residency, cached routes and balance; the suite requires every root to
 be owned once across the fleet. Facets, Blob objects, assets and containers do
@@ -262,3 +360,8 @@ process crash, store outage, local reload and bucket restore.
 Harness guards: `python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
 Application checks: `cargo test -p fleetcare --locked` with the
 repository's required checkout-specific `CARGO_TARGET_DIR`.
+
+Capacity HAProxy setup aligns its initial cursor with at most two extra manifest
+GETs, then requires the thirty critical requests to select node2/node3/node1
+in order. This fixes cross-run identity rotation; selected backends and actual
+owners are still verified independently outside measured traffic.

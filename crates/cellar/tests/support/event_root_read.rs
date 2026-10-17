@@ -1,4 +1,6 @@
-//! Hold one actual root response after reading its exact bytes and token.
+//! Hold actual root responses after reading their exact bytes and tokens.
+//! An after-claim cut also holds concurrent responses so another read cannot
+//! complete recovery before the controller applies its metadata fault.
 //! This gate supplies no replacement metadata or durability verdict.
 
 use anyhow::{Context as _, Result};
@@ -101,7 +103,7 @@ impl ObjectStore for RootReadCut {
                 left.checked_sub(1)
             })
             .is_ok()
-            || self.captured.load(Ordering::Acquire)
+            || self.claimant.is_none() && self.captured.load(Ordering::Acquire)
         {
             return Ok(result);
         }
@@ -117,17 +119,25 @@ impl ObjectStore for RootReadCut {
                         && root["log"]["claimant"] == claimant.as_str()
                 })
         });
-        if selected && !self.captured.swap(true, Ordering::AcqRel) {
+        let first = selected && !self.captured.swap(true, Ordering::AcqRel);
+        if first {
             *self.bytes.lock().unwrap() = Some(bytes.clone());
             self.entered.add_permits(1);
-            self.release
-                .acquire()
-                .await
-                .map_err(|error| object_store::Error::Generic {
-                    store: "root-read-cut",
-                    source: Box::new(error),
-                })?
-                .forget();
+        }
+        if first || self.claimant.is_some() && self.captured.load(Ordering::Acquire) {
+            let permit =
+                self.release
+                    .acquire()
+                    .await
+                    .map_err(|error| object_store::Error::Generic {
+                        store: "root-read-cut",
+                        source: Box::new(error),
+                    })?;
+            if self.claimant.is_none() {
+                permit.forget();
+            }
+            // After a claimed-root cut, returning this permit releases every
+            // concurrent response through the same controller barrier.
         }
         Ok(GetResult {
             payload: GetResultPayload::Stream(
@@ -230,4 +240,57 @@ pub(super) fn follower_proof(
         "no retained committed follower batch"
     );
     Ok(rows)
+}
+
+// Fault-adapter contract only; these bytes are not a Cellar durability witness.
+#[tokio::test]
+async fn claimed_root_cut_holds_concurrent_original_responses() -> Result<()> {
+    let store: Arc<dyn ObjectStore> = Arc::new(object_store::memory::InMemory::new());
+    let key = "nodes/dead.json";
+    let path = Path::from(key);
+    let bytes = Bytes::from_static(br#"{"log":{"state":"recovering","claimant":"next"}}"#);
+    let written = store
+        .put_opts(&path, bytes.clone().into(), Default::default())
+        .await?;
+    let cut = RootReadCut::after_claim(store.clone(), key.into(), "next".into());
+    let first = tokio::spawn({
+        let cut = cut.clone();
+        let path = path.clone();
+        async move { cut.get_opts(&path, Default::default()).await }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), cut.entered.acquire())
+        .await??
+        .forget();
+    let (started, entered) = tokio::sync::oneshot::channel();
+    let mut second = tokio::spawn({
+        let cut = cut.clone();
+        let path = path.clone();
+        async move {
+            let _ = started.send(());
+            cut.get_opts(&path, Default::default()).await
+        }
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), entered).await??;
+    let early = tokio::time::timeout(std::time::Duration::from_millis(50), &mut second).await;
+    let escaped = early.is_ok();
+    store.delete(&path).await?;
+    cut.release.add_permits(1);
+    let first = tokio::time::timeout(std::time::Duration::from_secs(1), first).await???;
+    let second = match early {
+        Ok(result) => result??,
+        Err(_) => tokio::time::timeout(std::time::Duration::from_secs(1), second).await???,
+    };
+    assert_eq!(first.meta.e_tag, written.e_tag);
+    assert_eq!(second.meta.e_tag, written.e_tag);
+    assert_eq!(first.bytes().await?, bytes);
+    assert_eq!(second.bytes().await?, bytes);
+    assert!(matches!(
+        cut.get_opts(&path, Default::default()).await,
+        Err(object_store::Error::NotFound { .. })
+    ));
+    anyhow::ensure!(
+        !escaped,
+        "concurrent root response escaped the held recovery phase"
+    );
+    Ok(())
 }

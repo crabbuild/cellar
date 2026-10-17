@@ -9,6 +9,7 @@ pub const VERSION: &str = "v1";
 #[serde(rename_all = "snake_case")]
 pub enum Profile {
     Smoke,
+    Capacity,
     Full,
 }
 
@@ -56,6 +57,17 @@ impl Profile {
                 queues: 20,
                 cron: 1,
             },
+            Self::Capacity => Counts {
+                tenants: 6,
+                devices: 1793,
+                books: 720,
+                inventory: 300,
+                workflows: 156,
+                sql: 18,
+                kv: 6,
+                queues: 6,
+                cron: 1,
+            },
             Self::Smoke => Counts {
                 tenants: 2,
                 devices: 51,
@@ -94,7 +106,8 @@ impl AppConfig {
         {
             "full" => Profile::Full,
             "smoke" => Profile::Smoke,
-            _ => anyhow::bail!("FLEETCARE_PROFILE must be full or smoke"),
+            "capacity" => Profile::Capacity,
+            _ => anyhow::bail!("FLEETCARE_PROFILE must be full, capacity or smoke"),
         };
         let token: Arc<str> = std::env::var("FLEETCARE_TOKEN")
             .map_err(|_| anyhow::anyhow!("FLEETCARE_TOKEN is required"))?
@@ -169,5 +182,22 @@ mod tests {
         assert_eq!(counts.in_tenant(counts.devices, 0), 300);
         assert_eq!(counts.in_tenant(counts.devices, 19), 299);
         assert_eq!(Profile::Smoke.counts().queues, 2);
+    }
+
+    #[test]
+    fn capacity_inventory_has_exactly_3000_roots_and_complete_partitions() {
+        let counts = Profile::Capacity.counts();
+        assert_eq!(counts.total(), 3000);
+        assert_eq!(counts.sql, counts.tenants * 3);
+        assert_eq!(counts.workflows % counts.tenants, 0);
+        assert_eq!(counts.queues % 2, 0);
+        for total in [counts.devices, counts.books, counts.inventory] {
+            assert_eq!(
+                (0..counts.tenants)
+                    .map(|t| counts.in_tenant(total, t))
+                    .sum::<usize>(),
+                total
+            );
+        }
     }
 }

@@ -12,6 +12,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import os
 import pathlib
 import secrets
 import shlex
@@ -24,7 +25,14 @@ import urllib.error
 SCENARIOS = (("one_node_bucket", 1, "bucket"), ("three_node_bucket", 3, "bucket"), ("three_node_fleet", 3, "fleet"))
 
 
+def colima_mount():
+    profile = os.environ.get("COLIMA_PROFILE", "default")
+    return "/mnt/lima-colima" + ("-" + profile if profile != "default" else "")
+
+
 def command(*args, check=True, **kwargs):
+    if args[0] == "colima" and os.environ.get("COLIMA_PROFILE"):
+        args = ("colima", "--profile", os.environ["COLIMA_PROFILE"], *args[1:])
     result = subprocess.run(args, text=True, capture_output=True, **kwargs)
     if check and result.returncode:
         raise RuntimeError(f"{' '.join(args[:4])}: {result.stderr or result.stdout}")
@@ -132,7 +140,7 @@ class Harness:
         self.tag = "cellar-perf-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
         self.output = pathlib.Path(args.output or f".cellar/perf/{self.tag}").resolve()
         self.output.mkdir(parents=True, exist_ok=False)
-        self.vm_root = "/mnt/lima-colima/" + self.tag
+        self.vm_root = colima_mount() + "/" + self.tag
         self.access = "cellar-perf-" + secrets.token_hex(6)
         self.secret = secrets.token_hex(24)
         self.peer_key = base64.b64encode(secrets.token_bytes(32)).decode()
@@ -171,7 +179,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         self.disks()
         command("docker", "network", "create", self.network)
         command("docker", "run", "-d", "--name", self.store, "--network", self.network,
-                "--network-alias", "rustfs", "--cpus", "2", "--cpuset-cpus", "4,5", "--memory", "4g", "--memory-swap", "4g",
+                "--network-alias", "rustfs", "--ulimit", "nofile=65536:65536", "--cpus", str(getattr(self.args, "store_cpus", 2)), "--cpuset-cpus", getattr(self.args, "store_cpu_set", "4,5"), "--memory", f"{getattr(self.args, 'store_memory_gib', 4)}g", "--memory-swap", f"{getattr(self.args, 'store_memory_gib', 4)}g",
                 "--publish", f"127.0.0.1:{self.args.port}:9000", "--mount", f"type=bind,src={self.vm_root}/rustfs,dst=/data",
                 "-e", f"RUSTFS_ACCESS_KEY={self.access}", "-e", f"RUSTFS_SECRET_KEY={self.secret}",
                 "-e", "RUSTFS_CONSOLE_ENABLE=false", "-e", "RUSTFS_OBS_LOGGER_LEVEL=error", self.args.rustfs_image, "/data")
@@ -194,7 +202,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
             while not self.stop_sampling.is_set():
                 try:
                     running = set(command("docker", "ps", "--format", "{{.Names}}").splitlines())
-                    targets = [name for name in (self.store, *self.nodes, self.tag + "-load") if name in running]
+                    targets = [name for name in (self.store, *self.nodes, self.tag + "-load", getattr(self, "balancer", None)) if name in running]
                     output = command("docker", "stats", "--no-stream", "--format", "{{json .}}", *targets, check=False) if targets else ""
                     for line in output.splitlines():
                         if line.startswith("{"):

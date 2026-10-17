@@ -426,6 +426,59 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
 }
 
 #[tokio::test]
+async fn log_upgrade_relays_binary_bytes_and_joins_both_directions() -> Result<()> {
+    // Include newline, NUL and non-UTF-8 bytes: an HTTP parser cannot relay
+    // either side of this upgraded protocol. Coalesce the server's 101 head
+    // and first payload to exercise bytes already held by its BufReader.
+    const CLIENT_BYTES: &[u8] = b"CLT1\0\xff\nrequest\r\n\0";
+    const SERVER_BYTES: &[u8] = b"CLB1\0\xfe\nresponse\r\n\0";
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let exchange = async {
+        let caller = async {
+            let mut caller = TcpStream::connect(proxy.address).await?;
+            caller.write_all(b"POST /peer/log/tail HTTP/1.1\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\nContent-Length: 0\r\n\r\n").await?;
+            let mut caller = BufReader::new(caller);
+            let response = message(&mut caller, true)
+                .await?
+                .context("missing upgrade")?;
+            ensure!(response.head.starts_with(b"HTTP/1.1 101 "));
+            caller.get_mut().write_all(CLIENT_BYTES).await?;
+            caller.get_mut().shutdown().await?;
+            let mut received = Vec::new();
+            caller.read_to_end(&mut received).await?;
+            ensure!(received == SERVER_BYTES, "binary response bytes changed");
+            Ok::<_, anyhow::Error>(())
+        };
+        let owner = async {
+            let (socket, _) = upstream.accept().await?;
+            let mut owner = BufReader::new(socket);
+            let request = message(&mut owner, false)
+                .await?
+                .context("missing request")?;
+            ensure!(request.header("upgrade") == Some("cellar-log-stream"));
+            let mut response = b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\n\r\n".to_vec();
+            response.extend_from_slice(SERVER_BYTES);
+            owner.get_mut().write_all(&response).await?;
+            let mut received = Vec::new();
+            owner.read_to_end(&mut received).await?;
+            ensure!(received == CLIENT_BYTES, "binary request bytes changed");
+            owner.get_mut().shutdown().await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        let (caller, owner) = tokio::join!(caller, owner);
+        caller?;
+        owner?;
+        Ok::<_, anyhow::Error>(())
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), exchange).await;
+    let joined = proxy.stop().await;
+    result.context("binary log upgrade exchange stalled")??;
+    joined?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn bodyless_abort_response_keeps_next_message_framing_intact() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let mut writer = TcpStream::connect(listener.local_addr()?).await?;
