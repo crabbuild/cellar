@@ -292,6 +292,43 @@ fn original_startup_error(
     ))
 }
 
+async fn require_recovering_root_cut(
+    observer: &ExecutionDomain,
+    bucket: &cellar::bucket::Bucket,
+    captured: &Value,
+    original_owner: &Value,
+) -> Result<()> {
+    let current = observer
+        .run(async {
+            let (bytes, _) = bucket
+                .get("nodes/refusal-destination.json")
+                .await?
+                .context("claimed root vanished before the controlled fault")?;
+            Ok::<_, anyhow::Error>(serde_json::from_slice::<Value>(&bytes)?)
+        })
+        .await??;
+    for field in [
+        "/node",
+        "/lineage",
+        "/generation",
+        "/log/state",
+        "/log/claimant",
+        "/log/epoch",
+        "/log/ensemble",
+        "/log/may_have_fleet_acks",
+    ] {
+        ensure!(
+            current.pointer(field) == captured.pointer(field),
+            "recovery advanced before controlled root fault at {field}: {current}"
+        );
+    }
+    ensure!(
+        owner(observer, bucket).await? == *original_owner,
+        "cell ownership advanced before controlled root fault"
+    );
+    Ok(())
+}
+
 async fn replacement_inputs(
     directory: &std::path::Path,
     core: &Executor,
@@ -967,7 +1004,8 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             });
             let erase = async {
                 tokio::time::timeout(Duration::from_secs(5), cut.entered.acquire())
-                    .await??
+                    .await
+                    .context("root recovery cut was not entered within five seconds")??
                     .forget();
                 let captured = cut.snapshot()?;
                 if during_recovery {
@@ -1005,6 +1043,10 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
                         "startup captured another root than the retained proof"
                     );
                 }
+                if during_recovery {
+                    require_recovering_root_cut(&observer, &bucket, &captured, &first_owner)
+                        .await?;
+                }
                 observer
                     .run(async {
                         let key = "nodes/refusal-destination.json";
@@ -1037,25 +1079,34 @@ async fn run(followers: bool, cold_followers: bool, loss: MetadataLoss) -> Resul
             let error = if foreign_recovery {
                 // A foreign node starts under its own root. The old owner's
                 // recovery is required by the cold route, not its own boot.
-                let node = boot.await?;
-                super::super::ready(&node).await?;
-                if live_recovery {
-                    let root = observer
-                        .run(async {
-                            let (bytes, _) = bucket
-                                .get("nodes/refusal-replacement.json")
-                                .await?
-                                .context("live recoverer's own root missing")?;
-                            Ok::<_, anyhow::Error>(serde_json::from_slice::<Value>(&bytes)?)
-                        })
-                        .await??;
-                    ensure!(root["generation"] == node.info().lease_generation);
-                    live_identity = Some((node.services(), root));
-                }
-                let routed = Instant::now();
-                let attempt = Box::pin(status(&client, &node));
-                let (result, erased) = tokio::join!(attempt, erase);
+                // Recovery may begin before readiness. Poll the controller
+                // alongside startup so its held root reads cannot deadlock the
+                // readiness check that used to precede the controller.
+                let attempt = async {
+                    let node = boot.await.context("start foreign recovery node")?;
+                    super::super::ready(&node)
+                        .await
+                        .context("foreign recovery readiness with active root controller")?;
+                    if live_recovery {
+                        let root = observer
+                            .run(async {
+                                let (bytes, _) = bucket
+                                    .get("nodes/refusal-replacement.json")
+                                    .await?
+                                    .context("live recoverer's own root missing")?;
+                                Ok::<_, anyhow::Error>(serde_json::from_slice::<Value>(&bytes)?)
+                            })
+                            .await??;
+                        ensure!(root["generation"] == node.info().lease_generation);
+                        live_identity = Some((node.services(), root));
+                    }
+                    let routed = Instant::now();
+                    let result = status(&client, &node).await;
+                    Ok::<_, anyhow::Error>((node, result, routed))
+                };
+                let (attempt, erased) = tokio::join!(attempt, erase);
                 erased?;
+                let (node, result, routed) = attempt?;
                 let elapsed = routed.elapsed();
                 if live_recovery {
                     // Seed another real resolution after the first interlock

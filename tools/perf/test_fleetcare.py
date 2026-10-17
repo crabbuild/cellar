@@ -12,6 +12,28 @@ import fleetcare
 import fleetcare_report
 
 
+class ControlledSetupClockTests(unittest.TestCase):
+    def test_real_minute_window_leaves_time_for_http_prewarm(self):
+        for phase, expected in ((0, 2000), (1999, 1), (2000, 0),
+                                (4999, 0), (5000, 57000), (59999, 2001)):
+            for minute in (0, 29700000):
+                with self.subTest(phase=phase, minute=minute):
+                    self.assertEqual(fleetcare.controlled_setup_delay_ms(minute*60000+phase), expected)
+
+    def test_start_gate_rechecks_real_clock_after_wait(self):
+        h = fleetcare.FleetCareHarness.__new__(fleetcare.FleetCareHarness)
+        with tempfile.TemporaryDirectory() as d:
+            h.output = pathlib.Path(d)
+            with patch.object(fleetcare, 'command', side_effect=['59000', '62000']) as command, \
+                 patch.object(fleetcare.time, 'sleep') as sleep:
+                h.wait_controlled_setup('embedded-fleet')
+            sleep.assert_called_once_with(3.0)
+            self.assertEqual(command.call_count, 2)
+            record = json.loads((h.output/'embedded-fleet-setup-clock.json').read_text())
+            self.assertEqual(record['start_utc_ms'], 62000)
+            self.assertFalse(record['clock_changed'])
+
+
 class SourceDigestTests(unittest.TestCase):
     def test_moved_application_changes_invalidate_build_digest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -291,6 +313,177 @@ class QualificationTests(unittest.TestCase):
         report = self.report()
         report["completed"] = False
         self.assertFalse(fleetcare_report.rows(report)[0]["qualified"])
+
+
+class CapacityResourcesTests(unittest.TestCase):
+    def test_cpu_sets_do_not_overlap_and_main_container_gets_full_requested_limits(self):
+        sets = []
+        for index in range(3):
+            value = fleetcare.node_resources(SimpleNamespace(node_resources="capacity"), index)
+            self.assertEqual((value["cpus"], value["memory"], value["threads"]), ("2", "4096m", "2"))
+            sets.append(set(map(int, value["cpu_set"].split(","))))
+        self.assertEqual(set.union(*sets), set(range(6)))
+        self.assertEqual(sum(map(len, sets)), 6)
+
+    def test_capacity_inventory_and_tenant_count(self):
+        self.assertEqual(fleetcare.PROFILE_COUNTS["capacity"], (3000, 6))
+
+
+class ServiceLivenessTests(unittest.TestCase):
+    def test_stopped_backend_or_node_prevents_new_load_and_saves_evidence(self):
+        for stopped in range(4):
+            states = [{"Name":name,"State":{"Running":index != stopped, "OOMKilled":index == stopped, "ExitCode":137 if index == stopped else 0}}
+                      for index,name in enumerate(("/store","/node1","/node2","/node3"))]
+            h = fleetcare.FleetCareHarness.__new__(fleetcare.FleetCareHarness)
+            h.store, h.nodes = "store", ["node1","node2","node3"]
+            with tempfile.TemporaryDirectory() as directory:
+                h.output = pathlib.Path(directory)
+                with patch.object(fleetcare, "command", return_value=json.dumps(states)) as command:
+                    with self.assertRaisesRegex(RuntimeError, "required service stopped"):
+                        h.client("load", "failed-dependency")
+                command.assert_called_once_with("docker", "inspect", "store", "node1", "node2", "node3")
+                observed = json.loads((h.output / "failed-dependency-service-states.json").read_text())
+                self.assertTrue(observed[stopped]["oom_killed"])
+                self.assertFalse(observed[stopped]["running"])
+
+
+class IngressRoutingTests(unittest.TestCase):
+    def test_client_uses_its_vm_bridge_instead_of_colimas_macos_gateway(self):
+        h = fleetcare.FleetCareHarness.__new__(fleetcare.FleetCareHarness)
+        h.args = SimpleNamespace(port=42100, concurrency=128, verification_concurrency=8, bytes=1024,
+                                 generator_cpu_set="8,9", image="fixture-image")
+        h.tag = h.network = "private-fixture"
+        h.vm_root = "/private-fixture"
+        h.host, h.durability, h.token = "embedded", "bucket", "fixture-token"
+        calls = []
+        def command(*args, **kwargs):
+            calls.append(args)
+            if args[:3] == ("docker", "network", "inspect"):
+                return json.dumps([{"IPAM":{"Config":[{"Gateway":"172.28.0.1"}]}}])
+            if args[:2] == ("docker", "create"):
+                raise RuntimeError("fixture capture")
+            return ""
+        with patch.object(fleetcare, "command", command), self.assertRaisesRegex(RuntimeError, "fixture capture"):
+            h.client("receipts", "fixture")
+        created = calls[-1]
+        for node in range(1,4):
+            self.assertIn(f"node{node}:172.28.0.1", created)
+        self.assertFalse(any("host-gateway" in value for value in created))
+        self.assertIn("nofile=65536:65536", created)
+
+
+
+class CriticalOwnershipTests(unittest.TestCase):
+    def harness(self, queue_nodes=(0, 1, 2)):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        harness = fleetcare.FleetCareHarness.__new__(fleetcare.FleetCareHarness)
+        harness.args = SimpleNamespace(profile='capacity', ingress='haproxy')
+        harness.output = pathlib.Path(directory.name)
+        harness.host, harness.durability = 'embedded', 'fleet'
+        harness.checks = []
+        harness.snapshot = lambda *args, **kwargs: None
+        states = {f'node{i+1}': {'owned_cells':1000, 'residents':[]} for i in range(3)}
+        cells, expected = [], {}
+        for kind, count in [('queue', 3), ('dlq', 3), ('sql', 18), ('inventory', 6)]:
+            for index in range(count):
+                scope = f'{kind}:{index}'
+                node = queue_nodes[index] if kind == 'queue' else index % 3
+                cells.append({'kind':kind, 'scope':scope, 'tenant':index, 'id':0 if kind=='inventory' else index,
+                              'path':f'/api/{index}/inventory/0' if kind=='inventory' else f'/system/{kind}/{index}/0'})
+                states[f'node{node+1}']['residents'].append(scope)
+                expected[scope] = f'node{index%3+1}'
+        ordinal = 0
+        for node, state in states.items():
+            while len(state['residents']) < 1000:
+                scope = f'devices:{ordinal}'
+                ordinal += 1
+                state['residents'].append(scope)
+                cells.append({'kind':'devices', 'scope':scope, 'path':f'/api/0/devices/{ordinal}'})
+            (harness.output / f'embedded-fleet-seed-{node}-state.json').write_text(json.dumps(state))
+        (harness.output / 'embedded-fleet-manifest.json').write_text(json.dumps({'count':3000, 'cells':cells}))
+        harness.expected_critical_owners = expected
+        return harness
+
+    def test_prewarm_pins_exact_owners_from_each_initial_balancer_cursor(self):
+        maps = []
+        for initial in range(3):
+            with self.subTest(initial=initial):
+                harness = self.harness()
+                manifest = json.loads((harness.output / 'embedded-fleet-manifest.json').read_text())
+                harness.balancer_stats_url = 'fixture'
+                cursor = initial
+                selected = {f'node{i+1}':0 for i in range(3)}
+                owners = {}
+                def setup(targets, label):
+                    nonlocal cursor
+                    rows = []
+                    for target in targets:
+                        node = f'node{cursor%3+1}'
+                        cursor += 1
+                        selected[node] += 1
+                        value = manifest if target['path']=='/manifest' else {}
+                        if target.get('scope'):
+                            owners[target['scope']] = node
+                            if target['kind']=='inventory':
+                                value = {'scope':target['scope'], 'owner':node,
+                                         'state':{'version':0, 'commands':0}}
+                        rows.append({**target, 'backend':node, 'status':200, 'value':value})
+                    return rows
+                def states(*args):
+                    return {node:{'residents':[scope for scope, owner in owners.items() if owner==node]}
+                            for node in selected}
+                def stats(*args):
+                    return {node:{'status':'UP', 'lbtot':str(count)} for node,count in selected.items()}
+                harness._setup_http = setup
+                harness._critical_states = states
+                with patch.object(fleetcare.balancer, 'statistics', stats):
+                    harness.prewarm_critical('embedded-fleet')
+                roots = fleetcare.balancer.critical_roots(manifest)
+                expected = {root['scope']:f'node{(i+1)%3+1}' for i,root in enumerate(roots)}
+                self.assertEqual(owners, expected)
+                maps.append(owners)
+        self.assertTrue(all(mapping==maps[0] for mapping in maps))
+
+    def test_balanced_root_totals_cannot_hide_concentrated_primary_queues(self):
+        harness = self.harness(queue_nodes=(0, 0, 0))
+        with self.assertRaisesRegex(RuntimeError, 'primary queue'):
+            harness.ownership_check('embedded-fleet', 'seed')
+
+
+    def test_balanced_critical_owners_are_recorded(self):
+        harness = self.harness()
+        harness.ownership_check('embedded-fleet', 'seed')
+        observations = [c for c in harness.checks if c['action'] == 'critical_ownership']
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0]['owners'], harness.expected_critical_owners)
+        self.assertEqual(observations[0]['counts']['sql'], {'node1':6, 'node2':6, 'node3':6})
+        self.assertEqual(observations[0]['counts']['inventory'], {'node1':2, 'node2':2, 'node3':2})
+
+    def test_balanced_counts_cannot_hide_owner_identity_drift(self):
+        harness = self.harness()
+        expected = harness.expected_critical_owners
+        expected['sql:0'], expected['sql:1'] = expected['sql:1'], expected['sql:0']
+        with self.assertRaisesRegex(RuntimeError, 'changed from'):
+            harness.ownership_check('embedded-fleet', 'seed')
+
+    def test_missing_or_duplicate_critical_owners_refuse_measurement(self):
+        for duplicate in (False, True):
+            with self.subTest(duplicate=duplicate):
+                harness = self.harness()
+                path = harness.output / 'embedded-fleet-seed-node1-state.json'
+                state = json.loads(path.read_text())
+                state['residents'].remove('queue:0')
+                path.write_text(json.dumps(state))
+                if duplicate:
+                    # Duplicated ownership cannot qualify a stable placement.
+                    for node in (2, 3):
+                        path = harness.output / f'embedded-fleet-seed-node{node}-state.json'
+                        state = json.loads(path.read_text())
+                        state['residents'].append('queue:0')
+                        path.write_text(json.dumps(state))
+                with self.assertRaisesRegex(RuntimeError, 'missing or duplicated'):
+                    harness.ownership_check('embedded-fleet', 'seed')
 
 
 if __name__ == "__main__":

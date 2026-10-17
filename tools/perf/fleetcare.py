@@ -15,11 +15,25 @@ import time
 import urllib.request
 
 from fleetcare_report import markdown
-from run import Harness, command, create_bucket, event_report, logs, request, validate_routing_cache
+import fleetcare_balancer as balancer
+from run import Harness, colima_mount, command, create_bucket, event_report, logs, request, validate_routing_cache
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 RUSTFS = "rustfs/rustfs@sha256:1803faef57627e2d9c2e7d89d655d712ddded5389040054987163043fecb6a3c"
 SCHEMA = 2
+PROFILE_COUNTS = {"smoke": (100, 2), "capacity": (3000, 6), "full": (10000, 20)}
+
+
+def controlled_setup_delay_ms(now_ms):
+    phase = now_ms % 60000
+    return 2000-phase if phase < 2000 else (0 if phase < 5000 else 62000-phase)
+
+
+def node_resources(args, index):
+    if getattr(args, "node_resources", "standard") == "capacity":
+        return {"cpus": "2", "memory": "4096m", "cpu_set": f"{index*2},{index*2+1}", "threads": "2"}
+    return {"cpus": "0.9375", "memory": "1792m", "cpu_set": str(index+1), "threads": "1"}
+
 
 
 def source_digest():
@@ -125,7 +139,9 @@ def summarize(report):
 
 
 def compatibility(metadata):
-    return {key: metadata[key] for key in ("schema_version", "workload_contract", "profile", "suite", "matrix", "policy", "resources", "generator", "rustfs_image", "architecture")}
+    result = {key: metadata[key] for key in ("schema_version", "workload_contract", "profile", "suite", "matrix", "policy", "resources", "generator", "rustfs_image", "architecture")}
+    result['ownership_setup'] = metadata.get('ownership_setup')
+    return result
 
 
 def compare(current, baseline, latency_fraction=.2, throughput_fraction=.1):
@@ -177,12 +193,26 @@ class FleetCareHarness(Harness):
         super().setup()
         self.simulator = self.tag + "-technician"
         command("docker", "run", "-d", "--name", self.simulator, "--network", self.network,
-                "--network-alias", "technician", "--cpus", "1", "--cpuset-cpus", "7",
+                "--network-alias", "technician", "--cpus", "1", "--cpuset-cpus", "11" if self.args.ingress == "haproxy" else ("9" if self.args.node_resources == "capacity" else "7"),
                 "--memory", "256m", "--memory-swap", "256m", "--publish", f"127.0.0.1:{self.args.port+21}:8080", "--entrypoint", "python3",
                 self.args.image, "/usr/local/bin/fleetcare-simulator.py")
         self.wait_url(f"http://127.0.0.1:{self.args.port+21}/health")
         self.store_ip = json.loads(command("docker","inspect",self.store))[0]["NetworkSettings"]["Networks"][self.network]["IPAddress"]
         self.simulator_ip = json.loads(command("docker","inspect",self.simulator))[0]["NetworkSettings"]["Networks"][self.network]["IPAddress"]
+        if self.args.ingress == "haproxy":
+            gateway = json.loads(command("docker", "network", "inspect", self.network))[0]["IPAM"]["Config"][0]["Gateway"]
+            config = self.output / "haproxy.cfg"
+            config.write_text(balancer.configuration(gateway, self.args.port))
+            self.balancer = self.tag + "-balancer"
+            command("docker", "create", "--name", self.balancer, "--network", self.network,
+                    "--network-alias", "loadbalancer", "--cpus", "1", "--cpuset-cpus", "10",
+                    "--memory", "256m", "--memory-swap", "256m", "--ulimit", "nofile=65536:65536",
+                    "--publish", f"127.0.0.1:{self.args.port+31}:8404", self.args.balancer_image,
+                    "haproxy", "-W", "-db", "-f", "/usr/local/etc/haproxy/haproxy.cfg")
+            command("docker", "cp", str(config), f"{self.balancer}:/usr/local/etc/haproxy/haproxy.cfg")
+            command("docker", "start", self.balancer)
+            self.balancer_stats_url = f"http://127.0.0.1:{self.args.port+31}/stats"
+            self.wait_url(self.balancer_stats_url)
 
     def store_snapshot(self, scenario, label, require=False):
         value = read_store_filesystem(self.vm_root + '/rustfs')
@@ -194,7 +224,7 @@ class FleetCareHarness(Harness):
         return value
 
     def _require_stopped(self):
-        if self.vm_root != '/mnt/lima-colima/' + self.tag:
+        if self.vm_root != colima_mount() + '/' + self.tag:
             raise RuntimeError('state reset requires the private benchmark directory')
         running = set(command('docker', 'ps', '--format', '{{.Names}}').splitlines())
         if running.intersection([*self.nodes, self.tag + '-load']):
@@ -222,8 +252,8 @@ class FleetCareHarness(Harness):
                 f'set -euo pipefail\nrm -rf -- {path}\nmkdir {path}\nchown 10001:10001 {path}\n')
         self.store_snapshot(scenario, 'start', require=True)
         command('docker', 'run', '-d', '--name', self.store, '--network', self.network,
-                '--network-alias', 'rustfs', '--cpus', '2', '--cpuset-cpus', '4,5',
-                '--memory', '4g', '--memory-swap', '4g', '--publish', f'127.0.0.1:{self.args.port}:9000',
+                '--network-alias', 'rustfs', '--ulimit', 'nofile=65536:65536', '--cpus', str(self.args.store_cpus), '--cpuset-cpus', self.args.store_cpu_set,
+                '--memory', f'{self.args.store_memory_gib}g', '--memory-swap', f'{self.args.store_memory_gib}g', '--publish', f'127.0.0.1:{self.args.port}:9000',
                 '--mount', f'type=bind,src={self.vm_root}/rustfs,dst=/data',
                 '-e', f'RUSTFS_ACCESS_KEY={self.access}', '-e', f'RUSTFS_SECRET_KEY={self.secret}',
                 '-e', 'RUSTFS_CONSOLE_ENABLE=false', '-e', 'RUSTFS_OBS_LOGGER_LEVEL=warn',
@@ -270,6 +300,9 @@ class FleetCareHarness(Harness):
             command("colima", "ssh", "--", "sudo", "test", "!", "-e", self.vm_root)
 
     def _cleanup_resources(self):
+        if hasattr(self, "balancer"):
+            (self.output / "balancer.log").write_text(logs(self.balancer))
+            command("docker", "rm", "-f", self.balancer, check=False)
         if hasattr(self, "simulator"):
             (self.output / "technician.log").write_text(logs(self.simulator))
             command("docker", "rm", "-f", self.simulator, check=False)
@@ -289,6 +322,7 @@ class FleetCareHarness(Harness):
         super().cleanup()
 
     def start_node(self, i, bucket, durability):
+        resources = node_resources(self.args, i)
         env = {
             "AWS_ACCESS_KEY_ID": self.access, "AWS_SECRET_ACCESS_KEY": self.secret,
             "CELLAR_NODE": f"node{i+1}", "FLEETCARE_TOKEN": self.token,
@@ -296,7 +330,7 @@ class FleetCareHarness(Harness):
             "FLEETCARE_SIMULATOR": "http://technician:8080",
             "FLEETCARE_CONTAINER_IMAGE": self.args.sandbox_image, "FLEETCARE_FENCE_IMAGE": self.args.sandbox_image,
             "CELLAR_ASSET_CACHE_DIR": f"{self.vm_root}/node{i+1}/asset-cache",
-            "CELLAR_PERF_DATA_DIR": f"{self.vm_root}/node{i+1}/state", "CELLAR_PERF_THREADS": "1",
+            "CELLAR_PERF_DATA_DIR": f"{self.vm_root}/node{i+1}/state", "CELLAR_PERF_THREADS": resources["threads"],
             "CELLAR_PERF_PEER_KEY": self.peer_key,
             "CELLAR_PERF_MAX_RESIDENT": str(self.args.max_resident),
             "CELLAR_PERF_MAX_CACHED_ROUTES": str(self.args.max_cached_routes),
@@ -304,7 +338,7 @@ class FleetCareHarness(Harness):
             "CELLAR_PERF_SHUTDOWN_MS": str(self.args.shutdown_ms), "CELLAR_PERF_DURABILITY": durability,
             "CELLAR_PERF_WAKE_MS": str(self.args.wake_ms),
             "CELLAR_PERF_MEMORY_PRESSURE": self.args.memory_pressure,
-            "CELLAR_TEST_DATA_DIR": f"{self.vm_root}/node{i+1}/state", "CELLAR_TOKIO_THREADS": "1",
+            "CELLAR_TEST_DATA_DIR": f"{self.vm_root}/node{i+1}/state", "CELLAR_TOKIO_THREADS": resources["threads"],
             "CELLAR_MAX_RESIDENT_CELLS": str(self.args.max_resident),
             "CELLAR_MAX_CACHED_ROUTES": str(self.args.max_cached_routes),
             "CELLAR_MAX_REQUESTS": str(self.args.max_requests), "CELLAR_ACTIVATIONS": "64",
@@ -319,8 +353,8 @@ class FleetCareHarness(Harness):
         if self.args.memory_pressure == 'off':
             env['CELLAR_MAX_RSS_MB'] = '0'
         arguments = ["docker", "run", "-d", "--name", self.nodes[i], "--network", "host",
-                     "--add-host", f"rustfs:{self.store_ip}", "--add-host", f"technician:{self.simulator_ip}", "--cpus", "0.9375", "--cpuset-cpus", str(i+1),
-                     "--memory", "1792m", "--memory-swap", "1792m", "--ulimit", "nofile=65536:65536",
+                     "--add-host", f"rustfs:{self.store_ip}", "--add-host", f"technician:{self.simulator_ip}", "--cpus", resources["cpus"], "--cpuset-cpus", resources["cpu_set"],
+                     "--memory", resources["memory"], "--memory-swap", resources["memory"], "--ulimit", "nofile=65536:65536",
                      "--mount", f"type=bind,src={self.vm_root}/node{i+1},dst={self.vm_root}/node{i+1}",
                      "--mount", f"type=bind,src={self.vm_root}/node{i+1},dst=/data",
                      "--mount", "type=bind,src=/var/run/docker.sock,dst=/var/run/docker.sock"]
@@ -358,24 +392,44 @@ class FleetCareHarness(Harness):
         code = int(command("docker", "wait", self.nodes[i], timeout=self.args.shutdown_ms/1000+30))
         text = logs(self.nodes[i])
         (self.output / f"{label}-node{i+1}.log").write_text(text)
+        (self.output / f"{label}-node{i+1}-exit.json").write_text(json.dumps({"exit_code":code,"mode":mode,"host":self.host}) + "\n")
         proof = validate_stop(text, mode, self.host, code)
         self.shutdown_outcomes.append({"label": label, "host": self.host, "node": i+1, "exit_code": code, "proof": proof})
         command("docker", "rm", self.nodes[i])
 
     def client(self, action, phase, **values):
         self.phase = phase
+        if action == "load":
+            required = [self.store, *self.nodes] + ([self.balancer] if hasattr(self, "balancer") else [])
+            states = json.loads(command("docker", "inspect", *required))
+            observed = [{"name":v["Name"].lstrip("/"), "running":v["State"]["Running"],
+                         "oom_killed":v["State"]["OOMKilled"], "exit_code":v["State"]["ExitCode"]} for v in states]
+            (self.output / f"{phase}-service-states.json").write_text(json.dumps(observed, indent=2) + "\n")
+            if any(not v["running"] for v in observed):
+                raise RuntimeError("required service stopped before load: " + json.dumps(observed))
+        lb_before = None
+        if action == "load" and hasattr(self, "balancer"):
+            lb_before = balancer.statistics(self.balancer_stats_url)
+            (self.output / f"{phase}-balancer-before.json").write_text(json.dumps(lb_before, indent=2) + "\n")
+            if any(row["status"] != "UP" for row in lb_before.values()):
+                raise RuntimeError("all three balancer backends must be UP before measurement")
         name = self.tag + "-load"
         directory = self.vm_root + "/results"
         command("colima", "ssh", "--", "sudo", "mkdir", "-p", directory)
         ledger = values.pop("ledger", phase + ".jsonl")
-        config = {"action": action, "phase": phase, "urls": [f"http://node{i+1}:{self.args.port+1+i}" for i in range(3)],
+        config = {"action": action, "phase": phase, "urls": (["http://loadbalancer:8080"] if hasattr(self, "balancer") else [f"http://node{i+1}:{self.args.port+1+i}" for i in range(3)]),
                   "token": self.token, "manifest": f"/results/{self.host}-{self.durability}-manifest.json",
                   "ledger": f"/results/{ledger}", "report": f"/results/{phase}.json",
                   "concurrency": self.args.concurrency if action == "load" else min(self.args.concurrency, self.args.verification_concurrency),
-                  "bytes": self.args.bytes, "seed": 20261012, **values}
+                  "bytes": self.args.bytes, "seed": 20261012,
+                  "sql_prepared": action == "seed" and balancer.ownership_setup(self.args)['mode'] != 'natural', **values}
+        # Colima host-gateway points to macOS, which would hairpin measured
+        # ingress through host SSH port forwarding. Reach VM listeners directly.
+        ingress_gateway = json.loads(command("docker", "network", "inspect", self.network))[0]["IPAM"]["Config"][0]["Gateway"]
         command("docker", "create", "--name", name, "--network", self.network,
-                "--add-host","node1:host-gateway","--add-host","node2:host-gateway","--add-host","node3:host-gateway",
-                "--cpus", "2", "--cpuset-cpus", "0,6", "--memory", "2g", "--memory-swap", "2g",
+                "--add-host",f"node1:{ingress_gateway}","--add-host",f"node2:{ingress_gateway}","--add-host",f"node3:{ingress_gateway}",
+                "--cpus", "2", "--cpuset-cpus", self.args.generator_cpu_set, "--memory", "2g", "--memory-swap", "2g",
+                "--ulimit", "nofile=65536:65536",
                 "--mount", f"type=bind,src={directory},dst=/results",
                 "--entrypoint", "fleetcare-load", self.args.image, "/tmp/config.json")
         try:
@@ -387,6 +441,8 @@ class FleetCareHarness(Harness):
             timeout = values.get("seconds", 0) + 3600
             code = int(command("docker", "wait", name, timeout=timeout))
             (self.output / f"{phase}.log").write_text(logs(name))
+            if action == "load":
+                command("docker", "cp", f"{name}:/etc/hosts", str(self.output / f"{phase}-hosts.txt"), check=not code)
             # Retrieve only this invocation's outputs. Recopying every prior
             # ledger on every receipt audit makes long matrices quadratic in
             # retained evidence and adds unrelated VM disk traffic.
@@ -397,10 +453,19 @@ class FleetCareHarness(Harness):
                 outputs.append(f"{self.host}-{self.durability}-manifest.json")
             for filename in outputs:
                 command("docker", "cp", f"{name}:/results/{filename}", str(self.output / filename), check=not code)
+            if lb_before is not None:
+                lb_after = balancer.statistics(self.balancer_stats_url)
+                (self.output / f"{phase}-balancer-after.json").write_text(json.dumps(lb_after, indent=2) + "\n")
+                (self.output / f"{phase}-balancer-distribution.json").write_text(json.dumps(balancer.distribution(lb_before, lb_after), indent=2) + "\n")
             if code:
                 detail = (self.output / f"{phase}.log").read_text().strip()[-512:]
                 raise RuntimeError(f"client {phase} exited {code}: {detail}; see {phase}.log")
             report = json.loads((self.output / f"{phase}.json").read_text())
+            if action == "load":
+                manifest = json.loads((self.output / f"{self.host}-{self.durability}-manifest.json").read_text())
+                with (self.output / ledger).open() as stream:
+                    covered = balancer.coverage(manifest, stream)
+                (self.output / f"{phase}-coverage.json").write_text(json.dumps(covered, indent=2) + "\n")
             self.checks.append({"phase": phase, "action": action, "passed": True})
             return report
         finally:
@@ -412,7 +477,7 @@ class FleetCareHarness(Harness):
 
     def policy_snapshot(self, scenario, label, expected=None):
         values = {}
-        for tenant in range(2 if self.args.profile == "smoke" else 20):
+        for tenant in range(PROFILE_COUNTS[self.args.profile][1]):
             url = f"http://127.0.0.1:{self.args.port+1+tenant%3}/system/kv/{tenant}/0"
             req = urllib.request.Request(url, headers={"Authorization": f"Bearer {self.token}"})
             with urllib.request.urlopen(req, timeout=60) as response:
@@ -427,17 +492,120 @@ class FleetCareHarness(Harness):
                             "tenants":len(values), "passed":True})
         return values
 
+    def _critical_states(self, scenario, label):
+        self.phase = f'{scenario}-{label}-critical-ownership'
+        states = {}
+        for i in range(3):
+            try:
+                state = json.loads(request(f'http://127.0.0.1:{self.args.port+11+i}/state', timeout=20))
+                validate_routing_cache(state, self.args.max_cached_routes)
+                (self.output / f'{scenario}-{label}-node{i+1}-state.json').write_text(json.dumps(state, indent=2) + '\n')
+                states[f'node{i+1}'] = state
+            except Exception as error:
+                self.failures.append({'operation':'critical_state_snapshot', 'label':label, 'node':i+1, 'error':str(error)})
+                raise RuntimeError('critical ownership state unavailable') from error
+        return states
+
+    def _record_critical(self, scenario, label, states):
+        manifest = json.loads((self.output / f'{scenario}-manifest.json').read_text())
+        result = balancer.critical_ownership(manifest, states, getattr(self, 'expected_critical_owners', None))
+        (self.output / f'{scenario}-{label}-critical-ownership.json').write_text(json.dumps(result, indent=2) + '\n')
+        self.checks.append({'phase':f'{scenario}-{label}', 'action':'critical_ownership', **result, 'passed':True})
+        return result
+
+    def critical_snapshot(self, scenario, label):
+        if balancer.ownership_setup(self.args)['mode'] != 'natural':
+            label = label.removeprefix(scenario+'-')
+            return self._record_critical(scenario, label, self._critical_states(scenario, label))
+
+    def _setup_http(self, targets, label):
+        result = subprocess.run(['docker', 'exec', '-i', self.simulator, 'python3', '-c', balancer.SETUP_HTTP],
+            input=json.dumps({'token':self.token, 'targets':targets}), text=True, capture_output=True, timeout=35*len(targets)+5)
+        (self.output / f'{label}.jsonl').write_text(result.stdout)
+        (self.output / f'{label}.stderr').write_text(result.stderr)
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        record = {'exit_code':result.returncode, 'responses':rows, 'error':result.stderr[-4000:]}
+        (self.output / f'{label}.json').write_text(json.dumps(record, indent=2) + '\n')
+        if result.returncode or len(rows) != len(targets) or any(row['status'] != 200 for row in rows):
+            raise RuntimeError('critical HTTP setup failed; see ' + label + '.json')
+        return rows
+
+    def prewarm_critical(self, scenario):
+        if balancer.ownership_setup(self.args)['mode'] == 'natural':
+            return
+        self.phase = scenario + '-critical-prewarm'
+        deadline = time.monotonic()+30
+        while True:
+            status = balancer.statistics(self.balancer_stats_url)
+            if all(row['status'] == 'UP' for row in status.values()):
+                break
+            if time.monotonic() >= deadline:
+                raise RuntimeError('all three balancer backends must be ready before critical setup')
+            time.sleep(.2)
+        response = self._setup_http([{'path':'/manifest'}], scenario+'-critical-manifest')[0]
+        manifest = response['value']
+        # All three backends are UP and setup has the only frontend client.
+        # Finish on node1 so the next serial request selects node2 on every run.
+        for attempt in range(3):
+            if response.get('backend') not in ('node1', 'node2', 'node3'):
+                raise RuntimeError('critical setup lacks a valid backend identity')
+            if response['value'] != manifest:
+                raise RuntimeError('manifest changed while aligning critical setup')
+            if response['backend'] == 'node1':
+                break
+            if attempt == 2:
+                raise RuntimeError('critical setup could not align the backend cursor')
+            response = self._setup_http([{'path':'/manifest'}], scenario+f'-critical-align-{attempt}')[0]
+        roots = balancer.critical_roots(manifest)
+        (self.output / f'{scenario}-manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
+        states = self._critical_states(scenario, 'before-critical-prewarm')
+        if any(cell['scope'] in state['residents'] for cell in roots for state in states.values()):
+            raise RuntimeError('critical roots were already claimed before controlled setup')
+        before = balancer.statistics(self.balancer_stats_url)
+        targets = []
+        for cell in roots:
+            target = dict(cell)
+            if cell['kind'] == 'sql':
+                # Initialize once; the native seed client reads the prepared schema.
+                target['body'] = {'action':'seed', 'effect_id':f"seed-sql-{cell['id']}"}
+            targets.append(target)
+        rows = self._setup_http(targets, scenario+'-critical-prewarm')
+        for row in rows:
+            if row['kind'] == 'inventory':
+                value = row['value']
+                if (value.get('scope') != row['scope'] or value.get('owner') != row['backend']
+                        or value.get('state', {}).get('version') != 0 or value['state'].get('commands') != 0):
+                    raise RuntimeError('Inventory-0 prewarm did not return the original unseeded state')
+        after = balancer.statistics(self.balancer_stats_url)
+        observed = balancer.distribution(before, after)
+        (self.output / f'{scenario}-critical-prewarm-balancer-distribution.json').write_text(json.dumps(observed, indent=2) + '\n')
+        if observed['selected_total'] != len(roots) or any(row['lbtot'] != 10 for row in observed['nodes'].values()):
+            raise RuntimeError('critical setup did not select exactly ten requests per backend')
+        expected_backends = [f'node{(index+1)%3+1}' for index in range(len(roots))]
+        if [row['backend'] for row in rows] != expected_backends:
+            raise RuntimeError('critical setup did not retain its fixed backend sequence')
+        self.expected_critical_owners = {root['scope']:node for root,node in zip(roots, expected_backends)}
+        if (set(self.expected_critical_owners) != {cell['scope'] for cell in roots}
+                or any(node not in ('node1','node2','node3') for node in self.expected_critical_owners.values())):
+            raise RuntimeError('critical HTTP setup lacks exact backend identities')
+        self.critical_snapshot(scenario, 'after-critical-prewarm')
+
     def ownership_check(self, scenario, label):
         self.snapshot(scenario, 3, label)
         counts = [json.loads((self.output / f"{scenario}-{label}-node{i+1}-state.json").read_text())["owned_cells"] for i in range(3)]
-        expected = 100 if self.args.profile == "smoke" else 10000
+        expected = PROFILE_COUNTS[self.args.profile][0]
         if any(type(n) is not int or n <= 0 for n in counts) or sum(counts) != expected:
             raise RuntimeError(f"fleet ownership inventory differs from {expected}: {counts}")
         tolerance = .3 if expected == 100 else .05
         balanced = all(abs(n-expected/3) <= expected/3*tolerance for n in counts)
+        if label == "seed" and not balanced:
+            raise RuntimeError(f"seed ownership is not balanced within {tolerance:.0%}: {counts}")
         self.checks.append({"phase": f"{scenario}-{label}", "action": "ownership_inventory",
                             "expected": expected, "nodes": counts, "balance_tolerance": tolerance,
                             "balanced": balanced, "passed": True})
+        if label == 'seed' and balancer.ownership_setup(self.args)['mode'] != 'natural':
+            states = {f'node{i+1}':json.loads((self.output / f'{scenario}-{label}-node{i+1}-state.json').read_text()) for i in range(3)}
+            self._record_critical(scenario, label, states)
 
     def fault_traffic(self, scenario, fault):
         phase = scenario + "-fault-" + fault
@@ -479,6 +647,24 @@ class FleetCareHarness(Harness):
         self.receipt_audit(phase + "-pre-replay")
         self.client("replay",phase+"-replay",ledger=phase+".jsonl")
 
+    def wait_controlled_setup(self, scenario):
+        # Cron remains enabled. Leave a real minute's startup margin before it
+        # can claim queues; prewarm still refuses any prior critical claims.
+        observations = []
+        deadline = time.monotonic() + 120
+        while True:
+            now = int(command('colima', 'ssh', '--', 'date', '+%s%3N'))
+            delay = controlled_setup_delay_ms(now)
+            observations.append({'utc_ms': now, 'delay_ms': delay})
+            if delay == 0:
+                break
+            if time.monotonic() + delay/1000 > deadline:
+                raise RuntimeError('controlled setup could not select its real UTC start window')
+            time.sleep(delay/1000)
+        (self.output / f'{scenario}-setup-clock.json').write_text(json.dumps({
+            'start_utc_ms': now, 'clock_changed': False,
+            'observations': observations}, indent=2) + '\n')
+
     def scenario(self, host, durability):
         self.host, self.durability = host, durability
         scenario = f"{host}-{durability}"
@@ -487,7 +673,10 @@ class FleetCareHarness(Harness):
         request(f"http://127.0.0.1:{self.args.port+21}/reset", method="POST")
         self.clear_disks()
         self._reset_store(scenario)
+        if balancer.ownership_setup(self.args)['mode'] != 'natural':
+            self.wait_controlled_setup(scenario)
         self.start_nodes(scenario, 3, durability)
+        self.prewarm_critical(scenario)
         self.client("seed", scenario + "-seed")
         self.ledgers.append(scenario + "-seed.jsonl")
         self.client("audit", scenario + "-seed-audit")
@@ -496,22 +685,38 @@ class FleetCareHarness(Harness):
         self.ledgers.append(scenario + "-attachment-seed.jsonl")
         self.client("probes", scenario + "-probes")
         self.ledgers.append(scenario + "-probes.jsonl")
+        overloaded = False
         for mix in self.args.mixes:
             for skew in self.args.skews:
                 for rate in self.args.rates:
                     warm = f"{scenario}-{mix}-{skew}-{rate}-warm"
+                    self.critical_snapshot(scenario, warm+'-before')
                     self.client("load", warm, mix=mix, skew=skew, rate=rate, seconds=self.args.warmup_seconds)
                     self.ledgers.append(warm + ".jsonl")
+                    self.critical_snapshot(scenario, warm+'-after')
                     for repeat in range(self.args.repeats):
                         phase = f"{scenario}-{mix}-{skew}-{rate}-r{repeat}"
+                        self.critical_snapshot(scenario, phase+'-before')
                         report = self.client("load", phase, mix=mix, skew=skew, rate=rate, seconds=self.args.seconds)
                         self.ledgers.append(phase + ".jsonl")
-                        if any(outcome.startswith("error:protocol") or outcome == "business_rejected"
-                               for metrics in report["operations"].values() for outcome in metrics["outcomes"]):
-                            raise RuntimeError("invalid protocol acknowledgement or unexpected business rejection in measured traffic")
                         self.measurements.append({"host": host, "durability": durability, "mix": mix,
                                                   "skew": skew, "rate": rate, "repeat": repeat, "phase": phase,
                                                   "summary": summarize(report)})
+                        self.critical_snapshot(scenario, phase+'-after')
+                        if any(outcome.startswith("error:protocol") or outcome == "business_rejected"
+                               for metrics in report["operations"].values() for outcome in metrics["outcomes"]):
+                            raise RuntimeError("invalid protocol acknowledgement or unexpected business rejection in measured traffic")
+                        if self.args.stop_at_overload and any(v["success_fraction"] < self.args.minimum_success or
+                                (v["p99_ms"] or 0) > self.args.slo_p99_ms for v in summarize(report).values()):
+                            self.checks.append({"phase":phase, "action":"overload_boundary_observed", "passed":True})
+                            overloaded = True
+                            break
+                    if overloaded:
+                        break
+                if overloaded:
+                    break
+            if overloaded:
+                break
         self.snapshot(scenario, 3, "measured")
         self.store_snapshot(scenario, 'measured')
         proofs = [json.loads((self.output / f"{scenario}-measured-node{i+1}-state.json").read_text())["output_proofs"] for i in range(3)]
@@ -565,12 +770,19 @@ class FleetCareHarness(Harness):
 def main():
     os.chdir(ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--profile", choices=["smoke", "full"], default="full")
+    parser.add_argument("--profile", choices=["smoke", "capacity", "full"], default="full")
+    parser.add_argument("--store-memory-gib", choices=[4,8], type=int, default=4)
+    parser.add_argument("--store-cpus", choices=[2,4], type=int, default=2, help="four backend CPUs require capacity nodes and a 12-CPU VM")
+    parser.add_argument("--node-resources", choices=["standard", "capacity"], default="standard",
+                        help="capacity: each application container has 2 vCPU, 4 GiB, two runtime threads")
+    parser.add_argument("--ingress", choices=["direct", "haproxy"], default="direct")
+    parser.add_argument("--balancer-image", default=balancer.HAPROXY)
+    parser.add_argument("--stop-at-overload", action="store_true", help="stop increasing load after an API success/p99 SLO failure, then run the original audit and shutdown gates")
     parser.add_argument("--suite", choices=["smoke", "standard"], default="standard")
     parser.add_argument("--hosts", choices=["embedded", "daemon"], nargs="+", default=["embedded", "daemon"])
     parser.add_argument("--durability", choices=["bucket", "fleet"], nargs="+", default=["bucket", "fleet"])
     parser.add_argument("--rates", type=int, nargs="+")
-    parser.add_argument("--mixes", choices=["read", "write", "core", "attachments", "capabilities"], nargs="+")
+    parser.add_argument("--mixes", choices=["all-read", "read", "write", "core", "attachments", "capabilities"], nargs="+")
     parser.add_argument("--skews", choices=["uniform", "80-20", "hot"], nargs="+", default=["uniform"])
     parser.add_argument("--seconds", type=int)
     parser.add_argument("--warmup-seconds", type=int)
@@ -597,6 +809,15 @@ def main():
     parser.add_argument("--latency-regression", type=float, default=.2)
     parser.add_argument("--throughput-regression", type=float, default=.1)
     args = parser.parse_args()
+    capacity = args.node_resources == "capacity"
+    if args.ingress == "haproxy" and (not capacity or args.store_cpus != 2):
+        parser.error("HAProxy lab requires capacity nodes and two backend CPUs, reserving CPU 10 for ingress and CPU 11 for the simulator")
+    if args.store_cpus == 4 and not capacity:
+        parser.error("--store-cpus 4 requires --node-resources capacity")
+    args.store_cpu_set = "6,7,10,11" if args.store_cpus == 4 else ("6,7" if capacity else "4,5")
+    args.generator_cpu_set = "8,9" if capacity else "0,6"
+    if capacity and args.memory_pressure != "off":
+        parser.error("capacity resources require --memory-pressure off")
     smoke = args.suite == "smoke"
     args.rates = args.rates or ([10] if smoke else [25,100,400])
     args.mixes = args.mixes or ["read", "write", "core", "attachments", "capabilities"]
@@ -621,40 +842,45 @@ def main():
         if not baseline.get("completed"):
             parser.error("baseline suite is incomplete")
     info = json.loads(command("docker", "info", "--format", "{{json .}}"))
-    if command("docker", "context", "show") != "colima" or info["NCPU"] < 8 or info["MemTotal"] < 15*1024**3:
-        parser.error("use Colima with at least 8 vCPUs and 16 GiB RAM")
+    expected_context = "colima" + ("-" + os.environ["COLIMA_PROFILE"] if os.environ.get("COLIMA_PROFILE", "default") != "default" else "")
+    if command("docker", "context", "show") != expected_context or info["NCPU"] < (12 if args.store_cpus == 4 or args.ingress == "haproxy" else (10 if capacity else 8)) or info["MemTotal"] < (23 if args.store_memory_gib == 8 else (19 if capacity else 15))*1024**3:
+        parser.error("use matching COLIMA_PROFILE/DOCKER_CONTEXT with at least 10 (12 for four backend CPUs) vCPUs/20 GiB for capacity or 8 vCPUs/16 GiB for standard; 8-GiB RustFS requires a 24-GiB VM")
     digest = source_digest()
     checkout = hashlib.sha256(str(ROOT).encode()).hexdigest()[:12]
     args.image = args.image or f"cellar-fleetcare:{checkout}-{digest[:12]}"
     harness = FleetCareHarness(args)
     print(f"Artifacts: {harness.output}", flush=True)
     completed = False
-    metadata = {"schema_version": SCHEMA, "workload_contract": "fleetcare-v2", "source_digest": digest, "revision": command("git", "rev-parse", "HEAD"),
+    metadata = {"schema_version": SCHEMA, "workload_contract": "fleetcare-v2", "ownership_setup": balancer.ownership_setup(args), "source_digest": digest, "revision": command("git", "rev-parse", "HEAD"),
                 "dirty": bool(command("git", "status", "--porcelain")), "profile": args.profile, "suite": args.suite,
                 "matrix": {"hosts": args.hosts, "durability": args.durability, "rates": args.rates, "mixes": args.mixes,
-                           "skews": args.skews, "seconds": args.seconds, "warmup_seconds": args.warmup_seconds, "repeats": args.repeats},
+                           "skews": args.skews, "seconds": args.seconds, "warmup_seconds": args.warmup_seconds, "repeats": args.repeats,
+                           "stop_at_overload":args.stop_at_overload},
                 "policy": {"max_resident": args.max_resident, "max_cached_routes": args.max_cached_routes,
                            "max_requests": args.max_requests, "shutdown_ms": args.shutdown_ms, "ownership": "sticky",
                            "stateless_workers": 2, "cell_requests": 16, "cells_per_worker": 32,
                            "handler_budget_seconds": 30, "operation_deadline_ms":30000,
                            "admission_wait_ms": 100, "activations": 64,
                            "evictions": 4, "releases": 32, "lease_ttl_ms": 10000, "wake_ms": args.wake_ms,
-                           "store_case_isolation":"fresh_per_host_policy", "store_logger_level":"warn",
+                           "store_case_isolation":"fresh_per_host_policy", "store_nofile":65536, "store_logger_level":"warn",
                            "local_disk_reclamation":"trim_after_clear",
                            "memory_pressure":{"mode":args.memory_pressure, **pressure_policy(args.memory_pressure)},
                            "minimum_store_free_bytes":args.minimum_store_free_gib*1024**3,
                            "queue_dlq":{"projection_repair":True,"max_retries":10,"retry_delay_seconds":5},
                            "store_transport":{"request_seconds":15,"connect_seconds":3,"retry_seconds":30,"data_retries":2,"cas_retries":0,"isolated_lease_pool":True}},
-                "resources": {"nodes": 3, "topology":"colima-host-network-separate-cgroups", "node_cpus": 1, "node_memory": 2*1024**3, "application_cpus": .9375,"application_memory":1792*1024**2,
-                              "child_cpus": .0625,"child_memory":256*1024**2,"max_children_per_node":1, "disk_bytes": args.disk_gib*1024**3,
-                              "store_cpus": 2, "store_memory": 4*1024**3, "generator_cpus": 2, "generator_memory": 2*1024**3,
-                              "simulator_cpus": 1, "simulator_memory": 256*1024**2,
+                "resources": {"nodes": 3, "topology":"colima-host-network-separate-cgroups", "node_cpus": 2 if capacity else 1, "node_memory": (4 if capacity else 2)*1024**3, "application_cpus": 2 if capacity else .9375,"application_memory":(4096 if capacity else 1792)*1024**2,
+                              "node_resource_class":args.node_resources, "application_cpu_sets":[node_resources(args,i)["cpu_set"] for i in range(3)],
+                              "store_cpu_set":args.store_cpu_set, "generator_cpu_set":args.generator_cpu_set,
+                              "child_diagnostics_outside_measurement":True, "child_cpus": .0625,"child_memory":256*1024**2,"max_children_per_node":1, "disk_bytes": args.disk_gib*1024**3,
+                              "store_cpus": args.store_cpus, "store_memory": args.store_memory_gib*1024**3, "generator_cpus": 2, "generator_memory": 2*1024**3, "generator_ingress":"haproxy" if args.ingress == "haproxy" else "vm_bridge_gateway",
+                              "load_balancer": {"cpus":1,"memory":256*1024**2,"cpu_set":"10","algorithm":"http_roundrobin","retries":0} if args.ingress == "haproxy" else None,
+                              "simulator_cpus": 1, "simulator_memory": 256*1024**2, "simulator_cpu_set":"11" if args.ingress == "haproxy" else ("9" if capacity else "7"),
                               "vm_cpus": info["NCPU"], "vm_memory": info["MemTotal"]},
                 "generator": {"algorithm": "splitmix64-v1", "arrival": "fixed_rate", "seed": 20261012,
-                              "max_in_flight": args.concurrency, "verification_concurrency":args.verification_concurrency, "payload_bytes": args.bytes},
+                              "max_in_flight": args.concurrency, "verification_concurrency":args.verification_concurrency, "payload_bytes": args.bytes, "nofile":65536},
                 "architecture": info["Architecture"]}
     try:
-        filesystem = read_store_filesystem('/mnt/lima-colima')
+        filesystem = read_store_filesystem(colima_mount())
         (harness.output / 'store-filesystem-preflight.json').write_text(json.dumps(filesystem, indent=2) + '\n')
         metadata['resources']['store_filesystem_bytes'] = filesystem['size_bytes']
         metadata['resources']['store_filesystem_inodes'] = filesystem['inodes']
@@ -681,10 +907,14 @@ def main():
         metadata["sandbox_image"] = sandbox["Id"]
         if source_digest() != digest:
             raise RuntimeError("source changed while building; rerun against a stable source snapshot")
-        if not command("docker", "image", "inspect", args.rustfs_image,check=False):
+        if not json.loads(command("docker", "image", "inspect", args.rustfs_image,check=False) or "[]"):
             command("docker", "pull", args.rustfs_image,timeout=600)
         metadata["image"] = image["Id"]
         metadata["rustfs_image"] = json.loads(command("docker", "image", "inspect", args.rustfs_image))[0]["Id"]
+        if args.ingress == "haproxy":
+            if not json.loads(command("docker", "image", "inspect", args.balancer_image, check=False) or "[]"):
+                command("docker", "pull", args.balancer_image, timeout=600)
+            metadata["resources"]["load_balancer"]["image"] = json.loads(command("docker", "image", "inspect", args.balancer_image))[0]["Id"]
         (harness.output / "metadata.json").write_text(json.dumps(metadata, indent=2) + "\n")
         if args.baseline and compatibility(metadata) != compatibility(baseline["metadata"]):
             raise ValueError("incompatible baseline: workload, resources, dependency image or policy changed")
