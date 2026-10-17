@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 564" role="img" aria-labelledby="title description">
+  <title id="title">Cellar routes requests across a fleet</title>
+  <desc id="description">An application reaches either Cellar node. Node A owns alice and node B owns bob, each with local SQLite state. Nodes share object storage for ownership leases and LTX data, and replicate peer logs. Recovery must finish before a replacement owner serves.</desc>
+  <defs>
+    <style>text { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }</style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5" />
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 8" markerWidth="8" markerHeight="7" refX="9" refY="4" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 4 L 0 8 Z" fill="#64748b" />
+    </marker>
+  </defs>
+  <rect width="880" height="564" rx="18" fill="#0f172a" />
+  <rect width="880" height="564" rx="18" fill="url(#grid)" />
+  <path d="M 440 165 V 195 H 220 V 235" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+  <path d="M 440 195 H 660 V 235" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+  <path d="M 410 310 H 470" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" marker-start="url(#arrow)" />
+  <path d="M 220 380 V 425" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+  <path d="M 660 380 V 425" fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)" />
+  <rect x="320" y="100" width="240" height="65" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+  <rect x="320" y="100" width="240" height="65" rx="12" fill="#102d3e" stroke="#22d3ee" stroke-width="1.5" />
+  <rect x="30" y="235" width="380" height="145" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+  <rect x="30" y="235" width="380" height="145" rx="12" fill="#142033" stroke="#475569" stroke-width="1.5" />
+  <rect x="470" y="235" width="380" height="145" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+  <rect x="470" y="235" width="380" height="145" rx="12" fill="#142033" stroke="#475569" stroke-width="1.5" />
+  <rect x="50" y="290" width="340" height="65" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+  <rect x="50" y="290" width="340" height="65" rx="12" fill="#10352e" stroke="#34d399" stroke-width="1.5" />
+  <rect x="490" y="290" width="340" height="65" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+  <rect x="490" y="290" width="340" height="65" rx="12" fill="#10352e" stroke="#34d399" stroke-width="1.5" />
+  <rect x="160" y="425" width="560" height="76" rx="12" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
+  <rect x="160" y="425" width="560" height="76" rx="12" fill="#30291d" stroke="#fbbf24" stroke-width="1.5" />
+  <text x="440" y="127" fill="#e2e8f0" font-size="18" font-weight="600" text-anchor="middle">Your application</text>
+  <text x="440" y="150" fill="#94a3b8" font-size="14" font-weight="400" text-anchor="middle">HTTP · SDK · Axum</text>
+  <text x="50" y="267" fill="#e2e8f0" font-size="20" font-weight="600" text-anchor="start">Cellar node A</text>
+  <text x="490" y="267" fill="#e2e8f0" font-size="20" font-weight="600" text-anchor="start">Cellar node B</text>
+  <text x="220" y="317" fill="#e2e8f0" font-size="19" font-weight="600" text-anchor="middle">Owns alice</text>
+  <text x="220" y="341" fill="#94a3b8" font-size="14" font-weight="400" text-anchor="middle">Cell code + SQLite state</text>
+  <text x="660" y="317" fill="#e2e8f0" font-size="19" font-weight="600" text-anchor="middle">Owns bob</text>
+  <text x="660" y="341" fill="#94a3b8" font-size="14" font-weight="400" text-anchor="middle">Cell code + SQLite state</text>
+  <text x="440" y="293" fill="#94a3b8" font-size="13" font-weight="400" text-anchor="middle">peer</text>
+  <text x="440" y="335" fill="#94a3b8" font-size="13" font-weight="400" text-anchor="middle">logs</text>
+  <text x="440" y="454" fill="#fef3c7" font-size="19" font-weight="600" text-anchor="middle">Shared object storage</text>
+  <text x="440" y="481" fill="#cbd5e1" font-size="15" font-weight="400" text-anchor="middle">Ownership leases + LTX data</text>
+  <text x="30" y="534" fill="#94a3b8" font-size="14" font-weight="400" text-anchor="start">Requests reach the current owner; recovery precedes replacement ownership.</text>
+  <text x="30" y="42" fill="#e2e8f0" font-size="24" font-weight="700" text-anchor="start">One application. A fleet of owners.</text>
+  <text x="30" y="73" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">Any node can receive a request and route it to the cell owner.</text>
+</svg>
