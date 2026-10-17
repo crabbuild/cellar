@@ -1,38 +1,83 @@
 # Outbox implementation status
 
-Updated 2026-10-16. The core
+Updated 2026-10-17. The core
 [outbox, stream, and subscription design](002-outbox-streams-subscriptions.md)
-is implemented and exercised end to end. The current finish is limited to the
-three items below, as requested; broader deployment qualification is deferred
-and is not an open-ended implementation goal. The consolidated event-delivery
-work merged in PR #46; PRs #47–#62
-are superseded. The follower-proof/read-bound follow-ups merged in PR #68,
-and the tail/control memory follow-ups merged in PR #69. Bounded recovery scans
-and entered SQLite upload admission merged in PR #73. Follow-ups use one
-active PR against updated main; subsequent
-changes reuse that PR while it is open, without a stack. The native fixture now
-exercises source, catalog, stream, and consumer turns together; that local evidence does not satisfy the fleet/release gates.
+is implemented and exercised end to end: atomic emission, durable dispatch and
+deduplication, resumable reads, leased fetch, inbox effects, acknowledgment and
+preserving restart. This is implementation and local regression evidence;
+production capacity and fleet resilience remain separate qualifications.
 
 ## Bounded finish and readiness
 
-The bucket-backed producer-to-consumer path works in the exercised cases:
-atomic emission, durable dispatch/deduplication, resumable reads, leased fetch,
-inbox effects, acknowledgment and preserving restart. This is implementation
-and local regression evidence, not a production capacity or resilience certificate.
+The user limited this closeout to the three most critical finishing items:
 
-The final three priorities for this iteration are:
+1. **Binary recovery transport and fencing evidence — merged.** PR #79 repairs
+   the fault proxy's binary log relay. PR #82 adds real TCP coverage for buffered
+   bytes and independent half-closes, plus original accepted-event capture and
+   joined source-fencing failure cleanup.
+2. **Closed-domain host admission — merged in PR #82.** A native warmup callback
+   reproduces the panic before repair. Startup, dispatch and worker loading now
+   propagate typed closure errors, retaining request cleanup, executor selection
+   and owner-scoped destruction and joining.
+3. **Critical verification and final handoff — complete for this closeout.** The final candidate
+   retains failed clock-recovery fixtures and exact pre-fault RPC bytes, joins
+   returned cold nodes on startup failure, adds a retry for status reads that
+   time out before submission within the existing five-second audit, and declares
+   expected transport closure before stopping either proxy endpoint after the
+   completed state audit. Mutation replay and all original deadlines are unchanged.
 
-1. Preserve binary recovery traffic through the event fault proxy and retain
-   original accepted bytes before fencing/replay. Main PR #79 now contains the
-   relay repair; this branch adds both-direction half-close coverage and joined
-   failure cleanup with the exact original event/receipts.
-2. Refuse host task admission after execution-domain closure without panicking.
-   A real native warmup callback reproduces the panic before the repair. Propagate
-   typed closure errors through startup, request dispatch and worker loading;
-   preserve request registration cleanup and domain-owned drops/joins.
-3. Run the affected runtime and end-to-end gates, record their exact results and
-   publish one PR against main. Conclude this iteration after those gates pass;
-   reopen scope only for a confirmed critical correctness gap.
+### Latest verification
+
+Main `fa62847` passes NativeDomains 15/15 and initially passes NativeNode 80/82.
+The cold-follower case fails before receipt reuse with an unavailable status-read
+deadline; the lineage-capture case emits its complete final state evidence before
+a broken pipe. Diagnostics alone subsequently pass NativeNode 82/82 and ten
+isolated cold/lineage probes. These passes do not establish either earlier cause.
+A concentrated run of all 15 clock fixtures fails initial destination startup in
+every case, before their fault cuts; all failed fixtures and executables remain
+retained. Startup under that load is not qualified.
+
+A deterministic regression holds actual root-store responses beyond the first
+three-second RPC deadline, releasing them within the original five-second audit.
+Its cold peers start without bindings and activate them after recovery, isolating
+the read contract from the independent binding-activation deadline. The existing
+cold-start scenario keeps its original bindings and guards. Before the read-policy
+repair, both cold peers start successfully while the replacement returns the exact
+`Unavailable: event RPC deadline elapsed` failure; cancellation joins all returned
+nodes. A read-only audit of the verified retained source copy finds count two,
+next sequence three, settled watermark one and one pending 416-byte event matching
+the original incarnation and envelope value. No activation or receipt replay is
+used for that audit; it does not establish destination clock recovery.
+
+The same isolated regression passes after the read-policy repair (18.10s test
+runtime, 165.94s including build/archive), with one read retry and the recovered
+clock beyond the original refusal cut. It completes the unchanged receipt,
+pending-obligation, exact envelope, inbox, acknowledgment and join assertions:
+checkpoint two, processed effects three, settled watermark two. Red and green
+retain their original executables and 634 frozen inputs; the only behavioral
+changes are the read retry classification and post-audit teardown ordering.
+
+Final NativeNode passes 83/83 (143.96s runtime, 149.53s including collector) and
+NativeDomains passes 15/15. The focused and full Node runs have identical source
+inputs and executable digests. NativeRuntimePolicy passes 6/6, including the
+closed-domain admission regression. Affected-target all-feature Clippy with
+warnings denied, format (548 Rust files), module layout, documentation, native
+dependency policy and diff checks all pass. All nine final phases exit zero,
+archive successfully and verify the same 634 code/build inputs.
+Earlier workspace, activation and timing failures remain recorded below; this
+targeted repair does not establish all their causes. Hosted jobs on #82 ran zero
+steps because GitHub reported account billing/spending restrictions.
+
+The bounded three-item implementation closeout is concluded with this final
+follow-up against main. No additional feature work is part of this goal. The
+historical failure evidence and deferred deployment gates below remain explicit;
+this result is not an all-green full-workspace or production resilience claim.
+
+The consolidated implementation merged in #46; superseded stack PRs #47–#62
+remain historical. Subsequent recovery/capacity work merged in #68, #69 and #73.
+This closeout uses one follow-up PR directly against updated main, with no stack.
+The sections below preserve historical work and qualification limits; their
+references to an active branch or PR describe that point in the timeline.
 
 ### Deferred deployment qualification
 

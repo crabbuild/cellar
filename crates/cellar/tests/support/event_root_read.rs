@@ -19,6 +19,7 @@ pub(super) struct RootReadCut {
     key: String,
     skip: AtomicUsize,
     claimant: Option<String>,
+    hold_all: bool,
     captured: AtomicBool,
     bytes: Mutex<Option<Bytes>>,
     pub entered: Semaphore,
@@ -31,11 +32,16 @@ impl RootReadCut {
     }
 
     pub fn after_reads(store: Arc<dyn ObjectStore>, key: String, skip: usize) -> Arc<Self> {
-        Self::configured(store, key, skip, None)
+        Self::configured(store, key, skip, None, false)
     }
 
     pub fn after_claim(store: Arc<dyn ObjectStore>, key: String, claimant: String) -> Arc<Self> {
-        Self::configured(store, key, 0, Some(claimant))
+        Self::configured(store, key, 0, Some(claimant), true)
+    }
+
+    /// Hold every actual response until one controller permit releases them.
+    pub fn all_reads(store: Arc<dyn ObjectStore>, key: String) -> Arc<Self> {
+        Self::configured(store, key, 0, None, true)
     }
 
     fn configured(
@@ -43,12 +49,14 @@ impl RootReadCut {
         key: String,
         skip: usize,
         claimant: Option<String>,
+        hold_all: bool,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
             key,
             skip: AtomicUsize::new(skip),
             claimant,
+            hold_all,
             captured: AtomicBool::new(false),
             bytes: Mutex::new(None),
             entered: Semaphore::new(0),
@@ -103,7 +111,7 @@ impl ObjectStore for RootReadCut {
                 left.checked_sub(1)
             })
             .is_ok()
-            || self.claimant.is_none() && self.captured.load(Ordering::Acquire)
+            || !self.hold_all && self.captured.load(Ordering::Acquire)
         {
             return Ok(result);
         }
@@ -124,7 +132,7 @@ impl ObjectStore for RootReadCut {
             *self.bytes.lock().unwrap() = Some(bytes.clone());
             self.entered.add_permits(1);
         }
-        if first || self.claimant.is_some() && self.captured.load(Ordering::Acquire) {
+        if first || self.hold_all && self.captured.load(Ordering::Acquire) {
             let permit =
                 self.release
                     .acquire()
@@ -133,10 +141,10 @@ impl ObjectStore for RootReadCut {
                         store: "root-read-cut",
                         source: Box::new(error),
                     })?;
-            if self.claimant.is_none() {
+            if !self.hold_all {
                 permit.forget();
             }
-            // After a claimed-root cut, returning this permit releases every
+            // For a shared read cut, returning this permit releases every
             // concurrent response through the same controller barrier.
         }
         Ok(GetResult {
