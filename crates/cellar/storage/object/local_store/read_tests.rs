@@ -219,6 +219,59 @@ async fn replacing_a_body_mid_read_refuses_instead_of_mixing_versions() -> Resul
     Ok(())
 }
 
+#[tokio::test]
+async fn small_get_keeps_metadata_and_original_bytes_across_replacement() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let store = LocalStore::open(directory.path().join("lease.sqlite"))?;
+            let key = Path::from("nodes/leader.json");
+            for length in [0, 8, READ_CHUNK_BYTES] {
+                let original = vec![0x51; length];
+                let accepted = store
+                    .put_opts(&key, original.clone().into(), PutOptions::default())
+                    .await?;
+                // No conditional GET: an ordinary lease renewal must not
+                // invalidate the body of an already returned small response.
+                let response = store.get_opts(&key, GetOptions::default()).await?;
+                ensure!(response.meta.e_tag == accepted.e_tag);
+                ensure!(response.meta.size == length as u64);
+                let ranged = if length > 2 {
+                    Some(
+                        store
+                            .get_opts(
+                                &key,
+                                GetOptions {
+                                    range: Some(GetRange::Bounded(1..length as u64 - 1)),
+                                    ..Default::default()
+                                },
+                            )
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+                let replacement = store
+                    .put_opts(&key, vec![0xa3; length + 1].into(), PutOptions::default())
+                    .await?;
+                ensure!(replacement.e_tag != accepted.e_tag);
+                let head = store.head(&key).await?;
+                ensure!(head.e_tag == replacement.e_tag && head.size == length as u64 + 1);
+                ensure!(response.bytes().await?.as_ref() == original.as_slice());
+                if let Some(response) = ranged {
+                    ensure!(response.meta.e_tag == accepted.e_tag);
+                    ensure!(response.bytes().await?.as_ref() == &original[1..length - 1]);
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
 pub(super) struct ReadGate {
     expected: Arc<crate::host_services::HostServices>,
     entered: tokio::sync::Notify,
@@ -275,7 +328,7 @@ async fn body_reads_retain_their_original_domain_and_join_entered_io() -> Result
             store
                 .put_opts(
                     &key,
-                    Bytes::from_static(b"original").into(),
+                    vec![0x51; READ_CHUNK_BYTES + 1].into(),
                     PutOptions::default(),
                 )
                 .await?;
@@ -403,7 +456,12 @@ async fn cancelled_reserved_read(metadata: bool) -> Result<()> {
             store
                 .put_opts(
                     &Path::from("key"),
-                    Bytes::from_static(b"original").into(),
+                    if metadata {
+                        b"original".to_vec()
+                    } else {
+                        vec![0x51; READ_CHUNK_BYTES + 1]
+                    }
+                    .into(),
                     PutOptions::default(),
                 )
                 .await?;

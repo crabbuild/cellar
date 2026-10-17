@@ -1458,14 +1458,19 @@ next independent call can resolve a replacement endpoint. Ready retries still
 await invalidation under their captured deadline. Keep the regression that polls
 the stopped future once, checks exactly one invalidation and no queued replay.
 
-The SQLite development object store reads metadata without materializing BLOBs.
-HEAD has no body; streamed and ranged reads use at most 128 KiB per incremental
-BLOB operation, checking the captured ETag and length in that operation's read
-transaction. A replacement refuses the stream rather than mixing versions.
-Body work belongs to the response's original execution domain even when another
-domain consumes it; closed admission and undelivered completion preserve typed
-DomainClosed, and shutdown joins entered SQLite I/O. No connection or transaction
-is held while a body is idle. Isolated HEAD/range/full-read RSS fixtures populate
+The SQLite development object store keeps HEAD metadata body-free. Ordinary GETs
+capture bodies of at most 128 KiB in the same SQLite statement as their metadata,
+so lease renewal cannot invalidate an already returned small response. SQL CASE
+must exclude large BLOBs before extraction, not truncate them after allocation.
+Large streamed/ranged reads use at most 128 KiB per incremental BLOB operation,
+checking the captured ETag and length in that operation's read transaction; a
+replacement refuses the large stream rather than mixing versions. Captured small
+bytes and native body work belong to the response's original execution domain even
+when another domain consumes it. Closed admission and undelivered completion
+preserve typed DomainClosed, and shutdown joins entered SQLite I/O. Entered-body
+fixtures use a body above the atomic cap to retain their real SQLite blocking seam;
+keep original context, refusal, reservation and join assertions. No connection or
+transaction is held while a body is idle. Isolated HEAD/range/full-read RSS fixtures populate
 their 80 MiB object in a parent process and keep the fixed 16 MiB growth budgets.
 Reopening the BLOB for each chunk has a measured large-read throughput cost;
 these memory passes do not qualify throughput, eager copy/multipart operations,

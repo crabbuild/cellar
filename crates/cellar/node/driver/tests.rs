@@ -458,26 +458,32 @@ async fn fencing_core_failure_and_cancellation_return_control_and_close_admissio
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn fencing_during_application_drain_preserves_the_authority_report() -> anyhow::Result<()> {
     let directory = tempfile::tempdir()?;
-    let mut h = host("draining", directory.path()).await?;
+    let mut h = host("draining", directory.path())
+        .await
+        .context("prepare drain-fencing host")?;
     let request_client = client()?;
     let origin = h.origin.clone();
     let held =
         tokio::spawn(async move { request_client.post(format!("{origin}/hold")).send().await });
     tokio::time::timeout(Duration::from_secs(3), h.entered.recv())
-        .await?
-        .unwrap();
+        .await
+        .context("held application turn did not enter within its original three-second guard")?
+        .context("held application entry observer closed")?;
     h.stop.send(ShutdownMode::Handoff).unwrap();
     tokio::time::timeout(Duration::from_secs(3), async {
         while !h.app.is_draining() {
             tokio::task::yield_now().await;
         }
     })
-    .await?;
+    .await
+    .context("stop did not close admission within its original three-second guard")?;
     h.fence.send(FenceReport {
         code: 3,
         reason: FenceReason::NodeLeaseMismatch,
     })?;
-    let outcome = tokio::time::timeout(Duration::from_secs(3), h.task).await???;
+    let outcome = tokio::time::timeout(Duration::from_secs(3), h.task)
+        .await
+        .context("fenced driver did not return within its original three-second guard")???;
     assert_eq!(
         outcome,
         NodeOutcome::Fenced {
