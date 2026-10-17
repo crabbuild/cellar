@@ -1,11 +1,13 @@
 [package]
 name = "cellar-axum"
-version = "0.6.2"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.94.1"
 license = "Apache-2.0"
 repository = "https://github.com/crabbuild/cellar"
 description = "Axum application and HTTP hosting adapters for durable Cellar cells"
+
+readme = "README.crates.io.md"
 
 [lib]
 path = "lib.rs"

@@ -25,6 +25,22 @@ A cell brings a business object's behavior and state together:
 Choose boundaries around data that changes together. Transactions stay within
 a cell; cells communicate through calls or durable events.
 
+## Install the SDK or CLI
+
+The framework package is `cellar-main`; use the `cellar` dependency alias to
+keep the SDK imports shown in these guides:
+
+```toml
+[dependencies]
+cellar = { package = "cellar-main", version = "0.1.0" }
+```
+
+Install the `cellar` command from the same package:
+
+```sh
+cargo install cellar-main --version 0.1.0 --locked --bin cellar
+```
+
 ## Quickstart
 
 You need Rust 1.94.1 or later, Cargo, native C/C++ build tools, and curl. Run
@@ -34,7 +50,7 @@ for local target-directory setup.
 Start the counter application:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-counter/project.json
 ```
 
@@ -197,7 +213,7 @@ Event-delivery work and its remaining qualification gates are tracked in the
 Build a package containing your compiled application:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   build examples/native-counter/project.json --output counter-package
 ```
 
@@ -217,7 +233,7 @@ integration, fleet administration and runtime internals:
 
 | Crate | Purpose |
 | --- | --- |
-| [cellar](crates/cellar/README.md) | Application SDK, production host and CLI |
+| [cellar-main](crates/cellar/README.md) | Application SDK, production host and CLI |
 | [cellar-axum](crates/cellar-axum/README.md) | Axum handlers, external ingress and optional OpenAPI |
 | [cellar-admin](crates/cellar-admin/README.md) | Authenticated fleet management API and dashboard service |
 | [cellar-logic](crates/cellar-logic/README.md) | Pure runtime decisions and state transitions |

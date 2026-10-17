@@ -1,0 +1,106 @@
+# cellar-ltx
+
+Capture committed SQLite write-ahead log (WAL) data as LTX replication segments.
+`cellar-ltx` writes and reads replicas, restores databases, compacts history and
+supports page-on-demand access. It is an in-process library used by the
+[`cellar` host](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar/README.md).
+
+![SQLite WAL capture produces L0 LTX segments; replica storage supports restoration or page-on-demand access.](https://raw.githubusercontent.com/crabbuild/cellar/v0.1.0/docs/diagrams/ltx-replication.svg)
+
+Read the top row from source commits to captured segments, then follow storage
+and restoration on the lower row. Capturing LTX alone does not prove a fleet
+write. The host adds ownership, epoch fencing, replicated logs and output gates;
+see [write durability](https://github.com/crabbuild/cellar/blob/v0.1.0/docs/06-storage-transactions.md#durability-and-external-side-effects).
+
+## Find the replication API
+
+| Task | Entry point | Source |
+| --- | --- | --- |
+| Capture WAL commits | `Db` | [Database capture](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/db.rs) |
+| Drive replication | `Replica` | [Replication loop](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/replica.rs) |
+| Implement a storage backend | `ReplicaClient` | [Client trait](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/client/mod.rs) |
+| Store local replicas | `FileReplicaClient` | [Filesystem client](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/client/file.rs) |
+| Restore a database | `restore` | [Restore implementation](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/replica.rs) |
+| Read bundled L0 segments | `BundleOverlayClient` | [Bundle client](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/client/bundle.rs) |
+| Read pages on demand | `paged`, `paged_vfs` | [Page map](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/paged.rs), [SQLite virtual filesystem](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/paged_vfs.rs) |
+| Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/src/host.rs) |
+
+L0 segments capture commits before higher-level compaction. The paged SQLite
+virtual filesystem loads each page on first use through indexes in retained
+segments. A paged epoch continues the history from which it was opened.
+Read the [LTX format notes](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/reference/ltx-format.md) before changing the codec.
+
+## Select backend features
+
+The default feature is `s3`. The manifest also exposes `gcs` and `azure` backend
+features; see [Cargo.toml](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/Cargo.toml) for their dependency mappings.
+`ObjectStoreClient` and its configuration exports are gated by `s3` in the
+current API. Feature selection alone does not configure credentials or qualify
+a provider's durability behavior.
+
+Check the core and complete feature builds from the repository root:
+
+```sh
+cargo check -p cellar-ltx --no-default-features --locked
+cargo check -p cellar-ltx --all-features --locked
+```
+
+Use the checkout-specific target directory in
+[build guidance](https://github.com/crabbuild/cellar/blob/v0.1.0/AGENTS.md#build-and-validation). The ordinary library test
+target is disabled; replication changes also need the owning host's integration
+and recovery tests. Internal tests require their external harness.
+
+## Provenance and attribution
+
+Seeded on 2026-08-03 from a read-only snapshot of
+[rustyriver](https://github.com/mikenomitch/rustyriver), a Rust reimplementation
+of Litestream v0.5 and the LTX format. Cellar maintains this source independently
+of the upstream branch.
+
+Attribution for the vendored and ported work:
+
+- **rustyriver** — Copyright 2026 The rustyriver authors, licensed under the
+  Apache License, Version 2.0.
+- **Litestream** (https://github.com/benbjohnson/litestream) — Copyright (c)
+  Ben Johnson and the Litestream authors, licensed under the Apache License,
+  Version 2.0. The original replication behavior comes from tag v0.5.11. The
+  current block format follows tag v0.5.16 because it includes LTX v0.5.2.
+- **LTX file format and reference implementation**
+  (https://github.com/superfly/ltx), tag v0.5.2 — Copyright (c) Superfly, Inc.,
+  licensed under the Apache License, Version 2.0.
+- **pierrec/lz4 block compressor**
+  (https://github.com/pierrec/lz4), tag v4.1.23 — Copyright (c) 2015 Pierre
+  Curto, licensed under the BSD 3-Clause License. The Rust port preserves the
+  exact compressed bytes that the LTX v0.5.2 writer produces.
+
+Cellar omits Litestream's object-storage leaser. The unused port was removed
+on 2026-08-06. Cellar instead uses a conditional ownership record carrying an
+epoch and stamps that epoch into the LTX prefix. A separate replica lease would
+introduce a competing ownership mechanism.
+
+The full Apache License, Version 2.0 text is in [LICENSE](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/LICENSE). The full
+BSD 3-Clause License text is in
+[LICENSE.pierrec-lz4](https://github.com/crabbuild/cellar/blob/v0.1.0/crates/cellar-ltx/LICENSE.pierrec-lz4).
+
+## File compatibility
+
+Cellar's node-bundle envelope contains verbatim L0 files followed by row metadata,
+a little-endian CRC64-ISO checksum, a little-endian u32 footer length and `CLB1`.
+Integrity covers payload, footer, length and magic before row metadata can
+authorize recovery or collection. Rows must partition the payload, have positive
+epoch/TXID and agree with their L0 header transaction range. The development
+layout hard-cutover retains marker 1: recreate earlier unchecksummed bundle state
+and rebuild participants. There is no legacy bundle reader or migration. This
+container change does not rewrite the upstream LTX files described below.
+
+Cellar and Litestream v0.5.16 can read the new block files and the older frame
+files. Litestream v0.5.11 can read only the older frame files. This is a reader
+compatibility boundary because LTX keeps file version 3 for both layouts.
+
+The ordinary Cellar L0 writer still emits the older frame representation. The
+v0.5.2 encoder and compactor emit exact block files. Cellar contains a
+node-wide scheduler that publishes additive L1 files, and the scheduler is on
+by default. Every takeover target must have the dual decoder before the first
+L1 publication, so a mixed fleet must set `CELLAR_LTX_COMPACTION=0` until all
+nodes can read block files. The same reader-first requirement applies to a
+later L0 writer switch.

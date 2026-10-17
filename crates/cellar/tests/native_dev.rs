@@ -333,7 +333,7 @@ async fn scenario(root: &Path) -> Result<()> {
     )?;
     let manifest = directory.join("Cargo.toml");
     std::fs::write(&manifest, format!(
-        "[package]\nname = \"native-dev-fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n[dependencies]\ndev-domain = {{ path = \"../domain\" }}\ncellar = {{ path = {:?}, default-features = false }}\nanyhow = \"1\"\nserde_json = \"1\"\nurl = \"2\"\ntikv-jemallocator = {{ version = \"0.6\", features = [\"background_threads\", \"stats\"] }}\n",
+        "[package]\nname = \"native-dev-fixture\"\nversion = \"0.0.0\"\nedition = \"2021\"\n[dependencies]\ndev-domain = {{ path = \"../domain\" }}\ncellar = {{ package = \"cellar-main\", path = {:?}, default-features = false }}\nanyhow = \"1\"\nserde_json = \"1\"\nurl = \"2\"\ntikv-jemallocator = {{ version = \"0.6\", features = [\"background_threads\", \"stats\"] }}\n",
         Path::new(env!("CARGO_MANIFEST_DIR")).to_str().unwrap()))?;
     let source = include_str!("../../../examples/native-counter/main.rs").replace("native-counter", "native-dev-fixture")
         .replace("(\"x-native-version\".into(), version.into())", "(\"x-native-version\".into(), format!(\"{}-{}\", version, dev_domain::VALUE))")

@@ -18,7 +18,7 @@ Run from the repository root; follow [AGENTS.md](../../AGENTS.md) for the target
 directory. In terminal 1:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-counter/project.json --no-watch --clean
 ```
 

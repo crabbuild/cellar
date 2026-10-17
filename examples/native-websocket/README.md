@@ -19,7 +19,7 @@ target directory. In terminal 1:
 
 ```sh
 CELLAR_WEBSOCKET_PEER=ws://127.0.0.1:9876 \
-  cargo run -p cellar --bin cellar --locked -- \
+  cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-websocket/project.json --no-watch --clean
 ```
 

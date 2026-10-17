@@ -39,7 +39,7 @@ bucket is required for this walkthrough.
 In terminal 1:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-container/project.json --no-watch --clean
 ```
 

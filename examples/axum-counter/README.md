@@ -15,7 +15,7 @@ also removes the UI and its dependency.
 Native Cellar HTTP and application package workflow:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- dev examples/axum-counter/project.json
+cargo run -p cellar-main --bin cellar --locked -- dev examples/axum-counter/project.json
 # In another terminal:
 curl -X POST http://127.0.0.1:9876/counters/alpha
 curl http://127.0.0.1:9876/counters/alpha

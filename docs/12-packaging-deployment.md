@@ -30,7 +30,7 @@ cellar install counter-package --bucket your_bucket \
   --region your_region --output ./counter-v1
 ```
 
-Use an installed CLI or the `cargo run -p cellar --bin cellar --locked --`
+Use an installed CLI or the `cargo run -p cellar-main --bin cellar --locked --`
 prefix. Replace `your_bucket` and `your_region` with your deployment values.
 Custom stores can use `--endpoint URL`. Supply credentials through supported
 providers.

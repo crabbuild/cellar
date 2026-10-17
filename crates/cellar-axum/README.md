@@ -13,6 +13,16 @@ owner routing, recovery, replication, and output gates.
 Choose who owns public HTTP before configuring ingress. Both hosting paths keep
 Cellar's private peer listener and cell durability checks.
 
+## Add the adapter
+
+Add the SDK alias and the independently named adapter package:
+
+```toml
+[dependencies]
+cellar = { package = "cellar-main", version = "0.1.0" }
+cellar-axum = "0.1.0"
+```
+
 ## Define a cell route
 
 Register the cell factory and its public route in one application definition:
