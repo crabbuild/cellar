@@ -1,37 +1,5 @@
 //! Conditional operator edits share the namespace's revision and transaction.
 use super::*;
-use serde::{Deserialize, Serialize};
-
-/// A revision observed while reading a key. `None` requires an absent/live-expired key.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct RevisionCondition {
-    pub revision: Option<String>,
-}
-
-impl RevisionCondition {
-    pub fn validate(&self) -> Result<()> {
-        if let Some(revision) = &self.revision {
-            let number = revision
-                .parse::<i64>()
-                .map_err(|_| error("revision must be a nonnegative decimal integer"))?;
-            ensure!(
-                number >= 0 && number.to_string() == *revision,
-                "KV_ERROR: invalid revision"
-            );
-        }
-        Ok(())
-    }
-}
-
-/// Absolute expiration is milliseconds since the Unix epoch, matching inspection.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
-pub enum EditExpiration {
-    Preserve,
-    Never,
-    At { timestamp_ms: u64 },
-}
 
 impl NamespaceCell {
     pub(super) fn observed_revision(

@@ -1,5 +1,6 @@
 use super::cell::*;
 use super::*;
+use serde::{Deserialize, Serialize};
 
 const HISTORY: &str = "__wf.history.";
 const PAGE_SIZE: usize = 8;

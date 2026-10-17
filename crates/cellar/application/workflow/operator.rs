@@ -2,6 +2,7 @@
 use super::{cell::*, *};
 use crate::engine_api::{HttpResponse, RequestBody};
 use futures_util::TryStreamExt;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]

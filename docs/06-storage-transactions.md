@@ -165,4 +165,4 @@ commands. See [backup and restore](18-recovery-backup.md).
 
 Sources: [storage](../crates/cellar/application/storage/mod.rs),
 [transactions](../crates/cellar/application/storage/transaction.rs),
-[SQL binding](../crates/cellar/application/sql.rs), [LTX](../crates/cellar-ltx/README.md).
+[SQL binding](../crates/cellar/application/sql/mod.rs), [LTX](../crates/cellar-ltx/README.md).

@@ -1,5 +1,8 @@
 //! Bounded, declarative diagrams for compiled workflows. These do not execute code.
-use super::*;
+use super::{set, Context, StructuredValue};
+use anyhow::{ensure, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
@@ -129,6 +132,7 @@ pub(super) fn snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn diagram_identity_and_references_are_validated() -> Result<()> {

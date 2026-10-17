@@ -151,7 +151,7 @@ async fn sorted_consumption_and_uniqueness_rewind_retain_the_reservation() -> Re
     let reserved = observed.is_none();
     drop(observed);
     let batch = sorted.next_batch()?;
-    ensure!(batch.get(&("cell".into(), 1, 2)) == Some(&vec![1, 2, 3]));
+    ensure!(batch.get(&("cell".into(), 1, 2)).map(AsRef::as_ref) == Some([1, 2, 3].as_slice()));
     ensure!(sorted.next_batch()?.is_empty());
     drop(sorted);
     if reserved {

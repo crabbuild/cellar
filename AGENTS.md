@@ -32,6 +32,9 @@ Start with the [documentation index](docs/README.md) for architecture and APIs.
 
 - Keep `cellar-logic` free of dependencies, async work and I/O. The actor owns
   its state; adapters execute effects and return completion events.
+- Keep application building blocks in `cellar/application`, beside their owning
+  adapters. Use focused private modules for values, validation and codecs;
+  expose application APIs through `cellar::sdk`.
 - Use execution-domain services for tasks, clocks, randomness and node storage.
   Follow `clippy.toml`; keep configuration explicit and environment parsing at
   CLI boundaries. Cancellation and shutdown must release resources and join work.

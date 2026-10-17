@@ -2,7 +2,9 @@
 //! cellar_logic::cron; storage, wake discovery and ownership remain the host's.
 
 mod history;
-pub(crate) use history::{Configuration as HistoryConfiguration, Query as HistoryQuery};
+mod types;
+pub use types::Scheduled;
+pub(crate) use types::{Configuration as HistoryConfiguration, Query as HistoryQuery};
 
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};
@@ -13,24 +15,9 @@ use anyhow::{anyhow, Result};
 use cellar_logic::cron as policy;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::task::{Context as TaskContext, Poll};
-
-#[derive(Clone, Debug)]
-pub struct Scheduled {
-    pub scheduled_ms: i64,
-    pub cron: String,
-    no_retry: Arc<AtomicBool>,
-}
-
-impl Scheduled {
-    /// Decline retry if this handler fails. Late calls only change this
-    /// controller's flag; they cannot settle or change another occurrence.
-    pub fn no_retry(&self) {
-        self.no_retry.store(true, Ordering::Release);
-    }
-}
 
 struct Owed {
     occurrence: i64,
@@ -215,11 +202,7 @@ impl Schedule {
                     }
                 }
             } else {
-                let controller = Scheduled {
-                    scheduled_ms: occurrence,
-                    cron: self.expressions[index].clone(),
-                    no_retry: Arc::new(AtomicBool::new(false)),
-                };
+                let controller = Scheduled::new(occurrence, self.expressions[index].clone());
                 let outcome =
                     ScheduledRun::new(context, self.application.clone(), controller).await;
                 if outcome.retry {
@@ -272,7 +255,7 @@ impl Cell for Schedule {
                         return Err(anyhow!("cron history requires JSON"));
                     };
                     anyhow::ensure!(body.len() <= 4096, "cron inspection request exceeds 4 KiB");
-                    let query: history::Query = serde_json::from_str(&body)?;
+                    let query: HistoryQuery = serde_json::from_str(&body)?;
                     let page = history::page(&self.storage, query)?;
                     Ok(Output::Rpc(crate::engine_api::RpcData::Json(
                         serde_json::to_string(&page)?,
@@ -359,7 +342,7 @@ impl Future for ScheduledRun {
                     this.error = Some(history::error_text(&error));
                     tracing::error!(cron=%this.controller.cron,%error,"scheduled handler failed");
                     // The existing cell records this before draining waitUntil.
-                    this.retry = !this.controller.no_retry.load(Ordering::Acquire);
+                    this.retry = !this.controller.retry_declined();
                 }
             }
         }

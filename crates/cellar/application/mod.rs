@@ -1,10 +1,9 @@
-//! Rust application handlers executed by cellar's production turn driver.
+#![doc = include_str!("README.md")]
 
 use crate::engine_api::{HttpResponse, QueueBatch, QueueDispatchResult, RequestBody, RpcData};
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 pub mod assets;
@@ -36,7 +35,10 @@ pub use storage::{
     OutboxRevision, Storage,
 };
 
-pub type HandlerFuture<T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'static>>;
+/// An owned application callback; the host supplies its execution and lifetime.
+pub type HandlerFuture<T> =
+    std::pin::Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'static>>;
+
 pub type SqlResult = (Vec<String>, Vec<Vec<serde_json::Value>>, u64);
 
 /// A persisted structured value. A capability tree retains its original

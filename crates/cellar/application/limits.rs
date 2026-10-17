@@ -96,10 +96,7 @@ impl CellLimits {
             "Blob list limit exceeds the listing protocol"
         );
         if let Some(connection) = self.sql.connection {
-            ensure!(
-                connection.categories().iter().all(|(_, value)| *value > 0),
-                "SQLite resource limits must be positive"
-            );
+            connection.validate()?;
         }
         self.queue.validate().map_err(anyhow::Error::new)?;
         for maximum in [self.workflow.max_retention_ms, self.workflow.max_sleep_ms]
@@ -154,8 +151,8 @@ impl Default for SqlLimits {
     fn default() -> Self {
         Self {
             connection: Some(SqliteLimits::default()),
-            max_rows: crate::storage::SQL_MAX_ROWS,
-            max_result_bytes: crate::storage::SQL_MAX_RESULT_BYTES,
+            max_rows: crate::application::sql::SQL_MAX_ROWS,
+            max_result_bytes: crate::application::sql::SQL_MAX_RESULT_BYTES,
         }
     }
 }
@@ -192,23 +189,25 @@ impl Default for SqliteLimits {
 }
 
 impl SqliteLimits {
-    pub(crate) fn categories(self) -> [(i32, i32); 10] {
-        use rusqlite::ffi::*;
-        [
-            (SQLITE_LIMIT_LENGTH, self.max_value_bytes),
-            (SQLITE_LIMIT_SQL_LENGTH, self.max_statement_bytes),
-            (SQLITE_LIMIT_COLUMN, self.max_columns),
-            (SQLITE_LIMIT_EXPR_DEPTH, self.max_expression_depth),
-            (SQLITE_LIMIT_COMPOUND_SELECT, self.max_compound_selects),
-            (SQLITE_LIMIT_VDBE_OP, self.max_vm_operations),
-            (SQLITE_LIMIT_FUNCTION_ARG, self.max_function_arguments),
-            (
-                SQLITE_LIMIT_LIKE_PATTERN_LENGTH,
+    fn validate(&self) -> Result<()> {
+        ensure!(
+            [
+                self.max_value_bytes,
+                self.max_statement_bytes,
+                self.max_columns,
+                self.max_expression_depth,
+                self.max_compound_selects,
+                self.max_vm_operations,
+                self.max_function_arguments,
                 self.max_like_pattern_bytes,
-            ),
-            (SQLITE_LIMIT_VARIABLE_NUMBER, self.max_bind_parameters),
-            (SQLITE_LIMIT_TRIGGER_DEPTH, self.max_trigger_depth),
-        ]
+                self.max_bind_parameters,
+                self.max_trigger_depth,
+            ]
+            .into_iter()
+            .all(|value| value > 0),
+            "SQLite resource limits must be positive"
+        );
+        Ok(())
     }
 }
 

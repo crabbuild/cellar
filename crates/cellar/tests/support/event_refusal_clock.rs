@@ -678,7 +678,7 @@ async fn run_case(
     // write. Lease/catalog/store clients remain untouched. Compare every byte
     // of the bounded private stream replica prefix before recovery can upload.
     if followers {
-        outage.block();
+        outage.block_and_drain().await;
     }
     let baseline = replicas(&observer, &bucket).await?;
     let original_roots = cold_root_snapshot(&observer, &bucket).await?;

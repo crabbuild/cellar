@@ -30,6 +30,11 @@ uses `#[path]` declarations; for example `cellar::daemon` resides in
 `node/mod.rs`. [API reference](22-api-reference.md) links through the public
 facade and actual files.
 
+Application building blocks live in `cellar/application`. Each component keeps
+its values, codecs and validation beside its binding and service-cell adapters.
+Applications use `cellar::sdk`; execution, authority and durability checks remain
+inside the host. See the [building-block guide](../crates/cellar/application/README.md).
+
 ## A request and a write
 
 A state-changing request follows these boundaries:

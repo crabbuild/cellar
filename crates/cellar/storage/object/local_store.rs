@@ -77,14 +77,16 @@ impl LocalStore {
         connection
             .pragma_update(None, "journal_mode", "WAL")
             .map_err(db_error)?;
+        // A trailing BLOB preserves SQLite's zero-tail optimization while
+        // incremental writes fill the space reserved by ZeroBlob.
         connection
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS __sys_local_objects (
                    key TEXT PRIMARY KEY,
-                   body BLOB NOT NULL,
                    etag INTEGER NOT NULL,
                    modified_ms INTEGER NOT NULL,
-                   attributes TEXT NOT NULL
+                   attributes TEXT NOT NULL,
+                   body BLOB NOT NULL
                  );
                  CREATE TABLE IF NOT EXISTS __sys_local_sequence (
                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
@@ -274,18 +276,40 @@ impl LocalStore {
                 |row| row.get::<_, i64>(0),
             )
             .map_err(db_error)?;
-        transaction
-            .execute(
+        // Reserve the body without binding a full-size copy. Incremental
+        // writes share the transaction with the ETag check and metadata.
+        let rowid = transaction
+            .query_row(
                 "INSERT INTO __sys_local_objects(key, body, etag, modified_ms, attributes)
                  VALUES (?1, ?2, ?3, ?4, ?5)
                  ON CONFLICT(key) DO UPDATE SET
                    body = excluded.body,
                    etag = excluded.etag,
                    modified_ms = excluded.modified_ms,
-                   attributes = excluded.attributes",
-                params![key, body.as_ref(), etag, modified_ms, attributes],
+                   attributes = excluded.attributes
+                 RETURNING rowid",
+                params![
+                    key,
+                    rusqlite::blob::ZeroBlob(i32::try_from(body.len()).map_err(db_error)?),
+                    etag,
+                    modified_ms,
+                    attributes
+                ],
+                |row| row.get::<_, i64>(0),
             )
             .map_err(db_error)?;
+        {
+            let mut blob = transaction
+                .blob_open(
+                    rusqlite::DatabaseName::Main,
+                    "__sys_local_objects",
+                    "body",
+                    rowid,
+                    false,
+                )
+                .map_err(db_error)?;
+            blob.write_all_at(&body, 0).map_err(db_error)?;
+        }
         transaction.commit().map_err(db_error)?;
         Ok(PutResult {
             e_tag: Some(etag.to_string()),
@@ -319,6 +343,11 @@ fn configure_connection(connection: &Connection) -> object_store::Result<()> {
     // configuration can silently weaken the development store's durability.
     connection
         .pragma_update(None, "synchronous", "FULL")
+        .map_err(db_error)?;
+    // Each operation owns a connection. Its freed page cache can remain in
+    // a blocking worker's allocator arena; cap it at one read chunk.
+    connection
+        .pragma_update(None, "cache_size", -(READ_CHUNK_BYTES as i64 / 1024))
         .map_err(db_error)?;
     connection
         .busy_timeout(Duration::from_secs(30))

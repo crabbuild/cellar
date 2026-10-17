@@ -903,7 +903,7 @@ fn finish_open(
     unsafe {
         let database = c.handle();
         if let Some(connection) = limits.connection {
-            for (category, limit) in connection.categories() {
+            for (category, limit) in sqlite_limit_categories(connection) {
                 rusqlite::ffi::sqlite3_limit(database, category, limit);
             }
         }
@@ -2233,15 +2233,7 @@ pub(crate) fn sql_page_usage(scope: &str) -> Result<(u64, u64), String> {
 // metadata snapshot taken from the same execution on the same connection, and
 // SQLite alone deciding what is and is not a statement.
 
-/// Rows one SQL result set can carry across the binding. In-cell iteration
-/// streams; a `.all()` from a Worker materializes the whole result set and
-/// structured-clones it into the calling isolate. The bound exists so that
-/// "the query was too large" and "the isolate died" are different messages.
-pub const SQL_MAX_ROWS: usize = 100_000;
-
-/// Default bytes one materialized SQL result set may carry across a binding.
-/// Embedded hosts select the effective budget through `CellLimits.sql`.
-pub const SQL_MAX_RESULT_BYTES: usize = 32 * 1024 * 1024;
+pub use crate::application::sql::{SQL_MAX_RESULT_BYTES, SQL_MAX_ROWS};
 
 pub use cellar_native::sql::{
     Error as SqlFailure, SqlMeta, SqlPreparedRequest, SqlPreparedResult, SqlRequest, SqlResponse,
@@ -4599,6 +4591,25 @@ pub fn bump_alarm_with_policy(scope: &str, now_ms: i64, counts_against_limit: bo
 
 #[cfg(cellar_internal_tests)]
 include!(env!("CELLAR_INTERNAL_STORAGE_OBSERVERS"));
+
+fn sqlite_limit_categories(limits: crate::application::limits::SqliteLimits) -> [(i32, i32); 10] {
+    use rusqlite::ffi::*;
+    [
+        (SQLITE_LIMIT_LENGTH, limits.max_value_bytes),
+        (SQLITE_LIMIT_SQL_LENGTH, limits.max_statement_bytes),
+        (SQLITE_LIMIT_COLUMN, limits.max_columns),
+        (SQLITE_LIMIT_EXPR_DEPTH, limits.max_expression_depth),
+        (SQLITE_LIMIT_COMPOUND_SELECT, limits.max_compound_selects),
+        (SQLITE_LIMIT_VDBE_OP, limits.max_vm_operations),
+        (SQLITE_LIMIT_FUNCTION_ARG, limits.max_function_arguments),
+        (
+            SQLITE_LIMIT_LIKE_PATTERN_LENGTH,
+            limits.max_like_pattern_bytes,
+        ),
+        (SQLITE_LIMIT_VARIABLE_NUMBER, limits.max_bind_parameters),
+        (SQLITE_LIMIT_TRIGGER_DEPTH, limits.max_trigger_depth),
+    ]
+}
 
 #[cfg(test)]
 mod system_schema_tests {

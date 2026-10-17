@@ -17,7 +17,7 @@ Rust documentation, run the command below from the repository root.
 | Resumable consumption | `Stream::subscription`, `Subscription::next`/`next_with_id`, `BatchOptions`, `Batch::ack`/`retry`/`extend_until`, `Receipt` | [subscriptions](../crates/cellar/application/event_stream/subscription.rs) |
 | Local effect deduplication | `tx.inbox(...).accept(record)`, `Storage::sync` before remote acknowledgment | [storage guide](06-storage-transactions.md) |
 | Event outcomes | `event_stream::DeliveryError`, `ErrorCode`, `ErrorCode::as_str` | [typed errors](../crates/cellar/application/event_stream/error.rs) |
-| SQL binding | `sql::Database`, prepared statements, sessions, batch, migrate, migrations, dump | [SQL](../crates/cellar/application/sql.rs) |
+| SQL binding | `sql::Database`, prepared statements, sessions, batch, migrate, migrations, dump | [SQL](../crates/cellar/application/sql/mod.rs) |
 | KV binding | `kv::Namespace`; reads/metadata, put text/bytes/stream, delete/list | [KV](../crates/cellar/application/kv/mod.rs) |
 | Queue | `queue::Producer`, `SendOptions`, `Body`, `Event`, `Message`; send/batch, ack/retry | [Queue](../crates/cellar/application/queue/mod.rs) |
 | Workflow | `workflow::Workflow`, `Instance`, `Event`, `Step`; `run`/`run_with`, `WaitOptions`, options/status types | [Workflow](../crates/cellar/application/workflow/mod.rs) |
@@ -30,7 +30,7 @@ Rust documentation, run the command below from the repository root.
 | HTTP values | `http::Response`, URL and outbound request/body helpers | [HTTP](../crates/cellar/application/http.rs) |
 | Host HTTP configuration | `HttpPolicy`, `HttpClientFactory`; `NodeConfig::http`, `NodeServices::http_client`, `HostServices::configure_http` | [HTTP policy](../crates/cellar/transport/http/policy.rs), [host services](../crates/cellar/execution/services.rs) |
 | Host wall clock | `WallClock`, `ExecutionDomain::with_wall_clock`; `NodeServices::wall_clock`, `ExternalNodeServices::wall_clock` | [Execution domain](../crates/cellar/execution/domain.rs), [Node](../crates/cellar/node/embedded.rs) |
-| Blob objects | `blob::Bucket`, `ObjectBody`, ranges, conditionals, multipart, metadata/checksums | [Blob](../crates/cellar/application/blob.rs) |
+| Blob objects | `blob::Bucket`, `ObjectBody`, ranges, conditionals, multipart, metadata/checksums | [Blob](../crates/cellar/application/blob/mod.rs) |
 | Host asset storage | `AssetCache`, `AssetCacheOptions`, `AssetResolver`, `FileSystem`; explicit cache passed to `DeploymentGraph::load` | [asset cache](../crates/cellar/runtime/assets/cache.rs), [filesystem](../crates/cellar-ltx/src/host.rs) |
 | Assets / cache / rewrite | `assets`, `cache`, `html_rewriter` modules | [assets](../crates/cellar/application/assets.rs), [cache](../crates/cellar/application/cache.rs), [rewriter](../crates/cellar/application/html_rewriter/mod.rs) |
 | Byte streams | `streams` module and owned byte stream values | [byte streams](../crates/cellar/application/streams.rs) |

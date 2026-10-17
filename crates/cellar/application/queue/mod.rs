@@ -2,57 +2,26 @@
 //! Broker policy and fleet dispatch remain the existing Rust implementations.
 
 mod broker;
+mod configuration;
+pub(crate) mod message;
 mod wire;
 
 use super::{decode_rpc_result, encode_rpc, Context, HandlerFuture, Output};
 use crate::engine_api::{
     QueueBatch, QueueDispatchResult, QueueOutcome, QueueRetryBatch, QueueRetryMessage,
 };
-pub use crate::engine_api::{QueueContentType, QueueMetrics};
 use anyhow::{anyhow, ensure, Result};
-use cellar_native::clone::{StructuredValue, Value as CloneValue};
+use cellar_native::clone::StructuredValue;
 use futures_util::FutureExt;
 use indexmap::{IndexMap, IndexSet};
-use serde::Deserialize;
+use message::{decode, Encoded};
+pub use message::{BatchEntry, Body, QueueContentType, QueueMetrics, SendOptions};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 pub(crate) use broker::create_cell;
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Config {
-    pub consumers: HashMap<String, Consumer>,
-    pub lease_duration_ms: i64,
-    pub limits: Limits,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Consumer {
-    pub script: String,
-    pub max_batch_size: usize,
-    pub max_batch_timeout_ms: i64,
-    pub max_retries: u16,
-    pub max_concurrency: Option<u16>,
-    pub retry_delay_seconds: Option<u32>,
-    pub dead_letter_queue: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct Limits {
-    pub producer_group_ms: u64,
-    pub max_concurrency: u16,
-    pub retention_ms: Option<i64>,
-    pub max_admin_batch_size: usize,
-    pub max_message_bytes: usize,
-    pub max_batch_bytes: usize,
-    pub max_batch_messages: u16,
-    pub sweep_batch_rows: usize,
-}
+pub(crate) use configuration::{BrokerConfig as Config, ConsumerConfig as Consumer};
 
 #[derive(Clone, Debug)]
 pub struct Producer {
@@ -61,34 +30,8 @@ pub struct Producer {
     json_default: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct SendOptions {
-    pub delay_seconds: Option<u32>,
-}
-
-pub enum Body {
-    Text(String),
-    Bytes(Vec<u8>),
-    Json(Value),
-    /// JSON data with UTF-16 strings or binary64 values that serde_json cannot
-    /// retain. This uses JSON.stringify data semantics and the JSON wire type.
-    JsonValue(StructuredValue),
-    Structured(StructuredValue),
-}
-
-pub struct BatchEntry {
-    pub body: Body,
-    pub delay_seconds: Option<u32>,
-}
-
 pub struct SendResult {
     pub metrics: QueueMetrics,
-}
-
-pub(super) struct Encoded {
-    pub body: Vec<u8>,
-    pub content_type: String,
-    pub delay: u32,
 }
 
 pub(super) fn error(message: impl std::fmt::Display) -> anyhow::Error {
@@ -100,54 +43,7 @@ pub(super) fn now() -> i64 {
 }
 
 pub(super) fn check_delay(delay: u32) -> Result<u32> {
-    ensure!(
-        delay
-            <= crate::application::limits::current()
-                .queue
-                .max_delay_seconds,
-        "QUEUE_ERROR: delaySeconds must be an integer from 0 to {}",
-        crate::application::limits::current()
-            .queue
-            .max_delay_seconds
-    );
-    Ok(delay)
-}
-
-fn encode(body: Body, delay: u32) -> Result<Encoded> {
-    let (body, content_type) = match body {
-        Body::Text(text) => (text.into_bytes(), "text"),
-        Body::Bytes(bytes) => (bytes, "bytes"),
-        Body::Json(value) => (encode_json(&StructuredValue::from_json(value)?)?, "json"),
-        Body::JsonValue(value) => (encode_json(&value)?, "json"),
-        Body::Structured(value) => (
-            cellar_native::clone::encode(&value)
-                .map_err(|_| error("the message body cannot be cloned"))?,
-            "structured",
-        ),
-    };
-    ensure!(
-        body.len()
-            <= crate::application::limits::current()
-                .queue
-                .max_message_bytes,
-        "QUEUE_ERROR: a message is at most {} bytes, got {}",
-        crate::application::limits::current()
-            .queue
-            .max_message_bytes,
-        body.len()
-    );
-    Ok(Encoded {
-        body,
-        content_type: content_type.into(),
-        delay: check_delay(delay)?,
-    })
-}
-
-fn encode_json(value: &StructuredValue) -> Result<Vec<u8>> {
-    Ok(cellar_native::json::stringify(value)
-        .map_err(|_| error("the JSON message body cannot be serialized"))?
-        .ok_or_else(|| error("the JSON message body cannot be undefined"))?
-        .into_bytes())
+    message::check_delay(delay, crate::application::limits::current().queue)
 }
 
 impl Producer {
@@ -169,7 +65,11 @@ impl Producer {
         body: Body,
         options: SendOptions,
     ) -> Result<SendResult> {
-        let entry = encode(body, options.delay_seconds.unwrap_or(self.delivery_delay))?;
+        let entry = message::encode(
+            body,
+            options.delay_seconds.unwrap_or(self.delivery_delay),
+            crate::application::limits::current().queue,
+        )?;
         self.send_encoded(context, vec![entry]).await
     }
 
@@ -212,7 +112,11 @@ impl Producer {
                         .max_batch_messages
                 )
             );
-            let entry = encode(message.body, message.delay_seconds.unwrap_or(delay))?;
+            let entry = message::encode(
+                message.body,
+                message.delay_seconds.unwrap_or(delay),
+                crate::application::limits::current().queue,
+            )?;
             bytes = bytes
                 .checked_add(entry.body.len())
                 .ok_or_else(|| error("batch size overflow"))?;
@@ -283,41 +187,6 @@ fn metrics_from(value: &Value) -> Result<QueueMetrics> {
             .as_f64()
             .ok_or_else(|| error("invalid Queue metrics"))?,
         oldest_message_timestamp_ms: value["oldestMessageTimestamp"].as_i64(),
-    })
-}
-
-fn decode(body: Vec<u8>, content_type: QueueContentType) -> Result<Body> {
-    let text = |bytes: &[u8]| -> Result<String> {
-        Ok(
-            cellar_native::encoding::TextDecoder::new("utf-8", Default::default())?
-                .decode(bytes, false)?,
-        )
-    };
-    Ok(match content_type {
-        QueueContentType::Text => Body::Text(text(&body)?),
-        QueueContentType::Bytes => Body::Bytes(body),
-        QueueContentType::Json => {
-            let value = cellar_native::json::parse_utf8(&text(&body)?)?;
-            // Keep the convenient serde view only when it retains every
-            // string and number. JSON.parse accepts -0 and overflow to Infinity.
-            let preserves_numbers = |value: &CloneValue| !matches!(value,CloneValue::Number(number) if !number.is_finite() || (*number==0.0 && number.is_sign_negative()));
-            let safe = preserves_numbers(&value.root)
-                && value.objects.iter().all(|object| match object {
-                    cellar_native::clone::Object::Object(properties) => {
-                        properties.iter().all(|(_, value)| preserves_numbers(value))
-                    }
-                    cellar_native::clone::Object::DenseArray { elements, .. } => {
-                        elements.iter().all(preserves_numbers)
-                    }
-                    _ => false,
-                });
-            let plain = if safe { value.to_json().ok() } else { None };
-            match plain {
-                Some(value) => Body::Json(value),
-                None => Body::JsonValue(value),
-            }
-        }
-        QueueContentType::Structured => Body::Structured(cellar_native::clone::decode(&body)?),
     })
 }
 

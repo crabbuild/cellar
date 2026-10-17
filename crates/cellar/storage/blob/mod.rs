@@ -7,6 +7,8 @@
 //! so an operator and a Worker cannot disagree about the key an object lives
 //! under or the record it carries. Rust Blob bindings use this backend.
 
+pub use crate::application::blob::{Conditional, HttpMetadata as HttpMeta, Range};
+
 use crate::asyncrt;
 use crate::bucket::BlobAttributes;
 use crate::bucket::BlobConditions;
@@ -272,28 +274,6 @@ pub(crate) fn store() -> Result<Bucket, String> {
 
 // ---- the object record ---------------------------------------------------
 
-/// Blob's `httpMetadata`. Five of the six are ordinary HTTP headers that
-/// every backend stores as headers, and travel as headers. `cacheExpiry`
-/// is not a header anywhere, so it travels in the [`Envelope`] with the
-/// rest of the record.
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct HttpMeta {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_type: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_language: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_disposition: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_encoding: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_control: Option<String>,
-    /// Milliseconds since the epoch, as Blob spells it.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cache_expiry: Option<i64>,
-}
-
 /// Everything a Blob object carries that a blob store has no place for.
 ///
 /// A store keeps bytes, five content headers, and a flat map of ASCII
@@ -415,18 +395,6 @@ pub(crate) fn object_json(
 
 // ---- requests ------------------------------------------------------------
 
-/// Blob's `onlyIf`, already normalized by the harness: the `Headers` form
-/// and the `BlobConditional` form arrive here the same way.
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Conditional {
-    pub etag_matches: Option<String>,
-    pub etag_does_not_match: Option<String>,
-    /// Milliseconds since the epoch.
-    pub uploaded_before: Option<i64>,
-    pub uploaded_after: Option<i64>,
-}
-
 impl From<Conditional> for BlobConditions {
     fn from(conditional: Conditional) -> Self {
         Self {
@@ -436,16 +404,6 @@ impl From<Conditional> for BlobConditions {
             uploaded_after_ms: conditional.uploaded_after,
         }
     }
-}
-
-/// Blob's `BlobRange`, normalized by the harness to the three fields Blob
-/// documents. `suffix` wins over the other two, as it does on Blob.
-#[derive(Debug, Default, Clone, Deserialize, Serialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct Range {
-    pub offset: Option<u64>,
-    pub length: Option<u64>,
-    pub suffix: Option<u64>,
 }
 
 impl From<Range> for BlobRange {

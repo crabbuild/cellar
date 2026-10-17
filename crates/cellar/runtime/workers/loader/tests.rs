@@ -189,18 +189,18 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
     assert!(take_loaded_worker(id).is_none());
 
     let drops = Arc::new(AtomicUsize::new(0));
-    let (send, mut state) = tokio::sync::watch::channel(LoaderState::Loading);
+    let (send, state) = tokio::sync::watch::channel(LoaderState::Loading);
     let id = admit_loaded_worker(owner.clone(), state.clone()).unwrap();
-    spawn_loaded_worker(
+    let startup = spawn_loaded_worker(
         tokio::runtime::Handle::current(),
         send,
         probed_config(drops.clone()),
     )?;
     let ready = loaded_worker_slot(state.clone()).await.unwrap();
     assert!(ready.is_loaded_worker());
-    // Observe the load producer's terminal lifetime before releasing every
-    // receiver; readiness can notify a caller just before the producer exits.
-    while state.changed().await.is_ok() {}
+    // Channel closure can wake us before the sender's shared state is dropped.
+    // Join the producer before asserting synchronous release of its worker.
+    startup.await?;
     drop(take_loaded_worker(id));
     drop(state);
     assert_eq!(drops.load(Ordering::SeqCst), 0);
@@ -213,8 +213,9 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
         .do_classes
         .push("Panic".into());
     let (send, state) = tokio::sync::watch::channel(LoaderState::Loading);
-    spawn_loaded_worker(tokio::runtime::Handle::current(), send, bad)?;
+    let startup = spawn_loaded_worker(tokio::runtime::Handle::current(), send, bad)?;
     let failure = loaded_worker_slot(state).await.err().unwrap();
+    startup.await?;
     assert!(failure.contains("worker loader: load task failed:"));
     assert!(failure.contains("native startup panic"));
     let (send, state) = tokio::sync::watch::channel(LoaderState::Loading);
