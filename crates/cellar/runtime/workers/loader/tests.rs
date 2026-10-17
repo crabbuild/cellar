@@ -195,7 +195,7 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
         tokio::runtime::Handle::current(),
         send,
         probed_config(drops.clone()),
-    );
+    )?;
     let ready = loaded_worker_slot(state.clone()).await.unwrap();
     assert!(ready.is_loaded_worker());
     // Observe the load producer's terminal lifetime before releasing every
@@ -213,7 +213,7 @@ pub(crate) async fn check_host_lifecycles() -> anyhow::Result<()> {
         .do_classes
         .push("Panic".into());
     let (send, state) = tokio::sync::watch::channel(LoaderState::Loading);
-    spawn_loaded_worker(tokio::runtime::Handle::current(), send, bad);
+    spawn_loaded_worker(tokio::runtime::Handle::current(), send, bad)?;
     let failure = loaded_worker_slot(state).await.err().unwrap();
     assert!(failure.contains("worker loader: load task failed:"));
     assert!(failure.contains("native startup panic"));

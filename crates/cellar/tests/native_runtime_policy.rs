@@ -470,3 +470,99 @@ fn command_line_policy_resolves_environment_once() -> Result<()> {
     );
     Ok(())
 }
+
+struct CloseDuringValidation {
+    owner: Arc<ExecutionDomain>,
+    validations: Arc<std::sync::atomic::AtomicUsize>,
+    invocations: Arc<std::sync::atomic::AtomicUsize>,
+    drops: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Application for CloseDuringValidation {
+    fn invoke(self: Arc<Self>, _: Context, _: Invocation) -> HandlerFuture<Output> {
+        self.invocations
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async { Ok(Output::Done) })
+    }
+
+    fn supports_cell(&self, _: &str) -> bool {
+        self.validations
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        // This is a real application callback inside worker warmup. A caller
+        // closing the owner can win while this synchronous poll is entered.
+        self.owner.close();
+        true
+    }
+
+    fn create_cell(
+        &self,
+        _: Context,
+        _: &cellar::application::CellIdentity,
+    ) -> Result<Arc<dyn Cell>> {
+        anyhow::bail!("cell creation is not part of stateless warmup")
+    }
+}
+
+impl Drop for CloseDuringValidation {
+    fn drop(&mut self) {
+        self.drops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn closing_during_native_warmup_refuses_maintenance_without_panicking() -> Result<()> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let owner = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
+    let validations = Arc::new(AtomicUsize::new(0));
+    let invocations = Arc::new(AtomicUsize::new(0));
+    let drops = Arc::new(AtomicUsize::new(0));
+    let config = WorkerConfig::new(
+        fixture::graph("closing-warmup", "", vec!["Closing".into()])
+            .primary
+            .options,
+    )
+    .with_native_application(Arc::new(CloseDuringValidation {
+        owner: owner.clone(),
+        validations: validations.clone(),
+        invocations: invocations.clone(),
+        drops: drops.clone(),
+    }));
+    let observed = owner
+        .run(async move {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                StatelessRuntime::start(Arc::new(config), "test".into(), "test".into())
+            }))
+        })
+        .await;
+    // Join before checking the result, including the failing pre-fix path.
+    owner.shutdown().await;
+    ensure!(
+        validations.load(Ordering::SeqCst) == 1,
+        "native validation did not enter"
+    );
+    ensure!(owner.is_closed());
+    let result =
+        observed?.map_err(|_| anyhow::anyhow!("native warmup panicked after domain closure"))?;
+    let error = result
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("closed-domain warmup returned a serving runtime"))?;
+    ensure!(
+        error
+            .downcast_ref::<cellar::asyncrt::DomainClosed>()
+            .is_some(),
+        "closed-domain admission lost its typed cause: {error:#}"
+    );
+    ensure!(
+        invocations.load(Ordering::SeqCst) == 0,
+        "closed owner executed an application request"
+    );
+    ensure!(
+        drops.load(Ordering::SeqCst) == 1,
+        "closed warmup retained its application"
+    );
+    ensure!(
+        tokio::spawn(async { 7 }).await? == 7,
+        "closing the domain stopped its caller executor"
+    );
+    Ok(())
+}
