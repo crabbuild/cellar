@@ -46,10 +46,29 @@ heartbeats cover admission and transfer/disk waits. Verification and spool copyi
 read 128 KiB chunks; immutable incoming Bytes reach the real disk write without a
 second block allocation. Copied spools retain deduplicated reservations.
 
-CLI/artifact, SDK/Node and static qualification are still running. A public-SDK
-post-fix run of the original baseline probe is also required before closing this
-scoped repair. Upload-worker cancellation capacity, legal oversized upload rows,
-metadata inventories and the remaining release matrix stay open.
+All 14 scoped phases pass on those unchanged 628 inputs (731.02s including
+builds): library 328, native recovery 21, CLI/artifact 10, SDK integration three,
+and the actual normal-stack Node catalog/tombstone/owner-handoff case. Workspace
+all-target/all-feature checking and Clippy with warnings denied, repository format
+and layout, docs/dependency policy, 179 Python guards and both diff checks pass.
+Python still emits two unclosed-SQLite ResourceWarnings; that fixture audit remains
+open. Passing current fencing cases do not explain the historical deadline failure.
+
+The original public-SDK probe also passes against the rebuilt primary-checkout
+production library. Its helper source is unchanged, all 32 original record
+lengths/digests match the baseline manifest exactly, and source/library hashes are
+unchanged before and after. The real seal and original row oracles complete before
+RSS growth of 43614208 bytes (about 41.6 MiB) passes the same 64 MiB limit; measured
+runtime is 13.86s after 3.59s separate preparation. The production library hash
+differs from the baseline library. This is retained-row recovery qualification,
+not prior client-ACK, follower-only or physical-loss qualification.
+
+Published code is `6a0f07997f3a47ed812bf5f64a539a09a426a329` in draft PR #73 directly
+against main, the sole event-delivery PR; follow-ups reuse it while open. Both
+hosted jobs for that code head execute zero steps. Their annotations cite account
+payment/spending restrictions, so hosted CI supplies no test result. Upload-worker
+cancellation capacity is the next critical boundary, followed by legal oversized
+upload rows, metadata inventories and the remaining release matrix.
 
 The baseline and investigation evidence below is historical; reverted experiments
 are not part of the current implementation.
@@ -141,7 +160,8 @@ reserving headroom for later upload buffers and allocator retention. Metadata
 coverage lookups retain their 16-operation fanout. This changes production
 backpressure, not the fixture: all 32 original records and the 64 MiB budget stay
 unchanged. Qualification includes the original native five-second recovery/proof guards;
-those gates now pass as recorded above. Broader qualification remains pending.
+those gates and the scoped batch now pass as recorded above. Full release
+qualification remains open.
 A separate source audit shows that async spool ownership alone does not establish
 capacity retention in an entered upload PUT after caller cancellation; reproduce
 and qualify that write-worker boundary rather than extending read-worker claims.
