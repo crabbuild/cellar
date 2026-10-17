@@ -6,6 +6,7 @@ use base64::Engine;
 use cellar_logic::queue as policy;
 use cellar_native::clone::Value as CloneValue;
 use futures_util::TryStreamExt;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 type Reply = std::result::Result<Value, String>;

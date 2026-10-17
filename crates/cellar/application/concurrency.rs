@@ -1,6 +1,7 @@
 use super::*;
 use crate::native_worker::{InputGate, Ready};
 use futures_util::future::FutureExt;
+use std::pin::Pin;
 use std::sync::Weak;
 use std::task::{Context as TaskContext, Poll};
 
