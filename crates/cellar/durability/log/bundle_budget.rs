@@ -17,6 +17,7 @@ impl Default for Budget {
 impl Budget {
     pub async fn acquire(&self) -> Result<Scope> {
         Ok(Scope {
+            buffers: Arc::default(),
             reservation: Arc::new(
                 self.0
                     .clone()
@@ -24,15 +25,15 @@ impl Budget {
                     .await
                     .context("bundle scan admission closed")?,
             ),
-            buffers: Arc::default(),
         })
     }
 }
 
 #[derive(Clone)]
 pub(super) struct Scope {
-    reservation: Arc<OwnedSemaphorePermit>,
     buffers: Arc<BufferPool>,
+    // Release our buffer ownership before returning admission.
+    reservation: Arc<OwnedSemaphorePermit>,
 }
 
 impl Scope {

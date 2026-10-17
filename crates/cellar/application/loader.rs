@@ -369,11 +369,11 @@ impl Loader {
                     )
                     .with_native_application(code.application),
                 );
-                host_loader::spawn_loaded_worker(
+                drop(host_loader::spawn_loaded_worker(
                     crate::asyncrt::op_handle(),
                     loaded,
                     config.clone(),
-                );
+                ));
                 Ok::<_, anyhow::Error>(Ready { id })
             };
             let result = std::panic::AssertUnwindSafe(loading)

@@ -231,8 +231,8 @@ pub(super) struct Rows {
     pending: Vec<Meta>,
     pending_bytes: usize,
     ordinal: u64,
-    guards: Vec<Arc<dyn Send + Sync>>,
     buffers: Arc<BufferPool>,
+    guards: Vec<Arc<dyn Send + Sync>>,
 }
 
 impl Rows {
@@ -249,8 +249,8 @@ impl Rows {
             pending: Vec::new(),
             pending_bytes: 0,
             ordinal: 0,
-            guards: Vec::new(),
             buffers: Arc::default(),
+            guards: Vec::new(),
         }
     }
 
@@ -558,8 +558,8 @@ impl Rows {
             pending: None,
             previous: None,
             previous_descriptor: None,
-            _guards: self.guards,
             buffers: self.buffers,
+            _guards: self.guards,
         })
     }
 }
@@ -575,8 +575,8 @@ pub(super) struct SortedRows {
     pending: Option<Meta>,
     previous: Option<Key>,
     previous_descriptor: Option<Meta>,
-    _guards: Vec<Arc<dyn Send + Sync>>,
     buffers: Arc<BufferPool>,
+    _guards: Vec<Arc<dyn Send + Sync>>,
 }
 
 impl SortedRows {
