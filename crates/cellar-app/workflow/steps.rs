@@ -1,8 +1,7 @@
 //! Workflow invocation values, retry configuration and typed step failures.
 use super::{CronSchedule, Duration, ErrorRecord};
-use anyhow::Result;
 use cellar_native::clone::StructuredValue;
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -74,11 +73,7 @@ pub enum Backoff {
     Exponential,
 }
 
-pub type DelayCallback = Arc<
-    dyn Fn(Attempt, ErrorRecord) -> Pin<Box<dyn Future<Output = Result<Duration>> + Send + 'static>>
-        + Send
-        + Sync,
->;
+pub type DelayCallback = Arc<dyn Fn(Attempt, ErrorRecord) -> crate::HandlerFuture<Duration> + Send + Sync>;
 
 #[derive(Clone)]
 pub enum Delay {

@@ -36,6 +36,7 @@ pub use storage::{
 };
 
 pub use cellar_app::HandlerFuture;
+
 pub type SqlResult = (Vec<String>, Vec<Vec<serde_json::Value>>, u64);
 
 /// A persisted structured value. A capability tree retains its original
