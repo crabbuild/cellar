@@ -81,6 +81,16 @@ library timing failures: capture the actual held request outcome and TLS poll/I/
 progress at the original guards, and preserve failure cleanup/joins. A passing
 replay cannot substitute for observing and repairing the failing boundary.
 
+Repair commit `d878c74` is retained with main-sync merge `b4e31c3` (main
+`4d33460`, FleetCare console PR #74). Input comparison verifies that every
+previously qualified recovery/runtime source is byte-identical: only the
+FleetCare manifest changes, with its publisher and two Python sources added.
+All eight refreshed static phases pass on 631 unchanged inputs, including
+workspace all-target/all-feature check and Clippy-D, format/layout, docs/dependency
+policy, four incoming console guards and branch diff checks. This merge supplies
+no repair for the two observed library failures. PR #73 remains the single draft
+against main; the full implementation goal remains active.
+
 This qualifies entered SQLite worker retention, not every supplied backend.
 Inspection of object_store 0.12.5 finds S3 multipart extensions attached to upload
 creation, not retained in the part-upload state. Network part cancellation still
