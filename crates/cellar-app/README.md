@@ -26,7 +26,7 @@ let range = Range::from_header("bytes=0-1023")?;
 assert_eq!(range.length, Some(1024));
 assert_eq!(Duration::from("1.5 seconds").milliseconds()?, 1500.0);
 BindingSettings::default().validate()?;
-# Ok::<(), anyhow::Error>(())
+Ok::<(), anyhow::Error>(())
 ```
 
 `cellar` depends on this crate. It retains `Context`, `Cell`, `Registry`, binding
