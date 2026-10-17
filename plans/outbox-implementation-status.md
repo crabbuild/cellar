@@ -20,12 +20,105 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Bound total retained-tail memory | Tail/control and own-session close/fold scoped bounds pass; other bundle/concurrency bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. The own-session close/fold follow-up passes its scoped disk-spool gate. Dead-session/GC/overlay readers, concurrent scans, diagnostics and provider/progress inventories still lack total bounds. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
-| 2 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
-| 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
-| 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
-| 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
-| 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+| 1 | Coherent small-object reads during lease renewal | Confirmed GET snapshot regression; repair qualifying | The current native run passes 11/21; all ten failures report a changed ETag between returned lease metadata and body collection. Prove an ordinary GET/update/body-read sequence preserves one bounded response version, while HEAD, large/ranged read memory limits, original-domain refusal and entered-I/O joins remain intact. No unconditional read retry or unbounded body fallback supplies this guarantee. |
+| 2 | Bound total retained-tail memory | Tail/control and own-session close/fold scoped bounds pass; other bundle/concurrency bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. The own-session close/fold follow-up passes its scoped disk-spool gate. Dead-session/GC/overlay readers, concurrent scans, diagnostics and provider/progress inventories still lack total bounds. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
+| 3 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 4 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 5 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
+| 6 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
+| 7 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+### Current follow-up: small GET response identity
+
+The native failures select a correctness regression in the SQLite development
+store before further memory-reader changes. Metadata and every lazy chunk use
+separate transactions; a real lease renewal can replace the row after a small
+GET returns metadata but before its body is consumed. The changed ETag is refused
+rather than mixing versions, but ordinary lease reads then fail under churn.
+The leading hypothesis is that metadata/body snapshot gap; conditional option
+propagation and unexpected lease replacement remain alternative checks. A new
+controlled regression uses an ordinary unconditional GET, actually replaces the
+stored object, and verifies the original full/ranged bytes, length and ETag.
+The unchanged reader fails this test in 0.02s with the same ETag mismatch
+(280.52s including compilation); only the test file differs from published
+eaa1b23. This confirms the snapshot gap without a conditional GET or timing loop.
+The local repair captures bodies of at most 128 KiB with their metadata in one
+SQLite statement and checks the original domain before delivering captured bytes.
+HEAD still excludes bodies; large readers keep incremental version checks. The
+entered-body ownership/reservation fixtures use a body above the atomic cap so
+their real native I/O seam and all original deadlines/assertions remain exercised.
+The prepared failure-only fencing phase context is also transferred; it does not
+repair or explain the independent earlier deadline. The first repaired-source run passes all 324 library cases in 64.57s
+(341.50s including compilation), including the new snapshot regression, all eleven
+SQLite cases and the unchanged provider/bundle memory gates. HEAD/range/full-read
+RSS growth and both bundle profiles are retained in the run's measurement ledger.
+The compiler also reports an unused import in the failure-context test. After the
+library completes, the next native Cargo invocation is intentionally interrupted
+at 0.09s before building or running native cases; the import is removed and a fresh
+final-source qualification is required. This is a source-cleanup interruption,
+not a runtime native failure or observation-timeout restart. The historical
+fencing deadline remains unexplained; its passing new library case alone is not
+a cause or runtime repair. After removing only that unused import and applying
+the repository formatter, a fresh 625-input capture passes all 324 library cases
+without compiler warnings (78.45s runtime; 261.21s including build validation).
+The two indexed scans grow RSS by 53346304 bytes (about 50.9 MiB); the single scan
+grows by 54837248 bytes, both under the unchanged 64 MiB budget. The controlled
+GET replacement case and all original owner/cancellation checks pass. Native21,
+SDK/Node and static phases are now qualifying that same final source; no native
+recovery or complete release GREEN is claimed yet.
+Keep HEAD body-free, retain the original 128 KiB/16 MiB provider bounds and owner
+admission/result checks, and do not hold a SQLite transaction while a body is idle.
+Large-object version changes must still refuse instead of mixing bytes. The
+independent application-drain fencing deadline remains unexplained.
+
+### Current follow-up: concurrent live-fold admission
+
+PR #70 merged as `e802867c1cddce958747c296b7832d514a7a969a`. Its published single-scan
+spooling and SQLite streaming prerequisites do not bound overlapping folds for
+different cells. The concurrency follow-up starts from that updated `main` on
+`codex/bound-concurrent-bundle-scans`; the squash merge and original published
+head have identical trees, and all 625 captured inputs remain unchanged through
+the branch transition. The candidate is published as
+`eaa1b23bfe70827c1f201767e2c94dbb3e8c6cd2` in draft PR #71 directly against
+`main`; it is the sole open PR and remains under qualification. No follow-up is
+based on the merged feature branch. The new regression uses two real writer membership lookups over
+32 shared mixed-cell bundles; each scan verifies all 32 original row identities,
+lengths and SHA-256 digests before the RSS assertion. The unmodified production
+scan path grows RSS by 104693760 bytes (about 99.8 MiB), failing the unchanged
+67108864-byte (64 MiB) node budget. Both scans and domain/owner cleanup complete;
+this is a memory failure, not missing event evidence. The earlier whole-session
+helper-overlap profile is separate and is not production overlap qualification.
+
+The local candidate shares one admission reservation across live folds and
+close, retaining it through follower staging, bundle decoding, derived row spools
+and sorted consumption. Scratch files and entered SQLite metadata/body work keep
+the reservation after caller cancellation; capacity retention grants no execution
+or durability authority. The first frozen candidate run passes all eight focused bundle cases. Single-
+scan RSS growth is 54444032 bytes (about 51.9 MiB); the two indexed cell scans
+grow by 55083008 bytes (about 52.5 MiB), below the same 64 MiB budget while each
+original row digest/identity/length is checked. The entered scratch-I/O cancellation
+and sorted-consumption reservation cases pass too. All ten SQLite store cases also pass, including cancelled entered metadata/body
+workers; HEAD/range/full-read RSS growth is 6864896/7618560/8421376 bytes under
+their unchanged 16 MiB budgets. The full library run exits 101 after 142.84s
+including build validation: 322 cases pass, including both bundle memory profiles,
+and `daemon::driver::tests::fencing_during_application_drain_preserves_the_authority_report`
+fails with an unlocalized deadline. All 625 captured Rust/Python/build inputs stay
+unchanged. The exact failed executable is preserved with SHA-256
+`2940b35891be4ce03f6d6d1d1b130c695963f8ee965efa4f439197a125180170`;
+its unchanged isolated case passes in 0.32s with the same local-reload warning.
+That warning is therefore not established as the cause, and a passing replay
+does not close the full-library gate or diagnose which original three-second
+phase elapsed. Native recovery qualification then exits 101 after 1305.84s
+including the build: 11 cases pass and ten fail, all with an ETag mismatch while
+collecting a node lease body. The actual retained native executable SHA-256 is
+`57fb0172e3a9fee8ea5673701db4af16f17199cfedfdc9093bf21bebc0971178`.
+All 625 captured inputs remain unchanged; SDK/Node/static phases do not run.
+These are body-version errors, not native proof timeouts. Both hosted jobs for
+published eaa1b23 execute zero steps; their inspected annotations cite account
+payment/spending restrictions. These scoped passes do not establish a total process bound,
+throughput claim or complete release gate. Dead-session recovery, GC/overlay/diagnostic
+readers, provider/progress metadata inventories and the legal oversized upload row
+retain their independent memory and capacity gates.
 
 The tail-transfer candidate is published as a83648f on PR #69 and remains under
 qualification. The actual pre-change server preparation path grows RSS by

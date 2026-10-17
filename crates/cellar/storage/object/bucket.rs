@@ -200,6 +200,21 @@ pub struct Bucket {
     pub prefix: String,
 }
 
+/// A capacity reservation, never execution or proof authority. Native store
+/// adapters retain it in entered work as well as the returned body stream.
+#[derive(Clone)]
+pub(crate) struct ReadGuard(Arc<dyn Send + Sync>);
+
+impl ReadGuard {
+    pub(crate) fn new(guard: Arc<dyn Send + Sync>) -> Self {
+        Self(guard)
+    }
+
+    pub(crate) fn keep_alive(&self) -> Arc<dyn Send + Sync> {
+        self.0.clone()
+    }
+}
+
 /// One page of [`Bucket::common_prefixes_page`].
 pub struct CommonPrefixPage {
     /// The children this page listed, in the store's key order.
@@ -1008,9 +1023,16 @@ impl Bucket {
     pub(crate) async fn get_streamed(
         &self,
         key: &str,
+        guard: ReadGuard,
     ) -> anyhow::Result<Option<object_store::GetResult>> {
         let path = self.key(key);
-        match self.store.get(&Path::from(path.as_str())).await {
+        let mut options = GetOptions::default();
+        options.extensions.insert(guard);
+        match self
+            .store
+            .get_opts(&Path::from(path.as_str()), options)
+            .await
+        {
             Ok(result) => {
                 self.backend
                     .token(result.meta.e_tag.clone(), result.meta.version.clone())

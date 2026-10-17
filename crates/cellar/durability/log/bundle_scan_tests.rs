@@ -31,6 +31,23 @@ impl LogTransport for NoPeers {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -> anyhow::Result<()>
 {
+    profile(
+        1,
+        "production_bundle_scan_spills_original_rows_under_its_memory_budget",
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn concurrent_production_bundle_scans_keep_one_node_memory_bound() -> anyhow::Result<()> {
+    profile(
+        2,
+        "concurrent_production_bundle_scans_keep_one_node_memory_bound",
+    )
+    .await
+}
+
+async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
     const CHILD: &str = "CELLAR_TEST_BUNDLE_SCAN_PATH";
     let Some(database) = std::env::var_os(CHILD) else {
         let directory = tempfile::tempdir()?;
@@ -100,12 +117,30 @@ async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -
                         "fixture compressed below its memory target"
                     );
                     manifest.insert(txid, (payload.len(), hex::encode(Sha256::digest(&payload))));
-                    let body = bundle::encode(&[BundleEntry {
-                        cell: "cell".into(),
-                        cell_epoch: 1,
-                        txid,
-                        bytes: payload,
-                    }])?;
+                    let entries = if scans == 1 {
+                        vec![BundleEntry {
+                            cell: "cell".into(),
+                            cell_epoch: 1,
+                            txid,
+                            bytes: payload,
+                        }]
+                    } else {
+                        vec![
+                            BundleEntry {
+                                cell: "cell-a".into(),
+                                cell_epoch: 1,
+                                txid,
+                                bytes: payload.clone(),
+                            },
+                            BundleEntry {
+                                cell: "cell-b".into(),
+                                cell_epoch: 1,
+                                txid,
+                                bytes: payload,
+                            },
+                        ]
+                    };
+                    let body = bundle::encode(&entries)?;
                     bucket
                         .put(&format!("log/{session}/bundle/{txid:020}"), body)
                         .await?;
@@ -120,7 +155,7 @@ async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -
         domain.shutdown().await;
         prepared??;
         let name = format!(
-            "{}::production_bundle_scan_spills_original_rows_under_its_memory_budget",
+            "{}::{test}",
             module_path!().split_once("::").expect("test module").1
         );
         let output = std::process::Command::new(std::env::current_exe()?)
@@ -177,6 +212,30 @@ async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -
                 Arc::new(NoPeers),
                 LogOptions::default(),
             )?);
+            if scans > 1 {
+                // Match the live writer's complete cell-to-bundle membership.
+                // Scalar descriptors come from the exact parent-built layout;
+                // no body is read into this child's RSS baseline. Each actual
+                // fold must still verify the whole mixed-cell envelope.
+                for (txid, (length, _)) in &manifest {
+                    let rows = ["cell-a", "cell-b"]
+                        .into_iter()
+                        .enumerate()
+                        .map(|(ordinal, cell)| bundle::BundleRow {
+                            cell: cell.into(),
+                            cell_epoch: 1,
+                            txid: *txid,
+                            offset: ordinal as u64 * *length as u64,
+                            len: *length as u64,
+                        })
+                        .collect();
+                    manager
+                        .bundle_index
+                        .lock()
+                        .unwrap()
+                        .insert(format!("log/{}/bundle/{txid:020}", manager.session), rows);
+                }
+            }
             let owner = DurabilityOwner::new(manager.clone(), false);
             anyhow::Ok((manager, owner, replica))
         })
@@ -204,39 +263,63 @@ async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -
     });
     let result = domain
         .run(async {
-            let rows = manager
-                .gather_uncovered_bundles(None, manager.recovery_rows())
-                .await?;
-            anyhow::ensure!(!rows.is_empty());
-            let mut rows = manager
-                .recovery_io(rows.cancellation(), None, move || rows.finish())
-                .await?;
-            let mut expected = 2_u64;
-            loop {
-                let (returned, batch) = manager
-                    .recovery_io(rows.cancellation(), None, move || {
-                        let batch = rows.next_batch()?;
-                        anyhow::Ok((rows, batch))
-                    })
-                    .await?;
-                rows = returned;
-                if batch.is_empty() {
-                    break;
-                }
-                for ((cell, epoch, txid), bytes) in batch {
-                    anyhow::ensure!(cell == "cell" && epoch == 1 && txid == expected);
-                    let (length, digest) =
-                        manifest.get(&txid).context("unexpected original row")?;
+            // Poll both real scans together and finish every original row
+            // check. A failure cannot cancel the other scan's owned I/O.
+            let results = futures_util::future::join_all((0..scans).map(|ordinal| {
+                let expected_cell = if scans == 1 {
+                    "cell"
+                } else if ordinal == 0 {
+                    "cell-a"
+                } else {
+                    "cell-b"
+                };
+                let only_cell = (scans > 1).then_some(expected_cell);
+                let manager = &manager;
+                let manifest = &manifest;
+                async move {
+                    let rows = manager
+                        .gather_uncovered_bundles(only_cell, manager.recovery_rows())
+                        .await?;
+                    anyhow::ensure!(!rows.is_empty());
+                    let mut rows = manager
+                        .recovery_io(rows.cancellation(), None, move || rows.finish())
+                        .await?;
+                    let mut expected = 2_u64;
+                    loop {
+                        let (returned, batch) = manager
+                            .recovery_io(rows.cancellation(), None, move || {
+                                let batch = rows.next_batch()?;
+                                anyhow::Ok((rows, batch))
+                            })
+                            .await?;
+                        rows = returned;
+                        if batch.is_empty() {
+                            break;
+                        }
+                        for ((cell, epoch, txid), bytes) in batch {
+                            anyhow::ensure!(
+                                cell == expected_cell && epoch == 1 && txid == expected
+                            );
+                            let (length, digest) =
+                                manifest.get(&txid).context("unexpected original row")?;
+                            anyhow::ensure!(
+                                bytes.len() == *length
+                                    && hex::encode(Sha256::digest(&bytes)) == *digest
+                            );
+                            expected += 1;
+                        }
+                    }
                     anyhow::ensure!(
-                        bytes.len() == *length && hex::encode(Sha256::digest(&bytes)) == *digest
+                        expected == 34 && manifest.len() == 32,
+                        "original bundle row missing"
                     );
-                    expected += 1;
+                    anyhow::Ok(())
                 }
+            }))
+            .await;
+            for result in results {
+                result?;
             }
-            anyhow::ensure!(
-                expected == 34 && manifest.len() == 32,
-                "original bundle row missing"
-            );
             anyhow::Ok(())
         })
         .await;
@@ -249,7 +332,7 @@ async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -
     closed?;
     result??;
     let growth = peak.load(Ordering::Relaxed).saturating_sub(baseline);
-    eprintln!("production bundle scan RSS: baseline={baseline} growth={growth}");
+    eprintln!("production bundle scan RSS: scans={scans} baseline={baseline} growth={growth}");
     anyhow::ensure!(
         baseline > 0 && growth <= 64 << 20,
         "bundle scan retained history: {growth} > {}",

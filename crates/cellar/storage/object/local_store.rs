@@ -38,6 +38,8 @@ pub(crate) struct LocalStore {
     database: PathBuf,
     #[cfg(test)]
     read_gate: Option<Arc<read_tests::ReadGate>>,
+    #[cfg(test)]
+    metadata_gate: Option<Arc<read_tests::ReadGate>>,
 }
 
 #[derive(Debug)]
@@ -64,6 +66,8 @@ impl LocalStore {
             database,
             #[cfg(test)]
             read_gate: None,
+            #[cfg(test)]
+            metadata_gate: None,
         };
         let connection = store.connect()?;
         connection
@@ -116,16 +120,29 @@ impl LocalStore {
             .ok_or_else(|| not_found(key))
     }
 
-    fn read_metadata(&self, key: &str) -> object_store::Result<StoredObject> {
+    fn read_metadata(
+        &self,
+        key: &str,
+        include_small_body: bool,
+    ) -> object_store::Result<StoredObject> {
         self.connect()?
             .query_row(
-                "SELECT key, etag, modified_ms, attributes, length(body)
+                "SELECT key, etag, modified_ms, attributes, length(body),
+                        CASE WHEN ?2 AND length(body) <= ?3 THEN body ELSE NULL END
                  FROM __sys_local_objects WHERE key = ?1",
-                [key],
+                params![key, include_small_body, READ_CHUNK_BYTES as i64],
                 |row| {
+                    #[cfg(test)]
+                    if let Some(gate) = &self.metadata_gate {
+                        gate.wait();
+                    }
                     Ok(StoredObject {
                         key: row.get(0)?,
-                        body: Vec::new(),
+                        // Lease renewals may replace the object before its
+                        // response body is polled. Capture small bodies in
+                        // this same statement, without loading large BLOBs
+                        // or keeping a transaction open in an idle stream.
+                        body: row.get::<_, Option<Vec<u8>>>(5)?.unwrap_or_default(),
                         size: row.get(4)?,
                         etag: row.get(1)?,
                         modified_ms: row.get(2)?,
@@ -357,9 +374,18 @@ impl ObjectStore for LocalStore {
         let owner = crate::asyncrt::services()
             .domain_token()
             .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?;
-        let object = store_blocking!(move || store.read_metadata(&key))
-            .await
-            .map_err(db_error)??;
+        let guard = options
+            .extensions
+            .get::<crate::bucket::ReadGuard>()
+            .cloned();
+        let metadata_guard = guard.as_ref().map(crate::bucket::ReadGuard::keep_alive);
+        let include_small_body = !options.head;
+        let object = store_blocking!(move || {
+            let _reservation = metadata_guard;
+            store.read_metadata(&key, include_small_body)
+        })
+        .await
+        .map_err(db_error)??;
         let meta = object_meta(&object)?;
         options.check_preconditions(&meta)?;
         let full = 0..object.size;
@@ -377,6 +403,8 @@ impl ObjectStore for LocalStore {
                 size: object.size,
                 cursor: range.start,
                 end: range.end,
+                inline: (object.size <= READ_CHUNK_BYTES as u64).then(|| Bytes::from(object.body)),
+                guard,
                 #[cfg(not(cellar_internal_tests))]
                 owner,
             };
@@ -477,6 +505,8 @@ struct ReadBody {
     size: u64,
     cursor: u64,
     end: u64,
+    inline: Option<Bytes>,
+    guard: Option<crate::bucket::ReadGuard>,
     #[cfg(not(cellar_internal_tests))]
     owner: crate::asyncrt::DomainToken,
 }
@@ -485,6 +515,18 @@ impl ReadBody {
     async fn next_chunk(mut self) -> object_store::Result<Option<(Bytes, Self)>> {
         if self.cursor == self.end {
             return Ok(None);
+        }
+        if let Some(bytes) = self.inline.take() {
+            let bytes = bytes.slice(
+                usize::try_from(self.cursor).map_err(db_error)?
+                    ..usize::try_from(self.end).map_err(db_error)?,
+            );
+            self.cursor = self.end;
+            // Already captured bytes do not authorize output after the
+            // response's original execution domain closes.
+            #[cfg(not(cellar_internal_tests))]
+            self.owner.mono_ms().map_err(domain_error)?;
+            return Ok(Some((bytes, self)));
         }
         let length = usize::try_from((self.end - self.cursor).min(READ_CHUNK_BYTES as u64))
             .map_err(db_error)?;
@@ -495,7 +537,14 @@ impl ReadBody {
             self.size,
             self.cursor,
         );
-        let operation = move || store.read_chunk(&key, etag, size, offset, length);
+        let guard = self
+            .guard
+            .as_ref()
+            .map(crate::bucket::ReadGuard::keep_alive);
+        let operation = move || {
+            let _reservation = guard;
+            store.read_chunk(&key, etag, size, offset, length)
+        };
         #[cfg(not(cellar_internal_tests))]
         let bytes = {
             let result = self.owner.blocking(operation).map_err(domain_error)?.await;

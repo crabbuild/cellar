@@ -1458,14 +1458,19 @@ next independent call can resolve a replacement endpoint. Ready retries still
 await invalidation under their captured deadline. Keep the regression that polls
 the stopped future once, checks exactly one invalidation and no queued replay.
 
-The SQLite development object store reads metadata without materializing BLOBs.
-HEAD has no body; streamed and ranged reads use at most 128 KiB per incremental
-BLOB operation, checking the captured ETag and length in that operation's read
-transaction. A replacement refuses the stream rather than mixing versions.
-Body work belongs to the response's original execution domain even when another
-domain consumes it; closed admission and undelivered completion preserve typed
-DomainClosed, and shutdown joins entered SQLite I/O. No connection or transaction
-is held while a body is idle. Isolated HEAD/range/full-read RSS fixtures populate
+The SQLite development object store keeps HEAD metadata body-free. Ordinary GETs
+capture bodies of at most 128 KiB in the same SQLite statement as their metadata,
+so lease renewal cannot invalidate an already returned small response. SQL CASE
+must exclude large BLOBs before extraction, not truncate them after allocation.
+Large streamed/ranged reads use at most 128 KiB per incremental BLOB operation,
+checking the captured ETag and length in that operation's read transaction; a
+replacement refuses the large stream rather than mixing versions. Captured small
+bytes and native body work belong to the response's original execution domain even
+when another domain consumes it. Closed admission and undelivered completion
+preserve typed DomainClosed, and shutdown joins entered SQLite I/O. Entered-body
+fixtures use a body above the atomic cap to retain their real SQLite blocking seam;
+keep original context, refusal, reservation and join assertions. No connection or
+transaction is held while a body is idle. Isolated HEAD/range/full-read RSS fixtures populate
 their 80 MiB object in a parent process and keep the fixed 16 MiB growth budgets.
 Reopening the BLOB for each chunk has a measured large-read throughput cost;
 these memory passes do not qualify throughput, eager copy/multipart operations,
@@ -1486,7 +1491,16 @@ actual close caller and requires the original open folded log unchanged.
 Native log fixture Result errors and failed setup join source/recovery/follower
 domains before directory cleanup. Preserve five-second proof/recovery guards,
 captured publication policies and original crash/proof assertions; failure-only
-stage context is not a runtime timeout repair. Diagnostic collectors, dead-session
-bundle reads, GC/overlay helpers, concurrent scans, metadata inventories and one
-legal oversized upload row remain separate memory/capacity gates. All owned
-markers remain 1.
+stage context is not a runtime timeout repair. Live folds and graceful close share one node-local scan reservation. Acquire it
+before follower staging and retain it through the derived Rows/SortedRows spool,
+including uniqueness rewinds and asynchronous upload consumption. Entered scratch
+file work, returned scratch handles and SQLite metadata/body workers retain that
+reservation after caller cancellation; an async-future-only permit is insufficient.
+The opaque object-store ReadGuard is capacity retention, never execution or proof
+authority; the original domain admission/result checks still apply. The indexed
+two-cell memory regression verifies each original mixed-bundle row before its
+unchanged RSS budget; native blocking cancellation cases require both admission
+and shutdown to remain pending until real entered I/O joins. Qualification of this
+candidate is tracked in the status ledger. Diagnostic collectors, dead-session
+bundle reads, GC/overlay helpers, metadata inventories and one legal oversized
+upload row retain separate memory/capacity gates. All owned markers remain 1.

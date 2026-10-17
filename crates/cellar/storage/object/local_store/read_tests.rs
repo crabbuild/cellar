@@ -219,6 +219,59 @@ async fn replacing_a_body_mid_read_refuses_instead_of_mixing_versions() -> Resul
     Ok(())
 }
 
+#[tokio::test]
+async fn small_get_keeps_metadata_and_original_bytes_across_replacement() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let store = LocalStore::open(directory.path().join("lease.sqlite"))?;
+            let key = Path::from("nodes/leader.json");
+            for length in [0, 8, READ_CHUNK_BYTES] {
+                let original = vec![0x51; length];
+                let accepted = store
+                    .put_opts(&key, original.clone().into(), PutOptions::default())
+                    .await?;
+                // No conditional GET: an ordinary lease renewal must not
+                // invalidate the body of an already returned small response.
+                let response = store.get_opts(&key, GetOptions::default()).await?;
+                ensure!(response.meta.e_tag == accepted.e_tag);
+                ensure!(response.meta.size == length as u64);
+                let ranged = if length > 2 {
+                    Some(
+                        store
+                            .get_opts(
+                                &key,
+                                GetOptions {
+                                    range: Some(GetRange::Bounded(1..length as u64 - 1)),
+                                    ..Default::default()
+                                },
+                            )
+                            .await?,
+                    )
+                } else {
+                    None
+                };
+                let replacement = store
+                    .put_opts(&key, vec![0xa3; length + 1].into(), PutOptions::default())
+                    .await?;
+                ensure!(replacement.e_tag != accepted.e_tag);
+                let head = store.head(&key).await?;
+                ensure!(head.e_tag == replacement.e_tag && head.size == length as u64 + 1);
+                ensure!(response.bytes().await?.as_ref() == original.as_slice());
+                if let Some(response) = ranged {
+                    ensure!(response.meta.e_tag == accepted.e_tag);
+                    ensure!(response.bytes().await?.as_ref() == &original[1..length - 1]);
+                }
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    result??;
+    Ok(())
+}
+
 pub(super) struct ReadGate {
     expected: Arc<crate::host_services::HostServices>,
     entered: tokio::sync::Notify,
@@ -275,7 +328,7 @@ async fn body_reads_retain_their_original_domain_and_join_entered_io() -> Result
             store
                 .put_opts(
                     &key,
-                    Bytes::from_static(b"original").into(),
+                    vec![0x51; READ_CHUNK_BYTES + 1].into(),
                     PutOptions::default(),
                 )
                 .await?;
@@ -376,5 +429,98 @@ async fn closed_response_owner_refuses_a_new_read_on_another_domain() -> Result<
     );
     ensure!(consumer_alive?);
     ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 0);
+    Ok(())
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_body_reader_retains_its_native_io_reservation() -> Result<()> {
+    cancelled_reserved_read(false).await
+}
+
+#[cfg(not(cellar_internal_tests))]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_metadata_reader_retains_its_native_io_reservation() -> Result<()> {
+    cancelled_reserved_read(true).await
+}
+
+#[cfg(not(cellar_internal_tests))]
+async fn cancelled_reserved_read(metadata: bool) -> Result<()> {
+    use futures_util::FutureExt as _;
+    let directory = tempfile::tempdir()?;
+    let owner = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let gate = ReadGate::new(&owner);
+    let prepared = owner
+        .run(async {
+            let mut store = LocalStore::open(directory.path().join("reserved.sqlite"))?;
+            store
+                .put_opts(
+                    &Path::from("key"),
+                    if metadata {
+                        b"original".to_vec()
+                    } else {
+                        vec![0x51; READ_CHUNK_BYTES + 1]
+                    }
+                    .into(),
+                    PutOptions::default(),
+                )
+                .await?;
+            if metadata {
+                store.metadata_gate = Some(gate.clone());
+            } else {
+                store.read_gate = Some(gate.clone());
+            }
+            Ok::<_, anyhow::Error>(store)
+        })
+        .await;
+    let prepared = prepared
+        .map_err(anyhow::Error::from)
+        .and_then(|result| result);
+    if prepared.is_err() {
+        gate.release();
+        owner.shutdown().await;
+    }
+    let store = prepared?;
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    let permit = Arc::new(slots.clone().try_acquire_owned()?);
+    let mut options = GetOptions {
+        head: metadata,
+        ..Default::default()
+    };
+    options
+        .extensions
+        .insert(crate::bucket::ReadGuard::new(permit));
+    let task = match owner.spawn(async move {
+        let response = store.get_opts(&Path::from("key"), options).await?;
+        response.bytes().await?;
+        Ok::<_, anyhow::Error>(())
+    }) {
+        Ok(task) => task,
+        Err(error) => {
+            gate.release();
+            owner.shutdown().await;
+            return Err(error.into());
+        }
+    };
+    // The test driver owns the guard and always releases/joins native I/O.
+    #[allow(clippy::disallowed_methods)]
+    let entered = tokio::time::timeout(Duration::from_secs(2), gate.entered.notified()).await;
+    task.abort();
+    let cancelled = task.await;
+    let reserved = slots.available_permits() == 0;
+    owner.close();
+    let mut shutdown = Box::pin(owner.shutdown());
+    let joined = shutdown.as_mut().now_or_never().is_none();
+    gate.release();
+    shutdown.await;
+    entered?;
+    ensure!(cancelled.is_err(), "caller did not cancel");
+    ensure!(
+        reserved,
+        "cancelled read returned admission while SQLite I/O still ran"
+    );
+    ensure!(joined, "shutdown returned before SQLite I/O joined");
+    ensure!(slots.available_permits() == 1);
+    ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 1);
     Ok(())
 }
