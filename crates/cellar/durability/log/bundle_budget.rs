@@ -1,6 +1,6 @@
 //! Node-local admission for bundle materialization. A reservation follows
 //! entered I/O and the derived spool, rather than the caller's future alone.
-use super::recovery_rows::Rows;
+use super::recovery_rows::{BufferPool, Rows};
 use anyhow::{Context, Result};
 use cellar_ltx::{FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo, HostMetadata};
 use std::{io, path::Path, sync::Arc};
@@ -16,18 +16,24 @@ impl Default for Budget {
 
 impl Budget {
     pub async fn acquire(&self) -> Result<Scope> {
-        Ok(Scope(Arc::new(
-            self.0
-                .clone()
-                .acquire_owned()
-                .await
-                .context("bundle scan admission closed")?,
-        )))
+        Ok(Scope {
+            reservation: Arc::new(
+                self.0
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .context("bundle scan admission closed")?,
+            ),
+            buffers: Arc::default(),
+        })
     }
 }
 
 #[derive(Clone)]
-pub(super) struct Scope(Arc<OwnedSemaphorePermit>);
+pub(super) struct Scope {
+    reservation: Arc<OwnedSemaphorePermit>,
+    buffers: Arc<BufferPool>,
+}
 
 impl Scope {
     pub fn filesystem(&self, inner: Arc<dyn FileSystem>) -> Arc<dyn FileSystem> {
@@ -38,17 +44,18 @@ impl Scope {
     }
 
     pub fn hold_rows(&self, rows: &mut Rows) {
-        rows.keep_alive(self.0.clone());
+        rows.keep_alive(self.reservation.clone());
+        rows.reuse_buffers(self.buffers.clone());
     }
 
     pub fn read_guard(&self) -> crate::bucket::IoGuard {
-        crate::bucket::IoGuard::new(self.0.clone())
+        crate::bucket::IoGuard::new(self.reservation.clone())
     }
 
     pub fn file(&self, inner: HostFile) -> HostFile {
         HostFile::from_io(GuardedFile {
             inner,
-            _reservation: self.0.clone(),
+            _reservation: self.reservation.clone(),
         })
     }
 }

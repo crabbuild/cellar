@@ -5,17 +5,18 @@
 //! the payload history nor a run-directory grows in memory. Scratch is not
 //! authority: checksums, exact lengths and counts must verify before use.
 use anyhow::{ensure, Context, Result};
+use bytes::Bytes;
 use cellar_ltx::{FileSystem, HostFile};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 pub(super) type Key = (String, u64, u64);
-pub(super) type Batch = BTreeMap<Key, Vec<u8>>;
+pub(super) type Batch = BTreeMap<Key, Bytes>;
 
 pub(super) const BATCH_BYTES: usize = 4 << 20;
 const BATCH_ROWS: usize = 128;
@@ -25,6 +26,46 @@ const BUFFER_BYTES: usize = 128 << 10;
 const META_FIXED: usize = 107;
 const HEADER_BYTES: usize = 52;
 const DESCRIPTOR_TAG_BYTES: usize = 32;
+
+/// One reusable row allocation per scan, including an oversized singleton.
+/// The scan's spools and outstanding bodies own its lifetime together.
+#[derive(Default)]
+pub(super) struct BufferPool(Mutex<Option<Vec<u8>>>);
+
+impl BufferPool {
+    fn take(self: &Arc<Self>, length: usize) -> PooledBody {
+        let mut bytes = self.0.lock().unwrap().take().unwrap_or_default();
+        bytes.clear();
+        bytes.reserve(length);
+        PooledBody {
+            bytes,
+            pool: self.clone(),
+        }
+    }
+}
+
+struct PooledBody {
+    bytes: Vec<u8>,
+    pool: Arc<BufferPool>,
+}
+
+impl AsRef<[u8]> for PooledBody {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl Drop for PooledBody {
+    fn drop(&mut self) {
+        let mut cached = self.pool.0.lock().unwrap();
+        if cached
+            .as_ref()
+            .is_none_or(|bytes| bytes.capacity() < self.bytes.capacity())
+        {
+            *cached = Some(std::mem::take(&mut self.bytes));
+        }
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum Priority {
@@ -191,6 +232,7 @@ pub(super) struct Rows {
     pending_bytes: usize,
     ordinal: u64,
     guards: Vec<Arc<dyn Send + Sync>>,
+    buffers: Arc<BufferPool>,
 }
 
 impl Rows {
@@ -208,6 +250,7 @@ impl Rows {
             pending_bytes: 0,
             ordinal: 0,
             guards: Vec::new(),
+            buffers: Arc::default(),
         }
     }
 
@@ -217,6 +260,10 @@ impl Rows {
         if !self.guards.iter().any(|held| Arc::ptr_eq(held, &guard)) {
             self.guards.push(guard);
         }
+    }
+
+    pub fn reuse_buffers(&mut self, buffers: Arc<BufferPool>) {
+        self.buffers = buffers;
     }
 
     pub fn cancellation(&self) -> Arc<AtomicBool> {
@@ -245,14 +292,14 @@ impl Rows {
     pub fn insert(
         &mut self,
         key: Key,
-        bytes: Vec<u8>,
+        bytes: impl AsRef<[u8]>,
         priority: Priority,
         duplicates: Duplicates,
     ) -> Result<()> {
-        let length = u64::try_from(bytes.len())?;
-        let digest = Sha256::digest(&bytes).into();
+        let length = u64::try_from(bytes.as_ref().len())?;
+        let digest = Sha256::digest(bytes.as_ref()).into();
         self.insert_body(key, length, digest, priority, duplicates, move |file, _| {
-            file.write_all(&bytes)?;
+            file.write_all(bytes.as_ref())?;
             Ok(())
         })
     }
@@ -512,6 +559,7 @@ impl Rows {
             previous: None,
             previous_descriptor: None,
             _guards: self.guards,
+            buffers: self.buffers,
         })
     }
 }
@@ -528,6 +576,7 @@ pub(super) struct SortedRows {
     previous: Option<Key>,
     previous_descriptor: Option<Meta>,
     _guards: Vec<Arc<dyn Send + Sync>>,
+    buffers: Arc<BufferPool>,
 }
 
 impl SortedRows {
@@ -716,18 +765,14 @@ impl SortedRows {
                 self.pending = Some(meta);
                 break;
             }
-            let bytes = exact(
-                self.payload.as_mut().context("gather payload absent")?,
-                meta.offset + DESCRIPTOR_TAG_BYTES as u64,
-                usize::try_from(meta.length)?,
-            )?;
-            ensure!(
-                Sha256::digest(&bytes).as_slice() == meta.digest,
-                "gather payload checksum mismatch"
-            );
+            let mut body = self.buffers.take(usize::try_from(meta.length)?);
+            self.visit_payload(&meta, |bytes| {
+                body.bytes.extend_from_slice(bytes);
+                Ok(())
+            })?;
             held = held.checked_add(size).context("gather batch overflow")?;
             self.previous = Some(meta.key.clone());
-            batch.insert(meta.key, bytes);
+            batch.insert(meta.key, Bytes::from_owner(body));
         }
         self.check_files()?;
         Ok(batch)

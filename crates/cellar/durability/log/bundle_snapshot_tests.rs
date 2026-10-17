@@ -52,8 +52,10 @@ fn checked_bundle_reader_preserves_exact_rows_and_numeric_order() -> Result<()> 
     );
     for entry in entries {
         assert_eq!(
-            batch.get(&(entry.cell, entry.cell_epoch, entry.txid)),
-            Some(&entry.bytes)
+            batch
+                .get(&(entry.cell, entry.cell_epoch, entry.txid))
+                .map(AsRef::as_ref),
+            Some(entry.bytes.as_slice())
         );
     }
     assert!(rows.next_batch()?.is_empty());

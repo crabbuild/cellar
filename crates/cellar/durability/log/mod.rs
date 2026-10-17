@@ -4977,7 +4977,7 @@ impl NodeLogManager {
     /// from one gather window to the next.
     async fn upload_gathered(
         &self,
-        gathered: BTreeMap<(String, u64, u64), Vec<u8>>,
+        gathered: recovery_rows::Batch,
         retention: Arc<dyn Send + Sync>,
         mut claim: Option<(&str, &mut ClaimBeat, &mut recovery_progress::Progress)>,
     ) -> anyhow::Result<usize> {
@@ -4985,7 +4985,7 @@ impl NodeLogManager {
             return Ok(0);
         }
 
-        type CellRows = Vec<(u64, Vec<u8>)>;
+        type CellRows = Vec<(u64, bytes::Bytes)>;
         let mut groups: BTreeMap<(String, u64), CellRows> = BTreeMap::new();
         for ((cell, cell_epoch, txid), bytes) in gathered {
             groups
@@ -5009,7 +5009,7 @@ impl NodeLogManager {
             async move {
                 let through = rows.last().expect("a gathered cell has at least one row").0;
                 let watermark = ltx.covered_txid(&cell, cell_epoch, through).await;
-                let rows: Vec<(u64, Vec<u8>)> = rows
+                let rows: Vec<(u64, bytes::Bytes)> = rows
                     .into_iter()
                     .filter(|(txid, _)| *txid > watermark)
                     .collect();
@@ -5017,10 +5017,10 @@ impl NodeLogManager {
                     return anyhow::Ok((recovery_progress::CoveredCell { cell, epoch: cell_epoch, through }, 0_usize));
                 }
                 let uploaded = rows.len();
-                let puts: Vec<(u64, u64, Vec<u8>)> =
+                let puts: Vec<(u64, u64, bytes::Bytes)> =
                     match crate::ltx_repl::LtxRepl::merge_l0_rows(&rows) {
                         Some(merged) => {
-                            vec![(rows[0].0, rows[uploaded - 1].0, merged)]
+                            vec![(rows[0].0, rows[uploaded - 1].0, merged.into())]
                         }
                         None => rows
                             .into_iter()

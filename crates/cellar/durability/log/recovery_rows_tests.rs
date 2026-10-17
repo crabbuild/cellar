@@ -72,9 +72,49 @@ fn gather() -> Result<(tempfile::TempDir, Rows)> {
     Ok((directory, rows))
 }
 
-fn collect(rows: Rows) -> Result<Batch> {
+#[test]
+fn row_buffers_preserve_clones_and_reuse_completed_bodies() -> Result<()> {
+    let buffers = Arc::new(BufferPool::default());
+    let mut spools = Vec::new();
+    for value in 1..=3 {
+        let (directory, mut rows) = gather()?;
+        rows.reuse_buffers(buffers.clone());
+        rows.insert(
+            ("cell".into(), 1, value),
+            vec![value as u8; BATCH_BYTES + 1],
+            Priority::Preferred,
+            Duplicates::First,
+        )?;
+        spools.push((directory, rows.finish()?));
+    }
+    let first = spools[0].1.next_batch()?.pop_first().unwrap().1;
+    let retained = first.clone();
+    drop(first);
+    let second = spools[1].1.next_batch()?.pop_first().unwrap().1;
+    let reusable = second.as_ptr();
+    assert_ne!(retained.as_ptr(), reusable);
+    assert!(retained.iter().all(|byte| *byte == 1));
+    assert!(second.iter().all(|byte| *byte == 2));
+    drop(second);
+    let third = spools[2].1.next_batch()?.pop_first().unwrap().1;
+    assert_eq!(third.as_ptr(), reusable);
+    assert!(third.iter().all(|byte| *byte == 3));
+    assert!(retained.iter().all(|byte| *byte == 1));
+    let alive = Arc::downgrade(&buffers);
+    drop(buffers);
+    drop(spools);
+    drop(third);
+    assert!(alive.upgrade().is_some());
+    drop(retained);
+    assert!(alive.upgrade().is_none());
+    Ok(())
+}
+
+type Payloads = BTreeMap<Key, Vec<u8>>;
+
+fn collect(rows: Rows) -> Result<Payloads> {
     let mut sorted = rows.finish()?;
-    let mut result = Batch::new();
+    let mut result = Payloads::new();
     let mut previous = None;
     loop {
         let batch = sorted.next_batch()?;
@@ -87,7 +127,7 @@ fn collect(rows: Rows) -> Result<Batch> {
                 assert!(previous < key);
             }
             previous = Some(key.clone());
-            assert!(result.insert(key, payload).is_none());
+            assert!(result.insert(key, payload.to_vec()).is_none());
         }
     }
     Ok(result)
@@ -100,7 +140,7 @@ fn variable_keys_numeric_order_and_duplicate_precedence_survive_many_runs() -> R
         (Priority::Fallback, Duplicates::First, Priority::Preferred),
     ] {
         let (_directory, mut rows) = gather()?;
-        let mut expected = Batch::new();
+        let mut expected = Payloads::new();
         for copy in 0..3_u8 {
             for id in (0..707_u64).rev() {
                 let cell = if id % 11 == 0 {
@@ -190,7 +230,7 @@ fn invalid_cell_is_refused_before_spooling_and_empty_needs_no_scratch() -> Resul
     let (_directory, mut rows) = gather()?;
     let key = ("x".repeat(65535), u64::MAX, u64::MAX);
     rows.insert(key.clone(), vec![1], Priority::Preferred, Duplicates::Last)?;
-    assert_eq!(collect(rows)?, Batch::from([(key, vec![1])]));
+    assert_eq!(collect(rows)?, Payloads::from([(key, vec![1])]));
     Ok(())
 }
 

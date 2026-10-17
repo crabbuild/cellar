@@ -34,14 +34,6 @@ enum Profile {
     DeadRecovery,
 }
 
-fn trace_memory(stage: &str) {
-    eprintln!(
-        "[DEBUG-pr80] stage={stage} rss={} libc={:?}",
-        crate::memory::resident_bytes(),
-        crate::memory::libc_malloc_stats(),
-    );
-}
-
 impl Profile {
     fn scans(self) -> usize {
         if self == Self::Concurrent {
@@ -325,7 +317,6 @@ async fn profile(mode: Profile, test: &str) -> anyhow::Result<()> {
     }
     let (manager, mut owner, replica) = prepared?;
     let baseline = crate::memory::sample().rss_bytes;
-    trace_memory("baseline");
     let peak = Arc::new(AtomicU64::new(baseline));
     let stop = Arc::new(AtomicBool::new(false));
     let (sampled_peak, stopped) = (peak.clone(), stop.clone());
@@ -360,7 +351,6 @@ async fn profile(mode: Profile, test: &str) -> anyhow::Result<()> {
                 // This profiles retained LTX recovery, not prior client ACK
                 // proof. No peer or command replay can supply an omitted row.
                 manager.recover_as(&dead, RecoverMode::Boot).await?;
-                trace_memory("recovered");
                 let recovered = read_record(&manager.bucket, &dead)
                     .await?
                     .context("recovered folded record")?;
@@ -416,7 +406,6 @@ async fn profile(mode: Profile, test: &str) -> anyhow::Result<()> {
                     let rows = manager
                         .gather_uncovered_bundles(only_cell, manager.recovery_rows())
                         .await?;
-                    trace_memory("gathered");
                     anyhow::ensure!(!rows.is_empty());
                     let mut rows = manager
                         .recovery_io(rows.cancellation(), None, move || rows.finish())
@@ -450,7 +439,6 @@ async fn profile(mode: Profile, test: &str) -> anyhow::Result<()> {
                         expected == 34 && manifest.len() == 32,
                         "original bundle row missing"
                     );
-                    trace_memory("consumed");
                     anyhow::Ok(())
                 }
             }))

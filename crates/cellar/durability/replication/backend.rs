@@ -2192,7 +2192,7 @@ impl LtxRepl {
     /// store's same-key throttling to fight and the next restore plan to
     /// read. Returns None when the rows are not a contiguous ascending
     /// chain — the caller falls back to per-row uploads, never guessing.
-    pub fn merge_l0_rows(rows: &[(u64, Vec<u8>)]) -> Option<Vec<u8>> {
+    pub fn merge_l0_rows(rows: &[(u64, impl AsRef<[u8]>)]) -> Option<Vec<u8>> {
         if rows.len() < 2 {
             return None;
         }
@@ -2201,7 +2201,7 @@ impl LtxRepl {
         }
         let readers: Vec<std::io::Cursor<&[u8]>> = rows
             .iter()
-            .map(|(_, bytes)| std::io::Cursor::new(bytes.as_slice()))
+            .map(|(_, bytes)| std::io::Cursor::new(bytes.as_ref()))
             .collect();
         let mut compactor = cellar_ltx::compactor::Compactor::new(Vec::new(), readers);
         // The gathered frames are no-checksum WAL-segment files, so the
