@@ -12,6 +12,7 @@ import datetime
 import hashlib
 import hmac
 import json
+import os
 import pathlib
 import secrets
 import shlex
@@ -24,7 +25,14 @@ import urllib.error
 SCENARIOS = (("one_node_bucket", 1, "bucket"), ("three_node_bucket", 3, "bucket"), ("three_node_fleet", 3, "fleet"))
 
 
+def colima_mount():
+    profile = os.environ.get("COLIMA_PROFILE", "default")
+    return "/mnt/lima-colima" + ("-" + profile if profile != "default" else "")
+
+
 def command(*args, check=True, **kwargs):
+    if args[0] == "colima" and os.environ.get("COLIMA_PROFILE"):
+        args = ("colima", "--profile", os.environ["COLIMA_PROFILE"], *args[1:])
     result = subprocess.run(args, text=True, capture_output=True, **kwargs)
     if check and result.returncode:
         raise RuntimeError(f"{' '.join(args[:4])}: {result.stderr or result.stdout}")
@@ -50,11 +58,13 @@ def shutdown_proof(text):
     return event_report(text, "embedded_node_stopped")
 
 
-def validate_node_limits(text, resident, cached_routes, requests):
+def validate_node_limits(text, resident, cached_routes, requests, log_level=None):
     proof = event_report(text, "embedded_node_started")
     expected = {"max_resident": resident, "max_cached_routes": cached_routes, "max_requests": requests}
     if not proof or any(type(proof.get(field)) is not int or proof[field] != value for field, value in expected.items()):
         raise RuntimeError("embedding application's captured limits do not match the requested workload")
+    if log_level is not None and proof.get("log_level") != log_level:
+        raise RuntimeError("embedding application's captured log level does not match the requested diagnostics")
     return proof
 
 
@@ -130,7 +140,7 @@ class Harness:
         self.tag = "cellar-perf-" + datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
         self.output = pathlib.Path(args.output or f".cellar/perf/{self.tag}").resolve()
         self.output.mkdir(parents=True, exist_ok=False)
-        self.vm_root = "/mnt/lima-colima/" + self.tag
+        self.vm_root = colima_mount() + "/" + self.tag
         self.access = "cellar-perf-" + secrets.token_hex(6)
         self.secret = secrets.token_hex(24)
         self.peer_key = base64.b64encode(secrets.token_bytes(32)).decode()
@@ -169,7 +179,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
         self.disks()
         command("docker", "network", "create", self.network)
         command("docker", "run", "-d", "--name", self.store, "--network", self.network,
-                "--network-alias", "rustfs", "--cpus", "2", "--cpuset-cpus", "4,5", "--memory", "4g", "--memory-swap", "4g",
+                "--network-alias", "rustfs", "--ulimit", "nofile=65536:65536", "--cpus", str(getattr(self.args, "store_cpus", 2)), "--cpuset-cpus", getattr(self.args, "store_cpu_set", "4,5"), "--memory", f"{getattr(self.args, 'store_memory_gib', 4)}g", "--memory-swap", f"{getattr(self.args, 'store_memory_gib', 4)}g",
                 "--publish", f"127.0.0.1:{self.args.port}:9000", "--mount", f"type=bind,src={self.vm_root}/rustfs,dst=/data",
                 "-e", f"RUSTFS_ACCESS_KEY={self.access}", "-e", f"RUSTFS_SECRET_KEY={self.secret}",
                 "-e", "RUSTFS_CONSOLE_ENABLE=false", "-e", "RUSTFS_OBS_LOGGER_LEVEL=error", self.args.rustfs_image, "/data")
@@ -192,7 +202,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
             while not self.stop_sampling.is_set():
                 try:
                     running = set(command("docker", "ps", "--format", "{{.Names}}").splitlines())
-                    targets = [name for name in (self.store, *self.nodes, self.tag + "-load") if name in running]
+                    targets = [name for name in (self.store, *self.nodes, self.tag + "-load", getattr(self, "balancer", None)) if name in running]
                     output = command("docker", "stats", "--no-stream", "--format", "{{json .}}", *targets, check=False) if targets else ""
                     for line in output.splitlines():
                         if line.startswith("{"):
@@ -228,7 +238,8 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
     def wait_node(self, scenario, i):
         self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + i}/.well-known/cellar/health")
         proof = validate_node_limits(logs(self.nodes[i]), self.args.max_resident,
-                                     self.args.max_cached_routes, self.args.max_requests)
+                                     self.args.max_cached_routes, self.args.max_requests,
+                                     getattr(self.args, "log_level", None))
         self.node_policies.append({"scenario": scenario, "node": i + 1, "proof": proof})
 
     def start_node(self, i, bucket, durability):
@@ -245,6 +256,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
                 "-e", f"CELLAR_PERF_MAX_CACHED_ROUTES={self.args.max_cached_routes}",
                 "-e", f"CELLAR_PERF_MAX_REQUESTS={self.args.max_requests}",
                 "-e", f"CELLAR_PERF_SHUTDOWN_MS={self.args.shutdown_ms}", "-e", f"CELLAR_PERF_DURABILITY={durability}",
+                "-e", f"CELLAR_PERF_LOG_LEVEL={getattr(self.args, 'log_level', 'warn')}",
                 "--entrypoint", self.node_binary, self.args.image, "--bucket", bucket, "--endpoint", "http://rustfs:9000", "--region", "us-east-1",
                 "--listen", "0.0.0.0:8080", "--internal-listen", "0.0.0.0:8081", "--advertise", f"node{i + 1}:8081")
 
@@ -399,6 +411,8 @@ def main():
     parser.add_argument("--max-requests", type=int, default=512)
     parser.add_argument("--warmup-seconds", type=int, default=10)
     parser.add_argument("--shutdown-ms", type=int, default=30000)
+    parser.add_argument("--log-level", choices=["warn", "info"], default="warn",
+                        help="info retains capture/ship ledgers; use separate diagnostic runs")
     parser.add_argument("--bytes", type=int, default=1024)
     parser.add_argument("--seconds", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=2)

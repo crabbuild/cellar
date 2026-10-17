@@ -6,6 +6,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY examples ./examples
 COPY tools/perf ./tools/perf
+COPY tools/xtask ./tools/xtask
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
     cargo build --release --locked -p cellar --bin cellar-perf-cells --bin cellar-perf-load --bin cellar-perf-fault-cells && \

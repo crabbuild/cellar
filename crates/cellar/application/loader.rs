@@ -373,7 +373,7 @@ impl Loader {
                     crate::asyncrt::op_handle(),
                     loaded,
                     config.clone(),
-                ));
+                )?);
                 Ok::<_, anyhow::Error>(Ready { id })
             };
             let result = std::panic::AssertUnwindSafe(loading)

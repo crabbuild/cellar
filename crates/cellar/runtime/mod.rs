@@ -37,18 +37,21 @@ use std::time::{Duration, Instant};
 
 // Preserve Tokio join-error reporting while scheduling through the owning
 // library domain. The simulated host retains its existing task adapter.
-fn spawn_host<T, F>(handle: tokio::runtime::Handle, future: F) -> tokio::task::JoinHandle<T>
+fn spawn_host<T, F>(
+    handle: tokio::runtime::Handle,
+    future: F,
+) -> anyhow::Result<tokio::task::JoinHandle<T>>
 where
     T: Send + 'static,
     F: std::future::Future<Output = T> + Send + 'static,
 {
     #[cfg(not(cellar_internal_tests))]
     {
-        crate::asyncrt::spawn_on(&handle, future)
+        Ok(crate::asyncrt::try_spawn_on(&handle, future)?)
     }
     #[cfg(cellar_internal_tests)]
     {
-        handle.spawn(future)
+        Ok(handle.spawn(future))
     }
 }
 
@@ -941,7 +944,7 @@ impl RuntimeManager {
             alarm_requests: Arc::new(Mutex::new(AlarmRequestRegistry::default())),
             max_cell_requests,
         };
-        manager.watch_generation(&generation);
+        manager.watch_generation(&generation)?;
         crate::container::configure(
             manager.node.to_string(),
             bucket,
@@ -960,7 +963,8 @@ impl RuntimeManager {
     /// been freed. Requests and cells already on it finish there.
     pub fn adopt(&self, generation: Generation) -> Arc<Generation> {
         let next = Arc::new(generation);
-        self.watch_generation(&next);
+        // A closed domain cannot run maintenance for a newly adopted generation.
+        let _ = self.watch_generation(&next);
         install_container_specs(&next);
         let previous = {
             let mut generations = self.generations.write().expect("generation lock poisoned");
@@ -996,9 +1000,9 @@ impl RuntimeManager {
     /// draining list is what keeps a superseded generation alive until then,
     /// and this loop is what removes it from that list once every isolate it
     /// built has been freed.
-    fn watch_generation(&self, generation: &Arc<Generation>) {
+    fn watch_generation(&self, generation: &Arc<Generation>) -> anyhow::Result<()> {
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
-            return;
+            return Ok(());
         };
         let reaping = Arc::downgrade(generation);
         let generations = self.generations.clone();
@@ -1032,7 +1036,8 @@ impl RuntimeManager {
                     );
                 }
             }
-        });
+        })?;
+        Ok(())
     }
 
     pub async fn fetch_worker(
@@ -1129,7 +1134,7 @@ impl RuntimeManager {
         spawn_host(tokio::runtime::Handle::current(), async move {
             let _inline_activity = inline_activity;
             drive_worker_on_cell(isolate, job).await;
-        });
+        })?;
         receive
             .await
             .context("cell isolate dropped Worker response")?
@@ -1780,7 +1785,7 @@ impl RuntimeManager {
         };
         let alarm_reporter = self.alarm_reporter.clone();
         let drive_cancellation = cancellation.clone();
-        spawn_host(tokio::runtime::Handle::current(), async move {
+        let scheduled = spawn_host(tokio::runtime::Handle::current(), async move {
             let _permit = permit;
             drive_cell_with_request_cancellation(
                 affiliation,
@@ -1791,13 +1796,18 @@ impl RuntimeManager {
             )
             .await;
         });
-        let result = receive_cell_reply(
-            receive,
-            cancellation,
-            cancel,
-            "cell isolate dropped response",
-        )
-        .await;
+        let result = match scheduled {
+            Ok(_) => {
+                receive_cell_reply(
+                    receive,
+                    cancellation,
+                    cancel,
+                    "cell isolate dropped response",
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
         if let Some(request_id) = request_id {
             let mut requests = self
                 .remote_requests
@@ -2178,17 +2188,22 @@ impl RuntimeManager {
         };
         let reporter = self.alarm_reporter.clone();
         let driving = cancellation.clone();
-        spawn_host(
+        let scheduled = spawn_host(
             tokio::runtime::Handle::current(),
             drive_cell_with_request_cancellation(isolate, job, Some(reporter), None, driving),
         );
-        let result = receive_cell_reply(
-            receive,
-            cancellation,
-            cancel,
-            "cell isolate dropped RPC result",
-        )
-        .await;
+        let result = match scheduled {
+            Ok(_) => {
+                receive_cell_reply(
+                    receive,
+                    cancellation,
+                    cancel,
+                    "cell isolate dropped RPC result",
+                )
+                .await
+            }
+            Err(error) => Err(error),
+        };
         if let Some(registration) = registration.as_mut() {
             registration.complete();
         }
@@ -2426,7 +2441,7 @@ async fn run_cell_event<T>(
     spawn_host(
         tokio::runtime::Handle::current(),
         drive_cell(isolate, job, report, None),
-    );
+    )?;
     receive.await.context(dropped)?
 }
 
@@ -3126,7 +3141,7 @@ impl StatelessRuntime {
                         pool = again;
                     }
                 }
-            });
+            })?;
         }
         Ok(Self {
             isolates,
@@ -3182,7 +3197,7 @@ impl StatelessRuntime {
                 job,
                 Some((self.node.clone(), self.region.clone())),
             ),
-        );
+        )?;
         match receive.await {
             Ok(result) => result,
             // The driver dropped the reply without sending. Joining it here —
@@ -3962,6 +3977,7 @@ fn install_container_specs(generation: &Generation) {
         return;
     }
     if let Ok(handle) = tokio::runtime::Handle::try_current() {
-        spawn_host(handle, crate::container::prewarm());
+        // Prewarming is optional and cannot admit work after owner closure.
+        let _ = spawn_host(handle, crate::container::prewarm());
     }
 }

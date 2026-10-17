@@ -51,6 +51,8 @@ struct Config {
     seed: u64,
     #[serde(default)]
     skew: String,
+    #[serde(default)]
+    sql_prepared: bool,
 }
 
 fn default_seconds() -> u64 {
@@ -249,12 +251,25 @@ async fn seed(client: &Client, config: &Config) -> Result<Value> {
         stream::iter(manifest.cells.iter().filter(|e| e.kind == kind).enumerate())
             .map(Ok::<_, anyhow::Error>)
             .try_for_each_concurrent(config.concurrency.min(16), |(i, e)| async move {
-                let body = if kind == "kv" {
-                    json!({"version": 1, "threshold": 80})
+                let body = if kind == "sql" && config.sql_prepared {
+                    // Validate the prepared schema through GET. Reapplying its
+                    // named migration would refuse the already-recorded name.
+                    None
+                } else if kind == "kv" {
+                    Some(json!({"version": 1, "threshold": 80}))
                 } else {
-                    json!({"action": "seed", "effect_id": format!("seed-{}-{}", e.kind, e.id)})
+                    Some(
+                        json!({"action": "seed", "effect_id": format!("seed-{}-{}", e.kind, e.id)}),
+                    )
                 };
-                fetch(client, config, i % config.urls.len(), &e.path, Some(&body)).await?;
+                fetch(
+                    client,
+                    config,
+                    i % config.urls.len(),
+                    &e.path,
+                    body.as_ref(),
+                )
+                .await?;
                 Ok(())
             })
             .await?;
@@ -487,9 +502,19 @@ fn target<'a>(config: &Config, targets: &Targets<'a>, kind: &str, state: &mut u6
 fn operation(
     config: &Config,
     targets: &Targets<'_>,
+    all_targets: &[Entry],
     index: u64,
     state: &mut u64,
 ) -> (String, String, Option<Command>, Option<Value>) {
+    if config.mix == "all-read" {
+        let entry = &all_targets[index as usize % all_targets.len()];
+        return (
+            format!("{}_read", entry.kind),
+            entry.path.clone(),
+            None,
+            None,
+        );
+    }
     if config.mix == "attachments" {
         // Admission can drop this arrival. Classify it before acquiring a
         // permit so unsent requests retain the same operation as sent ones.
@@ -592,6 +617,22 @@ fn operation(
     (format!("{kind}_write"), e.path.clone(), Some(command), None)
 }
 
+async fn wait_for_arrival(deadline: Instant) {
+    // This independent measurement process reserves at most one of its client
+    // CPUs for accurate pacing. A timer-only wait can overshoot by more than
+    // 10ms in the VM even against an immediately refusing loopback endpoint.
+    // Keep the original deadline and measure the actual send time below.
+    let ahead = Duration::from_millis(20);
+    if let Some(wake) = deadline.checked_sub(ahead) {
+        if wake > Instant::now() {
+            tokio::time::sleep_until(tokio::time::Instant::from_std(wake)).await;
+        }
+    }
+    while Instant::now() < deadline {
+        std::hint::spin_loop();
+    }
+}
+
 async fn load(client: Client, config: Arc<Config>, manifest: Manifest) -> Result<Value> {
     let writer = Arc::new(Mutex::new(BufWriter::new(
         tokio::fs::File::create(&config.ledger).await?,
@@ -619,12 +660,9 @@ async fn load(client: Client, config: Arc<Config>, manifest: Manifest) -> Result
     let attachment_bytes = Arc::new(vec![42; config.bytes]);
     for index in 0..count {
         let scheduled_us = index * 1_000_000 / config.rate;
-        tokio::time::sleep_until(tokio::time::Instant::from_std(
-            started + Duration::from_micros(scheduled_us),
-        ))
-        .await;
+        wait_for_arrival(started + Duration::from_micros(scheduled_us)).await;
         let (operation, mut path, command, other_body) =
-            operation(&config, &targets, index, &mut rng);
+            operation(&config, &targets, &manifest.cells, index, &mut rng);
         let expected_scope = scopes.get(&path).map(|s| (*s).clone());
         let attachment_target =
             attachment_targets[(random(&mut rng) as usize) % attachment_targets.len()].clone();
@@ -730,7 +768,7 @@ async fn load(client: Client, config: Arc<Config>, manifest: Manifest) -> Result
                 if let Err(error) = result {
                     a.status = format!(
                         "error:{}",
-                        error.to_string().chars().take(200).collect::<String>()
+                        format!("{error:#}").chars().take(200).collect::<String>()
                     );
                 }
             }
@@ -774,7 +812,7 @@ async fn main() -> Result<()> {
             && config.phase.len() <= 80
             && matches!(
                 config.mix.as_str(),
-                "read" | "write" | "core" | "attachments" | "capabilities"
+                "all-read" | "read" | "write" | "core" | "attachments" | "capabilities"
             )
             && matches!(config.skew.as_str(), "" | "uniform" | "80-20" | "hot"),
         "invalid workload configuration"
@@ -838,6 +876,91 @@ mod tests {
         }
     }
 
+    // HTTP method contract only. Full runner cases qualify actual SDK state.
+    #[tokio::test]
+    async fn prepared_sql_seed_reads_without_repeating_initialization() -> Result<()> {
+        use tokio::io::AsyncReadExt;
+        let directory = tempfile::tempdir()?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let mut server = tokio::spawn(async move {
+            let mut methods = Vec::new();
+            for index in 0..2 {
+                let (mut socket, _) = listener.accept().await?;
+                let mut request = Vec::new();
+                loop {
+                    let mut bytes = [0; 1024];
+                    let n = socket.read(&mut bytes).await?;
+                    ensure!(n > 0, "HTTP request ended before its headers");
+                    request.extend_from_slice(&bytes[..n]);
+                    if request.windows(4).any(|v| v == b"\r\n\r\n") {
+                        break;
+                    }
+                    ensure!(request.len() < 16_384, "oversized test request");
+                }
+                let line = String::from_utf8_lossy(&request)
+                    .lines()
+                    .next()
+                    .unwrap()
+                    .to_owned();
+                let (status, body) = if index == 0 {
+                    (
+                        "200 OK",
+                        json!({"profile":"smoke", "count":1, "cells":[{
+                            "kind":"sql", "tenant":0, "id":0, "scope":"SQL:prepared", "path":"/system/sql/0/0"
+                        }]}),
+                    )
+                } else if line.starts_with("GET /system/sql/0/0 ") {
+                    ("200 OK", json!({"rows":[]}))
+                } else {
+                    (
+                        "409 Conflict",
+                        json!({"error":"initializer must not run twice"}),
+                    )
+                };
+                methods.push(line);
+                let body = serde_json::to_vec(&body)?;
+                let header = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+                socket.write_all(header.as_bytes()).await?;
+                socket.write_all(&body).await?;
+                socket.shutdown().await?;
+            }
+            Ok::<_, anyhow::Error>(methods)
+        });
+        let config: Config = serde_json::from_value(json!({
+            "action":"seed", "urls":[format!("http://{address}")], "token":"fixture",
+            "manifest":directory.path().join("manifest.json"), "ledger":directory.path().join("seed.jsonl"),
+            "report":directory.path().join("report.json"), "sql_prepared":true, "concurrency":1
+        }))?;
+        ensure!(
+            config.sql_prepared,
+            "prepared setup option was not captured"
+        );
+        let client = Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(2))
+            .build()?;
+        let seeded = seed(&client, &config).await;
+        let methods = match tokio::time::timeout(Duration::from_secs(5), &mut server).await {
+            Ok(result) => result??,
+            Err(error) => {
+                server.abort();
+                let _ = server.await;
+                return Err(error.into());
+            }
+        };
+        assert_eq!(
+            methods,
+            ["GET /manifest HTTP/1.1", "GET /system/sql/0/0 HTTP/1.1"]
+        );
+        ensure!(seeded?["count"] == 1, "prepared schema validation failed");
+        ensure!(
+            tokio::fs::read(&config.ledger).await?.is_empty(),
+            "SQL validation fabricated business receipts"
+        );
+        Ok(())
+    }
+
     #[test]
     fn deterministic_random_protocol() {
         let mut state = 0;
@@ -864,9 +987,37 @@ mod tests {
             .collect();
         let targets: Targets<'_> = entries.iter().map(|e| (e.kind.as_str(), vec![e])).collect();
         for (index, expected) in [(0, "attachment_write"), (1, "attachment_read")] {
-            let (name, _, command, body) = operation(&config, &targets, index, &mut 0);
+            let (name, _, command, body) = operation(&config, &targets, &entries, index, &mut 0);
             assert_eq!(name, expected);
             assert!(command.is_none() && body.is_none());
         }
+    }
+
+    #[test]
+    fn all_read_visits_every_root_before_repeating() {
+        let config: Config = serde_json::from_value(json!({
+            "action":"load", "urls":["http://unused"], "token":"fixture",
+            "manifest":"", "ledger":"", "report":"", "mix":"all-read"
+        }))
+        .unwrap();
+        let entries: Vec<_> = (0..3000)
+            .map(|id| Entry {
+                kind: "devices".into(),
+                tenant: 0,
+                id,
+                scope: format!("scope-{id}"),
+                path: format!("/target/{id}"),
+            })
+            .collect();
+        let targets = BTreeMap::new();
+        let mut seen = std::collections::BTreeSet::new();
+        for index in 0..6000 {
+            let (name, path, command, body) = operation(&config, &targets, &entries, index, &mut 0);
+            assert_eq!(name, "devices_read");
+            assert_eq!(path, entries[index as usize % 3000].path);
+            assert!(command.is_none() && body.is_none());
+            seen.insert(path);
+        }
+        assert_eq!(seen.len(), 3000);
     }
 }

@@ -30,11 +30,14 @@ def rows(report, p99_ms=1000, minimum_success=.999):
 
 
 def markdown(report, p99_ms=1000, minimum_success=.999):
-    inventory = 100 if report["metadata"]["profile"] == "smoke" else 10000
+    inventory = {"smoke":100,"capacity":3000,"full":10000}[report["metadata"]["profile"]]
+    resources = report["metadata"].get("resources", {})
+    capacity = resources.get("node_resource_class") == "capacity"
     text = ["# FleetCare performance results", "",
         f"Suite completed: **{report['completed']}**. Inventory: **{inventory:,} cells** on three nodes.", "",
+        ("Each application container has 2 vCPU / 4 GiB; child diagnostics run outside measurements. " if capacity else
         "Each node's aggregate application + cell container budget is 1 vCPU / 2 GiB. "
-        "The application reserves 1/16 vCPU and 256 MiB for one cell container. "
+        "The application reserves 1/16 vCPU and 256 MiB for one cell container. ") +
         "RustFS, the independent generator and technician simulator have separate quotas.", "",
         f"Qualification: success ≥ {minimum_success:.2%}, every operation's all-attempt p99 ≤ {p99_ms:g} ms, "
         "generator scheduling debt p99 ≤ 10 ms, no generator saturation or protocol errors, on every repeat.", "",

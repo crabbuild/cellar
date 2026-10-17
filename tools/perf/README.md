@@ -94,6 +94,47 @@ complete application events, cells and dispatches, a quiesced log, closed local
 durability, and surviving caller runtimes. The final node uses Preserve and
 must also prepare a clean reload. A zero process exit alone is insufficient.
 
+Capacity runs behind HAProxy start controlled placement near the beginning of
+an actual UTC minute, recorded in `*-setup-clock.json`. Cron remains enabled;
+its scheduled queue metrics calls can otherwise claim all primary queues before
+HTTP prewarm. The original guard still rejects any preclaimed critical root.
+This setup policy is part of comparison compatibility.
+
+
+## Core persistence baseline
+
+Use the existing counter workload alongside FleetCare to separate core durable
+HTTP writes from the application's Queue, outbox and SQL projection work. Each
+POST makes one storage transaction in one cell; the SDK output gate proves it
+before the complete HTTP response is counted. The client changes the payload on
+every request and does not retry writes. Keep all cells resident for this first
+comparison so activation/eviction does not dominate the persistence measurement:
+
+```sh
+python3 tools/perf/run.py --image cellar-embedded-perf:my-checkout \
+  --cells 128 --max-resident 128 --max-cached-routes 32 --max-requests 512 \
+  --warmup-seconds 30 --seconds 20 --repeats 2 --concurrency 1 8 32 128 \
+  --shutdown-ms 60000 --scenario three_node_bucket three_node_fleet
+```
+
+Run a separate case with `--log-level info` to save the existing
+`log_ship_round` and `log_ship_loop` diagnostics in the node logs. Round records
+include credited cells, LTX entry counts/bytes, capture duration and observed
+submission-to-application delay. Loop records separate capture wall time from
+idle, grouping and pipeline waiting. Credited cells and LTX entries are not
+business-command counts; do not interpret them as transactions per commit or
+submission-to-application delay as pure follower RTT. These logs span setup,
+traffic and recovery; select the relevant traffic intervals before aggregation.
+The load report's `started_unix_ms`/`finished_unix_ms` bracket requests including
+the response drain; client and node wall clocks must agree for log correlation.
+INFO logging can perturb timings, so use the default WARN runs for comparisons.
+
+Change batching and executor isolation independently, compare both throughput
+and tail latency on equivalent fresh runs, and retain every recovery and shutdown
+gate. A failed handoff or missing durability proof leaves a candidate unqualified
+even when its write samples improve. Shared-host measurements remain local
+diagnostics, and capture's share of the loop is not a predicted API speedup.
+
 ## Writes in flight and ambiguous responses
 
 The [128-cell fault report](results/2026-10-13-embedded-inflight-128.md) records
@@ -184,3 +225,45 @@ closed-loop traffic and injects failures between write phases. It does not
 measure production network partitions, sustained independent arrivals,
 unbounded data growth, hot-cell skew or long soaks. Fleet acknowledgement may
 fall back to a bucket proof. Results do not certify a production fleet size.
+
+## Requested-size HTTP capacity lab
+
+FleetCare's `--profile capacity --node-resources capacity` selects 3,000 roots
+on three 2-vCPU/4-GiB containers with private 10-GiB disks. See the
+[FleetCare capacity instructions](../../examples/fleetcare/README.md#three-node-3000-cell-capacity-test).
+`COLIMA_PROFILE` and a matching `DOCKER_CONTEXT` select an isolated VM without
+changing the user's default Docker context. `--store-cpus` and
+`--store-memory-gib` vary backend headroom independently of the application
+limits. Dead dependency checks stop new load phases and save OOM/exit evidence.
+A dedicated, idle physical host is needed for credible capacity comparisons;
+container pinning within a shared VM does not isolate competing macOS work.
+
+The independent FleetCare client wakes up to 20 ms before an arrival and spins
+until its original deadline. This can use one CPU from the existing two-CPU
+client budget; report that cost alongside generator timing. Actual send and
+finish timestamps retain schedule debt and failures in latency. Real HTTP windows must still meet generator timing
+and complete correctness/shutdown gates.
+
+For private VM startup/shutdown, pass the Colima profile explicitly without
+private Docker context environment settings. Capture and preserve the currently
+configured global context rather than assuming its name. Docker operations
+retain the private context, and fleet creation must verify the actual RustFS
+image against the frozen reference identity.
+
+`--ingress haproxy` sends all FleetCare client actions through one private HTTP
+round-robin load balancer, with no retries or redispatch. It requires capacity
+nodes, a 12-CPU VM and a two-CPU RustFS budget so proxy/client/node CPU sets stay
+separate. `--mixes all-read` visits every manifest root cyclically; `core` and
+`write` retain their business-operation weights. Save backend counter deltas
+and per-window cell coverage alongside latency and resource evidence; equal
+ingress counts alone do not establish balanced cell-owner work. Capacity runs
+serially initialize critical Queue/DLQ/SQL and Inventory-0 roots through HTTP before workflow
+seeding, then enforce the captured owner mapping at every load boundary. Each
+node must own one primary queue, one DLQ, six SQL roots and two Inventory-0 cells. These observations
+remain outside timed windows, and the setup policy is part of compatibility. See the
+[load-balancer instructions](../../examples/fleetcare/README.md#http-load-balancer).
+
+Capacity HAProxy setup aligns its initial cursor with at most two extra manifest
+GETs, then requires the thirty critical requests to select node2/node3/node1
+in order. This fixes cross-run identity rotation; selected backends and actual
+owners are still verified independently outside measured traffic.

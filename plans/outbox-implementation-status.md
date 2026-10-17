@@ -1,31 +1,196 @@
 # Outbox implementation status
 
-Updated 2026-10-16. The goal remains the entire
-[outbox, stream, and subscription design](002-outbox-streams-subscriptions.md).
-The feature is under implementation and is not ready for normal deployment or
-release. The consolidated event-delivery work merged in PR #46; PRs #47–#62
-are superseded. The follower-proof/read-bound follow-ups merged in PR #68,
-and the tail/control memory follow-ups merged in PR #69. Follow-ups use one
-active PR against updated main; subsequent
-changes reuse that PR while it is open, without a stack. The native fixture now
-exercises source, catalog, stream, and consumer turns together; that local evidence does not satisfy the fleet/release gates.
+Updated 2026-10-17. The core
+[outbox, stream, and subscription design](002-outbox-streams-subscriptions.md)
+is implemented and exercised end to end: atomic emission, durable dispatch and
+deduplication, resumable reads, leased fetch, inbox effects, acknowledgment and
+preserving restart. This is implementation and local regression evidence;
+production capacity and fleet resilience remain separate qualifications.
 
-## Current priorities and readiness
+## Bounded finish and readiness
 
-The core bucket-backed producer-to-consumer path works in the exercised cases:
-atomic emission, durable dispatch/deduplication, resumable reads, leased fetch,
-inbox effects, acknowledgment and preserving restart. It is **not fully release
-qualified**. Do not use a green SDK suite as evidence for untested ownership or
-storage failures. The ordered list below supersedes historical next-step notes.
+The user limited this closeout to the three most critical finishing items:
 
-| Order | Critical gap | Kind | Acceptance gate |
+1. **Binary recovery transport and fencing evidence — merged.** PR #79 repairs
+   the fault proxy's binary log relay. PR #82 adds real TCP coverage for buffered
+   bytes and independent half-closes, plus original accepted-event capture and
+   joined source-fencing failure cleanup.
+2. **Closed-domain host admission — merged in PR #82.** A native warmup callback
+   reproduces the panic before repair. Startup, dispatch and worker loading now
+   propagate typed closure errors, retaining request cleanup, executor selection
+   and owner-scoped destruction and joining.
+3. **Critical verification and final handoff — complete for this closeout.** The final candidate
+   retains failed clock-recovery fixtures and exact pre-fault RPC bytes, joins
+   returned cold nodes on startup failure, adds a retry for status reads that
+   time out before submission within the existing five-second audit, and declares
+   expected transport closure before stopping either proxy endpoint after the
+   completed state audit. Mutation replay and all original deadlines are unchanged.
+
+### Latest verification
+
+Main `fa62847` passes NativeDomains 15/15 and initially passes NativeNode 80/82.
+The cold-follower case fails before receipt reuse with an unavailable status-read
+deadline; the lineage-capture case emits its complete final state evidence before
+a broken pipe. Diagnostics alone subsequently pass NativeNode 82/82 and ten
+isolated cold/lineage probes. These passes do not establish either earlier cause.
+A concentrated run of all 15 clock fixtures fails initial destination startup in
+every case, before their fault cuts; all failed fixtures and executables remain
+retained. Startup under that load is not qualified.
+
+A deterministic regression holds actual root-store responses beyond the first
+three-second RPC deadline, releasing them within the original five-second audit.
+Its cold peers start without bindings and activate them after recovery, isolating
+the read contract from the independent binding-activation deadline. The existing
+cold-start scenario keeps its original bindings and guards. Before the read-policy
+repair, both cold peers start successfully while the replacement returns the exact
+`Unavailable: event RPC deadline elapsed` failure; cancellation joins all returned
+nodes. A read-only audit of the verified retained source copy finds count two,
+next sequence three, settled watermark one and one pending 416-byte event matching
+the original incarnation and envelope value. No activation or receipt replay is
+used for that audit; it does not establish destination clock recovery.
+
+The same isolated regression passes after the read-policy repair (18.10s test
+runtime, 165.94s including build/archive), with one read retry and the recovered
+clock beyond the original refusal cut. It completes the unchanged receipt,
+pending-obligation, exact envelope, inbox, acknowledgment and join assertions:
+checkpoint two, processed effects three, settled watermark two. Red and green
+retain their original executables and 634 frozen inputs; the only behavioral
+changes are the read retry classification and post-audit teardown ordering.
+
+Final NativeNode passes 83/83 (143.96s runtime, 149.53s including collector) and
+NativeDomains passes 15/15. The focused and full Node runs have identical source
+inputs and executable digests. NativeRuntimePolicy passes 6/6, including the
+closed-domain admission regression. Affected-target all-feature Clippy with
+warnings denied, format (548 Rust files), module layout, documentation, native
+dependency policy and diff checks all pass. All nine final phases exit zero,
+archive successfully and verify the same 634 code/build inputs.
+Earlier workspace, activation and timing failures remain recorded below; this
+targeted repair does not establish all their causes. Hosted jobs on #82 ran zero
+steps because GitHub reported account billing/spending restrictions.
+
+The bounded three-item implementation closeout is concluded with this final
+follow-up against main. No additional feature work is part of this goal. The
+historical failure evidence and deferred deployment gates below remain explicit;
+this result is not an all-green full-workspace or production resilience claim.
+
+The consolidated implementation merged in #46; superseded stack PRs #47–#62
+remain historical. Subsequent recovery/capacity work merged in #68, #69 and #73.
+This closeout uses one follow-up PR directly against updated main, with no stack.
+The sections below preserve historical work and qualification limits; their
+references to an active branch or PR describe that point in the timeline.
+
+### Deferred deployment qualification
+
+The historical backlog below records remaining capacity, operational and failure
+coverage. It is not three additional features or a commitment to continue this
+iteration. Preserve failed evidence; a later passing run does not establish the
+cause of an earlier failure. Deployment qualification remains workload specific.
+
+| Order | Historical area | Remaining evidence | Deployment acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, held-turn entry during drain fencing, TLS ClientHello entry, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 1 | Historical startup, fencing and shutdown failures | Closed-domain admission panic reproduced and repaired; separate earlier guard failures remain unattributed | Final candidate passes all six runtime-policy tests and the original late-append fencing case at unchanged deadlines. The broader workspace gate is running. Earlier cancelled-bootstrap, activation, parent/policy-child fencing, held-turn, TLS, ingress and damaged-witness observations remain retained evidence limits; passing reruns do not identify their causes. |
 | 2 | Bound total recovery memory | Normal retained-bundle profile passes; total capacity remains unqualified | The current candidate verifies all 32 original 4 MiB LTX rows and the real seal with 46497792 bytes of RSS growth (about 44.3 MiB), below the unchanged 64 MiB budget. Shared scan admission, eight active body transfers, verified disk staging and final-window follower precedence pass library and native recovery gates. Native SQLite single/multipart upload cancellation regressions pass after request-context retention. Network part-upload cancellation, GC/overlay/diagnostic readers, metadata/progress inventories and legal oversized upload rows retain independent capacity gates. A normal-profile pass is not a total ceiling. |
 | 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
 | 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
 | 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
 | 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+### Current follow-up: source fencing and delayed append replies
+
+PR #73 is merged. The current branch incorporates main `2f7fa28` (PR #79),
+including its cancelled-turn grant repair and binary fault-proxy relay. The
+working tree adds retained pre-fault evidence, joined failure cleanup, a stronger
+half-close regression and the separately reproduced closed-domain admission repair.
+
+With the original held-turn and TLS guards preserved, the diagnostic library
+passes all 332 cases in an initial run and ten full-suite repeats. These passes
+capture no failing window and establish no cause or repair for the previous
+three-second held-turn entry and two-second ClientHello failures.
+
+The subsequent all-feature workspace runtime gate fails (exit 101, 1400.93s
+including builds) with all 631 source inputs unchanged. Its library passes 332
+cases and NativeNode passes 76/77, but
+`late_proven_append_reply_cannot_settle_a_fenced_source_successor` returns an
+operator 503 with `Unavailable: event RPC deadline elapsed`. That message comes
+from source outbox inspection, at one of several calls before or after the
+fencing cut. The old log cannot establish which call failed. It is not evidence
+that stale settlement occurred, nor evidence that the fencing scenario passed.
+The failing executable and full log are retained. Later qualification phases in
+that pipeline did not run; there is no all-green workspace or release claim.
+
+The selected diagnostic work adds phase, closed-domain, dispatch and completed
+supervisor context without retrying the failed inspection or changing its RPC
+budget. It also saves the original source success response, exact accepted
+append request/reply bytes and event before the authority fault or replay, and
+retains failed fixture data after joining the owned nodes. Those diagnostics
+must be qualified on the new main before they supply evidence; the previous
+failed fixture cannot be reconstructed by a passing replay.
+
+The first focused build after the main sync completes but its test cannot create
+its private temporary directory: the system volume returns ENOSPC before any
+event/fencing cut (0/1, 0.02s). Archival also fails at that boundary. Its raw log,
+partial archive and recovered executable remain retained as an environment
+failure. This chat's evidence moves to the private Workspace volume, with the
+old path preserved by a symlink; subsequent fixture directories remain on the
+original internal volume. Original failed-upload/library executable checksums
+match after the move.
+
+The same frozen 631-input diagnostic executable then reproduces the original
+503 in a fresh fixture (3.96s including wrapper work). It identifies the first
+successor inspection, before replay: the domain remains open, all dispatch
+counters are zero, the old source still owns the cell and its node log remains
+Recovering under the successor's claim. After forced Node joins, a read-only
+audit requires the business count to remain one, the original incarnation,
+next sequence two, settled watermark zero, one pending 416-byte event, and
+exactly the same envelope bytes at destination offset one. The subscription
+checkpoint is zero and no delivery lease exists. The original request/reply,
+pre-fault source observation and stream history are retained; all 25 failed
+fixture files have identical archived checksums. No recovery/replay is used to
+repair the original prefix or establish this audit. Forced joins are not a
+graceful drain proof.
+
+Inspection identifies a fault-proxy gap: after a `cellar-log-stream` 101 upgrade,
+it continues HTTP parsing rather than relaying the binary tail protocol. A new
+real-TCP regression supplies buffered bytes in both directions and exercises a
+peer write half-close before the caller finishes its input. It fails on the
+unchanged proxy at its two-second progress guard (2.12s test runtime, 225.15s
+including compilation; all 631 inputs unchanged). The production Cellar library
+checksum is identical to the original source-fencing failure. The selected
+candidate retains both buffered readers and uses bounded bidirectional copying
+for acknowledged log upgrades; HTTP RPC tunnels retain their event interception.
+The green leaf passes both endpoints (412.18s including build/archive). A fresh
+original source-fencing run also passes all assertions (7.67s test runtime), but
+its collector loses the temporary evidence alias and returns failure; its raw
+runtime result and source/executable identities are retained without inventing
+a successful collector exit. Subsequent collectors use the permanent physical
+Workspace path.
+
+The next stable run fails before emission, during destination bootstrap at the
+unchanged 20-second startup budget (128.62s including archival, 66.28s test
+runtime). A worker panics at the strict host task-admission adapter after the
+execution domain closes. This is distinct from the binary relay defect and
+establishes no data-loss result. A cancelled-bootstrap diagnostic separately
+fails its original factory-entry guard and does not capture the panic caller.
+
+A new deterministic test enters a real native application's class-validation
+callback during stateless warmup and closes its domain before maintenance is
+scheduled. On the unchanged admission adapter it fails in 0.01s with precisely
+`execution domain is closed: DomainClosed` at `domain.rs:711`; all 631 inputs
+remain frozen and the failed executable is archived. Cleanup joins before the
+failure assertion. The repair uses fallible owner admission, preserving the
+existing executor choice and owner-scoped destruction of rejected futures.
+Startup and request paths propagate the typed cause while completing request
+registrations; optional prewarming and post-close generation maintenance admit
+no work. Worker construction also handles a refused blocking admission as a
+terminal load failure. This fixes the panic pattern; it does not diagnose the
+preceding bootstrap latency or unrelated TLS/fencing observations.
+
+Final verification uses the updated main plus this candidate. All six
+runtime-policy tests pass (0.33s runtime), including the new closure regression;
+the original source-fencing scenario passes (6.63s runtime). Both collectors
+exit zero, archive their executables, and verify the same 632 frozen inputs.
+The full workspace and static gates are running; their results will be recorded
+before publication.
 
 ### Current follow-up: entered upload cancellation
 
@@ -3478,7 +3643,11 @@ Node startup/adoption now performs owner-routed activation and binding readiness
 The development contracts are implemented but release qualification is incomplete, so
 this does not constitute a released deployed primitive yet.
 
-## Requirement audit
+## Historical requirement audit
+
+This audit predates the bounded finish above. Its remaining deployment and
+product-expansion items are retained for future planning, not automatically
+continued after this iteration. It is not a claim of full release qualification.
 
 | Requirement | Evidence now | Work remaining |
 | --- | --- | --- |
@@ -3495,9 +3664,9 @@ this does not constitute a released deployed primitive yet.
 | Examples and documentation | Full joint design, implemented transaction/inbox API guide, cataloged standalone stream-backed application and actual executable smoke with preserving restart | Extend examples as remaining lifecycle controls land; release qualification remains separate |
 | Release criteria | Local SDK/storage/policy and integrated native fixture | Full workspace gates, supported single-node/fleet proofs, capacity, lifecycle and fault matrix |
 
-## Next implementation step
+## Deferred follow-up backlog
 
-The host/routing failure classification is implemented below. Continue the full
+The host/routing failure classification is implemented below. Future work can cover the full
 SDK preflight/codec/timeout/cancellation mapping audit, aggregate metrics and wider
 inventories, alongside the complete release matrix.
 The bounded/canonical Stream::read acceptance gap found by that audit is repaired

@@ -181,6 +181,16 @@ struct Message {
 }
 
 impl Message {
+    fn request_path(&self) -> Option<&str> {
+        let target = std::str::from_utf8(&self.head)
+            .ok()?
+            .lines()
+            .next()?
+            .split_whitespace()
+            .nth(1)?;
+        Some(target.split('?').next().unwrap_or(target))
+    }
+
     fn header(&self, name: &str) -> Option<&str> {
         std::str::from_utf8(&self.head)
             .ok()?
@@ -402,7 +412,69 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             }
         }
         reply.write(client.get_mut()).await?;
+        if reply.head.starts_with(b"HTTP/1.1 101 ")
+            && request.request_path() != Some("/peer/tunnel")
+        {
+            // Only the outer tunnel carries inspectable HTTP after upgrade.
+            // Log tails carry binary frames. Keep both readers so prefetched
+            // bytes and half-close propagation survive the protocol switch.
+            tokio::io::copy_bidirectional(&mut client, &mut owner).await?;
+            return Ok(());
+        }
     }
+    Ok(())
+}
+
+#[tokio::test]
+async fn log_upgrade_relays_binary_bytes_and_joins_both_directions() -> Result<()> {
+    // Include newline, NUL and non-UTF-8 bytes: an HTTP parser cannot relay
+    // either side of this upgraded protocol. Coalesce the server's 101 head
+    // and first payload to exercise bytes already held by its BufReader.
+    const CLIENT_BYTES: &[u8] = b"CLT1\0\xff\nrequest\r\n\0";
+    const SERVER_BYTES: &[u8] = b"CLB1\0\xfe\nresponse\r\n\0";
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let exchange = async {
+        let caller = async {
+            let mut caller = TcpStream::connect(proxy.address).await?;
+            caller.write_all(b"POST /peer/log/tail HTTP/1.1\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\nContent-Length: 0\r\n\r\n").await?;
+            let mut caller = BufReader::new(caller);
+            let response = message(&mut caller, true)
+                .await?
+                .context("missing upgrade")?;
+            ensure!(response.head.starts_with(b"HTTP/1.1 101 "));
+            caller.get_mut().write_all(CLIENT_BYTES).await?;
+            caller.get_mut().shutdown().await?;
+            let mut received = Vec::new();
+            caller.read_to_end(&mut received).await?;
+            ensure!(received == SERVER_BYTES, "binary response bytes changed");
+            Ok::<_, anyhow::Error>(())
+        };
+        let owner = async {
+            let (socket, _) = upstream.accept().await?;
+            let mut owner = BufReader::new(socket);
+            let request = message(&mut owner, false)
+                .await?
+                .context("missing request")?;
+            ensure!(request.header("upgrade") == Some("cellar-log-stream"));
+            let mut response = b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\n\r\n".to_vec();
+            response.extend_from_slice(SERVER_BYTES);
+            owner.get_mut().write_all(&response).await?;
+            let mut received = Vec::new();
+            owner.read_to_end(&mut received).await?;
+            ensure!(received == CLIENT_BYTES, "binary request bytes changed");
+            owner.get_mut().shutdown().await?;
+            Ok::<_, anyhow::Error>(())
+        };
+        let (caller, owner) = tokio::join!(caller, owner);
+        caller?;
+        owner?;
+        Ok::<_, anyhow::Error>(())
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), exchange).await;
+    let joined = proxy.stop().await;
+    result.context("binary log upgrade exchange stalled")??;
+    joined?;
     Ok(())
 }
 
@@ -443,5 +515,181 @@ async fn controlled_destination_closure_preserves_framing_failures() -> Result<(
         .await??
         .expect_err("controlled closure hid malformed framing");
     ensure!(error.to_string() == "unframed peer response", "{error:#}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn binary_upgrades_forward_prefetched_bytes_and_eof() -> Result<()> {
+    const REQUEST: &[u8] = b"\x01\x00\xffclient";
+    const PREFIX: &[u8] = b"\x02\x00\xfeserver";
+    const SUFFIX: &[u8] = b"\x00\xffdone";
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let owner = tokio::spawn(async move {
+        let (socket, _) = upstream.accept().await?;
+        let mut socket = BufReader::new(socket);
+        let request = message(&mut socket, false)
+            .await?
+            .context("missing upgrade")?;
+        ensure!(request.head.starts_with(b"GET /peer/log/tail HTTP/1.1"));
+        let mut reply = b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: test-tail\r\n\r\n".to_vec();
+        reply.extend_from_slice(PREFIX);
+        socket.get_mut().write_all(&reply).await?;
+        let mut received = Vec::new();
+        socket.read_to_end(&mut received).await?;
+        ensure!(
+            received == REQUEST,
+            "binary request changed or lost at upgrade"
+        );
+        socket.get_mut().write_all(SUFFIX).await?;
+        socket.get_mut().shutdown().await?;
+        Ok::<_, anyhow::Error>(())
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut client = TcpStream::connect(proxy.address).await?;
+        let mut request = b"GET /peer/log/tail HTTP/1.1\r\nHost: test\r\nConnection: upgrade\r\nUpgrade: test-tail\r\n\r\n".to_vec();
+        request.extend_from_slice(REQUEST);
+        client.write_all(&request).await?;
+        client.shutdown().await?;
+        let mut client = BufReader::new(client);
+        let reply = message(&mut client, true).await?.context("missing handshake")?;
+        ensure!(reply.head.starts_with(b"HTTP/1.1 101 "));
+        let mut received = Vec::new();
+        client.read_to_end(&mut received).await?;
+        ensure!(received == [PREFIX, SUFFIX].concat(), "binary reply changed or lost at upgrade");
+        owner.await??;
+        proxy.stop().await?;
+        Ok::<_, anyhow::Error>(())
+    }).await?
+}
+
+#[tokio::test]
+async fn outer_tunnel_keeps_http_fault_capture_after_upgrade() -> Result<()> {
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    proxy.capture.arm("__streamNext");
+    let owner = tokio::spawn(async move {
+        let (socket, _) = upstream.accept().await?;
+        let mut socket = BufReader::new(socket);
+        let request = message(&mut socket, false)
+            .await?
+            .context("missing tunnel")?;
+        ensure!(request.head.starts_with(b"GET /peer/tunnel HTTP/1.1"));
+        socket.get_mut().write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: test-tunnel\r\n\r\n").await?;
+        let request = message(&mut socket, false)
+            .await?
+            .context("missing inner RPC")?;
+        ensure!(
+            request.header("x-cells-rpc-method") == Some("__streamNext") && request.body == b"[]"
+        );
+        socket
+            .get_mut()
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+            .await?;
+        socket.get_mut().shutdown().await?;
+        let mut remaining = Vec::new();
+        socket.read_to_end(&mut remaining).await?;
+        ensure!(remaining.is_empty());
+        Ok::<_, anyhow::Error>(())
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut client = TcpStream::connect(proxy.address).await?;
+        client.write_all(b"GET /peer/tunnel HTTP/1.1\r\nHost: test\r\nConnection: upgrade\r\nUpgrade: test-tunnel\r\n\r\nPOST /rpc HTTP/1.1\r\nHost: test\r\nx-cells-rpc-method: __streamNext\r\nx-cells-scope: stream-test\r\nContent-Length: 2\r\n\r\n[]").await?;
+        client.shutdown().await?;
+        let mut client = BufReader::new(client);
+        let reply = message(&mut client, true).await?.context("missing handshake")?;
+        ensure!(reply.head.starts_with(b"HTTP/1.1 101 "));
+        proxy.capture.entered.acquire().await?.forget();
+        {
+            let exchanges = proxy.capture.exchanges.lock().unwrap();
+            ensure!(exchanges.len() == 1 && exchanges[0].method == "__streamNext"
+                && exchanges[0].request == b"[]" && exchanges[0].response == b"{}"
+                && exchanges[0].dropped && !exchanges[0].delayed);
+        }
+        proxy.capture.release.add_permits(1);
+        let mut remaining = Vec::new();
+        client.read_to_end(&mut remaining).await?;
+        ensure!(remaining.is_empty(), "faulted RPC bypassed capture after tunnel upgrade");
+        owner.await??;
+        proxy.stop().await?;
+        Ok::<_, anyhow::Error>(())
+    }).await?
+}
+
+#[tokio::test]
+async fn log_upgrades_preserve_buffered_binary_bytes_and_half_closes() -> Result<()> {
+    const EARLY: &[u8] = b"\x03\0\0\0{}\0client-before-upgrade";
+    const REPLY: &[u8] = b"\x04\0\0\0CTS1\r\n\r\n\0";
+    const LATE: &[u8] = b"\0ack-after-peer-half-close\r\n";
+    for path in ["/peer/log/tail", "/peer/log/stream"] {
+        let upstream = TcpListener::bind("127.0.0.1:0").await?;
+        let proxy = Proxy::start(upstream.local_addr()?).await?;
+        let server = tokio::spawn(async move {
+            let (socket, _) = upstream.accept().await?;
+            let mut owner = BufReader::new(socket);
+            let request = message(&mut owner, false)
+                .await?
+                .context("upgrade request missing")?;
+            ensure!(request.head.starts_with(format!("POST {path} ").as_bytes()));
+            ensure!(request.header("upgrade") == Some("cellar-log-stream"));
+            ensure!(request.body.is_empty());
+            let head = b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\n\r\n";
+            owner
+                .get_mut()
+                .write_all(&[head.as_slice(), REPLY].concat())
+                .await?;
+            // The peer can finish its output before the caller finishes input.
+            owner.get_mut().shutdown().await?;
+            let mut received = vec![0; EARLY.len() + LATE.len()];
+            owner.read_exact(&mut received).await?;
+            ensure!(
+                received == [EARLY, LATE].concat(),
+                "upgrade changed caller bytes"
+            );
+            ensure!(
+                owner.read(&mut [0]).await? == 0,
+                "caller half-close was lost"
+            );
+            Ok::<_, anyhow::Error>(())
+        });
+        let mut caller = BufReader::new(TcpStream::connect(proxy.address).await?);
+        let request = format!("POST {path} HTTP/1.1\r\nHost: localhost\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\nContent-Length: 0\r\n\r\n");
+        // Both directions may already have bytes in their HTTP read buffers
+        // when the 101 transfers ownership to the binary protocol.
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            caller
+                .get_mut()
+                .write_all(&[request.as_bytes(), EARLY].concat())
+                .await?;
+            let response = message(&mut caller, true)
+                .await?
+                .context("upgrade reply missing")?;
+            ensure!(response.head.starts_with(b"HTTP/1.1 101 "));
+            let mut received = vec![0; REPLY.len()];
+            caller.read_exact(&mut received).await?;
+            ensure!(received == REPLY, "upgrade changed peer bytes");
+            ensure!(
+                caller.read(&mut [0]).await? == 0,
+                "peer half-close was lost"
+            );
+            caller.get_mut().write_all(LATE).await?;
+            caller.get_mut().shutdown().await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("binary log upgrade did not progress")
+        .and_then(|result| result);
+        drop(caller);
+        if outcome.is_err() {
+            server.abort();
+        }
+        let server_join = server.await;
+        let proxy_join = proxy.stop().await;
+        outcome.with_context(|| {
+            format!("{path}: server_join={server_join:?}; proxy_join={proxy_join:?}")
+        })?;
+        server_join??;
+        proxy_join?;
+    }
     Ok(())
 }
