@@ -2,241 +2,232 @@
 
 # Cellar
 
-Start with the [documentation library](docs/README.md) for builder guides,
-architecture, deployment, operations, team practices, and production qualification.
-The [visual explorer](docs/index.html) includes interactive SVG flows and a
-searchable document catalog; open it locally in a browser.
+**Build Rust applications around durable business cells.**
 
-Cellar is a Rust framework for applications built from durable business cells.
-It provides SQLite storage, bucket ownership, LTX replication, routing, alarms,
-and fleet infrastructure. Cellar has no V8 or other JavaScript engine dependency,
-including in default and all-feature builds.
+Give each account, cart, room or workflow its own SQLite state. Write the
+business logic in Rust; Cellar handles ownership, routing, replication and
+recovery.
 
-Cellar uses a hard cutover: applications start with new Cellar configuration and
-state. Original Celld aliases and persisted-state migration are unsupported.
-All framework-owned SQLite tables use the reserved `__sys_` prefix.
+[Quickstart](#quickstart) · [Write code](#work-with-cells) ·
+[Architecture](#how-cellar-works) · [Examples](#explore-the-sdk) ·
+[Documentation](docs/README.md)
 
-Use `cellar::sdk` to define cells and services. A cell owns its durable state;
-Cellar routes calls to its owner and gates externally visible results on the
-required durability proof. Nodes sharing a bucket form a fleet.
+![A namespace routes business names to separate cells, each with its own SQLite state.](diagram/cells.svg)
 
-The [fleet console](crates/cellar-admin/README.md) provides a Vite, React and
-shadcn UI for fleet inventory, nodes, cells, SQL, KV, queues, workflows and cron.
-Its separate authenticated management service routes resource operations through
-Cellar owners and tracks node shutdown through durable, joined-work receipts.
-See the
-[dashboard scope and implementation status](plans/003-fleet-dashboard.md).
+## Why cells?
 
-The SDK provides storage and transactions, structured RPC, SQL, KV, queues,
-workflows, cron, Blob, HTTP and bodies, assets, caches, HTML rewriting,
-WebSockets, TCP/TLS, cell-owned containers, facets, and compiled application loaders. Owned values
-include URLs, headers, forms, blobs/files, events, cancellation, byte streams,
-encoding, compression, and cryptography. See the
-[native Rust examples](examples/README.md).
+A cell brings a business object's behavior and state together:
 
-The catalog maps all 26 original celld patterns to native Rust recipes and
-documents where a native pattern replaces a Workers-specific SDK. It also
-includes tenant accounts, transactional outbox delivery, team services and a
-standalone embedded Node. See the [example suite](examples/README.md) for
-runnable projects and the [application-builder roadmap](examples/ROADMAP.md)
-for remaining reference applications and distributed validation criteria.
+- A **cart** keeps its items and checkout state in one place.
+- An **account** owns its balance, settings and transaction history.
+- A **room** coordinates participants and live connections.
 
-[cellar-axum](crates/cellar-axum/README.md) runs Axum handlers inside the same
-SDK invocations and mounts an embedded Cellar runtime in an Axum-owned server.
-Its shared application builder supports cells, middleware, streams, WebSockets
-and optional OpenAPI 3.1 generation/export. The
-[two-host counter](examples/axum-counter/README.md) includes both runnable hosts
-and a generated client.
+Choose boundaries around data that changes together. Transactions stay within
+a cell; cells communicate through calls or durable events.
 
-Library hosts call `sdk::Node::start` with `NodeConfig`, `NodeServices`, a
-`DeploymentGraph` and `CompiledApplications`. The application supplies bound
-listeners, host and core executors, HTTP clients, peer authentication and a
-per-node probe signer. Fleet nodes also take caller-owned storage and log
-transports. Startup recovers the predecessor log before installing a replacement
-lease; a failed recovery preserves the predecessor generation. Each node retains
-an exclusive data-directory lock through completion, including cancelled startup.
-`Node::adopt` installs compiled generations explicitly and leaves the current
-generation serving when a factory fails.
+## Quickstart
 
-`ActorOptions`, `RuntimePolicy`, `LoaderPolicy`, `HttpPolicy`, startup and
-maintenance policy, container infrastructure and metrics are captured per node.
-These policy defaults do not read environment variables. The CLI resolves its
-environment settings at startup. Lower-level hosts can construct an
-`ExecutionDomain` directly.
+You need Rust and Cargo, native C/C++ build tools, and curl. Run these commands
+from a checkout of this repository. See [build guidance](AGENTS.md#build-and-validation)
+for local target-directory setup.
 
-Configure SDK HTTP egress through `NodeConfig::http` and
-`NodeServices::http_client`. An optional `HttpClientFactory` supplies DNS, TLS,
-credentials, proxies and pool settings. Cellar installs each redirect mode's
-policy and preserves worker subrequest budgets. Ordinary modes reuse pools per
-host; a redirect-limited invocation retains its own accounting client. The
-request deadline includes reading the response body. Library defaults use a
-120-second deadline and ignore ambient proxies. Closing a domain releases its
-cached pools and prevents reconstruction. The CLI explicitly selects system
-proxies and captures `CELLAR_FETCH_TIMEOUT_S` at startup.
+Start the counter application:
 
-Bucket-backed deployment loading takes an explicit `AssetCache`: select its
-directory, cleanup target, per-file serving limit and optional caller filesystem.
-Resolvers retain it across generations and fallback refreshes. Cloning the cache
-shares download coordination deliberately; separate directories isolate hosts.
-Streams, cache maintenance and refreshes retain their serving execution domain,
-and shutdown joins begun blocking file work. The CLI captures its cache options
-once at startup, defaulting to `asset-cache` under that node's data directory.
+```sh
+cargo run -p cellar --bin cellar --locked -- \
+  dev examples/native-counter/project.json
+```
 
-`ActorPolicy::max_cached_routes` bounds idle, unowned routing history separately
-from resident cells. Least recently used records are reclaimed; zero disables
-the cache. Ownership, alarms, queued requests and unfinished work retain their
-records through their normal lifecycle. Applications select this limit
-explicitly. The CLI defaults to 2,048 and accepts `CELLAR_MAX_CACHED_ROUTES`.
+Once the server is ready, open another terminal:
 
-Production dispatch and draining now share a driver that accepts a captured
-`ShutdownPolicy` and a stop future. It returns `NodeOutcome` for requested stops,
-fencing, core failure, or replication failure; the CLI alone maps these to process
-exits. `NodeOutcome::Fenced` includes a `FenceReason` for an expired, missing or
-unrecognized node lease. A lost fencing-report channel returns `CoreFailed`.
-Lower-level `Actor` hosts receive `FenceReport` values with both code and reason.
-Both stop modes drain complete application event drivers and queued SDK
-calls before changing cell lifecycle. This includes post-response `wait_until`
-work, nested calls, alarms, and events from previous application generations.
-`ShutdownReport` records ingress, application-event and cell drain completion,
-pending events and dispatches, log sealing, local durability closure, and
-clean-reload preparation. `HostServices::application_work` exposes per-host
-pending and retired event counts; retirement includes cancellation and failure.
-Stall timeouts and the absolute deadline remain distinct, so a bounded stop can
-report incomplete work. HTTP tasks and facet dispatch retain their owning domain.
-`Node::run_until` supervises the engine using the application's stop future;
-`Node::shutdown` requests a drain and `Node::cancel` forces closure. The supervisor
-closes and joins owned work before returning while leaving both executors running.
-Keep the executors alive through completion. The semantic drain has a bounded
-budget, but already-started blocking work must finish before the join completes.
-Work left at a deadline remains visible in the report even after forced domain
-closure retires it. Application tasks spawned outside Cellar's event lifecycle
-remain the application's responsibility. Fleet-scale rollout and recovery
-validation remain follow-up work beyond the
-[bounded local embedding checks](tools/perf/results/2026-10-12-embedded-1000.md)
-and [10,000-cell reference recovery run](tools/perf/results/2026-10-12-embedded-10000-reference.md).
+```sh
+# Increment alice's counter.
+curl -sS -X POST http://127.0.0.1:9876/counters/alice
+# {"count":1}
 
-`LoaderPolicy` fixes each host's loaded-worker capacity, per-script and generation
-quotas, copied environment size, and entrypoint or class property size. Environment
-budgets include supplied service-route metadata. Derived handles retain their
-originating host's property budget; service capabilities reject calls from another
-execution domain. Configure the policy before building a generation; reading it
-pins the defaults. Encoded values remain subject to the structured-value decoder's
-64 MiB ceiling. The CLI accepts `CELLAR_LOADER_MAX_WORKERS`,
-`CELLAR_LOADER_MAX_WORKERS_PER_PRINCIPAL`, `CELLAR_LOADER_MAX_ENV_BYTES`, and
-`CELLAR_LOADER_MAX_PROPS_BYTES`. The obsolete module-byte setting is rejected.
+# Read the same cell.
+curl -sS http://127.0.0.1:9876/counters/alice
+# {"count":1}
 
-`Replication::start` takes `ReplicaStorage` and `ReplicationOptions`. Applications
-supply the storage client, fleet prefix, upload and compaction policy, restore
-and hydration limits, and durability timeout. Ordinary replication operations
-share the supplied client's pool and credentials. Applications can supply a
-`ReplicaRangeReaderFactory` to control paged reads; signed S3 fault reads are an
-explicit option that retains the supplied credential provider.
-`Bucket::from_clients` accepts caller-owned ordinary, CAS, and paginated clients.
+# A different name has separate state.
+curl -sS http://127.0.0.1:9876/counters/bob
+# {"count":0}
+```
 
-`NodeLogManager::new` takes `LogOptions` and a caller-supplied `LogTransport`.
-Each host controls its pipeline, follower window, ordered streams, hedging,
-eviction, and lease publication timeout. `SignedPeerTransport::from_clients`
-retains the application's request and stream HTTP pools; custom transports own
-peer authentication. Recover the predecessor log before installing a node lease,
-then retain one `DurabilityOwner` for the replication and log tasks. Cancelling
-an execution domain is a forced stop and does not prove a graceful data drain.
+These values assume fresh state. Stop with Ctrl-C, restart with the same
+command, and read `alice` again: its count remains. `dev` watches the project
+and keeps local state beside its configuration under `.cellar/`.
 
-Cellar leases require an explicit `generation` and logs require
-`may_have_fleet_acks`. Recovery accepts complete ranged tails; original lease
-aliases and entries-only tails are rejected. Expired node leases become CAS
-tombstones after their logs are sealed, preserving recovery pointers and guarding
-against deletion of a successor generation.
+Open [the counter source](examples/native-counter/main.rs) or follow its
+[walkthrough](examples/native-counter/README.md) for routing, assets and cleanup.
 
-## Repository structure
+## Work with cells
 
-The production crate groups implementation files by component. `lib.rs`
-preserves existing Rust module paths through `#[path]` declarations, and
-`sdk.rs` remains the application-facing facade.
+### Update a cell's state
 
-| Folder under `crates/cellar/` | Responsibility |
+Inside a cell handler, use its SDK context to access storage. This helper
+increments a counter in one transaction:
+
+```rust
+use cellar::sdk::Context;
+
+fn increment(context: &Context) -> anyhow::Result<u64> {
+    let storage = context.storage()?;
+    storage.transaction_sync(|tx| {
+        let count: u64 = match tx.get_json("count")? {
+            Some(value) => serde_json::from_value(value)?,
+            None => 0,
+        };
+        let next = count
+            .checked_add(1)
+            .ok_or_else(|| anyhow::anyhow!("counter overflow"))?;
+        tx.put_json("count", &serde_json::json!(next))?;
+        Ok(next)
+    })
+}
+```
+
+The storage belongs to the current cell. Cellar checks ownership and durability
+before releasing a successful handler response.
+See [storage and transactions](docs/06-storage-transactions.md).
+
+### Call a cell by name
+
+In a gateway handler, resolve a declared namespace and forward the request:
+
+```rust
+use cellar::sdk::{Context, Invocation, Output, Registry};
+
+let application = Registry::new(|context: Context, invocation| {
+    Box::pin(async move {
+        let Invocation::Fetch(request) = invocation else {
+            anyhow::bail!("expected an HTTP request");
+        };
+        let counter = context.namespace("COUNTERS")?.get_by_name("alice");
+        Ok(Output::Http(counter.fetch(&context, request).await?))
+    })
+});
+```
+
+`COUNTERS` is a namespace binding declared in your
+[project configuration](examples/native-counter/project.json).
+The same name finds the same cell within that namespace, even when its owner
+changes. The [complete counter](examples/native-counter/main.rs) also registers
+its cell factory; this gateway snippet shows only request forwarding.
+
+### Use Axum or embed the runtime
+
+[cellar-axum](crates/cellar-axum/README.md) lets you use Axum handlers, middleware
+and optional OpenAPI. Run the same counter in an Axum-owned HTTP server:
+
+```sh
+# Stop the earlier server before reusing port 9876.
+cargo run -p cellar-axum-counter --bin axum-host --locked -- \
+  127.0.0.1:9876 examples/.cellar/axum-counter
+```
+
+POST to `/counters/alice`, or open `/docs` for Swagger UI. The
+[two-host example](examples/axum-counter/README.md) includes both hosting modes
+and a generated Rust client.
+
+To own listeners, executors and node lifecycle directly, start with the
+[embedded Node example](examples/embedded-node/README.md).
+
+## How Cellar works
+
+### Four concepts
+
+| Concept | Meaning |
 | --- | --- |
-| `cli/` | Commands, packaging, development, and environment parsing |
-| `application/` | SDK contracts, binding adapters, and built-in KV/Queue cells |
-| `actor/` | Serial decision-core driver and effect execution |
-| `execution/` | Execution domains, injected services, and task ownership |
-| `node/` | Startup, ingress, supervision, managed integration, and shutdown |
-| `runtime/` | Generations, assets, cells, compiled workers, and invocation lifetimes |
-| `transport/` | HTTP, TCP/TLS, and WebSocket adapters and owned registries |
-| `storage/` | SQLite, object-store clients, and the shared Blob backend |
-| `durability/` | Replication, node logs, recovery, and durability task ownership |
-| `fleet/` | Leases, peer authentication, handoff, and durable wake discovery |
-| `deployment/` | Shared manifests, artifact protocol, and deployment loading |
-| `containers/` | Cell-owned container service and Docker adapter |
-| `observability/` | Telemetry export and encoding |
-| `platform/` | Process memory and machine adapters |
-| `tests/` | Cargo integration-test entry points |
+| **Cell** | Business behavior with its own durable SQLite state. |
+| **Namespace** | A binding used to find and call cells by name or ID. |
+| **Node** | A process running compiled applications and hosting cells. |
+| **Fleet** | Nodes sharing an object store for ownership and durable data. |
 
-For example, `cellar::daemon` is implemented in `node/mod.rs`,
-`cellar::storage` in `storage/sqlite/mod.rs`, and `cellar::node_log` in
-`durability/log/mod.rs`. Transport registries retain their originating domain
-and event authority. The other crates keep their existing boundaries:
-`cellar-logic` owns decisions, `cellar-ltx` owns SQLite/LTX mechanisms, and
-`cellar-native` owns engine-independent primitives. `cellar-axum` composes Axum
-with the SDK and owns no cell state or fleet policy. See [AGENTS.md](AGENTS.md)
-for module ownership and contribution guidance.
+### Route to the owner
 
-## Build and run
+![An application reaches a fleet of Cellar nodes. Nodes route calls to the owner, replicate peer logs, and share object storage.](diagram/architecture.svg)
 
-```sh
-cargo build -p cellar --bin cellar --locked
-./target/debug/cellar --help
-./target/debug/cellar dev examples/native-counter/project.json
-```
+Each cell has one authoritative owner. A request can arrive at another node;
+Cellar routes it to the owner. Before a replacement owner serves the cell,
+Cellar recovers the required state and log history.
 
-The example serves `http://127.0.0.1:9876/counters/NAME`; POST increments its
-persistent counter. `dev` builds the Rust application, watches its project,
-and keeps durable state in `.cellar/<project-hash>` beside the configuration.
-Use `--no-watch` for a single
-build, `--logs` for node logs, and `--clean` to reset the project's local state.
+Inside the host, a pure decision core chooses actions. A serial actor owns that
+core, and adapters perform storage and network I/O.
+See [architecture and ownership](docs/03-architecture.md).
 
-`cellar build PROJECT.json --output DIRECTORY` produces a verified application
-package. `cellar deploy DIRECTORY --bucket NAME` publishes it; `cellar install`
-downloads and verifies the executable. Run that compiled application executable
-with your node's bucket, listeners, and peer settings. `cellar` is the single CLI.
+### Prove a write before replying
 
-Rust application code is compiled into its host executable. Source JavaScript,
-Node.js modules, and the previous JavaScript-based Python/Wasm wrappers are no
-longer executable in Cellar. Use the [native Rust examples](examples/README.md)
-for current application development.
+![Cell code commits SQLite changes, Cellar proves durability through peer logs or bucket upload, and the output gate releases success.](diagram/durability.svg)
 
-## Fleet and deployment
+SQLite writes are captured as **LTX**, the replication format. A single
+bucket-backed node waits for upload proof. A fleet can prove durability through
+peer logs before uploading to the bucket.
 
-A conditional bucket write grants cell ownership to one node. LTX captures
-committed SQLite writes. One node waits for bucket upload to prove durability;
-a fleet can prove it through peer log replication before bucket upload.
-Ownership fencing, restore, durable wakes, and shutdown use the retained host.
-Local integration tests exercise follower disk proofs and recovery after leader
-loss. Broader fleet rollout and recovery validation remain follow-up work.
+The output gate checks the required proof before releasing success. If a reply
+is lost, the caller may still have an ambiguous outcome; use an explicit
+[idempotency and retry contract](docs/07-routing-rpc.md).
 
-The default Docker image contains the Rust CLI:
+## Explore the SDK
+
+Pick a working example for the part you need:
+
+| Build | Start here |
+| --- | --- |
+| Stored data and transactions | [SQL](examples/sql/README.md), [KV](examples/kv/README.md), [Blob](examples/blob/README.md) |
+| Calls between cells | [RPC](examples/rpc/README.md) |
+| Background jobs | [Alarms](examples/alarm/README.md), [queues](examples/queues/README.md), [workflows](examples/workflow/README.md) |
+| Event delivery | [Transactional outbox](examples/transactional-outbox/README.md), [durable streams](examples/durable-streams/README.md) |
+| Web applications | [Static assets](examples/static-assets/README.md), [WebSockets](examples/native-websocket/README.md) |
+| Fleet management | [Fleet console](crates/cellar-admin/README.md), [FleetCare lab](crates/cellar-fleetcare/README.md) |
+
+See the [full example catalog](examples/README.md) for more recipes.
+Event-delivery work and its remaining qualification gates are tracked in the
+[implementation status](plans/outbox-implementation-status.md).
+
+## Package and deploy
+
+Build a package containing your compiled application:
 
 ```sh
-docker build -t cellar .
-docker run --rm cellar --version
+cargo run -p cellar --bin cellar --locked -- \
+  build examples/native-counter/project.json --output counter-package
 ```
 
-Application images should copy their compiled executable into a compatible
-runtime image and set it as the entry point. Pass fleet credentials and mount
-persistent node storage when running that application. The generic CLI image
-has no application factories compiled into it.
+The CLI can publish a package with `deploy` and download a verified executable
+with `install`. Run that application executable on your nodes; the generic CLI
+does not contain your application's factories.
 
-## Verification
+Follow [packaging and deployment](docs/12-packaging-deployment.md) for credentials,
+shared storage, installation and rollout. The
+[distributed fleet example](examples/distributed-fleet/README.md) covers local
+recovery and handoff drills.
 
-Apply Rust formatting with `cargo format`. This runs stable rustfmt and adds
-blank lines between declarations and methods. CI checks the same convention:
+## Documentation
 
-```sh
-cargo format --check
-python3 tools/check_native_dependencies.py
-cargo test --workspace --all-features --lib --tests --locked
-cargo test --workspace --all-features --doc --locked
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-```
+| Learn about | Guide |
+| --- | --- |
+| Modeling cells and choosing boundaries | [Cell modeling](docs/04-cell-modeling.md) |
+| Application contexts and resource lifetimes | [SDK and lifetimes](docs/05-sdk-and-lifetimes.md) |
+| Owning the runtime in your application | [Embedding](docs/10-embedding.md) |
+| Running and recovering a fleet | [Operations](docs/17-operations.md), [recovery](docs/18-recovery-backup.md) |
+| Evidence and remaining release gates | [Production readiness](docs/21-production-readiness.md) |
 
-Cellar, Cellar Logic, Cellar LTX, and Cellar Native are Apache-2.0 licensed.
-See [LICENSE](LICENSE) and [NOTICE](NOTICE) for the license and attribution.
+The [documentation library](docs/README.md) contains the full guides. Open the
+[visual explorer](docs/index.html) locally for interactive architecture and
+request, write, recovery and shutdown flows.
+
+## Contributing
+
+Read [AGENTS.md](AGENTS.md) for repository boundaries and Rust conventions.
+Use `cargo format` to format code and `cargo check-layout` to check module
+placement. The [SDK CI workflow](.github/workflows/native-sdk.yml) defines the
+full validation commands.
+
+Cellar executes native Rust applications without a JavaScript engine. Current
+Cellar development uses fresh configuration and state; legacy Celld aliases and
+persisted-state migration are unsupported.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
