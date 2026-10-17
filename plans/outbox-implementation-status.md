@@ -42,7 +42,7 @@ and join assertions while carrying capacity ownership through actual upload
 completion. The candidate snapshots the sorted spool's guards and passes them as
 per-operation object-store extensions through the LTX client. The SQLite adapter
 retains that context through its entered blocking PUT; multipart completion
-forwards it too. Context is independent of the stored bytes. Original borrowed
+forwards it too. Context is independent of the stored bytes. Local multipart payload fields drop before their context; capacity never grants execution or proof authority. Original borrowed
 upload APIs, keys, metadata, retry behavior and coverage-on-success remain intact.
 All owned markers remain 1.
 
@@ -90,6 +90,12 @@ workspace all-target/all-feature check and Clippy-D, format/layout, docs/depende
 policy, four incoming console guards and branch diff checks. This merge supplies
 no repair for the two observed library failures. PR #73 remains the single draft
 against main; the full implementation goal remains active.
+
+Main advanced again with documentation-only `c4787fc` (PR #75). Merge `dd7803d`
+resolves the AGENTS.md conflict by retaining main's concise guide exactly; detailed
+upload invariants and evidence remain here and in the source. All 631 captured
+build/test inputs stay byte-identical to the refreshed gates. Documentation and
+branch-diff checks pass after conflict resolution.
 
 This qualifies entered SQLite worker retention, not every supplied backend.
 Inspection of object_store 0.12.5 finds S3 multipart extensions attached to upload
