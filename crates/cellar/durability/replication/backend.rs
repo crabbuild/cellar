@@ -2159,7 +2159,22 @@ impl LtxRepl {
         max_txid: u64,
         bytes: &[u8],
     ) -> anyhow::Result<()> {
+        self.upload_raw_l0_with_context(cell, epoch, min_txid, max_txid, bytes, Default::default())
+            .await
+    }
+
+    /// Preserve per-operation context in the exact supplied upload backend.
+    pub(crate) async fn upload_raw_l0_with_context(
+        &self,
+        cell: &str,
+        epoch: u64,
+        min_txid: u64,
+        max_txid: u64,
+        bytes: &[u8],
+        extensions: object_store::Extensions,
+    ) -> anyhow::Result<()> {
         self.client_for(cell, epoch)
+            .with_upload_extensions(extensions)
             .write_ltx_file(0, TXID(min_txid), TXID(max_txid), bytes)
             .await
             .map_err(|error| {

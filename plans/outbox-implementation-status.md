@@ -20,13 +20,233 @@ storage failures. The ordered list below supersedes historical next-step notes.
 
 | Order | Critical gap | Kind | Acceptance gate |
 | --- | --- | --- | --- |
-| 1 | Coherent small-object reads during lease renewal | Confirmed GET snapshot regression; repair qualifying | The current native run passes 11/21; all ten failures report a changed ETag between returned lease metadata and body collection. Prove an ordinary GET/update/body-read sequence preserves one bounded response version, while HEAD, large/ranged read memory limits, original-domain refusal and entered-I/O joins remain intact. No unconditional read retry or unbounded body fallback supplies this guarantee. |
-| 2 | Bound total retained-tail memory | Tail/control and own-session close/fold scoped bounds pass; other bundle/concurrency bounds missing | Cold scans/seal and gathered rows have the scoped bounds below. The current candidate replaces production tail replies/HTTP collection with immutable disk snapshots and bounded authenticated streams; 53 log cases, 21 native recovery cases and the 28-scenario process matrix with independent audits pass; full workspace qualification still fails as recorded below. The own-session close/fold follow-up passes its scoped disk-spool gate. Dead-session/GC/overlay readers, concurrent scans, diagnostics and provider/progress inventories still lack total bounds. Preserve exact complete-range proof through reconnect/cancellation; per-file and scanner bounds alone are insufficient. |
-| 3 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
-| 4 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
-| 5 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
-| 6 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
-| 7 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+| 1 | Intermittent Node startup, fencing and shutdown failures | Returning-witness race qualified; other causes open | Cancelled-bootstrap, explicit-policy closed-domain, clock-fixture activation, native-actor parent/policy-child NodeFenced, held-turn entry during drain fencing, TLS ClientHello entry, Axum overload-forwarding connection loss, external-ingress authority readiness and RustFS damaged-witness successor lease-expiry failures remain open; reproduce their own failing boundaries and pass original deadlines/assertions. The returning-witness cause and qualification below do not establish those separate causes. |
+| 2 | Bound total recovery memory | Normal retained-bundle profile passes; total capacity remains unqualified | The current candidate verifies all 32 original 4 MiB LTX rows and the real seal with 46497792 bytes of RSS growth (about 44.3 MiB), below the unchanged 64 MiB budget. Shared scan admission, eight active body transfers, verified disk staging and final-window follower precedence pass library and native recovery gates. Native SQLite single/multipart upload cancellation regressions pass after request-context retention. Network part-upload cancellation, GC/overlay/diagnostic readers, metadata/progress inventories and legal oversized upload rows retain independent capacity gates. A normal-profile pass is not a total ceiling. |
+| 3 | Proof, ownership and recovery under failure | Missing qualification; unresolved recovery failures | Record each source commit/data proof/discovery/append/lease/ack cut. Audit original accepted receipts before replay. Missing witnesses/corrupt retained bundles must refuse recovery without sealing or installing a successor; qualify recovery availability only under retained-proof assumptions. Exercise isolated expired owners, follower-only proof and supported store-loss cases; stale owners must not authorize settlement, checkpoints or visible success. |
+| 4 | Retention, lease and destructive-lifecycle races | Incomplete qualification | Cover clock rollback, expiry versus extend/ack/reset, two-consumer effects, grant/adoption changes and interrupted source/facet cleanup. No protected event may be reclaimed, obsolete receipt accepted or retained inbox effect repeated. |
+| 5 | Metadata exhaustion and recovery headroom | Incomplete capacity/operational profile | Exercise lane/receipt/tombstone limits, large protected histories, large SQL/directory cleanup, restore/compaction and long soaks. Preserve exact replay at capacity; report fairness, bounded memory and required storage headroom. |
+| 6 | Complete operational coverage | Missing implementation and qualification | Finish resident aggregate gauges, facet/historical/namespace inventory and WAL/LTX/bucket physical accounting. Coverage failures must remain explicit; inventories cannot claim a global drain proof. |
+
+### Current follow-up: entered upload cancellation
+
+The new native-worker regressions reproduce a capacity-ownership bug in both
+single-part and multipart dead-session recovery. After aborting and joining the
+recovery caller, scan admission becomes available while the entered SQLite upload
+still owns its body. Both cases complete their worker/domain joins and retained
+root checks, then fail the reservation assertion. This is a confirmed defect,
+not merely missing qualification.
+
+The frozen 628-input baseline runs two cases with zero passes and two failures
+in 0.95s after compilation. Preserve those cancellation, ownership, root-identity
+and join assertions while carrying capacity ownership through actual upload
+completion. The candidate snapshots the sorted spool's guards and passes them as
+per-operation object-store extensions through the LTX client. The SQLite adapter
+retains that context through its entered blocking PUT; multipart completion
+forwards it too. Context is independent of the stored bytes. Local multipart payload fields drop before their context; capacity never grants execution or proof authority. Original borrowed
+upload APIs, keys, metadata, retry behavior and coverage-on-success remain intact.
+All owned markers remain 1.
+
+Both previously failing regressions now pass. A real normal multipart recovery
+also verifies both original valid 6 MiB rows, file identities/sizes, original root
+identity and actual seal, timestamp metadata and released scan admission. An
+in-memory-store case requires capacity available after client completion while
+the original stored LTX body remains readable. These four checks pass in both
+executions of the unchanged candidate binary.
+
+The complete 332-case library gate still fails: 330 pass, while the original
+three-second held-turn entry guard in drain fencing and the two-second TLS
+ClientHello guard expire. Source inputs remain unchanged (628); compilation takes
+9m26s and library runtime 85.41s. Save that failure separately from ten passing
+isolated replays per case and a passing full 332-case diagnostic replay (55.55s)
+with five seconds of native stack sampling. The sample covers a successful run,
+not the failing window; none of these replays establishes either cause or repair.
+All 13 remaining native/static phases pass on the same 628 inputs (989.55s
+including compilation): native recovery 21 (69.01s runtime), CLI/artifact 10,
+SDK integration three and the normal-stack Node catalog/owner-handoff case;
+workspace all-target/all-feature check and Clippy with warnings denied; format,
+layout, docs, dependency policy, 179 Python guards and both diff checks. The two
+existing unclosed-SQLite Python warnings remain. This is not an all-green library
+or release gate. The earlier 328-case result below predates these regressions.
+
+The unchanged original public-SDK probe also passes against rebuilt production
+Cellar and LTX libraries; both library hashes differ from the prior memory-only
+candidate. All 32 original baseline record lengths/digests match, the actual seal
+and original-row audits finish, and source/linked-library hashes stay unchanged.
+RSS growth is 43810816 bytes (about 41.8 MiB), below the same 67108864-byte budget;
+preparation takes 3.44s and measurement 13.40s. This remains retained-row recovery,
+not prior client-ACK, follower-proof or physical-loss qualification.
+
+After the scoped upload repair, the next selected priority is the observed
+library timing failures: capture the actual held request outcome and TLS poll/I/O
+progress at the original guards, and preserve failure cleanup/joins. A passing
+replay cannot substitute for observing and repairing the failing boundary.
+
+Repair commit `d878c74` is retained with main-sync merge `b4e31c3` (main
+`4d33460`, FleetCare console PR #74). Input comparison verifies that every
+previously qualified recovery/runtime source is byte-identical: only the
+FleetCare manifest changes, with its publisher and two Python sources added.
+All eight refreshed static phases pass on 631 unchanged inputs, including
+workspace all-target/all-feature check and Clippy-D, format/layout, docs/dependency
+policy, four incoming console guards and branch diff checks. This merge supplies
+no repair for the two observed library failures. PR #73 remains the single draft
+against main; the full implementation goal remains active.
+
+Main advanced again with documentation-only `c4787fc` (PR #75). Merge `dd7803d`
+resolves the AGENTS.md conflict by retaining main's concise guide exactly; detailed
+upload invariants and evidence remain here and in the source. All 631 captured
+build/test inputs stay byte-identical to the refreshed gates. Documentation and
+branch-diff checks pass after conflict resolution.
+
+This qualifies entered SQLite worker retention, not every supplied backend.
+Inspection of object_store 0.12.5 finds S3 multipart extensions attached to upload
+creation, not retained in the part-upload state. Network part cancellation still
+needs its own ownership/failure qualification. Maximum-row materialization,
+multipart coalescing, provider/progress inventories and the full release matrix
+also remain open.
+
+### Current follow-up: dead-session recovery memory
+
+The earlier memory candidate passes all 328 library cases and all 21 native recovery
+cases on 628 unchanged source inputs. The dead-session profile verifies 32 original
+4 MiB rows before its unchanged 64 MiB assertion and grows RSS by 46497792 bytes
+(about 44.3 MiB). Single live-scan growth is 33636352 bytes; two indexed live folds
+grow by 32980992 bytes. The library takes 58.18s (179.78s including compilation),
+and native recovery 69.64s (268.47s including compilation). Original five-second
+proof/recovery guards and exact bundle/follower restoration assertions pass.
+
+Bundle bodies stage with eight active transfers, independently of metadata's
+16-operation coverage fanout. That admission reserves upload headroom after
+staging; it does not reduce original row counts or increase memory/deadline
+budgets. Numeric windows, final preferred follower merge, full-envelope integrity,
+original descriptor/payload checks and refusal before seal remain intact. Claim
+heartbeats cover admission and transfer/disk waits. Verification and spool copying
+read 128 KiB chunks; immutable incoming Bytes reach the real disk write without a
+second block allocation. Copied spools retain deduplicated reservations.
+
+All 14 scoped phases pass on those unchanged 628 inputs (731.02s including
+builds): library 328, native recovery 21, CLI/artifact 10, SDK integration three,
+and the actual normal-stack Node catalog/tombstone/owner-handoff case. Workspace
+all-target/all-feature checking and Clippy with warnings denied, repository format
+and layout, docs/dependency policy, 179 Python guards and both diff checks pass.
+Python still emits two unclosed-SQLite ResourceWarnings; that fixture audit remains
+open. Passing current fencing cases do not explain the historical deadline failure.
+
+The original public-SDK probe also passes against the rebuilt primary-checkout
+production library. Its helper source is unchanged, all 32 original record
+lengths/digests match the baseline manifest exactly, and source/library hashes are
+unchanged before and after. The real seal and original row oracles complete before
+RSS growth of 43614208 bytes (about 41.6 MiB) passes the same 64 MiB limit; measured
+runtime is 13.86s after 3.59s separate preparation. The production library hash
+differs from the baseline library. This is retained-row recovery qualification,
+not prior client-ACK, follower-only or physical-loss qualification.
+
+The earlier memory repair is `6a0f07997f3a47ed812bf5f64a539a09a426a329` in draft PR #73 directly
+against main, the sole event-delivery PR; follow-ups reuse it while open. Both
+hosted jobs for that code head execute zero steps. Their annotations cite account
+payment/spending restrictions, so those hosted jobs supply no test result. That
+qualification predates the upload cancellation repair above; legal oversized
+upload rows, metadata inventories and the remaining release matrix stay open.
+
+The baseline and investigation evidence below is historical; reverted experiments
+are not part of the current implementation.
+
+After the scoped PR #71 qualification, the initial public-SDK baseline links the
+same primary-checkout production library and exact dependency artifacts used by
+the native Node target. Library digests and all 625 source inputs match before
+and after the probe. Its ordinary GET canary independently requires the new small
+response behavior. No framework code is copied into the executable.
+
+A separate process prepares 32 valid, incompressible 4 MiB LTX rows in a private
+bucket and persists an expired retained node root using the real lease CAS. The
+fixture supplies no peer or client-acknowledgment evidence. A fresh measured
+process calls the public recovery API, requires the real seal plus unchanged
+lineage/generation/expiry, and audits every original row's key, length and SHA-256.
+After all 32 oracles and sampler/domain/owner joins, RSS growth is 238616576 bytes
+(about 227.6 MiB), above the unchanged 67108864-byte (64 MiB) budget. Preparation
+takes 4.21s and the measured subprocess 15.07s. This is an actual production
+recovery memory failure, not a helper-only allocation or failure to recover rows.
+It qualifies neither prior client ACKs nor follower-proof or physical-loss behavior.
+
+The same-layout repository regression now reproduces that failure independently:
+all 32 original row oracles finish before RSS growth of 238632960 bytes fails the
+unchanged 64 MiB budget. All 626 captured inputs stay unchanged; its failed
+executable is preserved. Runtime is 22.16s (296.25s including compilation).
+
+The candidate streams retained bodies into guarded scratch, at most 16 files per
+transfer group, and reuses the full-envelope/row verifier before copying bounded
+batches into the window spool. Numeric recovery windows and the final follower
+merge remain the upload-order boundary. Dead recovery shares node admission with
+live folds, acquired before follower staging; admission, listing, transfer and
+disk waits retain claim heartbeats. New actual-caller regressions require a corrupt
+window to refuse twice without cell coverage/checkpoints/seal, then recover only
+when original bytes return, and require persisted heartbeat advancement while
+scan admission is held. The first streamed candidate passes 326 library tests,
+including both new correctness boundaries, but the unchanged dead-session memory
+gate still fails at 72761344 bytes (about 69.4 MiB). Its full 628-input source
+capture and failed executable are preserved; runtime is 67.76s (231.62s including
+compilation). No memory budget or original row oracle changes.
+
+The next candidate removes complete-row allocations from spool uniqueness
+verification and spool-to-spool copying: descriptors, payload SHA-256, lengths,
+order, cancellation and duplicate precedence remain checked while payload reads
+stay at 128 KiB. Reservations follow the copied spool without accumulating the
+same guard per bundle. That candidate passes 327 library tests, including the
+new bounded-read and extended damaged-payload cases, but still exceeds the same
+memory gate at 72155136 bytes (about 68.8 MiB); runtime is 56.82s (168.89s
+including compilation), with all 628 inputs unchanged.
+
+A fresh private fixture run of the preserved executable samples RSS against
+actual uploaded-object count and persisted seal state. Its peak already occurs
+during upload, before the row audit. Staging reaches 79282176 bytes absolute RSS,
+then uploads reach 91308032 bytes; the post-seal audit adds no higher peak.
+The next controlled change bounds each native SQLite chunk reader's connection
+page cache to two read chunks (256 KiB), instead of multiplying the default
+multi-MiB cache across concurrent readers. Transfer concurrency, original row
+oracles and memory limits stay unchanged. The focused cache experiment still
+fails at 72318976 bytes; all 628 inputs remain unchanged and its failed executable
+is preserved. The read-cache experiment is reverted because it did not explain
+or improve this boundary.
+
+The next candidate addresses native PUT headroom: allocate the BLOB with zeroblob,
+then write 128 KiB chunks inside the original conditional transaction. Body,
+metadata, ETag sequence and replacement remain one commit. New tests inject failure
+after a real partial write and hold an actual write while another connection reads
+the original object. Rollback must retain original bytes/metadata/sequence; partial
+bytes remain invisible until commit. Empty bodies and stale/create refusals remain
+covered. Both new atomicity cases pass, with 329 library tests passing overall,
+but recovery still fails the same 64 MiB gate at 72548352 bytes; runtime is 71.87s
+(208.31s including compilation), with all 628 inputs unchanged. Later native/static
+phases do not run. This PUT experiment and its test-only hooks are removed because
+they did not improve the selected boundary.
+
+A fresh preserved-executable diagnostic obtains real vmmap/heap snapshots during
+upload. The heap snapshot has about 7 MiB live allocations while malloc retains
+about 49 MiB resident; this suggests transfer allocation churn/allocator retention,
+rather than an entire retained history remaining live. Inspection finds a second
+128 KiB Vec copy for every streamed block before disk I/O. The next candidate
+passes a slice of the original immutable Bytes into the entered file worker,
+retaining both that buffer and the guarded scratch handle through the real write.
+All 32 original rows, 16 concurrent transfers and the 64 MiB limit stay unchanged.
+The focused run still fails at 71516160 bytes (about 68.2 MiB), with all 628
+inputs unchanged; runtime is 19.15s (139.60s including compilation). The copy is
+removed, but that alone does not qualify the memory ceiling.
+
+The next candidate separates payload transfer admission from metadata lookup
+fanout. Live folds and dead recovery stage at most eight bundle bodies at once,
+reserving headroom for later upload buffers and allocator retention. Metadata
+coverage lookups retain their 16-operation fanout. This changes production
+backpressure, not the fixture: all 32 original records and the 64 MiB budget stay
+unchanged. Qualification includes the original native five-second recovery/proof guards;
+those gates and the scoped batch now pass as recorded above. Full release
+qualification remains open.
+A separate source audit shows that async spool ownership alone does not establish
+capacity retention in an entered upload PUT after caller cancellation; reproduce
+and qualify that write-worker boundary rather than extending read-worker claims.
+Main advanced through the module-layout refactor in PR #72 after #71 merged;
+this candidate starts directly from
+`5d9857edb997f8c2bbfc9fd526bf33dfc540348f`, preserving sibling test paths and the
+new mandatory `cargo check-layout` gate. Earlier qualification remains bound to
+its exact 2968a42 source, rather than being claimed for the refactored tree.
 
 ### Current follow-up: small GET response identity
 
@@ -63,9 +283,17 @@ the repository formatter, a fresh 625-input capture passes all 324 library cases
 without compiler warnings (78.45s runtime; 261.21s including build validation).
 The two indexed scans grow RSS by 53346304 bytes (about 50.9 MiB); the single scan
 grows by 54837248 bytes, both under the unchanged 64 MiB budget. The controlled
-GET replacement case and all original owner/cancellation checks pass. Native21,
-SDK/Node and static phases are now qualifying that same final source; no native
-recovery or complete release GREEN is claimed yet.
+GET replacement case and all original owner/cancellation checks pass. The complete
+12-phase scoped batch then passes on all 625 unchanged inputs (2580.74s including
+builds): native recovery 21/21 in 71.34s, SDK outbox/stream/event-stream one case
+each, and the actual normal-stack Node catalog/tombstone/handoff case. Workspace
+all-target/all-feature check and Clippy with warnings denied, formatting,
+documentation, dependency policy, all 179 Python guards and both diff checks pass.
+Python emits 2 unclosed-SQLite ResourceWarnings; that fixture cleanup audit stays
+open. All ten earlier native ETag failures are absent after the bounded snapshot
+repair. The separate application-drain fencing deadline is not explained by this
+result. PR #71 merged as `e530020c9851074e2c75c69b821a9d2b87a8527a`; this is
+scoped repair qualification, not a full workspace runtime or release claim.
 Keep HEAD body-free, retain the original 128 KiB/16 MiB provider bounds and owner
 admission/result checks, and do not hold a SQLite transaction while a body is idle.
 Large-object version changes must still refuse instead of mixing bytes. The

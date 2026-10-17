@@ -3,6 +3,40 @@ use crate::sdk::ExecutionDomain;
 use anyhow::{ensure, Result};
 use object_store::GetRange;
 
+#[tokio::test]
+async fn stored_ltx_bytes_do_not_retain_upload_request_capacity() -> Result<()> {
+    use cellar_ltx::{
+        client::object_store::{ObjectStoreClient, ObjectStoreConfig},
+        ltx, ReplicaClient, TXID,
+    };
+    let slots = Arc::new(tokio::sync::Semaphore::new(1));
+    let guard = crate::bucket::IoGuard::new(Arc::new(slots.clone().acquire_owned().await?));
+    let mut extensions = object_store::Extensions::new();
+    extensions.insert(guard);
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let client = ObjectStoreClient::with_store(ObjectStoreConfig::default(), store.clone())
+        .with_upload_extensions(extensions);
+    let header = ltx::Header {
+        version: ltx::VERSION,
+        flags: ltx::HEADER_FLAG_NO_CHECKSUM,
+        page_size: 512,
+        commit: 1,
+        min_txid: TXID(1),
+        max_txid: TXID(1),
+        ..Default::default()
+    };
+    let bytes = ltx::encode_file(&header, &[(1, vec![0x5a; 512])], 0)?;
+    client.write_ltx_file(0, TXID(1), TXID(1), &bytes).await?;
+    drop(client);
+    let permit = slots.try_acquire().map_err(|error| {
+        anyhow::anyhow!("stored payload retained completed request capacity: {error}")
+    })?;
+    let reader = ObjectStoreClient::with_store(ObjectStoreConfig::default(), store);
+    ensure!(reader.open_ltx_file(0, TXID(1), TXID(1)).await? == bytes);
+    drop(permit);
+    Ok(())
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test]
 async fn head_does_not_materialize_the_object() -> Result<()> {
@@ -489,7 +523,7 @@ async fn cancelled_reserved_read(metadata: bool) -> Result<()> {
     };
     options
         .extensions
-        .insert(crate::bucket::ReadGuard::new(permit));
+        .insert(crate::bucket::IoGuard::new(permit));
     let task = match owner.spawn(async move {
         let response = store.get_opts(&Path::from("key"), options).await?;
         response.bytes().await?;
@@ -523,4 +557,42 @@ async fn cancelled_reserved_read(metadata: bool) -> Result<()> {
     ensure!(slots.available_permits() == 1);
     ensure!(gate.calls.load(std::sync::atomic::Ordering::SeqCst) == 1);
     Ok(())
+}
+
+/// A caller-owned fault control. Dropping it always unblocks entered I/O.
+#[cfg(not(cellar_internal_tests))]
+pub(crate) struct UploadGate(Arc<ReadGate>);
+
+#[cfg(not(cellar_internal_tests))]
+impl UploadGate {
+    pub(crate) async fn entered(&self) {
+        self.0.entered.notified().await;
+    }
+
+    pub(crate) fn release(&self) {
+        self.0.release();
+    }
+
+    pub(crate) fn calls(&self) -> usize {
+        self.0.calls.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[cfg(not(cellar_internal_tests))]
+impl Drop for UploadGate {
+    fn drop(&mut self) {
+        self.release();
+    }
+}
+
+#[cfg(not(cellar_internal_tests))]
+pub(crate) fn held_upload_store(
+    database: &std::path::Path,
+    domain: &ExecutionDomain,
+    prefix: &str,
+) -> Result<(Arc<dyn ObjectStore>, UploadGate)> {
+    let gate = ReadGate::new(domain);
+    let mut store = LocalStore::open(database)?;
+    store.put_gate = Some((prefix.to_owned(), gate.clone()));
+    Ok((Arc::new(store), UploadGate(gate)))
 }
