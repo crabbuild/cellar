@@ -42,3 +42,7 @@ path = "src/bin/daemon.rs"
 [[bin]]
 name = "fleetcare-load"
 path = "src/bin/load.rs"
+
+[[bin]]
+name = "fleetcare-publish"
+path = "src/bin/publish.rs"

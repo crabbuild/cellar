@@ -1066,6 +1066,13 @@ shutdown proofs. `python3 tools/perf/fleetcare.py` builds the separate
 embedded and daemon modes with Bucket and Fleet durability. Use
 `--profile smoke --suite smoke` for a short functional check; the default
 standard suite additionally verifies crash, store outage and cold recovery.
+For a persistent local FleetCare console, use
+`python3 tools/perf/fleetcare_console.py up`; it publishes the native package
+with `fleetcare-publish`, starts three 1-vCPU/2-GiB nodes with private 4-GiB
+disks, and serves the dashboard on a free loopback port, starting at 4174.
+Its checkout-specific Colima profile and ignored `.cellar/fleetcare-console/`
+state are independent of the benchmark. See `crates/cellar-fleetcare/README.md` for login, audit,
+stop and resume commands.
 Its separate `faults.py` driver exercises process failures
 during writes with an application receipt ledger. Verify acknowledged receipts
 before replaying ambiguous requests; otherwise retry can hide lost writes.
