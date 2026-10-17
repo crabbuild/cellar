@@ -2339,7 +2339,7 @@ async fn management_stop_receipts_distinguish_draining_joined_and_incomplete_wor
         if scenario == "cancel" {
             ensure!(
                 matches!(outcome, NodeOutcome::Cancelled),
-                "cancelled node fabricated a stopped outcome"
+                "unexpected forced-closure outcome: {outcome:?}"
             );
         }
         management

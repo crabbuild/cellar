@@ -18,6 +18,7 @@ pub(super) struct PublicationFault {
     entered: Semaphore,
     attempts: AtomicUsize,
     held_path: Mutex<Option<String>>,
+    publications: Arc<tokio::sync::RwLock<()>>,
 }
 
 impl PublicationFault {
@@ -38,11 +39,19 @@ impl PublicationFault {
             entered: Semaphore::new(0),
             attempts: AtomicUsize::new(0),
             held_path: Mutex::new(None),
+            publications: Arc::default(),
         })
     }
 
     pub(super) fn block(&self) {
         self.phase.send_replace(2);
+    }
+
+    /// Cut new publications, then wait for already-admitted uploads before
+    /// taking a byte-for-byte audit of the original durable prefix.
+    pub(super) async fn block_and_drain(&self) {
+        self.block();
+        drop(self.publications.write().await);
     }
 
     pub(super) fn hold(&self) {
@@ -108,6 +117,7 @@ impl ObjectStore for PublicationFault {
         payload: PutPayload,
         opts: PutOptions,
     ) -> object_store::Result<PutResult> {
+        let _publication = self.publications.read().await;
         self.check(path).await?;
         self.store.put_opts(path, payload, opts).await
     }
@@ -117,8 +127,13 @@ impl ObjectStore for PublicationFault {
         path: &Path,
         opts: PutMultipartOptions,
     ) -> object_store::Result<Box<dyn MultipartUpload>> {
+        let publication = Arc::new(self.publications.clone().read_owned().await);
         self.check(path).await?;
-        self.store.put_multipart_opts(path, opts).await
+        let upload = self.store.put_multipart_opts(path, opts).await?;
+        Ok(Box::new(PublicationUpload {
+            upload,
+            publication: Some(publication),
+        }))
     }
 
     async fn get_opts(&self, path: &Path, opts: GetOptions) -> object_store::Result<GetResult> {
@@ -143,6 +158,34 @@ impl ObjectStore for PublicationFault {
 
     async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
         self.store.copy_if_not_exists(from, to).await
+    }
+}
+
+#[derive(Debug)]
+struct PublicationUpload {
+    upload: Box<dyn MultipartUpload>,
+    publication: Option<Arc<tokio::sync::OwnedRwLockReadGuard<()>>>,
+}
+
+#[async_trait::async_trait]
+impl MultipartUpload for PublicationUpload {
+    fn put_part(&mut self, payload: PutPayload) -> UploadPart {
+        let part = self.upload.put_part(payload);
+        let publication = self.publication.clone();
+        Box::pin(async move {
+            let _publication = publication;
+            part.await
+        })
+    }
+
+    async fn complete(&mut self) -> object_store::Result<PutResult> {
+        let _publication = self.publication.take();
+        self.upload.complete().await
+    }
+
+    async fn abort(&mut self) -> object_store::Result<()> {
+        let _publication = self.publication.take();
+        self.upload.abort().await
     }
 }
 
