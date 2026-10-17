@@ -21,7 +21,7 @@ Applications implement `cellar::sdk` contracts and compile into native executabl
 | `crates/cellar-ltx/` | SQLite WAL capture, LTX and replication mechanics |
 | `crates/cellar-axum/` | Axum integration and external ingress |
 | `crates/cellar-admin/`, `dashboard/` | Management API and browser console |
-| `crates/cellar-fleetcare/`, `examples/` | Reference applications and runnable examples |
+| `examples/` | Reference applications and runnable examples |
 | `tools/`, `.github/workflows/` | Development tooling and CI |
 
 Within `crates/cellar/`, place code beside its owning component. `lib.rs` maps

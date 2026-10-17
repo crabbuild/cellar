@@ -9,7 +9,7 @@ COPY tools/perf ./tools/perf
 COPY tools/xtask ./tools/xtask
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
-    cargo build --release --locked -p cellar-fleetcare --bins && \
+    cargo build --release --locked -p fleetcare --bins && \
     mkdir /out && cp target/release/fleetcare-* /out/
 FROM debian:bookworm-slim AS toolkit
 ARG SOURCE_DIGEST

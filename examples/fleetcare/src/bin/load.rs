@@ -3,7 +3,7 @@
 #![allow(clippy::disallowed_methods)]
 
 use anyhow::{ensure, Context, Result};
-use cellar_fleetcare::contracts::{Command, Receipt};
+use fleetcare::contracts::{Command, Receipt};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};

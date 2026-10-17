@@ -186,7 +186,7 @@ Pick a working example for the part you need:
 | Background jobs | [Alarms](examples/alarm/README.md), [queues](examples/queues/README.md), [workflows](examples/workflow/README.md) |
 | Event delivery | [Transactional outbox](examples/transactional-outbox/README.md), [durable streams](examples/durable-streams/README.md) |
 | Web applications | [Static assets](examples/static-assets/README.md), [WebSockets](examples/native-websocket/README.md) |
-| Fleet management | [Fleet console](crates/cellar-admin/README.md), [FleetCare lab](crates/cellar-fleetcare/README.md) |
+| Fleet management | [Fleet console](crates/cellar-admin/README.md), [FleetCare lab](examples/fleetcare/README.md) |
 
 See the [full example catalog](examples/README.md) for more recipes.
 Event-delivery work and its remaining qualification gates are tracked in the

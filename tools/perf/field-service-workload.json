@@ -315,9 +315,9 @@
   ],
   "completion_gate": "Every required phase, saved pre-replay acknowledgement audit and final preserving-reload audit must pass",
   "implementation": {
-    "crate": "crates/cellar-fleetcare",
+    "crate": "examples/fleetcare",
     "runner": "tools/perf/fleetcare.py",
-    "readme": "crates/cellar-fleetcare/README.md",
+    "readme": "examples/fleetcare/README.md",
     "blueprint_is_runner_config": false
   }
 }

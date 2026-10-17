@@ -8,7 +8,7 @@ COPY examples ./examples
 COPY tools ./tools
 RUN --mount=type=cache,id=cellar-console-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
-    cargo build --release --locked --jobs 2 -p cellar-fleetcare --bin fleetcare-daemon --bin fleetcare-load --bin fleetcare-publish -p cellar-admin --bin cellar-dashboard && \
+    cargo build --release --locked --jobs 2 -p fleetcare --bin fleetcare-daemon --bin fleetcare-load --bin fleetcare-publish -p cellar-admin --bin cellar-dashboard && \
     mkdir /out && cp target/release/fleetcare-* target/release/cellar-dashboard /out/
 
 FROM node:24-bookworm-slim AS browser

@@ -3,7 +3,7 @@
 # decisions; `crates/cellar` is only an effect executor and adapter host.
 [workspace]
 resolver = "2"
-members = ["crates/*", "examples/axum-counter", "tools/xtask"]
+members = ["crates/*", "examples/axum-counter", "examples/fleetcare", "tools/xtask"]
 
 # Size-tuned: fat LTO prunes unused dependency code, panic=abort drops
 # unwind tables. opt-level "s" (not "z") — measure RPS before trading further.

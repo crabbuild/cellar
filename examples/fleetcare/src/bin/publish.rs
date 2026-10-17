@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use cellar::native_deploy::{executable_identity, ApplicationConfig, Package};
-use cellar_fleetcare::{config::AppConfig, deployment};
+use fleetcare::{config::AppConfig, deployment};
 use serde_json::json;
 use std::path::Path;
 
@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
     let directory = Path::new("/data/package");
     let manual = directory.join("manual/assets");
     std::fs::create_dir_all(&manual)?;
-    std::fs::write(manual.join("manual.txt"), cellar_fleetcare::assets::MANUAL)?;
+    std::fs::write(manual.join("manual.txt"), fleetcare::assets::MANUAL)?;
     let executable = Path::new("/usr/local/bin/fleetcare-daemon");
     let artifact = executable_identity(executable, cellar::native_deploy::current_target())?;
     std::fs::copy(executable, directory.join(&artifact.sha256))?;
@@ -97,7 +97,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cellar_fleetcare::config::Profile;
+    use fleetcare::config::Profile;
     use std::sync::Arc;
 
     #[test]
@@ -133,7 +133,7 @@ mod tests {
             std::fs::create_dir_all(directory.path().join("manual/assets")).unwrap();
             std::fs::write(
                 directory.path().join("manual/assets/manual.txt"),
-                cellar_fleetcare::assets::MANUAL,
+                fleetcare::assets::MANUAL,
             )
             .unwrap();
             let manifest = published

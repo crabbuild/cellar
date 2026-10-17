@@ -2,7 +2,7 @@
 
 Prepared 2026-10-12 against Cellar
 `2f514334c193ee585c3edb90ba8e3ed2be327d41`.
-Implementation: [FleetCare crate and executable suite](../../crates/cellar-fleetcare/README.md).
+Implementation: [FleetCare crate and executable suite](../../examples/fleetcare/README.md).
 Run `python3 tools/perf/fleetcare.py`; the crate README describes implemented
 cases, commands, resource budgets and coverage limits. This document retains
 the broader qualification design: Poisson arrivals, peer partitions, rolling
