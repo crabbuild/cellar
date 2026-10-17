@@ -327,37 +327,130 @@ fn scratch_failures_never_return_an_empty_success_and_release_files() -> Result<
 
 #[test]
 fn indexed_payload_reread_must_match_its_digest_and_length() -> Result<()> {
-    for fault in [
-        Fault::Read,
-        Fault::Short,
-        Fault::Length,
-        Fault::Corrupt,
-        Fault::PayloadCorrupt,
-    ] {
-        let (_directory, mut rows) = gather()?;
-        rows.insert(
-            ("cell".into(), 1, 1),
-            vec![1, 2, 3],
-            Priority::Preferred,
-            Duplicates::Last,
-        )?;
-        let mut rows = rows.finish()?;
-        let live = Arc::default();
-        rows.payload = Some(wrap(
-            rows.payload.take().unwrap(),
-            fault,
-            &live,
-            &rows.cancellation(),
-        ));
-        let error = rows
-            .next_batch()
-            .expect_err("damaged original payload returned success");
-        if matches!(fault, Fault::PayloadCorrupt) {
-            assert!(error.to_string().contains("payload checksum mismatch"));
-        }
-        drop(rows);
-        assert_eq!(live.load(Ordering::SeqCst), 0);
+    #[derive(Clone, Copy)]
+    enum Reader {
+        Batch,
+        Unique,
+        Copy,
     }
+    for reader in [Reader::Batch, Reader::Unique, Reader::Copy] {
+        for fault in [
+            Fault::Read,
+            Fault::Short,
+            Fault::Length,
+            Fault::Corrupt,
+            Fault::PayloadCorrupt,
+        ] {
+            let (_directory, mut rows) = gather()?;
+            rows.insert(
+                ("cell".into(), 1, 1),
+                vec![1, 2, 3],
+                Priority::Preferred,
+                Duplicates::Last,
+            )?;
+            let mut rows = rows.finish()?;
+            let live = Arc::default();
+            rows.payload = Some(wrap(
+                rows.payload.take().unwrap(),
+                fault,
+                &live,
+                &rows.cancellation(),
+            ));
+            let result = match reader {
+                Reader::Batch => {
+                    let result = rows.next_batch().map(|_| ());
+                    drop(rows);
+                    result
+                }
+                Reader::Unique => rows.unique().map(|_| ()),
+                Reader::Copy => {
+                    let (_destination_directory, destination) = gather()?;
+                    rows.copy_into(destination, Priority::Fallback, Duplicates::First)
+                        .map(|_| ())
+                }
+            };
+            let error = result.expect_err("damaged original payload returned success");
+            if matches!(fault, Fault::PayloadCorrupt) {
+                assert!(error.to_string().contains("payload checksum mismatch"));
+            }
+            assert_eq!(live.load(Ordering::SeqCst), 0);
+        }
+    }
+    Ok(())
+}
+
+#[test]
+fn verification_and_spool_copy_read_large_rows_in_chunks_and_preserve_precedence() -> Result<()> {
+    struct Chunked(HostFile);
+
+    impl cellar_ltx::HostFileIo for Chunked {
+        fn write_all(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+            self.0.write_all(bytes)
+        }
+
+        fn read_exact_at(&mut self, offset: u64, length: usize) -> std::io::Result<Vec<u8>> {
+            assert!(
+                length <= BUFFER_BYTES,
+                "verified spool tried to materialize {length} bytes"
+            );
+            self.0.read_exact_at(offset, length)
+        }
+
+        fn sync_all(&mut self) -> std::io::Result<()> {
+            self.0.sync_all()
+        }
+
+        fn file_len(&mut self) -> std::io::Result<u64> {
+            self.0.file_len()
+        }
+    }
+    let (_source_directory, mut source) = gather()?;
+    let guard: Arc<dyn Send + Sync> = Arc::new(());
+    let alive = Arc::downgrade(&guard);
+    source.keep_alive(guard.clone());
+    let key = ("large".into(), 1, 1);
+    let original = vec![0x51; 2 * BATCH_BYTES + 1];
+    source.insert(
+        key.clone(),
+        original.clone(),
+        Priority::Preferred,
+        Duplicates::First,
+    )?;
+    source.insert(
+        ("small".into(), 1, 1),
+        vec![3],
+        Priority::Preferred,
+        Duplicates::First,
+    )?;
+    let mut source = source.finish()?;
+    source.payload = Some(HostFile::from_io(Chunked(source.payload.take().unwrap())));
+    let source = source.unique()?;
+    let (_destination_directory, mut destination) = gather()?;
+    destination.keep_alive(guard.clone());
+    drop(guard);
+    destination.insert(
+        ("small".into(), 1, 1),
+        vec![7],
+        Priority::Preferred,
+        Duplicates::Last,
+    )?;
+    let destination = source.copy_into(destination, Priority::Fallback, Duplicates::First)?;
+    assert_eq!(
+        destination.guards.len(),
+        1,
+        "same reservation multiplied per copied bundle"
+    );
+    assert!(
+        alive.upgrade().is_some(),
+        "copied rows lost their reservation"
+    );
+    let copied = collect(destination)?;
+    assert_eq!(copied.get(&key), Some(&original));
+    assert_eq!(copied.get(&("small".into(), 1, 1)), Some(&vec![7]));
+    assert!(
+        alive.upgrade().is_none(),
+        "reservation outlived spool consumption"
+    );
     Ok(())
 }
 

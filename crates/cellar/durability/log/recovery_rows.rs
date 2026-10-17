@@ -214,7 +214,9 @@ impl Rows {
     /// Reservations only retain resources; they grant no proof or authority.
     /// Move them with the spool through blocking work and sorted consumption.
     pub fn keep_alive(&mut self, guard: Arc<dyn Send + Sync>) {
-        self.guards.push(guard);
+        if !self.guards.iter().any(|held| Arc::ptr_eq(held, &guard)) {
+            self.guards.push(guard);
+        }
     }
 
     pub fn cancellation(&self) -> Arc<AtomicBool> {
@@ -537,16 +539,14 @@ impl SortedRows {
     /// the gather's normal duplicate precedence. Verify all rows before a
     /// caller can use any of them, then restart the checked bounded reader.
     pub fn unique(mut self) -> Result<Self> {
+        self.check_files()?;
         let mut count = 0_u64;
-        loop {
-            let batch = self.next_batch()?;
-            if batch.is_empty() {
-                break;
-            }
-            count = count
-                .checked_add(batch.len() as u64)
-                .context("gather count overflow")?;
+        while let Some(meta) = self.next_descriptor()? {
+            self.visit_payload(&meta, |_| Ok(()))?;
+            self.previous = Some(meta.key);
+            count = count.checked_add(1).context("gather count overflow")?;
         }
+        self.check_files()?;
         ensure!(count == self.records, "bundle has duplicate row identities");
         self.run = match &mut self.index {
             Some(index) => {
@@ -588,7 +588,7 @@ impl SortedRows {
         Ok(())
     }
 
-    pub fn next_batch(&mut self) -> Result<Batch> {
+    fn check_files(&mut self) -> Result<()> {
         check_cancelled(&self.cancelled)?;
         if let Some(index) = &mut self.index {
             check_length(index, self.index_bytes)?;
@@ -596,8 +596,10 @@ impl SortedRows {
         if let Some(payload) = &mut self.payload {
             check_length(payload, self.payload_bytes)?;
         }
-        let mut batch = Batch::new();
-        let mut held = 0_u64;
+        Ok(())
+    }
+
+    fn next_descriptor(&mut self) -> Result<Option<Meta>> {
         loop {
             check_cancelled(&self.cancelled)?;
             let meta = match self.pending.take() {
@@ -615,10 +617,10 @@ impl SortedRows {
                                 self.previous_descriptor = Some(meta.clone());
                                 meta
                             }
-                            None => break,
+                            None => return Ok(None),
                         }
                     }
-                    None => break,
+                    None => return Ok(None),
                 },
             };
             // Check every descriptor, including ignored duplicates and the
@@ -630,6 +632,74 @@ impl SortedRows {
             if let Some(previous) = &self.previous {
                 ensure!(previous < &meta.key, "gather keys out of order");
             }
+            return Ok(Some(meta));
+        }
+    }
+
+    fn visit_payload(
+        &mut self,
+        meta: &Meta,
+        mut consume: impl FnMut(&[u8]) -> Result<()>,
+    ) -> Result<()> {
+        let mut digest = Sha256::new();
+        let mut position = 0_u64;
+        while position < meta.length {
+            check_cancelled(&self.cancelled)?;
+            let count = usize::try_from((meta.length - position).min(BUFFER_BYTES as u64))?;
+            let bytes = exact(
+                self.payload.as_mut().context("gather payload absent")?,
+                meta.offset + DESCRIPTOR_TAG_BYTES as u64 + position,
+                count,
+            )?;
+            digest.update(&bytes);
+            consume(&bytes)?;
+            position += count as u64;
+        }
+        ensure!(
+            digest.finalize().as_slice() == meta.digest,
+            "gather payload checksum mismatch"
+        );
+        check_cancelled(&self.cancelled)
+    }
+
+    /// Transfer verified rows to another derived spool without allocating a
+    /// complete row. A failed reread never returns the partially copied gather.
+    pub fn copy_into(
+        mut self,
+        mut destination: Rows,
+        priority: Priority,
+        duplicates: Duplicates,
+    ) -> Result<Rows> {
+        for guard in &self._guards {
+            destination.keep_alive(guard.clone());
+        }
+        self.check_files()?;
+        while let Some(meta) = self.next_descriptor()? {
+            destination.insert_body(
+                meta.key.clone(),
+                meta.length,
+                meta.digest,
+                priority,
+                duplicates,
+                |file, cancelled| {
+                    self.visit_payload(&meta, |bytes| {
+                        check_cancelled(cancelled)?;
+                        file.write_all(bytes)?;
+                        Ok(())
+                    })
+                },
+            )?;
+            self.previous = Some(meta.key);
+        }
+        self.check_files()?;
+        Ok(destination)
+    }
+
+    pub fn next_batch(&mut self) -> Result<Batch> {
+        self.check_files()?;
+        let mut batch = Batch::new();
+        let mut held = 0_u64;
+        while let Some(meta) = self.next_descriptor()? {
             let size = meta
                 .length
                 .checked_add(meta.key.0.len() as u64 + 64)
@@ -653,12 +723,7 @@ impl SortedRows {
             self.previous = Some(meta.key.clone());
             batch.insert(meta.key, bytes);
         }
-        if let Some(index) = &mut self.index {
-            check_length(index, self.index_bytes)?;
-        }
-        if let Some(payload) = &mut self.payload {
-            check_length(payload, self.payload_bytes)?;
-        }
+        self.check_files()?;
         Ok(batch)
     }
 }

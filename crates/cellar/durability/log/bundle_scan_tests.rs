@@ -5,7 +5,7 @@ use crate::sdk::{
 };
 use cellar_ltx::{
     bundle::{self, BundleEntry},
-    ltx, DirectFileSystem, FileSystem,
+    ltx, DirectFileSystem, FileSystem, ReplicaClient,
 };
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, AtomicU64};
@@ -27,12 +27,29 @@ impl LogTransport for NoPeers {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Profile {
+    Single,
+    Concurrent,
+    DeadRecovery,
+}
+
+impl Profile {
+    fn scans(self) -> usize {
+        if self == Self::Concurrent {
+            2
+        } else {
+            1
+        }
+    }
+}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -> anyhow::Result<()>
 {
     profile(
-        1,
+        Profile::Single,
         "production_bundle_scan_spills_original_rows_under_its_memory_budget",
     )
     .await
@@ -41,13 +58,25 @@ async fn production_bundle_scan_spills_original_rows_under_its_memory_budget() -
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn concurrent_production_bundle_scans_keep_one_node_memory_bound() -> anyhow::Result<()> {
     profile(
-        2,
+        Profile::Concurrent,
         "concurrent_production_bundle_scans_keep_one_node_memory_bound",
     )
     .await
 }
 
-async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dead_session_bundle_recovery_preserves_original_rows_with_bounded_memory(
+) -> anyhow::Result<()> {
+    profile(
+        Profile::DeadRecovery,
+        "dead_session_bundle_recovery_preserves_original_rows_with_bounded_memory",
+    )
+    .await
+}
+
+async fn profile(mode: Profile, test: &str) -> anyhow::Result<()> {
+    let scans = mode.scans();
+
     const CHILD: &str = "CELLAR_TEST_BUNDLE_SCAN_PATH";
     let Some(database) = std::env::var_os(CHILD) else {
         let directory = tempfile::tempdir()?;
@@ -63,6 +92,19 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
                     "bundle-generation".into(),
                 );
                 let lineage = ownership.prepare_lineage().await?.to_owned();
+                if mode == Profile::DeadRecovery {
+                    ownership.set_own_log(Some(log_to_wire(
+                        &log_tier::LogRecord {
+                            epoch: 1,
+                            ensemble: Default::default(),
+                            tiered: 0,
+                            state: LogState::Open,
+                            claimant: None,
+                            claimed_ms: None,
+                        },
+                        false,
+                    )));
+                }
                 // prepare_lineage alone captures but does not publish a node
                 // root. Persist it through the real CAS so the measured child
                 // resolves the same session without copying any object bodies.
@@ -70,7 +112,11 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
                     node: "bundle-memory".into(),
                     lineage: Some(lineage),
                     addr: "127.0.0.1:1".into(),
-                    expires_ms: crate::ownership_store::now_ms() + 60_000,
+                    expires_ms: if mode == Profile::DeadRecovery {
+                        0
+                    } else {
+                        crate::ownership_store::now_ms() + 60_000
+                    },
                     peer_protocol: crate::peer_auth::PROTOCOL_VERSION,
                     generation: "bundle-generation".into(),
                     log_state: None,
@@ -107,8 +153,16 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
                         flags: ltx::HEADER_FLAG_NO_CHECKSUM,
                         page_size: 4096,
                         commit: 1024,
-                        min_txid: cellar_ltx::TXID(txid),
-                        max_txid: cellar_ltx::TXID(txid),
+                        min_txid: cellar_ltx::TXID(if mode == Profile::DeadRecovery {
+                            1
+                        } else {
+                            txid
+                        }),
+                        max_txid: cellar_ltx::TXID(if mode == Profile::DeadRecovery {
+                            1
+                        } else {
+                            txid
+                        }),
                         ..Default::default()
                     };
                     let payload = ltx::encode_file(&header, &pages, 0)?;
@@ -117,7 +171,14 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
                         "fixture compressed below its memory target"
                     );
                     manifest.insert(txid, (payload.len(), hex::encode(Sha256::digest(&payload))));
-                    let entries = if scans == 1 {
+                    let entries = if mode == Profile::DeadRecovery {
+                        vec![BundleEntry {
+                            cell: format!("cell-{txid}"),
+                            cell_epoch: 1,
+                            txid: 1,
+                            bytes: payload,
+                        }]
+                    } else if scans == 1 {
                         vec![BundleEntry {
                             cell: "cell".into(),
                             cell_epoch: 1,
@@ -141,9 +202,12 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
                         ]
                     };
                     let body = bundle::encode(&entries)?;
-                    bucket
-                        .put(&format!("log/{session}/bundle/{txid:020}"), body)
-                        .await?;
+                    let key = if mode == Profile::DeadRecovery {
+                        format!("log/{session}/bundle/e1-{txid}.ltxb")
+                    } else {
+                        format!("log/{session}/bundle/{txid:020}")
+                    };
+                    bucket.put(&key, body).await?;
                 }
                 DirectFileSystem.write(
                     &database.with_extension("manifest"),
@@ -183,7 +247,12 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
                 (*bucket).clone(),
                 (*bucket).clone(),
                 "bundle-memory".into(),
-                "bundle-generation".into(),
+                if mode == Profile::DeadRecovery {
+                    "recovery-generation"
+                } else {
+                    "bundle-generation"
+                }
+                .into(),
             ));
             ownership.prepare_lineage().await?;
             let replica = Replication::start(
@@ -263,6 +332,63 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
     });
     let result = domain
         .run(async {
+            if mode == Profile::DeadRecovery {
+                let parent = manager
+                    .session
+                    .rsplit_once('/')
+                    .context("recovery session identity")?
+                    .0;
+                let dead = format!("{parent}/bundle-generation");
+                let original = read_record(&manager.bucket, &dead)
+                    .await?
+                    .context("original retained folded record")?;
+                anyhow::ensure!(
+                    original.record.state == LogState::Open && !original.may_have_fleet_acks
+                );
+                anyhow::ensure!(original.wire.expires_ms == 0);
+                // This is the actual recovery caller, with real lease CAS,
+                // claim heartbeats, bundle windows, spill uploads and seal.
+                // This profiles retained LTX recovery, not prior client ACK
+                // proof. No peer or command replay can supply an omitted row.
+                manager.recover_as(&dead, RecoverMode::Boot).await?;
+                let recovered = read_record(&manager.bucket, &dead)
+                    .await?
+                    .context("recovered folded record")?;
+                anyhow::ensure!(recovered.record.state == LogState::Sealed);
+                anyhow::ensure!(
+                    recovered.wire.expires_ms == original.wire.expires_ms
+                        && recovered.wire.generation == original.wire.generation
+                        && recovered.wire.lineage == original.wire.lineage
+                        && !recovered.may_have_fleet_acks
+                );
+                let storage = ReplicaStorage::new(
+                    manager.bucket.store.clone(),
+                    ReplicaStorageOptions {
+                        prefix: manager.bucket.prefix.clone(),
+                        ..Default::default()
+                    },
+                )?;
+                for (ordinal, (length, digest)) in &manifest {
+                    let cell = format!("cell-{ordinal}");
+                    let client = storage.client_for(&cell, 1);
+                    let bytes = client
+                        .open_ltx_file(0, cellar_ltx::TXID(1), cellar_ltx::TXID(1))
+                        .await?;
+                    anyhow::ensure!(
+                        bytes.len() == *length && hex::encode(Sha256::digest(&bytes)) == *digest,
+                        "recovered original row changed for {cell}"
+                    );
+                    let files = client.ltx_files(0, cellar_ltx::TXID(0)).await?;
+                    anyhow::ensure!(
+                        files.len() == 1
+                            && files[0].min_txid == cellar_ltx::TXID(1)
+                            && files[0].max_txid == cellar_ltx::TXID(1),
+                        "recovery row identity changed"
+                    );
+                }
+                anyhow::ensure!(manifest.len() == 32, "original recovery row missing");
+                return anyhow::Ok(());
+            }
             // Poll both real scans together and finish every original row
             // check. A failure cannot cancel the other scan's owned I/O.
             let results = futures_util::future::join_all((0..scans).map(|ordinal| {
@@ -332,7 +458,10 @@ async fn profile(scans: usize, test: &str) -> anyhow::Result<()> {
     closed?;
     result??;
     let growth = peak.load(Ordering::Relaxed).saturating_sub(baseline);
-    eprintln!("production bundle scan RSS: scans={scans} baseline={baseline} growth={growth}");
+    eprintln!(
+        "production bundle scan RSS: dead={} scans={scans} baseline={baseline} growth={growth}",
+        mode == Profile::DeadRecovery
+    );
     anyhow::ensure!(
         baseline > 0 && growth <= 64 << 20,
         "bundle scan retained history: {growth} > {}",

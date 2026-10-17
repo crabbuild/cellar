@@ -45,6 +45,7 @@ mod follower_batch_tests;
 mod follower_file;
 mod follower_index;
 mod follower_state;
+mod recovery_bundles;
 mod recovery_progress;
 mod recovery_rows;
 mod reply_reader;
@@ -304,17 +305,21 @@ const RECRUIT_FOLLOWERS: usize = 2;
 /// and at eight in flight the 2026-09-03 restart spent 388 s of its 403 s
 /// recovery in this phase; the bucket takes far more in flight than that.
 const RECOVERY_UPLOAD_CONCURRENCY: usize = 32;
-/// How many bytes of retained bundles one recovery gather window reads
-/// before releasing their fetched bytes. Rows spill into derived disk scratch,
-/// then sorted bounded batches fold into per-cell objects. The window bounds
-/// concurrent bundle bodies, not a universal recovery RSS ceiling: a single
-/// oversized bundle, follower TailResp/HTTP collection, provider inventories and
-/// optional progress hints still need their own bounded implementations.
+/// Maximum listed payload size per numeric recovery upload window. Bodies
+/// stage to scratch under BUNDLE_TRANSFER_CONCURRENCY, then checked sorted
+/// rows fold into per-cell objects. A window is an upload-order boundary,
+/// not a resident-memory allowance or a universal recovery RSS ceiling:
+/// provider/progress inventories and oversized uploads retain separate gates.
 const RECOVERY_GATHER_WINDOW_BYTES: u64 = 512 * 1024 * 1024;
 /// Per-cell coverage reads of the graceful seal and the uncovered-row scan
 /// stay below a small fleet's cell count, so a close does not fan out one
 /// listing per cell at once.
 const COVERAGE_READ_CONCURRENCY: usize = 16;
+
+// Body staging shares node memory with the subsequent upload batch. Native
+// reader/allocator caches outlive individual transfers, so reserve headroom
+// rather than using the metadata-lookup fanout for payloads as well.
+const BUNDLE_TRANSFER_CONCURRENCY: usize = 8;
 const BUNDLE_ROW_INDEX_CAPACITY: usize = 512;
 const BUNDLE_GC_EXAMINED_PER_TICK: usize = 512;
 
@@ -5349,6 +5354,19 @@ impl NodeLogManager {
                 return Ok(());
             }
 
+            let mut tail_rows = self.recovery_rows();
+            let cancellation = tail_rows.cancellation();
+            // Admission covers follower staging as well as bundle transfer,
+            // verification and sorted upload consumption. Waiting for another
+            // fold must keep this session's already-acquired claim alive.
+            let budget = self
+                .recovery_wait(
+                    cancellation.clone(),
+                    Some((dead, &mut beat)),
+                    self.bundle_scan_budget.acquire(),
+                )
+                .await?;
+            budget.hold_rows(&mut tail_rows);
             let now = crate::ownership_store::now_ms();
             let pass_started = mono_ms();
             let mut complete_witnesses = 0_usize;
@@ -5361,7 +5379,6 @@ impl NodeLogManager {
             // is conclusive; a loss diagnostic is not recovery proof.
             let mut inconclusive = 0_usize;
             let mut witnesses = startup_retry::Witnesses::new(now);
-            let mut tail_rows = self.recovery_rows();
             // "A blink is not death" applies to loss diagnostics too: a
             // member whose lease merely lapsed (a restart, a fleet-wide
             // power cycle) is NOT conclusively gone — its fsync'd fragments
@@ -5420,7 +5437,7 @@ impl NodeLogManager {
                     leader: dead.to_string(),
                 };
                 let tail = match self
-                    .post_tail(member, &addr, &tail, Some((dead, &mut beat)), None)
+                    .post_tail(member, &addr, &tail, Some((dead, &mut beat)), Some(&budget))
                     .await
                 {
                     Ok(tail) => tail,
@@ -5570,16 +5587,13 @@ impl NodeLogManager {
             // gather to the true un-drained window is bundle GC deleting
             // covered bundles, not a filter that can orphan acked rows;
             // the covered-txid check in the upload still bounds the
-            // uploads. Concurrent GETs: the profiling round measured the
-            // serial gather at 89-112 s over ~1,300 bundles — the whole
-            // outage.
+            // uploads. Transfers stage bounded chunks into guarded scratch;
+            // full-envelope verification precedes copying rows to the spool.
             //
-            // The bundles fold in WINDOWS of `RECOVERY_GATHER_WINDOW_BYTES`,
-            // each read, uploaded per cell, and released before the next is
-            // read, so the process holds one window of the session and not
-            // the session (#957: the whole-session gather cost 0.95 GB of
-            // process memory per GB of session and OOM-killed a 16 GB node
-            // past a 40-minute session). Windows make the fold ORDER-
+            // The bundles fold in WINDOWS of `RECOVERY_GATHER_WINDOW_BYTES`.
+            // A window is an upload-order boundary, not a resident-memory
+            // allowance: payloads and sorted metadata live in bounded spools.
+            // Windows make the fold ORDER-
             // DEPENDENT where the whole-session gather was not: a window
             // raises the per-cell watermark to the last txid it uploads,
             // and every later window skips rows at or below it, which is
@@ -5595,8 +5609,11 @@ impl NodeLogManager {
             // folded first, their txids would have raised the watermark
             // over every bundled row behind them and orphaned the session.
             let bundle_metas = self
-                .bucket
-                .list(&format!("log/{dead}/bundle/"))
+                .recovery_wait(
+                    cancellation.clone(),
+                    Some((dead, &mut beat)),
+                    self.bucket.list(&format!("log/{dead}/bundle/")),
+                )
                 .await
                 .with_context(|| format!("list retained recovery bundles for {dead}"))?;
             let bundles_read = bundle_metas.len();
@@ -5621,56 +5638,15 @@ impl NodeLogManager {
             let mut gathered_bytes = 0_u64;
             let mut tail = Some(tail_rows);
             for (index, window) in windows.into_iter().enumerate() {
-                let mut gathered = if index + 1 == window_count {
+                let gathered = if index + 1 == window_count {
                     tail.take().expect("tail folded only in final window")
                 } else {
-                    self.recovery_rows()
+                    self.recovery_rows().with_cancellation(cancellation.clone())
                 };
                 let fetch_started = mono_ms();
-                let fetches = window.into_iter().map(|key| {
-                    let bucket = self.bucket.clone();
-                    async move {
-                        let fetched = bucket
-                            .get(&key)
-                            .await
-                            .with_context(|| format!("read retained recovery bundle {key}"))?;
-                        let (bytes, _) = fetched
-                            .ok_or_else(|| anyhow!("listed recovery bundle {key} disappeared"))?;
-                        anyhow::Ok((key, bytes))
-                    }
-                });
-                let mut fetches = futures_util::stream::iter(fetches)
-                    .buffer_unordered(RECOVERY_UPLOAD_CONCURRENCY);
-                while let Some(fetched) = futures_util::StreamExt::next(&mut fetches).await {
-                    self.beat_claim(dead, &mut beat).await?;
-                    let (key, bytes) = fetched?;
-                    gathered = self
-                        .recovery_io(
-                            gathered.cancellation(),
-                            Some((dead, &mut beat)),
-                            move || {
-                                let rows =
-                                    cellar_ltx::bundle::decode_rows(&bytes).with_context(|| {
-                                        format!("decode retained recovery bundle {key}")
-                                    })?;
-                                for row in rows {
-                                    let payload = cellar_ltx::bundle::slice(&bytes, &row)
-                                        .with_context(|| {
-                                            format!("read a row from recovery bundle {key}")
-                                        })?;
-                                    gathered.insert(
-                                        (row.cell, row.cell_epoch, row.txid),
-                                        payload.to_vec(),
-                                        recovery_rows::Priority::Fallback,
-                                        recovery_rows::Duplicates::First,
-                                    )?;
-                                }
-                                Ok(gathered)
-                            },
-                        )
-                        .await?;
-                }
-                drop(fetches);
+                let gathered = self
+                    .gather_recovery_window(window, gathered, &budget, dead, &mut beat)
+                    .await?;
                 bundles_ms += mono_ms().saturating_sub(fetch_started);
                 gathered_bytes = gathered_bytes.saturating_add(gathered.payload_bytes());
                 // Skip rows the drain points already folded into the
@@ -6482,13 +6458,13 @@ impl NodeLogManager {
         loop {
             let window: Vec<_> = candidates
                 .by_ref()
-                .take(COVERAGE_READ_CONCURRENCY)
+                .take(BUNDLE_TRANSFER_CONCURRENCY)
                 .collect();
             if window.is_empty() {
                 break;
             }
-            // Keep the existing bounded store concurrency. Finish this window's
-            // transfers before decoding: retained state is file handles, not
+            // Reserve upload headroom with bounded body staging. Finish this
+            // transfer group's reads before decoding: retained state is file handles, not
             // bodies, and only one decoder allocates an upload-sized batch.
             let flag = cancellation.clone();
             let fetches = window.into_iter().map(|(key, indexed)| {
@@ -6521,7 +6497,7 @@ impl NodeLogManager {
                 }
             });
             let mut fetches =
-                futures_util::stream::iter(fetches).buffer_unordered(COVERAGE_READ_CONCURRENCY);
+                futures_util::stream::iter(fetches).buffer_unordered(BUNDLE_TRANSFER_CONCURRENCY);
             let mut staged = Vec::new();
             while let Some(item) = fetches.next().await {
                 if let Some(item) = item? {
@@ -6634,8 +6610,11 @@ impl NodeLogManager {
                 .checked_add(bytes.len() as u64)
                 .context("bundle size overflow")?;
             anyhow::ensure!(length <= expected, "bundle body exceeds its object size");
-            for chunk in bytes.chunks(128 << 10) {
-                let chunk = chunk.to_vec();
+            // Keep the incoming buffer alive through the actual file write.
+            // Copying every block into a second Vec multiplies allocator
+            // churn across concurrent transfers and retains idle heap pages.
+            for offset in (0..bytes.len()).step_by(128 << 10) {
+                let chunk = bytes.slice(offset..offset.saturating_add(128 << 10).min(bytes.len()));
                 let flag = cancellation.clone();
                 file = self
                     .recovery_io(cancellation.clone(), None, move || {

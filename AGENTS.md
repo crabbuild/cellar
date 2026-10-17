@@ -1581,7 +1581,7 @@ these memory passes do not qualify throughput, eager copy/multipart operations,
 provider inventories or total retained-bundle recovery memory.
 
 Production graceful close and live-cell folding use gather_uncovered_bundles,
-with at most 16 concurrent object transfers per window into anonymous scratch
+with at most eight concurrent bundle-body transfers per window into anonymous scratch
 under the replica's captured filesystem/data root. Only file handles remain
 between transfer and decoding. Verify the complete CLB1 CRC, exact payload
 partition, L0 header identities and unique row identities before exposing a
@@ -1595,8 +1595,9 @@ actual close caller and requires the original open folded log unchanged.
 Native log fixture Result errors and failed setup join source/recovery/follower
 domains before directory cleanup. Preserve five-second proof/recovery guards,
 captured publication policies and original crash/proof assertions; failure-only
-stage context is not a runtime timeout repair. Live folds and graceful close share one node-local scan reservation. Acquire it
-before follower staging and retain it through the derived Rows/SortedRows spool,
+stage context is not a runtime timeout repair. Live folds, graceful close and
+dead-session recovery share one node-local scan reservation. Acquire it before
+follower staging and retain it through the derived Rows/SortedRows spool,
 including uniqueness rewinds and asynchronous upload consumption. Entered scratch
 file work, returned scratch handles and SQLite metadata/body workers retain that
 reservation after caller cancellation; an async-future-only permit is insufficient.
@@ -1604,7 +1605,16 @@ The opaque object-store ReadGuard is capacity retention, never execution or proo
 authority; the original domain admission/result checks still apply. The indexed
 two-cell memory regression verifies each original mixed-bundle row before its
 unchanged RSS budget; native blocking cancellation cases require both admission
-and shutdown to remain pending until real entered I/O joins. Qualification of this
-candidate is tracked in the status ledger. Diagnostic collectors, dead-session
-bundle reads, GC/overlay helpers, metadata inventories and one legal oversized
-upload row retain separate memory/capacity gates. All owned markers remain 1.
+and shutdown to remain pending until real entered I/O joins. Dead recovery keeps
+claim heartbeats while waiting for admission, listing, transfer and scratch work.
+Preserve numeric upload windows and merge preferred follower rows only in the
+final window. Corrupt/missing bundles refuse before advancing that window's cell
+coverage or sealing. Checked spool copying and uniqueness verification use 128 KiB
+reads and carry deduplicated guards. Body transfer admission is eight; metadata
+coverage fanout remains 16. Keep original rows, RSS budgets and native deadlines.
+Qualification is tracked in the status ledger. Diagnostic collectors, GC/overlay
+helpers, metadata inventories and legal oversized uploads retain separate gates. An async spool does not by itself
+establish capacity retention in an already-entered upload PUT after caller
+cancellation; that write-worker boundary needs its own regression and ownership
+propagation. Do not extend the GET/scratch cancellation evidence to uploads. All
+owned markers remain 1.
