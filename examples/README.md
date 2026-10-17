@@ -7,6 +7,8 @@ SDK, routing, SQLite, alarms and output gates, with a private local store under
 
 The [Axum counter](axum-counter/README.md) is a separate shared-builder example
 with native Cellar and Axum hosts, OpenAPI export and a generated client.
+[FleetCare](fleetcare/README.md) is a field-service application with embedded and
+daemon hosts, a local console and a repeatable fleet performance suite.
 
 The catalog borrows application patterns from the
 [upstream examples](https://github.com/denoland/celld/tree/90b43017241f81189453d326d05948f388b34652/examples).

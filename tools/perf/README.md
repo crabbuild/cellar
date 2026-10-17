@@ -1,6 +1,6 @@
 # Embedded fleet validation
 
-The [FleetCare application and standard suite](../../crates/cellar-fleetcare/README.md)
+The [FleetCare application and standard suite](../../examples/fleetcare/README.md)
 run 10,000 cells on three nodes, in embedded and daemon modes, using Colima and
 RustFS. Run `python3 tools/perf/fleetcare.py` from the repository root. The suite
 builds its release images, measures read/write traffic, verifies all receipts

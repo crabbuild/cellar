@@ -20,7 +20,7 @@ This builds the release images and runs the default 25/100/400 arrivals/s matrix
 python3 tools/perf/fleetcare.py --rates 25 --seconds 3 --warmup-seconds 1 --repeats 1 --output .cellar/perf/fleetcare-full-13-parity
 ```
 
-Usage, state machines, primitive coverage and regression commands are in the [FleetCare README](../../../crates/cellar-fleetcare/README.md). Machine-readable summaries are in [the qualification JSON](2026-10-13-fleetcare-bringup.json). Raw evidence remains in `.cellar/perf/fleetcare-full-13-parity`, including immutable command ledgers, per-operation histograms, stage assertions, resource series, state snapshots, filesystem observations and logs.
+Usage, state machines, primitive coverage and regression commands are in the [FleetCare README](../../../examples/fleetcare/README.md). Machine-readable summaries are in [the qualification JSON](2026-10-13-fleetcare-bringup.json). Raw evidence remains in `.cellar/perf/fleetcare-full-13-parity`, including immutable command ledgers, per-operation histograms, stage assertions, resource series, state snapshots, filesystem observations and logs.
 
 ## Inventory and resource policy
 

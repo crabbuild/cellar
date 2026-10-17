@@ -24,8 +24,9 @@ SCHEMA = 2
 
 def source_digest():
     paths = [ROOT / "Cargo.toml", ROOT / "Cargo.lock"]
-    paths += sorted((ROOT / "crates").rglob("*.rs"))
-    paths += sorted((ROOT / "crates").rglob("Cargo.toml"))
+    for directory in ("crates", "examples/fleetcare"):
+        paths += sorted((ROOT / directory).rglob("*.rs"))
+        paths += sorted((ROOT / directory).rglob("Cargo.toml"))
     paths += sorted((ROOT / "tools/perf").glob("*.py"))
     paths += [ROOT / "tools/perf/fleetcare.Dockerfile"]
     digest = hashlib.sha256()

@@ -276,7 +276,7 @@ pub(super) async fn probes(client: &Client, config: &Config) -> Result<Value> {
             .await?;
         let id = format!(
             "notify-{}",
-            cellar_fleetcare::contracts::assignment_id(0, 0, order)
+            fleetcare::contracts::assignment_id(0, 0, order)
         );
         ensure!(
             state["attempts"][&id].as_u64().is_some_and(|n| n >= 2),
@@ -311,7 +311,7 @@ pub(super) async fn probes(client: &Client, config: &Config) -> Result<Value> {
             "scoped order rejected"
         );
         let started = Instant::now();
-        let reservation = cellar_fleetcare::contracts::reservation_id(tenant, book_id, order);
+        let reservation = fleetcare::contracts::reservation_id(tenant, book_id, order);
         loop {
             let value = fetch(client, config, 0, &format!("{path}/orders/{order}"), None).await?;
             ensure!(
@@ -347,7 +347,7 @@ pub(super) async fn probes(client: &Client, config: &Config) -> Result<Value> {
             .await?;
         let identity = format!(
             "notify-{}",
-            cellar_fleetcare::contracts::assignment_id(tenant, book_id, order)
+            fleetcare::contracts::assignment_id(tenant, book_id, order)
         );
         ensure!(
             external["effects"][&identity]["tenant"] == tenant

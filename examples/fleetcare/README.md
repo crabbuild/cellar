@@ -260,5 +260,5 @@ remain qualification extensions in the original design; standard tests cover
 process crash, store outage, local reload and bucket restore.
 
 Harness guards: `python3 -m unittest discover -s tools/perf -p 'test_*.py'`.
-Application checks: `cargo test -p cellar-fleetcare --locked` with the
+Application checks: `cargo test -p fleetcare --locked` with the
 repository's required checkout-specific `CARGO_TARGET_DIR`.

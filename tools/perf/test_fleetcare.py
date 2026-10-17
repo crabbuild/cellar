@@ -12,6 +12,28 @@ import fleetcare
 import fleetcare_report
 
 
+class SourceDigestTests(unittest.TestCase):
+    def test_moved_application_changes_invalidate_build_digest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            files = ('Cargo.toml', 'Cargo.lock', 'tools/perf/fleetcare.Dockerfile',
+                     'examples/fleetcare/Cargo.toml', 'examples/fleetcare/src/lib.rs',
+                     'examples/fleetcare/tests/projection_recovery.rs')
+            for name in files:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text('original')
+            with patch.object(fleetcare, 'ROOT', root):
+                original = fleetcare.source_digest()
+                self.assertEqual(original, fleetcare.source_digest())
+                for name in files[3:]:
+                    with self.subTest(path=name):
+                        path = root / name
+                        path.write_text('changed')
+                        self.assertNotEqual(original, fleetcare.source_digest())
+                        path.write_text('original')
+
+
 class PressurePolicyTests(unittest.TestCase):
     def test_each_host_must_report_the_actual_selected_watermarks(self):
         for mode in ('off','auto'):

@@ -5,7 +5,7 @@
 use anyhow::{ensure, Result};
 use cellar::bucket::Bucket;
 use cellar::sdk::*;
-use cellar_fleetcare::{config::*, deployment};
+use fleetcare::{config::*, deployment};
 use serde_json::{json, Value};
 use std::{sync::Arc, time::Duration};
 
@@ -82,7 +82,7 @@ fn dead_lettered_projection_recovers_while_poison_stays_quarantined() -> Result<
             }), containers: None, metrics: None,
         };
         let applications = CompiledApplications::default().register(SCRIPT, VERSION, move || {
-            cellar_fleetcare::application(app_config.clone())
+            fleetcare::application(app_config.clone())
         })?;
         let node = Node::start(config, services, graph, applications).await?;
         let url = format!("http://{}", node.info().public_address);
