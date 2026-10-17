@@ -1,13 +1,15 @@
-# Repository formatting
+# Repository Rust quality tools
 
 From the repository root or a member crate directory:
 
 ```sh
 cargo format          # Apply Rust layout and Cellar declaration spacing
 cargo format --check  # Check without writing source files; exit 1 on differences
+cargo check-layout    # Check component and test file placement without writing
 ```
 
-These Cargo aliases run `cargo xtask fmt` and `cargo xtask fmt --check`.
+These Cargo aliases run `cargo xtask fmt`, `cargo xtask fmt --check`, and
+`cargo xtask layout`.
 They need Rust, the rustfmt component (`rustup component add rustfmt`) and Git.
 Use the checkout-specific `CARGO_TARGET_DIR` required by [AGENTS.md](../../AGENTS.md)
 on the development machine. No nightly toolchain is needed.
@@ -36,8 +38,18 @@ Verify formatter changes with:
 ```sh
 cargo test -p cellar-xtask --locked
 cargo format --check
+cargo check-layout
 ```
 
 The tests cover read-only check mode, apply/check agreement, idempotency,
 untracked/deleted/ignored sources, comment and attribute attachment, raw strings,
 macro bodies, grouped declarations, skipped items, nested methods and CRLF input.
+
+The layout check uses the same Git source inventory and rejects `feature.rs`
+beside a `feature/` directory containing Rust sources, including test-only
+directories. Components with production children use `feature/mod.rs`; a leaf's
+substantial private tests use a sibling `feature_tests.rs` declared with
+`#[cfg(test)] #[path = "feature_tests.rs"] mod tests;`. Small tests stay inline.
+Grouping directories without a corresponding `.rs` file remain valid. The check
+does not infer module semantics or replace compiler checks. See
+[AGENTS.md](../../AGENTS.md#rust-quality-and-module-layout) for the full conventions.

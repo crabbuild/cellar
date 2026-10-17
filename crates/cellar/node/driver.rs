@@ -1250,6 +1250,7 @@ where
 }
 
 #[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "driver_tests.rs"]
 mod tests;
 
 async fn receive_ingress(

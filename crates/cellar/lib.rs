@@ -31,7 +31,7 @@ mod conformance_core_loop_tests {
 mod conformance_facet_failure_tests {
     include!(env!("CELLAR_CONFORMANCE_FACET_FAILURE_TESTS"));
 }
-#[path = "runtime/assets.rs"]
+#[path = "runtime/assets/mod.rs"]
 pub mod assets;
 #[cfg(not(cellar_internal_tests))]
 #[path = "execution/domain.rs"]

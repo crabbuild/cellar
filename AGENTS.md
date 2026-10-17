@@ -4,6 +4,107 @@ Repository guidance for Cellar. Check for a more specific `AGENTS.md` before
 working in a subtree. Maintain this file when architecture or verification
 commands change; `CLAUDE.md` links here so both tools use the same guidance.
 
+## Start here
+
+Read [Rust quality and module layout](#rust-quality-and-module-layout), the
+[repository map](#repository-map), and [ownership boundaries](#ownership-boundaries)
+before editing Rust. Use [build and validation](#build-and-validation) for the
+checkout-specific target directory and required commands. Read the affected
+component, its callers and tests before deciding where a change belongs.
+The detailed runtime and recovery contracts below apply when touching those
+surfaces; file organization must preserve their behavior and public Rust paths.
+
+## Rust quality and module layout
+
+These are Cellar's repository conventions. Optimize for cohesive responsibilities,
+explicit ownership, small reviewable changes, and code whose invariants can be
+understood without following unrelated modules.
+
+### Choose one module shape
+
+| Responsibility | Layout | Test placement |
+| --- | --- | --- |
+| Leaf module | `feature.rs` | Small private `#[cfg(test)] mod tests { ... }` in the same file |
+| Leaf with substantial private tests | `feature.rs` and sibling `feature_tests.rs` | Declare `#[cfg(test)] #[path = "feature_tests.rs"] mod tests;` in `feature.rs` |
+| Component with production submodules | `feature/mod.rs` plus named implementation files | Private `tests.rs` declared by `mod.rs`, or tests beside the child they exercise |
+| Public contract spanning modules | Crate `tests/<behavior>.rs` | Use public APIs; share fixtures under `tests/support/` |
+
+Never combine `feature.rs` with a `feature/` directory containing Rust files.
+In particular, do not create `feature/tests.rs` beside `feature.rs` just to move
+tests out of sight. Substantial tests alone do not justify a component directory.
+For example, node driver tests live in `node/driver_tests.rs`; tail transport
+implementation and progress reporting live in `durability/log/tail_stream/`
+with `mod.rs`, `progress.rs`, and `tests.rs`.
+
+`cargo check-layout` enforces the file/directory rule across tracked and unignored
+new Rust sources, including examples and tooling. CI runs it. Small test modules
+can remain inline; do not extract tests merely to satisfy a line-count target.
+
+### Keep components cohesive
+
+- Choose boundaries by responsibility and invariants, rather than arbitrary file
+  size. Split a large module when a distinct parser, policy, store, transport, or
+  lifecycle can have a clear contract. Do not create catch-all `utils`, `helpers`,
+  `common`, or `types` modules for unrelated features.
+- A component entry point declares its children and presents its cohesive API.
+  Existing implementation may remain there; extract named responsibilities as
+  they change rather than replacing one large file with arbitrary fragments.
+- Keep implementation modules private by default. Use `pub(super)` or
+  `pub(crate)` only for the callers that need access; explicitly re-export the
+  intended API. Do not expose implementation details just so tests can use them.
+- Use ordinary `mod child;` resolution within components. Existing crate-root
+  `#[path]` mappings preserve Cellar's public API; update them when moving files.
+  Sibling private test files may use `#[path]`. Do not add path indirection where
+  the normal module tree suffices or introduce another flattened public API.
+- Keep private unit tests in their owner's logical module with `use super::*`
+  when useful. Production imports and re-exports should be explicit; preserve
+  existing public re-exports during layout-only changes.
+- Keep fixtures and schemas beside their owner. On a move, check `include_str!`,
+  `include_bytes!`, Cargo targets, conditional modules, macros, and documentation
+  links. Physical moves must preserve logical paths, visibility and `cfg` gates.
+
+### Write idiomatic, explicit Rust
+
+- Model meaningful states with enums and domain types. Prefer exhaustive matching
+  and constructors that establish invariants to boolean combinations, sentinel
+  values, or repeated validation scattered across callers.
+- Borrow when ownership is unnecessary. Clone when a real independent owner is
+  required; avoid cloning buffers, allocating strings, or introducing `Arc<Mutex<_>>`
+  merely to work around a poorly chosen interface. Keep lock scopes short and
+  synchronous guards out of `.await` points.
+- Return `Result` for recoverable failures and `Option` for genuine absence.
+  Preserve typed errors when callers need to distinguish refusal, fencing,
+  ambiguity or cancellation; add useful context at boundaries without losing
+  the source. Never turn malformed or unavailable state into success via defaults.
+- `unwrap`, `expect`, indexing and assertions in production require a local,
+  established invariant. Validate untrusted input and use checked conversions
+  and arithmetic for sizes, offsets and counts. Assertions and `unwrap` are fine
+  in tests when failure is the intended test failure.
+- Make async cancellation, task ownership and cleanup explicit. Use injected
+  execution-domain services and bounded work; keep blocking I/O off async workers.
+  Preserve resource cleanup and joins on errors as well as success.
+- Add abstractions for an actual contract or repeated responsibility. Prefer
+  straightforward concrete code over speculative traits, generics, wrappers and
+  configuration. Reuse existing types and dependencies before adding new ones.
+- Document public contracts and non-obvious invariants, including error,
+  cancellation and durability semantics when relevant. Comments explain why.
+  Every new unsafe block needs a local `SAFETY:` explanation of its obligations.
+- Run `cargo format`, `cargo check-layout`, relevant behavioral tests and Clippy
+  for affected targets. Fix warnings; lint exceptions must be narrow and explain
+  the boundary they serve. Never silence a failure or weaken a test to pass.
+
+### Test behavior at its owning boundary
+
+Cover normal behavior and meaningful failure/cancellation boundaries. Use unit
+tests for private algorithms and state transitions, crate integration tests for
+public contracts, and the existing native/fleet harnesses for ownership, recovery
+and process behavior. Keep test names specific about the condition and outcome.
+Use deterministic synchronization and injected clocks/services where available;
+do not replace phase observations with sleeps or invent durability evidence.
+Extend the nearest relevant suite instead of duplicating it in another layer.
+For file-only moves, run the existing suites and verify their test discovery;
+additional tests should cover new behavior, such as layout enforcement itself.
+
 ## Framework
 
 Cellar is a Rust framework for applications composed of durable business cells.
@@ -173,9 +274,10 @@ Canonical numeric batch filenames are required; noncanonical names remain unknow
 gap evidence. Custom filesystems must supply streaming directories and scratch
 for large histories; no eager fallback. All owned markers remain 1. The isolated
 cold-load/seal RSS fixtures qualify only their 16-by-8-MiB profile. Production
-tail transfer uses tail_stream.rs through the existing authenticated tail upgrade,
-including the recovery-startup HTTP surface. No buffered POST fallback exists;
-rebuild all participants on this format-1 cutover. The buffered tail helper is
+tail transfer uses `durability/log/tail_stream/mod.rs` through the existing
+authenticated tail upgrade, including the recovery-startup HTTP surface. No
+buffered POST fallback exists; rebuild all participants on this format-1 cutover.
+The buffered tail helper is
 for diagnostic/fixture inspection, not production recovery. Stage an immutable
 snapshot under the original leader guard in owned blocking work; release the
 guard before network waiting. Retain at most two active snapshots/transfers per
@@ -733,8 +835,9 @@ tools/                    Formatting, dependency checks, documentation, and flee
 ```
 
 Cellar groups its implementation into component directories next to
-`Cargo.toml`; `lib.rs` declares the existing Rust module names. The logic and
-native crates retain flat crate roots, and `cellar-ltx` uses `src/`. Cargo
+`Cargo.toml`; `lib.rs` declares the existing Rust module names. The logic crate
+retains a flat crate root; native groups structured clone, SQL and web primitives
+under component `mod.rs` entry points. `cellar-ltx` uses `src/`. Cargo
 declares the CLI entry point as `crates/cellar/cli/main.rs`.
 
 CLI files retain their existing Rust module paths through `#[path]` declarations
@@ -903,6 +1006,7 @@ by the current checkout's identifier:
 ```sh
 export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-<checkout-name>"
 cargo format --check
+cargo check-layout
 python3 tools/check_native_dependencies.py
 python3 tools/docs/check.py
 cargo check --workspace --all-targets --all-features --locked
@@ -913,7 +1017,7 @@ cargo test -p cellar --test native_cli --test native_artifacts --locked
 repository's declaration spacing. `cargo format --check` checks the same result
 without writing source files; CI runs it before tests. The tool lives under
 `tools/xtask` and covers tracked and unignored new Rust files, including examples.
-Run `cargo test -p cellar-xtask --locked` when changing formatter behavior.
+Run `cargo test -p cellar-xtask --locked` when changing formatting or layout checks.
 Plain `cargo fmt --all` remains available for rustfmt alone.
 
 For Axum adapter changes also run both feature modes and the shared example:

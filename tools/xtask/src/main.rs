@@ -1,6 +1,7 @@
 //! Repository tooling owns process and filesystem operations outside node execution.
 #![allow(clippy::disallowed_methods, clippy::disallowed_macros)]
 
+mod layout;
 mod spacing;
 
 use anyhow::{bail, Context, Result};
@@ -12,6 +13,10 @@ use std::{
 };
 
 fn main() -> Result<()> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .context("repository tooling must live under tools/xtask")?;
     let arguments: Vec<_> = env::args().skip(1).collect();
     let check = match arguments
         .iter()
@@ -21,23 +26,20 @@ fn main() -> Result<()> {
     {
         ["fmt"] => false,
         ["fmt", "--check"] => true,
-        ["fmt", "--help"] | ["--help"] | [] => {
-            println!("cargo format          Apply rustfmt and Cellar declaration spacing\ncargo format --check  Check formatting without changing source files");
+        ["layout"] => return check_layout(root),
+        ["fmt", "--help"] | ["layout", "--help"] | ["--help"] | [] => {
+            println!("cargo format          Apply rustfmt and Cellar declaration spacing\ncargo format --check  Check formatting without changing source files\ncargo check-layout    Check Rust component and test file placement");
             return Ok(());
         }
-        _ => bail!("usage: cargo format [--check]"),
+        _ => bail!("usage: cargo xtask {{fmt [--check]|layout}}"),
     };
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(Path::parent)
-        .context("formatter must live under tools/xtask")?;
     if !format(root, check)? {
         bail!("formatting differs; run `cargo format` from the repository");
     }
     Ok(())
 }
 
-fn format(root: &Path, check: bool) -> Result<bool> {
+fn rust_sources(root: &Path) -> Result<Vec<String>> {
     let inventory = Command::new("git")
         .args([
             "ls-files",
@@ -62,11 +64,32 @@ fn format(root: &Path, check: bool) -> Result<bool> {
     let mut paths: Vec<_> = inventory
         .split('\0')
         .filter(|path| !path.is_empty())
+        .map(str::to_owned)
         .collect();
     paths.sort_unstable();
     paths.dedup();
     // A tracked source can be deleted locally before it is removed from the index.
     paths.retain(|path| root.join(path).is_file());
+    Ok(paths)
+}
+
+fn check_layout(root: &Path) -> Result<()> {
+    let paths = rust_sources(root)?;
+    let conflicts = layout::conflicting_modules(&paths);
+    for path in &conflicts {
+        eprintln!(
+            "{path}: companion directory contains Rust sources; use a component/mod.rs entry point or move leaf tests to a sibling component_tests.rs (see AGENTS.md)"
+        );
+    }
+    if !conflicts.is_empty() {
+        bail!("{} Rust module layout conflict(s)", conflicts.len());
+    }
+    println!("Checked module layout for {} Rust files", paths.len());
+    Ok(())
+}
+
+fn format(root: &Path, check: bool) -> Result<bool> {
+    let paths = rust_sources(root)?;
 
     let mut clean = true;
     // Format in memory and parse every file before writing. Standard rustfmt
@@ -133,6 +156,42 @@ mod tests {
             .status()?;
         assert!(status.success());
         Ok(root)
+    }
+
+    #[test]
+    fn layout_checks_new_sources_and_excludes_deleted_and_ignored_children() -> Result<()> {
+        let root = repository()?;
+        fs::create_dir(root.path().join("feature with spaces"))?;
+        fs::write(root.path().join("feature with spaces.rs"), "")?;
+        let child = root.path().join("feature with spaces/tests.rs");
+        fs::write(&child, "")?;
+        assert!(check_layout(root.path()).is_err());
+        assert_eq!(fs::read_to_string(&child)?, "");
+
+        assert!(Command::new("git")
+            .args(["add", "."])
+            .current_dir(root.path())
+            .status()?
+            .success());
+        fs::remove_file(&child)?;
+        check_layout(root.path())?;
+
+        fs::write(
+            root.path().join(".gitignore"),
+            "feature with spaces/ignored.rs\n",
+        )?;
+        fs::write(root.path().join("feature with spaces/ignored.rs"), "")?;
+        check_layout(root.path())?;
+
+        fs::write(root.path().join("feature with spaces_tests.rs"), "")?;
+        check_layout(root.path())?;
+        fs::write(&child, "")?;
+        fs::rename(
+            root.path().join("feature with spaces.rs"),
+            root.path().join("feature with spaces/mod.rs"),
+        )?;
+        check_layout(root.path())?;
+        Ok(())
     }
 
     #[test]

@@ -153,6 +153,6 @@ does not establish large-database restore behavior. Never mutate persisted
 SQLite behind a live owner: use SDK or authenticated owner-routed operator
 commands. See [backup and restore](18-recovery-backup.md).
 
-Sources: [storage](../crates/cellar/application/storage.rs),
+Sources: [storage](../crates/cellar/application/storage/mod.rs),
 [transactions](../crates/cellar/application/storage/transaction.rs),
 [SQL binding](../crates/cellar/application/sql.rs), [LTX](../crates/cellar-ltx/README.md).

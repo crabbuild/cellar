@@ -17,7 +17,7 @@ temporally different external framework documentation.
 | Pure decision core and route reclamation | [logic](../crates/cellar-logic/lib.rs), [policy types](../crates/cellar-logic/types.rs) |
 | Gates and stop modes | [actor](../crates/cellar/actor/mod.rs), [lifecycle reports](../crates/cellar/node/lifecycle.rs) |
 | Runtime/loader defaults and CLI differences | [runtime](../crates/cellar/runtime/policy.rs), [loader](../crates/cellar/runtime/workers/loader_policy.rs), [environment](../crates/cellar/cli/environment.rs) |
-| Storage, transactions and migration APIs | [storage](../crates/cellar/application/storage.rs), [transactions](../crates/cellar/application/storage/transaction.rs), [SQL](../crates/cellar/application/sql.rs) |
+| Storage, transactions and migration APIs | [storage](../crates/cellar/application/storage/mod.rs), [transactions](../crates/cellar/application/storage/transaction.rs), [SQL](../crates/cellar/application/sql.rs) |
 | Ownership, peer identity and wakes | [ownership](../crates/cellar/fleet/ownership.rs), [peer](../crates/cellar/fleet/peer/auth.rs), [wakes](../crates/cellar/fleet/wake/mod.rs) |
 | Replication/logs/LTX | [replication options](../crates/cellar/durability/replication/options.rs), [logs](../crates/cellar/durability/log/mod.rs), [LTX format](../crates/cellar-ltx/reference/ltx-format.md) |
 | Artifact/project/CLI contracts | [builder](../crates/cellar/cli/native_deploy/build.rs), [packaging](../crates/cellar/cli/native_deploy/mod.rs), [CLI](../crates/cellar/cli/native_deploy/cli.rs), [protocol](../crates/cellar/deployment/protocol.rs) |

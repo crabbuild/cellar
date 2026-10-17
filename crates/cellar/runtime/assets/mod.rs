@@ -1,7 +1,6 @@
 // Copyright 2026 Deno Land Inc. Apache-2.0 license.
 // Modified for Cellar.
 
-#[path = "assets/cache.rs"]
 mod cache;
 pub use cache::{AssetCache, AssetCacheOptions};
 
