@@ -1,8 +1,9 @@
 # Testing and deployment qualification
 
 Test application invariants and lifecycle behavior, then qualify the exact
-release artifact under the intended workload and failures. Framework CI is
-necessary evidence; it is not a production capacity or resilience certificate.
+release artifact under the intended workload and failures. Continuous integration
+(CI) checks establish repository behavior; deployment qualification also requires
+workload and failure evidence.
 
 ![Qualification in team delivery](diagrams/team-delivery.svg)
 
@@ -12,7 +13,9 @@ Run from the repository root with the private workspace-volume target directory
 required by [AGENTS.md](../AGENTS.md). SDK CI selects Rust 1.98.1 at this baseline.
 
 ```sh
-cargo fmt --all -- --check
+cargo format --check
+cargo check-layout
+python3 tools/docs/check.py
 python3 tools/check_native_dependencies.py
 cargo check --workspace --all-targets --all-features --locked
 cargo test -p cellar --test native_cli --test native_artifacts --locked

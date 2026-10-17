@@ -1,8 +1,8 @@
 # Team delivery for distributed applications
 
-This guide proposes an ownership and delivery model for multiple teams. The
-framework supplies durable authorities and execution boundaries; teams need
-shared contracts, compatibility decisions and accountable operation.
+Assign an owner to each durable boundary, publish its API contract and qualify
+changes before rollout. Deliver vertical slices with compatibility tests and
+release evidence. Adapt the roles and templates below to your team.
 
 ![Team delivery loop](diagrams/team-delivery.svg)
 

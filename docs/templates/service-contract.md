@@ -2,6 +2,7 @@
 
 Use one contract per owned API boundary. Consumers should be able to implement
 retries and compatibility without reading the provider's internal code.
+Replace each field with a concrete contract or link to its maintained reference.
 
 | Field | Required content |
 | --- | --- |

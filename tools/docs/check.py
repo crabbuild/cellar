@@ -76,7 +76,11 @@ def main():
     for doc in catalog['documents']:
         if not doc['title'] or not doc['summary'] or not doc['roles'] or set(doc['roles']) - allowed_roles:
             ERRORS.append(f'Invalid catalog metadata: {doc["path"]}')
-    for path in [ROOT / 'README.md', *DOCS.rglob('*.md')]:
+    crate_readmes = sorted((ROOT / 'crates').glob('*/README.md'))
+    for manifest in (ROOT / 'crates').glob('*/Cargo.toml'):
+        if not manifest.with_name('README.md').is_file():
+            ERRORS.append(f'{manifest.parent.relative_to(ROOT)}: missing crate README')
+    for path in [ROOT / 'README.md', *crate_readmes, *DOCS.rglob('*.md')]:
         prose = re.sub(r'```.*?```', '', path.read_text(), flags=re.S)
         for raw in re.findall(r'!?\[[^\]]*\]\(([^)]+)\)', prose):
             check_link(path, raw)
@@ -110,13 +114,32 @@ def main():
                     ERRORS.append(f'{path.name}: missing interaction target {required}')
             if root.get('role') != 'group':
                 ERRORS.append(f'{path.name}: interaction hidden by image-only semantics')
+    visual_ids = [visual['id'] for visual in catalog.get('visuals', [])]
+    if len(visual_ids) != len(set(visual_ids)):
+        ERRORS.append('Duplicate visual IDs in catalog')
+    for visual in catalog.get('visuals', []):
+        if not visual.get('title') or not visual.get('summary'):
+            ERRORS.append(f'Invalid visual metadata: {visual["id"]}')
+        svg = DOCS / 'diagrams' / f'{visual["id"]}.svg'
+        check_link(DOCS / 'index.html', f'diagrams/{visual["id"]}.svg')
+        check_link(DOCS / 'index.html', f'diagrams/{visual["id"]}@2x.png')
+        check_link(DOCS / 'index.html', visual['guide'])
+        if svg.is_file():
+            try:
+                root = ET.parse(svg).getroot()
+            except ET.ParseError:
+                continue  # The SVG validation above already records the error.
+            ns = '{http://www.w3.org/2000/svg}'
+            if root.get('role') != 'img' or not root.findtext(ns + 'title') or not root.findtext(ns + 'desc'):
+                ERRORS.append(f'{svg.name}: missing accessible image title/description')
     for flow in catalog['flows']:
         check_link(DOCS / 'index.html', f'diagrams/{flow["id"]}-flow.svg')
         check_link(DOCS / 'index.html', flow['guide'])
     if ERRORS:
         print('\n'.join(ERRORS), file=sys.stderr)
         return 1
-    print(f'Validated {len(actual)} documents, {len(catalog["flows"])} flows and {CHECKED} local references.')
+    print(f'Validated {len(actual)} documents, {len(crate_readmes)} crate READMEs, '
+          f'{len(visual_ids)} visual guides, {len(catalog["flows"])} flows and {CHECKED} local references.')
     return 0
 
 if __name__ == '__main__':

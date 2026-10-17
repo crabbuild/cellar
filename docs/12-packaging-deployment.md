@@ -1,9 +1,9 @@
 # Native packaging, deployment and rollback
 
-A native application executable contains its factories. Build creates a
-verified package; deploy publishes it; install downloads/verifies a new
-executable; a process supervisor activates it. Publishing alone does not change
-which executable is running across a fleet.
+Package your compiled application, publish it to object storage, then install
+and start its executable through your process supervisor. Each step has a
+separate role: publishing a package does not replace running fleet processes.
+This guide covers artifacts, rollout and rollback compatibility.
 
 ![Interactive deployment flow](diagrams/deployment-flow.svg)
 
@@ -25,15 +25,15 @@ artifacts and the corresponding package manifest for rollback.
 
 ```sh
 cellar build examples/native-counter/project.json --output counter-package
-cellar deploy counter-package --bucket YOUR_BUCKET --region YOUR_REGION
-cellar install counter-package --bucket YOUR_BUCKET \
-  --region YOUR_REGION --output ./counter-v1
+cellar deploy counter-package --bucket your_bucket --region your_region
+cellar install counter-package --bucket your_bucket \
+  --region your_region --output ./counter-v1
 ```
 
 Use an installed CLI or the `cargo run -p cellar --bin cellar --locked --`
-prefix. Custom stores can use `--endpoint URL`. These are publication
-instructions for an operator-approved environment, not actions executed during
-documentation work. Supply credentials through supported providers.
+prefix. Replace `your_bucket` and `your_region` with your deployment values.
+Custom stores can use `--endpoint URL`. Supply credentials through supported
+providers.
 
 ## Running workers and upgrading code
 

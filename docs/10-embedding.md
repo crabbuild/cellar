@@ -1,12 +1,20 @@
 # Embed an application-owned node
 
-Use `sdk::Node` when your application owns the process, runtime, listeners,
-configuration and supervision. The CLI `sdk::Host` runner is the simpler process
-adapter. Node configuration and runtime, loader and HTTP policy defaults do not
-inspect the environment. The library receives bound listeners and leaves
-process signals and exit handling to the caller.
+Use `sdk::Node` when your application owns the process, executors, listeners
+and supervision. Supply services and policies explicitly, then inspect the
+returned lifecycle outcome. If the CLI can own those responsibilities, use
+`sdk::Host` instead.
 
-![Node recovery and startup](diagrams/recovery-flow.svg)
+The library receives bound listeners and leaves signals and process exits to
+you. Node configuration and runtime, loader and HTTP policy defaults do not
+read environment variables.
+
+![A Cellar public listener or an application-owned Axum server dispatches into the same durable cell runtime.](diagrams/hosting-modes.svg)
+
+`Node::start` uses Cellar's public HTTP path. For an external Axum listener,
+`Node::start_external` returns the ingress handle used by `CellarService`.
+Startup must complete recovery in either mode; see the
+[recovery sequence](diagrams/recovery-flow.svg).
 
 ## Construction contract
 
@@ -43,6 +51,8 @@ async fn serve(config: NodeConfig, services: NodeServices,
 }
 ```
 
+## Configure HTTP and clocks
+
 `NodeConfig::http` sets the SDK request deadline, including response-body reads.
 `NodeServices::http_client` optionally supplies an `HttpClientFactory` for TLS,
 DNS, credentials, proxies and connection-pool settings. Set it to `None` for
@@ -61,6 +71,8 @@ It affects runtime wall time, including ownership, alarms and stream expiry.
 Monotonic deadlines/timers and peer signature timestamps retain their separate
 host clocks. Keep fleet UTC sources consistent. Lower-level hosts use
 `ExecutionDomain::with_wall_clock`; this never installs a process-wide override.
+
+## Load deployment assets
 
 Build a bucket-backed graph with an explicit `AssetCache`:
 

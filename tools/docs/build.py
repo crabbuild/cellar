@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import textwrap
 
+from illustrations import illustrations, visual_catalog
+
 ROOT = Path(__file__).resolve().parents[2]
 DOCS = ROOT / "docs"
 BASELINE = "c24feb25057793e6d6b18502c96eccbfcac2bdf4"
@@ -314,11 +316,12 @@ def catalog():
         entries.append(dict(path=path,title=title,summary=summary,
                             roles=['builder','platform','operations','team'],category=category))
     return dict(schema_version=1, baseline=BASELINE, reviewed_date='2026-10-12',
-                documents=entries, flows=[{k:f[k] for k in ('id','title','guide','kind')} for f in FLOWS])
+                documents=entries, visuals=visual_catalog(), flows=[{k:f[k] for k in ('id','title','guide','kind')} for f in FLOWS])
 
 def build():
     (DOCS / 'diagrams').mkdir(parents=True, exist_ok=True)
-    for slug, svg in static_diagrams().items():
+    diagrams = {**static_diagrams(), **illustrations()}
+    for slug, svg in diagrams.items():
         (DOCS / 'diagrams' / f'{slug}.svg').write_text(svg + '\n')
     for flow in FLOWS:
         (DOCS / 'diagrams' / f'{flow["id"]}-flow.svg').write_text(flow_svg(flow) + '\n')
@@ -327,7 +330,7 @@ def build():
     template = (ROOT / 'tools/docs/explorer.html').read_text()
     serialized = json.dumps(data, ensure_ascii=True).replace('</', '<\\/')
     (DOCS / 'index.html').write_text(template.replace('/*CATALOG*/null', serialized))
-    print(f'Generated {len(data["documents"])} catalog entries, 10 SVGs and offline explorer.')
+    print(f'Generated {len(data["documents"])} catalog entries, {len(diagrams) + len(FLOWS)} SVGs and offline explorer.')
 
 if __name__ == '__main__':
     build()

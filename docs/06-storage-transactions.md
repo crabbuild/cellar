@@ -1,17 +1,22 @@
 # Storage, transactions and schema changes
 
-A cell's storage belongs to its activation. Obtain it with `context.storage()`.
-The SDK exposes JSON and structured values, multi-key operations, bounded lists,
-lazy cursors, SQL, transactions, alarms and an explicit `sync` durability wait.
-The SQL binding is a separate bound database surface; do not confuse it with
-direct access to the current cell's SQLite state.
+Use `context.storage()` to read and update the current cell's SQLite state.
+The storage API supports structured values, SQL, transactions, alarms and an
+explicit `sync` durability wait. Commit related state, command receipts and
+outbox events in one transaction.
+
+A declared SQL binding addresses a separate database. Updating that binding and
+the caller's cell storage does not form one transaction.
 
 Retained handles also require their original execution domain. Ordinary storage
 access and commit recheck admission even within an already-entered callback.
 Forced domain closure refuses new access and rolls back an unfinished transaction
 at commit; cleanup may still roll back through the original connection.
 
-![Local atomicity and distributed coordination](diagrams/cell-boundaries.svg)
+![Business state, command receipts and outbox obligations share one cell transaction; separate SQL bindings and external APIs do not.](diagrams/transaction-boundaries.svg)
+
+Only changes in the current cell's database share its transaction. A separate
+SQL binding or external API needs an explicit coordination protocol.
 
 For the complete producer/consumer contract and outcome handling, see
 [outbox, streams and subscriptions](26-event-delivery.md).
@@ -64,7 +69,7 @@ the state mutation and preserve its idempotency key through delivery/recovery.
 No atomic transaction spanning SQLite and an arbitrary external service is
 established by this framework.
 
-## Framework stream delivery under implementation
+## Publish events with a state change
 
 The repository implements a framework outbox for durable stream destinations.
 It remains under development with open fleet/release qualification gates; see
@@ -141,8 +146,13 @@ inspection, guarded retries, subscription changes and audited retirement.
 ## Migrations and data retention
 
 Reserve `__sys_` for framework tables. Version application schemas explicitly.
-For rolling releases, prefer expand → deploy compatible readers/writers →
-backfill in bounded batches → observe → contract after rollback eligibility ends.
+For rolling releases:
+
+1. Add the schema needed by both old and new code.
+2. Deploy compatible readers and writers.
+3. Backfill in bounded batches and verify the results.
+4. Remove old fields only after the rollback window closes.
+
 An old executable cannot safely roll back an incompatible data transformation.
 Use the SQL binding's migration API where appropriate; cell-local migrations
 need a tested application convention.

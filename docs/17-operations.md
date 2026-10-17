@@ -1,8 +1,9 @@
 # Operating a Cellar application
 
-These runbooks specify decisions and proof requirements. Integrate them with
-your supervisor and authenticated operator interface. Exact operator subcommand
-flags come from that binary's `--help`; do not improvise direct SQLite mutation.
+Start nodes, remove them gracefully and triage failures through your supervisor
+and authenticated operator interface. Use the checks below to decide when
+traffic can resume and when a stop is complete. Confirm command options with
+the deployed binary's `--help`; route data changes through the cell owner.
 
 ![Interactive stop flow](diagrams/shutdown-flow.svg)
 
@@ -21,12 +22,15 @@ replacing leases can destroy evidence rather than resolve the failure.
 
 ## Graceful removal or restart
 
-Use `ShutdownMode::Handoff` when the logical node is leaving and another owner
-should take over. Use `Preserve` when the same logical node will resume at the
-same address with its local cache and ownership. Both modes drain ingress,
-complete event drivers (including background work, nested calls and prior
-generations), then cells and durability. Preserve also needs clean-reload
-preparation.
+Choose a stop mode from the intended restart:
+
+| Mode | Use when | Additional requirement |
+| --- | --- | --- |
+| `Handoff` | The logical node leaves and another owner should take over | Retain evidence needed for successor recovery |
+| `Preserve` | The same logical node resumes at the same address with local state and ownership | Complete clean-reload preparation |
+
+Both modes drain ingress, complete event drivers, cells and durability. Event
+draining includes background work, nested calls and prior generations.
 
 Require these report conditions before recording a graceful stop:
 

@@ -1,9 +1,11 @@
 # Fleet topology and infrastructure contract
 
-This is a proposed deployment design method, not a certified topology. Cellar
-nodes share bucket-backed fleet ownership and use authenticated peer traffic,
-local disk, replication and log recovery. Placement must account for those
-shared dependencies.
+Plan node placement around the dependencies needed for ownership and recovery:
+object storage, local disks and authenticated peer traffic. Select a topology
+using the dependency and failure-domain checks below, then qualify it on your
+own infrastructure.
+
+## Development protocol compatibility
 
 During internal development, rebuild every participant together for a hard
 cutover. Cellar's ranged log-tail request and response use marker 1; missing or
@@ -18,8 +20,8 @@ entries. Epochs and sequence counters keep their meaning.
 
 Bucket node bundles also require the current CLB1 integrity envelope: CRC64-ISO
 covers the verbatim LTX payload, row footer, footer length and magic. Recovery
-and GC validate that envelope, positive row identities, complete nonoverlapping
-ranges and matching L0 header transaction IDs before using freshly read metadata.
+and garbage collection validate the envelope, positive row identities, complete
+nonoverlapping ranges and matching L0 header transaction IDs before using metadata.
 Recreate older unchecksummed development bundle state and rebuild all nodes.
 The marker stays 1; no legacy reader or migration is provided. Upstream LTX bytes
 and versioning are unchanged.
@@ -49,8 +51,8 @@ The checked-in recovery reference used three nodes on one VM and one RustFS
 server. It does not prove independent-zone resilience. For a proposed
 multi-zone deployment, place nodes, durable local volumes, networking and the
 object store across the intended failure domains, then test losing each.
-Do not interpret “fleet proof” as a universal quorum configuration or promise
-that any arbitrary simultaneous failures preserve all acknowledged writes.
+Fleet proof depends on the configured log and follower policy. It does not
+guarantee survival of arbitrary simultaneous failures.
 Inspect the actual log/follower policy and loss assumptions.
 
 Expiry and an unreachable follower do not certify that its acknowledged data

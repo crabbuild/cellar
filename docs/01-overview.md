@@ -1,10 +1,12 @@
 # Overview and application fit
 
-Cellar is a Rust framework for applications built from durable business cells.
-Each cell has SQLite state and one authoritative owner. Nodes sharing a bucket
-form a fleet. Cellar routes invocations, captures SQLite commits as LTX, gates
-visible outputs on durability, and coordinates ownership, recovery, alarms,
-durable wakes and shutdown.
+Cellar is a Rust framework for applications built from durable business cells,
+such as accounts, rooms and workflows. Each cell owns SQLite state and has one
+authoritative owner. Nodes sharing an object-store bucket form a fleet that
+routes calls, replicates writes and recovers state before takeover.
+
+Start with the [counter quickstart](02-quickstart.md) to run an application,
+or use the capability map below to assess fit.
 
 ![Architecture](diagrams/architecture.svg)
 
@@ -44,13 +46,13 @@ execution domains provide lifetime and resource controls; they are not evidence
 of a security sandbox for untrusted tenant code. Tenant isolation and public
 authentication must be designed by the host and application.
 
-## Current confidence
+## Evidence and development status
 
 The repository contains broad SDK integration tests and bounded local recovery
 reports. The 10,000-cell report used three nodes in one VM, small overwritten
 values, closed-loop load and an earlier image. It is useful recovery evidence,
-not a supported maximum fleet size or a production SLO. See
-[the evidence ledger](21-production-readiness.md) before making scale claims.
+not a supported maximum fleet size or a production service-level objective (SLO).
+See [the evidence ledger](21-production-readiness.md) before making scale claims.
 
 Cellar starts with fresh configuration and state. Celld aliases and persisted
 state migration are unsupported. Reserve the `__sys_` SQLite prefix for the

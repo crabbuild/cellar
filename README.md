@@ -2,7 +2,7 @@
 
 # Cellar
 
-**Build Rust applications around durable business cells.**
+Build Rust applications around durable business cells.
 
 Give each account, cart, room or workflow its own SQLite state. Write the
 business logic in Rust; Cellar handles ownership, routing, replication and
@@ -27,8 +27,8 @@ a cell; cells communicate through calls or durable events.
 
 ## Quickstart
 
-You need Rust and Cargo, native C/C++ build tools, and curl. Run these commands
-from a checkout of this repository. See [build guidance](AGENTS.md#build-and-validation)
+You need Rust 1.94.1 or later, Cargo, native C/C++ build tools, and curl. Run
+these commands from a checkout of this repository. See [build guidance](AGENTS.md#build-and-validation)
 for local target-directory setup.
 
 Start the counter application:
@@ -210,6 +210,20 @@ shared storage, installation and rollout. The
 [distributed fleet example](examples/distributed-fleet/README.md) covers local
 recovery and handoff drills.
 
+## Workspace crates
+
+Start with `cellar` to build an application. The other crates separate HTTP
+integration, fleet administration and runtime internals:
+
+| Crate | Purpose |
+| --- | --- |
+| [cellar](crates/cellar/README.md) | Application SDK, production host and CLI |
+| [cellar-axum](crates/cellar-axum/README.md) | Axum handlers, external ingress and optional OpenAPI |
+| [cellar-admin](crates/cellar-admin/README.md) | Authenticated fleet management API and dashboard service |
+| [cellar-logic](crates/cellar-logic/README.md) | Pure runtime decisions and state transitions |
+| [cellar-native](crates/cellar-native/README.md) | Rust values, codecs and web primitives |
+| [cellar-ltx](crates/cellar-ltx/README.md) | SQLite write capture, LTX replication and restore |
+
 ## Documentation
 
 | Learn about | Guide |
@@ -221,8 +235,8 @@ recovery and handoff drills.
 | Evidence and remaining release gates | [Production readiness](docs/21-production-readiness.md) |
 
 The [documentation library](docs/README.md) contains the full guides. Open the
-[visual explorer](docs/index.html) locally for interactive architecture and
-request, write, recovery and shutdown flows.
+[visual explorer](docs/index.html) locally for crate maps, hosting and lifetime
+diagrams, plus interactive request, write, recovery and shutdown flows.
 
 ## Contributing
 

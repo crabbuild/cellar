@@ -1,8 +1,9 @@
 # Capacity planning and scaling
 
-Cellar distributes independent cell authorities. Capacity is a measured envelope
-of traffic, active cells, state size, skew, resource limits, proof latency and
-failure behavior. A count of total names is insufficient.
+Size a fleet from measured traffic, active cells, state growth and recovery
+cost. Independent cells can distribute work across nodes; one hot cell retains
+one owner. Budget admission, memory, disk and proof latency together, then
+test the intended workload and failure conditions.
 
 ![Fleet capacity boundaries](diagrams/fleet-topology.svg)
 

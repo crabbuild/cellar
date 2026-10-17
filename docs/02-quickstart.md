@@ -1,9 +1,9 @@
 # Run and package your first application
 
-Use the checked-in counter to learn the actual development path before adapting
-it to your domain. Run commands from the repository root. Rust manifests
-declare minimum Rust 1.94.1; SDK CI currently selects 1.98.1. Treat the checked-in
-manifest and workflow as authoritative for this baseline.
+Run the counter, verify persistence across a restart, then build a native
+application package. Run all commands from the repository root. The manifests
+require Rust 1.94.1 or later; the [SDK CI workflow](../.github/workflows/native-sdk.yml)
+selects Rust 1.98.1.
 
 ![Request routing](diagrams/routing-flow.svg)
 
@@ -15,13 +15,16 @@ add Docker or Podman. On the development machine, use a private build directory
 on the workspace volume as required by [repository guidance](../AGENTS.md):
 
 ```sh
-export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-docs"
+checkout_name="$(basename "$(dirname "$PWD")")-$(basename "$PWD")"
+export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/$checkout_name"
 cargo run -p cellar --bin cellar --locked -- \
   dev examples/native-counter/project.json
 ```
 
-Choose a different target directory if another checkout uses that name. `dev`
-builds the selected native binary and watches project sources. The project file
+This path uses the checkout's parent and directory names. Choose a different
+path if another checkout would resolve to the same location.
+
+`dev` builds the selected native binary and watches project sources. The project file
 resolves paths relative to its directory. Its state is under
 `examples/native-counter/.cellar`; restarting the dev command
 preserves it.
@@ -74,9 +77,12 @@ should explicitly select the intended production profile and target.
 Publishing and activating it are separate steps in
 [packaging and deployment](12-packaging-deployment.md).
 
+## Troubleshoot startup and state
+
 If startup fails, inspect compiler stderr, check the ports are free, and confirm
 the Cargo paths and binary name match. If state appears absent, confirm the
-project location and dev-state directory before resetting anything. Completion
-means observing independent names, persistence across restart, and a package
-with a manifest; these commands are instructions, not a claim they were run
-during the documentation change.
+project location and dev-state directory before resetting anything.
+
+You have completed the walkthrough when named cells have independent counts,
+state survives a restart, and `counter-package/package.json` exists. Continue
+with [cell modeling](04-cell-modeling.md) to choose your application's boundaries.

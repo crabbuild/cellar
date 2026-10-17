@@ -1,13 +1,17 @@
 # Architecture and ownership boundaries
 
-Cellar separates decisions from effects. `cellar-logic::on_event` takes a state
-and event and returns effects. The decision core has no I/O, async work, ambient
-clock, randomness, locks or dependencies. A serial actor owns it; adapters
-perform effects and submit versioned completion events to its mailbox.
+Cellar separates decisions from effects. A serial actor passes state and events
+to `cellar-logic::on_event`, then executes the returned effects through adapters.
+Adapters report versioned completion events; they never mutate core state.
+The core has no I/O, asynchronous work, clocks, randomness, locks or dependencies.
 
-![Cellar architecture](diagrams/architecture.svg)
+![Application adapters integrate with the Cellar host; logic, native primitives and LTX own separate runtime responsibilities.](diagrams/workspace-crates.svg)
 
-## Components
+Start with `cellar` for application code. Follow the ownership table below when
+changing runtime behavior. For a broader system view, open the
+[framework architecture](diagrams/architecture.svg).
+
+## Component responsibilities
 
 | Component | Responsibility | Boundary to preserve |
 | --- | --- | --- |
@@ -28,12 +32,14 @@ facade and actual files.
 
 ## A request and a write
 
-Ingress admits an event to a compiled application generation. The application
-derives a cell identity from a namespace. The actor resolves its owner, forwards
-to a peer or activates it locally after ownership/recovery. The cell executes
-under an activation epoch. SQLite commits create a write position captured in
-LTX. The output gate requires the appropriate durability and ownership proof
-before releasing externally visible success.
+A state-changing request follows these boundaries:
+
+1. Ingress admits an event to a compiled application generation.
+2. The application resolves a cell identity through a namespace.
+3. The actor routes to the owner or acquires ownership and recovers state locally.
+4. The cell executes under its current activation epoch.
+5. SQLite commits produce a write position captured in LTX.
+6. The output gate proves that position and authority before releasing success.
 
 A single-node bucket posture waits for object-store proof. A fleet can use
 follower disk proof before bucket upload, with fallback to bucket proof. A lost
@@ -41,7 +47,7 @@ proof or fence fails the operation. An application-level timeout can still be
 ambiguous about whether state changed; use a command ID to resolve it.
 Explore [the write flow](diagrams/write-flow.svg).
 
-## Four lifetimes
+## Resource lifetimes
 
 The node's execution domain owns its tasks and policies. An application
 generation owns its compiled workers and pools. A cell activation owns state
