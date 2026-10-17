@@ -181,6 +181,16 @@ struct Message {
 }
 
 impl Message {
+    fn request_path(&self) -> Option<&str> {
+        let target = std::str::from_utf8(&self.head)
+            .ok()?
+            .lines()
+            .next()?
+            .split_whitespace()
+            .nth(1)?;
+        Some(target.split('?').next().unwrap_or(target))
+    }
+
     fn header(&self, name: &str) -> Option<&str> {
         std::str::from_utf8(&self.head)
             .ok()?
@@ -402,6 +412,15 @@ async fn relay_inner(socket: TcpStream, target: SocketAddr, capture: Arc<Capture
             }
         }
         reply.write(client.get_mut()).await?;
+        if reply.head.starts_with(b"HTTP/1.1 101 ")
+            && request.request_path() != Some("/peer/tunnel")
+        {
+            // Only the outer tunnel carries inspectable HTTP after upgrade.
+            // Log tails carry binary frames. Keep both readers so prefetched
+            // bytes and half-close propagation survive the protocol switch.
+            tokio::io::copy_bidirectional(&mut client, &mut owner).await?;
+            return Ok(());
+        }
     }
     Ok(())
 }
@@ -444,4 +463,102 @@ async fn controlled_destination_closure_preserves_framing_failures() -> Result<(
         .expect_err("controlled closure hid malformed framing");
     ensure!(error.to_string() == "unframed peer response", "{error:#}");
     Ok(())
+}
+
+#[tokio::test]
+async fn binary_upgrades_forward_prefetched_bytes_and_eof() -> Result<()> {
+    const REQUEST: &[u8] = b"\x01\x00\xffclient";
+    const PREFIX: &[u8] = b"\x02\x00\xfeserver";
+    const SUFFIX: &[u8] = b"\x00\xffdone";
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    let owner = tokio::spawn(async move {
+        let (socket, _) = upstream.accept().await?;
+        let mut socket = BufReader::new(socket);
+        let request = message(&mut socket, false)
+            .await?
+            .context("missing upgrade")?;
+        ensure!(request.head.starts_with(b"GET /peer/log/tail HTTP/1.1"));
+        let mut reply = b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: test-tail\r\n\r\n".to_vec();
+        reply.extend_from_slice(PREFIX);
+        socket.get_mut().write_all(&reply).await?;
+        let mut received = Vec::new();
+        socket.read_to_end(&mut received).await?;
+        ensure!(
+            received == REQUEST,
+            "binary request changed or lost at upgrade"
+        );
+        socket.get_mut().write_all(SUFFIX).await?;
+        socket.get_mut().shutdown().await?;
+        Ok::<_, anyhow::Error>(())
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut client = TcpStream::connect(proxy.address).await?;
+        let mut request = b"GET /peer/log/tail HTTP/1.1\r\nHost: test\r\nConnection: upgrade\r\nUpgrade: test-tail\r\n\r\n".to_vec();
+        request.extend_from_slice(REQUEST);
+        client.write_all(&request).await?;
+        client.shutdown().await?;
+        let mut client = BufReader::new(client);
+        let reply = message(&mut client, true).await?.context("missing handshake")?;
+        ensure!(reply.head.starts_with(b"HTTP/1.1 101 "));
+        let mut received = Vec::new();
+        client.read_to_end(&mut received).await?;
+        ensure!(received == [PREFIX, SUFFIX].concat(), "binary reply changed or lost at upgrade");
+        owner.await??;
+        proxy.stop().await?;
+        Ok::<_, anyhow::Error>(())
+    }).await?
+}
+
+#[tokio::test]
+async fn outer_tunnel_keeps_http_fault_capture_after_upgrade() -> Result<()> {
+    let upstream = TcpListener::bind("127.0.0.1:0").await?;
+    let proxy = Proxy::start(upstream.local_addr()?).await?;
+    proxy.capture.arm("__streamNext");
+    let owner = tokio::spawn(async move {
+        let (socket, _) = upstream.accept().await?;
+        let mut socket = BufReader::new(socket);
+        let request = message(&mut socket, false)
+            .await?
+            .context("missing tunnel")?;
+        ensure!(request.head.starts_with(b"GET /peer/tunnel HTTP/1.1"));
+        socket.get_mut().write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: test-tunnel\r\n\r\n").await?;
+        let request = message(&mut socket, false)
+            .await?
+            .context("missing inner RPC")?;
+        ensure!(
+            request.header("x-cells-rpc-method") == Some("__streamNext") && request.body == b"[]"
+        );
+        socket
+            .get_mut()
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}")
+            .await?;
+        socket.get_mut().shutdown().await?;
+        let mut remaining = Vec::new();
+        socket.read_to_end(&mut remaining).await?;
+        ensure!(remaining.is_empty());
+        Ok::<_, anyhow::Error>(())
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        let mut client = TcpStream::connect(proxy.address).await?;
+        client.write_all(b"GET /peer/tunnel HTTP/1.1\r\nHost: test\r\nConnection: upgrade\r\nUpgrade: test-tunnel\r\n\r\nPOST /rpc HTTP/1.1\r\nHost: test\r\nx-cells-rpc-method: __streamNext\r\nx-cells-scope: stream-test\r\nContent-Length: 2\r\n\r\n[]").await?;
+        client.shutdown().await?;
+        let mut client = BufReader::new(client);
+        let reply = message(&mut client, true).await?.context("missing handshake")?;
+        ensure!(reply.head.starts_with(b"HTTP/1.1 101 "));
+        proxy.capture.entered.acquire().await?.forget();
+        {
+            let exchanges = proxy.capture.exchanges.lock().unwrap();
+            ensure!(exchanges.len() == 1 && exchanges[0].method == "__streamNext"
+                && exchanges[0].request == b"[]" && exchanges[0].response == b"{}"
+                && exchanges[0].dropped && !exchanges[0].delayed);
+        }
+        proxy.capture.release.add_permits(1);
+        let mut remaining = Vec::new();
+        client.read_to_end(&mut remaining).await?;
+        ensure!(remaining.is_empty(), "faulted RPC bypassed capture after tunnel upgrade");
+        owner.await??;
+        proxy.stop().await?;
+        Ok::<_, anyhow::Error>(())
+    }).await?
 }

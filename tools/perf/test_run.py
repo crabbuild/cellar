@@ -7,7 +7,7 @@ import types
 import unittest
 from unittest import mock
 
-from run import Harness, shutdown_proof, validate_shutdown
+from run import Harness, shutdown_proof, validate_node_limits, validate_shutdown
 
 
 class RoutingCacheProofTests(unittest.TestCase):
@@ -58,6 +58,32 @@ class RoutingCacheProofTests(unittest.TestCase):
                     harness.snapshot("one_node_bucket", 1, "warm")
             self.assertEqual(harness.routing_cache_snapshots, [])
             self.assertEqual(harness.failures[0]["error"], "state unavailable")
+
+
+class CoreDiagnosticsTests(unittest.TestCase):
+    def test_missing_or_incorrect_captured_diagnostics_are_refused(self):
+        proof = {"event": "embedded_node_started", "max_resident": 128,
+                 "max_requests": 512, "max_cached_routes": 32}
+        for fields in ({}, {"log_level": "warn"}):
+            with self.subTest(fields=fields), self.assertRaises(RuntimeError):
+                validate_node_limits(json.dumps(dict(proof, **fields)), 128, 32, 512, "info")
+        info = dict(proof, log_level="info")
+        self.assertEqual(validate_node_limits(json.dumps(info), 128, 32, 512, "info"), info)
+
+    def test_node_captures_requested_log_level_without_changing_durability(self):
+        for level in ("warn", "info"):
+            with self.subTest(level=level), tempfile.TemporaryDirectory() as directory:
+                args = types.SimpleNamespace(output=str(pathlib.Path(directory) / "run"),
+                                             port=39000, max_resident=128, max_requests=512,
+                                             max_cached_routes=32, shutdown_ms=60000,
+                                             image="private-perf-image", log_level=level)
+                harness = Harness(args)
+                with mock.patch("run.command") as command:
+                    harness.start_node(0, "private-bucket", "fleet")
+                arguments = command.call_args.args
+                self.assertIn(f"CELLAR_PERF_LOG_LEVEL={level}", arguments)
+                self.assertIn("CELLAR_PERF_DURABILITY=fleet", arguments)
+                self.assertEqual(arguments[arguments.index("--entrypoint") + 1], "cellar-perf-cells")
 
 
 class ShutdownProofTests(unittest.TestCase):

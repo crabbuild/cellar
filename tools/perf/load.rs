@@ -10,7 +10,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[derive(Default, Serialize, Deserialize)]
 struct Accounting {
@@ -49,6 +49,14 @@ fn save(path: &Path, accounting: &Accounting) -> Result<()> {
 
 fn report(value: serde_json::Value) -> Result<()> {
     cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!("{value}"))
+}
+
+fn unix_ms() -> Result<u64> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_millis()
+        .try_into()
+        .context("client wall clock exceeds milliseconds range")
 }
 
 #[tokio::main(worker_threads = 2)]
@@ -139,6 +147,7 @@ async fn main() -> Result<()> {
         bail!("expected write or verify");
     }
     anyhow::ensure!(seconds > 0, "duration must be positive");
+    let started_unix_ms = unix_ms()?;
     let started = Instant::now();
     let deadline = started + Duration::from_secs(seconds);
     let mut tasks = tokio::task::JoinSet::new();
@@ -216,6 +225,7 @@ async fn main() -> Result<()> {
         }
     }
     let elapsed = started.elapsed().as_secs_f64();
+    let finished_unix_ms = unix_ms()?;
     save(accounting_path, &accounting)?;
     samples.latency_us.sort_unstable();
     let successful = samples.latency_us.len();
@@ -223,6 +233,7 @@ async fn main() -> Result<()> {
             "operation": "write", "cells": cells, "concurrency": concurrency, "payload_bytes": payload_bytes,
             "payload_pattern": "changing seeded random ASCII (64-symbol alphabet)",
         "requested_seconds": seconds, "elapsed_s": elapsed, "successful_writes": successful,
+        "started_unix_ms": started_unix_ms, "finished_unix_ms": finished_unix_ms,
         "errors": samples.errors, "owners": samples.owners, "writes_per_s": successful as f64 / elapsed,
         "logical_mib_per_s": successful as f64 * payload_bytes as f64 / elapsed / 1048576.0,
         "latency_ms": {"p50": percentile(&samples.latency_us, 0.5), "p95": percentile(&samples.latency_us, 0.95),

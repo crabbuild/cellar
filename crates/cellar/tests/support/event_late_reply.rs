@@ -396,13 +396,25 @@ async fn partition_owner(
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> Result<()> {
     let directory = tempfile::tempdir()?;
+    let result = Box::pin(late_proven_append_reply_case(directory.path())).await;
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            let retained = directory.keep();
+            Err(error)
+                .with_context(|| format!("late append fixture retained at {}", retained.display()))
+        }
+    }
+}
+
+async fn late_proven_append_reply_case(directory: &std::path::Path) -> Result<()> {
     let destination_core = Executor::new("late-reply-destination-core")?;
     let source_core = Executor::new("late-reply-source-core")?;
     let successor_core = Executor::new("late-reply-successor-core")?;
-    let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let bucket = cellar::bucket::Bucket::open_dev(&directory.join("fleet.sqlite"))?;
     let (mut config, services) = inputs(
         "late-destination",
-        &directory.path().join("destination"),
+        &directory.join("destination"),
         &destination_core,
         Some(bucket.clone()),
         0,
@@ -416,14 +428,15 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
         graph(1, false),
         applications("destination")?,
     )
-    .await?;
+    .await
+    .context("late append destination startup")?;
     super::super::ready(&destination).await?;
     let client = client()?;
     ensure!(history(&client, &destination).await? == json!([]));
 
     let (mut config, services) = inputs(
         "late-source",
-        &directory.path().join("source"),
+        &directory.join("source"),
         &source_core,
         Some(bucket.clone()),
         0,
@@ -435,7 +448,9 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
     config.startup.recovery_retry_backoff = Duration::from_millis(5_000);
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
-    let source = Node::start(config, services, external, applications("source")?).await?;
+    let source = Node::start(config, services, external, applications("source")?)
+        .await
+        .context("late append source startup")?;
     super::super::ready(&source).await?;
     proxy.capture.delay_append();
     ensure!(call(&client, &source, reqwest::Method::POST, "/write").await? == "source:1");
@@ -470,7 +485,9 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
             && response["ok"]["lane"] == envelope["lane"]
             && response["ok"]["accepted_through"] == "1"
     );
-    let original = pending(&client, &source, scope).await?;
+    let original = pending(&client, &source, scope)
+        .await
+        .context("inspect original source before fencing")?;
     ensure!(
         original["pending_rows"] == "1"
             && original["incarnation"] == envelope["source_incarnation"]
@@ -516,7 +533,7 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
 
     let (config, services) = inputs(
         "late-successor",
-        &directory.path().join("successor"),
+        &directory.join("successor"),
         &successor_core,
         Some(bucket),
         0,
@@ -524,9 +541,13 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
     .await?;
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
-    let successor = Node::start(config, services, external, applications("successor")?).await?;
+    let successor = Node::start(config, services, external, applications("successor")?)
+        .await
+        .context("late append successor startup")?;
     super::super::ready(&successor).await?;
-    let recovered = pending(&client, &successor, scope).await?;
+    let recovered = pending(&client, &successor, scope)
+        .await
+        .context("inspect recovered source before old reply release")?;
     ensure!(
         recovered["pending_rows"] == "1"
             && recovered["incarnation"] == original["incarnation"]
@@ -552,7 +573,9 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
     tokio::time::timeout(Duration::from_secs(5), proxy.capture.released.acquire())
         .await??
         .forget();
-    let after_late_reply = pending(&client, &successor, scope).await?;
+    let after_late_reply = pending(&client, &successor, scope)
+        .await
+        .context("inspect successor after old reply release")?;
     ensure!(
         after_late_reply["pending_rows"] == "1"
             && after_late_reply["incarnation"] == original["incarnation"]
@@ -564,7 +587,11 @@ async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> R
     ensure!(history(&client, &destination).await? == accepted);
     proxy.capture.resume_appends();
     tokio::time::timeout(Duration::from_secs(5), async {
-        while pending(&client, &successor, scope).await?["pending_rows"] != "0" {
+        while pending(&client, &successor, scope)
+            .await
+            .context("inspect fresh dispatch settlement")?["pending_rows"]
+            != "0"
+        {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
         Ok::<_, anyhow::Error>(())

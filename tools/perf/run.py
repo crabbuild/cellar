@@ -50,11 +50,13 @@ def shutdown_proof(text):
     return event_report(text, "embedded_node_stopped")
 
 
-def validate_node_limits(text, resident, cached_routes, requests):
+def validate_node_limits(text, resident, cached_routes, requests, log_level=None):
     proof = event_report(text, "embedded_node_started")
     expected = {"max_resident": resident, "max_cached_routes": cached_routes, "max_requests": requests}
     if not proof or any(type(proof.get(field)) is not int or proof[field] != value for field, value in expected.items()):
         raise RuntimeError("embedding application's captured limits do not match the requested workload")
+    if log_level is not None and proof.get("log_level") != log_level:
+        raise RuntimeError("embedding application's captured log level does not match the requested diagnostics")
     return proof
 
 
@@ -228,7 +230,8 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
     def wait_node(self, scenario, i):
         self.wait_url(f"http://127.0.0.1:{self.args.port + 1 + i}/.well-known/cellar/health")
         proof = validate_node_limits(logs(self.nodes[i]), self.args.max_resident,
-                                     self.args.max_cached_routes, self.args.max_requests)
+                                     self.args.max_cached_routes, self.args.max_requests,
+                                     getattr(self.args, "log_level", None))
         self.node_policies.append({"scenario": scenario, "node": i + 1, "proof": proof})
 
     def start_node(self, i, bucket, durability):
@@ -245,6 +248,7 @@ df -B1 {shlex.quote(self.vm_root)}/node{{1,2,3}}
                 "-e", f"CELLAR_PERF_MAX_CACHED_ROUTES={self.args.max_cached_routes}",
                 "-e", f"CELLAR_PERF_MAX_REQUESTS={self.args.max_requests}",
                 "-e", f"CELLAR_PERF_SHUTDOWN_MS={self.args.shutdown_ms}", "-e", f"CELLAR_PERF_DURABILITY={durability}",
+                "-e", f"CELLAR_PERF_LOG_LEVEL={getattr(self.args, 'log_level', 'warn')}",
                 "--entrypoint", self.node_binary, self.args.image, "--bucket", bucket, "--endpoint", "http://rustfs:9000", "--region", "us-east-1",
                 "--listen", "0.0.0.0:8080", "--internal-listen", "0.0.0.0:8081", "--advertise", f"node{i + 1}:8081")
 
@@ -399,6 +403,8 @@ def main():
     parser.add_argument("--max-requests", type=int, default=512)
     parser.add_argument("--warmup-seconds", type=int, default=10)
     parser.add_argument("--shutdown-ms", type=int, default=30000)
+    parser.add_argument("--log-level", choices=["warn", "info"], default="warn",
+                        help="info retains capture/ship ledgers; use separate diagnostic runs")
     parser.add_argument("--bytes", type=int, default=1024)
     parser.add_argument("--seconds", type=int, default=20)
     parser.add_argument("--repeats", type=int, default=2)

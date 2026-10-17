@@ -112,6 +112,10 @@ pub(super) fn run(
     let cached_routes = setting("CELLAR_PERF_MAX_CACHED_ROUTES", 2_048usize)?;
     let requests = setting("CELLAR_PERF_MAX_REQUESTS", 512usize)?;
     let shutdown_ms = setting("CELLAR_PERF_SHUTDOWN_MS", 30_000u64)?;
+    let log_level = setting(
+        "CELLAR_PERF_LOG_LEVEL",
+        tracing::level_filters::LevelFilter::WARN,
+    )?;
     ensure!(
         threads > 0 && resident > 0 && requests > 0 && shutdown_ms > 0,
         "invalid node limits"
@@ -157,7 +161,8 @@ pub(super) fn run(
         String::new(),
     )?;
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .with_max_level(log_level)
+        .with_ansi(false)
         .with_writer(std::io::stderr)
         .try_init()
         .map_err(|error| anyhow::anyhow!("could not install application logger: {error}"))?;
@@ -258,6 +263,7 @@ pub(super) fn run(
             "max_resident": resident, "max_cached_routes": cached_routes,
             "max_requests": requests,
             "lease_ttl_ms": 10_000,
+            "log_level": log_level.to_string(),
         }))?;
         let outcome = node.run_until(async {
             #[cfg(unix)]

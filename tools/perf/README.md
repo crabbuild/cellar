@@ -94,6 +94,40 @@ complete application events, cells and dispatches, a quiesced log, closed local
 durability, and surviving caller runtimes. The final node uses Preserve and
 must also prepare a clean reload. A zero process exit alone is insufficient.
 
+## Core persistence baseline
+
+Use the existing counter workload alongside FleetCare to separate core durable
+HTTP writes from the application's Queue, outbox and SQL projection work. Each
+POST makes one storage transaction in one cell; the SDK output gate proves it
+before the complete HTTP response is counted. The client changes the payload on
+every request and does not retry writes. Keep all cells resident for this first
+comparison so activation/eviction does not dominate the persistence measurement:
+
+```sh
+python3 tools/perf/run.py --image cellar-embedded-perf:my-checkout \
+  --cells 128 --max-resident 128 --max-cached-routes 32 --max-requests 512 \
+  --warmup-seconds 30 --seconds 20 --repeats 2 --concurrency 1 8 32 128 \
+  --shutdown-ms 60000 --scenario three_node_bucket three_node_fleet
+```
+
+Run a separate case with `--log-level info` to save the existing
+`log_ship_round` and `log_ship_loop` diagnostics in the node logs. Round records
+include credited cells, LTX entry counts/bytes, capture duration and observed
+submission-to-application delay. Loop records separate capture wall time from
+idle, grouping and pipeline waiting. Credited cells and LTX entries are not
+business-command counts; do not interpret them as transactions per commit or
+submission-to-application delay as pure follower RTT. These logs span setup,
+traffic and recovery; select the relevant traffic intervals before aggregation.
+The load report's `started_unix_ms`/`finished_unix_ms` bracket requests including
+the response drain; client and node wall clocks must agree for log correlation.
+INFO logging can perturb timings, so use the default WARN runs for comparisons.
+
+Change batching and executor isolation independently, compare both throughput
+and tail latency on equivalent fresh runs, and retain every recovery and shutdown
+gate. A failed handoff or missing durability proof leaves a candidate unqualified
+even when its write samples improve. Shared-host measurements remain local
+diagnostics, and capture's share of the loop is not a predicted API speedup.
+
 ## Writes in flight and ambiguous responses
 
 The [128-cell fault report](results/2026-10-13-embedded-inflight-128.md) records

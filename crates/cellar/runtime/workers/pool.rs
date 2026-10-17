@@ -35,6 +35,10 @@ use cellar_logic::isolate::Refusal;
 
 use crate::worker::Worker;
 
+#[cfg(test)]
+#[path = "turn_scheduler_tests.rs"]
+mod turn_scheduler_tests;
+
 pub use crate::engine_api::AdmitError;
 pub use crate::engine_api::PoolCensus;
 
@@ -81,6 +85,24 @@ struct TurnScheduler {
 
 struct TurnPermit<'a>(&'a TurnScheduler);
 
+struct PendingTurn<'a> {
+    scheduler: &'a TurnScheduler,
+    receive: tokio::sync::oneshot::Receiver<()>,
+}
+
+impl Drop for PendingTurn<'_> {
+    fn drop(&mut self) {
+        // Close before inspecting the grant: otherwise a racing release can
+        // send successfully between try_recv and the receiver's destruction.
+        self.receive.close();
+        if self.receive.try_recv().is_ok() {
+            // The lane was granted, but acquire was cancelled before consuming
+            // the notification. No TurnPermit exists to release it yet.
+            self.scheduler.release();
+        }
+    }
+}
+
 impl TurnScheduler {
     async fn acquire(&self, lane: TurnLane) -> TurnPermit<'_> {
         let receive = {
@@ -99,44 +121,55 @@ impl TurnScheduler {
             }
         };
         if let Some(receive) = receive {
-            // Cancellation leaves a closed sender in this lane. `release`
-            // skips it, so a dropped waiter cannot strand the active token.
-            let _ = receive.await;
+            let mut pending = PendingTurn {
+                scheduler: self,
+                receive,
+            };
+            (&mut pending.receive)
+                .await
+                .expect("a queued turn retains its sender until it is granted");
+            // Receiving consumes the notification, so PendingTurn no longer
+            // owns a buffered grant. Ownership passes to the returned permit.
         }
         TurnPermit(self)
     }
 
     fn release(&self) {
-        let mut schedule = self.schedule.lock().expect("turn scheduler poisoned");
-        let current = schedule
-            .current
-            .take()
-            .expect("a released turn scheduler has a current lane");
-        if schedule
-            .waiting
-            .get(&current)
-            .is_some_and(|waiters| !waiters.is_empty())
-        {
-            schedule.ready.push_back(current);
-        }
-        while let Some(lane) = schedule.ready.pop_front() {
-            let (send, keep_lane) = {
+        loop {
+            let send = {
+                let mut schedule = self.schedule.lock().expect("turn scheduler poisoned");
+                let current = schedule
+                    .current
+                    .take()
+                    .expect("a released turn scheduler has a current lane");
+                if schedule
+                    .waiting
+                    .get(&current)
+                    .is_some_and(|waiters| !waiters.is_empty())
+                {
+                    schedule.ready.push_back(current);
+                }
+                let Some(lane) = schedule.ready.pop_front() else {
+                    return;
+                };
                 let waiters = schedule
                     .waiting
                     .get_mut(&lane)
                     .expect("a ready turn lane has waiters");
-                (waiters.pop_front().unwrap(), !waiters.is_empty())
-            };
-            if !keep_lane {
-                schedule.waiting.remove(&lane);
-            }
-            if send.send(()).is_ok() {
+                let send = waiters.pop_front().unwrap();
+                if waiters.is_empty() {
+                    schedule.waiting.remove(&lane);
+                }
                 schedule.current = Some(lane);
+                send
+            };
+            // A wake can synchronously cancel the receiver and release its
+            // grant. Publish ownership first, then notify outside the lock.
+            if send.send(()).is_ok() {
                 return;
             }
-            if keep_lane {
-                schedule.ready.push_back(lane);
-            }
+            // The receiver closed before the grant. Release that lane in the
+            // next iteration, preserving queued same-lane turns and fairness.
         }
     }
 }
