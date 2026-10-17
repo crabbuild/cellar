@@ -17,6 +17,7 @@ Applications implement `cellar::sdk` contracts and compile into native executabl
 | --- | --- |
 | `crates/cellar-logic/` | Pure decision core and state transitions |
 | `crates/cellar/` | Production host, effect adapters, SDK and CLI |
+| `crates/cellar-app/` | Application building-block contracts, configuration and codecs |
 | `crates/cellar-native/` | Owned values, codecs and web primitives |
 | `crates/cellar-ltx/` | SQLite WAL capture, LTX and replication mechanics |
 | `crates/cellar-axum/` | Axum integration and external ingress |
@@ -32,6 +33,8 @@ Start with the [documentation index](docs/README.md) for architecture and APIs.
 
 - Keep `cellar-logic` free of dependencies, async work and I/O. The actor owns
   its state; adapters execute effects and return completion events.
+- Keep reusable building-block values and validation in `cellar-app`; context,
+  activation, transaction and I/O adapters belong in `cellar`.
 - Use execution-domain services for tasks, clocks, randomness and node storage.
   Follow `clippy.toml`; keep configuration explicit and environment parsing at
   CLI boundaries. Cancellation and shutdown must release resources and join work.

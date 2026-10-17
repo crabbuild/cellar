@@ -132,83 +132,11 @@ pub struct HttpResponse {
     pub observed_position: Option<u64>,
 }
 
-/// The encoding that the queue producer selected for one message body.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum QueueContentType {
-    Text,
-    Bytes,
-    Json,
-    Structured,
-}
-
-impl QueueContentType {
-    #[allow(dead_code)]
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Text => "text",
-            Self::Bytes => "bytes",
-            Self::Json => "json",
-            // The native structured-clone encoding.
-            Self::Structured => "structured",
-        }
-    }
-}
-
-/// One message handed from a queue cell to a consumer isolate.
-pub struct QueueMessage {
-    pub id: String,
-    pub timestamp_ms: i64,
-    pub body: Vec<u8>,
-    pub content_type: QueueContentType,
-    pub attempts: u16,
-}
-
-/// The queue state observed when a cell leases a batch.
-pub struct QueueMetrics {
-    pub backlog_count: f64,
-    pub backlog_bytes: f64,
-    pub oldest_message_timestamp_ms: Option<i64>,
-}
-
-/// One leased batch handed to the stateless isolate pool.
-pub struct QueueBatch {
-    pub queue: String,
-    pub messages: Vec<QueueMessage>,
-    pub metrics: QueueMetrics,
-}
-
-/// The batch-wide retry decision made by a queue handler.
-#[derive(Debug, Eq, PartialEq)]
-pub struct QueueRetryBatch {
-    pub retry: bool,
-    pub delay_seconds: Option<i32>,
-}
-
-/// An explicit retry decision made for one message.
-#[derive(Debug, Eq, PartialEq)]
-pub struct QueueRetryMessage {
-    pub msg_id: String,
-    pub delay_seconds: Option<i32>,
-}
-
-/// How the queue handler itself completed. Infrastructure failures still use
-/// the outer `Result`, so a handler exception can preserve earlier acks.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum QueueOutcome {
-    Ok,
-    Exception,
-}
-
-/// The handler outcome and the settlement instructions it made before return.
-#[derive(Debug, Eq, PartialEq)]
-pub struct QueueDispatchResult {
-    pub outcome: QueueOutcome,
-    pub error: Option<String>,
-    pub ack_all: bool,
-    pub retry_batch: QueueRetryBatch,
-    pub explicit_acks: Vec<String>,
-    pub retry_messages: Vec<QueueRetryMessage>,
-}
+/// Queue delivery and settlement contracts shared with application bindings.
+pub use cellar_app::queue::{
+    QueueBatch, QueueContentType, QueueDispatchResult, QueueMessage, QueueMetrics, QueueOutcome,
+    QueueRetryBatch, QueueRetryMessage,
+};
 
 /// A cell event that the runtime refuses before application code starts.
 ///

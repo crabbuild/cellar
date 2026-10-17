@@ -4,6 +4,7 @@ use crate::application::{decode_rpc, Cell, Invocation, Storage};
 use crate::engine_api::{HttpResponse, RpcData};
 use base64::Engine;
 use cellar_logic::queue as policy;
+use cellar_native::clone::Value as CloneValue;
 use futures_util::TryStreamExt;
 use std::sync::atomic::{AtomicBool, Ordering};
 

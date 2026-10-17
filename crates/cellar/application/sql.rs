@@ -7,10 +7,11 @@ use super::{
     Storage,
 };
 use crate::engine_api::{HttpResponse, RpcData};
-use cellar_native::sql::{
+use cellar_app::sql::wire::{js_string, params, truthy};
+use cellar_app::sql::{
     shape, SqlPreparedRequest, SqlPreparedResult, SqlRequest, SqlResponse, PRIMARY_BOOKMARK,
 };
-pub use cellar_native::sql::{BindValue, Error, ExecResult, ResultSet};
+pub use cellar_app::sql::{BindValue, Error, ExecResult, ResultSet};
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
@@ -507,45 +508,5 @@ impl Cell for DatabaseCell {
                 _ => anyhow::bail!("SQL cell received an unsupported event"),
             }
         })
-    }
-}
-
-fn params(value: Option<&Value>) -> anyhow::Result<Vec<Value>> {
-    match value.filter(|value| truthy(Some(value))) {
-        None => Ok(Vec::new()),
-        Some(Value::Array(values)) => Ok(values.clone()),
-        _ => Err(Error::new("SQL_ERROR", "params must be an array").into()),
-    }
-}
-
-fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null) => false,
-        Some(Value::Bool(value)) => *value,
-        Some(Value::Number(value)) => value.as_f64().is_some_and(|value| value != 0.0),
-        Some(Value::String(value)) => !value.is_empty(),
-        _ => true,
-    }
-}
-
-fn js_string(value: Option<&Value>) -> String {
-    match value {
-        None => "undefined".into(),
-        Some(Value::Null) => "null".into(),
-        Some(Value::String(value)) => value.clone(),
-        Some(Value::Bool(value)) => value.to_string(),
-        Some(Value::Number(value)) => value.to_string(),
-        Some(Value::Object(_)) => "[object Object]".into(),
-        Some(Value::Array(values)) => values
-            .iter()
-            .map(|value| {
-                if value.is_null() {
-                    String::new()
-                } else {
-                    js_string(Some(value))
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(","),
     }
 }

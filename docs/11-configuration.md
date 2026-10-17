@@ -98,7 +98,7 @@ config.cell_limits = limits;
 
 Large values stored directly in SQLite also need an adequate SQL connection
 budget. Streaming Blob uploads avoid materializing an entire object in RPC.
-Source: [cell limits](../crates/cellar/application/limits.rs).
+Source: [cell limits](../crates/cellar-app/limits.rs).
 
 ## Common CLI environment adapters
 

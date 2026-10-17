@@ -1,49 +1,11 @@
 //! Bounded execution observations in the scheduling cell's own output gate.
 use super::*;
 use crate::application::storage::SqlValue;
-use anyhow::ensure;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use cellar_app::cron::Query;
+
 const RETAINED: i64 = 256;
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct Configuration {
-    pub prefix: String,
-    pub deployment_version: String,
-    pub schedule_revision: Option<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct Query {
-    pub before: Option<u64>,
-    #[serde(default = "page_size")]
-    pub limit: u32,
-    pub expression: Option<String>,
-}
-
-fn page_size() -> u32 {
-    50
-}
-
-impl Query {
-    pub(crate) fn validate(&self) -> Result<()> {
-        ensure!(
-            (1..=100).contains(&self.limit),
-            "execution page limit must be 1–100"
-        );
-        ensure!(
-            self.before.is_none_or(|v| v <= i64::MAX as u64),
-            "invalid execution cursor"
-        );
-        ensure!(
-            self.expression.as_ref().is_none_or(|v| v.len() <= 256),
-            "expression is too long"
-        );
-        Ok(())
-    }
-}
 
 pub(super) fn begin(storage: &Storage, expression: &str, mut document: Value) -> Result<i64> {
     storage.system_sql_schema("CREATE TABLE IF NOT EXISTS __sys_cron_executions (id INTEGER PRIMARY KEY AUTOINCREMENT, expression TEXT NOT NULL, document TEXT NOT NULL);")?;

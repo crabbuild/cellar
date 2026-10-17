@@ -3,8 +3,10 @@
 //! ownership and durability still belong to the production host.
 
 mod inspection;
-mod wire;
-pub use inspection::{EditExpiration, RevisionCondition};
+use cellar_app::kv::wire;
+pub use cellar_app::kv::{
+    EditExpiration, ListOptions, ListResult, ListedKey, PutOptions, ReadType, RevisionCondition,
+};
 
 use super::storage::{SqlRow, SqlValue};
 use super::{
@@ -30,23 +32,6 @@ pub struct Namespace {
     identity: Arc<str>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct PutOptions {
-    /// Unix seconds, as in the original binding. TTL takes precedence.
-    pub expiration: Option<f64>,
-    pub expiration_ttl: Option<f64>,
-    pub metadata: Option<Value>,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub enum ReadType {
-    #[default]
-    Text,
-    Json,
-    Bytes,
-    Stream,
-}
-
 pub enum ReadValue {
     Text(String),
     Json(Value),
@@ -61,28 +46,6 @@ pub struct WithMetadata {
     pub cache_status: Option<String>,
 }
 
-#[derive(Clone, Debug, Default)]
-pub struct ListOptions {
-    pub prefix: String,
-    pub limit: Option<i64>,
-    pub cursor: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ListedKey {
-    pub name: String,
-    pub metadata: Option<Value>,
-    pub expiration: Option<i64>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct ListResult {
-    pub keys: Vec<ListedKey>,
-    pub list_complete: bool,
-    pub cursor: Option<String>,
-    pub cache_status: Option<String>,
-}
-
 fn now() -> i64 {
     crate::ownership_store::now_ms() as i64
 }
@@ -92,85 +55,30 @@ fn error(message: impl std::fmt::Display) -> anyhow::Error {
 }
 
 fn list_limit(requested: Option<i64>) -> usize {
-    let maximum = crate::application::limits::current().kv.max_list_limit;
-    requested
-        .filter(|n| *n > 0)
-        .map_or(policy::MAX_LIST_LIMIT, |n| n as usize)
-        .min(maximum)
+    cellar_app::kv::validation::list_limit(requested, crate::application::limits::current().kv)
 }
 
 fn check_key(key: &str) -> Result<()> {
-    ensure!(!key.is_empty(), "KV_ERROR: a key must not be empty");
-    ensure!(
-        key.len() <= crate::application::limits::current().kv.max_key_bytes,
-        "KV_ERROR: a key is at most {} bytes, got {}",
-        crate::application::limits::current().kv.max_key_bytes,
-        key.len()
-    );
-    Ok(())
+    cellar_app::kv::validation::check_key(key, crate::application::limits::current().kv)
 }
 
 fn check_value(size: usize) -> Result<()> {
-    ensure!(
-        size <= crate::application::limits::current().kv.max_value_bytes,
-        "KV_ERROR: a value is at most {} bytes, got {size}",
-        crate::application::limits::current().kv.max_value_bytes
-    );
-    Ok(())
+    cellar_app::kv::validation::check_value(size, crate::application::limits::current().kv)
 }
 
 fn check_metadata(metadata: &str) -> Result<()> {
-    ensure!(
-        metadata.len() <= crate::application::limits::current().kv.max_metadata_bytes,
-        "KV_ERROR: metadata is at most {} bytes, got {}",
-        crate::application::limits::current().kv.max_metadata_bytes,
-        metadata.len()
-    );
-    Ok(())
+    cellar_app::kv::validation::check_metadata(metadata, crate::application::limits::current().kv)
 }
 
 fn check_bulk(keys: &[String]) -> Result<()> {
-    ensure!(
-        !keys.is_empty(),
-        "KV_ERROR: a bulk get needs at least one key"
-    );
-    ensure!(
-        keys.len() <= crate::application::limits::current().kv.max_bulk_keys,
-        "KV_ERROR: a bulk get takes at most {} keys, got {}",
-        crate::application::limits::current().kv.max_bulk_keys,
-        keys.len()
-    );
-    for key in keys {
-        check_key(key)?;
-    }
-    Ok(())
+    cellar_app::kv::validation::check_bulk(keys, crate::application::limits::current().kv)
 }
 
 fn expiry(now: i64, expiration: Option<f64>, ttl: Option<f64>) -> Result<Option<i64>> {
     let floor = crate::kv_blob::limits()["minExpirationTtlMs"]
         .as_i64()
         .expect("KV limits");
-    if let Some(ttl) = ttl {
-        let ms = (ttl * 1000.0).floor();
-        ensure!(
-            ms.is_finite() && ms >= floor as f64 && ms < i64::MAX as f64,
-            "KV_ERROR: expirationTtl is at least {} seconds",
-            floor as f64 / 1000.0
-        );
-        return Ok(Some(
-            now.checked_add(ms as i64)
-                .ok_or_else(|| error("expiration is outside timestamp range"))?,
-        ));
-    }
-    if let Some(expiration) = expiration {
-        let at = (expiration * 1000.0).floor();
-        ensure!(
-            at.is_finite() && at > now as f64 && at < i64::MAX as f64,
-            "KV_ERROR: expiration {expiration} is in the past"
-        );
-        return Ok(Some(at as i64));
-    }
-    Ok(None)
+    cellar_app::kv::validation::expiry(now, expiration, ttl, floor)
 }
 
 fn cursor_encode(key: &str) -> String {

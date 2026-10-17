@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use cellar_native::clone::{Object, StructuredValue, Value, ViewKind};
 
-pub(super) fn array(graph: &StructuredValue, value: &Value) -> Result<Vec<Value>> {
+pub fn array(graph: &StructuredValue, value: &Value) -> Result<Vec<Value>> {
     match value {
         Value::Reference(id) => match graph.objects.get(*id as usize) {
             Some(Object::DenseArray { elements, .. }) => Ok(elements.clone()),
@@ -35,7 +35,7 @@ pub(super) fn array(graph: &StructuredValue, value: &Value) -> Result<Vec<Value>
     }
 }
 
-pub(super) fn field<'a>(graph: &'a StructuredValue, value: &Value, name: &str) -> &'a Value {
+pub fn field<'a>(graph: &'a StructuredValue, value: &Value, name: &str) -> &'a Value {
     if let Value::Reference(id) = value {
         if let Some(Object::Object(properties)) = graph.objects.get(*id as usize) {
             if let Some((_, value)) = properties.iter().rev().find(|(key, _)| {
@@ -48,7 +48,7 @@ pub(super) fn field<'a>(graph: &'a StructuredValue, value: &Value, name: &str) -
     &Value::Undefined
 }
 
-pub(super) fn string(value: &Value) -> Result<String> {
+pub fn string(value: &Value) -> Result<String> {
     match value {
         Value::String(value) => String::from_utf16(value)
             .map_err(|_| anyhow!("QUEUE_ERROR: text contains a lone surrogate")),
@@ -56,7 +56,7 @@ pub(super) fn string(value: &Value) -> Result<String> {
     }
 }
 
-pub(super) fn number(value: &Value) -> Result<i64> {
+pub fn number(value: &Value) -> Result<i64> {
     match value {
         Value::Number(value)
             if value.is_finite() && *value >= i64::MIN as f64 && *value < 9223372036854775808.0 =>
@@ -67,14 +67,14 @@ pub(super) fn number(value: &Value) -> Result<i64> {
     }
 }
 
-pub(super) fn optional_string(value: &Value) -> Result<Option<String>> {
+pub fn optional_string(value: &Value) -> Result<Option<String>> {
     match value {
         Value::Null | Value::Undefined => Ok(None),
         _ => string(value).map(Some),
     }
 }
 
-pub(super) fn bytes(graph: &StructuredValue, value: &Value) -> Result<Vec<u8>> {
+pub fn bytes(graph: &StructuredValue, value: &Value) -> Result<Vec<u8>> {
     match value {
         Value::Reference(id) => match graph.objects.get(*id as usize) {
             Some(Object::ArrayBuffer { bytes, .. }) => Ok(bytes.clone()),
@@ -112,7 +112,7 @@ pub(super) fn bytes(graph: &StructuredValue, value: &Value) -> Result<Vec<u8>> {
     }
 }
 
-pub(super) fn set_bytes(
+pub fn set_bytes(
     graph: &mut StructuredValue,
     parent: &Value,
     name: &str,
@@ -121,7 +121,7 @@ pub(super) fn set_bytes(
     set_binary(graph, parent, name, bytes, true)
 }
 
-pub(super) fn set_buffer(
+pub fn set_buffer(
     graph: &mut StructuredValue,
     parent: &Value,
     name: &str,

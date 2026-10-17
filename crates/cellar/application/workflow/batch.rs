@@ -1,4 +1,5 @@
 use super::*;
+use serde::{Deserialize, Serialize};
 
 /// The modern batch API: shared options with generated IDs, or individual options.
 #[derive(Clone, Debug)]
