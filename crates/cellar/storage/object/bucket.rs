@@ -203,9 +203,9 @@ pub struct Bucket {
 /// A capacity reservation, never execution or proof authority. Native store
 /// adapters retain it in entered work as well as the returned body stream.
 #[derive(Clone)]
-pub(crate) struct ReadGuard(Arc<dyn Send + Sync>);
+pub(crate) struct IoGuard(Arc<dyn Send + Sync>);
 
-impl ReadGuard {
+impl IoGuard {
     pub(crate) fn new(guard: Arc<dyn Send + Sync>) -> Self {
         Self(guard)
     }
@@ -1023,7 +1023,7 @@ impl Bucket {
     pub(crate) async fn get_streamed(
         &self,
         key: &str,
-        guard: ReadGuard,
+        guard: IoGuard,
     ) -> anyhow::Result<Option<object_store::GetResult>> {
         let path = self.key(key);
         let mut options = GetOptions::default();

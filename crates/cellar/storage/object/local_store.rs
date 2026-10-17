@@ -40,6 +40,8 @@ pub(crate) struct LocalStore {
     read_gate: Option<Arc<read_tests::ReadGate>>,
     #[cfg(test)]
     metadata_gate: Option<Arc<read_tests::ReadGate>>,
+    #[cfg(test)]
+    put_gate: Option<(String, Arc<read_tests::ReadGate>)>,
 }
 
 #[derive(Debug)]
@@ -68,6 +70,8 @@ impl LocalStore {
             read_gate: None,
             #[cfg(test)]
             metadata_gate: None,
+            #[cfg(test)]
+            put_gate: None,
         };
         let connection = store.connect()?;
         connection
@@ -232,6 +236,14 @@ impl LocalStore {
         let attributes = encode_attributes(&options.attributes)?;
         let modified_ms = crate::asyncrt::wall_ms();
         let mut connection = self.connect()?;
+        // The fixture observes a real entered SQLite connection without
+        // locking out unrelated metadata/claim I/O while the worker pauses.
+        #[cfg(test)]
+        if let Some((prefix, gate)) = &self.put_gate {
+            if key.starts_with(prefix) {
+                gate.wait();
+            }
+        }
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
@@ -345,9 +357,19 @@ impl ObjectStore for LocalStore {
         let store = self.clone();
         let key = location.to_string();
         let body: Bytes = payload.into();
-        store_blocking!(move || store.put_sync(key, body, options))
-            .await
-            .map_err(db_error)?
+        let reservation = options
+            .extensions
+            .get::<crate::bucket::IoGuard>()
+            .map(crate::bucket::IoGuard::keep_alive);
+        store_blocking!(move || {
+            // The caller may cancel after native entry. Return capacity only
+            // after SQLite has released its input, connection and transaction.
+            let result = store.put_sync(key, body, options);
+            drop(reservation);
+            result
+        })
+        .await
+        .map_err(db_error)?
     }
 
     async fn put_multipart_opts(
@@ -359,6 +381,7 @@ impl ObjectStore for LocalStore {
             store: self.clone(),
             location: location.clone(),
             attributes: options.attributes,
+            extensions: options.extensions,
             parts: Arc::new(Mutex::new(Vec::new())),
         }))
     }
@@ -374,11 +397,8 @@ impl ObjectStore for LocalStore {
         let owner = crate::asyncrt::services()
             .domain_token()
             .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?;
-        let guard = options
-            .extensions
-            .get::<crate::bucket::ReadGuard>()
-            .cloned();
-        let metadata_guard = guard.as_ref().map(crate::bucket::ReadGuard::keep_alive);
+        let guard = options.extensions.get::<crate::bucket::IoGuard>().cloned();
+        let metadata_guard = guard.as_ref().map(crate::bucket::IoGuard::keep_alive);
         let include_small_body = !options.head;
         let object = store_blocking!(move || {
             let _reservation = metadata_guard;
@@ -506,7 +526,7 @@ struct ReadBody {
     cursor: u64,
     end: u64,
     inline: Option<Bytes>,
-    guard: Option<crate::bucket::ReadGuard>,
+    guard: Option<crate::bucket::IoGuard>,
     #[cfg(not(cellar_internal_tests))]
     owner: crate::asyncrt::DomainToken,
 }
@@ -537,10 +557,7 @@ impl ReadBody {
             self.size,
             self.cursor,
         );
-        let guard = self
-            .guard
-            .as_ref()
-            .map(crate::bucket::ReadGuard::keep_alive);
+        let guard = self.guard.as_ref().map(crate::bucket::IoGuard::keep_alive);
         let operation = move || {
             let _reservation = guard;
             store.read_chunk(&key, etag, size, offset, length)
@@ -571,6 +588,10 @@ fn domain_error(error: crate::asyncrt::DomainClosed) -> Error {
 #[cfg(test)]
 #[path = "local_store_read_tests.rs"]
 mod read_tests;
+
+// Shared native-I/O fixture; absent from the production API.
+#[cfg(all(test, not(cellar_internal_tests)))]
+pub(crate) use read_tests::{held_upload_store, UploadGate};
 
 #[async_trait]
 impl PaginatedListStore for LocalStore {
@@ -636,6 +657,8 @@ struct LocalUpload {
     location: Path,
     attributes: Attributes,
     parts: Arc<Mutex<Vec<Bytes>>>,
+    // Release accumulated payload before its capacity context on cancellation.
+    extensions: object_store::Extensions,
 }
 
 #[async_trait]
@@ -658,6 +681,7 @@ impl MultipartUpload for LocalUpload {
                 body.into(),
                 PutOptions {
                     attributes: self.attributes.clone(),
+                    extensions: self.extensions.clone(),
                     ..PutOptions::default()
                 },
             )

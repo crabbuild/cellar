@@ -4978,6 +4978,7 @@ impl NodeLogManager {
     async fn upload_gathered(
         &self,
         gathered: BTreeMap<(String, u64, u64), Vec<u8>>,
+        retention: Arc<dyn Send + Sync>,
         mut claim: Option<(&str, &mut ClaimBeat, &mut recovery_progress::Progress)>,
     ) -> anyhow::Result<usize> {
         if gathered.is_empty() {
@@ -5000,8 +5001,11 @@ impl NodeLogManager {
                 !rows.is_empty()
             });
         }
+        let mut extensions = object_store::Extensions::new();
+        extensions.insert(crate::bucket::IoGuard::new(retention));
         let uploads = groups.into_iter().map(|((cell, cell_epoch), rows)| {
             let ltx = self.ltx.clone();
+            let extensions = extensions.clone();
             async move {
                 let through = rows.last().expect("a gathered cell has at least one row").0;
                 let watermark = ltx.covered_txid(&cell, cell_epoch, through).await;
@@ -5031,7 +5035,7 @@ impl NodeLogManager {
                     let mut attempt = 0_u32;
                     loop {
                         match ltx
-                            .upload_raw_l0(&cell, cell_epoch, min_txid, max_txid, &bytes)
+                            .upload_raw_l0_with_context(&cell, cell_epoch, min_txid, max_txid, &bytes, extensions.clone())
                             .await
                         {
                             Ok(()) => break,
@@ -5124,6 +5128,7 @@ impl NodeLogManager {
                 move || rows.finish(),
             )
             .await?;
+        let retention = rows.retention();
         let mut count = 0;
         loop {
             let cancellation = rows.cancellation();
@@ -5149,6 +5154,7 @@ impl NodeLogManager {
             count += self
                 .upload_gathered(
                     batch,
+                    retention.clone(),
                     claim
                         .as_mut()
                         .map(|(dead, beat, progress)| (*dead, &mut **beat, &mut **progress)),

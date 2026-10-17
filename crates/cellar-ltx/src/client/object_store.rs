@@ -562,6 +562,7 @@ pub struct ObjectStoreClient {
     s3: tokio::sync::OnceCell<Arc<AmazonS3>>,
     config: ObjectStoreConfig,
     native_s3_ranges: bool,
+    upload_extensions: object_store::Extensions,
 }
 
 impl std::fmt::Debug for ObjectStoreClient {
@@ -581,6 +582,7 @@ impl ObjectStoreClient {
             s3: tokio::sync::OnceCell::new(),
             config,
             native_s3_ranges: true,
+            upload_extensions: Default::default(),
         }
     }
 
@@ -596,6 +598,7 @@ impl ObjectStoreClient {
             s3: tokio::sync::OnceCell::new(),
             config,
             native_s3_ranges: false,
+            upload_extensions: Default::default(),
         }
     }
 
@@ -612,6 +615,15 @@ impl ObjectStoreClient {
             native_s3_ranges: true,
             ..client
         }
+    }
+
+    /// Attach backend-specific context to this client's upload operations.
+    /// Supplied adapters may retain it in native work that outlives the caller.
+    /// Scope clients to their work; this context grants no execution or proof
+    /// authority. Backends that ignore extensions provide no retention promise.
+    pub fn with_upload_extensions(mut self, extensions: object_store::Extensions) -> Self {
+        self.upload_extensions = extensions;
+        self
     }
 
     /// Get-or-build the inner store, once.
@@ -901,6 +913,7 @@ impl ReplicaClient for ObjectStoreClient {
             let payload = PutPayload::from(data.to_vec());
             let options = PutOptions {
                 attributes,
+                extensions: self.upload_extensions.clone(),
                 ..Default::default()
             };
             store
@@ -910,6 +923,7 @@ impl ReplicaClient for ObjectStoreClient {
         } else {
             let options = PutMultipartOptions {
                 attributes,
+                extensions: self.upload_extensions.clone(),
                 ..Default::default()
             };
             let mut upload = store
@@ -983,6 +997,7 @@ impl ReplicaClient for ObjectStoreClient {
                 &key,
                 PutMultipartOptions {
                     attributes,
+                    extensions: self.upload_extensions.clone(),
                     ..Default::default()
                 },
             )

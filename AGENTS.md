@@ -1601,7 +1601,7 @@ follower staging and retain it through the derived Rows/SortedRows spool,
 including uniqueness rewinds and asynchronous upload consumption. Entered scratch
 file work, returned scratch handles and SQLite metadata/body workers retain that
 reservation after caller cancellation; an async-future-only permit is insufficient.
-The opaque object-store ReadGuard is capacity retention, never execution or proof
+The opaque object-store IoGuard is capacity retention, never execution or proof
 authority; the original domain admission/result checks still apply. The indexed
 two-cell memory regression verifies each original mixed-bundle row before its
 unchanged RSS budget; native blocking cancellation cases require both admission
@@ -1613,8 +1613,17 @@ coverage or sealing. Checked spool copying and uniqueness verification use 128 K
 reads and carry deduplicated guards. Body transfer admission is eight; metadata
 coverage fanout remains 16. Keep original rows, RSS budgets and native deadlines.
 Qualification is tracked in the status ledger. Diagnostic collectors, GC/overlay
-helpers, metadata inventories and legal oversized uploads retain separate gates. An async spool does not by itself
-establish capacity retention in an already-entered upload PUT after caller
-cancellation; that write-worker boundary needs its own regression and ownership
-propagation. Do not extend the GET/scratch cancellation evidence to uploads. All
+helpers, metadata inventories and legal oversized uploads retain separate gates.
+Upload consumption snapshots the sorted spool's guards into per-operation LTX
+client extensions. The SQLite adapter retains them until the entered blocking
+PUT releases its body, transaction and connection; multipart completion forwards
+the same context. Keep accumulated multipart bytes before extensions in field
+drop order. Capacity context must not be embedded in persistently stored Bytes.
+The native single/multipart cancellation cases require caller abort/join,
+admission and domain shutdown pending before worker release, and unchanged root
+identity without a seal. Normal multipart recovery verifies original bytes,
+metadata and released admission. Supplied adapters can ignore extensions; these
+SQLite cases do not qualify network part-upload cancellation. In object_store
+0.12.5, S3 multipart extensions reach creation but not retained part state. Keep
+backend-specific qualification and the full capacity/failure matrix open. All
 owned markers remain 1.

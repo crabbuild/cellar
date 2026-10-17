@@ -531,6 +531,12 @@ pub(super) struct SortedRows {
 }
 
 impl SortedRows {
+    /// Capacity retained by every entered upload worker, independently of the
+    /// caller's lifetime and the backend's stored payload representation.
+    pub fn retention(&self) -> Arc<dyn Send + Sync> {
+        Arc::new(self._guards.clone())
+    }
+
     pub fn cancellation(&self) -> Arc<AtomicBool> {
         self.cancelled.clone()
     }

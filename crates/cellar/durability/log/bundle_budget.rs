@@ -41,8 +41,8 @@ impl Scope {
         rows.keep_alive(self.0.clone());
     }
 
-    pub fn read_guard(&self) -> crate::bucket::ReadGuard {
-        crate::bucket::ReadGuard::new(self.0.clone())
+    pub fn read_guard(&self) -> crate::bucket::IoGuard {
+        crate::bucket::IoGuard::new(self.0.clone())
     }
 
     pub fn file(&self, inner: HostFile) -> HostFile {
