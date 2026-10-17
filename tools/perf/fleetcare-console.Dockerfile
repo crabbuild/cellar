@@ -1,0 +1,29 @@
+# syntax=docker/dockerfile:1
+FROM rust:1.98.1-bookworm AS build
+ARG TARGET_CACHE_ID
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY examples ./examples
+COPY tools ./tools
+RUN --mount=type=cache,id=cellar-console-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
+    cargo build --release --locked --jobs 2 -p cellar-fleetcare --bin fleetcare-daemon --bin fleetcare-load --bin fleetcare-publish -p cellar-admin --bin cellar-dashboard && \
+    mkdir /out && cp target/release/fleetcare-* target/release/cellar-dashboard /out/
+
+FROM node:24-bookworm-slim AS browser
+WORKDIR /app
+COPY dashboard/package.json ./
+RUN npm install --no-audit --no-fund
+COPY dashboard ./
+RUN npm run build
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates python3 && rm -rf /var/lib/apt/lists/*
+COPY --from=build /out/ /usr/local/bin/
+COPY --from=browser /app/dist/ /opt/cellar/dashboard/
+COPY tools/perf/fleetcare-simulator.py /usr/local/bin/
+COPY LICENSE NOTICE /usr/share/doc/cellar/
+WORKDIR /data
+STOPSIGNAL SIGINT
+ENTRYPOINT ["fleetcare-daemon"]

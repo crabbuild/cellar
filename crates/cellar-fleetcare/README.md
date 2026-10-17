@@ -5,6 +5,59 @@ The same application runs inside a caller-owned `sdk::Node` and the production
 `sdk::Host::local` daemon. The independent client schedules fixed-rate arrivals,
 records complete responses and keeps a durable-command receipt ledger.
 
+## Persistent local console
+
+To explore FleetCare in the Cellar dashboard, run from the repository root:
+
+```sh
+python3 tools/perf/fleetcare_console.py up
+```
+
+This builds the application and dashboard, publishes a native FleetCare package,
+and leaves three daemon nodes running in a checkout-specific Colima profile.
+Each node has **1 vCPU, 2 GiB RAM and a private 4 GiB ext4 disk**. The separate
+VM has 6 CPUs and 10 GiB RAM, including the object store, dashboard and technician
+simulator. It does not change the active Docker context or restart other VMs.
+The default smoke inventory seeds 100 cells across two tenants. Use
+`up --profile full` on the first start to seed the 10,000-cell inventory.
+
+Open the console URL printed by the launcher (normally
+[port 4174](http://127.0.0.1:4174)) and paste the token from
+`.cellar/fleetcare-console/dashboard-token.txt`.
+On macOS, copy it without printing it:
+
+```sh
+pbcopy < .cellar/fleetcare-console/dashboard-token.txt
+```
+
+The local operator can inspect and manage only this lab fleet. Credentials and
+configuration stay in the private, ignored `.cellar/fleetcare-console/` directory.
+Node HTTP endpoints use the next three loopback ports; peer listeners remain on
+the private Docker network. The object-store API uses the console port plus ten.
+Initial setup chooses the next free block if port 4174 is occupied. `--port`
+selects an explicit console port and offsets the other ports on first setup.
+
+```sh
+python3 tools/perf/fleetcare_console.py status
+python3 tools/perf/fleetcare_console.py audit
+python3 tools/perf/fleetcare_console.py stop
+python3 tools/perf/fleetcare_console.py up --no-build
+```
+
+Stopping retains the bucket, node disks, sample data and console audit. Disk
+mounts are ordered before Docker on VM boot. Reuse the original `--profile` and
+`--port` when resuming. The lab uses Bucket durability and the normal deployed
+host, including deployment and cron configuration adoption. It does not enable
+cell-owned containers or run a performance benchmark. Benchmark results below
+use their separate harness and resource policy.
+
+The publisher derives its SQL, KV, queue, workflow, service and cell bindings
+from FleetCare's existing deployment graph. `fleetcare-publish` stages the real
+daemon executable and technician assets through Cellar's native package API;
+nodes follow the published deployment with `CELLAR_NATIVE_FLEET=1`.
+
+## Performance suite
+
 From the repository root, with Docker and Colima installed:
 
 ```sh
