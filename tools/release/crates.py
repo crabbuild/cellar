@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Generate registry READMEs with links pinned to the crate release tag."""
 import argparse
+import json
 from pathlib import Path
 import re
+import subprocess
 import sys
-import tomllib
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,17 +40,23 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--check', action='store_true', help='Check generated READMEs without writing')
     args = parser.parse_args()
-    version = tomllib.loads((ROOT / 'crates/cellar/Cargo.toml').read_text())['package']['version']
+    metadata = json.loads(subprocess.check_output([
+        'cargo', 'metadata', '--no-deps', '--locked', '--format-version', '1',
+        '--manifest-path', str(ROOT / 'Cargo.toml'),
+    ], text=True))
+    packages = {Path(package['manifest_path']).parent.name: package
+                for package in metadata['packages']}
+    version = packages['cellar']['version']
     tag = f'v{version}'
     errors = []
     for name in CRATES:
         directory = ROOT / 'crates' / name
-        package = tomllib.loads((directory / 'Cargo.toml').read_text())['package']
+        package = packages[name]
         if package['version'] != version:
             errors.append(f'{name}: release version differs from {version}')
-        if package.get('readme') != 'README.crates.io.md':
-            errors.append(f'{name}: registry README is not configured')
         output = directory / 'README.crates.io.md'
+        if package.get('readme') != output.name:
+            errors.append(f'{name}: registry README is not configured')
         content = registry_readme(directory / 'README.md', tag)
         if args.check:
             if not output.is_file() or output.read_text() != content:
