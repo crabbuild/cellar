@@ -277,18 +277,22 @@ pub(crate) fn spawn_loaded_worker(
     handle: tokio::runtime::Handle,
     loaded: tokio::sync::watch::Sender<LoaderState>,
     config: Arc<WorkerConfig>,
-) {
+) -> anyhow::Result<()> {
     #[cfg(not(cellar_internal_tests))]
-    crate::asyncrt::spawn_on(&handle, async move {
-        let state = match crate::asyncrt::blocking(move || Worker::load_config(config)).await {
-            Ok(Ok(worker)) => LoaderState::Ready(crate::pool::Slot::loaded_worker(worker)),
-            Ok(Err(error)) => LoaderState::Failed(Arc::from(format!("{error}"))),
-            Err(error) => LoaderState::Failed(Arc::from(format!(
-                "worker loader: load task failed: {error}"
-            ))),
+    crate::asyncrt::try_spawn_on(&handle, async move {
+        let loading = crate::asyncrt::try_blocking(move || Worker::load_config(config));
+        let state = match loading {
+            Ok(task) => match task.await {
+                Ok(Ok(worker)) => LoaderState::Ready(crate::pool::Slot::loaded_worker(worker)),
+                Ok(Err(error)) => LoaderState::Failed(Arc::from(format!("{error}"))),
+                Err(error) => LoaderState::Failed(Arc::from(format!(
+                    "worker loader: load task failed: {error}"
+                ))),
+            },
+            Err(error) => LoaderState::Failed(Arc::from(format!("worker loader: {error}"))),
         };
         loaded.send_replace(state);
-    });
+    })?;
     #[cfg(cellar_internal_tests)]
     handle.spawn(async move {
         let state = match tokio::task::spawn_blocking(move || Worker::load_config(config)).await {
@@ -300,6 +304,7 @@ pub(crate) fn spawn_loaded_worker(
         };
         loaded.send_replace(state);
     });
+    Ok(())
 }
 
 #[cfg(all(test, not(cellar_internal_tests)))]

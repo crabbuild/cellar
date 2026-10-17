@@ -695,26 +695,23 @@ where
 
 /// Preserve the owning domain when a host adapter uses a Tokio join handle.
 /// Standalone adapters without an installed domain retain their caller runtime.
-pub(crate) fn spawn_on<T, F>(
+pub(crate) fn try_spawn_on<T, F>(
     handle: &tokio::runtime::Handle,
     future: F,
-) -> tokio::task::JoinHandle<T>
+) -> Result<tokio::task::JoinHandle<T>, DomainClosed>
 where
     T: Send + 'static,
     F: Future<Output = T> + Send + 'static,
 {
     match installed_domain() {
         Some(domain) => {
-            let task = domain
-                .owner
-                .spawn(future)
-                .expect("execution domain is closed");
+            let task = domain.owner.spawn(future)?;
             let TaskInner::Async(inner) = task.inner else {
                 unreachable!("async dispatch returns an async task handle");
             };
-            inner
+            Ok(inner)
         }
-        None => handle.spawn(future),
+        None => Ok(handle.spawn(future)),
     }
 }
 

@@ -562,3 +562,81 @@ async fn outer_tunnel_keeps_http_fault_capture_after_upgrade() -> Result<()> {
         Ok::<_, anyhow::Error>(())
     }).await?
 }
+
+#[tokio::test]
+async fn log_upgrades_preserve_buffered_binary_bytes_and_half_closes() -> Result<()> {
+    const EARLY: &[u8] = b"\x03\0\0\0{}\0client-before-upgrade";
+    const REPLY: &[u8] = b"\x04\0\0\0CTS1\r\n\r\n\0";
+    const LATE: &[u8] = b"\0ack-after-peer-half-close\r\n";
+    for path in ["/peer/log/tail", "/peer/log/stream"] {
+        let upstream = TcpListener::bind("127.0.0.1:0").await?;
+        let proxy = Proxy::start(upstream.local_addr()?).await?;
+        let server = tokio::spawn(async move {
+            let (socket, _) = upstream.accept().await?;
+            let mut owner = BufReader::new(socket);
+            let request = message(&mut owner, false)
+                .await?
+                .context("upgrade request missing")?;
+            ensure!(request.head.starts_with(format!("POST {path} ").as_bytes()));
+            ensure!(request.header("upgrade") == Some("cellar-log-stream"));
+            ensure!(request.body.is_empty());
+            let head = b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\n\r\n";
+            owner
+                .get_mut()
+                .write_all(&[head.as_slice(), REPLY].concat())
+                .await?;
+            // The peer can finish its output before the caller finishes input.
+            owner.get_mut().shutdown().await?;
+            let mut received = vec![0; EARLY.len() + LATE.len()];
+            owner.read_exact(&mut received).await?;
+            ensure!(
+                received == [EARLY, LATE].concat(),
+                "upgrade changed caller bytes"
+            );
+            ensure!(
+                owner.read(&mut [0]).await? == 0,
+                "caller half-close was lost"
+            );
+            Ok::<_, anyhow::Error>(())
+        });
+        let mut caller = BufReader::new(TcpStream::connect(proxy.address).await?);
+        let request = format!("POST {path} HTTP/1.1\r\nHost: localhost\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\nContent-Length: 0\r\n\r\n");
+        // Both directions may already have bytes in their HTTP read buffers
+        // when the 101 transfers ownership to the binary protocol.
+        let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            caller
+                .get_mut()
+                .write_all(&[request.as_bytes(), EARLY].concat())
+                .await?;
+            let response = message(&mut caller, true)
+                .await?
+                .context("upgrade reply missing")?;
+            ensure!(response.head.starts_with(b"HTTP/1.1 101 "));
+            let mut received = vec![0; REPLY.len()];
+            caller.read_exact(&mut received).await?;
+            ensure!(received == REPLY, "upgrade changed peer bytes");
+            ensure!(
+                caller.read(&mut [0]).await? == 0,
+                "peer half-close was lost"
+            );
+            caller.get_mut().write_all(LATE).await?;
+            caller.get_mut().shutdown().await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await
+        .context("binary log upgrade did not progress")
+        .and_then(|result| result);
+        drop(caller);
+        if outcome.is_err() {
+            server.abort();
+        }
+        let server_join = server.await;
+        let proxy_join = proxy.stop().await;
+        outcome.with_context(|| {
+            format!("{path}: server_join={server_join:?}; proxy_join={proxy_join:?}")
+        })?;
+        server_join??;
+        proxy_join?;
+    }
+    Ok(())
+}

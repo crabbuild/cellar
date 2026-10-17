@@ -393,251 +393,369 @@ async fn partition_owner(
         .await?
 }
 
+// Error context observes the original deadline result once, without retrying
+// an inspection or waiting longer for a supervisor to complete.
+async fn pending_at(
+    client: &reqwest::Client,
+    node: &mut Node,
+    scope: &str,
+    phase: &str,
+) -> Result<Value> {
+    let result = pending(client, node, scope).await;
+    if let Err(error) = result {
+        let closed = node.is_closed();
+        let dispatch = dispatch_observation(node);
+        let completion = if closed {
+            format!(
+                "{:?}",
+                futures_util::FutureExt::now_or_never(node.finished())
+            )
+        } else {
+            "not polled: domain remains open".into()
+        };
+        return Err(error).with_context(|| format!(
+            "{phase}: domain_closed={closed}, dispatch={dispatch:?}, supervisor_completion={completion}"
+        ));
+    }
+    result
+}
+
+#[allow(clippy::disallowed_methods)] // Test evidence survives failed fixture cleanup.
+fn retain_late_reply_evidence(root: &std::path::Path, name: &str, value: &Value) -> Result<()> {
+    use std::io::Write;
+    let mut file = std::fs::File::create(root.join(name))?;
+    file.write_all(&serde_json::to_vec_pretty(value)?)?;
+    file.sync_all()?;
+    Ok(())
+}
+
+async fn stop_late_reply_node(node: Node) -> Result<()> {
+    let services = node.services();
+    let shutdown = node.run_until(async { ShutdownMode::Handoff });
+    tokio::pin!(shutdown);
+    let outcome = match tokio::time::timeout(Duration::from_secs(12), &mut shutdown).await {
+        Ok(result) => result?,
+        Err(error) => {
+            // The original bound still fails; retain and join the very same
+            // shutdown future before releasing its caller-owned executor.
+            let joined = shutdown.await;
+            return Err(error).with_context(|| format!("late-reply shutdown join: {joined:?}"));
+        }
+    };
+    let NodeOutcome::Stopped(report) = outcome else {
+        anyhow::bail!("unexpected shutdown {outcome:?}");
+    };
+    ensure!(
+        report.ingress_drained
+            && report.application_work_drained
+            && report.pending_application_events == 0
+            && report.cells_drained
+            && report.log_quiesced
+            && report.local_durability_closed
+            && report.pending_dispatches == 0
+            && !report.drain_timed_out
+            && !report.deadline_elapsed,
+        "incomplete drain {report:?}"
+    );
+    ensure!(
+        services
+            .configure_metrics(Arc::new(HostMetricsSample::default))
+            .is_err(),
+        "completed node retained authority"
+    );
+    Ok(())
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn late_proven_append_reply_cannot_settle_a_fenced_source_successor() -> Result<()> {
     let directory = tempfile::tempdir()?;
-    let result = Box::pin(late_proven_append_reply_case(directory.path())).await;
-    match result {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let retained = directory.keep();
-            Err(error)
-                .with_context(|| format!("late append fixture retained at {}", retained.display()))
-        }
-    }
-}
-
-async fn late_proven_append_reply_case(directory: &std::path::Path) -> Result<()> {
     let destination_core = Executor::new("late-reply-destination-core")?;
     let source_core = Executor::new("late-reply-source-core")?;
     let successor_core = Executor::new("late-reply-successor-core")?;
-    let bucket = cellar::bucket::Bucket::open_dev(&directory.join("fleet.sqlite"))?;
-    let (mut config, services) = inputs(
-        "late-destination",
-        &directory.join("destination"),
-        &destination_core,
-        Some(bucket.clone()),
-        0,
-    )
-    .await?;
-    let proxy = peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
-    config.identity.advertise = proxy.address.to_string();
-    let destination = Node::start(
-        config,
-        services,
-        graph(1, false),
-        applications("destination")?,
-    )
-    .await
-    .context("late append destination startup")?;
-    super::super::ready(&destination).await?;
-    let client = client()?;
-    ensure!(history(&client, &destination).await? == json!([]));
-
-    let (mut config, services) = inputs(
-        "late-source",
-        &directory.join("source"),
-        &source_core,
-        Some(bucket.clone()),
-        0,
-    )
-    .await?;
-    // Match the existing missing-authority fixture: the readback must report
-    // the removed lease, rather than letting the expiry timer win the race.
-    config.actor.lease_ttl_ms = 5_000;
-    config.startup.recovery_retry_backoff = Duration::from_millis(5_000);
-    let mut external = graph(1, false);
-    external.primary.event_streams.clear();
-    let source = Node::start(config, services, external, applications("source")?)
-        .await
-        .context("late append source startup")?;
-    super::super::ready(&source).await?;
-    proxy.capture.delay_append();
-    ensure!(call(&client, &source, reqwest::Method::POST, "/write").await? == "source:1");
-    tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
-        .await??
-        .forget();
-    let captured = proxy.capture.exchanges.lock().unwrap().clone();
-    ensure!(captured.len() == 1 && captured[0].delayed && !captured[0].dropped);
-    let request = cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
-        captured[0].request.clone().into(),
-    ))?
-    .to_json()?;
-    let response = cellar::application::decode_rpc_result(
-        &cellar::engine_api::RpcData::Structured(captured[0].response.clone().into()),
-    )?
-    .to_json()?;
-    let envelope: Value = serde_json::from_slice(
-        &base64::engine::general_purpose::STANDARD.decode(
-            request[0]["records"][0]
-                .as_str()
-                .context("append envelope missing")?,
-        )?,
-    )?;
-    let scope = envelope["source"]
-        .as_str()
-        .context("source identity missing")?;
-    ensure!(
-        envelope["payload"] == json!({"value":1})
-            && envelope["sequence"] == "1"
-            && response["ok"]["protocol"] == 1
-            && response["ok"]["resource"] == resource().id
-            && response["ok"]["lane"] == envelope["lane"]
-            && response["ok"]["accepted_through"] == "1"
-    );
-    let original = pending(&client, &source, scope)
-        .await
-        .context("inspect original source before fencing")?;
-    ensure!(
-        original["pending_rows"] == "1"
-            && original["incarnation"] == envelope["source_incarnation"]
-            && original["lanes"][0]["revision"]["next_sequence"] == "2"
-            && original["lanes"][0]["revision"]["settled_through"] == "0"
-    );
-    let accepted = history(&client, &destination).await?;
-    ensure!(
-        accepted
-            .as_array()
-            .is_some_and(|records| records.len() == 1)
-            && accepted[0]["event"] == envelope
-            && accepted[0]["offset"] == "1"
-    );
-
-    // Remove only this test's node lease through an independent store client.
-    // This drives the real authority readback; no shutdown path or fake proof
-    // adapter is used to close the source execution domain.
     let faults = ExecutionDomain::new(tokio::runtime::Handle::current());
-    let removed = remove_authority(&faults, &bucket, "late-source").await?;
-    let source_services = source.services();
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(10),
-        source.run_until(std::future::pending()),
-    )
-    .await??;
-    ensure!(
-        outcome
-            == NodeOutcome::Fenced {
-                code: 3,
-                reason: FenceReason::NodeLeaseMissing
-            },
-        "source authority removal returned {outcome:?}"
-    );
-    ensure!(source_services
-        .configure_metrics(Arc::new(HostMetricsSample::default))
-        .is_err());
-    ensure!(source_core.handle().spawn(async { 7 }).await? == 7);
-    // Missing authority fenced the old process. Return its exact proof fields
-    // only after join, with expiry shortened, before asking for a successor.
-    restore_joined_authority(&faults, &bucket, "late-source", &removed).await?;
-    faults.shutdown().await;
-
-    let (config, services) = inputs(
-        "late-successor",
-        &directory.join("successor"),
-        &successor_core,
-        Some(bucket),
-        0,
-    )
-    .await?;
-    let mut external = graph(1, false);
-    external.primary.event_streams.clear();
-    let successor = Node::start(config, services, external, applications("successor")?)
-        .await
-        .context("late append successor startup")?;
-    super::super::ready(&successor).await?;
-    let recovered = pending(&client, &successor, scope)
-        .await
-        .context("inspect recovered source before old reply release")?;
-    ensure!(
-        recovered["pending_rows"] == "1"
-            && recovered["incarnation"] == original["incarnation"]
-            && recovered["lanes"][0]["revision"]["lane"]
-                == original["lanes"][0]["revision"]["lane"]
-            && recovered["lanes"][0]["revision"]["next_sequence"] == "2"
-            && recovered["lanes"][0]["revision"]["settled_through"] == "0",
-        "successor lost or settled the original obligation before replay: {recovered}"
-    );
-    ensure!(call(&client, &successor, reqwest::Method::GET, "/read").await? == "successor:1");
-    ensure!(history(&client, &destination).await? == accepted);
-    tokio::time::timeout(Duration::from_secs(5), proxy.capture.blocked.acquire())
-        .await??
-        .forget();
-    ensure!(
-        proxy.capture.exchanges.lock().unwrap().len() == 1,
-        "successor replay reached the stream before its audit"
-    );
-
-    // The only released reply belongs to the fenced source. New append
-    // submissions remain paused, so they cannot conceal stale settlement.
-    proxy.capture.release.add_permits(1);
-    tokio::time::timeout(Duration::from_secs(5), proxy.capture.released.acquire())
-        .await??
-        .forget();
-    let after_late_reply = pending(&client, &successor, scope)
-        .await
-        .context("inspect successor after old reply release")?;
-    ensure!(
-        after_late_reply["pending_rows"] == "1"
-            && after_late_reply["incarnation"] == original["incarnation"]
-            && after_late_reply["lanes"][0]["revision"]["settled_through"] == "0"
-            && after_late_reply["lanes"][0]["revision"]["next_sequence"] == "2",
-        "late old-owner reply settled successor state: {after_late_reply}"
-    );
-    ensure!(proxy.capture.exchanges.lock().unwrap().len() == 1);
-    ensure!(history(&client, &destination).await? == accepted);
-    proxy.capture.resume_appends();
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while pending(&client, &successor, scope)
-            .await
-            .context("inspect fresh dispatch settlement")?["pending_rows"]
-            != "0"
-        {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-        Ok::<_, anyhow::Error>(())
-    })
-    .await??;
-    let attempts = proxy.capture.exchanges.lock().unwrap().clone();
-    ensure!(attempts.len() >= 2 && attempts.iter().filter(|attempt| attempt.delayed).count() == 1);
-    for attempt in attempts {
-        ensure!(
-            attempt.scope == captured[0].scope
-                && attempt.request == captured[0].request
-                && attempt.response == captured[0].response
-                && !attempt.dropped,
-            "successor replay changed original bytes or acceptance"
-        );
-    }
-    ensure!(
-        history(&client, &destination).await? == accepted,
-        "retry duplicated stream acceptance"
-    );
-    ensure!(
-        call(
-            &client,
-            &successor,
-            reqwest::Method::POST,
-            "/process-ack?source=projection"
+    let mut destination_slot = None;
+    let mut source_slot = None;
+    let mut successor_slot = None;
+    let mut proxy_slot = None;
+    let mut phase = "start destination";
+    let result: Result<()> = async {
+        let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+        let (mut config, services) = inputs(
+            "late-destination",
+            &directory.path().join("destination"),
+            &destination_core,
+            Some(bucket.clone()),
+            0,
         )
-        .await?
-            == "1"
-    );
-    let status = stream_operator(
-        &client,
-        &successor,
-        &binding(true),
-        json!({"kind":"subscription","name":"projection"}),
-        "late-reply-audit",
-    )
-    .await?;
-    ensure!(status["result"]["checkpoint"] == "1");
-    stopped(successor)
-        .await
-        .context("late-reply successor complete shutdown")?;
-    stopped(destination)
-        .await
-        .context("late-reply destination complete shutdown")?;
-    proxy.stop().await?;
+        .await?;
+        proxy_slot = Some(peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?);
+        let proxy = proxy_slot.as_ref().unwrap();
+        config.identity.advertise = proxy.address.to_string();
+        destination_slot = Some(Node::start(
+            config,
+            services,
+            graph(1, false),
+            applications("destination")?,
+        )
+        .await?);
+        let destination = destination_slot.as_ref().unwrap();
+        super::super::ready(destination).await?;
+        let client = client()?;
+        ensure!(history(&client, destination).await? == json!([]));
+
+        let (mut config, services) = inputs(
+            "late-source",
+            &directory.path().join("source"),
+            &source_core,
+            Some(bucket.clone()),
+            0,
+        )
+        .await?;
+        // Match the existing missing-authority fixture: the readback must report
+        // the removed lease, rather than letting the expiry timer win the race.
+        config.actor.lease_ttl_ms = 5_000;
+        config.startup.recovery_retry_backoff = Duration::from_millis(5_000);
+        let mut external = graph(1, false);
+        external.primary.event_streams.clear();
+        source_slot = Some(Node::start(config, services, external, applications("source")?).await?);
+        let source = source_slot.as_mut().unwrap();
+        super::super::ready(source).await?;
+        proxy.capture.delay_append();
+        let source_response = call(&client, source, reqwest::Method::POST, "/write").await?;
+        ensure!(source_response == "source:1");
+        tokio::time::timeout(Duration::from_secs(5), proxy.capture.entered.acquire())
+            .await??
+            .forget();
+        let captured = proxy.capture.exchanges.lock().unwrap().clone();
+        ensure!(captured.len() == 1 && captured[0].delayed && !captured[0].dropped);
+        let request = cellar::application::decode_rpc(&cellar::engine_api::RpcData::Structured(
+            captured[0].request.clone().into(),
+        ))?
+        .to_json()?;
+        let response = cellar::application::decode_rpc_result(
+            &cellar::engine_api::RpcData::Structured(captured[0].response.clone().into()),
+        )?
+        .to_json()?;
+        let envelope: Value = serde_json::from_slice(
+            &base64::engine::general_purpose::STANDARD.decode(
+                request[0]["records"][0]
+                    .as_str()
+                    .context("append envelope missing")?,
+            )?,
+        )?;
+        let scope = envelope["source"]
+            .as_str()
+            .context("source identity missing")?;
+        ensure!(
+            envelope["payload"] == json!({"value":1})
+                && envelope["sequence"] == "1"
+                && response["ok"]["protocol"] == 1
+                && response["ok"]["resource"] == resource().id
+                && response["ok"]["lane"] == envelope["lane"]
+                && response["ok"]["accepted_through"] == "1"
+        );
+        let mut prefix = json!({
+            "format": 1,
+            "source_response": {"status": 200, "body": source_response},
+            "append_scope": captured[0].scope,
+            "append_request_base64": base64::engine::general_purpose::STANDARD.encode(&captured[0].request),
+            "append_response_base64": base64::engine::general_purpose::STANDARD.encode(&captured[0].response),
+            "event": envelope,
+            "event_base64": request[0]["records"][0],
+            "recorded_before_authority_fault_and_replay": true,
+        });
+        retain_late_reply_evidence(directory.path(), "accepted-prefix.json", &prefix)?;
+        phase = "inspect original source before authority loss";
+        let original = pending_at(&client, source, scope, phase).await?;
+        ensure!(
+            original["pending_rows"] == "1"
+                && original["incarnation"] == envelope["source_incarnation"]
+                && original["lanes"][0]["revision"]["next_sequence"] == "2"
+                && original["lanes"][0]["revision"]["settled_through"] == "0"
+        );
+        let accepted = history(&client, destination).await?;
+        ensure!(
+            accepted
+                .as_array()
+                .is_some_and(|records| records.len() == 1)
+                && accepted[0]["event"] == envelope
+                && accepted[0]["offset"] == "1"
+        );
+
+        // Remove only this test's node lease through an independent store client.
+        // This drives the real authority readback; no shutdown path or fake proof
+        // adapter is used to close the source execution domain.
+        prefix["source_inspection"] = original.clone();
+        prefix["accepted_history"] = accepted.clone();
+        retain_late_reply_evidence(directory.path(), "accepted-prefix.json", &prefix)?;
+        phase = "remove original source authority";
+        let removed = remove_authority(&faults, &bucket, "late-source").await?;
+        retain_late_reply_evidence(directory.path(), "removed-source-authority.json", &removed)?;
+        let source_services = source.services();
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(10),
+            source.finished(),
+        )
+        .await??;
+        ensure!(
+            outcome
+                == NodeOutcome::Fenced {
+                    code: 3,
+                    reason: FenceReason::NodeLeaseMissing
+                },
+            "source authority removal returned {outcome:?}"
+        );
+        ensure!(source_services
+            .configure_metrics(Arc::new(HostMetricsSample::default))
+            .is_err());
+        ensure!(source_core.handle().spawn(async { 7 }).await? == 7);
+        // Missing authority fenced the old process. Return its exact proof fields
+        // only after join, with expiry shortened, before asking for a successor.
+        source_slot.take();
+        restore_joined_authority(&faults, &bucket, "late-source", &removed).await?;
+        phase = "start successor from original retained proof";
+
+        let (config, services) = inputs(
+            "late-successor",
+            &directory.path().join("successor"),
+            &successor_core,
+            Some(bucket),
+            0,
+        )
+        .await?;
+        let mut external = graph(1, false);
+        external.primary.event_streams.clear();
+        successor_slot = Some(Node::start(config, services, external, applications("successor")?).await?);
+        let successor = successor_slot.as_mut().unwrap();
+        super::super::ready(successor).await?;
+        phase = "inspect recovered successor before replay";
+        let recovered = pending_at(&client, successor, scope, phase).await?;
+        ensure!(
+            recovered["pending_rows"] == "1"
+                && recovered["incarnation"] == original["incarnation"]
+                && recovered["lanes"][0]["revision"]["lane"]
+                    == original["lanes"][0]["revision"]["lane"]
+                && recovered["lanes"][0]["revision"]["next_sequence"] == "2"
+                && recovered["lanes"][0]["revision"]["settled_through"] == "0",
+            "successor lost or settled the original obligation before replay: {recovered}"
+        );
+        ensure!(call(&client, successor, reqwest::Method::GET, "/read").await? == "successor:1");
+        ensure!(history(&client, destination).await? == accepted);
+        tokio::time::timeout(Duration::from_secs(5), proxy.capture.blocked.acquire())
+            .await??
+            .forget();
+        ensure!(
+            proxy.capture.exchanges.lock().unwrap().len() == 1,
+            "successor replay reached the stream before its audit"
+        );
+
+        // The only released reply belongs to the fenced source. New append
+        // submissions remain paused, so they cannot conceal stale settlement.
+        proxy.capture.release.add_permits(1);
+        tokio::time::timeout(Duration::from_secs(5), proxy.capture.released.acquire())
+            .await??
+            .forget();
+        phase = "inspect successor after releasing only old-owner reply";
+        let after_late_reply = pending_at(&client, successor, scope, phase).await?;
+        ensure!(
+            after_late_reply["pending_rows"] == "1"
+                && after_late_reply["incarnation"] == original["incarnation"]
+                && after_late_reply["lanes"][0]["revision"]["settled_through"] == "0"
+                && after_late_reply["lanes"][0]["revision"]["next_sequence"] == "2",
+            "late old-owner reply settled successor state: {after_late_reply}"
+        );
+        ensure!(proxy.capture.exchanges.lock().unwrap().len() == 1);
+        ensure!(history(&client, destination).await? == accepted);
+        phase = "settle original obligation through successor replay";
+        proxy.capture.resume_appends();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while pending_at(&client, successor, scope, phase).await?["pending_rows"] != "0" {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+        let attempts = proxy.capture.exchanges.lock().unwrap().clone();
+        ensure!(attempts.len() >= 2 && attempts.iter().filter(|attempt| attempt.delayed).count() == 1);
+        for attempt in attempts {
+            ensure!(
+                attempt.scope == captured[0].scope
+                    && attempt.request == captured[0].request
+                    && attempt.response == captured[0].response
+                    && !attempt.dropped,
+                "successor replay changed original bytes or acceptance"
+            );
+        }
+        ensure!(
+            history(&client, destination).await? == accepted,
+            "retry duplicated stream acceptance"
+        );
+        ensure!(
+            call(
+                &client,
+                successor,
+                reqwest::Method::POST,
+                "/process-ack?source=projection"
+            )
+            .await?
+                == "1"
+        );
+        let status = stream_operator(
+            &client,
+            successor,
+            &binding(true),
+            json!({"kind":"subscription","name":"projection"}),
+            "late-reply-audit",
+        )
+        .await?;
+        ensure!(status["result"]["checkpoint"] == "1");
+        phase = "graceful successor shutdown";
+        stop_late_reply_node(successor_slot.take().unwrap())
+            .await
+            .context("late-reply successor complete shutdown")?;
+        phase = "graceful destination shutdown";
+        stop_late_reply_node(destination_slot.take().unwrap())
+            .await
+            .context("late-reply destination complete shutdown")?;
+        phase = "join peer proxy";
+        proxy_slot.take().unwrap().stop().await?;
+        Ok(())
+    }.await;
+
+    // Close and join writers before releasing the held reply. Cleanup must not
+    // conceal a failed pre-replay audit by allowing a successor to settle it.
+    let mut joined = Vec::new();
+    for (name, slot) in [
+        ("source", &mut source_slot),
+        ("successor", &mut successor_slot),
+        ("destination", &mut destination_slot),
+    ] {
+        if let Some(node) = slot.take() {
+            let closed = node.is_closed();
+            let dispatch = format!("{:?}", dispatch_observation(&node));
+            let completion = node.cancel().await;
+            joined.push(json!({"node": name, "closed_before_cleanup": closed,
+                "dispatch_before_cleanup": dispatch, "forced_join": format!("{completion:?}")}));
+        }
+    }
+    faults.shutdown().await;
+    if let Some(proxy) = proxy_slot.take() {
+        proxy.capture.release.add_permits(1);
+        proxy.capture.resume_appends();
+        joined.push(json!({"proxy_join": format!("{:?}", proxy.stop().await)}));
+    }
+    if let Err(error) = result {
+        let retained = directory.keep();
+        let evidence = json!({"format": 1, "phase": phase,
+            "error": format!("{error:#}"), "cleanup": joined});
+        let saved = retain_late_reply_evidence(&retained, "failure.json", &evidence);
+        return Err(error).with_context(|| {
+            format!(
+                "late append phase={phase}; retained_fixture={}; failure_evidence={saved:?}",
+                retained.display()
+            )
+        });
+    }
     Ok(())
 }
 
