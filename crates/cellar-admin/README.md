@@ -1,20 +1,27 @@
 <img src="../../dashboard/public/cellar-icon.png" alt="Cellar logo" width="56" height="56" />
 
-# Cellar dashboard service
+# cellar-admin
 
-The dashboard implements [the v1 scope](../../plans/003-fleet-dashboard.md): fleet,
-node and cell exploration; SQL, KV, queue, workflow and cron management; event
-delivery workspaces; and durable node stop receipts. The plans record local
-verification and deployment limits. No hosted service or infrastructure
-provisioning is included.
+Inspect and manage a Cellar fleet through an authenticated API and browser
+console. The `cellar-dashboard` binary serves the console; the `Console` library
+supports application-owned hosting. Explore nodes and cells, inspect data,
+manage background work and reconcile durable operation receipts.
 
-The `cellar-dashboard` process serves a Vite/React/shadcn browser app and a
-same-origin authenticated API. It observes fleet metadata and uses Cellar's
-existing authenticated owner route for resource operations. It does not open
-cell SQLite files. Its separate SQLite file records management operation intent
-and outcomes. Unknown outcomes are never automatically replayed.
+The [dashboard plan](../../plans/003-fleet-dashboard.md) records scope,
+verification and deployment limits. You supply the hosting infrastructure.
 
-## Run
+[Run](#run-the-dashboard) · [Access](#configure-access) ·
+[Resources](#resource-behavior-and-limits) · [Embed](#embed-the-console) ·
+[Event delivery](#event-delivery) · [Stop receipts](#node-stop-receipts)
+
+![The browser calls an authenticated console API, which routes to the cell owner and stores management receipts in a separate audit database.](../../docs/diagrams/management-requests.svg)
+
+The Vite/React/shadcn app and its authenticated API share an origin. Resource
+operations run through the owner; the console never opens cell SQLite files.
+A separate audit database records management intent and outcomes. Inspect
+receipts after an ambiguous response; mutations are never automatically replayed.
+
+## Run the dashboard
 
 Build browser assets in `dashboard/` with `npm ci && npm run build`. Copy
 `console.example.json` to a private location and configure the fleet bucket,
@@ -29,7 +36,8 @@ only that variable name. The browser holds its access token in memory.
 
 ```sh
 # Follow AGENTS.md for a checkout-specific CARGO_TARGET_DIR first.
-cargo run -p cellar-admin --bin cellar-dashboard --locked -- --config /path/to/console.json
+cargo run -p cellar-admin --bin cellar-dashboard --locked -- \
+  --config /path/to/console.json
 ```
 
 Open the configured address and enter the token. For frontend development, run
@@ -38,6 +46,8 @@ browser's exact origin to `origins`. No cross-origin API access is enabled.
 For remote access, terminate TLS at your authenticated deployment boundary and
 configure the external origin. The private Cellar peer listener stays private.
 
+## Configure access
+
 Permissions are independent per fleet: `metadata_read`, `data_read`,
 `data_write`, `operate`, and `configure`. Resource operations resolve declared
 application bindings on the server before routing. Do not distribute tokens
@@ -45,7 +55,9 @@ with grants broader than the operator needs. The service currently uses static
 host-configured principals; applications can construct `Console` with their own
 explicit principal provisioning.
 
-## Validation
+## Validate changes
+
+Run the service tests from the repository root:
 
 ```sh
 cargo test -p cellar-admin --locked
@@ -60,7 +72,12 @@ receipts cover handoff, preserve, cancellation and deadline expiry. A standalone
 process test verifies cron adoption and a joined stop receipt. See the plan for
 the complete verification record and test-environment limits.
 
-## Current resource semantics
+## Resource behavior and limits
+
+Resource operations use the authoritative owner and retain explicit outcomes.
+The following limits apply to the console unless stated otherwise.
+
+### SQL and schema inspection
 
 Read-only SQL is enforced by SQLite's authorizer, including CTEs and PRAGMAs.
 Console queries have a 64 KiB input limit, 1,000 rows per result, a 1 MiB value
@@ -70,23 +87,31 @@ Schema and column browsing use the same enforced read-only console. Migration
 history pages read only approved bookkeeping tables, without creating absent tables.
 Queue previews cap payload bytes before loading message bodies and report truncation.
 
+### Conditional KV edits
+
 KV console inspection caps values at 1 MiB before reading blob contents. Larger
 values report `valueOmitted`, size, metadata, expiry and revision. Conditional
 `kv_edit` and `kv_delete_if` require both data read and data write permissions.
 Conditional requests also carry the inspected binding identity; deployment
 rebinding is rejected before dispatch, so a draft cannot cross namespaces.
 A decimal-string revision identifies the inspected live key; `null` requires
-absence. All namespace puts, including SDK, bulk and older operator writers,
+absence.
+
+All namespace puts, including SDK, bulk and older operator writers,
 assign a new persisted revision. The owner rechecks the condition in the write
 transaction, including expiration after asynchronous blob publication.
+
 `preserve` keeps the exact stored expiry; `never` clears it; `at` uses absolute
 Unix milliseconds. Metadata is JSON text or absent, preserving JSON `null`.
 Definite conflicts return HTTP 409 and audit `rejected`; transport failures retain
 `outcome_unknown`. Existing unconditional SDK and CLI signatures remain unchanged.
+
 The browser does not retry mutations automatically. Conditional editing requires
 all fleet owners to run the revision-aware framework. Mixed old/new framework
 ownership is not qualified: older runtimes can mutate values without advancing
 revisions. Complete the framework rollout before enabling these console edits.
+
+### Workflow discovery and history
 
 Workflow discovery reads a bounded page of retained application workflow cells
 through their owners. It reports continuation and unavailable observations, and
@@ -97,14 +122,18 @@ explorer separates generations and offers a recorded path, activity timeline,
 input/output inspector and the definition snapshot captured for that run. See
 [workflow definitions and inspection](../../docs/08-asynchronous-work.md#visual-definitions-and-execution-inspection)
 for publishing diagrams and explicitly recording step inputs.
+
 The explorer adds pinned step snapshots, recorded duration overlays and side-by-side
 run/definition comparisons. `history_search` requires `data_read` and scans at most
 64 events per request, with explicit continuation even on an empty matching page.
 Search results retain redaction; oversized data fields are explicitly omitted from
 search hits and remain available through ordinary history. History pages include
 the owner scope so the browser cannot merge a rebound binding's earlier events.
+
 Changes to an existing workflow require its observed execution generation. After
 a restart, inspect the new execution before issuing another control.
+
+### Cron configuration and adoption
 
 Cron preview uses the same five-field UTC parser as scheduling. The separate
 schedule editor requires `configure`, checks the observed deployment and schedule
@@ -123,27 +152,36 @@ and expressions, and reports unreachable/older nodes separately. Adoption does n
 prove that an occurrence ran. An empty override retains the scheduling cell so it
 can clear an old alarm. Workflow schedule declarations remain deployment configuration.
 
+### Cron execution history
+
 `GET /api/v1/fleets/{fleet}/applications/{application}/cron/executions` requires
 `data_read`, with optional `before`, `limit` (1–100, default 50) and `expression`
 filters. Only the primary application owns a scheduling cell. Reads are owner-routed
 and do not arm schedules or create an absent journal. A signed
 `inspection=cron_history_v1` query is refused by older entrances before dispatch;
-new entrances reuse the cancellable owner-routed `__cronHistory` RPC. Older owners
-refuse this unsupported RPC instead of interpreting a legacy fetch as arming. Its own SQLite and output gate
-retain the last 256 actual attempts with configuration identity, occurrence, attempt,
+new entrances reuse the cancellable owner-routed `__cronHistory` RPC. Older
+owners refuse this unsupported RPC instead of interpreting a legacy fetch as arming.
+
+The scheduling cell's SQLite journal and output gate retain the last 256 actual attempts with configuration identity, occurrence, attempt,
 start/end timing, duration, handler result kind, failure and drained background-error
 count. `started` without completion evidence may be running or interrupted; a retry
 request does not prove another attempt occurred. Attempt numbering follows the
-existing activation-local retry state; record IDs distinguish all retained attempts. `workflow_accepted` confirms only the
+existing activation-local retry state; record IDs distinguish all retained attempts.
+
+`workflow_accepted` confirms only the
 create request, with a linkable instance ID. Old framework executions are not
 backfilled. Removing a schedule retains inspection access; anonymous `/do/` access
 to cron cells is refused. These observations do not change retry or replay policy.
+
+### Queue previews
 
 Queue console peek snapshots add observation time, total delivery attempts (including
 a recorded lease), lease activity/expiry/generation and transfer provenance. They
 remain non-consuming and bounded by the existing 512 KiB payload preview budget.
 Dead-letter acceptance resets age and attempts in the receiving queue; the panel
 explicitly distinguishes these from unretained earlier source-queue history.
+
+### Node controls and cell eviction
 
 Node controls use signed private requests with process-generation
 preconditions. Balancing preferences propagate through node leases; acceptance of
@@ -154,9 +192,12 @@ existing eviction proof and completion. It releases residency, preserves data,
 and does not promise that later demand will leave the cell inactive.
 The live node cell view scans at most 100 routing records per page and reports
 locally observed alarms; it is not a fleet-wide alarm history.
+
 Resource routing checks the observed owner and at most 128 node lease records,
 retaining up to four current compatible entrances. Exhausting that sample means
 availability is unknown, not that the fleet is empty.
+
+## Embed the console
 
 Library callers supply `Console::domain`, construct storage clients within that
 domain, and keep its executor alive until `domain.shutdown().await` completes.
@@ -186,8 +227,7 @@ ordinary writes are never automatically replayed.
 Stream actions recheck the current binding's read/administer capability and
 native grant. Mutation reviews pin the observed source revision or subscription
 identity and require a reason. Retirement pins the observed configuration
-revision; source lifecycle pins the observed producer incarnation. Native receipts use a principal-bound operator
-identity and reconcile only the exact locally recorded request. The Operations
+revision; source lifecycle pins the observed producer incarnation. Native receipts use a principal-bound operator identity and reconcile only the exact locally recorded request. The Operations
 page links to receipt lookup after navigation or reload; lookup never replays a
 mutation. Cold inspection can activate a cell and progress existing work.
 

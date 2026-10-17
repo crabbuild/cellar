@@ -2,7 +2,8 @@
 
 Record the candidate and link actual evidence. Mark every applicable gate
 pass / fail / open, with owner, date and scope. A checkbox or process exit is
-not proof of acknowledged-write recovery.
+not proof of acknowledged-write recovery. Resolve each failed or open gate
+before recording a go decision, or document a scoped exception below.
 
 | Candidate | Value |
 | --- | --- |

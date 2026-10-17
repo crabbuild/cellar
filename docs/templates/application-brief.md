@@ -2,7 +2,8 @@
 
 Copy this template into the team's application repository and replace each
 decision field with a named owner, requirement or evidence link. An unfilled
-field remains open; it is not an approval.
+field remains open. Complete the brief before choosing capacity targets or
+starting deployment qualification.
 
 | Decision | Team answer |
 | --- | --- |

@@ -1,12 +1,16 @@
-# LTX file format (Version 3) — byte layout
+# LTX version 3 byte layout
 
-Derived from `superfly/ltx` v0.5.2 (`ltx.go`, `checksum.go`, `encoder.go`, and
-`decoder.go`). The implementation is in `src/ltx.rs`. All multi-byte integers
-are **big-endian**.
+Use this reference when reading or changing Cellar's LTX codec. It describes
+the block representation from `superfly/ltx` v0.5.2, derived from `ltx.go`,
+`checksum.go`, `encoder.go` and `decoder.go`. The implementation is in
+[ltx.rs](../src/ltx.rs). All multi-byte integers are **big-endian**.
+
+The [crate guide](../README.md#file-compatibility) explains reader compatibility
+and distinguishes LTX files from Cellar's bundle envelope.
 
 ## File structure
 
-```
+```text
 +----------------------+
 | Header   (100 bytes) |
 +----------------------+
@@ -29,10 +33,10 @@ are **big-endian**.
 | 0  | 4 | Magic | ASCII `"LTX1"` |
 | 4  | 4 | Flags (u32) | only `HeaderFlagNoChecksum = 1<<1` is valid |
 | 8  | 4 | PageSize (u32) | power of two, 512..=65536 |
-| 12 | 4 | Commit (u32) | DB size after txn, in pages |
+| 12 | 4 | Commit (u32) | Database size after the transaction, in pages |
 | 16 | 8 | MinTXID (u64) | |
 | 24 | 8 | MaxTXID (u64) | |
-| 32 | 8 | Timestamp (i64) | ms since unix epoch |
+| 32 | 8 | Timestamp (i64) | Milliseconds since the Unix epoch |
 | 40 | 8 | PreApplyChecksum (u64) | 0 on snapshots (MinTXID==1) |
 | 48 | 8 | WALOffset (i64) | 0 if journal |
 | 56 | 8 | WALSize (i64) | 0 if journal |
@@ -72,7 +76,7 @@ length includes the elements and terminator, but it excludes its own field.
 
 `PostApplyChecksum (u64 @0)`, `FileChecksum (u64 @8)`.
 
-## Checksums — CRC64-ISO with the ChecksumFlag
+## CRC64-ISO checksums
 
 - Hasher: **CRC64 / ISO polynomial `0xD800000000000000`**, matching Go
   `crc64.MakeTable(crc64.ISO)` (reflected; init 0; per-update invert-process-invert).

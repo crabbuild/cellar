@@ -4,6 +4,19 @@ Use Axum handlers for Cellar applications, or mount an embedded Cellar node in
 an application-owned Axum server. Both hosts execute the same durable cells,
 owner routing, recovery, replication, and output gates.
 
+[Cell routes](#define-a-cell-route) · [Hosting](#choose-the-http-host) ·
+[Middleware](#middleware-and-application-events) ·
+[Streaming](#streaming-and-websockets) · [OpenAPI](#describe-apis-with-openapi)
+
+![Cellar-owned HTTP and an external Axum server both dispatch into the same Cellar node and durable cells.](../../docs/diagrams/hosting-modes.svg)
+
+Choose who owns public HTTP before configuring ingress. Both hosting paths keep
+Cellar's private peer listener and cell durability checks.
+
+## Define a cell route
+
+Register the cell factory and its public route in one application definition:
+
 ```rust,no_run
 use axum::{routing::get, Router};
 use cellar_axum::{ApplicationBuilder, AxumCell, CellContext};
@@ -35,6 +48,8 @@ node. Construct mutable cell Router State inside a `cell` factory, so each
 activation has its own state. Fully initialized `Router<()>` values are required;
 Axum's State, Path, Query, Json and other normal extractors remain available.
 
+## Choose the HTTP host
+
 For native HTTP, use `Node::start` or the compiled CLI's `sdk::Host`. For an
 Axum-owned public listener, bind it first and supply its actual address to
 `Node::start_external` through `ExternalNodeServices`. The returned
@@ -45,6 +60,8 @@ peer listener. An unrelated route in the outer Router runs as ordinary Axum.
 egress. `NodeConfig::cell_limits` captures cell API budgets for either host.
 See [the two-host counter](../../examples/axum-counter/README.md) for complete
 startup, configuration, packaging and shutdown code.
+
+### Admission and shutdown
 
 `ingress_capacity` bounds calls from synchronous admission through response
 body completion. Saturation or closed admission returns 503 with Retry-After;
@@ -75,8 +92,8 @@ validates; never treat an outer extension as fleet authority.
 
 ## Streaming and WebSockets
 
-HTTP and SSE bodies are polled by an invocation-owned producer through a bounded
-SDK byte pipe. Each emitted chunk passes Cellar's existing response egress gate,
+HTTP and server-sent event (SSE) bodies are polled by an invocation-owned
+producer through a bounded SDK byte pipe. Each emitted chunk passes Cellar's existing response egress gate,
 including storage writes made after the response head. Backpressure stops
 producer polling, disconnect cancels it, and body or proof errors remain stream
 errors. Use SDK runtime services instead of ambient spawning or timers in a
@@ -96,7 +113,7 @@ opening proof. Axum's ordinary `WebSocketUpgrade::on_upgrade` belongs on
 ordinary outer Axum routes; it does not provide Cellar invocation authority.
 The adapter currently supports the existing HTTP/1.1 WebSocket protocol.
 
-## OpenAPI
+## Describe APIs with OpenAPI
 
 Enable `openapi` to use the re-exported Utoipa 6 / utoipa-axum 0.3 types:
 
@@ -141,6 +158,12 @@ Router. The counter example mounts vendored Swagger UI at `/docs` and redirects
 is separate from this adapter. The counter also has an offline export binary,
 checked-in contract, reproducible Rust client generator and client tests against
 both hosts.
+
+## Validate changes
+
+Run both adapter feature modes and the counter integration tests from the
+repository root, using the target directory required by
+[build guidance](../../AGENTS.md#build-and-validation):
 
 ```sh
 cargo test -p cellar-axum --no-default-features --locked

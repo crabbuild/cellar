@@ -1,9 +1,9 @@
 # Recovery, backup and disaster drills
 
-Cellar's ownership recovery and an operator backup policy solve related but
-different problems. Recovery accounts for prior owners' replicated logs before
-takeover. A backup must preserve a coherent, tested recovery set against the
-failures your business chooses to cover.
+Cellar recovers prior owners' replicated logs before allowing takeover. Your
+backup policy must also preserve the data, artifacts and configuration needed
+after the failures your business chooses to cover. Test the complete recovery
+set through restored reads, new writes and a verified stop.
 
 ![Interactive recovery flow](diagrams/recovery-flow.svg)
 
@@ -29,7 +29,8 @@ No turnkey point-in-time backup/restore product or arbitrary timestamp recovery
 guarantee is established by this documentation. Design and qualify a procedure
 for your store, durability posture and retention policy:
 
-1. Define the recovery point, business RPO/RTO, loss cases and source of authority.
+1. Define the recovery point objective (RPO), recovery time objective (RTO),
+   loss cases and source of authority.
 2. Preserve package manifests/executables, application configuration, identity
    conventions and schema/workflow versions alongside the relevant data history.
 3. Capture a coherent ownership/log/LTX/object set, accounting for acknowledged
@@ -60,9 +61,10 @@ identity while active, or mutate a recovered database behind its owner.
 
 Measure RTO through business readiness and state reconciliation, not just
 process launch. Measure RPO against a durable client command ledger. Retain
-failed drills and their artifacts. The current main-baseline reports do not
-prove in-flight network-partition or ambiguous-ack recovery; newer branch work
-must be merged and qualified before being cited as release evidence.
+failed drills and their artifacts. The [original baseline reports](sources.md#retained-validation-reports)
+do not establish in-flight network-partition or ambiguous-acknowledgment recovery.
+Any newer result must identify its exact code and image before it can qualify
+a release.
 
 Sources: [SDK recovery contract](../crates/cellar/sdk.rs),
 [node logs](../crates/cellar/durability/log/mod.rs),

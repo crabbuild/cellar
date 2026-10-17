@@ -7,6 +7,20 @@ These primitives share identities and proof boundaries, but each has a distinct
 job. Their implementation is under development; the
 [qualification ledger](../plans/outbox-implementation-status.md) records open gates.
 
+[Choose an API](#choose-the-right-surface) ·
+[Configure](#declare-and-resolve-once) ·
+[Publish](#commit-the-business-command-and-obligation) ·
+[Consume](#process-prove-acknowledge) ·
+[Handle errors](#handle-outcomes-by-operation) ·
+[Operate](#operate-the-whole-path)
+
+![Source commit, durable dispatch, stream lease, consumer transaction, local sync and exact-batch acknowledgment form separate stages.](diagrams/event-delivery.svg)
+
+Follow the top row left to right, then the bottom row right to left. The source
+output gates prove committed state and recoverable intent. The consumer proves
+local effects before acknowledging the remote checkpoint. These stages can
+succeed independently.
+
 ## Choose the right surface
 
 | Surface | Owns | Success establishes |
@@ -60,6 +74,8 @@ domain. A declared binding, an active catalog entry and successful readiness
 checks are required. Bucket-backed storage, replication and durable wake
 discovery currently are required even for a single deployed node.
 
+### Resource readiness and development formats
+
 `Node::start` waits for resource activation while supervising the node. If the
 node exits first, startup fails with its error or outcome. A completed supervisor
 also fails startup when resource readiness is already ready. A reported activation
@@ -105,7 +121,7 @@ protects retries of the same stored obligation, not repeated business commands.
 
 Run consumers through bounded invocations, cron, workflow activities or explicitly
 supervised tasks. A subscription does not install a function trigger or create a
-background consumer. This handler fragment processes one leased batch:
+background consumer. Resolve the consumer binding in its invocation:
 
 ```rust
 use cellar::sdk::event_stream::BatchOptions;
@@ -113,6 +129,11 @@ use cellar::sdk::event_stream::BatchOptions;
 let db = context.storage()?;
 let stream = context.stream::<OrderConfirmed>("EVENTS")?;
 let subscription = stream.subscription("projection")?;
+```
+
+Process one leased batch, prove the local changes, then acknowledge it:
+
+```rust
 if let Some(batch) = subscription.next(&context, BatchOptions {
     max_records: 100,
     max_bytes: 1 << 20,
@@ -139,16 +160,22 @@ replaying the batch safe for those local effects. Inbox pruning ends that
 protection. Sync before acknowledgment so the remote checkpoint cannot outrun
 proven effects. Acknowledgment is for the entire exact batch, not a partial prefix.
 
-Use `next_with_id` with the same fetch ID to resolve an ambiguous fetch. Fetch
-IDs are 32 lowercase hexadecimal digits; save the ID before starting the call.
-While its lease remains live, replay recovers the same receipt, expiry and batch;
-a different fetch ID receives `LeaseBusy`. This identity is not a permanent batch
-receipt: after acknowledgment or lease expiry, the same fetch ID can obtain a
-fresh lease. Retained inbox receipts protect local effects when records repeat.
-Keep the returned receipt unchanged when retrying an ambiguous acknowledgment. `retry`
-releases work for later processing without advancing the checkpoint.
-`extend_until` uses a bounded absolute expiry so a repeated extension cannot
-continually add time. Expired/reset/obsolete authority must be handled explicitly.
+### Recover a fetch or acknowledgment result
+
+Keep fetch identity and batch settlement separate:
+
+| Operation | Identity to retain | Replay behavior |
+| --- | --- | --- |
+| Fetch | Save a 32-digit lowercase hexadecimal fetch ID before calling `next_with_id` | While the lease is live, the same ID recovers its receipt, expiry and batch; a different ID receives `LeaseBusy` |
+| Acknowledge | Keep the exact returned batch receipt | Retry that receipt after an ambiguous result; handle expired, reset or obsolete authority explicitly |
+| Retry later | Use the current batch receipt with `retry` | Releases processing authority without advancing the checkpoint |
+| Extend | Use `extend_until` with a bounded absolute expiry | Repeating the extension does not continually add time |
+
+A fetch ID is not a permanent batch receipt. After acknowledgment or expiry,
+the same ID can obtain a fresh lease. Retained inbox receipts protect local
+effects when records repeat.
+
+### Share a subscription across workers
 
 Several workers sharing a subscription compete for one live batch. Expiry allows
 another worker to receive the same records with a new receipt; it does not stop
@@ -160,6 +187,8 @@ later batch is leased; that result describes only the original receipt. Keep
 inbox receipts and business effects in the same stable consumer database and
 processing scope across redelivery. Separate worker databases do not share inbox
 deduplication; external effects still require destination idempotency.
+
+### Lease deadlines and retained history
 
 Stream deadline decisions use a captured, persisted logical clock. Authorized
 append, configuration and retirement attempts retain their time observation even
@@ -179,6 +208,8 @@ instead become expired and require an explicit reset after reclamation.
 The SDK returns `Acknowledgment::Obsolete` for an older receipt whose range is
 already behind the checkpoint. Like `AlreadyAcknowledged`, this is settled
 progress, not an instruction to apply the events again.
+
+### Polling budgets
 
 `BatchOptions` defaults to 100 records, 1 MiB and a 30-second poll. Host policy
 caps the requested budgets. Polling stops when work is available or its wait
@@ -212,6 +243,8 @@ name used in JSON. Display text is diagnostic, not a retry decision.
 | `PendingDelivery` | Drain/settle obligations or follow the guarded retirement/destruction contract; ordinary reset cannot discard pending work |
 | `UnsupportedProtocol` | Rebuild matching participants and recreate unsupported development state; owned markers stay at 1 with no compatibility mode |
 | `Forbidden`, `ConfigConflict`, `DestinationDeleted`, `SequenceGap`, `ProducerSealed` | Inspect grants, lifecycle and producer state; operator repair may be needed |
+
+### Invalid responses and local refusal
 
 An invalid success body after a submitted fetch or mutation is `Ambiguous`,
 even if the underlying metadata validator detects an invalid field or receipt.
@@ -247,12 +280,16 @@ drain proofs. Save operation IDs and expected revisions for mutations; query
 status after a lost response. Diagnostics omit payloads and lease tokens by
 default. Fleet root metrics report coverage failures rather than inventing totals.
 
+### Retry a blocked lane
+
 After repairing a blocked lane, retry against its freshly inspected revision.
 Retry fences attempts already in flight: their later success or refusal cannot
 clear or block the retried work. Reuse the same operation ID, reason and expected
 revision when resolving an ambiguous retry response; replay returns its retained
 receipt and does not schedule another attempt, even after delivery completes.
 That receipt proves the retry obligation, not destination acceptance.
+
+### Preserve node recovery evidence
 
 Node lease objects retain folded log recovery evidence even after expiry or
 retirement. An expired lease is eligible for recovery; a missing lease is not
@@ -279,6 +316,8 @@ that a persisted epoch-retirement certificate supersedes it. Startup lease
 observations and recovery checkpoints alone do not authorize deletion. Cleanup
 rechecks storage progress in bounded maintenance passes after recovery uploads;
 unavailable coverage preserves the proof.
+
+## Validate the delivery path
 
 Start with the [executable walkthrough](../examples/durable-streams/README.md).
 Its smoke test checks publication, retry, preserving restart, inbox suppression

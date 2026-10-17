@@ -1,25 +1,61 @@
 # cellar-ltx
 
-`cellar-ltx` is cellar's in-process SQLite replication library. It captures
-committed WAL data as L0 LTX segments and reports the captured position. The
-crate can write segments to a filesystem or an object store. It can restore a
-database, compact levels, create a snapshot, and read segments from bundle
-objects. It can also open a database by paging: a fault-in SQLite VFS reads
-each page from the segments on first use, through a page map built from the
-segments' own page indexes, and a paged epoch continues the chain it paged
-from.
+Capture committed SQLite write-ahead log (WAL) data as LTX replication segments.
+`cellar-ltx` writes and reads replicas, restores databases, compacts history and
+supports page-on-demand access. It is an in-process library used by the
+[`cellar` host](../cellar/README.md).
 
-cellar uses this library inside a larger durability protocol. The output gate,
-epoch fencing, replicated node log, and takeover recovery enforce the write
-acknowledgement contract.
+![SQLite WAL capture produces L0 LTX segments; replica storage supports restoration or page-on-demand access.](../../docs/diagrams/ltx-replication.svg)
+
+Read the top row from source commits to captured segments, then follow storage
+and restoration on the lower row. Capturing LTX alone does not prove a fleet
+write. The host adds ownership, epoch fencing, replicated logs and output gates;
+see [write durability](../../docs/06-storage-transactions.md#durability-and-external-side-effects).
+
+## Find the replication API
+
+| Task | Entry point | Source |
+| --- | --- | --- |
+| Capture WAL commits | `Db` | [Database capture](src/db.rs) |
+| Drive replication | `Replica` | [Replication loop](src/replica.rs) |
+| Implement a storage backend | `ReplicaClient` | [Client trait](src/client/mod.rs) |
+| Store local replicas | `FileReplicaClient` | [Filesystem client](src/client/file.rs) |
+| Restore a database | `restore` | [Restore implementation](src/replica.rs) |
+| Read bundled L0 segments | `BundleOverlayClient` | [Bundle client](src/client/bundle.rs) |
+| Read pages on demand | `paged`, `paged_vfs` | [Page map](src/paged.rs), [SQLite virtual filesystem](src/paged_vfs.rs) |
+| Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](src/host.rs) |
+
+L0 segments capture commits before higher-level compaction. The paged SQLite
+virtual filesystem loads each page on first use through indexes in retained
+segments. A paged epoch continues the history from which it was opened.
+Read the [LTX format notes](reference/ltx-format.md) before changing the codec.
+
+## Select backend features
+
+The default feature is `s3`. The manifest also exposes `gcs` and `azure` backend
+features; see [Cargo.toml](Cargo.toml) for their dependency mappings.
+`ObjectStoreClient` and its configuration exports are gated by `s3` in the
+current API. Feature selection alone does not configure credentials or qualify
+a provider's durability behavior.
+
+Check the core and complete feature builds from the repository root:
+
+```sh
+cargo check -p cellar-ltx --no-default-features --locked
+cargo check -p cellar-ltx --all-features --locked
+```
+
+Use the checkout-specific target directory in
+[build guidance](../../AGENTS.md#build-and-validation). The ordinary library test
+target is disabled; replication changes also need the owning host's integration
+and recovery tests. Internal tests require their external harness.
 
 ## Provenance and attribution
 
-Seeded on 2026-08-03 from a read-only snapshot of rustyriver
-(https://github.com/mikenomitch/rustyriver), a from-scratch Rust
-reimplementation of Litestream v0.5 and the LTX file format. cellar owns and
-evolves this snapshot as first-class cellar source; it does not track an
-upstream branch.
+Seeded on 2026-08-03 from a read-only snapshot of
+[rustyriver](https://github.com/mikenomitch/rustyriver), a Rust reimplementation
+of Litestream v0.5 and the LTX format. Cellar maintains this source independently
+of the upstream branch.
 
 Attribution for the vendored and ported work:
 
@@ -37,13 +73,10 @@ Attribution for the vendored and ported work:
   Curto, licensed under the BSD 3-Clause License. The Rust port preserves the
   exact compressed bytes that the LTX v0.5.2 writer produces.
 
-The port is not complete, deliberately. `leaser.rs` — Litestream's
-object-storage lease (`leaser.go`, `heartbeat.go`, `s3/leaser.go`) — was
-ported and then removed on 2026-08-06, unused. cellar fences cell ownership
-with a conditional-write record carrying an epoch, and fences the data path by
-stamping that epoch into the LTX prefix; a lease file under the replica prefix
-would be a second, competing layer. Upstream's own leaser is unwired for the
-same reason. Recover it from git if a future design needs it.
+Cellar omits Litestream's object-storage leaser. The unused port was removed
+on 2026-08-06. Cellar instead uses a conditional ownership record carrying an
+epoch and stamps that epoch into the LTX prefix. A separate replica lease would
+introduce a competing ownership mechanism.
 
 The full Apache License, Version 2.0 text is in [LICENSE](LICENSE). The full
 BSD 3-Clause License text is in
@@ -64,7 +97,7 @@ Cellar and Litestream v0.5.16 can read the new block files and the older frame
 files. Litestream v0.5.11 can read only the older frame files. This is a reader
 compatibility boundary because LTX keeps file version 3 for both layouts.
 
-The ordinary cellar L0 writer still emits the older frame representation. The
+The ordinary Cellar L0 writer still emits the older frame representation. The
 v0.5.2 encoder and compactor emit exact block files. Cellar contains a
 node-wide scheduler that publishes additive L1 files, and the scheduler is on
 by default. Every takeover target must have the dual decoder before the first

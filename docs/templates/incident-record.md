@@ -1,7 +1,9 @@
 # Incident and recovery record template
 
 Preserve observations before changing authority or deleting state. Keep secrets
-and customer payloads out of the incident record.
+and customer payloads out of the incident record. Complete the timeline and
+command reconciliation before closing the incident; assign an owner and due
+date to every follow-up.
 
 | Field | Required content |
 | --- | --- |

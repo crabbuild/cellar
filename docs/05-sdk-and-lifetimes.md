@@ -1,11 +1,19 @@
 # SDK contracts, concurrency and lifetimes
 
-Import application contracts through `cellar::sdk`. `Cell::invoke` and
-`Application::invoke` take `Arc<Self>`, a `Context`, and an `Invocation`, returning
-`HandlerFuture<Output>`. `Registry` registers a root handler, entrypoints, cell
-factories and workflow handlers. Application factories are compiled Rust code.
+Use `cellar::sdk` to define handlers and access runtime services. `Registry`
+registers the root handler, entrypoints, cell factories and workflows. Keep
+contexts and resource handles within their owning lifetimes, protect state with
+transactions and attach background work to the event driver.
 
-![Authority and dispatch](diagrams/routing-flow.svg)
+`Cell::invoke` and `Application::invoke` take `Arc<Self>`, a `Context` and an
+`Invocation`, returning `HandlerFuture<Output>`. Factories compile into your
+application executable.
+
+![An old invocation and its tracked background work continue after its response while a new application generation starts serving.](diagrams/sdk-lifetimes.svg)
+
+Read the bars as overlapping lifetimes, not fixed durations. A response can
+finish before its event driver; generation adoption can happen while that
+accepted work drains. Keep every handle within its owning boundary.
 
 ## Event and output contracts
 
@@ -42,12 +50,14 @@ section. Avoid expensive computation or external network calls in protected
 sections; they increase contention and can block progress. Do not hold a Rust
 synchronous mutex across `.await`.
 
-The request limit is admission control, not a substitute for a transaction.
-Stateless pool limits apply per script pool, including draining generations;
-they are not one whole-process limit. Background work retains a stateless event
-slot after the response. Nested calls can therefore saturate another pool or
-cell while their parent retains admission. Set a finite policy and test this
-shape under load.
+Admission limits bound concurrent work; transactions protect state invariants.
+Size admission for the complete call shape:
+
+- Stateless limits apply per script pool, including draining generations.
+- Background work retains its event slot after the response.
+- A parent call retains admission while its nested calls settle.
+
+Set finite limits and test nested calls under saturation.
 
 ## Background work and stopping
 

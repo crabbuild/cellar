@@ -1,8 +1,9 @@
 # Integrations and resource ownership
 
-Integrations execute through SDK capabilities and the current context. Their
-resources retain event, activation and execution-domain authority. Design
-timeouts, cancellation, payload bounds and external consistency at each edge.
+Use SDK bindings for HTTP, Blob storage, streams, sockets and other external
+resources. Their handles retain event, activation and execution-domain
+authority. Set timeouts and payload limits, handle cancellation and define
+consistency with each external system.
 
 ![Integration boundaries](diagrams/architecture.svg)
 
@@ -45,7 +46,7 @@ policy. Bound multipart work, abort incomplete uploads, and handle conditional
 read/write outcomes. Large KV values may use Blob-backed storage; validate the
 combined failure and retention behavior for your workload.
 
-## Outbound behavior
+## Configure outbound HTTP
 
 Embedded hosts configure SDK HTTP with `NodeConfig::http` and
 `NodeServices::http_client`. An optional `HttpClientFactory` supplies DNS, TLS,

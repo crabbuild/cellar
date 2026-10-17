@@ -1,8 +1,8 @@
 # SDK API map
 
-This is a navigation map to implemented APIs, not a replacement for generated
-Rust documentation. Public imports use `cellar::sdk`; physical paths below
-identify their implementation at the documented source baseline.
+Find SDK entry points by task, then follow the implementation links for their
+signatures and behavior. Application imports use `cellar::sdk`. For generated
+Rust documentation, run the command below from the repository root.
 
 ![API responsibilities](diagrams/architecture.svg)
 
@@ -47,8 +47,13 @@ identify their implementation at the documented source baseline.
 | Host observations | `HostMetricsSample`, `MetricsSampler`, `ApplicationWorkSnapshot` | [services](../crates/cellar/execution/services.rs) |
 | Process runner / packaging | `Host`, `Project`, `ApplicationConfig`, `AssetProject`, `ContainerProject` | [native host](../crates/cellar/node/native.rs), [package](../crates/cellar/cli/native_deploy/mod.rs) |
 
-For detailed signatures, build Rust docs with `cargo doc -p cellar --no-deps
---locked` using the private target directory required by repository guidance.
+Build the crate's Rust documentation using your checkout-specific target
+directory:
+
+```sh
+cargo doc -p cellar --no-deps --locked
+```
+
 Consult source and existing integration tests before adopting an unfamiliar
 binding. API availability does not imply a global transaction, exactly-once
 external effect, tenant sandbox or automatic production resource envelope.

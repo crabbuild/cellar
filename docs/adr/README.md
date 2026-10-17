@@ -1,7 +1,9 @@
 # Architecture decision records
 
 These records document constraints observed in the reviewed framework baseline.
-They are reference decisions, not retroactive approvals of a production design.
+Use them to understand why native execution, cell authority and explicit host
+lifetimes constrain implementation changes. Each record preserves its original
+source revision and date; deployment approval belongs in the release record.
 
 | Record | Status | Topic |
 | --- | --- | --- |

@@ -1,9 +1,13 @@
 # Sources and evidence provenance
 
-Reviewed on 2026-10-12 against main commit
-`c24feb25057793e6d6b18502c96eccbfcac2bdf4`. The docs branch starts from that
-commit. This source map cites the local implementation instead of relying on
-temporally different external framework documentation.
+Use this source map to check implementation claims and interpret retained
+validation reports. The original documentation review used main commit
+`c24feb25057793e6d6b18502c96eccbfcac2bdf4` on 2026-10-12.
+
+The 2026-10-17 documentation refresh starts from `5fb167c`. It adds crate guides,
+improves navigation and clarifies existing contracts, including queue
+dead-letter handling and CLI event inventory, metrics and source controls. It does not requalify the
+historical benchmark images or change their evidence baseline.
 
 ![Framework source boundaries](diagrams/architecture.svg)
 
@@ -45,7 +49,9 @@ reviewed main baseline and is not counted as passed evidence. New results must
 identify the actual merged code/image and preserve both acknowledged and
 ambiguous command outcomes.
 
-Proposed naming conventions, envelopes, outboxes, sagas, topology, dashboards,
-SLOs, backup procedures and team governance are application/platform practices.
-They are not hidden built-in services or achieved release gates. The
-[readiness ledger](21-production-readiness.md) makes the distinction explicit.
+Naming conventions, command envelopes, sagas, topology, dashboard requirements,
+service objectives, backup procedures and team governance are recommended
+application or platform practices. The [framework outbox and streams](26-event-delivery.md)
+are implemented primitives with open release gates. Distinguish both from
+completed deployment qualification in the
+[readiness ledger](21-production-readiness.md).

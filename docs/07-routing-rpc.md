@@ -1,9 +1,13 @@
 # Routing, RPC and command contracts
 
-Use `Context::namespace` to access a declared cell namespace. `get_by_name`
-selects a stable named cell; `id_from_name`, `id_from_string` and `get` expose
-explicit identity operations. A stub routes fetch or structured RPC to the
-owning cell. Binding and identity configuration must agree with compiled classes.
+Call cells through a declared namespace so Cellar can route each request to
+its authoritative owner. Use HTTP-shaped fetch calls or structured remote
+procedure calls (RPC), with explicit identity and retry contracts for requests
+whose results may be lost.
+
+`Context::namespace` resolves the binding. `get_by_name` selects a stable named
+cell; `id_from_name`, `id_from_string` and `get` support explicit IDs. Bindings
+and identity configuration must match the compiled classes.
 
 ![Interactive routing flow](diagrams/routing-flow.svg)
 
@@ -38,12 +42,18 @@ policy. Cancellation-aware variants are available on cell and service calls.
 
 ## Design for ambiguous responses
 
+![A client retries the same command ID and digest after a lost reply; the cell reads its retained receipt and returns the stored result.](diagrams/command-retries.svg)
+
+The first mutation may commit even when the reply is lost. Retrying the same
+command identity lets the application return its stored result without applying
+the mutation again. Cellar still checks output proof before releasing that result.
+
 The following is a proposed application protocol, not a built-in envelope:
 
 ```json
 {
   "api_version": 1,
-  "command_id": "tenant-scoped-unique-id",
+  "command_id": "tenant_scoped_command_id",
   "expected_version": 7,
   "operation": "reserve",
   "payload": {"units": 2}

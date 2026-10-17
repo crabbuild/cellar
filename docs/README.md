@@ -1,14 +1,14 @@
 # Cellar documentation
 
-Build durable applications, understand their failure boundaries, and operate a
-Cellar fleet with an explicit evidence trail.
+Start with the counter, learn the cell model, then use the task guides to build
+and operate your application. The library covers the native Rust SDK, fleet
+lifecycle and release qualification. [Sources and evidence](sources.md) link
+technical claims to implementation and preserve each report's original scope.
 
-**Baseline:** `c24feb25057793e6d6b18502c96eccbfcac2bdf4`, reviewed 2026-10-12.
-This library documents the checked-in native Rust framework. Application
-patterns and operating procedures are recommendations. A documentation set does
-not certify production scale; [production readiness](21-production-readiness.md)
-records the remaining release-specific gates. [Sources](sources.md) map claims
-to implementation and retained validation reports.
+For a first run, follow the [quickstart](02-quickstart.md). For package-level
+entry points, use the [crate guides](#crate-guides). For a concept diagram,
+use the [visual index](#visual-concept-guides). Before deployment, review
+the [production release gates](21-production-readiness.md).
 
 ![Cellar architecture](diagrams/architecture.svg)
 
@@ -20,6 +20,19 @@ to implementation and retained validation reports.
 | Platform engineer | 03 → 10 → 11 → 12 → 13 → 14 → 16 | An explicit host, secure infrastructure, and measured capacity envelope |
 | Operator / SRE | 15 → 17 → 18 → 19 → 21 | Dashboards, recovery drills, runbooks, and release qualification evidence |
 | Team lead | 20 → 21 → ADRs → templates | Ownership, contracts, change review, and a go/no-go decision |
+
+## Crate guides
+
+Each framework crate has a README with its purpose, entry points and validation:
+
+| Crate | Start here when you need to |
+| --- | --- |
+| [cellar](../crates/cellar/README.md) | Build an application or own its node lifecycle |
+| [cellar-axum](../crates/cellar-axum/README.md) | Use Axum handlers, external ingress or OpenAPI |
+| [cellar-admin](../crates/cellar-admin/README.md) | Run or embed the fleet management console |
+| [cellar-logic](../crates/cellar-logic/README.md) | Change pure runtime decisions and state transitions |
+| [cellar-native](../crates/cellar-native/README.md) | Work on shared Rust values, codecs and web primitives |
+| [cellar-ltx](../crates/cellar-ltx/README.md) | Work on SQLite capture, replication or restore |
 
 ## Complete document set
 
@@ -87,10 +100,28 @@ Open an SVG as a document, or use the explorer, for interaction. SVG links lead
 back to the relevant guide. The catalog is also available as
 [catalog.json](catalog.json) for tools.
 
+## Visual concept guides
+
+Start with the question you need to answer. Each SVG opens at full size and
+includes an accessible description; PNG previews are available for sharing.
+
+| Question | SVG | PNG preview |
+| --- | --- | --- |
+| Which crate owns this change? | [Crate responsibilities](diagrams/workspace-crates.svg) | [PNG](diagrams/workspace-crates@2x.png) |
+| How do decisions become I/O? | [Decision loop](diagrams/decision-loop.svg) | [PNG](diagrams/decision-loop@2x.png) |
+| Who owns public HTTP? | [Hosting modes](diagrams/hosting-modes.svg) | [PNG](diagrams/hosting-modes@2x.png) |
+| How does the console reach cell state? | [Management requests](diagrams/management-requests.svg) | [PNG](diagrams/management-requests@2x.png) |
+| What do native primitives own? | [Values and authority](diagrams/native-primitives.svg) | [PNG](diagrams/native-primitives@2x.png) |
+| Can work continue after a response? | [SDK lifetimes](diagrams/sdk-lifetimes.svg) | [PNG](diagrams/sdk-lifetimes@2x.png) |
+| Which changes are atomic together? | [Transaction boundaries](diagrams/transaction-boundaries.svg) | [PNG](diagrams/transaction-boundaries@2x.png) |
+| What happens when a command reply is lost? | [Command retries](diagrams/command-retries.svg) | [PNG](diagrams/command-retries@2x.png) |
+| When can a consumer acknowledge? | [Event delivery](diagrams/event-delivery.svg) | [PNG](diagrams/event-delivery@2x.png) |
+| How does SQLite state reach a replica? | [LTX replication](diagrams/ltx-replication.svg) | [PNG](diagrams/ltx-replication@2x.png) |
+
 ## First team milestone
 
 Run the counter, choose an application aggregate, write its contract, and build
 a small vertical slice with idempotent commands. Then qualify that exact
 release under representative traffic and failures. Team documents should
 record concrete owners, environments, and measured thresholds using the
-templates; this library does not silently choose those business requirements.
+templates. Set business requirements and acceptance thresholds before testing.

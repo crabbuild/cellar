@@ -1,12 +1,13 @@
 # Observability and service objectives
 
-Observe business outcomes and framework proofs separately. An HTTP response,
-a retired task and a stopped process convey different information. This guide
-combines existing observation surfaces with proposed dashboards and SLOs.
+Monitor business results alongside runtime health, durability and shutdown
+outcomes. Use the available APIs and telemetry to define service-level
+objectives (SLOs), while retaining command receipts as the correctness ledger.
+A successful process exit or retired task alone does not prove a durable write.
 
 ![Drain proof phases](diagrams/shutdown-flow.svg)
 
-## Existing surfaces
+## Health, lifecycle and telemetry
 
 The public `/.well-known/cellar/health` endpoint returns success only when the
 node is not draining, the fleet-readiness gate has opened, and the actor is
@@ -31,7 +32,9 @@ exporter sheds telemetry when saturated and counts drops; absent spans do not
 prove absent application work. Never use sampled
 telemetry alone as the command receipt ledger.
 
-## Event host observations
+## Event-delivery observations
+
+### Host counters and histograms
 
 `node.services().event_metrics()` returns fixed host-lifetime counters,
 histograms and current waiter/dispatch reservations. The same snapshot is
@@ -58,6 +61,8 @@ lease, subscription-lag or retention-blocked gauges. Current reservation counts
 are not cold-cell or fleet totals. The complete event metrics profile remains
 under implementation.
 
+### Subscription lag and lease state
+
 Owner-routed subscription status and inventory expose an `observation` with
 sample time, unread offset distance (`lag_records`), retained unread count,
 oldest retained unread age since append, lost-history flag and lease activity.
@@ -70,6 +75,8 @@ Retention can leave positive lag with no retained records. In that case,
 history's age is unknown. These diagnostics are authorized owner observations,
 not series in the host metric export or fleet totals. Inventory uses a bounded
 primary-key page plus at most one indexed timestamp lookup per returned row.
+
+### Source backlog and blocked lanes
 
 Owner-routed outbox inspection reports whole-source pending rows/bytes, sampled
 wall time, oldest pending event age, and blocked lane counts for seven fixed
@@ -87,6 +94,8 @@ Restore rejects inconsistent counters, missing accounting triggers or age
 indexes, and earlier layouts. The schema marker remains 1; recreate development
 state on this cutover. These source observations are not fleet totals or
 additional series in the host `/event-metrics` export.
+
+### Stream retention and storage
 
 `stream.stats(&context)` and `cellar stream describe` expose owner-routed stream
 observations under current administration grants. Retained `rows`/`bytes` and
@@ -123,10 +132,10 @@ The schema marker remains 1; earlier layouts require recreated development state
 | Durability | Bucket/follower proof outcomes, upload lag, log/recovery failures | Acknowledgement safety and recovery exposure |
 | Export | Dropped telemetry, collector failures | Observation coverage |
 
-These are dashboard requirements, not promised metric names or a bundled
-Prometheus endpoint. Map each to an actual log/API/host measurement in your
-environment. Keep labels low-cardinality; cell IDs and tenant IDs belong in
-controlled drill-down data rather than every time series. Redact secrets and
+Map each dashboard requirement to an actual log, API or host measurement.
+The event endpoints cover the specific profiles described here; they do not
+supply every signal in this table. Keep labels low-cardinality; cell and tenant
+IDs belong in controlled drill-down data rather than every time series. Redact secrets and
 customer content, and restrict access/retention.
 
 ## Define an SLO with evidence
@@ -146,7 +155,6 @@ not a suitable universal alert threshold. Sources:
 [metrics](../crates/cellar/execution/services.rs),
 [outcomes](../crates/cellar/node/lifecycle.rs).
 
-
 ## Fleet durable state collection
 
 `cellar event metrics` exports current owner-sampled source/stream/lease/lag/
@@ -157,9 +165,9 @@ RPCs; they do not expire leases or change checkpoints. Cold inspection may resto
 cells and progress existing durable work. Root SQLite pages count once per sample;
 facet, WAL, LTX, object-store and filesystem allocation remain outside this profile.
 
-Require collection_complete=1 before treating Prometheus values as fleet totals.
+Require `collection_complete=1` before treating Prometheus values as fleet totals.
 On failed/duplicate/invalid probes, listing failure or a cap, the exporter emits
-coverage only. JSON retains partial observed_gauges separately and gauges is null;
+coverage only. JSON retains partial `observed_gauges` separately and `gauges` is null;
 the CLI returns a failed exit. Successful traversal is a live observation across
 sample times, not a cross-fleet snapshot or all-producer drain proof. Resident-host
 aggregate gauges, physical storage profiles and full historical/facet census

@@ -1,8 +1,17 @@
 # CLI reference and operator boundaries
 
-`cellar` is the single CLI executable. A compiled application executable
-starts a node with its registered factories. The generic CLI builds, develops,
-publishes, installs and invokes operator tools.
+Use the `cellar` command-line interface (CLI) to develop and package applications
+or inspect a fleet through authenticated operator commands. A compiled
+application executable starts nodes with its registered factories. This reference
+describes command families, output conventions and guarded resource changes.
+
+[Packaging](#verified-packaging-syntax) ·
+[Command families](#operator-command-families) ·
+[Metrics](#fleet-event-state-metrics) · [Inventory](#fleet-event-inventory) ·
+[Outbox](#outbox-source-controls) ·
+[Subscriptions](#stream-and-subscription-controls) ·
+[Retirement](#stream-retirement-and-proof) ·
+[Source lifecycle](#source-destruction-and-recreation)
 
 ![Build and activation](diagrams/deployment-flow.svg)
 
@@ -49,17 +58,18 @@ select locked dependencies and reject JavaScript-engine dependency graphs.
 | `sql` | Owner-routed SQL database operations | [SQL CLI](../crates/cellar/cli/sql_cli.rs) |
 | `kv` | Owner-routed KV operations | [KV CLI](../crates/cellar/cli/kv_cli.rs) |
 | `queue` | Owner-routed queue operations | [Queue CLI](../crates/cellar/cli/queue_cli.rs) |
-| `outbox` | Owner-routed source inspection and audited retry (under implementation) | [Outbox CLI](../crates/cellar/cli/outbox_cli.rs) |
+| `outbox` | Owner-routed source inspection, retry, destruction and recreation (under development) | [Outbox CLI](../crates/cellar/cli/outbox_cli.rs) |
 | `stream`, `subscription` | Granted stream reads and guarded subscription administration (under implementation) | [Stream CLI](../crates/cellar/cli/stream_cli.rs) |
+| `event` | Bounded fleet event inventory and durable state metrics | [Event CLI](../crates/cellar/cli/event_cli.rs) |
 | `blob` | Shared Blob backend operations | [Blob CLI](../crates/cellar/cli/blob_cli.rs) |
 | `diagnose` | Diagnostics through the process adapter | [CLI dispatch](../crates/cellar/cli/native_deploy/cli.rs) |
 | `connect`, `credentials`, `token`, `disconnect` | Managed connection and credential commands | [managed host](../crates/cellar/node/managed.rs) |
 
 These families have their own options and authenticated connection requirements.
 Consult `cellar FAMILY --help` on the exact release before issuing mutations.
-This table intentionally does not invent unsupported fleet-restart, backup or
-deployment-controller commands. Operation-specific destructive procedures need
-the actual authenticated target and the team's approved change record.
+Use the family's documented identity guards and confirmation flags for
+mutations. Record the target and operation ID so an ambiguous response can be
+reconciled without issuing a different change.
 
 CLI stdout carries command data; diagnostics/progress belong on stderr. Preserve
 JSON output, bounded listings and continuation information when integrating
@@ -286,9 +296,13 @@ page) and `limit`. A change carries the SDK `Change` shape. Signed
 method/path/body verification precedes authority minting. Operator RPC authority
 is restricted to these stream methods and cannot configure a catalog or append
 events. Requests and binding files are bounded to 16 KiB, expected identity
-files to 4 KiB and replies to 1 MiB. This surface remains under implementation;
-whole-fleet resource/source inventories, lifecycle controls and exported
-metrics are outstanding.
+files to 4 KiB and replies to 1 MiB.
+
+Event delivery remains under development. Fleet inventory and metrics cover
+bounded root-directory traversals; facet discovery, complete historical coverage
+and physical-storage profiles remain open qualification work.
+
+## Stream retirement and proof
 
 Stream retirement uses the same binding and administration grant, but routes to
 the resource's catalog scope. Save `stream describe`'s revision before starting:
@@ -337,11 +351,10 @@ and UUID `id`. The catalog owner returns only that identity, terminal `deleted`
 state, retirement operation, digest and accepted revision after checking the
 matching committed retirement receipt. Live or unfinished retirement returns
 `PendingDelivery`. This read-only platform capability does not grant resource
-administration or source deletion. Guarded whole-source destruction remains
-unfinished.
+administration or source deletion. Use the separately guarded
+[source controls](#source-destruction-and-recreation) to destroy a source.
 
-
-### Source destruction and recreation
+## Source destruction and recreation
 
 These fleet-administration commands affect the exact source incarnation:
 

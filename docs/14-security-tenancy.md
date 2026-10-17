@@ -1,9 +1,9 @@
 # Security and multi-tenant application design
 
-Cellar has authenticated peer transports, generation-bound authority and
-activation lifetimes. Application/public authentication, business authorization,
-credential management and tenant policy belong to the host and teams. Native
-applications execute trusted Rust code in the host process.
+Design public authentication, business authorization and tenant isolation in
+your host and application. Cellar authenticates peer traffic and checks runtime
+authority, but native application code executes as trusted code in the host
+process. Use this guide to review each trust boundary before deployment.
 
 ![Trust and failure domains](diagrams/fleet-topology.svg)
 
@@ -54,10 +54,15 @@ named security owner.
 
 ## Review before release
 
-Map trust boundaries, credential holders and privileges; test public and peer
-negative cases; review dependencies and license/provenance; test credential
-rotation during requests and recovery; review logs/backups for exposure; and
-verify tenant quotas under load. Retain evidence in the release checklist.
+Record the following evidence in the release checklist:
+
+- Trust boundaries, credential holders and privileges
+- Rejected public and peer requests with invalid authority
+- Dependency and license review
+- Credential rotation during requests and recovery
+- Secret and customer-data checks for logs and backups
+- Tenant quota behavior under load
+
 Sources: [peer authentication](../crates/cellar/fleet/peer/auth.rs),
 [probe signing](../crates/cellar/fleet/peer/probe.rs),
 [Node validation](../crates/cellar/node/embedded.rs),

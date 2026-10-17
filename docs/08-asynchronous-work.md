@@ -1,8 +1,9 @@
 # Alarms, queues, workflows and scheduled work
 
-Choose the mechanism from its durability and coordination needs. The SDK has
-alarms, durable wake infrastructure, Queue, Workflow and cron. Application teams
-still define business delivery guarantees, deduplication and external effects.
+Choose background execution by what must survive a failure: a cell deadline,
+a queued message, a workflow step or a published event. Use the comparison below
+to select a mechanism, then define its retry, deduplication and external-effect
+contract.
 
 The [transactional outbox and durable event delivery design](../plans/002-outbox-streams-subscriptions.md)
 has a native implementation under development: `db.tx`/`tx.emit`, ordered stream
@@ -50,12 +51,16 @@ assuming a universal delivery count or exactly-once execution.
 
 Give business messages stable IDs. Commit a consumer receipt with its local
 state change before acknowledging. External calls require receiver idempotency
-or reconciliation. Classify a poison message, retain enough evidence to inspect
-it, and define the application's quarantine/manual-replay path. A quarantine
-table and replay tool are proposed application features, not a documented
-automatic dead-letter service.
+or reconciliation.
 
-## Workflows and cron
+Configure `dead_letter_queue` on the consumer to transfer messages that exhaust
+the retry budget; without a destination, exhausted messages are removed. The
+[queue project](../examples/queues/project.json) declares a dead-letter queue.
+Define inspection and replay procedures, and account for retention in both
+queues. Destination acceptance starts a new age and attempt count; preserve
+application IDs when reconciling earlier delivery history.
+
+## Define replay-safe workflows
 
 Register workflow handlers through `Registry::workflow`. Workflow instances
 support creation, status, event delivery, pause/resume, restart, termination and
@@ -92,12 +97,16 @@ three-argument call is now `wait_for_event_with_timeout(name, type, timeout)`.
 `Steps`, `do_step` and `do_with_config` remain compatibility names. These API
 changes preserve journal step kinds, occurrence counts and replay behavior.
 
+### Create instances in batches
+
 `Workflow::create_batch_with` accepts `BatchCreateOptions::Count` with shared
 parameters or `BatchCreateOptions::Instances` with per-instance options. It
 returns `BatchCreateResult { created, errors }`; each error identifies its input
 index and instance ID. Duplicate input IDs use code `10415`, and existing
 instances use `10405`. Invalid options fail preflight before any instance is
 created. The existing `create_batch(Vec<CreateOptions>)` remains available.
+
+### Compensate completed steps
 
 Register compensation with `step.run_with_rollback(name, config, callback,
 RollbackOptions::new(handler).config(rollback_config))`. The handler receives
@@ -111,6 +120,8 @@ registered again by replaying the workflow code; retain the code and handler
 registrations required by active journals. Compensation calls need stable
 idempotency keys, just like forward effects.
 
+### Capture binary step outputs
+
 For binary results, `step.run_stream` captures a fresh, unlocked `ByteReadable`
 in bounded SQLite chunks. It returns an invocation-owned `StreamOutput` with
 `next(ctx)` and `into_readable(ctx)`. Replay opens a fresh reader over the saved
@@ -121,6 +132,8 @@ aggregate stream budget per instance is 1 GiB. `run_stream_with_rollback` expose
 the saved stream through `RollbackContext::stream_output(ctx)`. A sensitive
 step redacts its output from history and remote stream access.
 
+### Subscribe to execution history
+
 `instance.subscribe(ctx, SubscribeOptions { cursor, filter })` provides ordered
 historical and live events. `next().await` returns an `InstanceEvent`, or `None`
 once the terminal history has been consumed, including when the filter excludes
@@ -130,6 +143,8 @@ invocation and fail if its authority retires. The history and checkpoint are
 written in the same transaction and use the ordinary output gate.
 Pre-existing journals keep their recorded results; history begins with mutations
 made by the extended implementation, without backfilling older execution events.
+
+### Configure retention and workflow schedules
 
 Native workflow binding configuration accepts `default_retention` and
 `schedules`. Per-instance retention overrides the binding default; otherwise
@@ -158,18 +173,25 @@ capabilities described by [Cloudflare](https://developers.cloudflare.com/workflo
 Cloudflare's JavaScript runtime, REST service, billing and account limits are
 separate platform contracts.
 
+## Handle scheduled application events
+
 Cron reaches `Invocation::Scheduled` with `cron::Scheduled`; `no_retry` can
 decline retry. Use a job/time-window ID to deduplicate application jobs and
 design a catch-up policy for downtime. Avoid assuming a schedule can replace
 an audit of missed business work.
 
+## Test failure and replay behavior
+
 Before releasing async work, test crash before/after state commit, after the
 external effect and before receipt/ack; recovery with pending alarms; workflow
 version change; duplicate delivery; and a dependency outage beyond the retry
-budget. Sources: [Queue](../crates/cellar/application/queue/mod.rs),
+budget.
+
+Sources: [Queue](../crates/cellar/application/queue/mod.rs),
 [Workflow](../crates/cellar/application/workflow/mod.rs),
 [replay](../crates/cellar/application/workflow/replay.rs),
 [alarms](../crates/cellar/application/storage/mod.rs), [cron](../crates/cellar/application/cron/mod.rs).
+
 ## Visual definitions and execution inspection
 
 Workflow bindings may include a `definition` alongside their compiled class.

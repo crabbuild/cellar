@@ -1,12 +1,13 @@
 # Configuration and policy reference
 
-Configuration is captured per node. Embedded hosts use explicit Rust policy
-objects; CLI adapters resolve environment values at startup. Do not assume
-library defaults and CLI defaults are the same.
+Set resource limits and runtime policies before starting a node. Embedded
+hosts use Rust policy objects; the CLI reads environment settings at startup.
+The tables below distinguish their defaults and explain which limits remain
+when you select the unrestricted profile.
 
 ![Configured host boundaries](diagrams/architecture.svg)
 
-## Library defaults at this baseline
+## Library defaults
 
 | Policy / field | Default | Meaning |
 | --- | --- | --- |
@@ -64,8 +65,8 @@ use different limits. Fleet owners should agree on limits for shared resources.
 | Workflow | 1-MiB values; 1-GiB aggregate captured streams per instance; 100-instance batches; 100-byte IDs/event types; 256-unit step names; 30-day retention maximum; one-year sleeps/event waits; 10,000 retries | Removes size/name/batch/duration ceilings; permits up to `u32::MAX` step retries |
 | Cron / alarms | No trigger-count quota; cron uses minute resolution and one durable alarm multiplexes deadlines | No additional quota to remove; scheduling and retry semantics continue to apply |
 
-Unrestricted does not mean infinite capacity. Structured values/RPC retain the
-codec's 64-MiB encoded-value, nesting and graph bounds. SQLite retains its compiled
+The unrestricted profile still has backend and protocol limits. Structured
+values/RPC retain the codec's 64-MiB encoded-value, nesting and graph bounds. SQLite retains its compiled
 limits and storage isolation authorizer. Object stores retain their own listing,
 multipart and object-size limits. Queue manifests retain `u16` batch, timeout,
 concurrency and retry fields and `u32` delay fields; retries stop at 65,534 to

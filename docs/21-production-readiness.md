@@ -1,9 +1,9 @@
 # Production readiness and evidence ledger
 
-The documentation library is a builder and team reference. **Large-scale
-production readiness remains conditional on qualifying the exact application,
-release artifact, store and infrastructure.** Current evidence establishes
-bounded local behavior, with material limits listed below.
+Qualify the exact application, executable, store and infrastructure before
+making production commitments. The repository contains local test and recovery
+evidence; the tables below record its scope and the release gates still needed
+for your deployment.
 
 ![Release qualification loop](diagrams/team-delivery.svg)
 
@@ -14,7 +14,7 @@ bounded local behavior, with material limits listed below.
 | Checked-in native SDK CI/tests | Contracts, bindings, packaging, domains and lifecycle test surfaces | Presence is not a claim this doc change reran every test |
 | 1,000-cell embedded report | Local embedding and recovered acknowledged writes | Earlier failures and bounded environment retained in report |
 | 10,000-cell reference | All cells written; 34,230 / 23,314 final acknowledged writes; 14 complete stop proofs | Earlier image; one VM/disk/RustFS; small overwrites; between-phase failures |
-| Current-image zero-cache 1,000-cell report | Exactly 64 tracked records; 9,284 acknowledgements recovered; Preserve proofs | Narrow routing/recovery scenario, not whole-process memory bound |
+| 2026-10-12 zero-cache 1,000-cell report | Exactly 64 tracked records; 9,284 acknowledgements recovered; Preserve proofs | Narrow routing/recovery scenario, not whole-process memory bound |
 | This documentation set | Guides, source map, interactive diagrams and readiness criteria | No deployment certification or claimed production benchmark |
 
 Read [sources.md](sources.md) for direct reports and source/image provenance.

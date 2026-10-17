@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 792" role="img" aria-labelledby="title desc">
+<title id="title">Resolve a lost reply with the same command ID</title>
+<desc id="desc">Proposed application receipt protocol: commit a mutation and digest-checked receipt atomically. If the proven reply is lost, retry the same ID and digest. Read the receipt and return its stored result through the output gate without applying the mutation again.</desc>
+<defs><marker id="arrow-cyan" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#22d3ee"/></marker><marker id="arrow-green" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#34d399"/></marker><marker id="arrow-violet" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#a78bfa"/></marker><marker id="arrow-amber" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#fbbf24"/></marker><marker id="arrow-rose" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#fb7185"/></marker><marker id="arrow-slate" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0L9 4.5L0 9Z" fill="#94a3b8"/></marker><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width=".5"/></pattern></defs>
+<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}svg{background:#0f172a}</style>
+<rect width="100%" height="100%" fill="#0f172a"/><rect width="100%" height="100%" fill="url(#grid)"/>
+<path d="M160 210L160 710" fill="none" stroke="#475569" stroke-dasharray="5 6"/>
+<path d="M480 210L480 710" fill="none" stroke="#475569" stroke-dasharray="5 6"/>
+<path d="M800 210L800 710" fill="none" stroke="#475569" stroke-dasharray="5 6"/>
+<path d="M160 264H480" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+<path d="M480 324H800" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)"/>
+<path d="M800 384H480" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)" stroke-dasharray="7 5"/>
+<path d="M480 444H160" fill="none" stroke="#fb7185" stroke-width="2" marker-end="url(#arrow-rose)" stroke-dasharray="7 5"/>
+<path d="M160 504H480" fill="none" stroke="#22d3ee" stroke-width="2" marker-end="url(#arrow-cyan)"/>
+<path d="M480 564H800" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)"/>
+<path d="M800 624H480" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#arrow-violet)" stroke-dasharray="7 5"/>
+<path d="M480 684H160" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#arrow-green)" stroke-dasharray="7 5"/>
+<g data-panel="Client"><rect x="60" y="136" width="200" height="74" rx="10" fill="#0f172a"/><rect x="60" y="136" width="200" height="74" rx="10" fill="#123343" stroke="#22d3ee" stroke-width="1.5"/><text x="80" y="168" fill="#f1f5f9" font-size="20" font-weight="600" text-anchor="start">Client</text></g>
+<g data-panel="Cell owner"><rect x="380" y="136" width="200" height="74" rx="10" fill="#0f172a"/><rect x="380" y="136" width="200" height="74" rx="10" fill="#14392f" stroke="#34d399" stroke-width="1.5"/><text x="400" y="168" fill="#f1f5f9" font-size="20" font-weight="600" text-anchor="start">Cell owner</text></g>
+<g data-panel="Cell SQLite"><rect x="700" y="136" width="200" height="74" rx="10" fill="#0f172a"/><rect x="700" y="136" width="200" height="74" rx="10" fill="#302446" stroke="#a78bfa" stroke-width="1.5"/><text x="720" y="168" fill="#f1f5f9" font-size="20" font-weight="600" text-anchor="start">Cell SQLite</text></g>
+<text x="48" y="89" fill="#cbd5e1" font-size="17" font-weight="400" text-anchor="start">Application receipt protocol; Cellar does not invent command IDs or replay business calls.</text>
+<text x="320.0" y="251" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">command ID + digest</text>
+<text x="640.0" y="311" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">atomic: mutation + receipt</text>
+<text x="640.0" y="371" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">committed result</text>
+<text x="320.0" y="431" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">proof passed; reply lost</text>
+<text x="320.0" y="491" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">retry same ID + same digest</text>
+<text x="640.0" y="551" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">read retained receipt</text>
+<text x="640.0" y="611" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">stored result</text>
+<text x="320.0" y="671" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="middle">return result after output proof</text>
+<path d="M285 435L303 453M303 435L285 453" stroke="#fb7185" stroke-width="3"/>
+<text x="48" y="750" fill="#cbd5e1" font-size="16" font-weight="400" text-anchor="start">Same ID with a different payload digest is a conflict. Retention bounds replay protection.</text><text x="48" y="55" fill="#f8fafc" font-size="30" font-weight="700" text-anchor="start">Resolve a lost reply with the same command ID</text></svg>

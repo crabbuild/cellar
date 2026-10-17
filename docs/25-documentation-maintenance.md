@@ -1,9 +1,9 @@
 # Maintain the documentation library
 
-Markdown is the primary reference. `catalog.json` is the machine-readable index;
-`index.html` is an offline searchable catalog and interactive flow explorer.
-Standalone SVGs contain their own scripts and static fallback content. No
-JavaScript engine is added to the Rust workspace by these browser-only docs.
+Edit the Markdown guides, keep their source links accurate and run the
+documentation checker before submitting changes. `catalog.json` indexes the
+library; `index.html` displays it offline with interactive SVG flows. This guide
+explains which files to edit, regenerate and verify.
 
 ![Documentation in the delivery loop](diagrams/team-delivery.svg)
 
@@ -12,8 +12,11 @@ JavaScript engine is added to the Rust workspace by these browser-only docs.
 Guides live directly under `docs/`, decisions under `docs/adr/`, and team
 templates under `docs/templates/`. Visuals live under `docs/diagrams/`.
 `tools/docs/build.py` generates the catalog, explorer and SVGs from the checked-in
-guide metadata and explicit flow definitions. Guide prose is edited directly;
-generated files are not the source of framework behavior.
+guide metadata and explicit flow definitions. Static concept diagrams and
+visual-gallery metadata live in `tools/docs/illustrations.py`. Edit those
+sources rather than the generated SVG, catalog or explorer. Edit guide prose directly.
+Regenerate assets when metadata or diagram definitions change; prose-only edits
+do not require regeneration.
 
 ```sh
 python3 tools/docs/build.py
@@ -45,6 +48,18 @@ it is not an application hosting service.
 | New validation result | Sources/evidence ledger with exact source/image, workload and limitations |
 | Team adoption | Fill concrete owners/targets/thresholds in copies of templates |
 
+### Writing standard
+
+State each page's purpose in its opening paragraph. Use active voice, sentence
+case headings and concrete terms. Define unfamiliar terminology or link to the
+[glossary](24-glossary.md). Keep paragraphs focused on one idea, and put long
+reference contracts under descriptive subsections.
+
+Introduce code blocks, label fragments as fragments and explain the expected
+result of runnable commands. Preserve error meanings, limits, retry rules and
+recovery requirements when shortening prose. Each crate README should explain
+its purpose, entry points, examples, validation and links to the owning guides.
+
 Keep observed behavior separate from recommended application patterns and
 future gates. A result from an older image must retain its provenance. Do not
 update a “reviewed at” hash to an uninspected release. Source links remain
@@ -63,6 +78,16 @@ When that renderer lacks working system-font support, the optional
 `python3 tools/docs/render.py` renders all diagrams in a private local Chromium
 session through an already installed `agent-browser`. It produces the checked-in
 2× PNG previews with labels, without adding an application dependency.
+Pass diagram stems to regenerate selected previews:
+
+```sh
+python3 tools/docs/render.py sdk-lifetimes command-retries event-delivery
+```
+
+Every new SVG needs a title, descriptive alternative text, a `viewBox`, readable
+labels and a caption in its guide. Keep fonts local and include no external
+resources. Use a focused diagram at the relevant explanation rather than
+repeating an unrelated architecture image.
 
 Documentation-only changes need documentation integrity/browser checks and the
 repository checks applicable to changed surfaces. Do not claim the full SDK,

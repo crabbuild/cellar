@@ -1,7 +1,8 @@
 # Model cells and application boundaries
 
-This guide proposes a domain design method. Cellar provides per-cell state and
-ownership; application teams choose aggregates, names, schemas and coordination.
+Choose cell boundaries around business rules that need atomic updates. Use
+stable identities for those cells, plan for hot keys and define a protocol for
+work that crosses cell boundaries.
 
 ![Cell and transaction boundaries](diagrams/cell-boundaries.svg)
 
@@ -49,16 +50,16 @@ that tradeoff in an ADR rather than silently changing a key.
 
 ## Cross-cell business transactions
 
-No global ACID transaction or global event ordering is promised here. For an
-order/reservation/payment flow, propose a workflow or saga: persist an intent,
+Cellar has no transaction spanning arbitrary cells and no global event order.
+For an order/reservation/payment flow, use a workflow or saga: persist an intent,
 call each participant with a stable command ID, record the result, then complete
 or compensate. Every participant must recognize a replay. A timeout means
 “query status or retry the same ID,” not “the participant certainly did nothing.”
 
-For search and reporting, build projections that can be rebuilt from an
-application-defined change feed or outbox. Cellar does not automatically supply
-a universal business-event stream. Define projection lag, rebuild procedure,
-retention and source-of-truth behavior.
+For search and reporting, build projections from explicitly published events.
+Use an application change feed or the [framework outbox](26-event-delivery.md);
+the framework does not automatically publish every business mutation. Define
+projection lag, rebuild procedure, retention and source-of-truth behavior.
 
 Before implementation, complete the [application brief](templates/application-brief.md):
 identity algorithm, invariant, command/result schema, migration approach, hot

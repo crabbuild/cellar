@@ -388,6 +388,68 @@
       "category": "Template"
     }
   ],
+  "visuals": [
+    {
+      "id": "workspace-crates",
+      "title": "Find the owning crate",
+      "summary": "Application entry points and the internals that support them.",
+      "guide": "03-architecture.md"
+    },
+    {
+      "id": "decision-loop",
+      "title": "Decisions and effects",
+      "summary": "The serial actor calls the pure core and receives adapter completions.",
+      "guide": "03-architecture.md"
+    },
+    {
+      "id": "hosting-modes",
+      "title": "Choose an HTTP host",
+      "summary": "Cellar-owned HTTP and external Axum ingress share the cell runtime.",
+      "guide": "10-embedding.md"
+    },
+    {
+      "id": "management-requests",
+      "title": "Follow a console request",
+      "summary": "Authentication, owner routing, cell state and the separate audit store.",
+      "guide": "../crates/cellar-admin/README.md"
+    },
+    {
+      "id": "native-primitives",
+      "title": "Values and runtime authority",
+      "summary": "Owned Rust values and codecs stay separate from host lifecycle policy.",
+      "guide": "../crates/cellar-native/README.md"
+    },
+    {
+      "id": "sdk-lifetimes",
+      "title": "Understand overlapping lifetimes",
+      "summary": "Generation adoption can overlap an old invocation and its background work.",
+      "guide": "05-sdk-and-lifetimes.md"
+    },
+    {
+      "id": "transaction-boundaries",
+      "title": "Keep atomic changes together",
+      "summary": "Cell state, command receipts and outbox rows share one database transaction.",
+      "guide": "06-storage-transactions.md"
+    },
+    {
+      "id": "command-retries",
+      "title": "Resolve a lost command reply",
+      "summary": "An application receipt returns the original result when the same command is retried.",
+      "guide": "07-routing-rpc.md"
+    },
+    {
+      "id": "event-delivery",
+      "title": "Publish, consume and acknowledge",
+      "summary": "Source atomicity, durable dispatch, local inbox protection and checkpoint settlement.",
+      "guide": "26-event-delivery.md"
+    },
+    {
+      "id": "ltx-replication",
+      "title": "Capture and restore SQLite",
+      "summary": "WAL capture, LTX segments, replica storage and restored state.",
+      "guide": "../crates/cellar-ltx/README.md"
+    }
+  ],
   "flows": [
     {
       "id": "routing",

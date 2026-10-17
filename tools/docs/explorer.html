@@ -20,9 +20,9 @@ main{max-width:1440px;margin:auto;padding:8px 40px 50px}h2{font-size:24px;line-h
 .catalog-tools{display:flex;justify-content:space-between;gap:18px;flex-wrap:wrap;margin:20px 0}.roles{display:flex;gap:7px;flex-wrap:wrap}.roles button{border:1px solid var(--rule);background:transparent;padding:8px 13px;border-radius:5px;color:var(--ink);font-size:14px;min-height:42px}.roles button[aria-pressed="true"]{background:var(--teal);border-color:var(--teal);color:white}
 .search{display:flex;align-items:center;gap:10px;flex:1;min-width:260px;max-width:430px}.search label{font:12px var(--mono)}input{min-width:0;width:100%;border:1px solid var(--rule);border-radius:5px;padding:9px 12px;background:white;color:var(--ink)}
 #count{color:var(--muted);font:12px var(--mono);margin:18px 0}#documents{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0 28px}.document{padding:20px 0;border-top:1px solid var(--rule);min-width:0}.document .type{font:11px var(--mono);text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}.document h3{font-size:18px;line-height:1.4;margin:8px 0}.document p{font-size:14px;color:var(--muted);margin:0 0 12px}.document .path{font:11px var(--mono);overflow-wrap:anywhere;color:var(--muted)}
-.empty{padding:25px 0;grid-column:1/-1}.visuals{margin-top:40px}.visual-links{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}.visuals p{color:var(--muted);font-size:14px}footer{border-top:1px solid var(--rule);padding:25px 0;color:var(--muted);font:12px/1.8 var(--mono);margin-top:35px}
-@media(max-width:1000px){#documents{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{align-items:start;flex-direction:column}.flow-frame{overflow:auto}.flow-frame object{min-width:1200px;min-height:900px}}
-@media(max-width:600px){header{padding:24px 20px 15px}main{padding:8px 20px 30px}h1{letter-spacing:-.6px}#documents{grid-template-columns:1fr}.catalog-tools{flex-direction:column}.search{min-width:0;max-width:none}.baseline{gap:8px}select{min-width:0;max-width:100%}.flow-frame{border-radius:6px}.roles button{min-height:44px}.flow-controls{width:100%}}
+.empty{padding:25px 0;grid-column:1/-1}.visuals{margin-top:40px}.jump-links{display:flex;gap:18px;flex-wrap:wrap;font-size:14px}.visual-gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:24px;margin:24px 0 36px}.visual-card{margin:0;min-width:0;background:white;border:1px solid var(--rule);border-radius:9px;overflow:hidden}.visual-card .preview{display:block;background:#0f172a}.visual-card img{display:block;width:100%;height:210px;object-fit:contain}.visual-card figcaption{padding:16px}.visual-card h3{font-size:18px;line-height:1.35;margin:0 0 8px}.visual-card p{font-size:14px;line-height:1.5;margin:0 0 12px}.visual-actions{display:flex;gap:16px;flex-wrap:wrap;font-size:14px}.visual-card a:focus-visible{outline-offset:-3px}.visual-card .visual-actions a:focus-visible,.visual-card h3 a:focus-visible{outline-offset:3px}.visual-links{display:flex;gap:20px;flex-wrap:wrap;font-size:14px}.visuals p{color:var(--muted);font-size:14px}footer{border-top:1px solid var(--rule);padding:25px 0;color:var(--muted);font:12px/1.8 var(--mono);margin-top:35px}
+@media(max-width:1000px){.visual-gallery{grid-template-columns:repeat(2,minmax(0,1fr))}#documents{grid-template-columns:repeat(2,minmax(0,1fr))}.section-head{align-items:start;flex-direction:column}.flow-frame{overflow:auto}.flow-frame object{min-width:1200px;min-height:900px}}
+@media(max-width:600px){.visual-gallery{grid-template-columns:1fr}.visual-card img{height:auto;max-height:320px}header{padding:24px 20px 15px}main{padding:8px 20px 30px}h1{letter-spacing:-.6px}#documents{grid-template-columns:1fr}.catalog-tools{flex-direction:column}.search{min-width:0;max-width:none}.baseline{gap:8px}select{min-width:0;max-width:100%}.flow-frame{border-radius:6px}.roles button{min-height:44px}.flow-controls{width:100%}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 </style>
 </head>
@@ -31,10 +31,16 @@ main{max-width:1440px;margin:auto;padding:8px 40px 50px}h2{font-size:24px;line-h
 <header>
 <div class="brand"><span class="mark" aria-hidden="true"></span>CELLAR <span class="kicker">/ field guide</span></div>
 <h1>Build around durable cells.<br>Operate with proof.</h1>
-<p>A documentation library for application builders and distributed teams: native Rust contracts, explicit authority, recovery, measured capacity, and release decisions that carry their evidence.</p>
-<div class="baseline"><span>REVIEWED 2026-10-12 · MAIN c24feb2</span><span class="state">Production scale requires release qualification</span><a href="README.md">Complete document list</a></div>
+<p>Run a Rust application, understand cell boundaries, and operate a fleet. Start with the quickstart or choose a visual explanation below.</p>
+<div class="baseline"><span>ORIGINAL EVIDENCE REVIEW · 2026-10-12 · c24feb2</span><span class="state">Production scale requires release qualification</span><a href="README.md">Complete document list</a></div>
 </header>
 <main id="main">
+<nav class="jump-links" aria-label="Documentation sections"><a href="02-quickstart.md">Run the counter</a><a href="README.md#crate-guides">Choose a crate</a><a href="#visuals-heading">Visual guides</a><a href="#flows-heading">Interactive flows</a><a href="#catalog-heading">Document library</a></nav>
+<section class="visuals" aria-labelledby="visuals-heading">
+<h2 id="visuals-heading">Choose a visual guide</h2><p class="intro">Preview a concept, open its SVG at full size, or read the guide for the complete contract.</p>
+<div id="visual-gallery" class="visual-gallery"></div>
+<noscript><p>Use the <a href="README.md#visual-concept-guides">visual index</a> for SVG and PNG links.</p></noscript>
+</section>
 <section aria-labelledby="flows-heading">
 <div class="section-head"><div><h2 id="flows-heading">Follow an execution path</h2><p class="intro">Inspect each step and the failure boundary that changes its outcome.</p></div><div class="flow-controls"><label for="flow-select">FLOW</label><select id="flow-select"></select></div></div>
 <div class="flow-frame" tabindex="0" role="region" aria-label="Interactive SVG flow; scroll horizontally on narrow screens">
@@ -51,11 +57,31 @@ main{max-width:1440px;margin:auto;padding:8px 40px 50px}h2{font-size:24px;line-h
 <p id="count" role="status" aria-live="polite"></p><div id="documents"></div>
 <noscript><p>Enable browser scripting for catalog filters and step inspection, or use <a href="README.md">the complete Markdown index</a>. SVGs retain labeled static paths.</p></noscript>
 </section>
-<section class="visuals" aria-labelledby="visuals-heading"><h2 id="visuals-heading">Architecture at a glance</h2><div class="visual-links"><a href="diagrams/architecture.svg">Framework architecture</a><a href="diagrams/architecture@2x.png">Shareable architecture PNG</a><a href="diagrams/cell-boundaries.svg">Cell boundaries</a><a href="diagrams/fleet-topology.svg">Fleet topology</a><a href="diagrams/team-delivery.svg">Team delivery</a></div><p>SVGs work offline. Markdown previews are static; open the SVG as a document for interaction. Narrow screens can scroll the flow to keep its labels readable.</p></section>
+<section class="visuals" aria-labelledby="architecture-heading"><h2 id="architecture-heading">System views</h2><div class="visual-links"><a href="diagrams/architecture.svg">Framework architecture</a><a href="diagrams/architecture@2x.png">Shareable architecture PNG</a><a href="diagrams/cell-boundaries.svg">Cell boundaries</a><a href="diagrams/fleet-topology.svg">Fleet topology</a><a href="diagrams/team-delivery.svg">Team delivery</a></div><p>SVGs work offline. Markdown previews are static; open the SVG as a document for interaction. Narrow screens can scroll the flow to keep its labels readable.</p></section>
 <footer>Source-backed reference · <a href="sources.md">Evidence provenance</a> · <a href="catalog.json">Machine-readable catalog</a> · <a href="25-documentation-maintenance.md">Maintain these docs</a><br>Qualify the application, exact release bytes, workload, store and topology before making a production commitment.</footer>
 </main>
 <script>
 const catalog = /*CATALOG*/null;
+const gallery = document.getElementById('visual-gallery');
+for (const visual of catalog.visuals) {
+  const figure = document.createElement('figure'); figure.className = 'visual-card';
+  const preview = document.createElement('a'); preview.className = 'preview';
+  preview.href = `diagrams/${visual.id}.svg`;
+  preview.setAttribute('aria-label', `Open SVG: ${visual.title}`);
+  const image = document.createElement('img'); image.src = preview.href;
+  image.alt = visual.summary; image.loading = 'lazy'; preview.appendChild(image);
+  const caption = document.createElement('figcaption');
+  const heading = document.createElement('h3');
+  const title = document.createElement('a'); title.href = preview.href;
+  title.textContent = visual.title; heading.appendChild(title);
+  const summary = document.createElement('p'); summary.textContent = visual.summary;
+  const actions = document.createElement('div'); actions.className = 'visual-actions';
+  for (const [label, href] of [['Read guide', visual.guide], ['PNG preview', `diagrams/${visual.id}@2x.png`]]) {
+    const link = document.createElement('a'); link.textContent = label; link.href = href;
+    link.setAttribute('aria-label', `${label}: ${visual.title}`); actions.appendChild(link);
+  }
+  caption.append(heading, summary, actions); figure.append(preview, caption); gallery.appendChild(figure);
+}
 let role = 'all';
 const list = document.getElementById('documents');
 function render() {
