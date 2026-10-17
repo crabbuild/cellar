@@ -133,7 +133,7 @@ pub struct HttpResponse {
 }
 
 /// Queue delivery and settlement contracts shared with application bindings.
-pub use cellar_app::queue::{
+pub use crate::application::queue::message::{
     QueueBatch, QueueContentType, QueueDispatchResult, QueueMessage, QueueMetrics, QueueOutcome,
     QueueRetryBatch, QueueRetryMessage,
 };

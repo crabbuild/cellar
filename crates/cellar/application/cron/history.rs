@@ -3,7 +3,7 @@ use super::*;
 use crate::application::storage::SqlValue;
 use serde_json::{json, Value};
 
-use cellar_app::cron::Query;
+use super::types::Query;
 
 const RETAINED: i64 = 256;
 

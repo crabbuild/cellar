@@ -44,7 +44,6 @@ axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.22"
 bytes = "1"
 cellar = { path = "crates/cellar", version = "0.6.2" }
-cellar-app = { path = "crates/cellar-app" }
 cellar-axum = { path = "crates/cellar-axum", version = "0.6.2" }
 cellar-logic = { path = "crates/cellar-logic" }
 cellar-ltx = { path = "crates/cellar-ltx" }

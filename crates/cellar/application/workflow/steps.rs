@@ -74,7 +74,7 @@ pub enum Backoff {
 }
 
 pub type DelayCallback =
-    Arc<dyn Fn(Attempt, ErrorRecord) -> crate::HandlerFuture<Duration> + Send + Sync>;
+    Arc<dyn Fn(Attempt, ErrorRecord) -> crate::application::HandlerFuture<Duration> + Send + Sync>;
 
 #[derive(Clone)]
 pub enum Delay {

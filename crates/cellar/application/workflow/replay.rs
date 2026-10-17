@@ -8,10 +8,6 @@ use std::pin::Pin;
 use std::sync::Mutex;
 use std::task::{Context as TaskContext, Poll};
 
-pub use cellar_app::workflow::{
-    Attempt, Backoff, Delay, Event, Retries, StepConfig, StepFailure, StepName, WaitOptions,
-};
-
 pub(super) fn failure(error: &anyhow::Error) -> StepFailure {
     let mut failure = error
         .downcast_ref::<StepFailure>()

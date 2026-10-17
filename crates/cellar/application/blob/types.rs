@@ -52,7 +52,7 @@ fn js_space(character: char) -> bool {
 }
 
 impl Conditional {
-    pub fn present(&self) -> bool {
+    pub(super) fn present(&self) -> bool {
         self.etag_matches.is_some()
             || self.etag_does_not_match.is_some()
             || self.uploaded_before.is_some()
@@ -182,20 +182,20 @@ pub struct WriteOptions {
 }
 
 impl WriteOptions {
-    pub fn conditional(&self) -> Option<&Conditional> {
+    pub(super) fn conditional(&self) -> Option<&Conditional> {
         self.only_if
             .as_ref()
             .filter(|condition| condition.present())
     }
 
-    pub fn wire(&self) -> serde_json::Value {
+    pub(super) fn wire(&self) -> serde_json::Value {
         serde_json::json!({
             "http":self.http_metadata, "custom":self.custom_metadata, "storageClass":self.storage_class,
             "onlyIf":self.conditional(), "verify":self.checksums.iter().map(|(algorithm,value)|(algorithm.name(),value.hex())).collect::<BTreeMap<_,_>>(),
         })
     }
 
-    pub fn json(&self) -> Result<String> {
+    pub(super) fn json(&self) -> Result<String> {
         Ok(serde_json::to_string(&self.wire())?)
     }
 }
@@ -239,7 +239,7 @@ pub struct Object {
 }
 
 impl Object {
-    pub fn from_record(value: serde_json::Value) -> Result<Self> {
+    pub(super) fn from_record(value: serde_json::Value) -> Result<Self> {
         #[derive(Deserialize)]
         #[serde(rename_all = "camelCase")]
         struct Record {
@@ -323,4 +323,22 @@ pub struct Page {
 pub struct UploadedPart {
     pub part_number: u32,
     pub etag: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::application::blob;
+
+    #[test]
+    fn blob_range_and_condition_parsing_need_no_store() -> anyhow::Result<()> {
+        assert!(blob::Range::from_header("bytes=10-8").is_err());
+        assert_eq!(blob::Range::from_header("bytes=10-9")?.length, Some(0));
+        assert!(blob::Range::from_header("bytes=0-18446744073709551615").is_err());
+        assert_eq!(blob::Range::from_header("bytes=-5")?.suffix, Some(5));
+        let condition =
+            blob::Conditional::from_headers(&[("If-Match".into(), "\"version-1\"".into())])
+                .unwrap();
+        assert_eq!(condition.etag_matches.as_deref(), Some("\"version-1\""));
+        Ok(())
+    }
 }

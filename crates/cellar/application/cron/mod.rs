@@ -2,8 +2,9 @@
 //! cellar_logic::cron; storage, wake discovery and ownership remain the host's.
 
 mod history;
-pub use cellar_app::cron::Scheduled;
-pub(crate) use cellar_app::cron::{Configuration as HistoryConfiguration, Query as HistoryQuery};
+mod types;
+pub use types::Scheduled;
+pub(crate) use types::{Configuration as HistoryConfiguration, Query as HistoryQuery};
 
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};

@@ -29,26 +29,30 @@ mod cell;
 mod configuration;
 mod definition;
 mod history;
-pub use cellar_app::workflow::{
-    CreateOptions, Definition, DefinitionEdge, DefinitionKind, DefinitionNode, DeleteBatchResult,
-    DeleteError, Deleted, Duration, ErrorRecord, RestartFrom, RestartOptions, Retention, SendEvent,
-    State, Status, StepKind, TerminateOptions,
-};
 mod operator;
-pub use operator::OperatorAction;
 mod replay;
 mod rollback;
+mod steps;
 mod stream;
+mod types;
+
 pub use batch::{BatchCreateError, BatchCreateOptions, BatchCreateResult};
 pub(crate) use cell::create_cell;
-pub use cellar_app::workflow::{BindingSettings, CronSchedule};
+pub use configuration::{BindingSettings, CronSchedule};
+pub use definition::{Definition, DefinitionEdge, DefinitionKind, DefinitionNode};
 pub use history::{InstanceEvent, InstanceEventType, SubscribeOptions, Subscription};
-pub use replay::{
-    Attempt, Backoff, Delay, Event, Retries, Step, StepConfig, StepFailure, StepName, Steps,
-    WaitOptions,
-};
+pub use operator::OperatorAction;
+pub use replay::{Step, Steps};
 pub use rollback::{RollbackContext, RollbackOptions};
+pub use steps::{
+    Attempt, Backoff, Delay, Event, Retries, StepConfig, StepFailure, StepName, WaitOptions,
+};
 pub use stream::{StepSelector, StreamOutput};
+pub use types::{
+    CreateOptions, DeleteBatchResult, DeleteError, Deleted, Duration, ErrorRecord, RestartFrom,
+    RestartOptions, Retention, SendEvent, State, Status, StepKind, TerminateOptions,
+    RETENTION_MAX_MS, VALUE_LIMIT,
+};
 
 use super::{decode_rpc_result, encode_rpc, Context};
 use anyhow::{anyhow, ensure, Result};
@@ -57,8 +61,6 @@ use indexmap::IndexSet;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
-
-pub use cellar_app::workflow::{RETENTION_MAX_MS, VALUE_LIMIT};
 
 fn error(message: impl std::fmt::Display) -> anyhow::Error {
     anyhow!("WORKFLOW_ERROR: {message}")

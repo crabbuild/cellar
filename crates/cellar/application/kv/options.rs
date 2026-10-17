@@ -1,14 +1,8 @@
 //! KV options, conditional edit validation and structured-value codec.
-use anyhow::{anyhow, ensure, Result};
+use super::error;
+use anyhow::{ensure, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-pub mod validation;
-pub mod wire;
-
-fn error(message: impl std::fmt::Display) -> anyhow::Error {
-    anyhow!("KV_ERROR: {message}")
-}
 
 #[derive(Clone, Debug, Default)]
 pub struct PutOptions {

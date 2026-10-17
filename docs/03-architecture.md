@@ -16,7 +16,6 @@ perform effects and submit versioned completion events to its mailbox.
 | `cellar/execution` | Execution domains and injected services | Tasks retain their domain; closure cancels rather than proves a drain |
 | `cellar/runtime` | Generations, pools, cells, invocation gates | Event and activation authority outlive neither owner |
 | `cellar/application` | Native contracts and SDK binding adapters | `sdk` is the application-facing facade |
-| `cellar-app` | SQL, KV, Blob, queue, workflow and cron contracts, codecs and configuration | No host dependency or ambient execution services |
 | `cellar/storage` + `cellar-ltx` | SQLite, WAL/LTX capture, restore, Blob/store clients | Replication mechanics do not define fleet authority |
 | `cellar/durability` + `cellar/fleet` | Logs, proof, leases, handoff, wakes | Recovery pointers and predecessor logs survive transitions |
 | `cellar-native` | Owned values, structured clone, crypto/web primitives | No JavaScript engine dependency |
@@ -27,10 +26,10 @@ uses `#[path]` declarations; for example `cellar::daemon` resides in
 `node/mod.rs`. [API reference](22-api-reference.md) links through the public
 facade and actual files.
 
-`cellar` depends on `cellar-app`, which uses `cellar-native` value primitives and
-`cellar-logic` policies. Existing SDK paths re-export the shared types. Runtime
-binding handles, service cells and their authority checks stay in the host.
-See the [building-block guide](../crates/cellar-app/README.md).
+Application building blocks live in `cellar/application`. Each component keeps
+its values, codecs and validation beside its binding and service-cell adapters.
+Applications use `cellar::sdk`; execution, authority and durability checks remain
+inside the host. See the [building-block guide](../crates/cellar/application/README.md).
 
 ## A request and a write
 

@@ -3,8 +3,10 @@
 //! ownership and durability still belong to the production host.
 
 mod inspection;
-use cellar_app::kv::wire;
-pub use cellar_app::kv::{
+mod options;
+mod validation;
+mod wire;
+pub use options::{
     EditExpiration, ListOptions, ListResult, ListedKey, PutOptions, ReadType, RevisionCondition,
 };
 
@@ -55,30 +57,30 @@ fn error(message: impl std::fmt::Display) -> anyhow::Error {
 }
 
 fn list_limit(requested: Option<i64>) -> usize {
-    cellar_app::kv::validation::list_limit(requested, crate::application::limits::current().kv)
+    validation::list_limit(requested, crate::application::limits::current().kv)
 }
 
 fn check_key(key: &str) -> Result<()> {
-    cellar_app::kv::validation::check_key(key, crate::application::limits::current().kv)
+    validation::check_key(key, crate::application::limits::current().kv)
 }
 
 fn check_value(size: usize) -> Result<()> {
-    cellar_app::kv::validation::check_value(size, crate::application::limits::current().kv)
+    validation::check_value(size, crate::application::limits::current().kv)
 }
 
 fn check_metadata(metadata: &str) -> Result<()> {
-    cellar_app::kv::validation::check_metadata(metadata, crate::application::limits::current().kv)
+    validation::check_metadata(metadata, crate::application::limits::current().kv)
 }
 
 fn check_bulk(keys: &[String]) -> Result<()> {
-    cellar_app::kv::validation::check_bulk(keys, crate::application::limits::current().kv)
+    validation::check_bulk(keys, crate::application::limits::current().kv)
 }
 
 fn expiry(now: i64, expiration: Option<f64>, ttl: Option<f64>) -> Result<Option<i64>> {
     let floor = crate::kv_blob::limits()["minExpirationTtlMs"]
         .as_i64()
         .expect("KV limits");
-    cellar_app::kv::validation::expiry(now, expiration, ttl, floor)
+    validation::expiry(now, expiration, ttl, floor)
 }
 
 fn cursor_encode(key: &str) -> String {

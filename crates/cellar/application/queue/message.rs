@@ -2,20 +2,13 @@
 // Modified for Cellar.
 
 //! Queue message values, wire codecs and producer budgets.
-use anyhow::{anyhow, ensure, Result};
+use super::error;
+use anyhow::{ensure, Result};
 use cellar_native::clone::{StructuredValue, Value as CloneValue};
 use serde_json::Value;
 
-mod configuration;
-pub use configuration::{BrokerConfig, BrokerLimits, ConsumerConfig};
-pub mod wire;
-
-fn error(message: impl std::fmt::Display) -> anyhow::Error {
-    anyhow!("QUEUE_ERROR: {message}")
-}
-
 /// Validate producer delay against a captured host policy.
-pub fn check_delay(delay: u32, limits: cellar_logic::queue::Limits) -> Result<u32> {
+pub(super) fn check_delay(delay: u32, limits: cellar_logic::queue::Limits) -> Result<u32> {
     ensure!(
         delay <= limits.max_delay_seconds,
         "QUEUE_ERROR: delaySeconds must be an integer from 0 to {}",
@@ -121,14 +114,18 @@ pub struct BatchEntry {
     pub delay_seconds: Option<u32>,
 }
 
-pub struct Encoded {
+pub(super) struct Encoded {
     pub body: Vec<u8>,
     pub content_type: String,
     pub delay: u32,
 }
 
 /// Encode one message, refusing an excess body or delay before host submission.
-pub fn encode(body: Body, delay: u32, limits: cellar_logic::queue::Limits) -> Result<Encoded> {
+pub(super) fn encode(
+    body: Body,
+    delay: u32,
+    limits: cellar_logic::queue::Limits,
+) -> Result<Encoded> {
     let (body, content_type) = match body {
         Body::Text(text) => (text.into_bytes(), "text"),
         Body::Bytes(bytes) => (bytes, "bytes"),
@@ -161,7 +158,7 @@ fn encode_json(value: &StructuredValue) -> Result<Vec<u8>> {
 }
 
 /// Decode a delivery while retaining JSON values that need structured encoding.
-pub fn decode(body: Vec<u8>, content_type: QueueContentType) -> Result<Body> {
+pub(super) fn decode(body: Vec<u8>, content_type: QueueContentType) -> Result<Body> {
     let text = |bytes: &[u8]| -> Result<String> {
         Ok(
             cellar_native::encoding::TextDecoder::new("utf-8", Default::default())?
@@ -194,4 +191,29 @@ pub fn decode(body: Vec<u8>, content_type: QueueContentType) -> Result<Body> {
         }
         QueueContentType::Structured => Body::Structured(cellar_native::clone::decode(&body)?),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::application::{limits, queue};
+
+    #[test]
+    fn queue_codec_enforces_the_supplied_budget_without_a_host() -> anyhow::Result<()> {
+        let mut limits = limits::CellLimits::default().queue;
+        limits.max_message_bytes = 3;
+        limits.max_delay_seconds = 2;
+        let encoded = queue::message::encode(queue::Body::Bytes(vec![1, 2, 3]), 2, limits)?;
+        assert_eq!(encoded.body, [1, 2, 3]);
+        assert!(queue::message::encode(queue::Body::Bytes(vec![0; 4]), 2, limits).is_err());
+        assert!(queue::message::encode(queue::Body::Bytes(vec![]), 3, limits).is_err());
+        let queue::Body::JsonValue(value) =
+            queue::message::decode(b"-0".to_vec(), queue::QueueContentType::Json)?
+        else {
+            panic!("negative zero must retain its structured representation");
+        };
+        assert!(
+            matches!(value.root, cellar_native::clone::Value::Number(number) if number == 0.0 && number.is_sign_negative())
+        );
+        Ok(())
+    }
 }

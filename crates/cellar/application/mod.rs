@@ -1,4 +1,4 @@
-//! Rust application handlers executed by cellar's production turn driver.
+#![doc = include_str!("README.md")]
 
 use crate::engine_api::{HttpResponse, QueueBatch, QueueDispatchResult, RequestBody, RpcData};
 use anyhow::{anyhow, Result};
@@ -35,7 +35,9 @@ pub use storage::{
     OutboxRevision, Storage,
 };
 
-pub use cellar_app::HandlerFuture;
+/// An owned application callback; the host supplies its execution and lifetime.
+pub type HandlerFuture<T> =
+    std::pin::Pin<Box<dyn Future<Output = anyhow::Result<T>> + Send + 'static>>;
 
 pub type SqlResult = (Vec<String>, Vec<Vec<serde_json::Value>>, u64);
 

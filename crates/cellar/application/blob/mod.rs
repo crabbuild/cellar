@@ -9,7 +9,8 @@ use futures_util::{Stream, StreamExt};
 use serde::Deserialize;
 use std::sync::Arc;
 
-pub use cellar_app::blob::{
+mod types;
+pub use types::{
     Algorithm, Checksum, Conditional, GetOptions, HttpMetadata, ListOptions, Object, ObjectRange,
     Page, Range, StorageClass, UploadedPart, WriteOptions,
 };

@@ -1,31 +1,12 @@
 //! Workflow values, duration parsing, binding configuration and definitions.
-use anyhow::{anyhow, ensure, Result};
+use super::{error, property};
+use anyhow::{ensure, Result};
 use cellar_native::clone::{StructuredValue, Value as CloneValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-mod configuration;
-mod definition;
-mod steps;
-pub use configuration::{BindingSettings, CronSchedule};
-pub use definition::{Definition, DefinitionEdge, DefinitionKind, DefinitionNode};
-pub use steps::{
-    Attempt, Backoff, Delay, DelayCallback, Event, Retries, StepConfig, StepFailure, StepName,
-    WaitOptions,
-};
-
 pub const VALUE_LIMIT: usize = 1 << 20;
 pub const RETENTION_MAX_MS: f64 = 30.0 * 86400000.0;
-
-fn error(message: impl std::fmt::Display) -> anyhow::Error {
-    anyhow!("WORKFLOW_ERROR: {message}")
-}
-
-fn property(graph: &StructuredValue, name: &str) -> Result<Option<StructuredValue>> {
-    Ok(graph
-        .property(&name.encode_utf16().collect::<Vec<_>>())?
-        .filter(|graph| !matches!(graph.root, CloneValue::Undefined)))
-}
 
 /// The same numeric-millisecond and textual duration forms used by Workflows.
 /// Fractional milliseconds remain intact until the host installs an alarm.
@@ -126,9 +107,9 @@ pub struct Retention {
 
 impl Retention {
     /// Encode retention using the host's captured budget and Unix milliseconds.
-    pub fn wire(
+    pub(super) fn wire(
         &self,
-        limits: crate::limits::WorkflowLimits,
+        limits: crate::application::limits::WorkflowLimits,
         now: i64,
     ) -> Result<serde_json::Value> {
         let normalize = |duration: &Option<Duration>| -> Result<f64> {
@@ -169,7 +150,7 @@ pub enum StepKind {
 }
 
 impl StepKind {
-    pub fn wire(self) -> &'static str {
+    pub(super) fn wire(self) -> &'static str {
         match self {
             Self::Do => "do",
             Self::Sleep => "sleep",
@@ -222,7 +203,7 @@ impl ErrorRecord {
         String::from_utf16_lossy(&self.message)
     }
 
-    pub fn from_value(value: StructuredValue) -> Result<Self> {
+    pub(super) fn from_value(value: StructuredValue) -> Result<Self> {
         let text = |name: &str| -> Result<Vec<u16>> {
             match property(&value, name)?.map(|value| value.root) {
                 Some(CloneValue::String(text)) => Ok(text),
@@ -274,4 +255,30 @@ pub struct DeleteError {
 pub struct DeleteBatchResult {
     pub deleted: Vec<Deleted>,
     pub errors: Vec<DeleteError>,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::application::{limits, workflow};
+    use serde_json::json;
+
+    #[test]
+    fn retention_uses_the_supplied_clock_and_budget() -> anyhow::Result<()> {
+        let mut limits = limits::WorkflowLimits {
+            max_retention_ms: Some(2_000),
+            ..Default::default()
+        };
+        let retention = workflow::Retention {
+            success: Some(workflow::Duration::from("1.5 seconds")),
+            error: Some(workflow::Duration::from(2_000.0)),
+        };
+        assert_eq!(
+            retention.wire(limits, 10_000)?,
+            json!({"successMs":1500.0,"errorMs":2000.0})
+        );
+        assert!(retention.wire(limits, i64::MAX - 1).is_err());
+        limits.max_retention_ms = Some(1_000);
+        assert!(retention.wire(limits, 10_000).is_err());
+        Ok(())
+    }
 }

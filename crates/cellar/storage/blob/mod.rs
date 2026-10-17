@@ -7,7 +7,7 @@
 //! so an operator and a Worker cannot disagree about the key an object lives
 //! under or the record it carries. Rust Blob bindings use this backend.
 
-pub use cellar_app::blob::{Conditional, HttpMetadata as HttpMeta, Range};
+pub use crate::application::blob::{Conditional, HttpMetadata as HttpMeta, Range};
 
 use crate::asyncrt;
 use crate::bucket::BlobAttributes;

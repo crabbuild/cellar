@@ -1,10 +1,10 @@
 //! Validate KV requests using the caller's captured resource budget and clock.
 use super::error;
-use crate::limits::KvLimits;
+use crate::application::limits::KvLimits;
 use anyhow::{ensure, Result};
 use cellar_logic::kv as policy;
 
-pub fn list_limit(requested: Option<i64>, limits: KvLimits) -> usize {
+pub(super) fn list_limit(requested: Option<i64>, limits: KvLimits) -> usize {
     let maximum = limits.max_list_limit;
     requested
         .filter(|n| *n > 0)
@@ -12,7 +12,7 @@ pub fn list_limit(requested: Option<i64>, limits: KvLimits) -> usize {
         .min(maximum)
 }
 
-pub fn check_key(key: &str, limits: KvLimits) -> Result<()> {
+pub(super) fn check_key(key: &str, limits: KvLimits) -> Result<()> {
     ensure!(!key.is_empty(), "KV_ERROR: a key must not be empty");
     ensure!(
         key.len() <= limits.max_key_bytes,
@@ -23,7 +23,7 @@ pub fn check_key(key: &str, limits: KvLimits) -> Result<()> {
     Ok(())
 }
 
-pub fn check_value(size: usize, limits: KvLimits) -> Result<()> {
+pub(super) fn check_value(size: usize, limits: KvLimits) -> Result<()> {
     ensure!(
         size <= limits.max_value_bytes,
         "KV_ERROR: a value is at most {} bytes, got {size}",
@@ -32,7 +32,7 @@ pub fn check_value(size: usize, limits: KvLimits) -> Result<()> {
     Ok(())
 }
 
-pub fn check_metadata(metadata: &str, limits: KvLimits) -> Result<()> {
+pub(super) fn check_metadata(metadata: &str, limits: KvLimits) -> Result<()> {
     ensure!(
         metadata.len() <= limits.max_metadata_bytes,
         "KV_ERROR: metadata is at most {} bytes, got {}",
@@ -42,7 +42,7 @@ pub fn check_metadata(metadata: &str, limits: KvLimits) -> Result<()> {
     Ok(())
 }
 
-pub fn check_bulk(keys: &[String], limits: KvLimits) -> Result<()> {
+pub(super) fn check_bulk(keys: &[String], limits: KvLimits) -> Result<()> {
     ensure!(
         !keys.is_empty(),
         "KV_ERROR: a bulk get needs at least one key"
@@ -59,7 +59,7 @@ pub fn check_bulk(keys: &[String], limits: KvLimits) -> Result<()> {
     Ok(())
 }
 
-pub fn expiry(
+pub(super) fn expiry(
     now: i64,
     expiration: Option<f64>,
     ttl: Option<f64>,
@@ -86,4 +86,37 @@ pub fn expiry(
         return Ok(Some(at as i64));
     }
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::application::{kv, limits};
+
+    #[test]
+    fn kv_validation_uses_the_supplied_clock_and_expiry_floor() -> anyhow::Result<()> {
+        let limits = limits::KvLimits {
+            min_expiration_ttl_ms: 2_000,
+            ..Default::default()
+        };
+        assert!(
+            kv::validation::expiry(10_000, None, Some(1.0), limits.min_expiration_ttl_ms).is_err()
+        );
+        assert_eq!(
+            kv::validation::expiry(10_000, None, Some(2.0), limits.min_expiration_ttl_ms)?,
+            Some(12_000)
+        );
+        assert!(kv::validation::expiry(
+            i64::MAX - 1,
+            None,
+            Some(2.0),
+            limits.min_expiration_ttl_ms
+        )
+        .is_err());
+        assert!(kv::RevisionCondition {
+            revision: Some("01".into())
+        }
+        .validate()
+        .is_err());
+        Ok(())
+    }
 }

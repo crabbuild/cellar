@@ -2,24 +2,26 @@
 //! Broker policy and fleet dispatch remain the existing Rust implementations.
 
 mod broker;
-use cellar_app::queue::wire;
+mod configuration;
+pub(crate) mod message;
+mod wire;
 
 use super::{decode_rpc_result, encode_rpc, Context, HandlerFuture, Output};
 use crate::engine_api::{
     QueueBatch, QueueDispatchResult, QueueOutcome, QueueRetryBatch, QueueRetryMessage,
 };
 use anyhow::{anyhow, ensure, Result};
-use cellar_app::queue::{decode, Encoded};
-pub use cellar_app::queue::{BatchEntry, Body, QueueContentType, QueueMetrics, SendOptions};
 use cellar_native::clone::StructuredValue;
 use futures_util::FutureExt;
 use indexmap::{IndexMap, IndexSet};
+use message::{decode, Encoded};
+pub use message::{BatchEntry, Body, QueueContentType, QueueMetrics, SendOptions};
 use serde_json::{json, Value};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 pub(crate) use broker::create_cell;
-pub(crate) use cellar_app::queue::{BrokerConfig as Config, ConsumerConfig as Consumer};
+pub(crate) use configuration::{BrokerConfig as Config, ConsumerConfig as Consumer};
 
 #[derive(Clone, Debug)]
 pub struct Producer {
@@ -41,7 +43,7 @@ pub(super) fn now() -> i64 {
 }
 
 pub(super) fn check_delay(delay: u32) -> Result<u32> {
-    cellar_app::queue::check_delay(delay, crate::application::limits::current().queue)
+    message::check_delay(delay, crate::application::limits::current().queue)
 }
 
 impl Producer {
@@ -63,7 +65,7 @@ impl Producer {
         body: Body,
         options: SendOptions,
     ) -> Result<SendResult> {
-        let entry = cellar_app::queue::encode(
+        let entry = message::encode(
             body,
             options.delay_seconds.unwrap_or(self.delivery_delay),
             crate::application::limits::current().queue,
@@ -110,7 +112,7 @@ impl Producer {
                         .max_batch_messages
                 )
             );
-            let entry = cellar_app::queue::encode(
+            let entry = message::encode(
                 message.body,
                 message.delay_seconds.unwrap_or(delay),
                 crate::application::limits::current().queue,

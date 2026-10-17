@@ -2,19 +2,21 @@
 //! database identity across events and take the executing context per call.
 //! Owner lookup, admission and durability remain host responsibilities.
 
+mod wire;
+
 use super::{
     decode_rpc, decode_rpc_result, encode_rpc, Cell, Context, HandlerFuture, Invocation, Output,
     Storage,
 };
 use crate::engine_api::{HttpResponse, RpcData};
-use cellar_app::sql::wire::{js_string, params, truthy};
-use cellar_app::sql::{
+use cellar_native::sql::{
     shape, SqlPreparedRequest, SqlPreparedResult, SqlRequest, SqlResponse, PRIMARY_BOOKMARK,
 };
-pub use cellar_app::sql::{BindValue, Error, ExecResult, ResultSet};
+pub use cellar_native::sql::{BindValue, Error, ExecResult, ResultSet};
 use futures_util::TryStreamExt;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
+use wire::{js_string, params, truthy};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -510,3 +512,10 @@ impl Cell for DatabaseCell {
         })
     }
 }
+
+/// Default maximum rows in one materialized SQL result set.
+pub const SQL_MAX_ROWS: usize = 100_000;
+
+/// Default bytes one materialized SQL result set may carry across a binding.
+/// Embedded hosts select the effective budget through `CellLimits.sql`.
+pub const SQL_MAX_RESULT_BYTES: usize = 32 * 1024 * 1024;

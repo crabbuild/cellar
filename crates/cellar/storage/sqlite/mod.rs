@@ -2233,7 +2233,7 @@ pub(crate) fn sql_page_usage(scope: &str) -> Result<(u64, u64), String> {
 // metadata snapshot taken from the same execution on the same connection, and
 // SQLite alone deciding what is and is not a statement.
 
-pub use cellar_app::sql::{SQL_MAX_RESULT_BYTES, SQL_MAX_ROWS};
+pub use crate::application::sql::{SQL_MAX_RESULT_BYTES, SQL_MAX_ROWS};
 
 pub use cellar_native::sql::{
     Error as SqlFailure, SqlMeta, SqlPreparedRequest, SqlPreparedResult, SqlRequest, SqlResponse,

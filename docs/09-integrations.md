@@ -10,7 +10,7 @@ timeouts, cancellation, payload bounds and external consistency at each edge.
 | --- | --- | --- |
 | HTTP and bodies | Use owned request/response APIs, explicit deadlines and bounded parsing | [HTTP](../crates/cellar/application/http.rs), [services](../crates/cellar/application/service.rs) |
 | Byte streams | Prefer streaming for large payloads; cancel abandoned streams; bound buffered bytes | [streams](../crates/cellar/application/streams.rs) |
-| Blob | Use streaming/ranges, conditional options and bounded paginated listings | [Blob](../crates/cellar/application/blob.rs) |
+| Blob | Use streaming/ranges, conditional options and bounded paginated listings | [Blob](../crates/cellar/application/blob/mod.rs) |
 | Assets and cache | Stage assets with the package; define cache freshness and rebuild behavior | [assets/cache](../crates/cellar/application/assets.rs), [counter](../examples/native-counter/project.json) |
 | HTML rewriting | Transform streaming markup within the event lifetime | [rewriter](../crates/cellar/application/html_rewriter/mod.rs) |
 | WebSockets | Authenticate upgrades; define reconnect/replay and bounded fanout | [WebSocket example](../examples/native-websocket/main.rs) |

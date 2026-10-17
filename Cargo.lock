@@ -259,7 +259,6 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
- "cellar-app",
  "cellar-logic",
  "cellar-ltx",
  "cellar-native",
@@ -335,20 +334,6 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
-]
-
-[[package]]
-name = "cellar-app"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "cellar-logic",
- "cellar-native",
- "chrono",
- "httpdate",
- "serde",
- "serde_json",
- "sha2",
 ]
 
 [[package]]

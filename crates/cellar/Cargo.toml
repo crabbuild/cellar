@@ -71,7 +71,6 @@ anyhow.workspace = true
 axum.workspace = true
 base64.workspace = true
 bytes.workspace = true
-cellar-app.workspace = true
 cellar-logic.workspace = true
 cellar-native.workspace = true
 cellar-ltx = { workspace = true, features = ["s3"] }

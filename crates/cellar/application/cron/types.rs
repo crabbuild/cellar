@@ -15,7 +15,7 @@ pub struct Scheduled {
 
 impl Scheduled {
     /// Create one occurrence; clones share only this occurrence's retry decision.
-    pub fn new(scheduled_ms: i64, cron: String) -> Self {
+    pub(super) fn new(scheduled_ms: i64, cron: String) -> Self {
         Self {
             scheduled_ms,
             cron,
@@ -24,7 +24,7 @@ impl Scheduled {
     }
 
     /// Observe whether this occurrence's handler declined retry.
-    pub fn retry_declined(&self) -> bool {
+    pub(super) fn retry_declined(&self) -> bool {
         self.no_retry.load(Ordering::Acquire)
     }
 
@@ -70,5 +70,20 @@ impl Query {
             "expression is too long"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scheduled;
+
+    #[test]
+    fn cron_retry_control_is_shared_only_within_one_occurrence() {
+        let first = Scheduled::new(1_000, "* * * * *".into());
+        let retained = first.clone();
+        let next = Scheduled::new(2_000, first.cron.clone());
+        retained.no_retry();
+        assert!(first.retry_declined());
+        assert!(!next.retry_declined());
     }
 }
