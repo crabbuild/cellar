@@ -31,10 +31,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 const STORE: &str = "cellar development store";
+const READ_CHUNK_BYTES: usize = 128 << 10;
 
 #[derive(Clone, Debug)]
 pub(crate) struct LocalStore {
     database: PathBuf,
+    #[cfg(test)]
+    read_gate: Option<Arc<read_tests::ReadGate>>,
 }
 
 #[derive(Debug)]
@@ -57,7 +60,11 @@ struct StoredAttribute {
 impl LocalStore {
     pub(crate) fn open(database: impl AsRef<FsPath>) -> object_store::Result<Self> {
         let database = database.as_ref().to_path_buf();
-        let store = Self { database };
+        let store = Self {
+            database,
+            #[cfg(test)]
+            read_gate: None,
+        };
         let connection = store.connect()?;
         connection
             .pragma_update(None, "journal_mode", "WAL")
@@ -107,6 +114,73 @@ impl LocalStore {
             .optional()
             .map_err(db_error)?
             .ok_or_else(|| not_found(key))
+    }
+
+    fn read_metadata(&self, key: &str) -> object_store::Result<StoredObject> {
+        self.connect()?
+            .query_row(
+                "SELECT key, etag, modified_ms, attributes, length(body)
+                 FROM __sys_local_objects WHERE key = ?1",
+                [key],
+                |row| {
+                    Ok(StoredObject {
+                        key: row.get(0)?,
+                        body: Vec::new(),
+                        size: row.get(4)?,
+                        etag: row.get(1)?,
+                        modified_ms: row.get(2)?,
+                        attributes: row.get(3)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| not_found(key))
+    }
+
+    fn read_chunk(
+        &self,
+        key: &str,
+        etag: i64,
+        size: u64,
+        offset: u64,
+        length: usize,
+    ) -> object_store::Result<Bytes> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction().map_err(db_error)?;
+        let rowid = transaction
+            .query_row(
+                "SELECT rowid FROM __sys_local_objects
+                 WHERE key = ?1 AND etag = ?2 AND length(body) = ?3",
+                params![key, etag, size],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or_else(|| precondition(key))?;
+        let mut bytes = vec![0; length];
+        {
+            // SQL BLOB extraction can materialize the whole value inside
+            // SQLite even when the Rust caller only retains a small slice.
+            // Incremental I/O pins this row/version in the read transaction.
+            let blob = transaction
+                .blob_open(
+                    rusqlite::DatabaseName::Main,
+                    "__sys_local_objects",
+                    "body",
+                    rowid,
+                    true,
+                )
+                .map_err(db_error)?;
+            #[cfg(test)]
+            if let Some(gate) = &self.read_gate {
+                gate.wait();
+            }
+            blob.read_at_exact(&mut bytes, usize::try_from(offset).map_err(db_error)?)
+                .map_err(db_error)?;
+        }
+        transaction.commit().map_err(db_error)?;
+        Ok(bytes.into())
     }
 
     fn metadata(&self) -> object_store::Result<Vec<StoredObject>> {
@@ -279,19 +353,37 @@ impl ObjectStore for LocalStore {
     ) -> object_store::Result<GetResult> {
         let store = self.clone();
         let key = location.to_string();
-        let object = store_blocking!(move || store.read(&key))
+        #[cfg(not(cellar_internal_tests))]
+        let owner = crate::asyncrt::services()
+            .domain_token()
+            .ok_or_else(|| domain_error(crate::asyncrt::DomainClosed))?;
+        let object = store_blocking!(move || store.read_metadata(&key))
             .await
             .map_err(db_error)??;
         let meta = object_meta(&object)?;
         options.check_preconditions(&meta)?;
-        let full = 0..object.body.len() as u64;
+        let full = 0..object.size;
         let range = match options.range {
             Some(range) => range.as_range(full.end).map_err(db_error)?,
             None => full,
         };
-        let body = Bytes::from(object.body).slice(range.start as usize..range.end as usize);
+        let payload = if options.head {
+            stream::empty().boxed()
+        } else {
+            let body = ReadBody {
+                store: self.clone(),
+                key: object.key.clone(),
+                etag: object.etag,
+                size: object.size,
+                cursor: range.start,
+                end: range.end,
+                #[cfg(not(cellar_internal_tests))]
+                owner,
+            };
+            stream::try_unfold(body, ReadBody::next_chunk).boxed()
+        };
         Ok(GetResult {
-            payload: GetResultPayload::Stream(stream::once(async move { Ok(body) }).boxed()),
+            payload: GetResultPayload::Stream(payload),
             meta,
             range,
             attributes: decode_attributes(&object.attributes)?,
@@ -377,6 +469,59 @@ impl ObjectStore for LocalStore {
             .map_err(db_error)?
     }
 }
+
+struct ReadBody {
+    store: LocalStore,
+    key: String,
+    etag: i64,
+    size: u64,
+    cursor: u64,
+    end: u64,
+    #[cfg(not(cellar_internal_tests))]
+    owner: crate::asyncrt::DomainToken,
+}
+
+impl ReadBody {
+    async fn next_chunk(mut self) -> object_store::Result<Option<(Bytes, Self)>> {
+        if self.cursor == self.end {
+            return Ok(None);
+        }
+        let length = usize::try_from((self.end - self.cursor).min(READ_CHUNK_BYTES as u64))
+            .map_err(db_error)?;
+        let (store, key, etag, size, offset) = (
+            self.store.clone(),
+            self.key.clone(),
+            self.etag,
+            self.size,
+            self.cursor,
+        );
+        let operation = move || store.read_chunk(&key, etag, size, offset, length);
+        #[cfg(not(cellar_internal_tests))]
+        let bytes = {
+            let result = self.owner.blocking(operation).map_err(domain_error)?.await;
+            // Closure wins an undelivered completion, including when another
+            // domain polls this response after the original owner closes.
+            self.owner.mono_ms().map_err(domain_error)?;
+            result.map_err(db_error)??
+        };
+        #[cfg(cellar_internal_tests)]
+        let bytes = store_blocking!(operation).await.map_err(db_error)??;
+        self.cursor += length as u64;
+        Ok(Some((bytes, self)))
+    }
+}
+
+#[cfg(not(cellar_internal_tests))]
+fn domain_error(error: crate::asyncrt::DomainClosed) -> Error {
+    Error::Generic {
+        store: STORE,
+        source: Box::new(error),
+    }
+}
+
+#[cfg(test)]
+#[path = "local_store/read_tests.rs"]
+mod read_tests;
 
 #[async_trait]
 impl PaginatedListStore for LocalStore {

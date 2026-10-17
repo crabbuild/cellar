@@ -1457,3 +1457,36 @@ waiting for actor cleanup. Its Ambiguous verdict never authorizes replay; the
 next independent call can resolve a replacement endpoint. Ready retries still
 await invalidation under their captured deadline. Keep the regression that polls
 the stopped future once, checks exactly one invalidation and no queued replay.
+
+The SQLite development object store reads metadata without materializing BLOBs.
+HEAD has no body; streamed and ranged reads use at most 128 KiB per incremental
+BLOB operation, checking the captured ETag and length in that operation's read
+transaction. A replacement refuses the stream rather than mixing versions.
+Body work belongs to the response's original execution domain even when another
+domain consumes it; closed admission and undelivered completion preserve typed
+DomainClosed, and shutdown joins entered SQLite I/O. No connection or transaction
+is held while a body is idle. Isolated HEAD/range/full-read RSS fixtures populate
+their 80 MiB object in a parent process and keep the fixed 16 MiB growth budgets.
+Reopening the BLOB for each chunk has a measured large-read throughput cost;
+these memory passes do not qualify throughput, eager copy/multipart operations,
+provider inventories or total retained-bundle recovery memory.
+
+Production graceful close and live-cell folding use gather_uncovered_bundles,
+with at most 16 concurrent object transfers per window into anonymous scratch
+under the replica's captured filesystem/data root. Only file handles remain
+between transfer and decoding. Verify the complete CLB1 CRC, exact payload
+partition, L0 header identities and unique row identities before exposing a
+bundle's rows. Scratch parsing/copying uses 128 KiB chunks; a second payload copy
+must match its first digest, and the reread footer must match what was parsed.
+The bounded external gather index checks original descriptor tags and payload
+digests again, including after its uniqueness scan rewinds. Keep bundle-over-
+follower precedence and fail the whole gather on late scratch failure. A cached
+loss diagnostic never authorizes an empty scan or seal; native_log exercises the
+actual close caller and requires the original open folded log unchanged.
+Native log fixture Result errors and failed setup join source/recovery/follower
+domains before directory cleanup. Preserve five-second proof/recovery guards,
+captured publication policies and original crash/proof assertions; failure-only
+stage context is not a runtime timeout repair. Diagnostic collectors, dead-session
+bundle reads, GC/overlay helpers, concurrent scans, metadata inventories and one
+legal oversized upload row remain separate memory/capacity gates. All owned
+markers remain 1.

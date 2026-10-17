@@ -185,7 +185,7 @@ impl LogTransport for Transport {
 }
 
 struct Pair {
-    domain: ExecutionDomain,
+    domain: Arc<ExecutionDomain>,
     replica: Replication,
     log: Arc<NodeLogManager>,
     owner: DurabilityOwner,
@@ -207,144 +207,154 @@ async fn pair_with_proof(
     append_hold: Option<Arc<log_startup_gc::AppendHold>>,
     recruit: bool,
 ) -> Result<Pair> {
-    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
     let follower_domain = Arc::new(ExecutionDomain::new(tokio::runtime::Handle::current()));
-    let leader = format!("leader-{id}");
-    let generation = if append_hold.is_some() {
-        cellar::sdk::PeerProbeSigner::generate().public_key_hex()
-    } else {
-        format!("generation-{id}")
-    };
-    let follower_node = format!("follower-{id}");
-    let mut bucket = Bucket::open_dev(shared)?;
-    bucket.prefix = format!("fleets/{id}/");
-    let bucket = Arc::new(bucket);
-    let ownership = Arc::new(
-        BucketOwnership::new(
-            (*bucket).clone(),
-            (*bucket).clone(),
-            leader.clone(),
-            generation.clone(),
-        )
-        .with_lease_ttl_ms(TTL),
-    );
-    let follower_ownership = Arc::new(
-        BucketOwnership::new(
-            (*bucket).clone(),
-            (*bucket).clone(),
-            follower_node.clone(),
-            if append_hold.is_some() {
-                cellar::sdk::PeerProbeSigner::generate().public_key_hex()
-            } else {
-                format!("follower-generation-{id}")
-            },
-        )
-        .with_lease_ttl_ms(TTL),
-    );
-    let publish = lease_writer(&domain, ownership.clone(), &format!("{leader}:1234")).await?;
-    let follower_lease = lease_writer(
-        &follower_domain,
-        follower_ownership,
-        &format!("{follower_node}:1234"),
-    )
-    .await?;
-    let follower = follower_domain
-        .run(async {
-            Arc::new(FollowerStore::new(
-                &directory.join(format!("follower-{id}")),
-                Some(bucket.clone()),
-                &follower_node,
-            ))
-        })
-        .await?;
-    let transport = Arc::new(Transport {
-        owner: domain.services(),
-        follower_domain,
-        follower,
-        follower_node,
-        _follower_lease: follower_lease,
-        appends: AtomicUsize::new(0),
-        streams: AtomicUsize::new(0),
-    });
-    let session = ownership.log_session()?;
-    let bundle_fault = BundleFault::new(
-        bucket.store.clone(),
-        format!("{}log/{session}/bundle/", bucket.prefix),
-    );
-    let mut log_bucket = (*bucket).clone();
-    if append_hold.is_none() {
-        log_bucket.store = bundle_fault.clone();
-    }
-    let bucket_proof = append_hold.is_some();
-    let manager_transport: Arc<dyn LogTransport> = match append_hold {
-        Some(hold) => Arc::new(log_startup_gc::HeldTransport {
-            base: transport.clone(),
-            hold,
-        }),
-        None => transport.clone(),
-    };
-    let (replica, log, owner) = domain
-        .run(async {
-            let store: Arc<dyn ObjectStore> = Arc::new(ThrottledStore::new(
-                bucket.store.clone(),
-                ThrottleConfig {
-                    wait_put_per_call: Duration::from_secs(60),
-                    ..Default::default()
+    let follower_cleanup = follower_domain.clone();
+    let setup = async {
+        let leader = format!("leader-{id}");
+        let generation = if append_hold.is_some() {
+            cellar::sdk::PeerProbeSigner::generate().public_key_hex()
+        } else {
+            format!("generation-{id}")
+        };
+        let follower_node = format!("follower-{id}");
+        let mut bucket = Bucket::open_dev(shared)?;
+        bucket.prefix = format!("fleets/{id}/");
+        let bucket = Arc::new(bucket);
+        let ownership = Arc::new(
+            BucketOwnership::new(
+                (*bucket).clone(),
+                (*bucket).clone(),
+                leader.clone(),
+                generation.clone(),
+            )
+            .with_lease_ttl_ms(TTL),
+        );
+        let follower_ownership = Arc::new(
+            BucketOwnership::new(
+                (*bucket).clone(),
+                (*bucket).clone(),
+                follower_node.clone(),
+                if append_hold.is_some() {
+                    cellar::sdk::PeerProbeSigner::generate().public_key_hex()
+                } else {
+                    format!("follower-generation-{id}")
                 },
-            ));
-            let replica = Replication::start(
-                &directory.join(format!("leader-{id}")),
-                ReplicaStorage::new(
-                    store,
-                    ReplicaStorageOptions {
-                        prefix: bucket.prefix.clone(),
+            )
+            .with_lease_ttl_ms(TTL),
+        );
+        let publish = lease_writer(&domain, ownership.clone(), &format!("{leader}:1234")).await?;
+        let follower_lease = lease_writer(
+            &follower_domain,
+            follower_ownership,
+            &format!("{follower_node}:1234"),
+        )
+        .await?;
+        let follower = follower_domain
+            .run(async {
+                Arc::new(FollowerStore::new(
+                    &directory.join(format!("follower-{id}")),
+                    Some(bucket.clone()),
+                    &follower_node,
+                ))
+            })
+            .await?;
+        let transport = Arc::new(Transport {
+            owner: domain.services(),
+            follower_domain,
+            follower,
+            follower_node,
+            _follower_lease: follower_lease,
+            appends: AtomicUsize::new(0),
+            streams: AtomicUsize::new(0),
+        });
+        let session = ownership.log_session()?;
+        let bundle_fault = BundleFault::new(
+            bucket.store.clone(),
+            format!("{}log/{session}/bundle/", bucket.prefix),
+        );
+        let mut log_bucket = (*bucket).clone();
+        if append_hold.is_none() {
+            log_bucket.store = bundle_fault.clone();
+        }
+        let bucket_proof = append_hold.is_some();
+        let manager_transport: Arc<dyn LogTransport> = match append_hold {
+            Some(hold) => Arc::new(log_startup_gc::HeldTransport {
+                base: transport.clone(),
+                hold,
+            }),
+            None => transport.clone(),
+        };
+        let prepared = domain
+            .run(async {
+                let store: Arc<dyn ObjectStore> = Arc::new(ThrottledStore::new(
+                    bucket.store.clone(),
+                    ThrottleConfig {
+                        wait_put_per_call: Duration::from_secs(60),
                         ..Default::default()
                     },
-                )?,
-                ReplicationOptions {
-                    flush_interval: if bucket_proof {
-                        Duration::from_millis(1)
-                    } else {
-                        Duration::from_secs(3600)
+                ));
+                let replica = Replication::start(
+                    &directory.join(format!("leader-{id}")),
+                    ReplicaStorage::new(
+                        store,
+                        ReplicaStorageOptions {
+                            prefix: bucket.prefix.clone(),
+                            ..Default::default()
+                        },
+                    )?,
+                    ReplicationOptions {
+                        flush_interval: if bucket_proof {
+                            Duration::from_millis(1)
+                        } else {
+                            Duration::from_secs(3600)
+                        },
+                        compaction: None,
+                        hydrate_bytes_per_second: 0,
+                        ..Default::default()
                     },
-                    compaction: None,
-                    hydrate_bytes_per_second: 0,
-                    ..Default::default()
-                },
-            )?;
-            let log = Arc::new(NodeLogManager::new(
-                &session,
-                Arc::new(log_bucket),
-                Arc::new(OwnLog {
-                    ownership,
-                    nudge: Box::new(move || {
-                        let _ = publish.send(());
+                )?;
+                let log = Arc::new(NodeLogManager::new(
+                    &session,
+                    Arc::new(log_bucket),
+                    Arc::new(OwnLog {
+                        ownership,
+                        nudge: Box::new(move || {
+                            let _ = publish.send(());
+                        }),
+                        write_lock: tokio::sync::Mutex::new(()),
                     }),
-                    write_lock: tokio::sync::Mutex::new(()),
-                }),
-                replica.ltx(),
-                manager_transport,
-                policy,
-            )?);
-            log.recover_self().await?;
-            let owner = DurabilityOwner::new(log.clone(), true);
-            if recruit {
-                log.maintain().await?;
-                ensure!(log.healthy() && log.ensemble_width() == 1);
-            }
-            Ok::<_, anyhow::Error>((replica, log, owner))
+                    replica.ltx(),
+                    manager_transport,
+                    policy,
+                )?);
+                log.recover_self().await?;
+                let owner = DurabilityOwner::new(log.clone(), true);
+                if recruit {
+                    log.maintain().await?;
+                    ensure!(log.healthy() && log.ensemble_width() == 1);
+                }
+                Ok::<_, anyhow::Error>((replica, log, owner))
+            })
+            .await;
+        let (replica, log, owner) = prepared??;
+        Ok::<Pair, anyhow::Error>(Pair {
+            domain: domain.clone(),
+            replica,
+            log,
+            owner,
+            transport,
+            bucket,
+            session,
+            bundle_fault,
         })
-        .await??;
-    Ok(Pair {
-        domain,
-        replica,
-        log,
-        owner,
-        transport,
-        bucket,
-        session,
-        bundle_fault,
-    })
+    }
+    .await;
+    if setup.is_err() {
+        domain.shutdown().await;
+        follower_cleanup.shutdown().await;
+    }
+    setup
 }
 
 async fn write(pair: &Pair, value: i64, fresh: bool) -> Result<()> {
@@ -369,7 +379,9 @@ async fn write(pair: &Pair, value: i64, fresh: bool) -> Result<()> {
             let proof = tokio::time::timeout(
                 Duration::from_secs(5),
                 pair.replica.ltx().handoff_wait(CELL, 1),
-            ).await??;
+            ).await.with_context(|| format!(
+                "five-second follower proof for session={} value={value} fresh={fresh}", pair.session
+            ))??;
             if proof != cellar_logic::ProofSource::Fleet {
                 let tail = pair.transport.follower_domain.run(pair.transport.follower.tail(&TailReq { leader: pair.session.clone() })).await??;
                 let wal = std::fs::metadata(format!("{}-wal", activated.path.display())).map(|metadata| metadata.len());
@@ -403,7 +415,8 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
             ..Default::default()
         },
     )
-    .await?;
+    .await
+    .context("create first independent host")?;
     let b = pair(
         &shared,
         directory.path(),
@@ -419,142 +432,165 @@ async fn independent_log_hosts_prove_follower_writes_and_recover_after_leader_lo
             ..Default::default()
         },
     )
-    .await?;
-    assert_eq!(a.log.pipeline(), 2);
-    assert_eq!(b.log.pipeline(), 3);
-    write(&a, 11, true).await?;
-    write(&b, 22, true).await?;
-    for pair in [&a, &b] {
-        pair.domain
+    .await;
+    if b.is_err() {
+        a.domain.shutdown().await;
+        a.transport.follower_domain.shutdown().await;
+    }
+    let b = b.context("create second independent host")?;
+    let a_domain = a.domain.clone();
+    let b_domain = b.domain.clone();
+    let a_follower = a.transport.follower_domain.clone();
+    let b_follower = b.transport.follower_domain.clone();
+    let recovery = ExecutionDomain::new(tokio::runtime::Handle::current());
+    // Preserve the original crash cut, but always join every domain before
+    // this fixture's temporary directory can be removed, including on error.
+    let outcome = async {
+        assert_eq!(a.log.pipeline(), 2);
+        assert_eq!(b.log.pipeline(), 3);
+        write(&a, 11, true)
+            .await
+            .context("initial write on first host")?;
+        write(&b, 22, true)
+            .await
+            .context("initial write on second host")?;
+        for pair in [&a, &b] {
+            pair.domain
+                .run(async {
+                    let objects = pair.bucket.store.list(None).try_collect::<Vec<_>>().await?;
+                    ensure!(
+                        !objects.iter().any(|o| o
+                            .location
+                            .as_ref()
+                            .starts_with(&format!("{}cells/", pair.bucket.prefix))),
+                        "bucket upload must not be credited as the follower proof"
+                    );
+                    let tail = pair
+                        .transport
+                        .follower_domain
+                        .run(pair.transport.follower.tail(&TailReq {
+                            leader: pair.session.clone(),
+                        }))
+                        .await??;
+                    ensure!(
+                        tail.range.complete && !tail.entries.is_empty(),
+                        "actual follower disk must retain the LTX rows"
+                    );
+                    let (lease, _) = pair
+                        .bucket
+                        .get(&format!(
+                            "nodes/{}.json",
+                            pair.session.split('/').next().unwrap()
+                        ))
+                        .await?
+                        .unwrap();
+                    let lease: serde_json::Value = serde_json::from_slice(&lease)?;
+                    assert!(lease.get("ownership_index_generation").is_none());
+                    assert_eq!(lease["generation"], pair.session.split('/').nth(2).unwrap());
+                    assert_eq!(lease["log"]["may_have_fleet_acks"], true);
+                    Ok::<_, anyhow::Error>(())
+                })
+                .await??;
+        }
+        assert!(a.transport.appends.load(Ordering::SeqCst) > 0);
+        assert_eq!(a.transport.streams.load(Ordering::SeqCst), 0);
+        assert!(b.transport.streams.load(Ordering::SeqCst) > 0);
+        assert_eq!(b.transport.appends.load(Ordering::SeqCst), 0);
+        // Simulate a crashed embedded process: cancel its work without a seal or
+        // a durability drain. Its follower remains alive in a separate domain.
+        a.domain.shutdown().await;
+        drop(a.owner);
+        write(&b, 23, false)
+            .await
+            .context("second host write after first host crash")?;
+        recovery
             .run(async {
-                let objects = pair.bucket.store.list(None).try_collect::<Vec<_>>().await?;
-                ensure!(
-                    !objects.iter().any(|o| o
-                        .location
-                        .as_ref()
-                        .starts_with(&format!("{}cells/", pair.bucket.prefix))),
-                    "bucket upload must not be credited as the follower proof"
+                let replica = Replication::start(
+                    &directory.path().join("recovery-a"),
+                    ReplicaStorage::new(
+                        a.bucket.store.clone(),
+                        ReplicaStorageOptions {
+                            prefix: a.bucket.prefix.clone(),
+                            ..Default::default()
+                        },
+                    )?,
+                    ReplicationOptions {
+                        compaction: None,
+                        ..Default::default()
+                    },
+                )?;
+                let lease = Arc::new(
+                    BucketOwnership::new(
+                        (*a.bucket).clone(),
+                        (*a.bucket).clone(),
+                        "recovery-a".into(),
+                        "recovery-generation-a".into(),
+                    )
+                    .with_lease_ttl_ms(TTL),
                 );
-                let tail = pair
-                    .transport
-                    .follower_domain
-                    .run(pair.transport.follower.tail(&TailReq {
-                        leader: pair.session.clone(),
-                    }))
-                    .await??;
-                ensure!(
-                    tail.range.complete && !tail.entries.is_empty(),
-                    "actual follower disk must retain the LTX rows"
+                let transport = Arc::new(Transport {
+                    owner: recovery.services(),
+                    follower_domain: a.transport.follower_domain.clone(),
+                    follower: a.transport.follower.clone(),
+                    follower_node: a.transport.follower_node.clone(),
+                    _follower_lease: a.transport._follower_lease.clone(),
+                    appends: AtomicUsize::new(0),
+                    streams: AtomicUsize::new(0),
+                });
+                lease.prepare_lineage().await?;
+                let log = Arc::new(NodeLogManager::new(
+                    &lease.log_session()?,
+                    a.bucket.clone(),
+                    Arc::new(OwnLog {
+                        ownership: lease.clone(),
+                        nudge: Box::new(|| {}),
+                        write_lock: tokio::sync::Mutex::new(()),
+                    }),
+                    replica.ltx(),
+                    transport,
+                    LogOptions::default(),
+                )?);
+                let mut owner = DurabilityOwner::new(log.clone(), false);
+                let leader = a.session.split('/').next().unwrap();
+                let previous = lease.read_node_lease(leader).await?.unwrap();
+                let wait = previous
+                    .expires_ms
+                    .saturating_sub(cellar::ownership_store::now_ms());
+                tokio::time::sleep(Duration::from_millis(wait + 1)).await;
+                tokio::time::timeout(Duration::from_secs(5), log.recover(&a.session))
+                    .await
+                    .context("five-second predecessor recovery")??;
+                let snapshot = replica
+                    .restore_snapshot(CELL)
+                    .await?
+                    .expect("the follower's committed state must restore");
+                let connection = rusqlite::Connection::open(snapshot.path())?;
+                assert_eq!(
+                    connection
+                        .query_row::<i64, _, _>("SELECT value FROM accounts", [], |r| r.get(0))?,
+                    11
                 );
-                let (lease, _) = pair
+                drop(connection);
+                let (wire, _) = a
                     .bucket
-                    .get(&format!(
-                        "nodes/{}.json",
-                        pair.session.split('/').next().unwrap()
-                    ))
+                    .get(&format!("nodes/{leader}.json"))
                     .await?
                     .unwrap();
-                let lease: serde_json::Value = serde_json::from_slice(&lease)?;
-                assert!(lease.get("ownership_index_generation").is_none());
-                assert_eq!(lease["generation"], pair.session.split('/').nth(2).unwrap());
-                assert_eq!(lease["log"]["may_have_fleet_acks"], true);
+                let wire: serde_json::Value = serde_json::from_slice(&wire)?;
+                assert_eq!(wire["log"]["state"], "sealed");
+                owner.shutdown_local().await;
                 Ok::<_, anyhow::Error>(())
             })
             .await??;
+        Ok::<_, anyhow::Error>(())
     }
-    assert!(a.transport.appends.load(Ordering::SeqCst) > 0);
-    assert_eq!(a.transport.streams.load(Ordering::SeqCst), 0);
-    assert!(b.transport.streams.load(Ordering::SeqCst) > 0);
-    assert_eq!(b.transport.appends.load(Ordering::SeqCst), 0);
-    // Simulate a crashed embedded process: cancel its work without a seal or
-    // a durability drain. Its follower remains alive in a separate domain.
-    a.domain.shutdown().await;
-    drop(a.owner);
-    write(&b, 23, false).await?;
-    let recovery = ExecutionDomain::new(tokio::runtime::Handle::current());
-    recovery
-        .run(async {
-            let replica = Replication::start(
-                &directory.path().join("recovery-a"),
-                ReplicaStorage::new(
-                    a.bucket.store.clone(),
-                    ReplicaStorageOptions {
-                        prefix: a.bucket.prefix.clone(),
-                        ..Default::default()
-                    },
-                )?,
-                ReplicationOptions {
-                    compaction: None,
-                    ..Default::default()
-                },
-            )?;
-            let lease = Arc::new(
-                BucketOwnership::new(
-                    (*a.bucket).clone(),
-                    (*a.bucket).clone(),
-                    "recovery-a".into(),
-                    "recovery-generation-a".into(),
-                )
-                .with_lease_ttl_ms(TTL),
-            );
-            let transport = Arc::new(Transport {
-                owner: recovery.services(),
-                follower_domain: a.transport.follower_domain.clone(),
-                follower: a.transport.follower.clone(),
-                follower_node: a.transport.follower_node.clone(),
-                _follower_lease: a.transport._follower_lease.clone(),
-                appends: AtomicUsize::new(0),
-                streams: AtomicUsize::new(0),
-            });
-            lease.prepare_lineage().await?;
-            let log = Arc::new(NodeLogManager::new(
-                &lease.log_session()?,
-                a.bucket.clone(),
-                Arc::new(OwnLog {
-                    ownership: lease.clone(),
-                    nudge: Box::new(|| {}),
-                    write_lock: tokio::sync::Mutex::new(()),
-                }),
-                replica.ltx(),
-                transport,
-                LogOptions::default(),
-            )?);
-            let mut owner = DurabilityOwner::new(log.clone(), false);
-            let leader = a.session.split('/').next().unwrap();
-            let previous = lease.read_node_lease(leader).await?.unwrap();
-            let wait = previous
-                .expires_ms
-                .saturating_sub(cellar::ownership_store::now_ms());
-            tokio::time::sleep(Duration::from_millis(wait + 1)).await;
-            tokio::time::timeout(Duration::from_secs(5), log.recover(&a.session)).await??;
-            let snapshot = replica
-                .restore_snapshot(CELL)
-                .await?
-                .expect("the follower's committed state must restore");
-            let connection = rusqlite::Connection::open(snapshot.path())?;
-            assert_eq!(
-                connection
-                    .query_row::<i64, _, _>("SELECT value FROM accounts", [], |r| r.get(0))?,
-                11
-            );
-            drop(connection);
-            let (wire, _) = a
-                .bucket
-                .get(&format!("nodes/{leader}.json"))
-                .await?
-                .unwrap();
-            let wire: serde_json::Value = serde_json::from_slice(&wire)?;
-            assert_eq!(wire["log"]["state"], "sealed");
-            owner.shutdown_local().await;
-            Ok::<_, anyhow::Error>(())
-        })
-        .await??;
+    .await;
     recovery.shutdown().await;
-    b.domain.shutdown().await;
-    drop(b.owner);
-    a.transport.follower_domain.shutdown().await;
-    b.transport.follower_domain.shutdown().await;
-    Ok(())
+    a_domain.shutdown().await;
+    b_domain.shutdown().await;
+    a_follower.shutdown().await;
+    b_follower.shutdown().await;
+    outcome
 }
 
 #[test]
@@ -585,14 +621,30 @@ fn unreadable_retained_bundle_cannot_be_certified_as_an_empty_fold() -> Result<(
                     .await?
                     .context("missing corruption record")?;
                 let recorded: serde_json::Value = serde_json::from_slice(&body)?;
+                // A cached diagnostic is not a successful drain proof. Exercise
+                // the real close caller as well as the diagnostic collector.
+                let node_key = format!("nodes/{}.json", pair.session.split('/').next().unwrap());
+                let (before, _) = pair.bucket.get(&node_key).await?.context("missing live node")?;
+                let before: serde_json::Value = serde_json::from_slice(&before)?;
+                let active = pair.log.healthy();
+                pair.log.close_gracefully().await;
+                let (after, _) = pair.bucket.get(&node_key).await?.context("missing node after close")?;
+                let after: serde_json::Value = serde_json::from_slice(&after)?;
                 // Remove only the injected private fixture object before joining.
                 pair.bucket.delete(&key).await?;
-                pair.owner.shutdown_local().await;
-                Ok::<_, anyhow::Error>((first.is_err(), second.is_err(), recorded))
+                Ok::<_, anyhow::Error>((first.is_err(), second.is_err(), recorded,
+                    active, before["log"].clone(), after["log"].clone()))
             })
-            .await??;
+            .await;
+        let stopped = pair.domain.run(pair.owner.shutdown_local()).await;
         pair.domain.shutdown().await;
         pair.transport.follower_domain.shutdown().await;
+        stopped?;
+        let verdicts = verdicts??;
+        ensure!(verdicts.3 && verdicts.4["state"] == "open",
+            "fixture did not establish a real active open log before close");
+        ensure!(verdicts.4 == verdicts.5,
+            "production graceful close changed the folded log despite retained corruption");
         ensure!(
             verdicts.0 && verdicts.1,
             "unreadable retained bundle was certified as an empty fold, including after its loss record existed"

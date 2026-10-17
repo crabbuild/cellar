@@ -36,6 +36,9 @@ use crate::log_options::LogOptions;
 use crate::ltx_repl::ShipEntry;
 use crate::peer_auth::PeerAuth;
 
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod bundle_scan_tests;
+mod bundle_snapshot;
 #[cfg(test)]
 mod follower_batch_tests;
 mod follower_file;
@@ -5866,7 +5869,10 @@ impl NodeLogManager {
         // An Open record is always safe: the next incarnation's recovery
         // drains the bundles.
         let per_cell_complete = self.ltx.all_tails_tiered()
-            && match self.uncovered_bundle_rows().await {
+            && match self
+                .gather_uncovered_bundles(None, self.recovery_rows())
+                .await
+            {
                 Ok(uncovered) => uncovered.is_empty(),
                 Err(_) => false,
             };
@@ -6424,6 +6430,198 @@ impl NodeLogManager {
             self.session
         );
         Ok(uncovered)
+    }
+
+    /// Production close/fold scan. Only the diagnostic API above collects a
+    /// complete payload map. Each retained object is verified into disk scratch
+    /// before any coverage decision or preferred row can escape.
+    async fn gather_uncovered_bundles(
+        &self,
+        only_cell: Option<&str>,
+        mut gathered: recovery_rows::Rows,
+    ) -> anyhow::Result<recovery_rows::Rows> {
+        let candidates = match only_cell {
+            Some(cell) => self.bundle_index.lock().unwrap().bundles_for(cell),
+            None => self
+                .bucket
+                .list(&format!("log/{}/bundle/", self.session))
+                .await?
+                .into_iter()
+                .map(|meta| {
+                    let key = meta.location.as_ref().to_owned();
+                    let rows = self.bundle_index.lock().unwrap().rows(&key);
+                    (key, rows)
+                })
+                .collect(),
+        };
+        let cancellation = gathered.cancellation();
+        let mut candidates = candidates.into_iter();
+        let mut coverage: Option<((String, u64), u64)> = None;
+        loop {
+            let window: Vec<_> = candidates
+                .by_ref()
+                .take(COVERAGE_READ_CONCURRENCY)
+                .collect();
+            if window.is_empty() {
+                break;
+            }
+            // Keep the existing bounded store concurrency. Finish this window's
+            // transfers before decoding: retained state is file handles, not
+            // bodies, and only one decoder allocates an upload-sized batch.
+            let flag = cancellation.clone();
+            let fetches = window.into_iter().map(|(key, indexed)| {
+                let cancellation = flag.clone();
+                async move {
+                    if let Some(indexed) = indexed {
+                        let mut complete = true;
+                        for row in indexed {
+                            if only_cell.is_some_and(|cell| cell != row.cell) {
+                                continue;
+                            }
+                            let through = self
+                                .ltx
+                                .covered_txid(&row.cell, row.cell_epoch, row.txid)
+                                .await;
+                            if !log_tier::bundle_deletable([(row.txid, through)]) {
+                                complete = false;
+                                break;
+                            }
+                        }
+                        if complete {
+                            return anyhow::Ok(None);
+                        }
+                    }
+                    Ok(self
+                        .stage_bundle(&key, cancellation)
+                        .await?
+                        .map(|file| (key, file)))
+                }
+            });
+            let mut fetches =
+                futures_util::stream::iter(fetches).buffer_unordered(COVERAGE_READ_CONCURRENCY);
+            let mut staged = Vec::new();
+            while let Some(item) = fetches.next().await {
+                if let Some(item) = item? {
+                    staged.push(item);
+                }
+            }
+            drop(fetches);
+            for (key, file) in staged {
+                let rows = self.recovery_rows().with_cancellation(cancellation.clone());
+                let mut bundle = match self
+                    .recovery_io(cancellation.clone(), None, move || {
+                        bundle_snapshot::decode(file, rows)
+                    })
+                    .await
+                {
+                    Ok(rows) => rows,
+                    Err(error) => {
+                        self.declare_bundle_loss(&key, &[], &error.to_string())
+                            .await?;
+                        return Err(error.context(format!("verify retained bundle {key}")));
+                    }
+                };
+                loop {
+                    let (returned, batch) = self
+                        .recovery_io(cancellation.clone(), None, move || {
+                            let batch = bundle.next_batch()?;
+                            Ok((bundle, batch))
+                        })
+                        .await?;
+                    bundle = returned;
+                    if batch.is_empty() {
+                        break;
+                    }
+                    let mut uncovered = Vec::new();
+                    for (identity, bytes) in batch {
+                        if only_cell.is_some_and(|cell| cell != identity.0) {
+                            continue;
+                        }
+                        let same = coverage
+                            .as_ref()
+                            .is_some_and(|(key, _)| key.0 == identity.0 && key.1 == identity.1);
+                        if !same {
+                            // The sorted stream keeps one cell/epoch observation in
+                            // memory. Asking for its maximum also checks retirement;
+                            // later rising coverage can only leave redundant rows.
+                            let through = self
+                                .ltx
+                                .covered_txid(&identity.0, identity.1, u64::MAX)
+                                .await;
+                            coverage = Some(((identity.0.clone(), identity.1), through));
+                        }
+                        let through = coverage.as_ref().expect("coverage observed").1;
+                        if !log_tier::bundle_deletable([(identity.2, through)]) {
+                            uncovered.push((identity, bytes));
+                        }
+                    }
+                    gathered = self
+                        .recovery_io(cancellation.clone(), None, move || {
+                            for (identity, bytes) in uncovered {
+                                gathered.insert(
+                                    identity,
+                                    bytes,
+                                    recovery_rows::Priority::Preferred,
+                                    recovery_rows::Duplicates::First,
+                                )?;
+                            }
+                            Ok(gathered)
+                        })
+                        .await?;
+                }
+            }
+        }
+        Ok(gathered)
+    }
+
+    async fn stage_bundle(
+        &self,
+        key: &str,
+        cancellation: Arc<std::sync::atomic::AtomicBool>,
+    ) -> anyhow::Result<Option<cellar_ltx::HostFile>> {
+        let response = self
+            .recovery_wait(cancellation.clone(), None, self.bucket.get_streamed(key))
+            .await?;
+        let Some(response) = response else {
+            return Ok(None);
+        };
+        let expected = response.meta.size;
+        let (filesystem, directory) = self.ltx.recovery_scratch();
+        let mut file = self
+            .recovery_io(cancellation.clone(), None, move || {
+                filesystem.create_dir_all(&directory)?;
+                Ok(filesystem.temporary_file(Some(&directory))?)
+            })
+            .await?;
+        let mut stream = response.into_stream();
+        let mut length = 0_u64;
+        while let Some(bytes) = self
+            .recovery_wait(cancellation.clone(), None, async {
+                Ok(stream.next().await.transpose()?)
+            })
+            .await?
+        {
+            length = length
+                .checked_add(bytes.len() as u64)
+                .context("bundle size overflow")?;
+            anyhow::ensure!(length <= expected, "bundle body exceeds its object size");
+            for chunk in bytes.chunks(128 << 10) {
+                let chunk = chunk.to_vec();
+                let flag = cancellation.clone();
+                file = self
+                    .recovery_io(cancellation.clone(), None, move || {
+                        anyhow::ensure!(!flag.load(Ordering::Relaxed), "bundle stage cancelled");
+                        file.write_all(&chunk)?;
+                        Ok(file)
+                    })
+                    .await?;
+            }
+        }
+        anyhow::ensure!(
+            length == expected,
+            "bundle body shorter than its object size"
+        );
+        Ok(Some(file))
     }
 
     /// Record a retained bundle that this session wrote and cannot read
@@ -7379,20 +7577,7 @@ impl NodeLogManager {
         // the old fragments. An earlier snapshot could miss that bundle and
         // then accept a newer inactive epoch or already-truncated tail as
         // empty, losing the acknowledged rows that enabled the transition.
-        let bundle_rows = self.uncovered_bundle_rows_for(Some(cell)).await?;
-        gathered = self
-            .recovery_io(gathered.cancellation(), None, move || {
-                for (key, bytes) in bundle_rows {
-                    gathered.insert(
-                        key,
-                        bytes,
-                        recovery_rows::Priority::Preferred,
-                        recovery_rows::Duplicates::Last,
-                    )?;
-                }
-                Ok(gathered)
-            })
-            .await?;
+        gathered = self.gather_uncovered_bundles(Some(cell), gathered).await?;
         let uploaded = self.upload_spilled(gathered, None).await?;
         info!(
             cell,

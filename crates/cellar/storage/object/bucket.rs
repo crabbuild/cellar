@@ -1003,6 +1003,29 @@ impl Bucket {
         Ok(Some((Bytes::from(body), token)))
     }
 
+    /// Retained immutable objects can be staged without collecting their body.
+    /// A body failure after response acceptance remains an error, not absence.
+    pub(crate) async fn get_streamed(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<object_store::GetResult>> {
+        let path = self.key(key);
+        match self.store.get(&Path::from(path.as_str())).await {
+            Ok(result) => {
+                self.backend
+                    .token(result.meta.e_tag.clone(), result.meta.version.clone())
+                    .context("streamed object has no version token")?;
+                Ok(Some(result))
+            }
+            Err(Error::NotFound { .. }) => Ok(None),
+            Err(error) => Err(anyhow!(error).context(format!(
+                "read {}://{}/{path}",
+                self.scheme(),
+                self.name
+            ))),
+        }
+    }
+
     /// Size and CAS token, or `None` when the key does not exist.
     pub async fn head(&self, key: &str) -> anyhow::Result<Option<(u64, String)>> {
         let key = self.key(key);

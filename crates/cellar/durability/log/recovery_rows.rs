@@ -239,6 +239,83 @@ impl Rows {
         priority: Priority,
         duplicates: Duplicates,
     ) -> Result<()> {
+        let length = u64::try_from(bytes.len())?;
+        let digest = Sha256::digest(&bytes).into();
+        self.insert_body(key, length, digest, priority, duplicates, move |file, _| {
+            file.write_all(&bytes)?;
+            Ok(())
+        })
+    }
+
+    /// Copy one immutable range without allocating the complete row. The first
+    /// pass binds the copied bytes to their metadata; the second pass must
+    /// reproduce that digest before the row enters the gather index.
+    pub fn insert_file(
+        &mut self,
+        key: Key,
+        file: &mut HostFile,
+        offset: u64,
+        length: u64,
+        prefix: &[u8],
+        crc: &mut cellar_ltx::ltx::Crc64,
+    ) -> Result<()> {
+        let original_length = file.file_len()?;
+        ensure!(
+            offset
+                .checked_add(length)
+                .is_some_and(|end| end <= original_length)
+                && prefix.len() as u64 <= length,
+            "gather source range outside file"
+        );
+        let mut digest = Sha256::new();
+        let mut position = 0;
+        while position < length {
+            check_cancelled(&self.cancelled)?;
+            let count = usize::try_from((length - position).min(BUFFER_BYTES as u64))?;
+            let bytes = exact(file, offset + position, count)?;
+            if position == 0 {
+                ensure!(bytes.starts_with(prefix), "gather source header changed");
+            }
+            digest.update(&bytes);
+            crc.update(&bytes);
+            position += count as u64;
+        }
+        let digest: [u8; 32] = digest.finalize().into();
+        self.insert_body(
+            key,
+            length,
+            digest,
+            Priority::Preferred,
+            Duplicates::First,
+            |destination, cancelled| {
+                let mut copied = Sha256::new();
+                let mut position = 0;
+                while position < length {
+                    check_cancelled(cancelled)?;
+                    let count = usize::try_from((length - position).min(BUFFER_BYTES as u64))?;
+                    let bytes = exact(file, offset + position, count)?;
+                    copied.update(&bytes);
+                    destination.write_all(&bytes)?;
+                    position += count as u64;
+                }
+                ensure!(
+                    <[u8; 32]>::from(copied.finalize()) == digest,
+                    "gather source changed while copying"
+                );
+                check_length(file, original_length)
+            },
+        )
+    }
+
+    fn insert_body(
+        &mut self,
+        key: Key,
+        length: u64,
+        digest: [u8; 32],
+        priority: Priority,
+        duplicates: Duplicates,
+        body: impl FnOnce(&mut HostFile, &AtomicBool) -> Result<()>,
+    ) -> Result<()> {
         check_cancelled(&self.cancelled)?;
         ensure!(
             u16::try_from(key.0.len()).is_ok(),
@@ -251,7 +328,6 @@ impl Rows {
         if self.payload.is_none() {
             self.payload = Some(self.scratch()?);
         }
-        let length = u64::try_from(bytes.len())?;
         let next_payload = self
             .payload_bytes
             .checked_add(DESCRIPTOR_TAG_BYTES as u64)
@@ -269,11 +345,12 @@ impl Rows {
             },
             offset: self.payload_bytes,
             length,
-            digest: Sha256::digest(&bytes).into(),
+            digest,
         };
         let payload = self.payload.as_mut().expect("payload opened");
         payload.write_all(&meta.descriptor_tag())?;
-        payload.write_all(&bytes)?;
+        body(payload, &self.cancelled)?;
+        check_length(payload, next_payload)?;
         self.payload_bytes = next_payload;
         if !self.pending.is_empty()
             && (self.pending.len() == RUN_ROWS
@@ -420,6 +497,7 @@ impl Rows {
             index: self.index,
             index_bytes: self.index_bytes,
             run,
+            records: self.ordinal,
             pending: None,
             previous: None,
             previous_descriptor: None,
@@ -434,6 +512,7 @@ pub(super) struct SortedRows {
     index: Option<HostFile>,
     index_bytes: u64,
     run: Option<Run>,
+    records: u64,
     pending: Option<Meta>,
     previous: Option<Key>,
     previous_descriptor: Option<Meta>,
@@ -442,6 +521,41 @@ pub(super) struct SortedRows {
 impl SortedRows {
     pub fn cancellation(&self) -> Arc<AtomicBool> {
         self.cancelled.clone()
+    }
+
+    /// A bundle must reject duplicate identities, rather than silently apply
+    /// the gather's normal duplicate precedence. Verify all rows before a
+    /// caller can use any of them, then restart the checked bounded reader.
+    pub fn unique(mut self) -> Result<Self> {
+        let mut count = 0_u64;
+        loop {
+            let batch = self.next_batch()?;
+            if batch.is_empty() {
+                break;
+            }
+            count = count
+                .checked_add(batch.len() as u64)
+                .context("gather count overflow")?;
+        }
+        ensure!(count == self.records, "bundle has duplicate row identities");
+        self.run = match &mut self.index {
+            Some(index) => {
+                let (header, end) = Header::read(index, 0, self.index_bytes)?;
+                ensure!(
+                    end == self.index_bytes && header.records == self.records,
+                    "gather rewind count mismatch"
+                );
+                Some(Run::new(HEADER_BYTES as u64, end, header.records))
+            }
+            None => {
+                ensure!(self.records == 0, "gather index absent");
+                None
+            }
+        };
+        self.pending = None;
+        self.previous = None;
+        self.previous_descriptor = None;
+        Ok(self)
     }
 
     fn verify_descriptor(&mut self, meta: &Meta) -> Result<()> {
