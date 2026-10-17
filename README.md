@@ -144,6 +144,17 @@ To own listeners, executors and node lifecycle directly, start with the
 | **Node** | A process running compiled applications and hosting cells. |
 | **Fleet** | Nodes sharing an object store for ownership and durable data. |
 
+### Inside a node
+
+![Cellar's internal architecture: a native application uses the runtime; an actor owns the pure decision core, while adapters connect storage and fleet services to peer logs and object storage.](diagram/internal-architecture.svg)
+
+Applications use `cellar::sdk`. Inside the host, a serial actor owns the pure
+decision core; adapters execute effects and return completion events. The
+execution domain owns tasks, services and shutdown.
+
+Arrows show component relationships. For the request lifecycle and component
+boundaries, see [architecture and ownership](docs/03-architecture.md).
+
 ### Route to the owner
 
 ![An application reaches a fleet of Cellar nodes. Nodes route calls to the owner, replicate peer logs, and share object storage.](diagram/architecture.svg)
@@ -151,10 +162,6 @@ To own listeners, executors and node lifecycle directly, start with the
 Each cell has one authoritative owner. A request can arrive at another node;
 Cellar routes it to the owner. Before a replacement owner serves the cell,
 Cellar recovers the required state and log history.
-
-Inside the host, a pure decision core chooses actions. A serial actor owns that
-core, and adapters perform storage and network I/O.
-See [architecture and ownership](docs/03-architecture.md).
 
 ### Prove a write before replying
 

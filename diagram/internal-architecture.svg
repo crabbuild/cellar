@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 800" role="img" aria-labelledby="title description">
+  <title id="title">Inside a Cellar node</title>
+  <desc id="description">A native Rust application uses the Cellar SDK. The runtime manages cell activations, routing and output gates. A serial actor owns the pure cellar-logic decision core. Host adapters execute effects and return completion events. Storage captures SQLite writes as LTX; fleet services manage ownership, recovery and durability using peer logs and shared object storage. The node execution domain owns tasks, injected services and shutdown. Arrows show component relationships, not a request sequence.</desc>
+  <defs>
+    <style>text { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }</style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5" />
+    </pattern>
+    <marker id="arrow" viewBox="0 0 10 8" markerWidth="8" markerHeight="7" refX="9" refY="4" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 4 L 0 8 Z" fill="#64748b" />
+    </marker>
+  </defs>
+  <rect width="880" height="800" rx="18" fill="#0f172a" />
+  <rect width="880" height="800" rx="18" fill="url(#grid)" />
+  <rect x="30" y="105" width="820" height="560" rx="14" fill="#111c30" stroke="#475569" stroke-width="1.5" stroke-dasharray="6 5" />
+
+  <g fill="none" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)">
+    <path d="M 440 225 V 265" />
+    <path d="M 220 345 V 395" />
+    <path d="M 660 345 V 395" />
+    <path d="M 390 430 H 490" />
+    <path d="M 490 480 H 390" />
+    <path d="M 660 495 V 520 H 220 V 550" />
+    <path d="M 660 520 V 550" />
+    <path d="M 390 595 H 490" />
+    <path d="M 660 640 V 680 H 220 V 710" />
+    <path d="M 660 680 V 710" />
+  </g>
+
+  <rect x="55" y="160" width="770" height="65" rx="12" fill="#102d3e" stroke="#22d3ee" stroke-width="1.5" />
+  <rect x="55" y="265" width="770" height="80" rx="12" fill="#10352e" stroke="#34d399" stroke-width="1.5" />
+  <rect x="55" y="395" width="335" height="100" rx="12" fill="#30291d" stroke="#fbbf24" stroke-width="1.5" />
+  <rect x="490" y="395" width="335" height="100" rx="12" fill="#142033" stroke="#94a3b8" stroke-width="1.5" />
+  <rect x="55" y="550" width="335" height="90" rx="12" fill="#282244" stroke="#a78bfa" stroke-width="1.5" />
+  <rect x="490" y="550" width="335" height="90" rx="12" fill="#282244" stroke="#a78bfa" stroke-width="1.5" />
+  <rect x="55" y="710" width="335" height="60" rx="12" fill="#142033" stroke="#475569" stroke-width="1.5" />
+  <rect x="490" y="710" width="335" height="60" rx="12" fill="#142033" stroke="#475569" stroke-width="1.5" />
+
+  <g text-anchor="middle">
+    <text x="440" y="187" fill="#e2e8f0" font-size="19" font-weight="600">Your native Rust application</text>
+    <text x="440" y="211" fill="#94a3b8" font-size="14">Cells + services through cellar::sdk</text>
+    <text x="440" y="296" fill="#e2e8f0" font-size="20" font-weight="600">Runtime + output gates</text>
+    <text x="440" y="324" fill="#cbd5e1" font-size="15">Activations · routing · authority + durability checks</text>
+
+    <text x="222" y="423" fill="#fef3c7" font-size="19" font-weight="600">Actor + decision core</text>
+    <text x="222" y="449" fill="#cbd5e1" font-size="14">Serial state ownership</text>
+    <text x="222" y="477" fill="#fbbf24" font-size="14">cellar-logic · no I/O</text>
+    <text x="658" y="423" fill="#e2e8f0" font-size="19" font-weight="600">Host adapters</text>
+    <text x="658" y="449" fill="#cbd5e1" font-size="14">Execute effects</text>
+    <text x="658" y="477" fill="#94a3b8" font-size="14">Storage + network I/O</text>
+    <text x="440" y="418" fill="#94a3b8" font-size="12">effects</text>
+    <text x="440" y="467" fill="#94a3b8" font-size="12">events</text>
+
+    <text x="222" y="580" fill="#e2e8f0" font-size="19" font-weight="600">Storage</text>
+    <text x="222" y="606" fill="#cbd5e1" font-size="14">Per-cell SQLite → LTX</text>
+    <text x="222" y="627" fill="#94a3b8" font-size="13">cellar/storage + cellar-ltx</text>
+    <text x="658" y="580" fill="#e2e8f0" font-size="19" font-weight="600">Durability + fleet</text>
+    <text x="658" y="606" fill="#cbd5e1" font-size="14">Proof · ownership · recovery</text>
+    <text x="658" y="627" fill="#94a3b8" font-size="13">cellar/durability + cellar/fleet</text>
+    <text x="440" y="582" fill="#94a3b8" font-size="12">LTX</text>
+
+    <text x="222" y="736" fill="#e2e8f0" font-size="18" font-weight="600">Peer node logs</text>
+    <text x="222" y="757" fill="#94a3b8" font-size="13">Fleet replication + proof</text>
+    <text x="658" y="736" fill="#e2e8f0" font-size="18" font-weight="600">Shared object storage</text>
+    <text x="658" y="757" fill="#94a3b8" font-size="13">Leases + durable LTX data</text>
+  </g>
+
+  <text x="30" y="42" fill="#e2e8f0" font-size="24" font-weight="700">Inside a Cellar node</text>
+  <text x="30" y="73" fill="#94a3b8" font-size="15">Native code, pure decisions and explicit I/O boundaries.</text>
+  <text x="50" y="136" fill="#e2e8f0" font-size="16" font-weight="600">Execution domain</text>
+  <text x="830" y="136" fill="#94a3b8" font-size="13" text-anchor="end">Owns tasks, services and shutdown</text>
+</svg>
