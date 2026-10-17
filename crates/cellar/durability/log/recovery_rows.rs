@@ -776,4 +776,5 @@ fn check_length(file: &mut HostFile, expected: u64) -> Result<()> {
 }
 
 #[cfg(test)]
+#[path = "recovery_rows_tests.rs"]
 mod tests;

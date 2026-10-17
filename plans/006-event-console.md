@@ -73,7 +73,7 @@ Verification exceptions:
   unchanged on macOS. The console's real-node test passes on Linux using normal
   operation budgets. These results do not qualify the short-budget Linux case.
 - Full workspace Clippy on Rust 1.98.1 stops at an unchanged
-  `crates/cellar-native/clone.rs:456` use of `chunks_exact`, rejected by the new
+  `crates/cellar-native/clone/mod.rs:456` use of `chunks_exact`, rejected by the new
   `chunks_exact_to_as_chunks` lint. No lint suppression or assertion changes
   were introduced.
 - GitHub Actions could not start because of account runner/billing limits.

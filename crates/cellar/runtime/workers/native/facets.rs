@@ -6,6 +6,7 @@ use crate::application::FacetContext;
 use cellar_native::clone::{decode, Object, StructuredValue, Value};
 
 #[cfg(test)]
+#[path = "facets_tests.rs"]
 pub(super) mod tests;
 
 pub(super) fn identity_name(id: &StructuredValue) -> Result<Option<String>> {

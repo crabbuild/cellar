@@ -133,5 +133,5 @@ fn exact(file: &mut HostFile, offset: u64, count: usize) -> Result<Vec<u8>> {
 }
 
 #[cfg(test)]
-#[path = "bundle_snapshot/tests.rs"]
+#[path = "bundle_snapshot_tests.rs"]
 mod tests;

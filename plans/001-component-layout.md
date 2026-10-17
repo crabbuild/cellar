@@ -268,7 +268,7 @@ directories, so do not recursively move a directory into itself.
 | 2 | `queue_batching.rs` | `application/queue/batching.rs` |
 | 3 | `protocol.rs` | `deployment/protocol.rs` |
 | 3 | `fleet.rs` | `deployment/fleet.rs` |
-| 3 | `assets.rs` | `runtime/assets.rs` |
+| 3 | `assets.rs` | `runtime/assets/mod.rs` |
 | 3 | `html_rewriter.rs` | `application/html_rewriter/backend.rs` |
 | 3 | `container.rs` | `containers/mod.rs` |
 | 3 | `docker.rs` | `containers/docker.rs` |
@@ -285,7 +285,7 @@ Reasons for less obvious placements:
 
 - `runtime/generation.rs` owns the full deployment graph, service bindings,
   asset resolvers, cron schedule, and pools; it is broader than worker loading.
-- `runtime/assets.rs` implements generation-scoped serving and caching.
+- `runtime/assets/mod.rs` implements generation-scoped serving and caching.
   The SDK binding remains `application/assets.rs`.
 - KV large-value helpers and Queue policy/batching stay near their built-in
   cells under `application/kv/` and `application/queue/`. Queue's producer and

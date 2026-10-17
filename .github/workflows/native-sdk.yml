@@ -28,6 +28,8 @@ jobs:
           rustup default "$RUST_VERSION"
       - name: Check Rust formatting
         run: cargo format --check
+      - name: Check Rust module layout
+        run: cargo check-layout
       - name: Verify the workspace has no JavaScript engine
         run: python3 tools/check_native_dependencies.py
       - name: Verify documentation integrity

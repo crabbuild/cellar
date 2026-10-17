@@ -569,7 +569,7 @@ fn domain_error(error: crate::asyncrt::DomainClosed) -> Error {
 }
 
 #[cfg(test)]
-#[path = "local_store/read_tests.rs"]
+#[path = "local_store_read_tests.rs"]
 mod read_tests;
 
 #[async_trait]

@@ -166,10 +166,10 @@ an audit of missed business work.
 Before releasing async work, test crash before/after state commit, after the
 external effect and before receipt/ack; recovery with pending alarms; workflow
 version change; duplicate delivery; and a dependency outage beyond the retry
-budget. Sources: [Queue](../crates/cellar/application/queue.rs),
-[Workflow](../crates/cellar/application/workflow.rs),
+budget. Sources: [Queue](../crates/cellar/application/queue/mod.rs),
+[Workflow](../crates/cellar/application/workflow/mod.rs),
 [replay](../crates/cellar/application/workflow/replay.rs),
-[alarms](../crates/cellar/application/storage.rs), [cron](../crates/cellar/application/cron.rs).
+[alarms](../crates/cellar/application/storage/mod.rs), [cron](../crates/cellar/application/cron/mod.rs).
 ## Visual definitions and execution inspection
 
 Workflow bindings may include a `definition` alongside their compiled class.

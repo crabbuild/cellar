@@ -166,5 +166,5 @@ impl FileSystem for GuardedFs {
 }
 
 #[cfg(test)]
-#[path = "bundle_budget/tests.rs"]
+#[path = "bundle_budget_tests.rs"]
 mod tests;

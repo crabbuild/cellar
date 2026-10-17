@@ -292,7 +292,7 @@ Modify only these surfaces, keeping each milestone's diff bounded:
 - `crates/cellar/application/streams.rs` and
   `crates/cellar/runtime/invocation/gates.rs`: only a bounded gated-output helper
   that reuses existing proof policy for post-response producer writes.
-- `crates/cellar/transport/http/` and `crates/cellar/runtime/assets.rs`: only
+- `crates/cellar/transport/http/` and `crates/cellar/runtime/assets/mod.rs`: only
   the existing HTTP body bridge and Axum dependency migration where necessary.
 - `crates/cellar/tests/{native_node.rs,native_body.rs,native_domains.rs,
   native_streams.rs,native_log_protocol.rs,native_assets_cache.rs,
@@ -362,7 +362,7 @@ the compatible Axum 0.8 family and Tower 0.5. Confirm whether the unused
 0.8.1 pin and Hyper upgrade support. Do not upgrade the WebSocket library
 incidentally or suppress a duplicate-version incompatibility with conversions.
 Update routing syntax in affected tests. Record the deliberate compatibility
-change because `runtime/assets.rs` exposes concrete Axum response types.
+change because `runtime/assets/mod.rs` exposes concrete Axum response types.
 
 Add/strengthen native ingress characterization for body limits, streaming,
 admission rejection, and proof-gated responses before extracting the seam.
