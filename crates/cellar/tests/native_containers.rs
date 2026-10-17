@@ -341,10 +341,16 @@ impl Engine {
                 .map(|sender| sender.borrow().is_none());
             match running {
                 Some(running) => {
-                    json!({"State":{"Running":running}, "NetworkSettings":{"IPAddress":"127.0.0.1","Ports":{
-                        format!("{}/tcp",self.http_port):[{"HostPort":self.http_port.to_string()}],
-                        format!("{}/tcp",self.tcp_port):[{"HostPort":self.tcp_port.to_string()}]
-                    }}})
+                    json!({
+                        "State": {"Running": running},
+                        "NetworkSettings": {
+                            "Networks": {"fixture": {"IPAddress": "127.0.0.1"}},
+                            "Ports": {
+                                format!("{}/tcp", self.http_port): [{"HostPort": self.http_port.to_string()}],
+                                format!("{}/tcp", self.tcp_port): [{"HostPort": self.tcp_port.to_string()}]
+                            }
+                        }
+                    })
                 }
                 None => {
                     status = 404;
