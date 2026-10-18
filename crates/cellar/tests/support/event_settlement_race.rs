@@ -475,13 +475,17 @@ async fn race(transition: Transition) -> Result<()> {
         .await?
             == processed.to_string()
     );
+    // Every settlement and replacement-lease assertion has passed. The nodes
+    // now close their peer sockets during drain; only transport closure is
+    // expected beyond this cut, while proxy framing errors still fail join.
+    proxy.capture.expect_upstream_close();
     stopped(consumer)
         .await
         .context("complete settlement consumer drain")?;
     stopped(destination)
         .await
         .context("complete settlement destination drain")?;
-    proxy.stop().await?;
+    proxy.stop().await.context("join settlement peer proxy")?;
     ensure!(
         consumer_core.handle().spawn(async { 7 }).await? == 7
             && destination_core.handle().spawn(async { 7 }).await? == 7
