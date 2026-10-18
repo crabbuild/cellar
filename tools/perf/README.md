@@ -127,6 +127,12 @@ records SQLite cache and read-lock fixes with three nodes and 3,000 resident
 counters. It includes the high-concurrency write-tail regression and local
 measurement limits.
 
+The [Cloudflare counter rerun](results/2026-10-18-counter-cloudflare-comparison.md)
+compares the original and optimized builds on three 1-vCPU/3-GiB nodes with R2.
+It records mixed performance, a rejected baseline write window and a refused
+all-disk-loss restore. The run does not establish a consistent end-to-end gain
+or full qualification.
+
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each
 POST makes one storage transaction in one cell; the SDK output gate proves it
