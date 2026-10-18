@@ -25,13 +25,14 @@ CREATE INDEX IF NOT EXISTS __sys_work_due ON __sys_work(scope, at_ms, reason)
 pub(crate) fn set(scope: &str, reason: Reason, at_ms: i64) -> anyhow::Result<Option<i64>> {
     anyhow::ensure!(at_ms >= 0, "internal work deadline must be nonnegative");
     with_application_storage_write(scope, |connection| {
-        connection.execute(
-            "INSERT INTO __sys_work(scope,reason,generation,at_ms)
+        connection
+            .prepare_cached(
+                "INSERT INTO __sys_work(scope,reason,generation,at_ms)
              VALUES (?1,?2,1,?3)
              ON CONFLICT(scope,reason) DO UPDATE SET
                 generation=__sys_work.generation+1, at_ms=excluded.at_ms",
-            rusqlite::params![scope, reason.as_str(), at_ms],
-        )?;
+            )?
+            .execute(rusqlite::params![scope, reason.as_str(), at_ms])?;
         Ok(())
     })?;
     Ok(publish_alarm(scope))
@@ -43,16 +44,18 @@ pub(crate) fn clear(
 ) -> anyhow::Result<(bool, Option<i64>)> {
     let generation = i64::try_from(installation.generation)?;
     let cleared = with_application_storage_write(scope, |connection| {
-        Ok(connection.execute(
-            "UPDATE __sys_work SET at_ms=NULL
+        Ok(connection
+            .prepare_cached(
+                "UPDATE __sys_work SET at_ms=NULL
              WHERE scope=?1 AND reason=?2 AND generation=?3 AND at_ms=?4",
-            rusqlite::params![
+            )?
+            .execute(rusqlite::params![
                 scope,
                 installation.reason.as_str(),
                 generation,
                 installation.at_ms
-            ],
-        )? == 1)
+            ])?
+            == 1)
     })?;
     Ok((cleared, cleared.then(|| publish_alarm(scope)).flatten()))
 }
@@ -65,26 +68,25 @@ pub(crate) fn due(scope: &str, now_ms: i64) -> anyhow::Result<Option<Installatio
         );
         ensure_no_unfinished_write_cursor(connection)?;
         connection
-            .query_row(
+            .prepare_cached(
                 "SELECT reason,generation,at_ms FROM __sys_work
                  WHERE scope=?1 AND at_ms<=?2 ORDER BY at_ms,reason LIMIT 1",
-                rusqlite::params![scope, now_ms],
-                |row| {
-                    let reason: String = row.get(0)?;
-                    let reason = Reason::parse(&reason).ok_or_else(|| {
-                        rusqlite::Error::InvalidColumnType(
-                            0,
-                            "reason".into(),
-                            rusqlite::types::Type::Text,
-                        )
-                    })?;
-                    Ok(Installation {
-                        reason,
-                        generation: row.get(1)?,
-                        at_ms: row.get(2)?,
-                    })
-                },
-            )
+            )?
+            .query_row(rusqlite::params![scope, now_ms], |row| {
+                let reason: String = row.get(0)?;
+                let reason = Reason::parse(&reason).ok_or_else(|| {
+                    rusqlite::Error::InvalidColumnType(
+                        0,
+                        "reason".into(),
+                        rusqlite::types::Type::Text,
+                    )
+                })?;
+                Ok(Installation {
+                    reason,
+                    generation: row.get(1)?,
+                    at_ms: row.get(2)?,
+                })
+            })
             .optional()
             .map_err(Into::into)
     })
@@ -105,8 +107,9 @@ pub(crate) fn installation(scope: &str, reason: Reason) -> anyhow::Result<Option
 
 pub(crate) fn current(scope: &str, reason: Reason) -> anyhow::Result<Option<Installation>> {
     with(scope, |connection| {
-        connection.query_row(
+        connection.prepare_cached(
             "SELECT generation,at_ms FROM __sys_work WHERE scope=?1 AND reason=?2 AND at_ms IS NOT NULL",
+        )?.query_row(
             rusqlite::params![scope,reason.as_str()],
             |row|Ok(Installation { reason, generation:row.get(0)?, at_ms:row.get(1)? }),
         ).optional().map_err(Into::into)
@@ -114,15 +117,15 @@ pub(crate) fn current(scope: &str, reason: Reason) -> anyhow::Result<Option<Inst
 }
 
 pub(super) fn effective(connection: &Connection, scope: &str) -> anyhow::Result<Option<i64>> {
-    Ok(connection.query_row(
-        "SELECT min(at_ms) FROM (
+    Ok(connection
+        .prepare_cached(
+            "SELECT min(at_ms) FROM (
            SELECT at_ms FROM __sys_cell_alarm WHERE scope=?1
            UNION ALL
            SELECT at_ms FROM __sys_work WHERE scope=?1 AND at_ms IS NOT NULL
          )",
-        [scope],
-        |row| row.get(0),
-    )?)
+        )?
+        .query_row([scope], |row| row.get(0))?)
 }
 
 #[cfg(test)]
@@ -130,6 +133,42 @@ mod tests {
     use super::*;
 
     const SCOPE: &str = "Work:source";
+
+    #[test]
+    fn repeated_scheduling_reuses_prepared_queries() -> anyhow::Result<()> {
+        let cells = Cells::default();
+        let _installed = cells.install();
+        let directory = tempfile::tempdir()?;
+        open_cell(&directory, 1)?;
+        let prepares = Arc::new(AtomicU64::new(0));
+        let observed = prepares.clone();
+        with(SCOPE, |connection| {
+            connection.authorizer(Some(move |context: rusqlite::hooks::AuthContext<'_>| {
+                observed.fetch_add(1, Ordering::Relaxed);
+                authorize_sql(context)
+            }));
+        });
+        let schedule = || -> anyhow::Result<()> {
+            set_alarm(SCOPE, 500)?;
+            set(SCOPE, Reason::Outbox, 100)?;
+            let installed = installation(SCOPE, Reason::Outbox)?.unwrap();
+            assert_eq!(due(SCOPE, 100)?, Some(installed));
+            assert_eq!(get_alarm(SCOPE), Some(500));
+            assert!(clear(SCOPE, installed)?.0);
+            assert!(!clear(SCOPE, installed)?.0);
+            assert_eq!(alarm_snapshot(SCOPE)?.at_ms(), Some(500));
+            delete_alarm(SCOPE)?;
+            Ok(())
+        };
+        schedule()?;
+        let before = prepares.load(Ordering::Relaxed);
+        for _ in 0..10 {
+            schedule()?;
+        }
+        assert_eq!(prepares.load(Ordering::Relaxed), before);
+        close(SCOPE);
+        Ok(())
+    }
 
     fn open_cell(directory: &tempfile::TempDir, epoch: u64) -> anyhow::Result<String> {
         let path = directory

@@ -1,5 +1,24 @@
 # Embedded fleet validation
 
+## SQLite operation costs
+
+Use the local storage benchmark to compare SQLite changes before running fleet
+traffic. It checks results while timing bulk JSON writes, nested batches,
+clone writes/deletes, SQL reads with accounting, and alarm lookups.
+
+```sh
+cargo run -p cellar --bin cellar-perf-storage --profile lab --locked -- 2000 5
+```
+
+Output is JSON Lines with elapsed time and average time per operation cycle.
+Each case warms up first; successive repetitions reverse case order. These
+measurements exclude routing, replication and output-proof waits, so they do
+not establish HTTP throughput or production latency. Keep the profile, machine,
+data volume and workload identical when comparing builds. See the
+[storage operation report](results/2026-10-18-storage-operations.md).
+
+## Fleet validation
+
 The [FleetCare application and standard suite](../../examples/fleetcare/README.md)
 run 10,000 cells on three nodes, in embedded and daemon modes, using Colima and
 RustFS. Run `python3 tools/perf/fleetcare.py` from the repository root. The suite
@@ -102,6 +121,11 @@ This setup policy is part of comparison compatibility.
 
 
 ## Core persistence baseline
+
+The [counter request-path comparison](results/2026-10-18-counter-hot-path.md)
+records SQLite cache and read-lock fixes with three nodes and 3,000 resident
+counters. It includes the high-concurrency write-tail regression and local
+measurement limits.
 
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each

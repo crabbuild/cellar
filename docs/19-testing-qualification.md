@@ -25,6 +25,10 @@ cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 python3 -m unittest discover -s tools/perf -p 'test_*.py'
 ```
 
+Run independent test cases serially, as CI does. Node fixtures own several
+concurrent runtimes and short leases; unrelated fixtures competing for the
+runner can expire those leases. Concurrency inside each fixture stays enabled.
+
 Choose existing tests for the changed binding/host path. The suite includes
 storage/transactions, domains, cells, call ordering, Queue/Workflow, sockets,
 loaders, packages, nodes, logs and replication. `cellar_internal_tests` requires

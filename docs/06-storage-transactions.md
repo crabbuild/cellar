@@ -5,6 +5,11 @@ The storage API supports structured values, SQL, transactions, alarms and an
 explicit `sync` durability wait. Commit related state, command receipts and
 outbox events in one transaction.
 
+A single lookup needs no explicit transaction. Keep read-only handlers out of
+`transaction_sync` when they do not need a multi-statement boundary: its immediate
+transaction reserves SQLite's writer lock and can contend with WAL capture.
+Reads still pass through the framework's output proof and ownership checks.
+
 A declared SQL binding addresses a separate database. Updating that binding and
 the caller's cell storage does not form one transaction.
 

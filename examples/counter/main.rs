@@ -32,23 +32,32 @@ impl Cell for Counter {
                 }
                 _ => None,
             };
-            let count = storage.transaction_sync(|tx| {
-                let mut count = tx.get_json("count")?.and_then(|v| v.as_u64()).unwrap_or(0);
-                let duplicate = match &key {
-                    Some(key) => tx.get_json(key)?.is_some(),
-                    None => false,
-                };
-                if increment && !duplicate {
-                    count = count
-                        .checked_add(1)
-                        .ok_or_else(|| anyhow::anyhow!("counter overflow"))?;
-                    tx.put_json("count", &serde_json::json!(count))?;
-                    if let Some(key) = &key {
-                        tx.put_json(key, &serde_json::json!(true))?;
+            let count = if increment {
+                storage.transaction_sync(|tx| {
+                    let mut count = tx.get_json("count")?.and_then(|v| v.as_u64()).unwrap_or(0);
+                    let duplicate = match &key {
+                        Some(key) => tx.get_json(key)?.is_some(),
+                        None => false,
+                    };
+                    if !duplicate {
+                        count = count
+                            .checked_add(1)
+                            .ok_or_else(|| anyhow::anyhow!("counter overflow"))?;
+                        tx.put_json("count", &serde_json::json!(count))?;
+                        if let Some(key) = &key {
+                            tx.put_json(key, &serde_json::json!(true))?;
+                        }
                     }
-                }
-                Ok(count)
-            })?;
+                    Ok(count)
+                })?
+            } else {
+                // A single read needs no transaction: BEGIN IMMEDIATE would
+                // unnecessarily contend with replication's WAL writer lock.
+                storage
+                    .get_json("count")?
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0)
+            };
             match event {
                 Invocation::CellRpc { method, .. } => {
                     if !matches!(method.as_str(), "increment" | "increment_once" | "get") {

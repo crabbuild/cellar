@@ -1623,6 +1623,44 @@ fn explicit_public_node_policy_ignores_invalid_process_configuration() -> Result
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_releases_the_directory(
 ) -> Result<()> {
+    // This case must reach the witness check after real bucket I/O. Exercise
+    // deadline refusal separately instead of racing that check against 100ms.
+    failed_predecessor_recovery(
+        Duration::ZERO,
+        Duration::from_secs(4),
+        "no complete true witness",
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn slow_predecessor_recovery_still_refuses_missing_witness() -> Result<()> {
+    failed_predecessor_recovery(
+        Duration::from_millis(50),
+        Duration::from_secs(4),
+        "no complete true witness",
+    )
+    .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn timed_out_predecessor_recovery_preserves_generation_and_releases_directory() -> Result<()>
+{
+    failed_predecessor_recovery(
+        Duration::from_millis(50),
+        Duration::from_millis(1),
+        "predecessor recovery timed out",
+    )
+    .await
+}
+
+async fn failed_predecessor_recovery(
+    read_delay: Duration,
+    recovery_budget: Duration,
+    expected_cause: &str,
+) -> Result<()> {
+    use object_store::throttle::{ThrottleConfig, ThrottledStore};
+
     let directory = tempfile::tempdir()?;
     let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
     let writer = ExecutionDomain::new(tokio::runtime::Handle::current());
@@ -1642,10 +1680,18 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
         .await??;
     let core = Executor::new("application-core")?;
     let path = directory.path().join("unrecovered");
+    let mut recovery_bucket = bucket.clone();
+    recovery_bucket.store = Arc::new(ThrottledStore::new(
+        recovery_bucket.store,
+        ThrottleConfig {
+            wait_get_per_call: read_delay,
+            ..Default::default()
+        },
+    ));
     let (mut config, services) =
-        inputs("unrecovered", &path, &core, Some(bucket.clone()), 0).await?;
+        inputs("unrecovered", &path, &core, Some(recovery_bucket), 0).await?;
     config.startup.recovery_attempts = 1;
-    config.startup.recovery_attempt_timeout = Duration::from_millis(100);
+    config.startup.recovery_attempt_timeout = recovery_budget;
     let result = Node::start(
         config,
         services,
@@ -1660,7 +1706,7 @@ async fn failed_predecessor_recovery_preserves_the_predecessor_generation_and_re
     let error = result.err().unwrap();
     ensure!(
         format!("{error:#}").contains("unrecovered predecessor")
-            && format!("{error:#}").contains("no complete true witness"),
+            && format!("{error:#}").contains(expected_cause),
         "startup did not enforce the recovery gate: {error:#}"
     );
     let (body, _) = writer

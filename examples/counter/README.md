@@ -6,6 +6,8 @@ Model durable business entities and verify their state survives a restart.
 
 GET reads; POST increments. Each name selects its own SQLite cell. Concurrent writes
 serialize through the cell and commit atomically.
+GET uses a single lookup without reserving SQLite's writer lock. POST keeps
+the read and increment in one transaction.
 
 Read the [Rust source](main.rs) and [project configuration](project.json). The
 handler is a module compiled into `cellar-native-examples` by

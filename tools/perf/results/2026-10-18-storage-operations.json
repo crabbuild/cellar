@@ -1,0 +1,650 @@
+{
+  "provenance": {
+    "base": "17f6486",
+    "architecture": "arm64",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "iterations": 2000,
+    "repetitions_per_round": 2,
+    "rounds": 3,
+    "warmup": 100,
+    "profile": "lab",
+    "binaries": {
+      "baseline": "f3c1ab6ed2dd6a16c15a362799040bfab5881e1ee172650b9f8e3c248236760c",
+      "candidate": "901086da8f16de4597c3bfe90fe404edadb9c820fbf14c9d116ee3f1a2841d56"
+    },
+    "cpu": "Apple M2 Max",
+    "memory_bytes": 34359738368,
+    "sqlite_journal_mode": "WAL",
+    "sqlite_synchronous": "NORMAL",
+    "allocator": "system",
+    "exclusive_host": false,
+    "scope": "Local SQLite operations; excludes routing, replication and output-proof waits",
+    "candidate_sources": {
+      "crates/cellar/storage/sqlite/mod.rs": "a1ba3837b5915663230fcb72faa96526ee1efe203df226cb8e3f01d56415bd02",
+      "crates/cellar/storage/sqlite/work.rs": "9e9cc94551062d3b1c6c2ce2a7ca17802fc3179f745b8648e9f5e5a064a54d5e",
+      "crates/cellar/storage/sqlite/wake_record.rs": "559a449596959822bcb1f7ce0ee60df30d11693d019a5970a46fc99f9cf25c5b",
+      "tools/perf/storage_operations.rs": "0b1551093c64f121f3fa3c0d6912afb8400ab54b960a89bdb27fa5553519b0be"
+    },
+    "unmeasured_changes": "The takeover reconciliation and activation readiness corrections were added after timing; this harness does not exercise actor routing, ownership or resource activation.",
+    "workload_notes": "Bulk keys and values stay fixed across cycles; this isolates operation overhead rather than a changing-data workload."
+  },
+  "summary": {
+    "alarm-read": {
+      "baseline": {
+        "median_us": 4.425947750000001,
+        "min_us": 4.3671454999999995,
+        "max_us": 4.5396665,
+        "samples": 6
+      },
+      "candidate": {
+        "median_us": 1.4062602499999999,
+        "min_us": 1.355375,
+        "max_us": 1.412521,
+        "samples": 6
+      },
+      "reduction_pct": 68.22691252963844
+    },
+    "bulk-nested": {
+      "baseline": {
+        "median_us": 13.255354,
+        "min_us": 13.159728999999999,
+        "max_us": 13.414583,
+        "samples": 6
+      },
+      "candidate": {
+        "median_us": 6.405719,
+        "min_us": 6.301292,
+        "max_us": 6.4835835,
+        "samples": 6
+      },
+      "reduction_pct": 51.674478101452436
+    },
+    "bulk-root": {
+      "baseline": {
+        "median_us": 15.67422925,
+        "min_us": 15.5603955,
+        "max_us": 15.898042,
+        "samples": 6
+      },
+      "candidate": {
+        "median_us": 8.502343750000001,
+        "min_us": 8.234583500000001,
+        "max_us": 8.627604,
+        "samples": 6
+      },
+      "reduction_pct": 45.75590535017853
+    },
+    "clone-delete": {
+      "baseline": {
+        "median_us": 40.113874749999994,
+        "min_us": 33.727479,
+        "max_us": 41.1106455,
+        "samples": 6
+      },
+      "candidate": {
+        "median_us": 30.237218499999997,
+        "min_us": 26.905792,
+        "max_us": 35.954958,
+        "samples": 6
+      },
+      "reduction_pct": 24.621546314221366
+    },
+    "sql-read": {
+      "baseline": {
+        "median_us": 10.354239750000001,
+        "min_us": 10.2105625,
+        "max_us": 10.582145500000001,
+        "samples": 6
+      },
+      "candidate": {
+        "median_us": 6.8011875,
+        "min_us": 6.638896,
+        "max_us": 6.880021,
+        "samples": 6
+      },
+      "reduction_pct": 34.31495054960458
+    }
+  },
+  "samples": [
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 31796084,
+      "iterations": 2000,
+      "ns_per_operation": 15898.042,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 26582375,
+      "iterations": 2000,
+      "ns_per_operation": 13291.1875,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 80343916,
+      "iterations": 2000,
+      "ns_per_operation": 40171.958,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 20421125,
+      "iterations": 2000,
+      "ns_per_operation": 10210.5625,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 8830458,
+      "iterations": 2000,
+      "ns_per_operation": 4415.229,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 8835958,
+      "iterations": 2000,
+      "ns_per_operation": 4417.979,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 20621542,
+      "iterations": 2000,
+      "ns_per_operation": 10310.771,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 67454958,
+      "iterations": 2000,
+      "ns_per_operation": 33727.479,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 26319458,
+      "iterations": 2000,
+      "ns_per_operation": 13159.729,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 31297500,
+      "iterations": 2000,
+      "ns_per_operation": 15648.75,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 0
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 17058958,
+      "iterations": 2000,
+      "ns_per_operation": 8529.479,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 12906542,
+      "iterations": 2000,
+      "ns_per_operation": 6453.271,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 65570583,
+      "iterations": 2000,
+      "ns_per_operation": 32785.2915,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 13277792,
+      "iterations": 2000,
+      "ns_per_operation": 6638.896,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 2820666,
+      "iterations": 2000,
+      "ns_per_operation": 1410.333,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 2804375,
+      "iterations": 2000,
+      "ns_per_operation": 1402.1875,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 13507667,
+      "iterations": 2000,
+      "ns_per_operation": 6753.8335,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 53860375,
+      "iterations": 2000,
+      "ns_per_operation": 26930.1875,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 12701709,
+      "iterations": 2000,
+      "ns_per_operation": 6350.8545,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 16469167,
+      "iterations": 2000,
+      "ns_per_operation": 8234.5835,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 0
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 17056875,
+      "iterations": 2000,
+      "ns_per_operation": 8528.4375,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 12602584,
+      "iterations": 2000,
+      "ns_per_operation": 6301.292,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 67802292,
+      "iterations": 2000,
+      "ns_per_operation": 33901.146,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 13697083,
+      "iterations": 2000,
+      "ns_per_operation": 6848.5415,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 2732917,
+      "iterations": 2000,
+      "ns_per_operation": 1366.4585,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 2710750,
+      "iterations": 2000,
+      "ns_per_operation": 1355.375,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 13481291,
+      "iterations": 2000,
+      "ns_per_operation": 6740.6455,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 53811584,
+      "iterations": 2000,
+      "ns_per_operation": 26905.792,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 12959458,
+      "iterations": 2000,
+      "ns_per_operation": 6479.729,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 16952500,
+      "iterations": 2000,
+      "ns_per_operation": 8476.25,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 1
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 31399417,
+      "iterations": 2000,
+      "ns_per_operation": 15699.7085,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 26439041,
+      "iterations": 2000,
+      "ns_per_operation": 13219.5205,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 80653292,
+      "iterations": 2000,
+      "ns_per_operation": 40326.646,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 21164291,
+      "iterations": 2000,
+      "ns_per_operation": 10582.1455,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 9015875,
+      "iterations": 2000,
+      "ns_per_operation": 4507.9375,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 9079333,
+      "iterations": 2000,
+      "ns_per_operation": 4539.6665,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 20795417,
+      "iterations": 2000,
+      "ns_per_operation": 10397.7085,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 80111583,
+      "iterations": 2000,
+      "ns_per_operation": 40055.7915,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 26829166,
+      "iterations": 2000,
+      "ns_per_operation": 13414.583,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 31120791,
+      "iterations": 2000,
+      "ns_per_operation": 15560.3955,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 1
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 31404042,
+      "iterations": 2000,
+      "ns_per_operation": 15702.021,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 26594584,
+      "iterations": 2000,
+      "ns_per_operation": 13297.292,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 82221291,
+      "iterations": 2000,
+      "ns_per_operation": 41110.6455,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 20914208,
+      "iterations": 2000,
+      "ns_per_operation": 10457.104,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 8867833,
+      "iterations": 2000,
+      "ns_per_operation": 4433.9165,
+      "repetition": 0,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 8734291,
+      "iterations": 2000,
+      "ns_per_operation": 4367.1455,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 20434750,
+      "iterations": 2000,
+      "ns_per_operation": 10217.375,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 67760000,
+      "iterations": 2000,
+      "ns_per_operation": 33880.0,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 26412250,
+      "iterations": 2000,
+      "ns_per_operation": 13206.125,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 31137959,
+      "iterations": 2000,
+      "ns_per_operation": 15568.9795,
+      "repetition": 1,
+      "variant": "baseline",
+      "round": 2
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 16911750,
+      "iterations": 2000,
+      "ns_per_operation": 8455.875,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 12967167,
+      "iterations": 2000,
+      "ns_per_operation": 6483.5835,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 71909916,
+      "iterations": 2000,
+      "ns_per_operation": 35954.958,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 13712291,
+      "iterations": 2000,
+      "ns_per_operation": 6856.1455,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 2825042,
+      "iterations": 2000,
+      "ns_per_operation": 1412.521,
+      "repetition": 0,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "alarm-read",
+      "elapsed_ns": 2823917,
+      "iterations": 2000,
+      "ns_per_operation": 1411.9585,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "sql-read",
+      "elapsed_ns": 13760042,
+      "iterations": 2000,
+      "ns_per_operation": 6880.021,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "clone-delete",
+      "elapsed_ns": 55378291,
+      "iterations": 2000,
+      "ns_per_operation": 27689.1455,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "bulk-nested",
+      "elapsed_ns": 12716334,
+      "iterations": 2000,
+      "ns_per_operation": 6358.167,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 2
+    },
+    {
+      "case": "bulk-root",
+      "elapsed_ns": 17255208,
+      "iterations": 2000,
+      "ns_per_operation": 8627.604,
+      "repetition": 1,
+      "variant": "candidate",
+      "round": 2
+    }
+  ]
+}

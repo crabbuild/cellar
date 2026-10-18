@@ -493,6 +493,47 @@ async fn bodyless_abort_response_keeps_next_message_framing_intact() -> Result<(
 }
 
 #[tokio::test]
+async fn destination_reset_requires_an_explicit_shutdown_cut() -> Result<()> {
+    for closing in [false, true] {
+        let upstream = TcpListener::bind("127.0.0.1:0").await?;
+        let proxy = Proxy::start(upstream.local_addr()?).await?;
+        let (close, closed) = oneshot::channel();
+        let owner = tokio::spawn(async move {
+            let (socket, _) = upstream.accept().await?;
+            let mut socket = BufReader::new(socket);
+            ensure!(message(&mut socket, false).await?.is_some());
+            socket.get_mut().write_all(b"HTTP/1.1 101 Switching Protocols\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\n\r\n").await?;
+            closed.await?;
+            // A real reset on an upgraded log stream, after the caller has
+            // received its handshake. No synthetic relay error is supplied.
+            socket.get_mut().set_zero_linger()?;
+            Ok::<_, anyhow::Error>(())
+        });
+        let mut caller = BufReader::new(TcpStream::connect(proxy.address).await?);
+        caller.get_mut().write_all(b"POST /peer/log/stream HTTP/1.1\r\nConnection: upgrade\r\nUpgrade: cellar-log-stream\r\nContent-Length: 0\r\n\r\n").await?;
+        ensure!(message(&mut caller, true).await?.is_some());
+        if closing {
+            proxy.capture.expect_upstream_close();
+        }
+        close.send(()).unwrap();
+        owner.await??;
+        let joined = proxy.stop().await;
+        if closing {
+            joined.context("declared destination reset failed proxy join")?;
+        } else {
+            let error = joined.expect_err("undeclared destination reset was hidden");
+            ensure!(
+                error
+                    .downcast_ref::<std::io::Error>()
+                    .is_some_and(|error| error.kind() == std::io::ErrorKind::ConnectionReset),
+                "wrong relay failure: {error:#}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn controlled_destination_closure_preserves_framing_failures() -> Result<()> {
     let upstream = TcpListener::bind("127.0.0.1:0").await?;
     let ingress = TcpListener::bind("127.0.0.1:0").await?;

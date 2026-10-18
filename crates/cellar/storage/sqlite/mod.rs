@@ -18,9 +18,13 @@ use std::sync::Arc;
 
 mod console;
 mod event_schema;
+#[cfg(test)]
+mod identity_tests;
 pub(crate) mod inbox;
 pub(crate) mod outbox;
 pub(crate) mod outbox_control;
+#[cfg(test)]
+mod transaction_cache_tests;
 pub(crate) mod wake_record;
 pub(crate) mod work;
 pub(crate) use console::{sql_console, sql_console_migrations};
@@ -441,12 +445,39 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
 
 thread_local! {
     /// True only while application-authored SQL is prepared or executed.
-    /// Host statements can use reserved tables; other authorizer restrictions
-    /// (ATTACH, extensions, transaction control) apply to every caller.
+    /// Host statements can use reserved tables. Other authorizer restrictions
+    /// remain active, with a separate scope for framework transaction control.
     static USER_SQL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Only framework transaction statements may bypass transaction denial.
+    /// Keep the authorizer installed: replacing it expires every prepared
+    /// statement on the connection, including a warm application's queries.
+    static STORAGE_TRANSACTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Authorize synchronous framework transaction statements, never a handler.
+fn as_storage_transaction<T>(callback: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            STORAGE_TRANSACTION.with(|flag| flag.set(self.0));
+        }
+    }
+    let _reset = Reset(STORAGE_TRANSACTION.with(|flag| flag.replace(true)));
+    callback()
 }
 
 fn as_user_sql<T>(callback: impl FnOnce() -> T) -> T {
+    with_sql_origin(true, callback)
+}
+
+/// Use only around fixed framework metadata queries, never handler callbacks
+/// or application-provided SQL. The public SQL cache remains separate.
+fn as_framework_sql<T>(callback: impl FnOnce() -> T) -> T {
+    with_sql_origin(false, callback)
+}
+
+fn with_sql_origin<T>(user: bool, callback: impl FnOnce() -> T) -> T {
     struct Reset(bool);
 
     impl Drop for Reset {
@@ -454,7 +485,7 @@ fn as_user_sql<T>(callback: impl FnOnce() -> T) -> T {
             USER_SQL.with(|flag| flag.set(self.0));
         }
     }
-    let _reset = Reset(USER_SQL.with(|flag| flag.replace(true)));
+    let _reset = Reset(USER_SQL.with(|flag| flag.replace(user)));
     callback()
 }
 
@@ -613,15 +644,16 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
     SQL_PREPARES.fetch_add(1, Ordering::Relaxed);
 
     let prohibited = match context.action {
+        AuthAction::Transaction { .. } | AuthAction::Savepoint { .. } => {
+            !STORAGE_TRANSACTION.with(std::cell::Cell::get) || USER_SQL.with(std::cell::Cell::get)
+        }
         // The Attach deny is also the only thing blocking VACUUM and VACUUM
         // INTO: SQLite emits no distinct authorizer action for VACUUM and
         // implements it via an internal ATTACH, which lands here. Relaxing
         // Attach (or raising SQLITE_LIMIT_ATTACHED from 0) silently unblocks
         // whole-file rewrites against a replicating database and, via VACUUM
         // INTO, arbitrary file writes from cell SQL.
-        AuthAction::Transaction { .. }
-        | AuthAction::Savepoint { .. }
-        | AuthAction::Attach { .. }
+        AuthAction::Attach { .. }
         | AuthAction::Detach { .. }
         | AuthAction::CreateTempIndex { .. }
         | AuthAction::CreateTempTable { .. }
@@ -634,7 +666,15 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
         AuthAction::Pragma {
             pragma_name,
             pragma_value,
-        } => !allowed_sql_pragma(pragma_name, pragma_value),
+        } => {
+            let observation = !USER_SQL.with(std::cell::Cell::get)
+                && pragma_value.is_none()
+                && matches!(
+                    pragma_name.to_ascii_lowercase().as_str(),
+                    "page_count" | "freelist_count" | "page_size"
+                );
+            !observation && !allowed_sql_pragma(pragma_name, pragma_value)
+        }
         // A virtual-table module runs native code, so each module needs an
         // explicit entry in this allowlist. vec0 uses ordinary shadow tables,
         // and the reserved-name checks below apply to their table actions.
@@ -747,6 +787,7 @@ fn without_sql_authorizer<T>(connection: &Connection, callback: impl FnOnce() ->
     result
 }
 
+#[cfg(cellar_internal_tests)]
 fn without_sql_authorizer_mut<T>(
     connection: &mut Connection,
     callback: impl FnOnce(&mut Connection) -> T,
@@ -1214,23 +1255,26 @@ static NEXT_FACET_OPENING: AtomicU64 = AtomicU64::new(1);
 static NEXT_SYNC_LIST_CURSOR: AtomicU64 = AtomicU64::new(1);
 static NEXT_SQL_CURSOR: AtomicU64 = AtomicU64::new(1);
 
-fn with_batch_savepoint<T>(
-    connection: &Connection,
+/// Only framework-owned synchronous statements belong in this callback.
+/// Keep the authorizer installed and retain rollback-on-drop through errors
+/// and unwinding. Never call an application handler inside this scope.
+fn with_storage_batch<T>(
+    connection: &mut Connection,
     callback: impl FnOnce(&Connection) -> anyhow::Result<T>,
 ) -> anyhow::Result<T> {
-    without_sql_authorizer(connection, || {
-        let sequence = NEXT_BATCH_SAVEPOINT.fetch_add(1, Ordering::Relaxed);
-        let name = format!("cells_batch_{sequence}");
-        connection.execute_batch(&format!("SAVEPOINT {name};"))?;
-        match callback(connection) {
-            Ok(value) => {
-                connection.execute_batch(&format!("RELEASE {name};"))?;
-                Ok(value)
-            }
-            Err(error) => {
-                let _ = connection.execute_batch(&format!("ROLLBACK TO {name}; RELEASE {name};"));
-                Err(error)
-            }
+    as_storage_transaction(|| {
+        if connection.is_autocommit() {
+            let transaction =
+                connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let value = callback(&transaction)?;
+            transaction.commit()?;
+            Ok(value)
+        } else {
+            let sequence = NEXT_BATCH_SAVEPOINT.fetch_add(1, Ordering::Relaxed);
+            let savepoint = connection.savepoint_with_name(format!("cells_batch_{sequence}"))?;
+            let value = callback(&savepoint)?;
+            savepoint.commit()?;
+            Ok(value)
         }
     })
 }
@@ -2195,30 +2239,28 @@ pub fn sql_write_meta(scope: &str) -> Result<(i64, u64), String> {
 }
 
 pub fn sql_database_size(scope: &str) -> Result<u64, String> {
-    require_sql_healthy(scope)?;
-    with(scope, |connection| {
-        without_sql_authorizer(connection, || {
-            connection
-                .query_row(
-                    "SELECT (page_count - freelist_count) * page_size \
-                     FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()",
-                    [],
-                    |row| row.get::<_, u64>(0),
-                )
-                .map_err(|error| error.to_string())
-        })
-    })
-    .unwrap_or_else(|| Err(format!("no db for {scope}")))
+    sql_page_usage(scope).map(|(_, used)| used)
 }
 
 /// Framework-only allocation observation. Public SQL pragma permissions stay
 /// unchanged; the SDK adapter must first check its captured activation scope.
 pub(crate) fn sql_page_usage(scope: &str) -> Result<(u64, u64), String> {
     require_sql_healthy(scope)?;
-    with(scope,|connection|without_sql_authorizer(connection,||{
-        connection.query_row("SELECT page_count*page_size,(page_count-freelist_count)*page_size FROM pragma_page_count(),pragma_freelist_count(),pragma_page_size()",[],|row|Ok((row.get(0)?,row.get(1)?)))
-            .map_err(|error|error.to_string())
-    })).unwrap_or_else(||Err(format!("no db for {scope}")))
+    with(scope, |connection| {
+        connection_page_usage(connection).map_err(|error| error.to_string())
+    })
+    .unwrap_or_else(|| Err(format!("no db for {scope}")))
+}
+
+fn connection_page_usage(connection: &Connection) -> rusqlite::Result<(u64, u64)> {
+    as_framework_sql(|| {
+        connection
+            .prepare_cached(
+                "SELECT page_count*page_size,(page_count-freelist_count)*page_size
+             FROM pragma_page_count(),pragma_freelist_count(),pragma_page_size()",
+            )?
+            .query_row([], |row| Ok((row.get(0)?, row.get(1)?)))
+    })
 }
 
 // ---- SQL -------------------------------------------------------------------
@@ -2516,11 +2558,10 @@ unsafe fn sql_rows_read(statement: *mut rusqlite::ffi::sqlite3_stmt, emitted: u6
 /// `sqlite3_stmt_readonly` alone, which reported `changed_db: true` for
 /// `UPDATE ... WHERE 0` where upstream reports the false its name promises.
 fn sql_schema_version(connection: &Connection) -> i64 {
-    without_sql_authorizer(connection, || {
-        connection
-            .query_row("PRAGMA schema_version", [], |row| row.get(0))
-            .unwrap_or(0)
-    })
+    connection
+        .prepare_cached("PRAGMA schema_version")
+        .and_then(|mut statement| statement.query_row([], |row| row.get(0)))
+        .unwrap_or(0)
 }
 
 /// SQLite's own message for a failed SQL operation, with the poison
@@ -2790,7 +2831,7 @@ fn sql_rollback_after_commit_failure(scope: &str, connection: &Connection) -> Re
             result_code,
         ));
     }
-    without_sql_authorizer(connection, || connection.execute_batch("ROLLBACK")).map_err(|error| {
+    as_storage_transaction(|| connection.execute_batch("ROLLBACK")).map_err(|error| {
         if let rusqlite::Error::SqliteFailure(sqlite, _) = &error {
             // SAFETY: the handle belongs to this live connection.
             let database = unsafe { connection.handle() };
@@ -2819,15 +2860,19 @@ fn sql_transaction_control(
     let result = if let Some(result_code) = injected {
         Err((result_code, None))
     } else {
-        without_sql_authorizer(connection, || connection.execute_batch(operation.sql())).map_err(
-            |error| {
-                let code = match &error {
-                    rusqlite::Error::SqliteFailure(sqlite, _) => Some(sqlite.extended_code),
-                    _ => None,
-                };
-                (code.unwrap_or(rusqlite::ffi::SQLITE_ERROR), Some(error))
-            },
-        )
+        as_storage_transaction(|| {
+            connection
+                .prepare_cached(operation.sql())?
+                .execute([])
+                .map(|_| ())
+        })
+        .map_err(|error| {
+            let code = match &error {
+                rusqlite::Error::SqliteFailure(sqlite, _) => Some(sqlite.extended_code),
+                _ => None,
+            };
+            (code.unwrap_or(rusqlite::ffi::SQLITE_ERROR), Some(error))
+        })
     };
 
     result.map_err(|(result_code, error)| {
@@ -3096,10 +3141,8 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                         "a migration cannot start inside an open transaction",
                     ));
                 }
-                // The authorizer denies Transaction actions outright -- that
-                // is what keeps BEGIN out of application SQL -- so the
-                // engine's own bracket must step around it, exactly as
-                // `transaction_control` does.
+                // Only the framework's bracket may authorize transaction
+                // control; the migration SQL retains application restrictions.
                 sql_transaction_control(
                     scope,
                     connection,
@@ -3164,16 +3207,9 @@ fn init_sql_migrations(connection: &Connection, table: &str) -> rusqlite::Result
 }
 
 fn connection_database_size(connection: &Connection) -> u64 {
-    without_sql_authorizer(connection, || {
-        connection
-            .query_row(
-                "SELECT (page_count - freelist_count) * page_size \
-                 FROM pragma_page_count(), pragma_freelist_count(), pragma_page_size()",
-                [],
-                |row| row.get::<_, u64>(0),
-            )
-            .unwrap_or(0)
-    })
+    connection_page_usage(connection)
+        .map(|(_, used)| used)
+        .unwrap_or(0)
 }
 
 /// The JSON request adapter: `{ok: ...}` or
@@ -3224,7 +3260,7 @@ pub fn transaction_control(
         return Err("invalid storage transaction savepoint".to_string());
     }
     let result = with(scope, |connection| {
-        without_sql_authorizer(connection, || {
+        as_storage_transaction(|| {
             let query = match (action, nested) {
                 ("start", false) => "BEGIN IMMEDIATE".to_string(),
                 ("start", true) => format!("SAVEPOINT {savepoint}"),
@@ -3240,7 +3276,17 @@ pub fn transaction_control(
                 }
                 _ => return Err("invalid storage transaction action".to_string()),
             };
-            connection.execute_batch(&query).map_err(|error| {
+            // Nested rollback contains ROLLBACK TO and RELEASE. Root control
+            // statements have fixed text and share the connection's cache.
+            let executed = if nested {
+                connection.execute_batch(&query)
+            } else {
+                connection
+                    .prepare_cached(&query)
+                    .and_then(|mut statement| statement.execute([]))
+                    .map(|_| ())
+            };
+            executed.map_err(|error| {
                 // A critical failure while committing or rolling back can make
                 // SQLite destroy the whole transaction; classify it so the
                 // actor poisons exactly like a mid-statement critical error.
@@ -3579,21 +3625,11 @@ pub fn put_many_json(scope: &str, entries: &[(String, serde_json::Value)]) -> an
         return with(scope, |_| ()).context("no open cell for JSON put");
     }
     with_application_storage_write(scope, |connection| {
-        without_sql_authorizer_mut(connection, |connection| {
-            let write = |connection: &Connection| -> anyhow::Result<()> {
-                let mut statement = connection.prepare_cached(KV_PUT_SQL)?;
-                for (key, value) in entries {
-                    statement.execute(rusqlite::params![scope, key, value.to_string()])?;
-                }
-                Ok(())
-            };
-            if !connection.is_autocommit() {
-                return with_batch_savepoint(connection, write);
+        with_storage_batch(connection, |connection| {
+            let mut statement = connection.prepare_cached(KV_PUT_SQL)?;
+            for (key, value) in entries {
+                statement.execute(rusqlite::params![scope, key, value.to_string()])?;
             }
-            let transaction =
-                connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            write(&transaction)?;
-            transaction.commit()?;
             Ok(())
         })
     })
@@ -3605,26 +3641,12 @@ pub fn put_many(scope: &str, entries: &[(String, String)]) -> anyhow::Result<()>
     if entries.is_empty() {
         return with(scope, |_| ()).ok_or_else(|| anyhow::anyhow!("no db for {scope}"));
     }
-    with_mut(scope, |c| {
-        without_sql_authorizer_mut(c, |c| {
-            if !c.is_autocommit() {
-                return with_batch_savepoint(c, |c| {
-                    let mut statement = c.prepare_cached(KV_PUT_SQL)?;
-                    for (key, value) in entries {
-                        statement.execute(rusqlite::params![scope, key, value])?;
-                    }
-                    Ok(())
-                });
+    with_mut(scope, |connection| {
+        with_storage_batch(connection, |connection| {
+            let mut statement = connection.prepare_cached(KV_PUT_SQL)?;
+            for (key, value) in entries {
+                statement.execute(rusqlite::params![scope, key, value])?;
             }
-            let transaction =
-                c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            {
-                let mut statement = transaction.prepare_cached(KV_PUT_SQL)?;
-                for (key, value) in entries {
-                    statement.execute(rusqlite::params![scope, key, value])?;
-                }
-            }
-            transaction.commit()?;
             Ok(())
         })
     })
@@ -3635,22 +3657,12 @@ pub fn put_many_serialized(scope: &str, entries: &[(String, Vec<u8>)]) -> anyhow
     if entries.is_empty() {
         return with(scope, |_| ()).ok_or_else(|| anyhow::anyhow!("no db for {scope}"));
     }
-    with_application_storage_write(scope, |c| {
-        without_sql_authorizer_mut(c, |c| {
-            let write = |c: &Connection| -> anyhow::Result<()> {
-                let mut statement = c.prepare_cached(KV_PUT_SQL)?;
-                for (key, value) in entries {
-                    statement.execute(rusqlite::params![scope, key, value])?;
-                }
-                Ok(())
-            };
-            if !c.is_autocommit() {
-                return with_batch_savepoint(c, write);
+    with_application_storage_write(scope, |connection| {
+        with_storage_batch(connection, |connection| {
+            let mut statement = connection.prepare_cached(KV_PUT_SQL)?;
+            for (key, value) in entries {
+                statement.execute(rusqlite::params![scope, key, value])?;
             }
-            let transaction =
-                c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-            write(&transaction)?;
-            transaction.commit()?;
             Ok(())
         })
     })
@@ -3670,28 +3682,13 @@ pub fn delete_many(scope: &str, keys: &[String]) -> anyhow::Result<usize> {
     if keys.is_empty() {
         return with(scope, |_| 0).ok_or_else(|| anyhow::anyhow!("no db for {scope}"));
     }
-    with_application_storage_write(scope, |c| {
-        without_sql_authorizer_mut(c, |c| {
-            if !c.is_autocommit() {
-                return with_batch_savepoint(c, |c| {
-                    let mut statement = c.prepare_cached(KV_DELETE_SQL)?;
-                    let mut deleted = 0;
-                    for key in keys {
-                        deleted += statement.execute(rusqlite::params![scope, key])?;
-                    }
-                    Ok(deleted)
-                });
-            }
-            let transaction =
-                c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    with_application_storage_write(scope, |connection| {
+        with_storage_batch(connection, |connection| {
+            let mut statement = connection.prepare_cached(KV_DELETE_SQL)?;
             let mut deleted = 0;
-            {
-                let mut statement = transaction.prepare_cached(KV_DELETE_SQL)?;
-                for key in keys {
-                    deleted += statement.execute(rusqlite::params![scope, key])?;
-                }
+            for key in keys {
+                deleted += statement.execute(rusqlite::params![scope, key])?;
             }
-            transaction.commit()?;
             Ok(deleted)
         })
     })
@@ -4190,18 +4187,20 @@ pub fn transaction<T>(
 /// must not remove it.
 pub fn set_actor_name(scope: &str, name: &str) -> anyhow::Result<()> {
     with(scope, |connection| -> anyhow::Result<()> {
-        connection.execute(
-            "INSERT INTO __sys_cell_metadata(scope, actor_name) VALUES(?1, ?2) \
-             ON CONFLICT(scope) DO NOTHING",
-            rusqlite::params![scope, name],
-        )?;
-        let stored: Option<String> = connection
-            .query_row(
-                "SELECT actor_name FROM __sys_cell_metadata WHERE scope=?1",
-                [scope],
-                |row| row.get(0),
-            )
-            .optional()?;
+        // Named fetch/RPC supplies this on every call. Once persisted, checking
+        // identity must not compete with WAL capture for SQLite's writer lock.
+        let mut stored = actor_name(connection, scope)?;
+        if stored.is_none() {
+            connection
+                .prepare_cached(
+                    "INSERT INTO __sys_cell_metadata(scope, actor_name) VALUES(?1, ?2) \
+                     ON CONFLICT(scope) DO NOTHING",
+                )?
+                .execute(rusqlite::params![scope, name])?;
+            // Recheck the persisted value even if another connection inserted
+            // a different identity between the initial read and the insert.
+            stored = actor_name(connection, scope)?;
+        }
         if stored.as_deref() != Some(name) {
             anyhow::bail!("actor name conflicts with persisted identity for {scope}");
         }
@@ -4211,17 +4210,16 @@ pub fn set_actor_name(scope: &str, name: &str) -> anyhow::Result<()> {
 }
 
 pub fn get_actor_name(scope: &str) -> anyhow::Result<Option<String>> {
-    with(scope, |connection| {
-        connection
-            .query_row(
-                "SELECT actor_name FROM __sys_cell_metadata WHERE scope=?1",
-                [scope],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
-    })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+    with(scope, |connection| actor_name(connection, scope))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+}
+
+fn actor_name(connection: &Connection, scope: &str) -> anyhow::Result<Option<String>> {
+    connection
+        .prepare_cached("SELECT actor_name FROM __sys_cell_metadata WHERE scope=?1")?
+        .query_row([scope], |row| row.get(0))
+        .optional()
+        .map_err(Into::into)
 }
 
 /// Delete all user storage, optionally deleting the alarm. Workerd's
@@ -4315,13 +4313,13 @@ pub fn delete_all_with_alarm(scope: &str, delete_alarm: bool) -> anyhow::Result<
 // the gate runs at that transaction's commit instead.
 pub fn set_alarm(scope: &str, at_ms: i64) -> anyhow::Result<Option<i64>> {
     with_application_storage_write(scope, |c| {
-        c.execute(
+        c.prepare_cached(
             "INSERT INTO __sys_cell_alarm(scope,at_ms,retry,counted_retry,generation) \
              VALUES(?1,?2,0,0,random()) \
              ON CONFLICT(scope) DO UPDATE SET \
                at_ms=excluded.at_ms, retry=0, counted_retry=0, generation=random()",
-            rusqlite::params![scope, at_ms],
-        )
+        )?
+        .execute(rusqlite::params![scope, at_ms])
         .map(|_| ())
         .map_err(Into::into)
     })?;
@@ -4345,7 +4343,8 @@ pub fn get_alarm(scope: &str) -> Option<i64> {
 
 pub fn delete_alarm(scope: &str) -> anyhow::Result<()> {
     with_application_storage_write(scope, |c| {
-        c.execute("DELETE FROM __sys_cell_alarm WHERE scope=?1", [scope])
+        c.prepare_cached("DELETE FROM __sys_cell_alarm WHERE scope=?1")?
+            .execute([scope])
             .map(|_| ())
             .map_err(Into::into)
     })?;
@@ -4418,12 +4417,13 @@ fn publish_alarm_if_transaction_dirty(scope: &str) -> Option<i64> {
 /// Scheduled time and retry count for an alarm due at/before `now_ms`.
 pub fn due_alarm_entry(scope: &str, now_ms: i64) -> Option<(i64, i64)> {
     with(scope, |c| {
-        c.query_row(
-            "SELECT at_ms,retry FROM __sys_cell_alarm WHERE scope=?1 AND at_ms<=?2",
-            rusqlite::params![scope, now_ms],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .ok()
+        c.prepare_cached("SELECT at_ms,retry FROM __sys_cell_alarm WHERE scope=?1 AND at_ms<=?2")
+            .and_then(|mut statement| {
+                statement.query_row(rusqlite::params![scope, now_ms], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
+            })
+            .ok()
     })
     .flatten()
 }
@@ -4431,11 +4431,10 @@ pub fn due_alarm_entry(scope: &str, now_ms: i64) -> Option<(i64, i64)> {
 fn alarm_state(scope: &str) -> Option<(i64, i64)> {
     with(scope, |connection| {
         connection
-            .query_row(
-                "SELECT at_ms,generation FROM __sys_cell_alarm WHERE scope=?1",
-                [scope],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
+            .prepare_cached("SELECT at_ms,generation FROM __sys_cell_alarm WHERE scope=?1")
+            .and_then(|mut statement| {
+                statement.query_row([scope], |row| Ok((row.get(0)?, row.get(1)?)))
+            })
             .ok()
     })?
 }
