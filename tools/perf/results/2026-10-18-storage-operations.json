@@ -25,7 +25,7 @@
       "crates/cellar/storage/sqlite/wake_record.rs": "559a449596959822bcb1f7ce0ee60df30d11693d019a5970a46fc99f9cf25c5b",
       "tools/perf/storage_operations.rs": "0b1551093c64f121f3fa3c0d6912afb8400ab54b960a89bdb27fa5553519b0be"
     },
-    "unmeasured_changes": "The takeover reconciliation correction was added after timing; this harness does not exercise actor routing or ownership.",
+    "unmeasured_changes": "The takeover reconciliation and activation readiness corrections were added after timing; this harness does not exercise actor routing, ownership or resource activation.",
     "workload_notes": "Bulk keys and values stay fixed across cycles; this isolates operation overhead rather than a changing-data workload."
   },
   "summary": {

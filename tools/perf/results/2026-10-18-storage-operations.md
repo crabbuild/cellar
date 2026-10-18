@@ -30,12 +30,13 @@ Every operation cycle verifies its result.
 ## Method
 
 Baseline production source is `17f6486` (merged PR #86), with the same benchmark
-logic added. The candidate uses the changes in this branch. Rust 1.98.1,
+logic added. The measured candidate contains this branch's SQLite storage changes. Rust 1.98.1,
 workspace `lab` profile, system allocator, Apple M2 Max with 32 GiB memory,
 macOS ARM64, default temporary-directory storage, SQLite WAL/NORMAL in both
 variants. No replication or durability-output gate is present in this harness.
-The takeover reconciliation fix was added after timing; this harness does not
-exercise actor routing or ownership, and its results do not measure that fix.
+The takeover reconciliation and activation readiness fixes were added after
+timing. This harness does not exercise routing, ownership or resource activation
+and does not measure those fixes.
 
 Three rounds alternate variant order. Each process runs two repetitions of
 2,000 cycles per case after 100 warm-up cycles; the second repetition reverses
@@ -74,7 +75,7 @@ warm-up. The cache stores compiled SQL, not application values.
 
 ## Validation status
 
-- Full library run: 355 passed, including rollback, unwinding, authorization
+- Full library run: 356 passed, including rollback, unwinding, authorization
   isolation and writer-contention regressions.
 - Selected SDK suites: native storage, SQL, runtime, replication, call ordering
   and counter tests passed (12 tests).
@@ -93,6 +94,12 @@ warm-up. The cache stores compiled SQL, not application values.
   confirmed readback preserves the predecessor restore identity. All 14 public
   decision-core integration tests passed. External simulation/conformance
   sources were not enabled.
+- The initial Linux CI run exposed an early `AcquireFailed` during cold-peer
+  binding resolution. Only the three fixed read-only resolution methods now
+  poll typed acquisition/resolution refusals within the existing activation
+  deadline. Tests require configuration mutations, fenced routes, unproven
+  durability, protocol and authorization failures to retain their retry rules;
+  both transport and readiness polling stop at cancellation/deadline.
 - The cold fixture retains its original recovery audit and adoption deadline;
   only diagnostic error context was added. No adoption or ambiguous application
   mutation is retried. The clean-source run passed all 86 node tests with normal
