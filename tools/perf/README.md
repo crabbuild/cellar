@@ -103,6 +103,11 @@ This setup policy is part of comparison compatibility.
 
 ## Core persistence baseline
 
+The [counter request-path comparison](results/2026-10-18-counter-hot-path.md)
+records SQLite cache and read-lock fixes with three nodes and 3,000 resident
+counters. It includes the high-concurrency write-tail regression and local
+measurement limits.
+
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each
 POST makes one storage transaction in one cell; the SDK output gate proves it
