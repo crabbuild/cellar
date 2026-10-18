@@ -25,7 +25,7 @@ claim Workers SDK compatibility or production fleet certification.
 From the repository root, using the Rust toolchain required by `Cargo.toml`:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/project.json
 ```
 
@@ -44,7 +44,7 @@ increments; each focused guide explains how to start with clean tutorial state.
 Each recipe has its own README and independent project configuration:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- dev examples/queues/project.json
+cargo run -p cellar-main --bin cellar --locked -- dev examples/queues/project.json
 ```
 
 The cookbook and focused projects share `cellar-native-examples`, with factories
@@ -117,7 +117,7 @@ working recipes from capabilities that need implementation or validation.
 The stream primitive has its own standalone smoke test:
 
 ```sh
-cargo build -p cellar --bin cellar-example-streams --locked
+cargo build -p cellar-main --bin cellar-example-streams --locked
 python3 examples/durable-streams/smoke.py \
   --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams"
 ```
@@ -125,7 +125,7 @@ python3 examples/durable-streams/smoke.py \
 Build the Rust hosts, then exercise fresh temporary project state:
 
 ```sh
-cargo build -p cellar --bin cellar --bin cellar-native-examples \
+cargo build -p cellar-main --bin cellar --bin cellar-native-examples \
   --bin cellar-example-embedded --locked
 CELLAR_EXAMPLE_BIN_DIR="${CARGO_TARGET_DIR:-target}/debug"
 python3 examples/focused_smoke.py --cellar "$CELLAR_EXAMPLE_BIN_DIR/cellar" --with-cron
@@ -163,10 +163,10 @@ CI includes these container checks; the Colima fleet harness is a separate run.
 ## Package and deploy
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   build examples/counter/project.json --output /tmp/cellar-counter-package
 # Publish to the bucket selected for your application:
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   deploy /tmp/cellar-counter-package --bucket YOUR_BUCKET
 ```
 

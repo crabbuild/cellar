@@ -1,4 +1,4 @@
-# cellar
+# cellar-main
 
 Build native Rust applications around durable cells. Each cell owns SQLite
 state; Cellar routes calls to its owner, replicates committed writes and recovers
@@ -11,6 +11,24 @@ Use `cellar` for application contracts and hosting. The adapter crates add HTTP
 and management interfaces; the lower-level crates own runtime decisions, values
 and replication mechanics.
 
+## Add the SDK
+
+Depend on the published `cellar-main` package under the `cellar` alias:
+
+```toml
+[dependencies]
+cellar = { package = "cellar-main", version = "0.1.0" }
+```
+
+Application imports remain `cellar::sdk`. To install the command-line tool:
+
+```sh
+cargo install cellar-main --version 0.1.0 --locked --bin cellar
+```
+
+The installed command is `cellar`. The `cellar-logic`, `cellar-native`,
+`cellar-ltx` and `cellar-axum` packages retain their own names.
+
 ## Run an application
 
 From the repository root, use Rust and Cargo with native C/C++ build tools.
@@ -18,7 +36,7 @@ Follow [build setup](../../AGENTS.md#build-and-validation) for a target director
 unique to your checkout, then start the counter:
 
 ```sh
-cargo run -p cellar --bin cellar --locked -- \
+cargo run -p cellar-main --bin cellar --locked -- \
   dev examples/native-counter/project.json
 ```
 
@@ -81,8 +99,8 @@ modules, so a public module name may differ from its directory. Start with the
 Run the SDK integration tests and documentation tests from the repository root:
 
 ```sh
-cargo test -p cellar --lib --tests --locked
-cargo test -p cellar --doc --locked
+cargo test -p cellar-main --lib --tests --locked
+cargo test -p cellar-main --doc --locked
 ```
 
 Use the [SDK CI workflow](../../.github/workflows/native-sdk.yml) for workspace

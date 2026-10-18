@@ -103,7 +103,7 @@ Run from the repository root and follow [AGENTS.md](../../AGENTS.md) for a priva
 Cargo target directory. Start with a new tutorial data directory:
 
 ```sh
-cargo run -p cellar --bin cellar-example-streams --locked -- \
+cargo run -p cellar-main --bin cellar-example-streams --locked -- \
   examples/.cellar/streams-walkthrough 9876
 ```
 
@@ -149,7 +149,7 @@ Build and run the actual executable smoke test, which uses temporary data and
 available ports and verifies both complete shutdown reports:
 
 ```sh
-cargo build -p cellar --bin cellar-example-streams --locked
+cargo build -p cellar-main --bin cellar-example-streams --locked
 python3 examples/durable-streams/smoke.py \
   --binary "$CARGO_TARGET_DIR/debug/cellar-example-streams"
 ```

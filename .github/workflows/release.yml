@@ -56,7 +56,7 @@ jobs:
           set -euo pipefail
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
-          cargo build -p cellar --bin cellar --release --locked
+          cargo build -p cellar-main --bin cellar --release --locked
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' crates/cellar/Cargo.toml | head -1)
           target/release/cellar --version | grep -F "$version"
 

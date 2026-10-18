@@ -43,11 +43,11 @@ async-trait = "0.1"
 axum = { version = "0.8.9", features = ["multipart"] }
 base64 = "0.22"
 bytes = "1"
-cellar = { path = "crates/cellar", version = "0.6.2" }
-cellar-axum = { path = "crates/cellar-axum", version = "0.6.2" }
-cellar-logic = { path = "crates/cellar-logic" }
-cellar-ltx = { path = "crates/cellar-ltx" }
-cellar-native = { path = "crates/cellar-native" }
+cellar = { package = "cellar-main", path = "crates/cellar", version = "0.1.0" }
+cellar-axum = { path = "crates/cellar-axum", version = "0.1.0" }
+cellar-logic = { path = "crates/cellar-logic", version = "0.1.0" }
+cellar-ltx = { path = "crates/cellar-ltx", version = "0.1.0" }
+cellar-native = { path = "crates/cellar-native", version = "0.1.0" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 encoding_rs = "0.8"

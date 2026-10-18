@@ -51,7 +51,7 @@ Build the crate's Rust documentation using your checkout-specific target
 directory:
 
 ```sh
-cargo doc -p cellar --no-deps --locked
+cargo doc -p cellar-main --no-deps --locked
 ```
 
 Consult source and existing integration tests before adopting an unfamiliar

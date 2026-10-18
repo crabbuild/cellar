@@ -44,7 +44,7 @@ CLI; use the actual binary's help for the full command.
 When running from source, prefix commands with:
 
 ```sh
-cargo run -p cellar --bin cellar --locked --
+cargo run -p cellar-main --bin cellar --locked --
 ```
 
 Use a private `CARGO_TARGET_DIR` per repository guidance. Native package builds

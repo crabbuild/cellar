@@ -21,7 +21,7 @@ Run from the repository root and follow [AGENTS.md](../../AGENTS.md) for the
 target directory. Stop other examples using port 9876. In terminal 1:
 
 ```sh
-cargo run -p cellar --bin cellar-example-embedded --locked -- \
+cargo run -p cellar-main --bin cellar-example-embedded --locked -- \
   examples/.cellar/embedded-walkthrough
 ```
 

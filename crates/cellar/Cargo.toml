@@ -1,16 +1,23 @@
 # Modified for Cellar from Celld.
 [package]
 repository = "https://github.com/crabbuild/cellar"
-name = "cellar"
+name = "cellar-main"
 default-run = "cellar"
 autoexamples = false
-version = "0.6.2"
+version = "0.1.0"
 edition = "2021"
 rust-version = "1.94.1"
 license = "Apache-2.0"
+description = "Native Rust framework and CLI for durable cells with SQLite state"
+readme = "README.crates.io.md"
+keywords = ["sqlite", "actors", "durable", "distributed"]
+categories = ["database", "web-programming"]
+# Integration tests use binaries and fixtures from the repository checkout.
+exclude = ["tests/**"]
 
 
 [lib]
+name = "cellar"
 path = "lib.rs"
 
 [[bin]]

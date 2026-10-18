@@ -17,7 +17,7 @@ RUN --mount=type=cache,id=cellar-cargo-registry,target=/usr/local/cargo/registry
     --mount=type=cache,id=cellar-cargo-git,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,id=cellar-target-${TARGETARCH},target=/src/target,sharing=locked \
     mkdir -p /out && \
-    cargo build -p cellar --bin cellar --profile "${CELLAR_PROFILE}" --locked -p cellar && \
+    cargo build -p cellar-main --bin cellar --profile "${CELLAR_PROFILE}" --locked -p cellar-main && \
     install -m 755 "target/${CELLAR_PROFILE}/cellar" /out/cellar
 
 # The final image depends on this stage, so a break in the framework's tests or

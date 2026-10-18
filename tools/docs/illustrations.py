@@ -119,12 +119,12 @@ def illustrations():
     drawings = {}
 
     d = Diagram('Find the crate that owns the change',
-                'Axum and administration integrate with cellar. The host uses the pure logic core, '
+                'Axum and administration integrate with cellar-main. The host uses the pure logic core, '
                 'native value primitives and LTX replication. Selected relationships, not every Cargo dependency.', 700)
     d.label(48, 89, 'Application entry points above; runtime internals below.')
     d.panel(120, 132, 300, 108, 'cellar-axum', ['HTTP handlers and ingress', 'Optional OpenAPI'], 'cyan')
     d.panel(540, 132, 300, 108, 'cellar-admin', ['Management API and console', 'Owner-routed controls'], 'cyan')
-    d.panel(300, 308, 360, 108, 'cellar', ['Application SDK, host and CLI', 'Execution and fleet coordination'], 'green')
+    d.panel(300, 308, 360, 108, 'cellar-main', ['Application SDK, host and CLI', 'Execution and fleet coordination'], 'green')
     d.arrow('M270 240V274H410V308', 'cyan')
     d.arrow('M690 240V274H550V308', 'cyan')
     for x, title, body, color in [

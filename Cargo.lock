@@ -251,8 +251,101 @@ dependencies = [
 ]
 
 [[package]]
-name = "cellar"
+name = "cellar-admin"
 version = "0.6.2"
+dependencies = [
+ "anyhow",
+ "axum",
+ "base64 0.22.1",
+ "cellar-logic",
+ "cellar-main",
+ "futures-util",
+ "getrandom 0.3.4",
+ "http",
+ "http-body-util",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "subtle",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tracing",
+]
+
+[[package]]
+name = "cellar-axum"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "axum",
+ "bytes",
+ "cellar-main",
+ "cellar-native",
+ "fastwebsockets",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "object_store",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+ "utoipa",
+ "utoipa-axum",
+]
+
+[[package]]
+name = "cellar-axum-counter"
+version = "0.6.2"
+dependencies = [
+ "anyhow",
+ "axum",
+ "cellar-axum",
+ "cellar-main",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "utoipa-swagger-ui",
+]
+
+[[package]]
+name = "cellar-logic"
+version = "0.1.0"
+
+[[package]]
+name = "cellar-ltx"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "crc-fast",
+ "futures-util",
+ "http",
+ "lz4_flex",
+ "object_store",
+ "percent-encoding",
+ "rusqlite",
+ "tempfile",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "ureq",
+]
+
+[[package]]
+name = "cellar-main"
+version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -310,99 +403,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "webpki-roots",
-]
-
-[[package]]
-name = "cellar-admin"
-version = "0.6.2"
-dependencies = [
- "anyhow",
- "axum",
- "base64 0.22.1",
- "cellar",
- "cellar-logic",
- "futures-util",
- "getrandom 0.3.4",
- "http",
- "http-body-util",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "subtle",
- "tempfile",
- "tokio",
- "tower",
- "tracing",
-]
-
-[[package]]
-name = "cellar-axum"
-version = "0.6.2"
-dependencies = [
- "anyhow",
- "async-trait",
- "axum",
- "bytes",
- "cellar",
- "cellar-native",
- "fastwebsockets",
- "futures-util",
- "http",
- "http-body",
- "http-body-util",
- "object_store",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tower",
- "tracing",
- "tracing-subscriber",
- "utoipa",
- "utoipa-axum",
-]
-
-[[package]]
-name = "cellar-axum-counter"
-version = "0.6.2"
-dependencies = [
- "anyhow",
- "axum",
- "cellar",
- "cellar-axum",
- "reqwest",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "utoipa-swagger-ui",
-]
-
-[[package]]
-name = "cellar-logic"
-version = "0.1.0"
-
-[[package]]
-name = "cellar-ltx"
-version = "0.0.0"
-dependencies = [
- "async-trait",
- "bytes",
- "chrono",
- "crc-fast",
- "futures-util",
- "http",
- "lz4_flex",
- "object_store",
- "percent-encoding",
- "rusqlite",
- "tempfile",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "ureq",
 ]
 
 [[package]]
@@ -469,9 +469,9 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "chacha20"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
+checksum = "65c35e4b699c7e15ccbe7ee35c005e4fc0a278d22238a2857e6ce2dadeda1b06"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
@@ -956,8 +956,8 @@ dependencies = [
  "anyhow",
  "base64 0.22.1",
  "bytes",
- "cellar",
  "cellar-logic",
+ "cellar-main",
  "fastwebsockets",
  "futures-util",
  "http-body-util",
