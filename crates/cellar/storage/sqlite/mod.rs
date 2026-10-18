@@ -18,9 +18,13 @@ use std::sync::Arc;
 
 mod console;
 mod event_schema;
+#[cfg(test)]
+mod identity_tests;
 pub(crate) mod inbox;
 pub(crate) mod outbox;
 pub(crate) mod outbox_control;
+#[cfg(test)]
+mod transaction_cache_tests;
 pub(crate) mod wake_record;
 pub(crate) mod work;
 pub(crate) use console::{sql_console, sql_console_migrations};
@@ -441,9 +445,26 @@ pub fn schema(c: &Connection) -> anyhow::Result<()> {
 
 thread_local! {
     /// True only while application-authored SQL is prepared or executed.
-    /// Host statements can use reserved tables; other authorizer restrictions
-    /// (ATTACH, extensions, transaction control) apply to every caller.
+    /// Host statements can use reserved tables. Other authorizer restrictions
+    /// remain active, with a separate scope for framework transaction control.
     static USER_SQL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Only framework transaction statements may bypass transaction denial.
+    /// Keep the authorizer installed: replacing it expires every prepared
+    /// statement on the connection, including a warm application's queries.
+    static STORAGE_TRANSACTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Authorize synchronous framework transaction statements, never a handler.
+fn as_storage_transaction<T>(callback: impl FnOnce() -> T) -> T {
+    struct Reset(bool);
+
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            STORAGE_TRANSACTION.with(|flag| flag.set(self.0));
+        }
+    }
+    let _reset = Reset(STORAGE_TRANSACTION.with(|flag| flag.replace(true)));
+    callback()
 }
 
 fn as_user_sql<T>(callback: impl FnOnce() -> T) -> T {
@@ -613,15 +634,16 @@ fn authorize_sql(context: rusqlite::hooks::AuthContext<'_>) -> rusqlite::hooks::
     SQL_PREPARES.fetch_add(1, Ordering::Relaxed);
 
     let prohibited = match context.action {
+        AuthAction::Transaction { .. } | AuthAction::Savepoint { .. } => {
+            !STORAGE_TRANSACTION.with(std::cell::Cell::get) || USER_SQL.with(std::cell::Cell::get)
+        }
         // The Attach deny is also the only thing blocking VACUUM and VACUUM
         // INTO: SQLite emits no distinct authorizer action for VACUUM and
         // implements it via an internal ATTACH, which lands here. Relaxing
         // Attach (or raising SQLITE_LIMIT_ATTACHED from 0) silently unblocks
         // whole-file rewrites against a replicating database and, via VACUUM
         // INTO, arbitrary file writes from cell SQL.
-        AuthAction::Transaction { .. }
-        | AuthAction::Savepoint { .. }
-        | AuthAction::Attach { .. }
+        AuthAction::Attach { .. }
         | AuthAction::Detach { .. }
         | AuthAction::CreateTempIndex { .. }
         | AuthAction::CreateTempTable { .. }
@@ -2790,7 +2812,7 @@ fn sql_rollback_after_commit_failure(scope: &str, connection: &Connection) -> Re
             result_code,
         ));
     }
-    without_sql_authorizer(connection, || connection.execute_batch("ROLLBACK")).map_err(|error| {
+    as_storage_transaction(|| connection.execute_batch("ROLLBACK")).map_err(|error| {
         if let rusqlite::Error::SqliteFailure(sqlite, _) = &error {
             // SAFETY: the handle belongs to this live connection.
             let database = unsafe { connection.handle() };
@@ -2819,15 +2841,19 @@ fn sql_transaction_control(
     let result = if let Some(result_code) = injected {
         Err((result_code, None))
     } else {
-        without_sql_authorizer(connection, || connection.execute_batch(operation.sql())).map_err(
-            |error| {
-                let code = match &error {
-                    rusqlite::Error::SqliteFailure(sqlite, _) => Some(sqlite.extended_code),
-                    _ => None,
-                };
-                (code.unwrap_or(rusqlite::ffi::SQLITE_ERROR), Some(error))
-            },
-        )
+        as_storage_transaction(|| {
+            connection
+                .prepare_cached(operation.sql())?
+                .execute([])
+                .map(|_| ())
+        })
+        .map_err(|error| {
+            let code = match &error {
+                rusqlite::Error::SqliteFailure(sqlite, _) => Some(sqlite.extended_code),
+                _ => None,
+            };
+            (code.unwrap_or(rusqlite::ffi::SQLITE_ERROR), Some(error))
+        })
     };
 
     result.map_err(|(result_code, error)| {
@@ -3096,10 +3122,8 @@ pub fn sql_run(scope: &str, request: &SqlRequest) -> Result<SqlResponse, SqlFail
                         "a migration cannot start inside an open transaction",
                     ));
                 }
-                // The authorizer denies Transaction actions outright -- that
-                // is what keeps BEGIN out of application SQL -- so the
-                // engine's own bracket must step around it, exactly as
-                // `transaction_control` does.
+                // Only the framework's bracket may authorize transaction
+                // control; the migration SQL retains application restrictions.
                 sql_transaction_control(
                     scope,
                     connection,
@@ -3224,7 +3248,7 @@ pub fn transaction_control(
         return Err("invalid storage transaction savepoint".to_string());
     }
     let result = with(scope, |connection| {
-        without_sql_authorizer(connection, || {
+        as_storage_transaction(|| {
             let query = match (action, nested) {
                 ("start", false) => "BEGIN IMMEDIATE".to_string(),
                 ("start", true) => format!("SAVEPOINT {savepoint}"),
@@ -3240,7 +3264,17 @@ pub fn transaction_control(
                 }
                 _ => return Err("invalid storage transaction action".to_string()),
             };
-            connection.execute_batch(&query).map_err(|error| {
+            // Nested rollback contains ROLLBACK TO and RELEASE. Root control
+            // statements have fixed text and share the connection's cache.
+            let executed = if nested {
+                connection.execute_batch(&query)
+            } else {
+                connection
+                    .prepare_cached(&query)
+                    .and_then(|mut statement| statement.execute([]))
+                    .map(|_| ())
+            };
+            executed.map_err(|error| {
                 // A critical failure while committing or rolling back can make
                 // SQLite destroy the whole transaction; classify it so the
                 // actor poisons exactly like a mid-statement critical error.
@@ -4190,18 +4224,20 @@ pub fn transaction<T>(
 /// must not remove it.
 pub fn set_actor_name(scope: &str, name: &str) -> anyhow::Result<()> {
     with(scope, |connection| -> anyhow::Result<()> {
-        connection.execute(
-            "INSERT INTO __sys_cell_metadata(scope, actor_name) VALUES(?1, ?2) \
-             ON CONFLICT(scope) DO NOTHING",
-            rusqlite::params![scope, name],
-        )?;
-        let stored: Option<String> = connection
-            .query_row(
-                "SELECT actor_name FROM __sys_cell_metadata WHERE scope=?1",
-                [scope],
-                |row| row.get(0),
-            )
-            .optional()?;
+        // Named fetch/RPC supplies this on every call. Once persisted, checking
+        // identity must not compete with WAL capture for SQLite's writer lock.
+        let mut stored = actor_name(connection, scope)?;
+        if stored.is_none() {
+            connection
+                .prepare_cached(
+                    "INSERT INTO __sys_cell_metadata(scope, actor_name) VALUES(?1, ?2) \
+                     ON CONFLICT(scope) DO NOTHING",
+                )?
+                .execute(rusqlite::params![scope, name])?;
+            // Recheck the persisted value even if another connection inserted
+            // a different identity between the initial read and the insert.
+            stored = actor_name(connection, scope)?;
+        }
         if stored.as_deref() != Some(name) {
             anyhow::bail!("actor name conflicts with persisted identity for {scope}");
         }
@@ -4211,17 +4247,16 @@ pub fn set_actor_name(scope: &str, name: &str) -> anyhow::Result<()> {
 }
 
 pub fn get_actor_name(scope: &str) -> anyhow::Result<Option<String>> {
-    with(scope, |connection| {
-        connection
-            .query_row(
-                "SELECT actor_name FROM __sys_cell_metadata WHERE scope=?1",
-                [scope],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(Into::into)
-    })
-    .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+    with(scope, |connection| actor_name(connection, scope))
+        .unwrap_or_else(|| Err(anyhow::anyhow!("no db for {scope}")))
+}
+
+fn actor_name(connection: &Connection, scope: &str) -> anyhow::Result<Option<String>> {
+    connection
+        .prepare_cached("SELECT actor_name FROM __sys_cell_metadata WHERE scope=?1")?
+        .query_row([scope], |row| row.get(0))
+        .optional()
+        .map_err(Into::into)
 }
 
 /// Delete all user storage, optionally deleting the alarm. Workerd's

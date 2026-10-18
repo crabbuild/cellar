@@ -1,0 +1,357 @@
+{
+  "baseline_revision": "7d3beb9e77f9491d5f581a8bbeae8c60d719b8ae",
+  "method": "goodput = total HTTP 200 / total elapsed including drain; p50/p99 = larger per-run percentile, not pooled",
+  "closed_loop": [
+    {
+      "method": "GET",
+      "concurrency": 64,
+      "variant": "baseline",
+      "requests": 24679,
+      "elapsed_s": 20.068120209,
+      "goodput": 1229.7614197533135,
+      "p50_ms": 53.79175,
+      "p99_ms": 106.46374999999999,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 1240.074964441711,
+          "p50_ms": 53.79175,
+          "p99_ms": 94.146833,
+          "requests": 12426,
+          "elapsed_s": 10.020361959
+        },
+        {
+          "repeat": 2,
+          "rps": 1219.475996051159,
+          "p50_ms": 52.652416,
+          "p99_ms": 106.46374999999999,
+          "requests": 12253,
+          "elapsed_s": 10.04775825
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "concurrency": 64,
+      "variant": "candidate",
+      "requests": 29565,
+      "elapsed_s": 20.115651959,
+      "goodput": 1469.7510207603407,
+      "p50_ms": 37.434542,
+      "p99_ms": 94.43133300000001,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 1512.973670909057,
+          "p50_ms": 30.383750000000003,
+          "p99_ms": 94.43133300000001,
+          "requests": 15213,
+          "elapsed_s": 10.055032875
+        },
+        {
+          "repeat": 2,
+          "rps": 1426.5523702040202,
+          "p50_ms": 37.434542,
+          "p99_ms": 90.06450000000001,
+          "requests": 14352,
+          "elapsed_s": 10.060619084
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "concurrency": 256,
+      "variant": "baseline",
+      "requests": 25055,
+      "elapsed_s": 20.349772834,
+      "goodput": 1231.2176752233127,
+      "p50_ms": 175.488709,
+      "p99_ms": 679.6044999999999,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 1274.0257445265988,
+          "p50_ms": 154.438167,
+          "p99_ms": 618.934375,
+          "requests": 12993,
+          "elapsed_s": 10.198381042
+        },
+        {
+          "repeat": 2,
+          "rps": 1188.2114538723342,
+          "p50_ms": 175.488709,
+          "p99_ms": 679.6044999999999,
+          "requests": 12062,
+          "elapsed_s": 10.151391792
+        }
+      ]
+    },
+    {
+      "method": "GET",
+      "concurrency": 256,
+      "variant": "candidate",
+      "requests": 29138,
+      "elapsed_s": 20.308927458,
+      "goodput": 1434.7384942045323,
+      "p50_ms": 152.499417,
+      "p99_ms": 569.6510000000001,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 1473.3635970881664,
+          "p50_ms": 135.947625,
+          "p99_ms": 569.6510000000001,
+          "requests": 14917,
+          "elapsed_s": 10.124452667
+        },
+        {
+          "repeat": 2,
+          "rps": 1396.3410280682388,
+          "p50_ms": 152.499417,
+          "p99_ms": 535.671,
+          "requests": 14221,
+          "elapsed_s": 10.184474791
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "concurrency": 64,
+      "variant": "baseline",
+      "requests": 8783,
+      "elapsed_s": 20.146639834,
+      "goodput": 435.9535918827307,
+      "p50_ms": 145.459,
+      "p99_ms": 280.556833,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 450.1588942763646,
+          "p50_ms": 137.628042,
+          "p99_ms": 234.38704099999998,
+          "requests": 4527,
+          "elapsed_s": 10.056449084
+        },
+        {
+          "repeat": 2,
+          "rps": 421.79579211621945,
+          "p50_ms": 145.459,
+          "p99_ms": 280.556833,
+          "requests": 4256,
+          "elapsed_s": 10.09019075
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "concurrency": 64,
+      "variant": "candidate",
+      "requests": 10363,
+      "elapsed_s": 20.14811825,
+      "goodput": 514.3408367677215,
+      "p50_ms": 128.14125,
+      "p99_ms": 220.664042,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 484.6699133397868,
+          "p50_ms": 128.14125,
+          "p99_ms": 216.194042,
+          "requests": 4879,
+          "elapsed_s": 10.066645083
+        },
+        {
+          "repeat": 2,
+          "rps": 543.9681194560878,
+          "p50_ms": 111.447209,
+          "p99_ms": 220.664042,
+          "requests": 5484,
+          "elapsed_s": 10.081473167
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "concurrency": 256,
+      "variant": "baseline",
+      "requests": 11066,
+      "elapsed_s": 20.589695709,
+      "goodput": 537.4533046237744,
+      "p50_ms": 479.056375,
+      "p99_ms": 1729.663667,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 607.1005074711193,
+          "p50_ms": 360.85033300000003,
+          "p99_ms": 1729.663667,
+          "requests": 6252,
+          "elapsed_s": 10.298130084
+        },
+        {
+          "repeat": 2,
+          "rps": 467.7616774172783,
+          "p50_ms": 479.056375,
+          "p99_ms": 1707.2285,
+          "requests": 4814,
+          "elapsed_s": 10.291565625
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "concurrency": 256,
+      "variant": "candidate",
+      "requests": 11472,
+      "elapsed_s": 20.507929124,
+      "goodput": 559.3933902655514,
+      "p50_ms": 400.545375,
+      "p99_ms": 2222.405667,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 598.5041387733525,
+          "p50_ms": 373.985958,
+          "p99_ms": 1612.925417,
+          "requests": 6111,
+          "elapsed_s": 10.210455708
+        },
+        {
+          "repeat": 2,
+          "rps": 520.6131429939105,
+          "p50_ms": 400.545375,
+          "p99_ms": 2222.405667,
+          "requests": 5361,
+          "elapsed_s": 10.297473416
+        }
+      ]
+    }
+  ],
+  "fixed_rate": [
+    {
+      "method": "POST",
+      "concurrency": 64,
+      "variant": "baseline",
+      "requests": 5948,
+      "elapsed_s": 20.174930625000002,
+      "goodput": 294.82133597175624,
+      "p50_ms": 386.746875,
+      "p99_ms": 708.30975,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 290.200592669248,
+          "p50_ms": 386.746875,
+          "p99_ms": 708.30975,
+          "requests": 2948,
+          "elapsed_s": 10.158490625
+        },
+        {
+          "repeat": 2,
+          "rps": 299.50760948999846,
+          "p50_ms": 45.974583,
+          "p99_ms": 206.248875,
+          "requests": 3000,
+          "elapsed_s": 10.01644
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "concurrency": 64,
+      "variant": "candidate",
+      "requests": 5995,
+      "elapsed_s": 20.142603667,
+      "goodput": 297.62785879671156,
+      "p50_ms": 214.748541,
+      "p99_ms": 482.175208,
+      "runs": [
+        {
+          "repeat": 1,
+          "rps": 295.83112823287956,
+          "p50_ms": 214.748541,
+          "p99_ms": 482.175208,
+          "requests": 2995,
+          "elapsed_s": 10.124019125
+        },
+        {
+          "repeat": 2,
+          "rps": 299.44349797352845,
+          "p50_ms": 22.193583,
+          "p99_ms": 104.141209,
+          "requests": 3000,
+          "elapsed_s": 10.018584542
+        }
+      ]
+    }
+  ],
+  "measured_http_200": 162064,
+  "container_binaries": {
+    "linux-baseline": "8e48f37dd88ed4bb84b22f6d5b08b464d09d1ded712b29758b3693c6df771b05",
+    "linux-candidate": "d0ab09c26e2f65973feab6de7981d5eda1fa03176955df3653e0fe724593fc66"
+  },
+  "scope": "Local comparative diagnostic, not Cloudflare/R2 capacity qualification",
+  "node_limits": {
+    "nodes_per_fleet": 3,
+    "cpu_per_node": 1,
+    "memory_bytes_per_node": 3221225472,
+    "cells_per_node": 1000,
+    "max_requests": 1024,
+    "max_cell_requests": 512,
+    "max_resident": 4096
+  },
+  "environment": {
+    "build": "Rust 1.98.1 release, opt-level=s, fat LTO, one codegen unit",
+    "platform": "Linux AMD64 binaries on an ARM64 Colima VM",
+    "vm": "6 vCPU, 10 GiB RAM; only one of the two ready fleets receives measured load at a time",
+    "store": "RustFS 1.0.3; 2 vCPU, 3 GiB RAM; separate buckets on one private instance",
+    "client": "oha 1.16.0; four threads; HTTP/1.1 keepalive; 30 s timeout; no retries; drain outstanding requests",
+    "traffic": "All requests enter node1; one-third local and two-thirds owner-forwarded",
+    "windows": "Two repeats; 2 s warmup and 10 s timed sample; reverse case and variant order on repeat 2",
+    "fixed_rate": "POST; concurrency 64; target 300 requests/s; oha latency correction enabled"
+  },
+  "audits": {
+    "closed_loop_windows": 16,
+    "rate_limited_windows": 4,
+    "http_errors": 0,
+    "transport_errors": 0,
+    "load_adapter_proof_errors": 0,
+    "full_counter_deltas": "Before/after all 3000 values; aggregate delta equals all successful POSTs including warmup; each value nondecreasing",
+    "ownership": "1000 unique resident counters per node at every before/load/after state capture",
+    "acknowledged_posts_including_warmup": 64999
+  },
+  "recovery": [
+    {
+      "cells": 3000,
+      "total": 37604,
+      "crash_survivor_vector_exact": true,
+      "restarted_vector_exact": true,
+      "read_retry_outcomes": {
+        "500": 556,
+        "TimeoutError": 24
+      },
+      "restarted_read_retry_outcomes": {
+        "RemoteDisconnected": 24
+      },
+      "survivor_audit_elapsed_s": 59.64371109008789,
+      "total_elapsed_s": 67.23723125457764,
+      "variant": "baseline"
+    },
+    {
+      "cells": 3000,
+      "total": 40795,
+      "crash_survivor_vector_exact": true,
+      "restarted_vector_exact": true,
+      "read_retry_outcomes": {
+        "500": 1691,
+        "TimeoutError": 24
+      },
+      "restarted_read_retry_outcomes": {
+        "RemoteDisconnected": 24
+      },
+      "survivor_audit_elapsed_s": 56.81924915313721,
+      "total_elapsed_s": 64.5309510231018,
+      "variant": "candidate"
+    }
+  ]
+}
