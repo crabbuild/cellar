@@ -230,7 +230,10 @@ fn failed_route_history_is_bounded_and_forgotten_operations_stay_stale() {
     .is_empty());
     assert_eq!(
         state.phase(cell),
-        Some(&Phase::ReadingOwner { op: current })
+        Some(&Phase::ReadingOwner {
+            op: current,
+            reconciles: 0
+        })
     );
     fail(&mut state, 2_001, current);
 }
@@ -283,7 +286,10 @@ fn expired_queue_history_is_reclaimed_and_old_timers_cannot_expire_new_demand() 
     );
     assert_eq!(
         state.phase("Account:held"),
-        Some(&Phase::ReadingOwner { op: held })
+        Some(&Phase::ReadingOwner {
+            op: held,
+            reconciles: 0
+        })
     );
     let effects = on_event(
         &mut state,
@@ -339,7 +345,10 @@ fn cancelled_queued_requests_do_not_leave_idle_routing_history() {
     assert_eq!(state.cached_routes(), 0);
     assert_eq!(
         state.phase("Account:held"),
-        Some(&Phase::ReadingOwner { op: held })
+        Some(&Phase::ReadingOwner {
+            op: held,
+            reconciles: 0
+        })
     );
 }
 
@@ -646,10 +655,11 @@ fn missing_owner_lease_requires_recovery_before_claiming() {
 
 #[test]
 fn ambiguous_takeover_preserves_the_acquire_reconciliation_bound() {
-    for log_state in [
-        None,
-        Some(cellar_logic::log_tier::LogState::Sealed),
-        Some(cellar_logic::log_tier::LogState::Open),
+    for (log_state, transient_recovery_failure) in [
+        (None, false),
+        (Some(cellar_logic::log_tier::LogState::Sealed), false),
+        (Some(cellar_logic::log_tier::LogState::Open), false),
+        (Some(cellar_logic::log_tier::LogState::Open), true),
     ] {
         let mut state = State::new("replacement", config());
         let cell = "Account:ambiguous-takeover";
@@ -666,18 +676,20 @@ fn ambiguous_takeover_preserves_the_acquire_reconciliation_bound() {
             result: Ok(Some(owner.clone())),
         }]);
         let mut attempts = 0;
+        let mut failed_recovery_attempt = None;
+        let mut now = 1;
         let mut completed = false;
         while let Some(event) = events.pop_front() {
             for effect in on_event(&mut state, event) {
                 match effect {
                     Effect::ReadOwner { op, .. } => events.push_back(Event::OwnerRead {
                         op,
-                        now_ms: 1,
+                        now_ms: now,
                         result: Ok(Some(owner.clone())),
                     }),
                     Effect::ReadNodeLease { op, .. } => events.push_back(Event::NodeLeaseRead {
                         op,
-                        now_ms: 1,
+                        now_ms: now,
                         result: Ok(Some(NodeLeaseRecord {
                             lineage: None,
                             node: "predecessor".into(),
@@ -701,7 +713,27 @@ fn ambiguous_takeover_preserves_the_acquire_reconciliation_bound() {
                         });
                     }
                     Effect::RecoverNodeLog { op, .. } => {
-                        events.push_back(Event::NodeLogRecovered { op, result: Ok(()) })
+                        let result = if transient_recovery_failure
+                            && attempts > 0
+                            && failed_recovery_attempt != Some(attempts)
+                        {
+                            failed_recovery_attempt = Some(attempts);
+                            Err(Failure::Definite)
+                        } else {
+                            Ok(())
+                        };
+                        events.push_back(Event::NodeLogRecovered { op, result });
+                    }
+                    Effect::ScheduleTimer {
+                        timer: timer @ Timer::OwnerLogRecoveryRetry { .. },
+                        at_mono_ms,
+                    } => {
+                        now = at_mono_ms + 1;
+                        events.push_back(Event::TimerFired {
+                            timer,
+                            now_ms: now,
+                            now_mono_ms: at_mono_ms,
+                        });
                     }
                     Effect::Complete {
                         request: 1, result, ..

@@ -49,7 +49,7 @@ enum Activation {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ColdStart {
-    ReadOwner,
+    ReadOwner { reconciles: u32 },
     Restore(RestoreSpec),
 }
 
@@ -209,6 +209,7 @@ pub enum Phase {
     WaitingActivation,
     ReadingOwner {
         op: OpId,
+        reconciles: u32,
     },
     ReadingNodeLease {
         op: OpId,
@@ -236,6 +237,7 @@ pub enum Phase {
     /// owner's cells cannot starve unrelated activations.
     WaitingOwnerLogRecovery {
         generation: u64,
+        reconciles: u32,
     },
     ReadingCapacity {
         op: OpId,
@@ -2179,9 +2181,13 @@ impl State {
         debug_assert!(self.activation_permits.contains(id));
         cell.waiting_activation = None;
         match start {
-            ColdStart::ReadOwner => {
+            ColdStart::ReadOwner { reconciles } => {
                 let op = self.cell_op(id);
-                set_phase(&mut self.occupied, cell, Phase::ReadingOwner { op });
+                set_phase(
+                    &mut self.occupied,
+                    cell,
+                    Phase::ReadingOwner { op, reconciles },
+                );
                 effects.push(Effect::ReadOwner {
                     op,
                     cell: id.to_string(),
@@ -2248,7 +2254,7 @@ impl State {
                     &mut self.occupied,
                     &mut cell,
                     match start {
-                        ColdStart::ReadOwner => Phase::Inactive,
+                        ColdStart::ReadOwner { .. } => Phase::Inactive,
                         ColdStart::Restore(spec) => Phase::Dormant { epoch: spec.epoch },
                     },
                 );
@@ -2339,7 +2345,12 @@ impl State {
                 ..Cell::default()
             };
             self.confirming_cells.insert(local.id.clone());
-            self.admit_or_queue_activation(&local.id, &mut cell, ColdStart::ReadOwner, effects);
+            self.admit_or_queue_activation(
+                &local.id,
+                &mut cell,
+                ColdStart::ReadOwner { reconciles: 0 },
+                effects,
+            );
             self.put_cell(local.id, cell);
         }
         if self.confirming_cells.is_empty() {
@@ -3539,7 +3550,12 @@ impl State {
                 // at TXID 1 inside a populated prefix and mix two writer
                 // lineages (CellarWriterGeneration.tla, #158). The CAS also
                 // settles the older resume-vs-release race deterministically.
-                self.admit_or_queue_activation(id, &mut cell, ColdStart::ReadOwner, effects);
+                self.admit_or_queue_activation(
+                    id,
+                    &mut cell,
+                    ColdStart::ReadOwner { reconciles: 0 },
+                    effects,
+                );
                 effects.push(Effect::ScheduleTimer {
                     timer: Timer::CellAlarm {
                         cell: id.to_string(),
@@ -3552,7 +3568,12 @@ impl State {
             }
             Phase::Inactive => {
                 cell.alarm_wake = true;
-                self.admit_or_queue_activation(id, &mut cell, ColdStart::ReadOwner, effects);
+                self.admit_or_queue_activation(
+                    id,
+                    &mut cell,
+                    ColdStart::ReadOwner { reconciles: 0 },
+                    effects,
+                );
                 effects.push(Effect::ScheduleTimer {
                     timer: Timer::CellAlarm {
                         cell: id.to_string(),
@@ -3914,7 +3935,7 @@ impl State {
                         self.admit_or_queue_activation(
                             &id,
                             &mut cell,
-                            ColdStart::ReadOwner,
+                            ColdStart::ReadOwner { reconciles: 0 },
                             effects,
                         );
                     }
@@ -3925,7 +3946,7 @@ impl State {
                         self.admit_or_queue_activation(
                             &id,
                             &mut cell,
-                            ColdStart::ReadOwner,
+                            ColdStart::ReadOwner { reconciles: 0 },
                             effects,
                         );
                     }
@@ -3978,7 +3999,12 @@ impl State {
         cell.alarm_wake = true;
         match cell.phase {
             Phase::Inactive | Phase::Remote { .. } | Phase::Dormant { .. } => {
-                self.admit_or_queue_activation(&id, &mut cell, ColdStart::ReadOwner, effects);
+                self.admit_or_queue_activation(
+                    &id,
+                    &mut cell,
+                    ColdStart::ReadOwner { reconciles: 0 },
+                    effects,
+                );
             }
             _ => {}
         }
@@ -4219,7 +4245,7 @@ impl State {
         let Some(id) = self.take_cell_op(op, |cell| {
             matches!(
                 cell.phase,
-                Phase::ReadingOwner { op: current }
+                Phase::ReadingOwner { op: current, .. }
                     | Phase::ReconcilingAcquire { op: current, .. }
                     if current == op
             )
@@ -4257,9 +4283,11 @@ impl State {
         // A reconcile re-reads and then acquires again: one attempt
         // continuing, not a new one. The count has to survive the round trip
         // or the bound below can never be reached.
-        let reconciles = reconciling_claim
-            .as_ref()
-            .map_or(0, |claim| claim.reconciles);
+        let reconciles = match &cell.phase {
+            Phase::ReconcilingAcquire { claim, .. } => claim.reconciles,
+            Phase::ReadingOwner { reconciles, .. } => *reconciles,
+            _ => unreachable!(),
+        };
         match result {
             Ok(Some(record))
                 if reconciling_claim.as_ref().is_some_and(|claim| {
@@ -4811,7 +4839,10 @@ impl State {
                     set_phase(
                         &mut self.occupied,
                         &mut cell,
-                        Phase::WaitingOwnerLogRecovery { generation },
+                        Phase::WaitingOwnerLogRecovery {
+                            generation,
+                            reconciles,
+                        },
                     );
                     effects.push(Effect::ScheduleTimer {
                         timer: Timer::OwnerLogRecoveryRetry {
@@ -4837,17 +4868,28 @@ impl State {
         let Some(mut cell) = self.cells.remove(id) else {
             return;
         };
-        if cell.phase != (Phase::WaitingOwnerLogRecovery { generation }) {
-            self.put_cell(id.to_string(), cell);
-            return;
-        }
+        let reconciles = match cell.phase {
+            Phase::WaitingOwnerLogRecovery {
+                generation: current,
+                reconciles,
+            } if current == generation => reconciles,
+            _ => {
+                self.put_cell(id.to_string(), cell);
+                return;
+            }
+        };
         if cell.requests.is_empty() && !cell.alarm_wake && !cell.resume_demand {
             // Every waiting request was cancelled during the backoff;
             // nothing demands the cell any more.
             cell.owner_log_recovery_attempts = 0;
             set_phase(&mut self.occupied, &mut cell, Phase::Inactive);
         } else {
-            self.admit_or_queue_activation(id, &mut cell, ColdStart::ReadOwner, effects);
+            self.admit_or_queue_activation(
+                id,
+                &mut cell,
+                ColdStart::ReadOwner { reconciles },
+                effects,
+            );
         }
         self.put_cell(id.to_string(), cell);
     }
@@ -4928,7 +4970,10 @@ impl State {
                 set_phase(
                     &mut self.occupied,
                     &mut cell,
-                    Phase::ReadingOwner { op: next },
+                    Phase::ReadingOwner {
+                        op: next,
+                        reconciles: 0,
+                    },
                 );
                 effects.push(Effect::ReadOwner {
                     op: next,
@@ -5224,7 +5269,12 @@ impl State {
             // requests it parked take the ordinary path: a wake if the
             // record still names this node, an owner read if it does not.
             if std::mem::take(&mut cell.handoff) && !cell.requests.is_empty() {
-                self.admit_or_queue_activation(&id, &mut cell, ColdStart::ReadOwner, effects);
+                self.admit_or_queue_activation(
+                    &id,
+                    &mut cell,
+                    ColdStart::ReadOwner { reconciles: 0 },
+                    effects,
+                );
             }
         }
         self.put_cell(id, cell);
@@ -5289,7 +5339,12 @@ impl State {
                 self.activity.rebalance_failed = self.activity.rebalance_failed.saturating_add(1);
                 set_phase(&mut self.occupied, &mut cell, Phase::Inactive);
                 if !cell.requests.is_empty() {
-                    self.admit_or_queue_activation(&id, &mut cell, ColdStart::ReadOwner, effects);
+                    self.admit_or_queue_activation(
+                        &id,
+                        &mut cell,
+                        ColdStart::ReadOwner { reconciles: 0 },
+                        effects,
+                    );
                 }
             }
             _ => {
@@ -5372,7 +5427,12 @@ impl State {
                 self.eviction_permits.remove(&id);
                 // The stop discarded the LTX metadata. Re-read ownership and
                 // claim epoch+1 before reusing the preserved SQLite image.
-                self.admit_or_queue_activation(&id, &mut cell, ColdStart::ReadOwner, effects);
+                self.admit_or_queue_activation(
+                    &id,
+                    &mut cell,
+                    ColdStart::ReadOwner { reconciles: 0 },
+                    effects,
+                );
             }
             // The node began leaving while the cell was between isolates.
             // Started again it would only be one more resident for the
@@ -7314,7 +7374,7 @@ fn set_phase(occupied: &mut usize, cell: &mut Cell, phase: Phase) {
 /// The in-flight operation a phase is waiting on, if it is waiting on one.
 fn phase_op(phase: &Phase) -> Option<OpId> {
     match phase {
-        Phase::ReadingOwner { op }
+        Phase::ReadingOwner { op, .. }
         | Phase::ReadingNodeLease { op, .. }
         | Phase::RecoveringOwnerLog { op, .. }
         | Phase::ReadingCapacity { op, .. }

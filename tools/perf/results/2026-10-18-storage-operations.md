@@ -23,7 +23,9 @@ binary hashes are in the [JSON evidence](2026-10-18-storage-operations.json).
 sample. `clone-delete` puts two 64-byte blobs and deletes both in separate
 atomic batches. `sql-read` executes a prepared request returning 42, checks its
 rows and read-only metadata, including database-size accounting. `alarm-read`
-checks a previously installed alarm. Every operation cycle verifies its result.
+checks a previously installed alarm. Bulk keys and values stay fixed across
+cycles; this isolates operation overhead rather than a changing-data workload.
+Every operation cycle verifies its result.
 
 ## Method
 
@@ -59,9 +61,10 @@ cargo run -p cellar --bin cellar-perf-storage --profile lab --locked -- 2000 5
 | Wake generation and proof identity | Cache fixed SQL only; keep SQL predicates, generation updates, publication identities, committed-state and unfinished-cursor checks. Existing work/alarm tests and a warm-query regression cover these boundaries. |
 | Ownership, durable acknowledgment and recovery | Output gates, replica policy and recovery admission are unchanged. The acquisition reconciliation budget now survives foreign-owner lease lookup and log recovery. Tests require bounded unconfirmed claims to refuse admission and confirmed readback to restore the predecessor. No application mutation retries are added. |
 
-The [storage regressions](../../../crates/cellar/storage/sqlite/transaction_cache_tests.rs)
-and [work tests](../../../crates/cellar/storage/sqlite/work.rs) exercise these
-boundaries. The [benchmark source](../storage_operations.rs) defines each cycle.
+The [storage regressions](../../../crates/cellar/storage/sqlite/transaction_cache_tests.rs),
+[work tests](../../../crates/cellar/storage/sqlite/work.rs), and
+[takeover regressions](../../../crates/cellar-logic/tests/routing_cache.rs)
+exercise these boundaries. The [benchmark source](../storage_operations.rs) defines each cycle.
 
 Before the changes, regression tests observed a warm query recompile after
 bulk writes and ten recompilations across ten accounting cycles. Ten repeated
@@ -84,14 +87,15 @@ warm-up. The cache stores compiled SQL, not application values.
   repetitions but failed under the broader suite and was removed.
 - A deterministic decision-core regression then demonstrated that foreign-owner
   lease lookup reset the ambiguous-acquisition reconciliation counter. The
-  counter now survives lease lookup and predecessor-log recovery. Unconfirmed
+  counter now survives lease lookup, predecessor-log recovery, recovery backoff
+  and activation queuing. Unconfirmed
   acquisition stops at the existing bound without admitting a writer; a
   confirmed readback preserves the predecessor restore identity. All 14 public
   decision-core integration tests passed. External simulation/conformance
   sources were not enabled.
 - The cold fixture retains its original recovery audit and adoption deadline;
   only diagnostic error context was added. No adoption or ambiguous application
-  mutation is retried. The final clean-source run passed all 86 node tests with normal output
-  capture, including the cold-follower deadline case, settlement replay race
+  mutation is retried. The clean-source run passed all 86 node tests with normal
+  output capture, including the cold-follower deadline case, settlement replay race
   and failed-predecessor admission test. All temporary probes are removed.
 - Cloudflare/R2 performance and fault qualification have not been repeated.
