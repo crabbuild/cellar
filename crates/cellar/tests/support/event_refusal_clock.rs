@@ -110,7 +110,7 @@ async fn read_status(
     client: &reqwest::Client,
     node: &Node,
     expires: i64,
-    lineage_return: bool,
+    recovery_pending: bool,
 ) -> Result<(Value, usize)> {
     let mut read_retries = 0;
     let recovered = tokio::time::timeout(Duration::from_secs(5), async {
@@ -129,13 +129,14 @@ async fn read_status(
                             || error
                                 .to_string()
                                 .contains("Unavailable: event RPC deadline elapsed")
-                            || lineage_return
+                            || recovery_pending
                                 && error.to_string().contains(
                                     "Unavailable: event RPC did not return a proven result",
                                 )) =>
                 {
                     // A standalone read can safely repeat after old-owner
-                    // transport loss or an unsubmitted RPC's deadline. The
+                    // transport loss, an unsubmitted RPC's deadline, or an
+                    // explicit recovery-pending refusal during startup. The
                     // enclosing audit budget still wins; no mutation, fetch,
                     // or receipt is replayed.
                     read_retries += 1;
@@ -1017,7 +1018,11 @@ async fn run_case(
             // It cannot create ownership on the permitted successor: send its
             // read-only request while the peers are still resolving bindings.
             // The original post-startup state audit below remains independent.
-            match recovered_status(&client, node, expires).await {
+            // The retained followers are still starting. An unproven read can
+            // be refused before they serve recovery evidence; keep this audit
+            // within its original five-second bound instead of cancelling the
+            // successor that their binding activation also needs.
+            match read_status(&client, node, expires, true).await {
                 Ok((_, read_retries)) => Ok(read_retries),
                 Err(error) => {
                     let read_error_elapsed_ms = cold_started.elapsed().as_millis();
