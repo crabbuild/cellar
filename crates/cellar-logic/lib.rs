@@ -182,6 +182,12 @@ struct CachedNodeLease {
     deadline: RemoteLeaseDeadline,
 }
 
+/// A foreign-owner lookup continues the original acquisition attempt.
+struct OwnerLookup {
+    record: OwnerRecord,
+    reconciles: u32,
+}
+
 /// Phases map onto the Durable Objects lifecycle states where Cloudflare has
 /// a name for them:
 ///
@@ -207,6 +213,8 @@ pub enum Phase {
     ReadingNodeLease {
         op: OpId,
         owner: OwnerRecord,
+        /// Retain the acquire budget across the foreign-owner lease lookup.
+        reconciles: u32,
         /// The wall instant when the read effect was issued. A returned
         /// snapshot can prove expiry only relative to its invocation; using
         /// response time lets transport delay age a previously live snapshot
@@ -220,6 +228,7 @@ pub enum Phase {
     RecoveringOwnerLog {
         op: OpId,
         owner: OwnerRecord,
+        reconciles: u32,
     },
     /// A dead-owner log recovery failed; the cell holds its requests and
     /// re-enters resolution when the retry timer fires. It holds no
@@ -4353,7 +4362,7 @@ impl State {
                     self.apply_node_lease_result(
                         &id,
                         &mut cell,
-                        record,
+                        OwnerLookup { record, reconciles },
                         now_ms,
                         Ok(Some(lease)),
                         effects,
@@ -4367,6 +4376,7 @@ impl State {
                         Phase::ReadingNodeLease {
                             op: next,
                             owner: record,
+                            reconciles,
                             issued_ms: now_ms,
                             issued_mono_ms: self.now_mono_ms,
                         },
@@ -4418,6 +4428,7 @@ impl State {
         let mut cell = self.cells.remove(&id).expect("cell found above");
         let Phase::ReadingNodeLease {
             owner: record,
+            reconciles,
             issued_ms,
             issued_mono_ms,
             ..
@@ -4426,6 +4437,7 @@ impl State {
             unreachable!()
         };
         let record = record.clone();
+        let reconciles = *reconciles;
         let issued_ms = *issued_ms;
         let issued_mono_ms = *issued_mono_ms;
         let result = result.map(|lease| {
@@ -4447,7 +4459,14 @@ impl State {
                     .insert(lease.record.node.clone(), lease.clone());
             }
         }
-        self.apply_node_lease_result(&id, &mut cell, record, issued_ms, result, effects);
+        self.apply_node_lease_result(
+            &id,
+            &mut cell,
+            OwnerLookup { record, reconciles },
+            issued_ms,
+            result,
+            effects,
+        );
         self.put_cell(id, cell);
     }
 
@@ -4596,11 +4615,12 @@ impl State {
         &mut self,
         id: &str,
         cell: &mut Cell,
-        record: OwnerRecord,
+        lookup: OwnerLookup,
         issued_ms: u64,
         result: Result<Option<CachedNodeLease>, Failure>,
         effects: &mut Vec<Effect>,
     ) {
+        let OwnerLookup { record, reconciles } = lookup;
         if result.as_ref().is_ok_and(|lease| {
             lease
                 .as_ref()
@@ -4687,6 +4707,7 @@ impl State {
                         Phase::RecoveringOwnerLog {
                             op: next,
                             owner: record,
+                            reconciles,
                         },
                     );
                     effects.push(Effect::RecoverNodeLog {
@@ -4709,7 +4730,7 @@ impl State {
                         epoch,
                         takeover: true,
                         prior,
-                        reconciles: 0,
+                        reconciles,
                     }),
                     WhenFull::ShedToAdmit,
                     effects,
@@ -4740,7 +4761,10 @@ impl State {
             return;
         };
         let mut cell = self.cells.remove(&id).expect("cell found above");
-        let Phase::RecoveringOwnerLog { owner, .. } = cell.phase.clone() else {
+        let Phase::RecoveringOwnerLog {
+            owner, reconciles, ..
+        } = cell.phase.clone()
+        else {
             unreachable!()
         };
         match result {
@@ -4759,7 +4783,7 @@ impl State {
                         epoch,
                         takeover: true,
                         prior,
-                        reconciles: 0,
+                        reconciles,
                     }),
                     WhenFull::ShedToAdmit,
                     effects,

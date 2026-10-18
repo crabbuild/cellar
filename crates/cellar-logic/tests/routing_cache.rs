@@ -645,6 +645,167 @@ fn missing_owner_lease_requires_recovery_before_claiming() {
 }
 
 #[test]
+fn ambiguous_takeover_preserves_the_acquire_reconciliation_bound() {
+    for log_state in [
+        None,
+        Some(cellar_logic::log_tier::LogState::Sealed),
+        Some(cellar_logic::log_tier::LogState::Open),
+    ] {
+        let mut state = State::new("replacement", config());
+        let cell = "Account:ambiguous-takeover";
+        let op = request(&mut state, 1, cell);
+        let owner = OwnerRecord {
+            lineage: None,
+            node: Some("predecessor".into()),
+            epoch: 7,
+            etag: "unchanged-owner".into(),
+        };
+        let mut events = VecDeque::from([Event::OwnerRead {
+            op,
+            now_ms: 1,
+            result: Ok(Some(owner.clone())),
+        }]);
+        let mut attempts = 0;
+        let mut completed = false;
+        while let Some(event) = events.pop_front() {
+            for effect in on_event(&mut state, event) {
+                match effect {
+                    Effect::ReadOwner { op, .. } => events.push_back(Event::OwnerRead {
+                        op,
+                        now_ms: 1,
+                        result: Ok(Some(owner.clone())),
+                    }),
+                    Effect::ReadNodeLease { op, .. } => events.push_back(Event::NodeLeaseRead {
+                        op,
+                        now_ms: 1,
+                        result: Ok(Some(NodeLeaseRecord {
+                            lineage: None,
+                            node: "predecessor".into(),
+                            addr: "predecessor:8081".into(),
+                            expires_ms: 0,
+                            peer_protocol: 1,
+                            generation: "prior-generation".into(),
+                            log_state,
+                            etag: "expired-lease".into(),
+                        })),
+                    }),
+                    Effect::CasOwner { op, .. } => {
+                        attempts += 1;
+                        assert!(
+                            attempts <= cellar_logic::MAX_ACQUIRE_RECONCILES + 1,
+                            "unchanged foreign ownership reset the reconciliation budget"
+                        );
+                        events.push_back(Event::OwnerCasCompleted {
+                            op,
+                            result: Err(Failure::Ambiguous),
+                        });
+                    }
+                    Effect::RecoverNodeLog { op, .. } => {
+                        events.push_back(Event::NodeLogRecovered { op, result: Ok(()) })
+                    }
+                    Effect::Complete {
+                        request: 1, result, ..
+                    } => {
+                        assert_eq!(result, Err(cellar_logic::RequestError::AcquireFailed));
+                        completed = true;
+                    }
+                    Effect::Restore { .. } => panic!("unproven ownership admitted a writer"),
+                    _ => {}
+                }
+            }
+            state.validate().unwrap();
+        }
+        assert!(completed, "unconfirmed takeover did not settle its request");
+        assert_eq!(attempts, cellar_logic::MAX_ACQUIRE_RECONCILES + 1);
+        assert_eq!(state.phase(cell), Some(&Phase::Inactive));
+    }
+}
+
+#[test]
+fn an_ambiguous_takeover_readback_retains_the_predecessor_restore() {
+    let mut state = State::new("replacement", config());
+    let cell = "Account:applied-takeover";
+    let op = request(&mut state, 1, cell);
+    let effects = on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 1,
+            result: Ok(Some(OwnerRecord {
+                lineage: None,
+                node: Some("predecessor".into()),
+                epoch: 7,
+                etag: "prior-owner".into(),
+            })),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReadNodeLease { op, .. } => Some(*op),
+            _ => None,
+        })
+        .unwrap();
+    let effects = on_event(
+        &mut state,
+        Event::NodeLeaseRead {
+            op,
+            now_ms: 1,
+            result: Ok(Some(NodeLeaseRecord {
+                lineage: None,
+                node: "predecessor".into(),
+                addr: "predecessor:8081".into(),
+                expires_ms: 0,
+                peer_protocol: 1,
+                generation: "prior-generation".into(),
+                log_state: Some(cellar_logic::log_tier::LogState::Sealed),
+                etag: "expired-lease".into(),
+            })),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::CasOwner { op, epoch: 8, .. } => Some(*op),
+            _ => None,
+        })
+        .unwrap();
+    let effects = on_event(
+        &mut state,
+        Event::OwnerCasCompleted {
+            op,
+            result: Err(Failure::Ambiguous),
+        },
+    );
+    let op = effects
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::ReadOwner { op, .. } => Some(*op),
+            _ => None,
+        })
+        .unwrap();
+    let effects = on_event(
+        &mut state,
+        Event::OwnerRead {
+            op,
+            now_ms: 1,
+            result: Ok(Some(OwnerRecord {
+                lineage: None,
+                node: Some("replacement".into()),
+                epoch: 8,
+                etag: "applied-owner".into(),
+            })),
+        },
+    );
+    assert!(effects.iter().any(|effect|matches!(effect, Effect::Restore { spec, .. }
+        if spec.epoch == 8 && !spec.fresh && spec.took_over && spec.prior.as_deref() == Some("predecessor"))));
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::CasOwner { .. } | Effect::Complete { .. })));
+    state.validate().unwrap();
+}
+
+#[test]
 fn a_reused_node_name_cannot_route_or_claim_another_lineage() {
     for expires_ms in [0, 100_000] {
         let mut state = State::new("replacement", config());
