@@ -1118,10 +1118,25 @@ async fn run_case(
         if read_cut.is_some() {
             let mut definition = graph(1, false);
             definition.primary.event_streams.clear();
-            source.adopt(definition, applications("source")?).await?;
+            source
+                .adopt(definition, applications("source")?)
+                .await
+                .with_context(|| {
+                    format!(
+                        "restore cold source bindings after {:?}",
+                        cold_started.elapsed()
+                    )
+                })?;
             let mut definition = graph(1, false);
             definition.primary.event_streams.clear();
-            node.adopt(definition, applications("witness")?).await?;
+            node.adopt(definition, applications("witness")?)
+                .await
+                .with_context(|| {
+                    format!(
+                        "restore cold witness bindings after {:?}",
+                        cold_started.elapsed()
+                    )
+                })?;
         }
         super::super::ready(&source).await?;
         super::super::ready(&node).await?;

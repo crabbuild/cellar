@@ -128,11 +128,9 @@ pub(crate) fn snapshot(
     // implicit write open. Publishing that sequence before rollback would
     // let the next installation reuse an already published key.
     super::ensure_no_unfinished_write_cursor(c)?;
-    let (epoch, sequence, at_ms): (String, u64, Option<i64>) = c.query_row(
-        "SELECT epoch,sequence,at_ms FROM __sys_cell_wake WHERE scope=?1",
-        [scope],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )?;
+    let (epoch, sequence, at_ms): (String, u64, Option<i64>) = c
+        .prepare_cached("SELECT epoch,sequence,at_ms FROM __sys_cell_wake WHERE scope=?1")?
+        .query_row([scope], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
     let epoch = u64::from_str_radix(&epoch, 16)?;
     anyhow::ensure!(epoch > 0, "invalid wake writer epoch");
     Ok(AlarmSnapshot::committed(
