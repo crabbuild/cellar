@@ -5137,7 +5137,7 @@ impl NodeLogManager {
                     cancellation,
                     claim.as_mut().map(|(dead, beat, _)| (*dead, &mut **beat)),
                     move || {
-                        let batch = rows.next_batch()?;
+                        let batch = rows.next_upload_batch()?;
                         Ok((rows, batch))
                     },
                 )

@@ -720,3 +720,40 @@ fn valid_foreign_descriptor_cannot_hide_a_missing_row_as_a_duplicate_key() -> Re
     );
     Ok(())
 }
+
+#[test]
+fn upload_batches_bound_payload_and_metadata_without_losing_rows() -> Result<()> {
+    for (count, length) in [(5000, 0), (5, 1 << 20), (2, BATCH_BYTES + 1)] {
+        let (_directory, mut rows) = gather()?;
+        for index in 0..count {
+            rows.insert(
+                (format!("cell-{index:05}"), 1, 1),
+                vec![index as u8; length],
+                Priority::Preferred,
+                Duplicates::First,
+            )?;
+        }
+        let mut sorted = rows.finish()?;
+        let mut recovered = 0;
+        loop {
+            let batch = sorted.next_upload_batch()?;
+            if batch.is_empty() {
+                break;
+            }
+            assert!(batch.len() <= UPLOAD_BATCH_ROWS);
+            let bytes: usize = batch
+                .iter()
+                .map(|((cell, _, _), body)| cell.len() + 64 + body.len())
+                .sum();
+            assert!(bytes <= BATCH_BYTES || batch.len() == 1);
+            for ((cell, epoch, txid), body) in batch {
+                assert_eq!((cell, epoch, txid), (format!("cell-{recovered:05}"), 1, 1));
+                assert_eq!(body.len(), length);
+                assert!(body.iter().all(|byte| *byte == recovered as u8));
+                recovered += 1;
+            }
+        }
+        assert_eq!(recovered, count);
+    }
+    Ok(())
+}

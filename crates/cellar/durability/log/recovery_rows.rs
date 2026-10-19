@@ -20,6 +20,12 @@ pub(super) type Batch = BTreeMap<Key, Bytes>;
 
 pub(super) const BATCH_BYTES: usize = 4 << 20;
 const BATCH_ROWS: usize = 128;
+
+// Uploads merge each cell's contiguous rows before doing object-store I/O.
+// A small scan batch splits those histories and serializes repeated listings
+// and PUTs. Keep the same byte budget, with a separate metadata ceiling for
+// this consumer; ordinary spool visitors retain their smaller scan batches.
+const UPLOAD_BATCH_ROWS: usize = 4096;
 const RUN_ROWS: usize = 128;
 const RUN_BYTES: usize = 1 << 20;
 const BUFFER_BYTES: usize = 128 << 10;
@@ -751,6 +757,14 @@ impl SortedRows {
     }
 
     pub fn next_batch(&mut self) -> Result<Batch> {
+        self.next_batch_with_limit(BATCH_ROWS)
+    }
+
+    pub fn next_upload_batch(&mut self) -> Result<Batch> {
+        self.next_batch_with_limit(UPLOAD_BATCH_ROWS)
+    }
+
+    fn next_batch_with_limit(&mut self, row_limit: usize) -> Result<Batch> {
         self.check_files()?;
         let mut batch = Batch::new();
         let mut held = 0_u64;
@@ -760,7 +774,7 @@ impl SortedRows {
                 .checked_add(meta.key.0.len() as u64 + 64)
                 .context("gather batch overflow")?;
             if !batch.is_empty()
-                && (held.saturating_add(size) > BATCH_BYTES as u64 || batch.len() == BATCH_ROWS)
+                && (held.saturating_add(size) > BATCH_BYTES as u64 || batch.len() == row_limit)
             {
                 self.pending = Some(meta);
                 break;
