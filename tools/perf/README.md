@@ -161,6 +161,10 @@ tests age maintenance outside proof capture on the same resource limits and
 retains rejected pilot windows, and records per-cell receipts and missed
 single-node recovery targets alongside the performance limits.
 
+The [Cloudflare peer relay](cloudflare/README.md) carries native peer traffic
+through the benchmark's WebSocket bridge. Its tests cover byte ordering and
+flow control; its diagnostic isolates small-response TCP delays.
+
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each
 POST makes one storage transaction in one cell; the SDK output gate proves it
