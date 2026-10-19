@@ -24,6 +24,17 @@ struct Executor(Option<tokio::runtime::Runtime>);
 
 impl Executor {
     fn new(label: &str) -> Result<Self> {
+        // Keep renewal timing and fencing evidence in failed fleet tests.
+        static TRACE: std::sync::Once = std::sync::Once::new();
+        TRACE.call_once(|| {
+            let _ = tracing_subscriber::fmt()
+                .with_env_filter(
+                    "cellar::actor::effects=info,cellar::actor=warn,cellar::node::driver=info",
+                )
+                .with_ansi(false)
+                .with_test_writer()
+                .try_init();
+        });
         Ok(Self(Some(
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(1)
