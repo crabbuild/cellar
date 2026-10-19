@@ -864,6 +864,77 @@ async fn public_node_reports_missing_and_replaced_lease_authority() -> Result<()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn public_node_renews_short_authority_while_its_host_worker_is_blocked() -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("lease-core")?;
+    let host = Executor::new("blocked-host")?;
+    let bucket = Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
+    let observer = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let (config, mut services) = inputs(
+        "live",
+        &directory.path().join("node"),
+        &core,
+        Some(bucket.clone()),
+        0,
+    )
+    .await?;
+    let ttl_ms = config.actor.lease_ttl_ms;
+    ensure!(
+        ttl_ms == 1_000,
+        "this fixture must exercise short authority"
+    );
+    services.host_executor = host.handle();
+    let node = Node::start(config, services, graph(), applications("live", None)?).await?;
+    ready(&node).await?;
+    let client = client()?;
+    ensure!(call(&client, &node, reqwest::Method::GET, "/").await? == "live:0");
+    let generation = node.info().lease_generation.clone();
+    let expiry = || {
+        observer.run(async {
+            let (bytes, _) = bucket
+                .get("nodes/live.json")
+                .await?
+                .context("published node lease missing")?;
+            let lease: serde_json::Value = serde_json::from_slice(&bytes)?;
+            ensure!(lease["generation"].as_str() == Some(generation.as_str()));
+            lease["expires_ms"]
+                .as_u64()
+                .context("published node lease expiry missing")
+        })
+    };
+    let initial = expiry().await??;
+    let (release, blocked) = std::sync::mpsc::channel::<()>();
+    let (entered, paused) = tokio::sync::oneshot::channel();
+    // The host has exactly one async worker. A dropped sender also unblocks
+    // it on failure, so a failed observation cannot strand this test's runtime.
+    let blocking_host = host.handle().spawn(async move {
+        let _ = entered.send(());
+        blocked.recv()
+    });
+    paused.await?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while expiry().await?? < initial + 2 * ttl_ms {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await
+    .context("short node authority stopped renewing with its host worker blocked")??;
+    release.send(())?;
+    blocking_host.await??;
+    ready(&node).await?;
+    ensure!(call(&client, &node, reqwest::Method::GET, "/").await? == "live:0");
+    stopped(node).await?;
+    observer.shutdown().await;
+    ensure!(
+        core.handle().spawn(async { 7 }).await? == 7
+            && host.handle().spawn(async { 7 }).await? == 7,
+        "node shutdown stopped a caller-owned executor"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn public_node_reports_expired_authority_after_its_executor_resumes() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let core = Executor::new("application-core")?;
