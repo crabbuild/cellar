@@ -36,6 +36,8 @@ maintenance job in flight. This spreads age-triggered checkpoints across cells.
 Size-triggered checkpoints still run during capture. Both paths share exclusive
 database ownership and the same WAL sealing and LTX staging rules; maintenance
 does not acknowledge writes. Standalone `Db::sync` retains its combined policy.
+A checkpoint captures its own sealing write before clearing maintenance state,
+so a later capture cannot re-arm idle maintenance from that control write.
 
 ## Select backend features
 

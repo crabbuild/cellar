@@ -155,6 +155,12 @@ and proposes bounded maintenance and transport qualification. It also fixes
 stale Cargo artifacts in historical benchmark builds. No runtime improvement
 is qualified by that investigation.
 
+The [paced checkpoint comparison](results/2026-10-18-counter-maintenance.md)
+tests age maintenance outside proof capture on the same resource limits and
+3,000-counter workload. It separates mixed ingress from routing to each owner,
+retains rejected pilot windows, and records per-cell receipts and missed
+single-node recovery targets alongside the performance limits.
+
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each
 POST makes one storage transaction in one cell; the SDK output gate proves it
