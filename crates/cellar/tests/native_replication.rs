@@ -45,6 +45,97 @@ async fn start(
         .await?
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn idle_replica_maintains_aged_wal_and_releases_its_database_on_close() -> Result<()> {
+    use std::sync::atomic::AtomicI64;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_millis() as i64;
+    let clock = Arc::new(AtomicI64::new(now));
+    let selected = clock.clone();
+    let domain = ExecutionDomain::with_wall_clock(
+        tokio::runtime::Handle::current(),
+        Arc::new(move || selected.load(Ordering::SeqCst)),
+    );
+    let directory = tempfile::tempdir()?;
+    let storage = ReplicaStorage::new(
+        Arc::new(object_store::memory::InMemory::new()),
+        ReplicaStorageOptions::default(),
+    )?;
+    let replica = start(&domain, directory.path(), storage).await?;
+    domain
+        .run(async {
+            let active = replica
+                .ltx()
+                .activate(ActivationOptions {
+                    cell: CELL,
+                    epoch: 1,
+                    fresh: true,
+                    took_over: false,
+                    resume_local: false,
+                    prior: None,
+                })
+                .await?;
+            let writer = rusqlite::Connection::open(&active.path)?;
+            writer.execute_batch(
+                "CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES (7)",
+            )?;
+            ensure!(matches!(
+                replica
+                    .ltx()
+                    .sync_wait(CELL, 1, Duration::from_secs(5))
+                    .await,
+                SyncWait::Durable
+            ));
+            // Immutable SQLite reads only the main file, so the table becomes
+            // visible here only after maintenance backfills its WAL frames.
+            let uri = format!("file:{}?immutable=1", active.path.display());
+            let main_value = || -> Result<i64> {
+                let main = rusqlite::Connection::open_with_flags(
+                    &uri,
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY
+                        | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+                )?;
+                Ok(main.query_row("SELECT value FROM counter", [], |row| row.get(0))?)
+            };
+            assert!(
+                main_value().is_err(),
+                "capture must leave age maintenance to its owner"
+            );
+            clock.fetch_add(120_000, Ordering::SeqCst);
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while main_value().ok() != Some(7) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await?;
+            writer.execute("UPDATE counter SET value = 8", [])?;
+            ensure!(matches!(
+                replica
+                    .ltx()
+                    .sync_wait(CELL, 1, Duration::from_secs(5))
+                    .await,
+                SyncWait::Durable
+            ));
+            let snapshot = replica
+                .restore_snapshot(CELL)
+                .await?
+                .context("durable snapshot")?;
+            let restored = rusqlite::Connection::open(snapshot.path())?;
+            assert_eq!(
+                restored.query_row("SELECT value FROM counter", [], |row| row.get::<_, i64>(0))?,
+                8
+            );
+            drop(restored);
+            drop(writer);
+            replica.ltx().close_in_place(CELL, 1).await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
+    domain.shutdown().await;
+    Ok(())
+}
+
 async fn write(replica: &Replication, value: i64) -> Result<()> {
     let active = replica
         .ltx()
