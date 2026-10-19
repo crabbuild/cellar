@@ -19,6 +19,22 @@ data volume and workload identical when comparing builds. See the
 
 ## Fleet validation
 
+For revision comparisons, record native executable hashes as well as source and
+image digests. Archived source retains old timestamps; a shared Cargo target
+cache can otherwise reuse a newer executable. The performance Dockerfiles
+refresh source timestamps inside the build step. Their opt-in regression checks
+current-to-historical builds against the same target cache:
+
+```sh
+CELLAR_PERF_DOCKER_TEST=1 python3 -m unittest discover \
+  -s tools/perf -p test_build_freshness.py
+```
+
+Use the intended Docker host and the checkout's writable `CARGO_TARGET_DIR`.
+The test builds tiny fixtures, creates unique target caches and removes its
+tagged images. A revision comparison must stop if the deployed executable does
+not match the verified build; revision labels alone do not establish identity.
+
 The [FleetCare application and standard suite](../../examples/fleetcare/README.md)
 run 10,000 cells on three nodes, in embedded and daemon modes, using Colima and
 RustFS. Run `python3 tools/perf/fleetcare.py` from the repository root. The suite
@@ -126,6 +142,32 @@ The [counter request-path comparison](results/2026-10-18-counter-hot-path.md)
 records SQLite cache and read-lock fixes with three nodes and 3,000 resident
 counters. It includes the high-concurrency write-tail regression and local
 measurement limits.
+
+The [Cloudflare counter rerun](results/2026-10-18-counter-cloudflare-comparison.md)
+compares the original and optimized builds on three 1-vCPU/3-GiB nodes with R2.
+It records mixed performance, a rejected baseline write window and a refused
+all-disk-loss restore. The run does not establish a consistent end-to-end gain
+or full qualification.
+
+The [PR #87 investigation](results/2026-10-18-pr87-investigation.md) isolates
+its revisions locally, records write regressions and checkpoint/append waits,
+and proposes bounded maintenance and transport qualification. It also fixes
+stale Cargo artifacts in historical benchmark builds. No runtime improvement
+is qualified by that investigation.
+
+The [paced checkpoint comparison](results/2026-10-18-counter-maintenance.md)
+tests age maintenance outside proof capture on the same resource limits and
+3,000-counter workload. It separates mixed ingress from routing to each owner,
+retains rejected pilot windows, and records per-cell receipts and missed
+single-node recovery targets alongside the performance limits.
+
+The [Cloudflare peer relay](cloudflare/README.md) carries native peer traffic
+through the benchmark's WebSocket bridge. Its tests cover byte ordering and
+flow control; its diagnostic isolates small-response TCP delays.
+
+The [relay and recovery follow-up](results/2026-10-18-counter-relay-recovery.md)
+compares socket settings on one live fleet, measures recovery upload phases,
+and verifies acknowledged state and new writes after a node loss.
 
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each

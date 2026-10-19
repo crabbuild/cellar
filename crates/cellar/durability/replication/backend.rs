@@ -1571,6 +1571,10 @@ impl LtxRepl {
             "ltx_bundle",
             bundle_loop(cells.clone(), registration.clone(), stop.clone(), flush_ms),
         );
+        tasks.spawn_owned(
+            "ltx_maintenance",
+            maintenance_loop(cells.clone(), stop.clone()),
+        );
         let compaction_queue =
             compaction.map(|config| start_compaction_loop(config, tasks.clone()));
         Self {
@@ -4151,7 +4155,7 @@ async fn sync_cell(handle: CellHandle) -> Option<bool> {
         let mut replica = handle_.replica.lock().unwrap();
         let from = replica.as_mut()?.pos().txid.0 + 1;
         let db = replica.as_mut()?.db_mut()?;
-        if let Err(error) = db.sync() {
+        if let Err(error) = db.capture() {
             warn!(%error, "ltx wal capture failed");
             return Some(Err(()));
         }
@@ -4726,6 +4730,53 @@ async fn sync_loop(
     }
 }
 
+/// Pace optional age checkpoints across residents instead of making every
+/// aged cell in a proof round perform maintenance at once. One database is
+/// visited per tick, with one blocking job in flight. Size thresholds remain
+/// enforced by every foreground capture, regardless of maintenance backlog.
+async fn maintenance_loop(cells: Arc<Mutex<BTreeMap<(String, u64), CellHandle>>>, stop: StopToken) {
+    let mut tick = asyncrt::interval(Duration::from_millis(10));
+    tick.set_missed_tick_behavior(asyncrt::MissedTickBehavior::Delay);
+    let mut cursor = None;
+    loop {
+        asyncrt::select_biased! {
+            "stop takes precedence over another maintenance visit";
+            _ = stop.stopped() => break,
+            _ = tick.tick() => {},
+        }
+        let next = {
+            let map = cells.lock().unwrap();
+            let next = cursor.as_ref().and_then(|key| {
+                map.range((std::ops::Bound::Excluded(key), std::ops::Bound::Unbounded))
+                    .next()
+            });
+            next.or_else(|| map.first_key_value())
+                .map(|(key, handle)| (key.clone(), handle.clone()))
+        };
+        let Some(((cell, epoch), handle)) = next else {
+            cursor = None;
+            continue;
+        };
+        cursor = Some((cell.clone(), epoch));
+        // Removal takes this same mutex and takes the database out of the
+        // slot. A retained handle cannot maintain a closed/replaced epoch.
+        // This task neither reads proof tickets nor advances watermarks.
+        let result = asyncrt::blocking(move || {
+            let mut replica = handle.replica.lock().unwrap();
+            if let Some(db) = managed_db_mut(&mut replica) {
+                db.checkpoint_if_due()?;
+            }
+            Ok::<_, cellar_ltx::Error>(())
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => warn!(cell, epoch, %error, "ltx maintenance checkpoint failed"),
+            Err(error) => warn!(cell, epoch, %error, "ltx maintenance task failed"),
+        }
+    }
+}
+
 /// The bundle loop: paced like the per-cell tiering it replaces, but the
 /// unit is the node, not the cell. Every dirty cell's captured L0 segments
 /// go up as ONE object per flush interval — the Class A collapse — and the
@@ -4780,7 +4831,7 @@ async fn bundle_loop(
                     let Some(db) = managed_db_mut(&mut replica) else {
                         continue;
                     };
-                    if db.sync().is_err() {
+                    if db.capture().is_err() {
                         continue;
                     }
                     let Ok(pos) = db.pos() else { continue };
@@ -5104,7 +5155,7 @@ async fn ship_loop(
                     let Some(db) = managed_db_mut(&mut replica) else {
                         continue;
                     };
-                    let synced = db.sync();
+                    let synced = db.capture();
                     sync_us += asyncrt::mono_us().saturating_sub(sync_started);
                     let cell_timing = db.last_sync_timing();
                     timing.prepare_us += cell_timing.prepare_us;

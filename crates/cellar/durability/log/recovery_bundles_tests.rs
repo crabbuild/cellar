@@ -544,3 +544,92 @@ async fn cancelled_upload(size: UploadSize) -> Result<()> {
     anyhow::ensure!(reserved, "cancelled recovery returned scan admission while an entered SQLite upload still held its body");
     Ok(())
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn recovery_upload_keeps_small_cell_histories_together_and_restores_every_commit(
+) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let outcome = domain
+        .run(async {
+            let mut fixture = fixture(directory.path()).await?;
+            let manager = &fixture.manager;
+            let outcome = async {
+                let rows = manager.recovery_rows();
+                let root = directory.path().to_owned();
+                let (rows, positions) = crate::asyncrt::blocking(move || {
+                    let mut rows = rows;
+                    let mut positions = Vec::new();
+                    for index in 0..3 {
+                        let cell = format!("upload-history-{index}");
+                        let path = root.join(format!("source-{index}.sqlite"));
+                        let mut db = cellar_ltx::Db::open(&path)?;
+                        db.min_checkpoint_page_n = u32::MAX;
+                        db.truncate_page_n = 0;
+                        db.checkpoint_interval = Duration::ZERO;
+                        let writer = rusqlite::Connection::open(&path)?;
+                        writer.execute_batch(
+                            "CREATE TABLE counter(value INTEGER); INSERT INTO counter VALUES (0)",
+                        )?;
+                        for value in 1..=256 {
+                            writer.execute("UPDATE counter SET value = ?1", [value])?;
+                            db.capture()?;
+                        }
+                        let position = db.pos()?;
+                        for txid in 1..=position.txid.0 {
+                            rows.insert(
+                                (cell.clone(), 1, txid),
+                                db.read_ltx_file(0, TXID(txid), TXID(txid))?,
+                                recovery_rows::Priority::Preferred,
+                                recovery_rows::Duplicates::First,
+                            )?;
+                        }
+                        positions.push((cell, position));
+                        db.close()?;
+                    }
+                    anyhow::Ok((rows, positions))
+                })
+                .await??;
+                let count = manager.upload_spilled(rows, None).await?;
+                assert_eq!(
+                    count as u64,
+                    positions.iter().map(|(_, pos)| pos.txid.0).sum::<u64>()
+                );
+                let storage = ReplicaStorage::new(
+                    manager.bucket.store.clone(),
+                    ReplicaStorageOptions {
+                        prefix: manager.bucket.prefix.clone(),
+                        ..Default::default()
+                    },
+                )?;
+                for (index, (cell, position)) in positions.iter().enumerate() {
+                    let client = storage.client_for(cell, 1);
+                    let files = client.ltx_files(0, TXID(0)).await?;
+                    assert_eq!(
+                        files.len(),
+                        1,
+                        "small contiguous history was split into avoidable uploads"
+                    );
+                    let restored = directory.path().join(format!("restored-{index}.sqlite"));
+                    cellar_ltx::restore(&client, &restored, position.txid).await?;
+                    let value = crate::asyncrt::blocking(move || {
+                        let connection = rusqlite::Connection::open(restored)?;
+                        anyhow::Ok(connection.query_row(
+                            "SELECT value FROM counter",
+                            [],
+                            |row| row.get::<_, i64>(0),
+                        )?)
+                    })
+                    .await??;
+                    assert_eq!(value, 256, "recovery omitted committed state");
+                }
+                Ok(())
+            }
+            .await;
+            fixture.owner.shutdown_local().await;
+            outcome
+        })
+        .await;
+    domain.shutdown().await;
+    outcome?
+}

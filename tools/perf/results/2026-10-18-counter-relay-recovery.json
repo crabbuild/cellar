@@ -1,0 +1,993 @@
+{
+  "date": "2026-10-18",
+  "production_qualified": false,
+  "runtime_commit": "5ecf5ce2b89ca6791c1642863e45d4f235fe4efd",
+  "relay_commit": "446bc3d2213aa58c41d1861132cd3633773efeee",
+  "source_provenance": {
+    "runtime_commit": "5ecf5ce2b89ca6791c1642863e45d4f235fe4efd",
+    "source_sha256": {
+      "Cargo.lock": "f20decca1b76e9088ffffe4ec2a7715906be5118e8cb17737b3c956faf47db93",
+      "examples/counter/main.rs": "f08bffee25208863248ec978915fb13ac4ffdcf1f0e48417b46e56b16fcde070",
+      "examples/native-counter/main.rs": "4903cf5f6c03b5bd271a156d8b95c334c5ddf272d6f25654d428105bacc28721",
+      "crates/cellar-ltx/src/db.rs": "2b96d8c8b640130eefb3b8a138da035ac5e0aff8b98b7eb1ad654ecb1d203e20",
+      "crates/cellar/durability/replication/backend.rs": "0ee17b424340f24aa01f77ec3ce818e7b4de6dfcab1d72fb4ca308adfb1315a5",
+      "crates/cellar/durability/log/mod.rs": "b155347bb3631055d7b4379b2ff1bb12cc8113554f848a2046698da5ed448552",
+      "crates/cellar/durability/log/recovery_rows.rs": "c37cea3ded7a47b77bc149c1a687875969f81dea8f3ac92d8a775ffce8b6c494"
+    },
+    "runtime_source_exact_match": true,
+    "counter_source_exact_match": true,
+    "native_counter_wrapper_exact_match": false,
+    "binary_sha256": "7b026b123d6045e8c3aee1b8b934b0ec30df0d3f067ec4ea22fe9a876829797e"
+  },
+  "private_host_wrapper_unchanged_between_variants": true,
+  "config": {
+    "nodes": 3,
+    "vcpu_per_node": 1,
+    "memory_mib_per_node": 3072,
+    "disk_mb_per_node": 6000,
+    "cells": 3000,
+    "cells_per_node_during_timed_windows": 1000,
+    "store": "Cloudflare R2 Standard WNAM",
+    "durability": "fleet",
+    "counter_business_source": "examples/counter/main.rs",
+    "client": "oha 1.16.0; Mac Internet client; HTTP/1.1 keepalive; four workers; 30s timeout; drain outstanding requests",
+    "mutation_retries": 0,
+    "warmup_s_per_window": 3
+  },
+  "same_fleet_crossover": true,
+  "c64": {
+    "GET": {
+      "false": {
+        "windows": 2,
+        "goodput_rps": 427.3977774926247,
+        "mean_window_p50_ms": 100.237625,
+        "worst_window_p99_ms": 461.01575
+      },
+      "true": {
+        "windows": 2,
+        "goodput_rps": 452.4272473256463,
+        "mean_window_p50_ms": 87.089729,
+        "worst_window_p99_ms": 399.222333
+      }
+    },
+    "POST": {
+      "false": {
+        "windows": 2,
+        "goodput_rps": 122.79835587433575,
+        "mean_window_p50_ms": 514.7213335,
+        "worst_window_p99_ms": 895.755292
+      },
+      "true": {
+        "windows": 2,
+        "goodput_rps": 118.04131312523609,
+        "mean_window_p50_ms": 529.1158335,
+        "worst_window_p99_ms": 964.512708
+      }
+    }
+  },
+  "cloud_windows": [
+    {
+      "label": "off-r1-get",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "GET",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.453951083,
+      "successes": 6050,
+      "goodput_rps": 391.48564451295925,
+      "p50_ms": 114.03516599999999,
+      "p95_ms": 347.552791,
+      "p99_ms": 461.01575,
+      "statuses": {
+        "200": 6050
+      },
+      "transport_errors": {},
+      "counter_delta": 0,
+      "acknowledged_including_warmup": 0,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 512,
+        "fleet": 512,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 38159026
+      },
+      "passed": true,
+      "started_unix": 1792380887.1471481,
+      "finished_unix": 1792380904.258878,
+      "relay_tcp_nodelay": false
+    },
+    {
+      "label": "on-r1-get",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "GET",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.366408334,
+      "successes": 6857,
+      "goodput_rps": 446.2330982594075,
+      "p50_ms": 87.36395800000001,
+      "p95_ms": 302.063916,
+      "p99_ms": 399.222333,
+      "statuses": {
+        "200": 6857
+      },
+      "transport_errors": {},
+      "counter_delta": 0,
+      "acknowledged_including_warmup": 0,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 0,
+        "fleet": 0,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 0
+      },
+      "passed": true,
+      "started_unix": 1792380934.918707,
+      "finished_unix": 1792380952.0783691,
+      "relay_tcp_nodelay": true
+    },
+    {
+      "label": "on-r1-post",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "POST",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.56988525,
+      "successes": 1898,
+      "goodput_rps": 121.90199025391018,
+      "p50_ms": 518.2061249999999,
+      "p95_ms": 743.683625,
+      "p99_ms": 875.37,
+      "statuses": {
+        "200": 1898
+      },
+      "transport_errors": {},
+      "counter_delta": 2356,
+      "acknowledged_including_warmup": 2356,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 2356,
+        "fleet": 2356,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 697267136
+      },
+      "passed": true,
+      "started_unix": 1792380979.9763358,
+      "finished_unix": 1792380997.059902,
+      "relay_tcp_nodelay": true
+    },
+    {
+      "label": "off-r1-post",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "POST",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.551334917,
+      "successes": 1988,
+      "goodput_rps": 127.83468497143679,
+      "p50_ms": 496.352917,
+      "p95_ms": 724.584958,
+      "p99_ms": 839.079667,
+      "statuses": {
+        "200": 1988
+      },
+      "transport_errors": {},
+      "counter_delta": 2449,
+      "acknowledged_including_warmup": 2449,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 2449,
+        "fleet": 2449,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 677992780
+      },
+      "passed": true,
+      "started_unix": 1792381031.938516,
+      "finished_unix": 1792381049.004148,
+      "relay_tcp_nodelay": false
+    },
+    {
+      "label": "off-rate-get-200",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "GET",
+      "clients": 64,
+      "duration_s": 30,
+      "offered_qps": 200,
+      "seconds": 30.364600583,
+      "successes": 6000,
+      "goodput_rps": 197.59851553453908,
+      "p50_ms": 183.85875,
+      "p95_ms": 291.518042,
+      "p99_ms": 386.16774999999996,
+      "statuses": {
+        "200": 6000
+      },
+      "transport_errors": {},
+      "counter_delta": 0,
+      "acknowledged_including_warmup": 0,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 207,
+        "fleet": 207,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 9249677
+      },
+      "passed": true,
+      "started_unix": 1792381083.035917,
+      "finished_unix": 1792381115.081501,
+      "relay_tcp_nodelay": false
+    },
+    {
+      "label": "on-rate-get-200",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "GET",
+      "clients": 64,
+      "duration_s": 30,
+      "offered_qps": 200,
+      "seconds": 30.276173417,
+      "successes": 6000,
+      "goodput_rps": 198.17563855777806,
+      "p50_ms": 181.85675,
+      "p95_ms": 294.947083,
+      "p99_ms": 396.15716699999996,
+      "statuses": {
+        "200": 6000
+      },
+      "transport_errors": {},
+      "counter_delta": 0,
+      "acknowledged_including_warmup": 0,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 0,
+        "fleet": 0,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 0
+      },
+      "passed": true,
+      "started_unix": 1792381142.864238,
+      "finished_unix": 1792381174.975539,
+      "relay_tcp_nodelay": true
+    },
+    {
+      "label": "on-r2-get",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "GET",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.283823459,
+      "successes": 7010,
+      "goodput_rps": 458.65486596366736,
+      "p50_ms": 86.8155,
+      "p95_ms": 290.496,
+      "p99_ms": 377.637208,
+      "statuses": {
+        "200": 7010
+      },
+      "transport_errors": {},
+      "counter_delta": 0,
+      "acknowledged_including_warmup": 0,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 0,
+        "fleet": 0,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 0
+      },
+      "passed": true,
+      "started_unix": 1792381202.566207,
+      "finished_unix": 1792381219.6561449,
+      "relay_tcp_nodelay": true
+    },
+    {
+      "label": "off-r2-get",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "GET",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.327678333,
+      "successes": 7106,
+      "goodput_rps": 463.605762439639,
+      "p50_ms": 86.440084,
+      "p95_ms": 289.524916,
+      "p99_ms": 382.81854100000004,
+      "statuses": {
+        "200": 7106
+      },
+      "transport_errors": {},
+      "counter_delta": 0,
+      "acknowledged_including_warmup": 0,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 0,
+        "fleet": 0,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 0
+      },
+      "passed": true,
+      "started_unix": 1792381247.141355,
+      "finished_unix": 1792381264.176865,
+      "relay_tcp_nodelay": false
+    },
+    {
+      "label": "off-r2-post",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "POST",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.662438042,
+      "successes": 1845,
+      "goodput_rps": 117.79775249884433,
+      "p50_ms": 533.08975,
+      "p95_ms": 779.7897499999999,
+      "p99_ms": 895.755292,
+      "statuses": {
+        "200": 1845
+      },
+      "transport_errors": {},
+      "counter_delta": 2313,
+      "acknowledged_including_warmup": 2313,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 2313,
+        "fleet": 2313,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 690534250
+      },
+      "passed": true,
+      "started_unix": 1792381291.448969,
+      "finished_unix": 1792381308.584609,
+      "relay_tcp_nodelay": false
+    },
+    {
+      "label": "on-r2-post",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "POST",
+      "clients": 64,
+      "duration_s": 15,
+      "offered_qps": null,
+      "seconds": 15.597168916,
+      "successes": 1781,
+      "goodput_rps": 114.18738936480977,
+      "p50_ms": 540.025542,
+      "p95_ms": 849.332625,
+      "p99_ms": 964.512708,
+      "statuses": {
+        "200": 1781
+      },
+      "transport_errors": {},
+      "counter_delta": 2218,
+      "acknowledged_including_warmup": 2218,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 2218,
+        "fleet": 2218,
+        "bucket": 0,
+        "errors": 0,
+        "elapsed_us": 674649107
+      },
+      "passed": true,
+      "started_unix": 1792381343.8191092,
+      "finished_unix": 1792381360.881519,
+      "relay_tcp_nodelay": true
+    },
+    {
+      "label": "on-sustained-post",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "POST",
+      "clients": 64,
+      "duration_s": 125,
+      "offered_qps": null,
+      "seconds": 125.529491916,
+      "successes": 15125,
+      "goodput_rps": 120.48961378829708,
+      "p50_ms": 530.3825420000001,
+      "p95_ms": 790.349375,
+      "p99_ms": 950.790333,
+      "statuses": {
+        "200": 15125
+      },
+      "transport_errors": {},
+      "counter_delta": 15527,
+      "acknowledged_including_warmup": 15527,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 15527,
+        "fleet": 15518,
+        "bucket": 9,
+        "errors": 0,
+        "elapsed_us": 4884962307
+      },
+      "passed": true,
+      "started_unix": 1792381397.726701,
+      "finished_unix": 1792381524.09186,
+      "relay_tcp_nodelay": true
+    },
+    {
+      "label": "off-sustained-post",
+      "variant": "relay",
+      "repeat": 1,
+      "method": "POST",
+      "clients": 64,
+      "duration_s": 125,
+      "offered_qps": null,
+      "seconds": 125.616700041,
+      "successes": 14391,
+      "goodput_rps": 114.5627929670412,
+      "p50_ms": 558.8751669999999,
+      "p95_ms": 824.9149580000001,
+      "p99_ms": 966.447375,
+      "statuses": {
+        "200": 14391
+      },
+      "transport_errors": {},
+      "counter_delta": 14774,
+      "acknowledged_including_warmup": 14774,
+      "stable_ownership_and_boot": true,
+      "proof_delta": {
+        "started": 14774,
+        "fleet": 14769,
+        "bucket": 5,
+        "errors": 0,
+        "elapsed_us": 4967594453
+      },
+      "passed": true,
+      "started_unix": 1792381565.6577861,
+      "finished_unix": 1792381692.1443179,
+      "relay_tcp_nodelay": false
+    }
+  ],
+  "placement": {
+    "node1": {
+      "CLOUDFLARE_LOCATION": "sjc10",
+      "CLOUDFLARE_REGION": "WNAM"
+    },
+    "node2": {
+      "CLOUDFLARE_LOCATION": "sjc10",
+      "CLOUDFLARE_REGION": "WNAM"
+    },
+    "node3": {
+      "CLOUDFLARE_LOCATION": "sea01",
+      "CLOUDFLARE_REGION": "WNAM"
+    }
+  },
+  "matched_history_recovery": {
+    "baseline": {
+      "all_acknowledged_values_recovered": true,
+      "elapsed_s": 125.79366397857666,
+      "within_240s": true,
+      "total_before_crash": 9000,
+      "mutations_retried": false,
+      "read_only_attempt_failures": [
+        {
+          "elapsed_s": 34.70913887023926,
+          "error": "RuntimeError"
+        },
+        {
+          "elapsed_s": 71.67374897003174,
+          "error": "RuntimeError"
+        }
+      ],
+      "owned_cells_after": {
+        "node1": 1334,
+        "node2": 1333,
+        "node3": 333
+      },
+      "fold_phase": {
+        "entries": 4877,
+        "members_ms": 733,
+        "bundles_read": 125,
+        "windows": 1,
+        "gathered_bytes": 5955048,
+        "bundles_ms": 7276,
+        "upload_ms": 50237,
+        "total_ms": 59271
+      },
+      "post_verification_pause_before_crash_s": 0.9670965671539307,
+      "receipt_rounds": [
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.54503270797431,
+          "offered_qps": 40,
+          "goodput_rps": 39.71141307988776,
+          "p50_ms": 571.2318540317938,
+          "p99_ms": 1417.3710830509663,
+          "max_queue_s": 0.020484749926254153
+        },
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 77.28253358299844,
+          "offered_qps": 40,
+          "goodput_rps": 38.8186031294913,
+          "p50_ms": 459.912562451791,
+          "p99_ms": 1513.75687494874,
+          "max_queue_s": 0.05271895800251514
+        },
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.84568341600243,
+          "offered_qps": 40,
+          "goodput_rps": 39.553997866239015,
+          "p50_ms": 444.6088125114329,
+          "p99_ms": 3446.279374998994,
+          "max_queue_s": 3.0203593749320135
+        }
+      ],
+      "seed_acknowledgements_verified": 3000,
+      "placement": {
+        "node1": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        },
+        "node2": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        },
+        "node3": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        }
+      }
+    },
+    "candidate": {
+      "all_acknowledged_values_recovered": true,
+      "elapsed_s": 266.9559450149536,
+      "within_240s": false,
+      "total_before_crash": 9000,
+      "mutations_retried": false,
+      "read_only_attempt_failures": [
+        {
+          "elapsed_s": 41.18757510185242,
+          "error": "RuntimeError"
+        },
+        {
+          "elapsed_s": 105.96635794639587,
+          "error": "RuntimeError"
+        },
+        {
+          "elapsed_s": 170.4486768245697,
+          "error": "RuntimeError"
+        },
+        {
+          "elapsed_s": 209.06927275657654,
+          "error": "RuntimeError"
+        }
+      ],
+      "owned_cells_after": {
+        "node1": 1334,
+        "node2": 1333,
+        "node3": 333
+      },
+      "fold_phase": {
+        "entries": 6000,
+        "members_ms": 764,
+        "bundles_read": 164,
+        "windows": 1,
+        "gathered_bytes": 6274336,
+        "bundles_ms": 15088,
+        "upload_ms": 159227,
+        "total_ms": 177477
+      },
+      "post_verification_pause_before_crash_s": 77.21977996826172,
+      "receipt_rounds": [
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.3417110410519,
+          "offered_qps": 40,
+          "goodput_rps": 39.818580684547655,
+          "p50_ms": 299.65945798903704,
+          "p99_ms": 619.9663749430329,
+          "max_queue_s": 0.012862291070632637
+        },
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.29045800003223,
+          "offered_qps": 40,
+          "goodput_rps": 39.84568668713259,
+          "p50_ms": 311.5537500125356,
+          "p99_ms": 1019.5049169706181,
+          "max_queue_s": 0.03006212506443262
+        },
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.36747458390892,
+          "offered_qps": 40,
+          "goodput_rps": 39.80496914036848,
+          "p50_ms": 333.9062494924292,
+          "p99_ms": 1091.898416983895,
+          "max_queue_s": 0.017674417002126575
+        }
+      ],
+      "seed_acknowledgements_verified": 3000,
+      "placement": {
+        "node1": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        },
+        "node2": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        },
+        "node3": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        }
+      }
+    },
+    "recovery-v3": {
+      "all_acknowledged_values_recovered": true,
+      "elapsed_s": 102.81850814819336,
+      "within_240s": true,
+      "total_before_crash": 9000,
+      "mutations_retried": false,
+      "read_only_attempt_failures": [
+        {
+          "elapsed_s": 35.795830965042114,
+          "error": "RuntimeError"
+        }
+      ],
+      "owned_cells_after": {
+        "node1": 1334,
+        "node2": 1333,
+        "node3": 333
+      },
+      "fold_phase": {
+        "entries": 6000,
+        "members_ms": 807,
+        "bundles_read": 177,
+        "windows": 1,
+        "gathered_bytes": 6257920,
+        "bundles_ms": 9827,
+        "upload_ms": 30410,
+        "total_ms": 42037
+      },
+      "post_verification_pause_before_crash_s": 1.7945630550384521,
+      "receipt_rounds": [
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.64284025004599,
+          "offered_qps": 40,
+          "goodput_rps": 39.66006551423981,
+          "p50_ms": 558.6067080148496,
+          "p99_ms": 974.8628749512136,
+          "max_queue_s": 0.021122584003023803
+        },
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.56430062500294,
+          "offered_qps": 40,
+          "goodput_rps": 39.70128718437911,
+          "p50_ms": 552.2349165403284,
+          "p99_ms": 919.6090829791501,
+          "max_queue_s": 0.02516508405096829
+        },
+        {
+          "passed": true,
+          "requests": 3000,
+          "mutations_retried": false,
+          "seconds": 75.8093845420517,
+          "offered_qps": 40,
+          "goodput_rps": 39.572937019900095,
+          "p50_ms": 553.4878330072388,
+          "p99_ms": 1249.4059579912573,
+          "max_queue_s": 0.026714334031566978
+        }
+      ],
+      "seed_acknowledgements_verified": 3000,
+      "placement": {
+        "node1": {
+          "CLOUDFLARE_LOCATION": "dfw14",
+          "CLOUDFLARE_REGION": "WNAM"
+        },
+        "node2": {
+          "CLOUDFLARE_LOCATION": "sea01",
+          "CLOUDFLARE_REGION": "WNAM"
+        },
+        "node3": {
+          "CLOUDFLARE_LOCATION": "sjc07",
+          "CLOUDFLARE_REGION": "WNAM"
+        }
+      }
+    }
+  },
+  "post_performance_single_node_recovery": {
+    "all_acknowledged_values_recovered": true,
+    "elapsed_s": 123.85970211029053,
+    "within_240s": true,
+    "total_before_crash": 45637,
+    "mutations_retried": false,
+    "read_only_attempt_failures": [
+      {
+        "elapsed_s": 32.86792993545532,
+        "error": "RuntimeError"
+      },
+      {
+        "elapsed_s": 68.6438479423523,
+        "error": "RuntimeError"
+      }
+    ],
+    "owned_cells_after": {
+      "node1": 1334,
+      "node2": 1333,
+      "node3": 333
+    }
+  },
+  "per_cell_crossover_receipts": [
+    {
+      "passed": true,
+      "requests": 3000,
+      "mutations_retried": false,
+      "seconds": 75.4655711670639,
+      "offered_qps": 40,
+      "goodput_rps": 39.753227247941595,
+      "p50_ms": 313.103687542025,
+      "p99_ms": 872.4008749704808,
+      "max_queue_s": 0.022533167037181556
+    },
+    {
+      "passed": true,
+      "requests": 3000,
+      "mutations_retried": false,
+      "seconds": 75.33649949997198,
+      "offered_qps": 40,
+      "goodput_rps": 39.8213352081897,
+      "p50_ms": 264.0604169573635,
+      "p99_ms": 687.5196250621229,
+      "max_queue_s": 0.010196208953857422
+    }
+  ],
+  "resources": {
+    "recovery-v3": {
+      "available_parallelism": [
+        1
+      ],
+      "cpu_max": [],
+      "memory_max": [],
+      "os_total_memory_bytes": [
+        3433316352
+      ],
+      "max_observed_cgroup_bytes": null
+    },
+    "relay": {
+      "available_parallelism": [
+        1
+      ],
+      "cpu_max": [],
+      "memory_max": [],
+      "os_total_memory_bytes": [
+        3433316352
+      ],
+      "max_observed_cgroup_bytes": null
+    }
+  },
+  "relay_diagnostic": {
+    "old_relay": [
+      {
+        "caller_override": false,
+        "p50_ms": 48.91882099999975,
+        "p99_ms": 55.85694999999987,
+        "requests": 40
+      },
+      {
+        "caller_override": true,
+        "p50_ms": 1.602074000000357,
+        "p99_ms": 5.128679999999804,
+        "requests": 40
+      },
+      {
+        "caller_override": false,
+        "p50_ms": 46.30983500000002,
+        "p99_ms": 51.595180999999684,
+        "requests": 40
+      },
+      {
+        "caller_override": true,
+        "p50_ms": 2.2596960000000763,
+        "p99_ms": 4.17039399999976,
+        "requests": 40
+      }
+    ],
+    "fixed_relay": [
+      {
+        "caller_override": false,
+        "p50_ms": 3.505328999999847,
+        "p99_ms": 41.901784000000134,
+        "requests": 40
+      },
+      {
+        "caller_override": true,
+        "p50_ms": 2.504692999999861,
+        "p99_ms": 11.22157900000002,
+        "requests": 40
+      },
+      {
+        "caller_override": false,
+        "p50_ms": 2.341899999999896,
+        "p99_ms": 28.007718000000068,
+        "requests": 40
+      },
+      {
+        "caller_override": true,
+        "p50_ms": 2.1097310000000107,
+        "p99_ms": 3.5246210000000247,
+        "requests": 40
+      }
+    ],
+    "scope": "Split-response transport diagnostic under x86 emulation on a shared ARM VM; not counter or Cloudflare latency.",
+    "fixed_relay_default_tcp_nodelay": true
+  },
+  "read_only_log_collection_failure_retained": {
+    "original_run_failed": true,
+    "cause": "RemoteDisconnected collecting pre-crash GET /logs",
+    "all_9000_mutations_previously_verified": true,
+    "application_mutations_replayed": false,
+    "resumed_before_first_crash": true
+  },
+  "local_validation": [
+    {
+      "step": "lib",
+      "exit": 0,
+      "seconds": 143.93301010131836
+    },
+    {
+      "step": "native",
+      "exit": 0,
+      "seconds": 757.5672099590302
+    },
+    {
+      "step": "clippy",
+      "exit": 0,
+      "seconds": 89.45161890983582
+    },
+    {
+      "step": "ltx",
+      "exit": 0,
+      "seconds": 0.8094909191131592
+    }
+  ],
+  "local_suite_counts": {
+    "library": 358,
+    "native_node": 86,
+    "native_domains": 15,
+    "native_log_protocol": 7,
+    "native_replication": 6,
+    "native_storage": 1,
+    "native_transactions": 1,
+    "ltx_checkpoint_scheduling": 6,
+    "relay": 3,
+    "python_perf_discovered": 87,
+    "python_perf_opt_in_skipped": 1
+  },
+  "cleanup": {
+    "baseline": {
+      "all_native_exit_zero": true,
+      "all_containers_stopped": true,
+      "mode": "preserve",
+      "full_fleet_disk_loss_qualified": false
+    },
+    "candidate": {
+      "all_native_exit_zero": true,
+      "all_containers_stopped": true,
+      "mode": "preserve",
+      "full_fleet_disk_loss_qualified": false
+    },
+    "recovery-v3": {
+      "all_native_exit_zero": true,
+      "all_containers_stopped": true,
+      "mode": "preserve",
+      "full_fleet_disk_loss_qualified": false
+    },
+    "relay": {
+      "all_native_exit_zero": true,
+      "all_containers_stopped": true,
+      "mode": "preserve",
+      "full_fleet_disk_loss_qualified": false
+    }
+  },
+  "separate_shutdown_qualification": {
+    "passed": true,
+    "reports": {
+      "node1": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      },
+      "node2": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      },
+      "node3": {
+        "application_work_drained": true,
+        "cells_drained": true,
+        "clean_reload_prepared": true,
+        "deadline_elapsed": false,
+        "drain_timed_out": false,
+        "event": "daemon_node_stopped",
+        "ingress_drained": true,
+        "local_durability_closed": true,
+        "log_quiesced": true,
+        "mode": "preserve",
+        "outcome": "stopped",
+        "pending_application_events": 0,
+        "pending_dispatches": 0
+      }
+    },
+    "acknowledgements_verified": 6000,
+    "source_binary_sha256": "7b026b123d6045e8c3aee1b8b934b0ec30df0d3f067ec4ea22fe9a876829797e",
+    "scope": "Separate fresh 3000-cell fleet; does not retroactively qualify missing reports from performance cohorts."
+  },
+  "relay_helper_sha256": "fd11837d422fd3d9da07811e212c2cfd7b1fd48c85e71b1ddcc98aadabfc1bd3",
+  "earlier_failed_recovery_results_unchanged": true,
+  "limits": [
+    "Same-fleet socket crossover removes placement and executable differences, but short windows and Internet variance remain.",
+    "Recovery cohorts have equal logical write counts, with varying retained bundles and one old-candidate pause after a read-only log collection failure.",
+    "The 240s bound is this drill budget, not a production SLO.",
+    "Timed oha POSTs use full-vector monotonicity and aggregate acknowledgement deltas, not per-request ledgers. Separate per-cell rounds check individual replies before and after faults.",
+    "Failures occur after quiescent acknowledgement ledgers; no continuous crash-during-write, arbitrary partition, corrupt R2 or simultaneous fleet-disk-loss qualification.",
+    "Earlier failed CI and Cloudflare attempts remain recorded; no test assertion or node lease setting was relaxed.",
+    "Performance cohorts recorded zero exits but not structured shutdown phases. The separate fresh shutdown qualification does not retroactively establish those phases."
+  ]
+}

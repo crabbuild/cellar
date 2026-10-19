@@ -997,11 +997,27 @@ impl Db {
         self.sync_with_verify_hook(None)
     }
 
+    /// Captures committed WAL data while retaining size-triggered checkpoints.
+    ///
+    /// Hosts using this entry point must separately schedule
+    /// [`Self::checkpoint_if_due`] under the same exclusive database ownership.
+    pub fn capture(&mut self) -> Result<()> {
+        self.sync_capture(None, false)
+    }
+
     /// `sync` with an optional hook that runs between `verify` and the
     /// capture read — the window a concurrent WAL change would land in.
     /// Test-only through `internal::sync_with_verify_hook`; production
     /// passes `None`.
     fn sync_with_verify_hook(&mut self, hook: Option<Box<dyn FnOnce()>>) -> Result<()> {
+        self.sync_capture(hook, true)
+    }
+
+    fn sync_capture(
+        &mut self,
+        hook: Option<Box<dyn FnOnce()>>,
+        time_checkpoint: bool,
+    ) -> Result<()> {
         self.last_sync_timing = SyncTiming::default();
         let phase = crate::host::telemetry_us();
         // Self-heal: recreate the control tables if something swept them out
@@ -1026,7 +1042,7 @@ impl Db {
         }
 
         let phase = crate::host::telemetry_us();
-        self.checkpoint_if_needed(orig_wal_size, new_wal_size)?;
+        self.checkpoint_if_needed(orig_wal_size, new_wal_size, time_checkpoint)?;
         self.last_sync_timing.checkpoint_us = crate::host::telemetry_us().saturating_sub(phase);
 
         // Recompute the cached position (kept for parity with db.go:1037-1041).
@@ -1741,7 +1757,12 @@ impl Db {
     /// Ported from `DB.checkpointIfNeeded` (db.go:1092-1156). Checks
     /// in priority order: TruncatePageN (TRUNCATE, blocking) → MinCheckpointPageN
     /// (PASSIVE) → CheckpointInterval (PASSIVE, gated on `synced_since_checkpoint`).
-    fn checkpoint_if_needed(&mut self, orig_wal_size: i64, new_wal_size: i64) -> Result<()> {
+    fn checkpoint_if_needed(
+        &mut self,
+        orig_wal_size: i64,
+        new_wal_size: i64,
+        time_checkpoint: bool,
+    ) -> Result<()> {
         if self.page_size == 0 {
             return Ok(());
         }
@@ -1786,15 +1807,35 @@ impl Db {
         // Priority 3: time-based PASSIVE, gated on data synced since last
         // checkpoint (#896). Uses the DB-file mtime and a logical-size guard so an
         // idle DB does not spin LTX files (db.go:1133-1153).
-        if self.checkpoint_interval > Duration::ZERO && self.synced_since_checkpoint {
-            let elapsed = self.host.file_age(&self.path)?;
-            if elapsed > self.checkpoint_interval && new_wal_size > calc_wal_size(self.page_size, 1)
-            {
-                return self.checkpoint_passive_swallowing_busy();
-            }
+        if time_checkpoint {
+            self.checkpoint_if_due()?;
         }
 
         Ok(())
+    }
+
+    /// Runs an age-triggered passive checkpoint when captured writes need one.
+    ///
+    /// Call under the same exclusive ownership as [`Self::capture`]. The
+    /// checkpoint seals concurrent commits into staged LTX before releasing
+    /// WAL history. This does not establish a remote durability proof. Returns
+    /// whether a checkpoint was attempted; a busy passive checkpoint remains
+    /// eligible for a later maintenance pass.
+    pub fn checkpoint_if_due(&mut self) -> Result<bool> {
+        if self.page_size != 0
+            && self.checkpoint_interval > Duration::ZERO
+            && self.synced_since_checkpoint
+        {
+            let elapsed = self.host.file_age(&self.path)?;
+            if elapsed > self.checkpoint_interval
+                && self.last_synced_wal_offset > calc_wal_size(self.page_size, 1)
+            {
+                self.checkpoint_passive_swallowing_busy()?;
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
     }
 
     /// PASSIVE checkpoint that swallows SQLITE_BUSY (log-and-continue, the one
@@ -1884,9 +1925,13 @@ impl Db {
             )
             .map_err(sql_err)?;
 
-        // If the WAL header is unchanged, the WAL did not restart — done.
+        // When the WAL did not restart, the restored read lock still protects
+        // this generation. Capture the sealing write before clearing the dirty
+        // flag: otherwise the next capture mistakes our own control write for
+        // new work and re-arms age maintenance on an idle database.
         let other = self.wal_header_bytes()?;
         if hdr == other {
+            self.verify_and_sync(None)?;
             self.synced_since_checkpoint = false;
             return Ok(());
         }

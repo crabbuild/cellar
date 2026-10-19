@@ -1606,7 +1606,6 @@ async fn run_case(
             && retained["lanes"][0]["revision"]["next_sequence"] == "3"
             && retained["lanes"][0]["revision"]["settled_through"] == "1"
     );
-    proxy.capture.resume_appends();
     let stale = settle(&client, &source, "projection", "ack", &receipt, 0).await?;
     ensure!(
         matches!(
@@ -1628,11 +1627,14 @@ async fn run_case(
         producer_owner["node"] != next_owner["node"],
         "co-located dispatch cannot qualify a peer submission: {producer_owner}"
     );
-    // Backpressure and recovery can leave a legitimate retry up to 60s away.
+    // Arm before resuming predecessor traffic: a resumed append can fail and
+    // retry on the successor immediately. Arming afterwards can miss that
+    // submission and spend the phase budget waiting for another random retry.
     // Select the next automatic submission before obtaining a fresh lease;
     // no source row, retry policy, clock or ordinary call budget is changed.
     successor_proxy.capture.hold_requests(&["__streamAppend"]);
     let retry_wait = Instant::now();
+    proxy.capture.resume_appends();
     let arrival = tokio::time::timeout(
         Duration::from_secs(60) + operation_budget,
         successor_proxy.capture.request_entered.acquire(),

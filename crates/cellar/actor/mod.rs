@@ -4285,16 +4285,19 @@ impl Actor {
                 match reason {
                     cellar_logic::HaltReason::NodeLeaseExpired => tracing::warn!(
                         event = "node_lease_watchdog_fence",
+                        node = %self.state.node(),
                         code,
                         "SELF-FENCE: node lease not renewed within TTL — halting"
                     ),
                     cellar_logic::HaltReason::NodeLeaseMissing => tracing::warn!(
                         event = "node_lease_record_missing_fence",
+                        node = %self.state.node(),
                         code,
                         "SELF-FENCE: node lease record is missing — halting"
                     ),
                     cellar_logic::HaltReason::NodeLeaseMismatch => tracing::warn!(
                         event = "node_lease_record_mismatch_fence",
+                        node = %self.state.node(),
                         code,
                         "SELF-FENCE: node lease record no longer matches this process — halting"
                     ),

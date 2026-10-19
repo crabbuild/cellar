@@ -1,0 +1,12 @@
+{
+  "name": "cellar-cloudflare-peer-relay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test peer.test.mjs",
+    "bench": "node latency.mjs"
+  },
+  "dependencies": {
+    "ws": "8.22.0"
+  }
+}

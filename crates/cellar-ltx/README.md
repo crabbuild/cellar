@@ -30,6 +30,15 @@ virtual filesystem loads each page on first use through indexes in retained
 segments. A paged epoch continues the history from which it was opened.
 Read the [LTX format notes](reference/ltx-format.md) before changing the codec.
 
+The fleet host uses `Db::capture` for proof-bound work and schedules
+`Db::checkpoint_if_due` separately, visiting one resident every 10 ms with one
+maintenance job in flight. This spreads age-triggered checkpoints across cells.
+Size-triggered checkpoints still run during capture. Both paths share exclusive
+database ownership and the same WAL sealing and LTX staging rules; maintenance
+does not acknowledge writes. Standalone `Db::sync` retains its combined policy.
+A checkpoint captures its own sealing write before clearing maintenance state,
+so a later capture cannot re-arm idle maintenance from that control write.
+
 ## Select backend features
 
 The default feature is `s3`. The manifest also exposes `gcs` and `azure` backend

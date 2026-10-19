@@ -1,0 +1,5562 @@
+{
+  "measurements_completed": true,
+  "qualified": false,
+  "provenance": {
+    "baseline_revision": "7d3beb9e77f9491d5f581a8bbeae8c60d719b8ae",
+    "candidate_revision": "cf1dca736556b480918859d5627251879b727f86",
+    "baseline_image": "sha256:bf75b064b255aaec6b18ef3767d5398e11cc705f330f579daad865d8fe2327e7",
+    "context_patch": "Registers each revision's examples/counter/main.rs in the standalone host; same adapter in both images.",
+    "candidate_main_revision": "c8555ec4befe03fbbf6f35c77b98f61503f00d25",
+    "candidate_tree_matches_main": true,
+    "candidate_binary_sha256": "4636d6f39623b33095a2cf0494bac0444bcfc36649da83ca2750968d0ad0e7f1",
+    "candidate_image_digest": "sha256:449e9195e9e9df6ca0b3ee1458d20d3f077e4669a8f8683976241a1528eca01f",
+    "node_version": "24.22.0",
+    "rust_version": "1.98.1",
+    "profile": "release",
+    "target": "x86_64-unknown-linux-gnu",
+    "vcpu_per_node": 1,
+    "memory_mib_per_node": 3072,
+    "disk_mb_per_node": 6000,
+    "application_nodes": 3,
+    "cells": 3000,
+    "cells_per_node": 1000,
+    "durability": "fleet",
+    "dependency_lockfiles_identical": true,
+    "adapter_identical": true,
+    "peer_transport": "Authenticated WebSocket bridge carrying native peer HTTP",
+    "counter_application": "examples/counter/main.rs from each recorded revision",
+    "client": "oha",
+    "http_version": "1.1",
+    "client_worker_threads": 4,
+    "client_retries": 0,
+    "gateway_get_connection_attempts": 60,
+    "gateway_get_connection_delay_ms": 500,
+    "post_retries": 0,
+    "configured_warmup_s": 3,
+    "configured_measurement_s": 15,
+    "concurrency": [
+      1,
+      8,
+      32,
+      64
+    ],
+    "shapes": [
+      "hot",
+      "many"
+    ],
+    "repetitions": 2,
+    "block_order": [
+      "baseline-r1",
+      "candidate-r1 (interruption retained)",
+      "candidate-r2",
+      "baseline-r2 fresh fleet (continuation after rejected window)"
+    ],
+    "oha_version": "oha 1.16.0",
+    "oha_sha256": "7dea53ecb8342a7a067e1976fd0aef44ac33d9cc6b1e65c53637ffb932da63c4",
+    "client_platform": "26.5.2",
+    "gateway_source_sha256": "138b15c5d59af9631008391219c28162b1b536e66a60f8157e480406565badbb",
+    "transport_test": "Two bridge tests passed: ordered binary flow and nested HTTP/Upgrade; original adapter files byte-identical.",
+    "baseline_binary_sha256": "8e48f37dd88ed4bb84b22f6d5b08b464d09d1ded712b29758b3693c6df771b05",
+    "provider_image_inspections_passed": {
+      "baseline": true,
+      "candidate": true
+    },
+    "worker_location_hint": "wnam",
+    "exact_container_locations": "not exposed by the inspected provider response",
+    "tokio_threads_per_node": 1,
+    "max_requests_per_node": 512,
+    "max_resident_cells_per_node": 1500,
+    "placement_weight_per_node": 1,
+    "rebalance_interval_ms": 5000,
+    "file_descriptor_limit": 32768,
+    "lease_ttl_ms": 10000,
+    "client_location": "Developer Mac over public Internet; physical location not independently verified",
+    "r2_location_hint": "wnam",
+    "cargo_lock_sha256": "f20decca1b76e9088ffffe4ec2a7715906be5118e8cb17737b3c956faf47db93",
+    "container_location_control": "Worker Durable Objects use the same wnam location hint; exact container placement was not exposed.",
+    "r2_observed_locations": {
+      "baseline": "WNAM",
+      "candidate": "WNAM",
+      "baseline_r2_fresh": "WNAM"
+    },
+    "r2_storage_class": "Standard",
+    "read_only_audit_retry_policy": {
+      "applies_after": "Original candidate r1 audit transport interruption",
+      "maximum_attempts": 3,
+      "retry_delays_s": [
+        0.25,
+        0.5
+      ],
+      "request_timeout_s": 10,
+      "audit_budget_s": 90,
+      "retryable": "Connection-reset/disconnected/timeout exceptions, or typed route HTTP 500 with connection-closed cause only",
+      "all_failed_attempts_journaled": true,
+      "application_mutations_retried": false,
+      "timed_load_retries": 0
+    },
+    "baseline_second_repetition": "Fresh isolated R2 bucket and fleet identity after full-filesystem-loss recovery refused admission. Same baseline image, runtime settings, 3,000 counters and reversed workload.",
+    "final_gateway_source_sha256": "dffec6f7f53e4489dcefe68e054668059443089b83d27d44e76da3d082983dd2",
+    "operator_only_gateway_update": "Added authenticated stop/diagnostics routes for three fixed benchmark cohorts; stop no longer starts a stopped container. Counter and peer request paths unchanged.",
+    "application_code_changed_during_measurement": false,
+    "all_counter_post_retries": 0,
+    "counter_source_sha256": {
+      "baseline": "bf1b4c0bf5403961765bd2a21e48c74466ff2beac62b57d872463146cc270880",
+      "candidate": "f08bffee25208863248ec978915fb13ac4ffdcf1f0e48417b46e56b16fcde070"
+    },
+    "ws_version": "8.22.0"
+  },
+  "completion": {
+    "completed": true,
+    "started_unix": 1792360652.6089652,
+    "measurements_completed": true,
+    "qualified": false,
+    "finished_unix": 1792364616.524665,
+    "windows": 64,
+    "state_invariant_windows_passed": 63,
+    "state_invariant_windows_failed": 1,
+    "rejected_window_retained": "r2-post-many-c32",
+    "failed_window_not_replayed": true,
+    "audit_transport_interruption_preserved": true,
+    "baseline_full_disk_recovery_failed_closed": true,
+    "baseline_r2_fresh_bucket": true,
+    "order": [
+      "baseline-r1",
+      "candidate-r1 (audit interruption retained)",
+      "candidate-r2",
+      "baseline-r2 fresh fleet (remaining cases measured after rejected window)"
+    ],
+    "all_containers_stopped": true,
+    "successful_bucket_only_recovery_claimed": false
+  },
+  "aggregation": {
+    "goodput": "Sum of HTTP 200 responses divided by sum of client run durations",
+    "percentiles": "Worse per-run percentile across two repetitions; not pooled percentiles"
+  },
+  "comparisons": [
+    {
+      "method": "GET",
+      "shape": "hot",
+      "concurrency": 1,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 1,
+        "goodput_rps": 12.7497750562097,
+        "p50_ms": 84.197917,
+        "p95_ms": 134.435542,
+        "p99_ms": 410.06241700000004,
+        "statuses": {
+          "200": 383
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c1",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 224,
+            "statuses": {
+              "200": 224
+            },
+            "transport_errors": {},
+            "seconds": 15.013934375,
+            "goodput_rps": 14.919473763851455,
+            "p50_ms": 43.958875,
+            "p95_ms": 108.82816700000001,
+            "p99_ms": 353.706667,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 35
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360683.272753,
+            "finished_unix": 1792360700.2812018
+          },
+          {
+            "label": "r2-get-hot-c1",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 159,
+            "statuses": {
+              "200": 159
+            },
+            "transport_errors": {},
+            "seconds": 15.025811292,
+            "goodput_rps": 10.581791352900481,
+            "p50_ms": 84.197917,
+            "p95_ms": 134.435542,
+            "p99_ms": 410.06241700000004,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 27
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364551.8285341,
+            "finished_unix": 1792364569.17941
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 1,
+        "goodput_rps": 13.2155859674818,
+        "p50_ms": 70.715375,
+        "p95_ms": 97.732,
+        "p99_ms": 541.457458,
+        "statuses": {
+          "200": 398
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c1",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 217,
+            "statuses": {
+              "200": 217
+            },
+            "transport_errors": {},
+            "seconds": 15.100691875,
+            "goodput_rps": 14.370202491135856,
+            "p50_ms": 59.37275,
+            "p95_ms": 74.983667,
+            "p99_ms": 499.521666,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 31
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361567.4856372,
+            "finished_unix": 1792361584.427089
+          },
+          {
+            "label": "r2-get-hot-c1",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 181,
+            "statuses": {
+              "200": 181
+            },
+            "transport_errors": {},
+            "seconds": 15.015263708,
+            "goodput_rps": 12.054400343536077,
+            "p50_ms": 70.715375,
+            "p95_ms": 97.732,
+            "p99_ms": 541.457458,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 43
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363114.5316648,
+            "finished_unix": 1792363131.448768
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": 3.653483369067212,
+      "p50_reduction_percent": 16.01291632903461,
+      "p95_reduction_percent": 27.301963047837454,
+      "p99_reduction_percent": -32.042692905455894
+    },
+    {
+      "method": "GET",
+      "shape": "hot",
+      "concurrency": 8,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 8,
+        "goodput_rps": 98.33394179685145,
+        "p50_ms": 77.59179200000001,
+        "p95_ms": 147.291292,
+        "p99_ms": 369.499625,
+        "statuses": {
+          "200": 2968
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c8",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 1644,
+            "statuses": {
+              "200": 1644
+            },
+            "transport_errors": {},
+            "seconds": 15.076257583,
+            "goodput_rps": 109.04562959004997,
+            "p50_ms": 51.842625000000005,
+            "p95_ms": 130.228709,
+            "p99_ms": 369.499625,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 347
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360705.4558542,
+            "finished_unix": 1792360722.438036
+          },
+          {
+            "label": "r2-get-hot-c8",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 1324,
+            "statuses": {
+              "200": 1324
+            },
+            "transport_errors": {},
+            "seconds": 15.1066065,
+            "goodput_rps": 87.64377360329073,
+            "p50_ms": 77.59179200000001,
+            "p95_ms": 147.291292,
+            "p99_ms": 291.58425,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 217
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364529.395415,
+            "finished_unix": 1792364546.472752
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 8,
+        "goodput_rps": 114.95168181055189,
+        "p50_ms": 64.95087500000001,
+        "p95_ms": 84.1475,
+        "p99_ms": 403.350416,
+        "statuses": {
+          "200": 3530
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c8",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 1803,
+            "statuses": {
+              "200": 1803
+            },
+            "transport_errors": {},
+            "seconds": 15.111383333,
+            "goodput_rps": 119.31402706611493,
+            "p50_ms": 58.808208,
+            "p95_ms": 80.189042,
+            "p99_ms": 397.334166,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 328
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361589.74785,
+            "finished_unix": 1792361606.931241
+          },
+          {
+            "label": "r2-get-hot-c8",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 1727,
+            "statuses": {
+              "200": 1727
+            },
+            "transport_errors": {},
+            "seconds": 15.597171291,
+            "goodput_rps": 110.72520572987018,
+            "p50_ms": 64.95087500000001,
+            "p95_ms": 84.1475,
+            "p99_ms": 403.350416,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 287
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363092.587669,
+            "finished_unix": 1792363109.502578
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": 16.89929205526115,
+      "p50_reduction_percent": 16.291564705710105,
+      "p95_reduction_percent": 42.87001026510108,
+      "p99_reduction_percent": -9.161251787467982
+    },
+    {
+      "method": "GET",
+      "shape": "hot",
+      "concurrency": 32,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 32,
+        "goodput_rps": 377.71186191393224,
+        "p50_ms": 77.23774999999999,
+        "p95_ms": 143.680666,
+        "p99_ms": 373.08858299999997,
+        "statuses": {
+          "200": 11432
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c32",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 6172,
+            "statuses": {
+              "200": 6172
+            },
+            "transport_errors": {},
+            "seconds": 15.160249042,
+            "goodput_rps": 407.11732260473246,
+            "p50_ms": 55.603125000000006,
+            "p95_ms": 143.680666,
+            "p99_ms": 373.08858299999997,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1156
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360727.5160499,
+            "finished_unix": 1792360744.686802
+          },
+          {
+            "label": "r2-get-hot-c32",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 5260,
+            "statuses": {
+              "200": 5260
+            },
+            "transport_errors": {},
+            "seconds": 15.106208416,
+            "goodput_rps": 348.2012067587245,
+            "p50_ms": 77.23774999999999,
+            "p95_ms": 134.18812499999999,
+            "p99_ms": 371.054416,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 854
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364507.170806,
+            "finished_unix": 1792364524.237361
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 32,
+        "goodput_rps": 429.7493111499538,
+        "p50_ms": 64.855834,
+        "p95_ms": 106.690583,
+        "p99_ms": 445.82987499999996,
+        "statuses": {
+          "200": 12949
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c32",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 6350,
+            "statuses": {
+              "200": 6350
+            },
+            "transport_errors": {},
+            "seconds": 15.067625125,
+            "goodput_rps": 421.433367721909,
+            "p50_ms": 64.53725,
+            "p95_ms": 106.690583,
+            "p99_ms": 445.82987499999996,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1143
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361612.001143,
+            "finished_unix": 1792361629.049552
+          },
+          {
+            "label": "r2-get-hot-c32",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 6599,
+            "statuses": {
+              "200": 6599
+            },
+            "transport_errors": {},
+            "seconds": 15.063894959,
+            "goodput_rps": 438.0673137963826,
+            "p50_ms": 64.855834,
+            "p95_ms": 103.037042,
+            "p99_ms": 389.96020799999997,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 933
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363070.508607,
+            "finished_unix": 1792363087.545551
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": 13.777022774010517,
+      "p50_reduction_percent": 16.030912345323355,
+      "p95_reduction_percent": 25.744648900778344,
+      "p99_reduction_percent": -19.49705654755991
+    },
+    {
+      "method": "GET",
+      "shape": "hot",
+      "concurrency": 64,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 64,
+        "goodput_rps": 615.8880859924016,
+        "p50_ms": 86.882584,
+        "p95_ms": 220.12495800000002,
+        "p99_ms": 426.528583,
+        "statuses": {
+          "200": 18654
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c64",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 9320,
+            "statuses": {
+              "200": 9320
+            },
+            "transport_errors": {},
+            "seconds": 15.108456541,
+            "goodput_rps": 616.8730720248096,
+            "p50_ms": 86.882584,
+            "p95_ms": 220.12495800000002,
+            "p99_ms": 361.825916,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1870
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360749.706068,
+            "finished_unix": 1792360766.677323
+          },
+          {
+            "label": "r2-get-hot-c64",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 9334,
+            "statuses": {
+              "200": 9334
+            },
+            "transport_errors": {},
+            "seconds": 15.179513667,
+            "goodput_rps": 614.9077107978732,
+            "p50_ms": 80.170208,
+            "p95_ms": 209.60041700000002,
+            "p99_ms": 426.528583,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1803
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364484.72058,
+            "finished_unix": 1792364501.828774
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "hot",
+        "concurrency": 64,
+        "goodput_rps": 681.6201730419677,
+        "p50_ms": 76.24558400000001,
+        "p95_ms": 182.769916,
+        "p99_ms": 517.256792,
+        "statuses": {
+          "200": 20523
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-hot-c64",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 10327,
+            "statuses": {
+              "200": 10327
+            },
+            "transport_errors": {},
+            "seconds": 15.055353708,
+            "goodput_rps": 685.9353954940638,
+            "p50_ms": 75.773209,
+            "p95_ms": 182.769916,
+            "p99_ms": 517.256792,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1578
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361634.073059,
+            "finished_unix": 1792361649.37637
+          },
+          {
+            "label": "r2-get-hot-c64",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 10196,
+            "statuses": {
+              "200": 10196
+            },
+            "transport_errors": {},
+            "seconds": 15.053790375,
+            "goodput_rps": 677.3045024549174,
+            "p50_ms": 76.24558400000001,
+            "p95_ms": 161.138459,
+            "p99_ms": 514.541,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 2011
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363048.7939022,
+            "finished_unix": 1792363065.746064
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": 10.672732359102199,
+      "p50_reduction_percent": 12.242959992994674,
+      "p95_reduction_percent": 16.969925781882502,
+      "p99_reduction_percent": -21.2713080942573
+    },
+    {
+      "method": "GET",
+      "shape": "many",
+      "concurrency": 1,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 1,
+        "goodput_rps": 4.9532733558275375,
+        "p50_ms": 221.234542,
+        "p95_ms": 471.325667,
+        "p99_ms": 784.274125,
+        "statuses": {
+          "200": 151
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c1",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 78,
+            "statuses": {
+              "200": 78
+            },
+            "transport_errors": {},
+            "seconds": 15.31320125,
+            "goodput_rps": 5.093644282902636,
+            "p50_ms": 186.936666,
+            "p95_ms": 468.501959,
+            "p99_ms": 784.274125,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 15
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360795.9414809,
+            "finished_unix": 1792360813.293963
+          },
+          {
+            "label": "r2-get-many-c1",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 73,
+            "statuses": {
+              "200": 73
+            },
+            "transport_errors": {},
+            "seconds": 15.171690084,
+            "goodput_rps": 4.811593144588782,
+            "p50_ms": 221.234542,
+            "p95_ms": 471.325667,
+            "p99_ms": 562.565625,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 19
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364449.8093371,
+            "finished_unix": 1792364467.0654411
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 1,
+        "goodput_rps": 4.773168276547564,
+        "p50_ms": 224.282,
+        "p95_ms": 538.217375,
+        "p99_ms": 756.197083,
+        "statuses": {
+          "200": 145
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c1",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 77,
+            "statuses": {
+              "200": 77
+            },
+            "transport_errors": {},
+            "seconds": 15.25818825,
+            "goodput_rps": 5.046470704016907,
+            "p50_ms": 224.282,
+            "p95_ms": 518.819625,
+            "p99_ms": 756.197083,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 22
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361683.1246889,
+            "finished_unix": 1792361700.1349602
+          },
+          {
+            "label": "r2-get-many-c1",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 68,
+            "statuses": {
+              "200": 68
+            },
+            "transport_errors": {},
+            "seconds": 15.119957166,
+            "goodput_rps": 4.497367238110336,
+            "p50_ms": 223.65675,
+            "p95_ms": 538.217375,
+            "p99_ms": 666.930417,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 20
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363013.551536,
+            "finished_unix": 1792363030.537917
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": -3.6360819672526246,
+      "p50_reduction_percent": -1.3774783867159357,
+      "p95_reduction_percent": -14.1922480958373,
+      "p99_reduction_percent": 3.580003611619853
+    },
+    {
+      "method": "GET",
+      "shape": "many",
+      "concurrency": 8,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 8,
+        "goodput_rps": 43.47265683707404,
+        "p50_ms": 198.381708,
+        "p95_ms": 356.60454200000004,
+        "p99_ms": 502.33700000000005,
+        "statuses": {
+          "200": 1323
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c8",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 665,
+            "statuses": {
+              "200": 665
+            },
+            "transport_errors": {},
+            "seconds": 15.152049042,
+            "goodput_rps": 43.888453512570145,
+            "p50_ms": 195.874417,
+            "p95_ms": 356.60454200000004,
+            "p99_ms": 502.33700000000005,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 145
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360855.112716,
+            "finished_unix": 1792360872.2623239
+          },
+          {
+            "label": "r2-get-many-c8",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 658,
+            "statuses": {
+              "200": 658
+            },
+            "transport_errors": {},
+            "seconds": 15.280873541,
+            "goodput_rps": 43.060365510814876,
+            "p50_ms": 198.381708,
+            "p95_ms": 352.43504199999995,
+            "p99_ms": 448.68016700000004,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 170
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364390.513536,
+            "finished_unix": 1792364407.72574
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 8,
+        "goodput_rps": 41.16082764444576,
+        "p50_ms": 223.493959,
+        "p95_ms": 440.266167,
+        "p99_ms": 813.830583,
+        "statuses": {
+          "200": 1259
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c8",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 666,
+            "statuses": {
+              "200": 666
+            },
+            "transport_errors": {},
+            "seconds": 15.281210291,
+            "goodput_rps": 43.582935338063265,
+            "p50_ms": 203.43766699999998,
+            "p95_ms": 387.8265,
+            "p99_ms": 524.3837500000001,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 147
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361743.8924239,
+            "finished_unix": 1792361760.8810701
+          },
+          {
+            "label": "r2-get-many-c8",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 593,
+            "statuses": {
+              "200": 593
+            },
+            "transport_errors": {},
+            "seconds": 15.306124125,
+            "goodput_rps": 38.74266242434513,
+            "p50_ms": 223.493959,
+            "p95_ms": 440.266167,
+            "p99_ms": 813.830583,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 133
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362952.930662,
+            "finished_unix": 1792362970.140247
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": -5.31789258082962,
+      "p50_reduction_percent": -12.658551664450822,
+      "p95_reduction_percent": -23.460616774757725,
+      "p99_reduction_percent": -62.0088870618728
+    },
+    {
+      "method": "GET",
+      "shape": "many",
+      "concurrency": 32,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 32,
+        "goodput_rps": 201.59322391144704,
+        "p50_ms": 181.46300000000002,
+        "p95_ms": 338.167666,
+        "p99_ms": 472.95675,
+        "statuses": {
+          "200": 6167
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c32",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 3175,
+            "statuses": {
+              "200": 3175
+            },
+            "transport_errors": {},
+            "seconds": 15.308182166,
+            "goodput_rps": 207.40542316329265,
+            "p50_ms": 165.847709,
+            "p95_ms": 338.167666,
+            "p99_ms": 472.95675,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 474
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360913.992455,
+            "finished_unix": 1792360931.2032378
+          },
+          {
+            "label": "r2-get-many-c32",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 2992,
+            "statuses": {
+              "200": 2992
+            },
+            "transport_errors": {},
+            "seconds": 15.283123833,
+            "goodput_rps": 195.77149493086884,
+            "p50_ms": 181.46300000000002,
+            "p95_ms": 313.4185,
+            "p99_ms": 399.43174999999997,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 602
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364332.658394,
+            "finished_unix": 1792364349.9397461
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 32,
+        "goodput_rps": 183.3288370374021,
+        "p50_ms": 190.03400000000002,
+        "p95_ms": 390.652834,
+        "p99_ms": 562.785459,
+        "statuses": {
+          "200": 5614
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c32",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 2866,
+            "statuses": {
+              "200": 2866
+            },
+            "transport_errors": {},
+            "seconds": 15.336071041,
+            "goodput_rps": 186.87967683104318,
+            "p50_ms": 180.484167,
+            "p95_ms": 390.652834,
+            "p99_ms": 562.785459,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 589
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361804.163153,
+            "finished_unix": 1792361821.209472
+          },
+          {
+            "label": "r2-get-many-c32",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 2748,
+            "statuses": {
+              "200": 2748
+            },
+            "transport_errors": {},
+            "seconds": 15.286498167,
+            "goodput_rps": 179.7664821582417,
+            "p50_ms": 190.03400000000002,
+            "p95_ms": 388.518709,
+            "p99_ms": 516.87,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 580
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362891.462653,
+            "finished_unix": 1792362908.823599
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": -9.06002023265814,
+      "p50_reduction_percent": -4.72327692146608,
+      "p95_reduction_percent": -15.520457239693641,
+      "p99_reduction_percent": -18.993007077285597
+    },
+    {
+      "method": "GET",
+      "shape": "many",
+      "concurrency": 64,
+      "baseline": {
+        "variant": "baseline",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 64,
+        "goodput_rps": 420.53887659912954,
+        "p50_ms": 117.15308300000001,
+        "p95_ms": 328.965334,
+        "p99_ms": 489.709084,
+        "statuses": {
+          "200": 12910
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c64",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 6562,
+            "statuses": {
+              "200": 6562
+            },
+            "transport_errors": {},
+            "seconds": 15.399740542,
+            "goodput_rps": 426.11107519008743,
+            "p50_ms": 108.2945,
+            "p95_ms": 328.965334,
+            "p99_ms": 489.709084,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1145
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792360968.500942,
+            "finished_unix": 1792360985.805656
+          },
+          {
+            "label": "r2-get-many-c64",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 6348,
+            "statuses": {
+              "200": 6348
+            },
+            "transport_errors": {},
+            "seconds": 15.298967041,
+            "goodput_rps": 414.92997422557164,
+            "p50_ms": 117.15308300000001,
+            "p95_ms": 315.58529200000004,
+            "p99_ms": 418.32775,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1167
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364274.540873,
+            "finished_unix": 1792364292.056949
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "GET",
+        "shape": "many",
+        "concurrency": 64,
+        "goodput_rps": 402.4038116024518,
+        "p50_ms": 87.692459,
+        "p95_ms": 388.659875,
+        "p99_ms": 522.3451249999999,
+        "statuses": {
+          "200": 12369
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-get-many-c64",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 6158,
+            "statuses": {
+              "200": 6158
+            },
+            "transport_errors": {},
+            "seconds": 15.355242125,
+            "goodput_rps": 401.0356821384215,
+            "p50_ms": 87.692459,
+            "p95_ms": 381.993083,
+            "p99_ms": 522.3451249999999,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1159
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362070.402932,
+            "finished_unix": 1792362087.577601
+          },
+          {
+            "label": "r2-get-many-c64",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "GET",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 6211,
+            "statuses": {
+              "200": 6211
+            },
+            "transport_errors": {},
+            "seconds": 15.382538292,
+            "goodput_rps": 403.7695133338401,
+            "p50_ms": 84.71287500000001,
+            "p95_ms": 388.659875,
+            "p99_ms": 507.583292,
+            "counter_delta": 0,
+            "expected_delta": 0,
+            "audit_ok": true,
+            "warmup_delta": 0,
+            "warmup_expected": 0,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 1217
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 0,
+              "fleet": 0,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 0
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362833.232339,
+            "finished_unix": 1792362850.198873
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 0,
+          "fleet": 0,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 0
+        }
+      },
+      "goodput_change_percent": -4.312339715969859,
+      "p50_reduction_percent": 25.14711798066809,
+      "p95_reduction_percent": -18.14614940551762,
+      "p99_reduction_percent": -6.664373209789165
+    },
+    {
+      "method": "POST",
+      "shape": "hot",
+      "concurrency": 1,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 1,
+        "goodput_rps": 7.317775389659123,
+        "p50_ms": 128.33945799999998,
+        "p95_ms": 204.465542,
+        "p99_ms": 596.7657079999999,
+        "statuses": {
+          "200": 221
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c1",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 118,
+            "statuses": {
+              "200": 118
+            },
+            "transport_errors": {},
+            "seconds": 15.079078083,
+            "goodput_rps": 7.825412094193743,
+            "p50_ms": 94.741417,
+            "p95_ms": 204.465542,
+            "p99_ms": 596.7657079999999,
+            "counter_delta": 118,
+            "expected_delta": 118,
+            "audit_ok": true,
+            "warmup_delta": 17,
+            "warmup_expected": 17,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 17
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 118,
+              "fleet": 118,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 5865747
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361004.23753,
+            "finished_unix": 1792361021.374673
+          },
+          {
+            "label": "r2-post-hot-c1",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 103,
+            "statuses": {
+              "200": 103
+            },
+            "transport_errors": {},
+            "seconds": 15.121356917,
+            "goodput_rps": 6.811558021238392,
+            "p50_ms": 128.33945799999998,
+            "p95_ms": 179.560125,
+            "p99_ms": 511.750958,
+            "counter_delta": 103,
+            "expected_delta": 103,
+            "audit_ok": true,
+            "warmup_delta": 16,
+            "warmup_expected": 16,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 16
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 103,
+              "fleet": 103,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 5525391
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364227.7120929,
+            "finished_unix": 1792364244.945876
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 221,
+          "fleet": 221,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 11391138
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 1,
+        "goodput_rps": 7.420765664856907,
+        "p50_ms": 119.279083,
+        "p95_ms": 265.5245,
+        "p99_ms": 548.917166,
+        "statuses": {
+          "200": 224
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c1",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 114,
+            "statuses": {
+              "200": 114
+            },
+            "transport_errors": {},
+            "seconds": 15.059731125,
+            "goodput_rps": 7.569856264615082,
+            "p50_ms": 119.279083,
+            "p95_ms": 182.280416,
+            "p99_ms": 511.56766600000003,
+            "counter_delta": 114,
+            "expected_delta": 114,
+            "audit_ok": true,
+            "warmup_delta": 15,
+            "warmup_expected": 15,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 15
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 114,
+              "fleet": 114,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 6223199
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362104.47382,
+            "finished_unix": 1792362121.394509
+          },
+          {
+            "label": "r2-post-hot-c1",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 1,
+            "successes": 110,
+            "statuses": {
+              "200": 110
+            },
+            "transport_errors": {},
+            "seconds": 15.125833292,
+            "goodput_rps": 7.272326613448703,
+            "p50_ms": 115.16725,
+            "p95_ms": 265.5245,
+            "p99_ms": 548.917166,
+            "counter_delta": 110,
+            "expected_delta": 110,
+            "audit_ok": true,
+            "warmup_delta": 17,
+            "warmup_expected": 17,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 17
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 110,
+              "fleet": 110,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 5977259
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362786.841474,
+            "finished_unix": 1792362803.900577
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 224,
+          "fleet": 224,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 12200458
+        }
+      },
+      "goodput_change_percent": 1.4073986930962734,
+      "p50_reduction_percent": 7.059695545854638,
+      "p95_reduction_percent": -29.862713004228358,
+      "p99_reduction_percent": 8.01797780243766
+    },
+    {
+      "method": "POST",
+      "shape": "hot",
+      "concurrency": 8,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 8,
+        "goodput_rps": 30.586486275358574,
+        "p50_ms": 277.515042,
+        "p95_ms": 415.819834,
+        "p99_ms": 669.774333,
+        "statuses": {
+          "200": 932
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c8",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 513,
+            "statuses": {
+              "200": 513
+            },
+            "transport_errors": {},
+            "seconds": 15.201251792,
+            "goodput_rps": 33.747220756515446,
+            "p50_ms": 234.976459,
+            "p95_ms": 304.72758300000004,
+            "p99_ms": 473.118583,
+            "counter_delta": 513,
+            "expected_delta": 513,
+            "audit_ok": true,
+            "warmup_delta": 105,
+            "warmup_expected": 105,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 105
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 513,
+              "fleet": 513,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 82460592
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361026.607609,
+            "finished_unix": 1792361043.6104581
+          },
+          {
+            "label": "r2-post-hot-c8",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 419,
+            "statuses": {
+              "200": 419
+            },
+            "transport_errors": {},
+            "seconds": 15.269721291,
+            "goodput_rps": 27.439924541842117,
+            "p50_ms": 277.515042,
+            "p95_ms": 415.819834,
+            "p99_ms": 669.774333,
+            "counter_delta": 419,
+            "expected_delta": 419,
+            "audit_ok": true,
+            "warmup_delta": 85,
+            "warmup_expected": 85,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 85
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 419,
+              "fleet": 418,
+              "bucket": 1,
+              "errors": 0,
+              "elapsed_us": 78029502
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364205.236601,
+            "finished_unix": 1792364222.348515
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 932,
+          "fleet": 931,
+          "bucket": 1,
+          "errors": 0,
+          "elapsed_us": 160490094
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 8,
+        "goodput_rps": 28.951837891183448,
+        "p50_ms": 265.737416,
+        "p95_ms": 459.536667,
+        "p99_ms": 592.873667,
+        "statuses": {
+          "200": 883
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c8",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 439,
+            "statuses": {
+              "200": 439
+            },
+            "transport_errors": {},
+            "seconds": 15.239318083,
+            "goodput_rps": 28.807063256309352,
+            "p50_ms": 265.737416,
+            "p95_ms": 459.536667,
+            "p99_ms": 592.873667,
+            "counter_delta": 439,
+            "expected_delta": 439,
+            "audit_ok": true,
+            "warmup_delta": 96,
+            "warmup_expected": 96,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 96
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 439,
+              "fleet": 439,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 80155912
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362126.220947,
+            "finished_unix": 1792362143.459574
+          },
+          {
+            "label": "r2-post-hot-c8",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 8,
+            "successes": 444,
+            "statuses": {
+              "200": 444
+            },
+            "transport_errors": {},
+            "seconds": 15.25960925,
+            "goodput_rps": 29.096420014817877,
+            "p50_ms": 264.232167,
+            "p95_ms": 365.344667,
+            "p99_ms": 579.470083,
+            "counter_delta": 444,
+            "expected_delta": 444,
+            "audit_ok": true,
+            "warmup_delta": 100,
+            "warmup_expected": 100,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 100
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 444,
+              "fleet": 444,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 81660285
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362764.566463,
+            "finished_unix": 1792362781.634864
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 883,
+          "fleet": 883,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 161816197
+        }
+      },
+      "goodput_change_percent": -5.344348381370134,
+      "p50_reduction_percent": 4.243959504004113,
+      "p95_reduction_percent": -10.513407352281323,
+      "p99_reduction_percent": 11.481578527435154
+    },
+    {
+      "method": "POST",
+      "shape": "hot",
+      "concurrency": 32,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 32,
+        "goodput_rps": 109.93523286613144,
+        "p50_ms": 303.23395800000003,
+        "p95_ms": 440.634542,
+        "p99_ms": 587.2101250000001,
+        "statuses": {
+          "200": 3392
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c32",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 1859,
+            "statuses": {
+              "200": 1859
+            },
+            "transport_errors": {},
+            "seconds": 15.555201541,
+            "goodput_rps": 119.5098626719876,
+            "p50_ms": 248.46795899999998,
+            "p95_ms": 379.6325,
+            "p99_ms": 560.9662920000001,
+            "counter_delta": 1859,
+            "expected_delta": 1859,
+            "audit_ok": true,
+            "warmup_delta": 371,
+            "warmup_expected": 371,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 371
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1859,
+              "fleet": 1859,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 331164837
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361048.922582,
+            "finished_unix": 1792361065.931772
+          },
+          {
+            "label": "r2-post-hot-c32",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 1533,
+            "statuses": {
+              "200": 1533
+            },
+            "transport_errors": {},
+            "seconds": 15.299329,
+            "goodput_rps": 100.20047284426657,
+            "p50_ms": 303.23395800000003,
+            "p95_ms": 440.634542,
+            "p99_ms": 587.2101250000001,
+            "counter_delta": 1533,
+            "expected_delta": 1533,
+            "audit_ok": true,
+            "warmup_delta": 347,
+            "warmup_expected": 347,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 347
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1533,
+              "fleet": 1533,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 333380262
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364183.089059,
+            "finished_unix": 1792364200.203189
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 3392,
+          "fleet": 3392,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 664545099
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 32,
+        "goodput_rps": 109.8037308376277,
+        "p50_ms": 276.031,
+        "p95_ms": 442.215625,
+        "p99_ms": 606.755292,
+        "statuses": {
+          "200": 3353
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c32",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 1650,
+            "statuses": {
+              "200": 1650
+            },
+            "transport_errors": {},
+            "seconds": 15.280651333,
+            "goodput_rps": 107.97969039687923,
+            "p50_ms": 276.031,
+            "p95_ms": 442.215625,
+            "p99_ms": 605.876459,
+            "counter_delta": 1650,
+            "expected_delta": 1650,
+            "audit_ok": true,
+            "warmup_delta": 311,
+            "warmup_expected": 311,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 311
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1650,
+              "fleet": 1650,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 328599253
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362151.2508218,
+            "finished_unix": 1792362169.848917
+          },
+          {
+            "label": "r2-post-hot-c32",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 32,
+            "successes": 1703,
+            "statuses": {
+              "200": 1703
+            },
+            "transport_errors": {},
+            "seconds": 15.255651709,
+            "goodput_rps": 111.63076035587015,
+            "p50_ms": 271.161875,
+            "p95_ms": 366.670166,
+            "p99_ms": 606.755292,
+            "counter_delta": 1703,
+            "expected_delta": 1703,
+            "audit_ok": true,
+            "warmup_delta": 362,
+            "warmup_expected": 362,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 362
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1703,
+              "fleet": 1703,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 343725538
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362742.6559901,
+            "finished_unix": 1792362759.672423
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 3353,
+          "fleet": 3353,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 672324791
+        }
+      },
+      "goodput_change_percent": -0.11961772861651676,
+      "p50_reduction_percent": 8.970947112724104,
+      "p95_reduction_percent": -0.3588195770634739,
+      "p99_reduction_percent": -3.3284792219820725
+    },
+    {
+      "method": "POST",
+      "shape": "hot",
+      "concurrency": 64,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 64,
+        "goodput_rps": 210.4381181619558,
+        "p50_ms": 303.599125,
+        "p95_ms": 454.39141700000005,
+        "p99_ms": 750.569291,
+        "statuses": {
+          "200": 6449
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c64",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 3429,
+            "statuses": {
+              "200": 3429
+            },
+            "transport_errors": {},
+            "seconds": 15.271066916,
+            "goodput_rps": 224.54226799355607,
+            "p50_ms": 267.400584,
+            "p95_ms": 404.611958,
+            "p99_ms": 666.139458,
+            "counter_delta": 3429,
+            "expected_delta": 3429,
+            "audit_ok": true,
+            "warmup_delta": 700,
+            "warmup_expected": 700,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 700
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 3429,
+              "fleet": 3429,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 646860401
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361071.160009,
+            "finished_unix": 1792361088.1395772
+          },
+          {
+            "label": "r2-post-hot-c64",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 3020,
+            "statuses": {
+              "200": 3020
+            },
+            "transport_errors": {},
+            "seconds": 15.374521708,
+            "goodput_rps": 196.4288748201233,
+            "p50_ms": 303.599125,
+            "p95_ms": 454.39141700000005,
+            "p99_ms": 750.569291,
+            "counter_delta": 3020,
+            "expected_delta": 3020,
+            "audit_ok": true,
+            "warmup_delta": 545,
+            "warmup_expected": 545,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 545
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 3020,
+              "fleet": 3020,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 641778061
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364160.78106,
+            "finished_unix": 1792364177.914499
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 6449,
+          "fleet": 6449,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 1288638462
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "hot",
+        "concurrency": 64,
+        "goodput_rps": 202.1740437014181,
+        "p50_ms": 281.387959,
+        "p95_ms": 543.4392919999999,
+        "p99_ms": 718.820834,
+        "statuses": {
+          "200": 6261
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-hot-c64",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 3148,
+            "statuses": {
+              "200": 3148
+            },
+            "transport_errors": {},
+            "seconds": 15.700488458,
+            "goodput_rps": 200.50331608606567,
+            "p50_ms": 279.35625,
+            "p95_ms": 543.4392919999999,
+            "p99_ms": 649.9020840000001,
+            "counter_delta": 3148,
+            "expected_delta": 3148,
+            "audit_ok": true,
+            "warmup_delta": 636,
+            "warmup_expected": 636,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 636
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 3148,
+              "fleet": 3148,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 634605638
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362177.717126,
+            "finished_unix": 1792362195.762625
+          },
+          {
+            "label": "r2-post-hot-c64",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "hot",
+            "concurrency": 64,
+            "successes": 3113,
+            "statuses": {
+              "200": 3113
+            },
+            "transport_errors": {},
+            "seconds": 15.267878625,
+            "goodput_rps": 203.8921107810418,
+            "p50_ms": 281.387959,
+            "p95_ms": 502.51654199999996,
+            "p99_ms": 718.820834,
+            "counter_delta": 3113,
+            "expected_delta": 3113,
+            "audit_ok": true,
+            "warmup_delta": 646,
+            "warmup_expected": 646,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 646
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 3113,
+              "fleet": 3113,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 652727961
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362720.909791,
+            "finished_unix": 1792362737.853127
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 6261,
+          "fleet": 6261,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 1287333599
+        }
+      },
+      "goodput_change_percent": -3.9270805749068494,
+      "p50_reduction_percent": 7.315951915210562,
+      "p95_reduction_percent": -19.59717364115614,
+      "p99_reduction_percent": 4.229916861866389
+    },
+    {
+      "method": "POST",
+      "shape": "many",
+      "concurrency": 1,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 1,
+        "goodput_rps": 4.063889446744445,
+        "p50_ms": 268.02104199999997,
+        "p95_ms": 496.71329199999997,
+        "p99_ms": 670.4635,
+        "statuses": {
+          "200": 123
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c1",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 65,
+            "statuses": {
+              "200": 65
+            },
+            "transport_errors": {},
+            "seconds": 15.149060958,
+            "goodput_rps": 4.290694992924591,
+            "p50_ms": 246.737792,
+            "p95_ms": 490.953,
+            "p99_ms": 670.4635,
+            "counter_delta": 65,
+            "expected_delta": 65,
+            "audit_ok": true,
+            "warmup_delta": 11,
+            "warmup_expected": 11,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 11
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 65,
+              "fleet": 65,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 3587670
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361117.199278,
+            "finished_unix": 1792361136.5013509
+          },
+          {
+            "label": "r2-post-many-c1",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 58,
+            "statuses": {
+              "200": 58
+            },
+            "transport_errors": {},
+            "seconds": 15.117510417,
+            "goodput_rps": 3.8366105529371834,
+            "p50_ms": 268.02104199999997,
+            "p95_ms": 496.71329199999997,
+            "p99_ms": 612.694708,
+            "counter_delta": 58,
+            "expected_delta": 58,
+            "audit_ok": true,
+            "warmup_delta": 11,
+            "warmup_expected": 11,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 11
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 58,
+              "fleet": 58,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 3994588
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364126.6278431,
+            "finished_unix": 1792364143.7243361
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 123,
+          "fleet": 123,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 7582258
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 1,
+        "goodput_rps": 3.6215335947478438,
+        "p50_ms": 288.725375,
+        "p95_ms": 598.653584,
+        "p99_ms": 603.829125,
+        "statuses": {
+          "200": 111
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c1",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 57,
+            "statuses": {
+              "200": 57
+            },
+            "transport_errors": {},
+            "seconds": 15.34134125,
+            "goodput_rps": 3.7154508899278937,
+            "p50_ms": 267.33012499999995,
+            "p95_ms": 598.653584,
+            "p99_ms": 603.829125,
+            "counter_delta": 57,
+            "expected_delta": 57,
+            "audit_ok": true,
+            "warmup_delta": 13,
+            "warmup_expected": 13,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 13
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 57,
+              "fleet": 57,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 3872792
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362225.861276,
+            "finished_unix": 1792362242.861875
+          },
+          {
+            "label": "r2-post-many-c1",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 1,
+            "successes": 54,
+            "statuses": {
+              "200": 54
+            },
+            "transport_errors": {},
+            "seconds": 15.308657458,
+            "goodput_rps": 3.5274157873184806,
+            "p50_ms": 288.725375,
+            "p95_ms": 554.517084,
+            "p99_ms": 574.349042,
+            "counter_delta": 54,
+            "expected_delta": 54,
+            "audit_ok": true,
+            "warmup_delta": 9,
+            "warmup_expected": 9,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 9
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 54,
+              "fleet": 54,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 3207758
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362686.583443,
+            "finished_unix": 1792362703.5057302
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 111,
+          "fleet": 111,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 7080550
+        }
+      },
+      "goodput_change_percent": -10.885036559027695,
+      "p50_reduction_percent": -7.724890868829637,
+      "p95_reduction_percent": -20.522964382438968,
+      "p99_reduction_percent": 9.938553702028518
+    },
+    {
+      "method": "POST",
+      "shape": "many",
+      "concurrency": 8,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 8,
+        "goodput_rps": 28.185666359229103,
+        "p50_ms": 304.578333,
+        "p95_ms": 531.257166,
+        "p99_ms": 779.924958,
+        "statuses": {
+          "200": 858
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c8",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 438,
+            "statuses": {
+              "200": 438
+            },
+            "transport_errors": {},
+            "seconds": 15.138465666,
+            "goodput_rps": 28.932918940637375,
+            "p50_ms": 273.654291,
+            "p95_ms": 531.257166,
+            "p99_ms": 779.924958,
+            "counter_delta": 438,
+            "expected_delta": 438,
+            "audit_ok": true,
+            "warmup_delta": 87,
+            "warmup_expected": 87,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 87
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 438,
+              "fleet": 438,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 40112347
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361179.539084,
+            "finished_unix": 1792361196.5345511
+          },
+          {
+            "label": "r2-post-many-c8",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 420,
+            "statuses": {
+              "200": 420
+            },
+            "transport_errors": {},
+            "seconds": 15.302538959,
+            "goodput_rps": 27.446425794131514,
+            "p50_ms": 304.578333,
+            "p95_ms": 515.221208,
+            "p99_ms": 610.467167,
+            "counter_delta": 420,
+            "expected_delta": 420,
+            "audit_ok": true,
+            "warmup_delta": 92,
+            "warmup_expected": 92,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 92
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 420,
+              "fleet": 420,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 42041380
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792364068.1326878,
+            "finished_unix": 1792364085.2603679
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 858,
+          "fleet": 858,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 82153727
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 8,
+        "goodput_rps": 26.41364584243725,
+        "p50_ms": 318.51766599999996,
+        "p95_ms": 571.446625,
+        "p99_ms": 678.708625,
+        "statuses": {
+          "200": 812
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c8",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 411,
+            "statuses": {
+              "200": 411
+            },
+            "transport_errors": {},
+            "seconds": 15.343958833,
+            "goodput_rps": 26.785786150316635,
+            "p50_ms": 306.900083,
+            "p95_ms": 534.524958,
+            "p99_ms": 642.38275,
+            "counter_delta": 411,
+            "expected_delta": 411,
+            "audit_ok": true,
+            "warmup_delta": 92,
+            "warmup_expected": 92,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 92
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 411,
+              "fleet": 411,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 39703461
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362285.19982,
+            "finished_unix": 1792362302.197842
+          },
+          {
+            "label": "r2-post-many-c8",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 8,
+            "successes": 401,
+            "statuses": {
+              "200": 401
+            },
+            "transport_errors": {},
+            "seconds": 15.397726917,
+            "goodput_rps": 26.042805029700347,
+            "p50_ms": 318.51766599999996,
+            "p95_ms": 571.446625,
+            "p99_ms": 678.708625,
+            "counter_delta": 401,
+            "expected_delta": 401,
+            "audit_ok": true,
+            "warmup_delta": 87,
+            "warmup_expected": 87,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 87
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 401,
+              "fleet": 401,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 37327068
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362626.272746,
+            "finished_unix": 1792362643.276694
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 812,
+          "fleet": 812,
+          "bucket": 0,
+          "errors": 0,
+          "elapsed_us": 77030529
+        }
+      },
+      "goodput_change_percent": -6.286956264248911,
+      "p50_reduction_percent": -4.576600332237013,
+      "p95_reduction_percent": -7.564972591823826,
+      "p99_reduction_percent": 12.97770150343105
+    },
+    {
+      "method": "POST",
+      "shape": "many",
+      "concurrency": 32,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 32,
+        "goodput_rps": 55.11475141766756,
+        "p50_ms": 562.481459,
+        "p95_ms": 1017.227791,
+        "p99_ms": 1513.5255000000002,
+        "statuses": {
+          "200": 1694,
+          "500": 11,
+          "503": 17
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c32",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 902,
+            "statuses": {
+              "200": 902
+            },
+            "transport_errors": {},
+            "seconds": 15.328183417,
+            "goodput_rps": 58.845851165874,
+            "p50_ms": 525.212833,
+            "p95_ms": 864.263875,
+            "p99_ms": 1017.349459,
+            "counter_delta": 902,
+            "expected_delta": 902,
+            "audit_ok": true,
+            "warmup_delta": 166,
+            "warmup_expected": 166,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 166
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 902,
+              "fleet": 900,
+              "bucket": 2,
+              "errors": 0,
+              "elapsed_us": 280470668
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361235.075009,
+            "finished_unix": 1792361252.078778
+          },
+          {
+            "label": "r2-post-many-c32",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 792,
+            "statuses": {
+              "200": 792,
+              "500": 11,
+              "503": 17
+            },
+            "transport_errors": {},
+            "seconds": 15.407689583,
+            "goodput_rps": 51.40290474659156,
+            "p50_ms": 562.481459,
+            "p95_ms": 1017.227791,
+            "p99_ms": 1513.5255000000002,
+            "counter_delta": 813,
+            "expected_delta": 792,
+            "audit_ok": false,
+            "warmup_delta": 210,
+            "warmup_expected": 210,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 210
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 813,
+              "fleet": 711,
+              "bucket": 102,
+              "errors": 0,
+              "elapsed_us": 283497154
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363864.0940611,
+            "finished_unix": 1792363880.1127622
+          }
+        ],
+        "all_success": false,
+        "qualified": false,
+        "proof_delta": {
+          "started": 1715,
+          "fleet": 1611,
+          "bucket": 104,
+          "errors": 0,
+          "elapsed_us": 563967822
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 32,
+        "goodput_rps": 54.34062002357414,
+        "p50_ms": 598.82,
+        "p95_ms": 1118.3875830000002,
+        "p99_ms": 1920.1882500000002,
+        "statuses": {
+          "200": 1678
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c32",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 778,
+            "statuses": {
+              "200": 778
+            },
+            "transport_errors": {},
+            "seconds": 15.467596334,
+            "goodput_rps": 50.29870079359675,
+            "p50_ms": 598.82,
+            "p95_ms": 1118.3875830000002,
+            "p99_ms": 1920.1882500000002,
+            "counter_delta": 778,
+            "expected_delta": 778,
+            "audit_ok": true,
+            "warmup_delta": 154,
+            "warmup_expected": 154,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 154
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 778,
+              "fleet": 734,
+              "bucket": 44,
+              "errors": 0,
+              "elapsed_us": 275043071
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362348.280204,
+            "finished_unix": 1792362365.72211
+          },
+          {
+            "label": "r2-post-many-c32",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 32,
+            "successes": 900,
+            "statuses": {
+              "200": 900
+            },
+            "transport_errors": {},
+            "seconds": 15.411698,
+            "goodput_rps": 58.39719932222913,
+            "p50_ms": 534.757583,
+            "p95_ms": 895.821084,
+            "p99_ms": 1140.003834,
+            "counter_delta": 900,
+            "expected_delta": 900,
+            "audit_ok": true,
+            "warmup_delta": 194,
+            "warmup_expected": 194,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 194
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 900,
+              "fleet": 900,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 262007852
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362566.591993,
+            "finished_unix": 1792362583.540684
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 1678,
+          "fleet": 1634,
+          "bucket": 44,
+          "errors": 0,
+          "elapsed_us": 537050923
+        }
+      },
+      "goodput_change_percent": -1.4045811224420501,
+      "p50_reduction_percent": -6.4603980128703276,
+      "p95_reduction_percent": -9.944654766122119,
+      "p99_reduction_percent": -26.86857604975932
+    },
+    {
+      "method": "POST",
+      "shape": "many",
+      "concurrency": 64,
+      "baseline": {
+        "variant": "baseline",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 64,
+        "goodput_rps": 90.16767282844127,
+        "p50_ms": 711.838834,
+        "p95_ms": 1002.8723749999999,
+        "p99_ms": 1141.5355,
+        "statuses": {
+          "200": 2809
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c64",
+            "variant": "baseline",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 1429,
+            "statuses": {
+              "200": 1429
+            },
+            "transport_errors": {},
+            "seconds": 15.564309292,
+            "goodput_rps": 91.81261906267186,
+            "p50_ms": 679.406875,
+            "p95_ms": 1000.1181669999999,
+            "p99_ms": 1141.5355,
+            "counter_delta": 1429,
+            "expected_delta": 1429,
+            "audit_ok": true,
+            "warmup_delta": 291,
+            "warmup_expected": 291,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 291
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1429,
+              "fleet": 1425,
+              "bucket": 4,
+              "errors": 0,
+              "elapsed_us": 608961281
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792361289.870592,
+            "finished_unix": 1792361306.987781
+          },
+          {
+            "label": "r2-post-many-c64",
+            "variant": "baseline",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 1380,
+            "statuses": {
+              "200": 1380
+            },
+            "transport_errors": {},
+            "seconds": 15.588762667,
+            "goodput_rps": 88.52530694571001,
+            "p50_ms": 711.838834,
+            "p95_ms": 1002.8723749999999,
+            "p99_ms": 1125.782583,
+            "counter_delta": 1380,
+            "expected_delta": 1380,
+            "audit_ok": true,
+            "warmup_delta": 296,
+            "warmup_expected": 296,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 296
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1380,
+              "fleet": 1378,
+              "bucket": 2,
+              "errors": 0,
+              "elapsed_us": 611127108
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792363806.505698,
+            "finished_unix": 1792363823.646753
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 2809,
+          "fleet": 2803,
+          "bucket": 6,
+          "errors": 0,
+          "elapsed_us": 1220088389
+        }
+      },
+      "candidate": {
+        "variant": "candidate",
+        "method": "POST",
+        "shape": "many",
+        "concurrency": 64,
+        "goodput_rps": 77.49161885739773,
+        "p50_ms": 802.355333,
+        "p95_ms": 1255.779959,
+        "p99_ms": 1472.167291,
+        "statuses": {
+          "200": 2416
+        },
+        "transport_errors": {},
+        "repetitions": [
+          {
+            "label": "r1-post-many-c64",
+            "variant": "candidate",
+            "repeat": 1,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 1216,
+            "statuses": {
+              "200": 1216
+            },
+            "transport_errors": {},
+            "seconds": 15.603449083,
+            "goodput_rps": 77.93148768145342,
+            "p50_ms": 801.978292,
+            "p95_ms": 1255.779959,
+            "p99_ms": 1472.167291,
+            "counter_delta": 1216,
+            "expected_delta": 1216,
+            "audit_ok": true,
+            "warmup_delta": 280,
+            "warmup_expected": 280,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 280
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1216,
+              "fleet": 1214,
+              "bucket": 2,
+              "errors": 0,
+              "elapsed_us": 596605642
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362409.068856,
+            "finished_unix": 1792362426.055403
+          },
+          {
+            "label": "r2-post-many-c64",
+            "variant": "candidate",
+            "repeat": 2,
+            "method": "POST",
+            "shape": "many",
+            "concurrency": 64,
+            "successes": 1200,
+            "statuses": {
+              "200": 1200
+            },
+            "transport_errors": {},
+            "seconds": 15.574116125,
+            "goodput_rps": 77.05092156554085,
+            "p50_ms": 802.355333,
+            "p95_ms": 1231.0987499999999,
+            "p99_ms": 1410.345292,
+            "counter_delta": 1200,
+            "expected_delta": 1200,
+            "audit_ok": true,
+            "warmup_delta": 273,
+            "warmup_expected": 273,
+            "warmup_audit_ok": true,
+            "warmup_statuses": {
+              "200": 273
+            },
+            "warmup_transport_errors": {},
+            "proof_delta": {
+              "started": 1200,
+              "fleet": 1200,
+              "bucket": 0,
+              "errors": 0,
+              "elapsed_us": 613258620
+            },
+            "owners_before": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "owners_after": {
+              "owned_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "resident_cells": {
+                "node1": 1000,
+                "node2": 1000,
+                "node3": 1000
+              },
+              "total_owned": 3000,
+              "unique_residents": 3000,
+              "duplicate_residents": 0
+            },
+            "started_unix": 1792362507.751492,
+            "finished_unix": 1792362524.855862
+          }
+        ],
+        "all_success": true,
+        "qualified": true,
+        "proof_delta": {
+          "started": 2416,
+          "fleet": 2414,
+          "bucket": 2,
+          "errors": 0,
+          "elapsed_us": 1209864262
+        }
+      },
+      "goodput_change_percent": -14.058313332719374,
+      "p50_reduction_percent": -12.715869755428377,
+      "p95_reduction_percent": -25.218321922567675,
+      "p99_reduction_percent": -28.963776509797555
+    }
+  ],
+  "health_controls": [
+    {
+      "variant": "baseline",
+      "repeat": 1,
+      "goodput_rps": 975.0382834002853,
+      "p50_ms": 57.777207999999995,
+      "p95_ms": 122.943333,
+      "p99_ms": 238.591542,
+      "statuses": {
+        "200": 9906
+      },
+      "transport_errors": {}
+    },
+    {
+      "variant": "baseline",
+      "repeat": 2,
+      "goodput_rps": 943.8505611928954,
+      "p50_ms": 61.057,
+      "p95_ms": 131.091,
+      "p99_ms": 209.545875,
+      "statuses": {
+        "200": 9517
+      },
+      "transport_errors": {}
+    },
+    {
+      "variant": "candidate",
+      "repeat": 1,
+      "goodput_rps": 1178.7892863767877,
+      "p50_ms": 39.306,
+      "p95_ms": 88.788541,
+      "p99_ms": 370.67175000000003,
+      "statuses": {
+        "200": 11853
+      },
+      "transport_errors": {}
+    },
+    {
+      "variant": "candidate",
+      "repeat": 2,
+      "goodput_rps": 1312.6210809738257,
+      "p50_ms": 39.61975,
+      "p95_ms": 80.772083,
+      "p99_ms": 171.427875,
+      "statuses": {
+        "200": 13251
+      },
+      "transport_errors": {}
+    }
+  ],
+  "untimed_audit_interruption": {
+    "stage": "Candidate repetition 1, distributed GET c64, verification after warmup and before timed load",
+    "candidate_completed_windows": 7,
+    "baseline_completed_windows": 16,
+    "timed_window_started": false,
+    "client_failure": "HTTP 500: peer connection closed before message completed",
+    "logged_peer_failures_at_least": 3,
+    "diagnostic_read_rechecks": 3,
+    "diagnostic_read_values": [
+      1,
+      1,
+      1
+    ],
+    "nodes_healthy": true,
+    "owners_per_node": [
+      1000,
+      1000,
+      1000
+    ],
+    "process_exits": false,
+    "proof_errors": 0,
+    "interpretation": "Transient peer connection closure observed; exact initiating cause not established. Cellar refused the ambiguous remote attempt.",
+    "original_attempt_complete": false,
+    "resumption": "Resume at incomplete window; retain prior completed windows and interrupted artifacts. Bound and journal read-only audit retries. Timed clients and all POSTs keep zero retries.",
+    "recorded_unix": 1792361996.074344,
+    "resumed_full_vector_verified": true,
+    "verified_counter_count": 3000,
+    "all_verified_values": 1
+  },
+  "subsequent_audit_read_failures": [
+    {
+      "variant": "baseline",
+      "audit": "r2-block-after-read-attempts.json",
+      "attempt": 1,
+      "error": "TimeoutError"
+    }
+  ],
+  "baseline_recovery_failure": {
+    "stage": "Returning baseline before repetition 2",
+    "timed_windows_started": false,
+    "loss_case": "All three prior ephemeral container filesystems destroyed after preserving native stops",
+    "observed": "Recovery refuses to seal predecessor logs while former witness members remain undecided",
+    "owned_cells_per_new_node": [
+      0,
+      0,
+      0
+    ],
+    "proof_bypass": false,
+    "state_mutations_or_tombstone_erasure": false,
+    "interpretation": "Fleet acknowledgments may precede bucket upload. Preserving local shutdown plus discarding every local replica is not a qualified bucket-only recovery boundary.",
+    "resolution": "Preserve original bucket and failure evidence; stop refused nodes and use a fresh independent baseline bucket for repetition 2. This is a fresh performance repetition, not successful data recovery.",
+    "documentation": "docs/18-recovery-backup.md"
+  },
+  "baseline_write_failure": {
+    "label": "r2-post-many-c32",
+    "http_successes": 792,
+    "http_failures": 28,
+    "observed_increments": 813,
+    "excess_over_successes": 21,
+    "classification": "Unqualified sample: ambiguous writes; no mutation replay performed. Aggregate counts alone do not identify individual operations.",
+    "strict_audit_passed": false,
+    "all_nodes_healthy": true,
+    "current_counter_total": 5699,
+    "node_proof_errors": 0,
+    "recorded_unix": 1792363965.3665438,
+    "per_operation_acknowledgment_reconciliation_unavailable": true,
+    "data_loss_proven": false
+  },
+  "rejected_windows": [
+    {
+      "label": "r2-post-many-c32",
+      "variant": "baseline",
+      "repeat": 2,
+      "method": "POST",
+      "shape": "many",
+      "concurrency": 32,
+      "successes": 792,
+      "statuses": {
+        "200": 792,
+        "500": 11,
+        "503": 17
+      },
+      "transport_errors": {},
+      "seconds": 15.407689583,
+      "goodput_rps": 51.40290474659156,
+      "p50_ms": 562.481459,
+      "p95_ms": 1017.227791,
+      "p99_ms": 1513.5255000000002,
+      "counter_delta": 813,
+      "expected_delta": 792,
+      "audit_ok": false,
+      "warmup_delta": 210,
+      "warmup_expected": 210,
+      "warmup_audit_ok": true,
+      "warmup_statuses": {
+        "200": 210
+      },
+      "warmup_transport_errors": {},
+      "proof_delta": {
+        "started": 813,
+        "fleet": 711,
+        "bucket": 102,
+        "errors": 0,
+        "elapsed_us": 283497154
+      },
+      "owners_before": {
+        "owned_cells": {
+          "node1": 1000,
+          "node2": 1000,
+          "node3": 1000
+        },
+        "resident_cells": {
+          "node1": 1000,
+          "node2": 1000,
+          "node3": 1000
+        },
+        "total_owned": 3000,
+        "unique_residents": 3000,
+        "duplicate_residents": 0
+      },
+      "owners_after": {
+        "owned_cells": {
+          "node1": 1000,
+          "node2": 1000,
+          "node3": 1000
+        },
+        "resident_cells": {
+          "node1": 1000,
+          "node2": 1000,
+          "node3": 1000
+        },
+        "total_owned": 3000,
+        "unique_residents": 3000,
+        "duplicate_residents": 0
+      },
+      "started_unix": 1792363864.0940611,
+      "finished_unix": 1792363880.1127622
+    }
+  ]
+}
