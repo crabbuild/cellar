@@ -1925,9 +1925,13 @@ impl Db {
             )
             .map_err(sql_err)?;
 
-        // If the WAL header is unchanged, the WAL did not restart — done.
+        // When the WAL did not restart, the restored read lock still protects
+        // this generation. Capture the sealing write before clearing the dirty
+        // flag: otherwise the next capture mistakes our own control write for
+        // new work and re-arms age maintenance on an idle database.
         let other = self.wal_header_bytes()?;
         if hdr == other {
+            self.verify_and_sync(None)?;
             self.synced_since_checkpoint = false;
             return Ok(());
         }
