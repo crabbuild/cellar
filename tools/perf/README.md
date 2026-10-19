@@ -165,6 +165,10 @@ The [Cloudflare peer relay](cloudflare/README.md) carries native peer traffic
 through the benchmark's WebSocket bridge. Its tests cover byte ordering and
 flow control; its diagnostic isolates small-response TCP delays.
 
+The [relay and recovery follow-up](results/2026-10-18-counter-relay-recovery.md)
+compares socket settings on one live fleet, measures recovery upload phases,
+and verifies acknowledged state and new writes after a node loss.
+
 Use the existing counter workload alongside FleetCare to separate core durable
 HTTP writes from the application's Queue, outbox and SQL projection work. Each
 POST makes one storage transaction in one cell; the SDK output gate proves it

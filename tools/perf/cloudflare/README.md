@@ -25,6 +25,7 @@ transport credit never acknowledges an application write.
 The accepted TCP socket and the local direct connection use `TCP_NODELAY`.
 Without it, small response fragments can wait for delayed TCP acknowledgements
 even when Cellar and the WebSocket connection already write eagerly.
+See Node's [`socket.setNoDelay` documentation](https://nodejs.org/api/net.html#socketsetnodelaynodelay).
 
 ```sh
 npm ci --ignore-scripts --prefix tools/perf/cloudflare
