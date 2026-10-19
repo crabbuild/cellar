@@ -7,8 +7,8 @@ Checkpoint a bounded tool sequence and advance it through durable alarms.
 A named job checkpoints two deterministic Rust tools using storage plus alarms: count
 words, then generate a report. GET reports stage, result and bounded step count. A
 second POST with the same cell name returns 409. No model credentials are needed. This
-provides the durability pattern for agent builders; it is not a PiHarness/OpenCode port
-or an LLM integration. See ROADMAP.md for provider integration, budgets and approval
+provides the durability pattern for agent builders without an LLM integration.
+See the [roadmap](../ROADMAP.md) for provider integration, budgets and approval
 requirements.
 
 Read the [Rust source](main.rs) and [project configuration](project.json). The

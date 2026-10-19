@@ -94,20 +94,10 @@ def exercise(name, origin, with_cron):
         assert call("/rooms/client/state") == {"messages": 1}
         call("/rooms/demo", status=426)
         persisted.append(("/rooms/client/state", {}, {"messages": 1}))
-    elif name == "dynamic-worker-tails":
-        assert call("/loaded") == {"loaded": "compiled Rust", "environment": {"team": "examples"}}
-        eventually(lambda: call("/counters/loaded-calls"), lambda v: v == {"count": 1})
-        persisted.append(("/counters/loaded-calls", {}, {"count": 1}))
     elif name == "facets":
         assert call("/facets/demo", method="POST") == {"count": 1}
         assert call("/facets/another") == {"count": 0}
         persisted.append(("/facets/demo", {}, {"count": 1}))
-    elif name == "python":
-        assert call("/html", method="POST", data="<h1>Before</h1><p>Hello</p>") == b"<h1>Processed by native Rust</h1><p>Hello</p>"
-    elif name == "wasm":
-        result = call("/compute?samples=1000")
-        assert result["execution"] == "native Rust" and abs(result["pi"] - 3.14159265) < 0.00001
-        call("/compute?samples=1000000", status=400)
     elif name == "multi-tenant":
         path = "/tenants/acme/accounts/main"
         options = {"method": "POST", "token": "local-acme", "data": {"id": "credit1", "delta": 10}}
@@ -129,7 +119,7 @@ def exercise(name, origin, with_cron):
         call("/outbox/another", method="POST", data=body, status=202)
         eventually(lambda: call("/counters/queue-effects"), lambda v: v == {"count": 2})
         persisted.extend([("/outbox/shop", {}, {"orders": [["order1", 1]]}), ("/counters/queue-effects", {}, {"count": 2})])
-    elif name in ("durable-agent", "pi", "opencode"):
+    elif name == "durable-agent":
         call("/agents/demo", method="POST", data={"text": "native durable tools"})
         result = eventually(lambda: call("/agents/demo"), lambda v: v["stage"] == "complete")
         assert result["words"] == 3 and result["steps"] == 2

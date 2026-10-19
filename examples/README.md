@@ -15,10 +15,10 @@ The catalog borrows application patterns from the
 These are new Rust implementations. The pinned revision and every project's
 source, route and prerequisites are in [catalog.json](catalog.json).
 Every recipe has a README with purpose, code flow, prerequisites, end-to-end
-commands, expected output, interpretation and cleanup. The catalog contains 35
+commands, expected output, interpretation and cleanup. The catalog contains 30
 entries, including the original standalone embedding and stream hosts.
-Native pattern equivalents have explicit limits below. The catalog does not
-claim Workers SDK compatibility or production fleet certification.
+Each entry demonstrates its named feature with runnable code. The catalog does
+not claim Workers SDK compatibility or production fleet certification.
 
 ## Run the cookbook
 
@@ -87,14 +87,9 @@ isolation is not a deployment tenancy policy.
 | cron | [cron](cron/README.md) | Real minute trigger and deduplicated occurrence |
 | workflow | [workflow](workflow/README.md) | Journaled steps, durable sleep and repeatable Blob publication |
 | rpc | [rpc](rpc/README.md) | Structured Rust RPC through owner routing |
-| dynamic-worker-tails | [dynamic-worker-tails](dynamic-worker-tails/README.md) | Compiled loader, copied environment and background trace; no Tail Worker event API |
 | facets | [facets](facets/README.md) | Loaded class as a durable child facet |
 | container | [container](container/README.md) | Cell-owned Rust process, readiness and forwarding; Docker/Podman required |
 | sandbox | [sandbox](sandbox/README.md) | Fixed-tool exec, bounded stdout/stderr and exit status; no Sandbox SDK compatibility |
-| pi | [pi](pi/README.md) | Durable Rust tool-loop pattern; no PiHarness/provider integration |
-| opencode | [opencode](opencode/README.md) | Native tool-loop pattern; no OpenCode SDK integration |
-| python | [python](python/README.md) | Native HTML processing equivalent; no Python execution |
-| wasm | [wasm](wasm/README.md) | Native Rust computation; upstream Wasm counter also maps to counter |
 
 ## Application and team recipes
 
@@ -143,11 +138,11 @@ on the workspace volume. CI runs the local suites automatically.
 The focused runner boots every local HTTP project with fresh state, checks its
 documented behavior and restarts projects with durable effects. Select one with
 `--example counter` (repeat `--example` for several). Success prints a `PASS` line
-per recipe and `PASS 30 focused Rust projects` for the complete local set.
+per recipe and `PASS 25 focused Rust projects` for the complete local set.
 
 The cookbook smoke runner checks HTTP status codes, binary streams, actual vector queries,
 SQL/KV/Blob, alarms, background completion, retry/DLQ, deduplicated effects,
-workflow output, WebSocket upgrades, compiled loads, facet storage, tenant
+workflow output, WebSocket upgrades, facet storage, tenant
 isolation, receipt conflicts, rollback, tool completion and state after a
 restart. `--with-cron` waits for a real minute boundary. The team suite checks
 service calls across two application manifests and restart. Container and fleet
