@@ -7,8 +7,10 @@ COPY crates ./crates
 COPY examples ./examples
 COPY tools/perf ./tools/perf
 COPY tools/xtask ./tools/xtask
+# Archived source can predate cached artifacts; force Cargo to check this snapshot.
 RUN --mount=type=cache,id=cellar-perf-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=${TARGET_CACHE_ID},target=/src/target \
+    find Cargo.toml Cargo.lock crates examples tools -type f -exec touch {} + && \
     cargo build --release --locked -p fleetcare --bins && \
     mkdir /out && cp target/release/fleetcare-* /out/
 FROM debian:bookworm-slim AS toolkit
