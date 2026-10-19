@@ -14,20 +14,14 @@ mod background;
 mod blob;
 #[path = "body/main.rs"]
 mod body;
-#[path = "wasm/main.rs"]
-mod compute;
 #[path = "counter/main.rs"]
 mod counter;
 #[path = "facets/main.rs"]
 mod facets;
 #[path = "hello/main.rs"]
 mod hello;
-#[path = "python/main.rs"]
-mod html;
 #[path = "kv/main.rs"]
 mod kv;
-#[path = "dynamic-worker-tails/main.rs"]
-mod loader;
 #[path = "transactional-outbox/main.rs"]
 mod outbox;
 #[path = "queues/main.rs"]
@@ -98,10 +92,7 @@ async fn dispatch(context: Context, invocation: Invocation) -> Result<Output> {
                     support::method(&request, &["GET"])?;
                     websocket::client(&context, path.ends_with("/outbound")).await
                 }
-                "loaded" => loader::fetch(&context, request).await,
                 "facets" => support::route(&context, request, "SUPERVISORS").await,
-                "html" => html::fetch(&context, request).await,
-                "compute" => compute::fetch(&context, request),
                 "tenants" => tenants::fetch(&context, request).await,
                 "outbox" => support::route(&context, request, "OUTBOX").await,
                 "agents" => support::route(&context, request, "AGENTS").await,
@@ -165,15 +156,10 @@ const SCRIPTS: &[&str] = &[
     "native-workflow",
     "native-wsecho",
     "native-wsclient",
-    "native-dynamic-worker-tails",
     "native-facets",
-    "native-python",
-    "native-wasm",
     "native-multi-tenant",
     "native-transactional-outbox",
     "native-durable-agent",
-    "native-pi",
-    "native-opencode",
 ];
 
 fn main() -> Result<()> {

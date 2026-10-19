@@ -133,13 +133,8 @@ def cookbook(origin, with_cron):
     assert b"Cellar report" in call("/blobs/report-report1")
     assert call("/wsclient")["echo"] == "native Rust hello"
     assert call("/rooms/client/state")["messages"] == 1
-    assert call("/loaded")["environment"]["team"] == "examples"
-    eventually(lambda: call("/counters/loaded-calls"), lambda v: v["count"] == 1)
     assert call("/facets/supervisor", method="POST")["count"] == 1
     assert call("/facets/supervisor")["count"] == 1
-    assert b"Processed by native Rust" in call("/html", method="POST", data="<h1>Before</h1>")
-    assert abs(call("/compute")["pi"] - 3.14159265) < 0.00001
-    call("/compute?samples=1000000", status=400)
     account = "/tenants/acme/accounts/main"
     assert call(account, method="POST", token="local-acme", data={"id": "credit1", "delta": 10})["balance"] == 10
     assert call(account, method="POST", token="local-acme", data={"id": "credit1", "delta": 10})["balance"] == 10

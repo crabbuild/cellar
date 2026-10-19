@@ -150,36 +150,12 @@
       "guide": "wsclient/README.md"
     },
     {
-      "name": "dynamic-worker-tails",
-      "project": "dynamic-worker-tails/project.json",
-      "source": "dynamic-worker-tails/main.rs",
-      "route": "/loaded",
-      "status": "native-pattern",
-      "guide": "dynamic-worker-tails/README.md"
-    },
-    {
       "name": "facets",
       "project": "facets/project.json",
       "source": "facets/main.rs",
       "route": "/facets/demo",
       "status": "runnable",
       "guide": "facets/README.md"
-    },
-    {
-      "name": "python",
-      "project": "python/project.json",
-      "source": "python/main.rs",
-      "route": "/html",
-      "status": "native-pattern",
-      "guide": "python/README.md"
-    },
-    {
-      "name": "wasm",
-      "project": "wasm/project.json",
-      "source": "wasm/main.rs",
-      "route": "/compute",
-      "status": "native-pattern",
-      "guide": "wasm/README.md"
     },
     {
       "name": "multi-tenant",
@@ -204,22 +180,6 @@
       "route": "/agents/demo",
       "status": "runnable",
       "guide": "durable-agent/README.md"
-    },
-    {
-      "name": "pi",
-      "project": "pi/project.json",
-      "source": "durable-agent/main.rs",
-      "route": "/agents/demo",
-      "status": "native-pattern",
-      "guide": "pi/README.md"
-    },
-    {
-      "name": "opencode",
-      "project": "opencode/project.json",
-      "source": "durable-agent/main.rs",
-      "route": "/agents/demo",
-      "status": "native-pattern",
-      "guide": "opencode/README.md"
     },
     {
       "name": "team-services",
