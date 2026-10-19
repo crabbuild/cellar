@@ -136,6 +136,10 @@ async fn race(transition: Transition) -> Result<()> {
         0,
     )
     .await?;
+    // Settlement races require live owners; node-authority expiry is tested
+    // separately. Keep the ordinary 3s calls and 30s delivery lease unchanged.
+    config.actor.lease_ttl_ms = 10_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(10);
     let proxy = peer_reply_fault::Proxy::start(services.internal_listener.local_addr()?).await?;
     config.identity.advertise = proxy.address.to_string();
     let destination = Node::start(
@@ -146,7 +150,7 @@ async fn race(transition: Transition) -> Result<()> {
     )
     .await?;
     super::super::ready(&destination).await?;
-    let (config, services) = inputs(
+    let (mut config, services) = inputs(
         "settlement-consumer",
         &directory.path().join("consumer"),
         &consumer_core,
@@ -154,6 +158,8 @@ async fn race(transition: Transition) -> Result<()> {
         0,
     )
     .await?;
+    config.actor.lease_ttl_ms = 10_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(10);
     let budget = Duration::from_millis(
         config
             .actor

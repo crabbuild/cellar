@@ -253,7 +253,7 @@ async fn unproven_ack_cannot_escape_its_gate_and_recovers_the_original_lease() -
     let old_owner = owner(&observer, &bucket).await?;
     ensure!(old_owner["node"] == "unproven-destination");
     let epoch = old_owner["epoch"].as_u64().context("old epoch missing")?;
-    let (config, services) = inputs(
+    let (mut config, services) = inputs(
         "unproven-consumer",
         &directory.path().join("consumer"),
         &consumer_core,
@@ -261,6 +261,10 @@ async fn unproven_ack_cannot_escape_its_gate_and_recovers_the_original_lease() -
         0,
     )
     .await?;
+    // Only the forcibly closed destination needs the fixture's 1s lease.
+    // Its healthy consumer retains production authority through recovery.
+    config.actor.lease_ttl_ms = 10_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(10);
     let mut external = graph(1, false);
     external.primary.event_streams.clear();
     let consumer = Node::start(config, services, external, applications("consumer")?).await?;

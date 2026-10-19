@@ -216,7 +216,7 @@ async fn run(after_ack: bool) -> Result<()> {
     let destination_core = Executor::new("overlap-destination")?;
     let consumer_core = Executor::new("overlap-consumer")?;
     let bucket = cellar::bucket::Bucket::open_dev(&directory.path().join("fleet.sqlite"))?;
-    let (config, services) = inputs(
+    let (mut config, services) = inputs(
         "overlap-destination",
         &directory.path().join("destination"),
         &destination_core,
@@ -224,6 +224,10 @@ async fn run(after_ack: bool) -> Result<()> {
         0,
     )
     .await?;
+    // These nodes stay live across a normal 30s delivery lease. Use the
+    // production node lease rather than the expiry fixture's 1s authority.
+    config.actor.lease_ttl_ms = 10_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(10);
     let mut definition = graph(1, false);
     definition.primary.event_streams[0].retention = Retention::Required;
     definition.primary.event_streams[0].subscriptions[0].required = true;
@@ -235,7 +239,7 @@ async fn run(after_ack: bool) -> Result<()> {
     )
     .await?;
     super::super::ready(&destination).await?;
-    let (config, services) = inputs(
+    let (mut config, services) = inputs(
         "overlap-consumer",
         &directory.path().join("consumer"),
         &consumer_core,
@@ -243,6 +247,8 @@ async fn run(after_ack: bool) -> Result<()> {
         0,
     )
     .await?;
+    config.actor.lease_ttl_ms = 10_000;
+    config.startup.recovery_retry_backoff = Duration::from_secs(10);
     let budget = Duration::from_millis(
         config
             .actor
