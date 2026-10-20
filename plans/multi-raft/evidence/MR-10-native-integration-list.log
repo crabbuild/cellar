@@ -1,0 +1,431 @@
+Source revision: 08b2bca3da32982795994d0240844324437ff0c7
+Command: ["cargo", "test", "-p", "cellar", "--test", "native_storage", "--test", "native_replication", "--test", "native_log_protocol", "--test", "native_domains", "--test", "native_cells", "--test", "native_actor", "--test", "native_node", "--locked", "--", "--list"]
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:74:14
+   |
+74 |     fn as_v2(&self) -> Cow<ConfChangeV2>;
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+74 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2>;
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft-proto/src/confchange.rs:93:14
+   |
+93 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+   |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+   |              |
+   |              the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+   |
+93 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+   |                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-proto/src/confchange.rs:110:14
+    |
+110 |     fn as_v2(&self) -> Cow<ConfChangeV2> {
+    |              ^^^^^     ^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |              |
+    |              the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+110 |     fn as_v2(&self) -> Cow<'_, ConfChangeV2> {
+    |                            +++
+
+warning: `raft-proto` (lib) generated 3 warnings (run `cargo fix --lib -p raft-proto` to apply 3 suggestions)
+warning: unused import: `parse_reserved_file_name`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:13:18
+   |
+13 | pub use format::{parse_reserved_file_name, FileNameExt};
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `RecoveryConfig`
+  --> vendor/raft-engine/src/file_pipe_log/mod.rs:16:68
+   |
+16 |     DefaultMachineFactory, DualPipesBuilder as FilePipeLogBuilder, RecoveryConfig, ReplayMachine,
+   |                                                                    ^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+  --> vendor/raft-engine/src/engine.rs:11:16
+   |
+11 | use protobuf::{parse_from_bytes, Message};
+   |                ^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:602:17
+    |
+602 |         let e = parse_from_bytes(
+    |                 ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:247:32
+    |
+247 |                 return Ok(Some(parse_from_bytes(&value)?));
+    |                                ^^^^^^^^^^^^^^^^
+
+warning: use of deprecated function `protobuf::parse_from_bytes`: Use Message::parse_from_bytes instead
+   --> vendor/raft-engine/src/engine.rs:276:28
+    |
+276 |             if let Ok(v) = parse_from_bytes(raw_v) {
+    |                            ^^^^^^^^^^^^^^^^
+
+warning: function `lock_file_path` is never used
+   --> vendor/raft-engine/src/file_pipe_log/format.rs:100:15
+    |
+100 | pub(super) fn lock_file_path<P: AsRef<Path>>(dir: P) -> PathBuf {
+    |               ^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `must_rewrite_append_queue`, `must_rewrite_rewrite_queue`, and `must_purge_all_stale` are never used
+   --> vendor/raft-engine/src/purge.rs:135:12
+    |
+ 59 | / impl<P> PurgeManager<P>
+ 60 | | where
+ 61 | |     P: PipeLog,
+    | |_______________- methods in this implementation
+...
+135 |       pub fn must_rewrite_append_queue(
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+162 |       pub fn must_rewrite_rewrite_queue(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+172 |       pub fn must_purge_all_stale(&self) {
+    |              ^^^^^^^^^^^^^^^^^^^^
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:375:17
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<LogItem> {
+    |                 ^^^^^     ^^^^^^^^^^^^^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                 |
+    |                 the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+    = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+    |
+375 |     pub fn iter(&self) -> std::slice::Iter<'_, LogItem> {
+    |                                            +++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:379:18
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain {
+    |                  ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                  |
+    |                  the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+379 |     pub fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                            ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft-engine/src/log_batch.rs:881:25
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain {
+    |                         ^^^^^^^^^     ^^^^^^^^^^^^ the same lifetime is hidden here
+    |                         |
+    |                         the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+881 |     pub(crate) fn drain(&mut self) -> LogItemDrain<'_> {
+    |                                                   ++++
+
+warning: `raft-engine` (lib) generated 11 warnings (run `cargo fix --lib -p raft-engine` to apply 5 suggestions)
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/lib.rs:478:17
+    |
+478 | #![cfg_attr(not(feature = "cargo-clippy"), allow(unknown_lints))]
+    |                 ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+    = note: `#[warn(unexpected_cfgs)]` on by default
+
+warning: unused import: `ReadState`
+  --> vendor/raft/src/config.rs:17:44
+   |
+17 | pub use super::read_only::{ReadOnlyOption, ReadState};
+   |                                            ^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:53:16
+   |
+53 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+  --> vendor/raft/src/errors.rs:93:16
+   |
+93 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::match_same_arms))]
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+   = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raft.rs:935:16
+    |
+935 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: unexpected `cfg` condition value: `cargo-clippy`
+   --> vendor/raft/src/raw_node.rs:385:16
+    |
+385 |     #[cfg_attr(feature = "cargo-clippy", allow(clippy::needless_pass_by_value))]
+    |                ^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: expected values for `feature` are: `bytes`, `default`, `default-logger`, `fail`, `failpoints`, `prost-codec`, `protobuf-codec`, `slog-envlogger`, `slog-stdlog`, and `slog-term`
+    = help: consider adding `cargo-clippy` as a feature in `Cargo.toml`
+    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+
+warning: variable does not need to be mutable
+    --> vendor/raft/src/raft.rs:1019:19
+     |
+1019 |         for (&id, mut pr) in self.mut_prs().iter_mut() {
+     |                   ----^^
+     |                   |
+     |                   help: remove this `mut`
+     |
+     = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: trait `AssertSend` is never used
+   --> vendor/raft/src/raft.rs:296:7
+    |
+296 | trait AssertSend: Send {}
+    |       ^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+  --> vendor/raft/src/confchange/changer.rs:46:25
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer {
+   |                         ^^^^^^^^^^^^^^^^     ^^^^^^^ the same lifetime is hidden here
+   |                         |
+   |                         the lifetime is elided here
+   |
+   = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+   = note: `#[warn(mismatched_lifetime_syntaxes)]` on by default
+help: use `'_` for type paths
+   |
+46 |     pub fn new(tracker: &ProgressTracker) -> Changer<'_> {
+   |                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/confchange/changer.rs:272:23
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap)> {
+    |                       ^^^^^                            ^^^^^^^^^^^^^ the same lifetime is hidden here
+    |                       |
+    |                       the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+272 |     fn check_and_copy(&self) -> Result<(Configuration, IncrChangeMap<'_>)> {
+    |                                                                     ++++
+
+warning: hiding a lifetime that's elided elsewhere is confusing
+   --> vendor/raft/src/raw_node.rs:729:19
+    |
+729 |     pub fn status(&self) -> Status {
+    |                   ^^^^^     ^^^^^^ the same lifetime is hidden here
+    |                   |
+    |                   the lifetime is elided here
+    |
+    = help: the same lifetime is referred to in inconsistent ways, making the signature confusing
+help: use `'_` for type paths
+    |
+729 |     pub fn status(&self) -> Status<'_> {
+    |                                   ++++
+
+warning: `raft` (lib) generated 11 warnings (run `cargo fix --lib -p raft` to apply 5 suggestions)
+   Compiling cellar v0.6.2 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar)
+    Finished `test` profile [unoptimized] target(s) in 12.14s
+     Running tests/native_actor.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_actor-2f40d5dd41e9d238)
+<jemalloc>: option background_thread currently supports pthread only
+actor_closure_during_a_poll_does_not_panic_or_stop_the_caller_executor: test
+default_actor_deadline_ignores_process_environment: test
+embedded_production_actors_route_and_prove_writes_on_caller_executors: test
+explicit_actor_policy_survives_unusable_process_environment: test
+supplied_executor_keeps_effects_and_joined_cancellation_in_the_owning_domain: test
+typed_actor_rejects_foreign_authority_and_inconsistent_policy: test
+
+6 tests, 0 benchmarks
+     Running tests/native_cells.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_cells-df84b2727ac0fc65)
+<jemalloc>: option background_thread currently supports pthread only
+native_business_namespaces_identity_streams_rpc_gates_retirement_and_cancellation: test
+
+1 test, 0 benchmarks
+     Running tests/native_domains.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_domains-fd9df4494a45a771)
+<jemalloc>: option background_thread currently supports pthread only
+a_timer_created_during_closure_preserves_cancellation_and_owned_cleanup: test
+cancellation_guards_keep_their_owner_when_dropped_in_another_domain: test
+closing_a_domain_joins_cancelled_work_without_stopping_the_application: test
+closure_wakes_pending_roots_and_nested_polls_restore_authority: test
+domain_wall_clocks_follow_tasks_without_changing_monotonic_timers: test
+domains_route_identical_cell_names_to_their_own_host_across_tasks: test
+identical_durable_cells_keep_their_sqlite_state_and_input_gates_in_their_own_host: test
+identical_facet_roots_keep_loaded_children_and_exported_classes_in_their_host: test
+loaded_native_applications_keep_their_domain_and_reject_foreign_capabilities: test
+native_handlers_keep_routing_and_blob_authority_when_runtime_drivers_spawn: test
+native_socket_shutdown_closes_one_hosts_peer_and_preserves_the_siblings_transport: test
+shutdown_completion_waits_for_cancelled_future_destructors: test
+shutdown_joins_entered_roots_without_aborting_the_application_task: test
+shutdown_of_one_durable_holder_does_not_release_a_sibling_hosts_gate: test
+shutdown_waits_for_started_blocking_work_and_owner_drop_cancels_async_work: test
+
+15 tests, 0 benchmarks
+     Running tests/native_log_protocol.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_log_protocol-44c0d5557018af4a)
+<jemalloc>: option background_thread currently supports pthread only
+a_new_lineage_cannot_certify_or_collect_an_old_follower_session: test
+follower_gc_discovers_current_sessions_and_requires_closed_authority: test
+log_wire_requires_current_shapes_and_complete_frames: test
+modern_leases_keep_recovery_pointers_and_cas_tombstones: test
+signed_control_reply_rejects_excess_chunked_bytes: test
+signed_control_reply_rejects_excess_declared_length: test
+signed_transport_retains_both_caller_pools_and_authenticates_requests: test
+
+7 tests, 0 benchmarks
+     Running tests/native_node.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_node-4b3ca8af17e513bd)
+<jemalloc>: option background_thread currently supports pthread only
+cancelled_bootstrap_observation_does_not_consume_the_only_host_blocking_worker: test
+cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined: test
+conclusively_lost_fleet_proof_cannot_install_a_successor: test
+embedded_node_joins_raft_service_with_retained_handles: test
+explicit_public_node_policy_ignores_invalid_process_configuration: test
+factory_entry_observation_keeps_its_deadline_for_queued_notifications: test
+failed_predecessor_recovery_preserves_the_predecessor_generation_and_releases_the_directory: test
+full_node_admits_cold_cells_past_a_covered_alarm: test
+management_authentication_generation_and_host_capabilities_are_enforced: test
+management_crons_report_pending_until_embedded_host_adopts: test
+management_resource_writes_survive_forced_owner_closure: test
+management_resource_writes_survive_owner_handoff: test
+management_stop_receipts_distinguish_draining_joined_and_incomplete_work: test
+node_assets::embedded_nodes_keep_asset_caches_and_shutdown_independent: test
+node_events::catalog_inventory_pages_tombstones_and_recovers_owner_handoff: test
+node_events::console_event_adapters_use_signed_owner_routes_and_guarded_receipts: test
+node_events::event_clock_retention::clock_retention_bounded_expiry_survives_rollback_and_owner_handoff: test
+node_events::event_clock_retention::clock_retention_required_checkpoint_survives_expiry_rollback_and_handoff: test
+node_events::event_consumer_overlap::overlapping_consumers_deduplicate_before_current_ack: test
+node_events::event_consumer_overlap::overlapping_consumers_preserve_next_lease_after_current_ack: test
+node_events::event_consumer_takeover::running_consumer_cannot_accept_after_fenced_takeover: test
+node_events::event_consumer_takeover::running_consumer_receipt_and_effect_cannot_commit_after_fenced_takeover: test
+node_events::event_fetch_reply::lost_proven_fetch_recovers_exact_lease_after_owner_handoff: test
+node_events::event_late_reply::delayed_proven_ack_survives_destination_fencing_without_consuming_the_next_lease: test
+node_events::event_late_reply::late_proven_append_reply_cannot_settle_a_fenced_source_successor: test
+node_events::event_late_reply::operator_retry_ignores_prior_generation_append_acceptance: test
+node_events::event_late_reply::operator_retry_ignores_prior_generation_append_refusal: test
+node_events::event_metrics_export_tracks_real_work_and_keeps_hosts_isolated: test
+node_events::event_owner_outage::storage_isolated_event_owner_expires_and_recovers_before_replay: test
+node_events::event_refusal_clock::cold_follower_audit_survives_one_read_deadline_without_receipt_replay: test
+node_events::event_refusal_clock::foreign_root_loss_during_recovery_refuses_takeover_until_claimed_metadata_returns: test
+node_events::event_refusal_clock::foreign_root_replacement_during_recovery_refuses_takeover_until_claimed_metadata_returns: test
+node_events::event_refusal_clock::live_foreign_recovery_resumes_after_missing_claimed_metadata_returns: test
+node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns: test
+node_events::event_refusal_clock::missing_destination_lease_refuses_admission_until_proof_metadata_returns: test
+node_events::event_refusal_clock::refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss: test
+node_events::event_refusal_clock::refused_clock_cold_followers_recover_before_any_receipt_replay: test
+node_events::event_refusal_clock::refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload: test
+node_events::event_refusal_clock::root_loss_after_lineage_capture_refuses_boot_until_original_proof_returns: test
+node_events::event_refusal_clock::root_loss_after_recovery_refuses_lease_install_until_sealed_metadata_returns: test
+node_events::event_refusal_clock::root_loss_during_recovery_refuses_boot_until_claimed_metadata_returns: test
+node_events::event_refusal_clock::root_replacement_after_lineage_capture_refuses_boot_until_original_proof_returns: test
+node_events::event_refusal_clock::root_replacement_after_recovery_refuses_lease_install_until_sealed_metadata_returns: test
+node_events::event_refusal_clock::root_replacement_during_recovery_refuses_boot_until_claimed_metadata_returns: test
+node_events::event_refusal_clock::same_name_restart_cannot_recover_from_a_fresh_lineage_after_root_loss: test
+node_events::event_root_read::claimed_root_cut_holds_concurrent_original_responses: test
+node_events::event_running_owner::running_source_poll_cannot_write_commit_or_reply_after_fenced_takeover: test
+node_events::event_settlement_race::settlement_race_ack_replay_and_extension_preserve_next_lease: test
+node_events::event_settlement_race::settlement_race_expiry_replacement_refuses_old_ack_and_extension: test
+node_events::event_settlement_race::settlement_race_reset_invalidates_pending_ack_and_extension: test
+node_events::event_unproven_ack::unproven_ack_cannot_escape_its_gate_and_recovers_the_original_lease: test
+node_events::event_unproven_clock::unproven_clock_refusal_cannot_escape_and_does_not_revoke_the_original_lease: test
+node_events::lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effects: test
+node_events::named_bindings_resolve_grants_and_pin_uuid_across_recreation: test
+node_events::node_activates_declarations_checks_adoption_and_processes_redelivery: test
+node_events::node_refuses_unsupported_storage_and_peer_protocol_before_admission: test
+node_events::peer_reply_fault::binary_upgrades_forward_prefetched_bytes_and_eof: test
+node_events::peer_reply_fault::bodyless_abort_response_keeps_next_message_framing_intact: test
+node_events::peer_reply_fault::controlled_destination_closure_preserves_framing_failures: test
+node_events::peer_reply_fault::destination_reset_requires_an_explicit_shutdown_cut: test
+node_events::peer_reply_fault::log_upgrade_relays_binary_bytes_and_joins_both_directions: test
+node_events::peer_reply_fault::log_upgrades_preserve_buffered_binary_bytes_and_half_closes: test
+node_events::peer_reply_fault::outer_tunnel_keeps_http_fault_capture_after_upgrade: test
+node_events::removed_source_class_recovers_delivery_and_control_without_application_code: test
+node_events::retirement_operator_coordinates_or_forces_and_recovers_terminal_receipts: test
+node_events::source_destruction_fences_suspended_turns_retained_handles_and_preserves_live_watermarks: test
+node_events::source_destruction_requires_retired_destinations_and_recovers_closed_admission: test
+node_events::source_inventory_preserves_observed_watermarks_seals_and_owner_handoff: test
+node_events::source_operator_routes_to_owner_replays_receipts_and_recovers_handoff: test
+node_events::stream_operator_routes_controls_preserves_receipts_and_checks_revocation: test
+node_events::subscription_inventory_pages_tombstones_and_recovers_owner_handoff: test
+node_http::embedded_hosts_capture_http_clients_and_separate_deadlines: test
+progressing_background_extends_the_stall_window_but_not_the_absolute_node_deadline: test
+progressing_background_keeps_the_fleet_drain_token_renewed: test
+public_node_applies_lifted_limits_to_cell_storage: test
+public_node_deadline_reports_background_work_before_forced_retirement: test
+public_node_renews_short_authority_while_its_host_worker_is_blocked: test
+public_node_reports_expired_authority_after_its_executor_resumes: test
+public_node_reports_missing_and_replaced_lease_authority: test
+public_node_shutdown_drains_alarm_background_before_the_durability_cut: test
+public_node_shutdown_drains_nested_background_across_generations_and_isolates_hosts: test
+public_nodes_adopt_compiled_generations_and_force_close_without_process_exit: test
+public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_executors_running: test
+remote_workflow_deletion_preserves_gated_handler_completion: test
+replacement_public_node_recovers_predecessor_before_replacing_its_lease: test
+signed_cron_history_forwards_without_arming_and_refuses_other_protocols: test
+slow_predecessor_recovery_still_refuses_missing_witness: test
+timed_out_predecessor_recovery_preserves_generation_and_releases_directory: test
+
+88 tests, 0 benchmarks
+     Running tests/native_replication.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_replication-0e02c97fe02c7193)
+<jemalloc>: option background_thread currently supports pthread only
+clean_reload_inventory_preserves_evicted_cache: test
+command_line_replication_adapter_validates_and_captures_policy: test
+generic_and_native_s3_page_reads_keep_the_supplied_credential_provider: test
+idle_replica_maintains_aged_wal_and_releases_its_database_on_close: test
+replication_configuration_rejects_invalid_limits_and_namespaces: test
+shared_store_namespaces_retain_real_durability_and_caller_page_readers: test
+
+6 tests, 0 benchmarks
+     Running tests/native_storage.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_storage-f89bd9f547d1d3e6)
+<jemalloc>: option background_thread currently supports pthread only
+native_storage_transactions_cursors_and_proofs_use_production_turns: test
+
+1 test, 0 benchmarks

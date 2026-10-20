@@ -85,7 +85,7 @@ Keep each later package's dependency and acceptance gates intact.
 | MR-07 | Integrate Raft authority and command registration with the host | MR-04, MR-06 | v1 |
 | MR-08 | Serve explicit follower query consistency modes | MR-07 | v1 |
 | MR-09 | Archive committed history and enforce durability modes | MR-07 | v1 |
-| MR-10 | Install snapshots and recover durable group state | MR-09, MR-05, MR-03 | v1 |
+| MR-10 | Install snapshots and recover durable group state | MR-09, MR-05, MR-03, MR-08 | v1 |
 | MR-11 | Place replicas and repair membership automatically | MR-10, MR-04, MR-07 | v1 |
 | MR-12 | Integrate committed alarms, outbox and capability gates | MR-08, MR-09, MR-11 | v1 |
 | MR-13 | Bound resources and complete node lifecycle operations | MR-11, MR-12 | v1 |
@@ -417,7 +417,7 @@ shown by `plan.py show MR-09`; the manifest is authoritative for arguments.
 
 ### MR-10 Install snapshots and recover durable group state
 
-Dependencies: MR-09, MR-05, MR-03. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-09, MR-05, MR-03, MR-08. Phase: v1. Status: IN_PROGRESS.
 
 The physical snapshot component captures exact committed cuts, binds canonical
 history/schema/configuration metadata to full LTX bytes, assembles bounded ordered
@@ -427,20 +427,15 @@ prospective/durable image references, including uncertain I/O and joined close.
 Empty/configuration-only snapshots carry no image and can precede the first LTX
 command. `recovery.rs` validates coherent engine-selected references before GC.
 
-The [cancellation evidence](evidence/MR-10-abort-progress.json) pins source
-`c6aaca08153d039717a07195d05a8b0248ac6fe5`: all 160 Rust cases and 18 commands pass,
-including 22 snapshot, 14 transport, 17 LTX and 23 host cases, the owning regressions,
-affected public Node Raft lifecycle and both cellar-ltx backend feature modes.
-Exact-ticket abort joins older physical apply, persists required term/vote over the
-old commit and refuses late/duplicate completion; retry can install the newer cut.
-Failed sync releases no progress and restart retains the coherent old prefix.
-The earlier [peer-admission evidence](evidence/MR-10-inbound-progress.json) records
-bounded frame admission, sender hints, completion reservations and TLS saturation
-checks. Full-size retained checkpoint/archive and image/engine/publication crash
-regressions pass in the current record. The [snapshot audit](snapshot-audit.md)
-records remaining native scheduling, authenticated transfer/cancellation ownership,
-host readiness/generation admission and fresh-member authorization/quorum-loss
-refusal. MR-10 is not complete.
+The [native recovery evidence](evidence/MR-10-native-progress.json) pins source
+`08b2bca3da32982795994d0240844324437ff0c7`: all 304 Rust cases and 21 commands pass,
+including 26 snapshot, 18 read and all 88 public Node cases, owning/integration
+regressions and both cellar-ltx backend feature modes. Exact-ticket abort joins
+older physical apply; native transfers retry and close through owned lifecycles.
+A dropped ReadIndex reply retries within its original invocation and still needs
+quorum proof. The [snapshot audit](snapshot-audit.md) records the implemented path
+and remaining fresh-member authorization/S3 seeding, explicit quorum-loss restore
+refusal and the full native recovery fault matrix. MR-10 is not complete.
 
 The native host now captures periodic checkpoints and pins the exact requested
 source before sending snapshot metadata. Member-only pulls use separate bounded

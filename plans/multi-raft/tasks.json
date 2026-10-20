@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c6aaca08153d039717a07195d05a8b0248ac6fe5",
+  "baseline_revision": "08b2bca3da32982795994d0240844324437ff0c7",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1223,7 +1223,8 @@
       "depends_on": [
         "MR-09",
         "MR-05",
-        "MR-03"
+        "MR-03",
+        "MR-08"
       ],
       "modifies": [
         "crates/cellar/durability/raft/storage.rs",
@@ -1254,7 +1255,9 @@
         "crates/cellar/tests/support/raft_cluster.rs",
         "crates/cellar/tests/support/raft_node.rs",
         "crates/cellar/tests/native_raft_archive.rs",
-        "crates/cellar/durability/raft/README.md"
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/durability/raft/query.rs",
+        "crates/cellar/tests/native_raft_reads.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
@@ -1452,7 +1455,7 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-10-abort-progress.json"
+        "evidence/MR-10-native-progress.json"
       ]
     },
     {

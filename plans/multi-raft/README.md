@@ -47,28 +47,30 @@ define the remaining delivery order: recovery, automatic repair, durable busines
 features, node operations, release qualification, then larger scale/federation.
 Recovery through the public Node path is the current priority.
 
-The [MR-10 cancellation progress](evidence/MR-10-abort-progress.json) pins source
-`c6aaca08153d039717a07195d05a8b0248ac6fe5`: 160 Rust cases pass across ten targets,
-including 22 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node
-Raft lifecycle case. All 18 commands pass, including owning-target Clippy,
-cellar-ltx backend feature modes, format/layout, dependency policy, docs, 17 plan
-tests and the reviewed 68-anchor preflight. Exact-ticket cancellation joins older
-physical apply work, syncs required term/vote over the old committed prefix and
-refuses late install completions. A retry uses a fresh capability. Failed sync
-releases no progress; restart recovers the coherent old image. These are component
-gates; native transfer and recovery through Node remain unfinished.
+The [native recovery progress](evidence/MR-10-native-progress.json) pins source
+`08b2bca3da32982795994d0240844324437ff0c7`: 304 Rust cases pass across 17 binaries,
+including 26 snapshot, 18 read and all 88 public Node cases. All 21 commands pass,
+including owning/integration Clippy, cellar-ltx backend feature modes,
+format/layout, dependency policy, docs, 17 plan tests and the reviewed 68-anchor
+preflight. Native nodes create checkpoints, serve exact retained cuts over bounded
+authenticated TLS chunks, install durable images and resume follower reads.
+Interrupted transfers retry while another group writes; shutdown joins partial
+transfers. Startup rejects insufficient capacity before creating catalog/member
+state. A forced lost ReadIndex reply also recovers under the original deadline
+with the term and leader unchanged; successful strong reads still require quorum.
 
-The [snapshot audit](snapshot-audit.md) records remaining native checkpoint/source
-scheduling, authenticated transfer/cancellation ownership, host readiness and
-generation admission, and replacement-member authorization with quorum-loss refusal.
-MR-10 remains IN_PROGRESS. The earlier
+The [snapshot audit](snapshot-audit.md) records the implemented native path and
+remaining authorized fresh-member/S3 admission, quorum-loss refusal and native
+crash qualification. MR-10 remains IN_PROGRESS. The earlier
+[cancellation record](evidence/MR-10-abort-progress.json) pins its 160-case scope at
+`c6aaca08153d039717a07195d05a8b0248ac6fe5`; the
 [peer-admission record](evidence/MR-10-inbound-progress.json) pins 157 cases at
-`ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`; it qualifies held-snapshot TLS
-admission, sender hints, independent completion reservations and joined shutdown.
-The [boundary record](evidence/MR-10-boundary-progress.json) pins its separate
-152-case qualification at `a5619f3d522fd942372c520f02a52945fd0ec7b5`.
-The [earlier physical record](evidence/MR-10-physical-progress.json) retains its
-separate 218-case/88-Node qualification at source `24410fb754b055078255ccf5d595c0893f0d1b0e`.
+`ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`; the
+[boundary record](evidence/MR-10-boundary-progress.json) pins 152 cases at
+`a5619f3d522fd942372c520f02a52945fd0ec7b5`. The
+[earlier physical record](evidence/MR-10-physical-progress.json) retains its
+separate 218-case qualification at `24410fb754b055078255ccf5d595c0893f0d1b0e`.
+The current record includes the complete 88-case Node target.
 
 The [earlier storage progress evidence](evidence/MR-09-storage-progress.json)
 retains its narrower 91-case qualification at source
