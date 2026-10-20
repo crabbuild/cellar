@@ -111,9 +111,9 @@ shown by `plan.py show MR-01`; the manifest is authoritative for arguments.
 
 Dependencies: MR-01. Phase: v1. Status: DONE. Evidence: [MR-02](evidence/MR-02.json).
 
-Modify: `Cargo.toml`, `Cargo.lock`, `crates/cellar/Cargo.toml`, `crates/cellar/lib.rs`, `crates/cellar-ltx/src/host.rs`, `crates/cellar-ltx/src/lib.rs`, `tools/xtask/src/main.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `Dockerfile`, `NOTICE`, `tools/perf/Dockerfile`, `tools/perf/fleetcare.Dockerfile`, `tools/perf/fleetcare-console.Dockerfile`, `tools/perf/fleetcare.py`, `tools/perf/faults.py`, `tools/perf/test_fleetcare.py`, `tools/perf/test_build_freshness.py`.
+Modify: `Cargo.toml`, `Cargo.lock`, `crates/cellar/Cargo.toml`, `crates/cellar/lib.rs`, `crates/cellar-ltx/src/host.rs`, `crates/cellar-ltx/src/lib.rs`, `tools/xtask/src/main.rs`, `crates/cellar/application/consensus/mod.rs`, `Dockerfile`, `NOTICE`, `tools/perf/Dockerfile`, `tools/perf/fleetcare.Dockerfile`, `tools/perf/fleetcare-console.Dockerfile`, `tools/perf/fleetcare.py`, `tools/perf/faults.py`, `tools/perf/test_fleetcare.py`, `tools/perf/test_build_freshness.py`, `crates/cellar/application/consensus/protocol.rs`.
 
-Create: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/durability/raft/filesystem.rs`, `vendor/raft-engine/Cargo.toml`, `vendor/raft-engine/UPSTREAM.json`, `vendor/raft-proto/Cargo.toml`, `vendor/raft-proto/build.rs`, `vendor/raft-proto/UPSTREAM.json`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `vendor/.gitattributes`, `vendor/raft/Cargo.toml`, `vendor/raft/UPSTREAM.json`.
+Create: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/durability/raft/filesystem.rs`, `vendor/raft-engine/Cargo.toml`, `vendor/raft-engine/UPSTREAM.json`, `vendor/raft-proto/Cargo.toml`, `vendor/raft-proto/build.rs`, `vendor/raft-proto/UPSTREAM.json`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `vendor/.gitattributes`, `vendor/raft/Cargo.toml`, `vendor/raft/UPSTREAM.json`, `vendor/raft/src/raft.rs`, `vendor/raft/src/raw_node.rs`.
 
 1. Pin raft 0.7.0, raft-engine 0.4.2 and required codec/logging dependencies centrally; verify the locked build and license notices.
 2. Implement Storage over one node-wide engine with durable numeric-key allocation and group/incarnation mapping.
@@ -138,11 +138,11 @@ shown by `plan.py show MR-02`; the manifest is authoritative for arguments.
 
 ### MR-03 Drive multiple RawNode instances with ordered Ready handling
 
-Dependencies: MR-02. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-02. Phase: v1. Status: DONE. Evidence: [MR-03](evidence/MR-03.json).
 
-Modify: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`.
+Modify: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/mod.rs`, `vendor/raft/UPSTREAM.json`, `NOTICE`, `vendor/raft/src/raft.rs`, `vendor/raft/src/raw_node.rs`, `crates/cellar/durability/raft/cache.rs`.
 
-Create: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/tests/native_raft_runtime.rs`.
+Create: `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/budget.rs`, `crates/cellar/tests/support/raft_runtime_fixture.rs`, `crates/cellar/durability/raft/README.md`.
 
 1. Own each RawNode on one serialized worker; use shared bounded scheduling across groups.
 2. Implement conservative one-outstanding-Ready processing, persistence batching across groups and LightReady handling.
@@ -167,7 +167,7 @@ shown by `plan.py show MR-03`; the manifest is authoritative for arguments.
 
 ### MR-04 Add authenticated bounded peer transport
 
-Dependencies: MR-03. Phase: v1. Initial status: TODO.
+Dependencies: MR-03. Phase: v1. Status: IN_PROGRESS.
 
 Modify: `crates/cellar/fleet/peer/auth.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/node/mod.rs`.
 

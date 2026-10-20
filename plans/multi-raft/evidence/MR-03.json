@@ -1,0 +1,122 @@
+{
+  "task_id": "MR-03",
+  "source_revision": "03156b96915ee2dbb1b6e13720c6362aea65f497",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "00c23c64fc2ff08cd9d25b39a7e349fc4d1f90294216bd8afb46858a39fc095d",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; in-process three-node/multi-group harness with real RawNodes and Raft Engines; manually delivered peer messages, explicit ticks and host-derived election seeds; SIGKILL child fixture; serial integration targets; debug assertions enabled; debuginfo=0; isolated checkout target directory",
+  "limitations": "MR-03 consensus adapter qualification only. Peer messages use checked-in in-process delivery, not authenticated production transport. The application stub writes real immutable fixture images but does not implement or qualify SQLite/LTX decoding, command execution, query serving, or cryptographic snapshot-image verification. Host workers must provide those image proofs in MR-05/MR-06/MR-10. SDK routing, S3 archival/restore, automatic membership repair, production failure-domain and resident-memory/scale qualification remain required. One ignored child helper is invoked and deliberately killed by its parent test. No production performance or capacity claim is made.",
+  "tests": [
+    {
+      "name": "apply_progress_order",
+      "result": "passed"
+    },
+    {
+      "name": "current_term_admission_barrier",
+      "result": "passed"
+    },
+    {
+      "name": "domain_shutdown_joins_consensus_and_log",
+      "result": "passed"
+    },
+    {
+      "name": "election_randomness_is_explicit",
+      "result": "passed"
+    },
+    {
+      "name": "failed_engine_closes_with_typed_error",
+      "result": "passed"
+    },
+    {
+      "name": "light_ready_commit_saved",
+      "result": "passed"
+    },
+    {
+      "name": "malformed_peer_message_is_refused",
+      "result": "passed"
+    },
+    {
+      "name": "noop_configuration_progress",
+      "result": "passed"
+    },
+    {
+      "name": "owned_clock_elects_without_campaign",
+      "result": "passed"
+    },
+    {
+      "name": "pending_readindex_is_bounded",
+      "result": "passed"
+    },
+    {
+      "name": "ready_persistence_order",
+      "result": "passed"
+    },
+    {
+      "name": "runtime_close_fences_full_queue",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_requires_verified_install",
+      "result": "passed"
+    },
+    {
+      "name": "stalled_group_isolation",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_runtime",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-03-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_runtime",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-03-test.log"
+    }
+  ],
+  "lockfile_digest": "58577499016f9ec0acafcec08b960cec97e53734b55498c95671010376212d23",
+  "additional_checks": [
+    "evidence/MR-03-clippy.log",
+    "evidence/MR-03-format.log",
+    "evidence/MR-03-layout.log",
+    "evidence/MR-03-dependencies.log",
+    "evidence/MR-03-inventory.log",
+    "evidence/MR-03-regressions.log",
+    "evidence/MR-03-adapters.log"
+  ],
+  "additional_check_results": {
+    "regressions": "23 passed across native_raft_storage, native_raft_contract, native_replication and native_storage; the storage child helper is deliberately ignored in the parent inventory",
+    "concurrency": "Three groups have outstanding proposals before peer delivery, elect distinct leaders, replicate exact entry bytes, and share actual synced engine batches.",
+    "isolation": "Other groups commit while one apply and one node-wide disk sync are held.",
+    "lifecycle": "Close fences submitted I/O under full admission; domain shutdown joins consensus and engine work; retained handles cannot keep directory locks; engine failure retains its typed cause.",
+    "input_boundaries": "Empty ReadIndex requests, exhausted counters, malformed append ranges, invalid snapshots and oversized memberships are rejected before raft-rs."
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

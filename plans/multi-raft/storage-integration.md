@@ -74,9 +74,11 @@ metadata batch; they cannot credit the empty-batch helper as a flush proof.
 
 Use direct path dependencies for the adapters. A workspace-only `[patch]` was
 verified to disappear when Cellar is consumed by an external Cargo workspace,
-selecting the unadapted upstream crates instead. `vendor/raft` retains every
-upstream consensus source file byte-for-byte and changes only its manifest's
-raft-proto path. Engine and protobuf paths therefore remain effective for SDK
+selecting the unadapted upstream crates instead. `vendor/raft` retained every
+upstream consensus source file byte-for-byte at MR-02 and changed only its
+manifest's raft-proto path at that revision. MR-03 additionally introduces an
+explicit host-seeded election RNG constructor; `vendor/raft/UPSTREAM.json`
+records its exact source scope. Engine and protobuf paths remain effective for SDK
 source consumers. Docker contexts include these sources, and benchmark freshness
 hashes include their Rust, Cargo and protobuf inputs. Publishing adapted crates
 to a package registry is a separate release operation; this milestone verifies
@@ -86,5 +88,11 @@ The pure generator supplies `rustproto.proto` internally. The build script watch
 only the checked-in protocol file; watching a missing local copy caused needless
 regeneration on every Cargo invocation. Generated codec bytes are unchanged after
 removing that watch, and a repeated locked check reuses all three Raft adapters.
+
+The consensus worker's private storage view retains mechanical access to the
+last durable cache during engine failure or cancellation. Public `GroupLog`
+proof reads remain closed. No new persistence or application proof can use that
+private view; the distinction prevents raft-rs from turning a normal storage
+closure into a fatal lookup panic while the worker is winding down.
 
 Upstream reference: [Raft Engine 0.4.2](https://docs.rs/raft-engine/0.4.2/raft_engine/).

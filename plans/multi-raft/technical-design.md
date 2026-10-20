@@ -174,7 +174,8 @@ only a test fixture and is never a production fallback.
 
 The [storage integration record](storage-integration.md) specifies the attributed
 filesystem/protobuf adaptations and direct dependency paths used for SDK source
-consumers. The upstream Raft consensus Rust source is retained unchanged.
+consumers. An explicit host-seeded election RNG constructor retains the upstream
+election algorithm while making its randomness belong to the execution domain.
 
 One node-wide engine stores entries and per-group metadata. The storage adapter
 implements raft-rs `Storage`, including term lookup at the compacted boundary,

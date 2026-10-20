@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "fee29d9d9dc8c75992b0ffd652278da2421f8044",
+  "revision": "03156b96915ee2dbb1b6e13720c6362aea65f497",
   "prepared_date": "2026-10-19",
   "files": [
     {
@@ -26,7 +26,7 @@
     },
     {
       "path": "NOTICE",
-      "sha256": "a112d2ebba10e5c3eb43118b855590eaf0beea066e24b7e6d4725a33ba8c7db1"
+      "sha256": "1d4037fb4402efc9a42fd7b5bfbb3753550413700f7ffba259cf0d33b0d296e4"
     },
     {
       "path": "crates/cellar-logic/alarm.rs",

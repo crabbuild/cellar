@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "fee29d9d9dc8c75992b0ffd652278da2421f8044",
+  "baseline_revision": "03156b96915ee2dbb1b6e13720c6362aea65f497",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -197,7 +197,9 @@
         "crates/cellar/tests/support/raft_storage_fault.rs",
         "vendor/.gitattributes",
         "vendor/raft/Cargo.toml",
-        "vendor/raft/UPSTREAM.json"
+        "vendor/raft/UPSTREAM.json",
+        "vendor/raft/src/raft.rs",
+        "vendor/raft/src/raw_node.rs"
       ],
       "steps": [
         "Pin raft 0.7.0, raft-engine 0.4.2 and required codec/logging dependencies centrally; verify the locked build and license notices.",
@@ -292,18 +294,29 @@
       "id": "MR-03",
       "title": "Drive multiple RawNode instances with ordered Ready handling",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-02"
       ],
       "modifies": [
         "crates/cellar/durability/raft/mod.rs",
-        "crates/cellar/durability/raft/storage.rs"
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/options.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "vendor/raft/UPSTREAM.json",
+        "NOTICE",
+        "vendor/raft/src/raft.rs",
+        "vendor/raft/src/raw_node.rs",
+        "crates/cellar/durability/raft/cache.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/runtime.rs",
         "crates/cellar/durability/raft/completion.rs",
-        "crates/cellar/tests/native_raft_runtime.rs"
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/budget.rs",
+        "crates/cellar/tests/support/raft_runtime_fixture.rs",
+        "crates/cellar/durability/raft/README.md"
       ],
       "steps": [
         "Own each RawNode on one serialized worker; use shared bounded scheduling across groups.",
@@ -391,13 +404,15 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-03.json"
+      ]
     },
     {
       "id": "MR-04",
       "title": "Add authenticated bounded peer transport",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-03"
       ],
