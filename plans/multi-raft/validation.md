@@ -245,3 +245,34 @@ host readiness/cancellation integration remain unfinished. Fresh-member S3/peer
 seeding and missing-quorum normal-restore refusal still require implementation
 and qualification. The [snapshot audit](snapshot-audit.md) records these limits.
 This progress does not complete MR-10, a release or the original 17-package goal.
+
+
+## MR-10 runtime checkpoint and reference progress
+
+The [runtime progress record](evidence/MR-10-runtime-progress.json) pins source
+`0260abb94c15ee0375bea0f2508ac40ce1274f65`. All 147 Rust cases pass: 15 snapshot,
+17 LTX, 26 archive, 16 execution, 22 host, 17 reads, 14 runtime, 10 storage,
+9 transport and the affected public Node Raft lifecycle case. Seven ignored
+process children are invoked by owning parents and excluded. All 17 commands
+pass with executable/log digests, including Clippy, both cellar-ltx backend feature
+modes, format (629 Rust files), layout, dependency policy, docs, 17 plan tests and
+the reviewed 68-anchor preflight. The one changed baseline anchor is the LTX
+guide's no-I/O monotonic reference contract.
+
+Tests cover runtime-owned checkpoint persistence behind a held sync, an older
+capture/newer apply/late retirement/restart, completion loss, failed sync after
+joined producer shutdown, reopened-engine material refusal, busy-apply refusal,
+empty configuration installation/first LTX/restart and refusal to erase committed
+data. Generation reference tests cover no-I/O handoff, stale retains/releases,
+64-key admission and complete image identity when a reclaimed name is reused.
+Physical incoming completion now carries an opaque exact-ticket/digest reference;
+its producer can be dropped after install without losing the durable image.
+
+MR-10 remains IN_PROGRESS. This record does not qualify native automatic
+checkpoint scheduling, snapshot RPCs, host transfer/readiness ownership,
+replacement-member authorization or missing-quorum recovery refusal. It does not
+qualify the largest admitted image: LTX overhead can exceed current encoded/object
+limits and must be addressed consistently before enabling native scheduling.
+The prior full 88-case Node run remains pinned separately in the physical progress
+record; only the affected Raft lifecycle case is rerun here. Physical S3, power
+loss, zones, production capacity and the original complete goal remain unqualified.

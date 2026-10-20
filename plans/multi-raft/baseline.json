@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "24410fb754b055078255ccf5d595c0893f0d1b0e",
+  "revision": "0260abb94c15ee0375bea0f2508ac40ce1274f65",
   "prepared_date": "2026-10-20",
   "files": [
     {
@@ -82,7 +82,7 @@
     },
     {
       "path": "crates/cellar-ltx/README.md",
-      "sha256": "3cbf466d15a307cd9774cf32f09de57e29f946a1879eb7eac158706e2c3796b0"
+      "sha256": "d1348de97002dab62a5e754f14896948295fe5c76578ac75f70079a2fecf2d64"
     },
     {
       "path": "crates/cellar-ltx/reference/ltx-format.md",

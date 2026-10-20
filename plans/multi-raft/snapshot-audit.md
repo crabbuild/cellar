@@ -1,14 +1,19 @@
 # Physical snapshot boundary
 
-MR-10 is in progress. This component supplies physical snapshots and durable
-reference recovery; it does not yet connect the native host to snapshot RPCs or
-authorize replacement members. All 17 delivery packages remain in scope. The
-[physical progress evidence](evidence/MR-10-physical-progress.json) pins source
-`24410fb754b055078255ccf5d595c0893f0d1b0e`, nine executable digests and all 13
-successful commands: 218 Rust cases pass, including nine snapshot and 88 Node
-cases. Six ignored process entry points are invoked by owning parents and are
-excluded from counts. Formatting checks 628 Rust files; layout, Clippy, dependency
-policy, docs, 17 plan tests and the reviewed 68-anchor preflight pass.
+MR-10 is in progress. The [runtime progress evidence](evidence/MR-10-runtime-progress.json)
+pins source `0260abb94c15ee0375bea0f2508ac40ce1274f65`: 147 Rust cases pass across
+ten targets, including 15 snapshot, 17 LTX and the affected public Node Raft
+lifecycle case. All 17 commands pass, with executable/log digests. Clippy and
+checks cover owning targets and cellar-ltx without backend defaults and with all
+features; format checks 629 Rust files. Layout, dependency policy, docs, 17 plan
+tests and the reviewed 68-anchor preflight pass. Seven ignored process children
+are invoked by owning parents and excluded from counts.
+
+The [earlier physical progress](evidence/MR-10-physical-progress.json) retains its
+separate 218-case/88-Node qualification at source
+`24410fb754b055078255ccf5d595c0893f0d1b0e`; it is historical, not the current
+runtime qualification. Native automatic scheduling, snapshot RPCs and authorized
+member recovery remain unfinished. All 17 delivery packages remain in scope.
 
 ## Identity and bytes
 
@@ -92,7 +97,7 @@ runtime batch settles reference handoff even when its event consumer is gone.
 The owning target now additionally exercises delayed checkpoint/newer apply/late
 retirement/restart, lost completion, failed sync with joined producers, stale engine
 material, busy-apply refusal, empty configuration installation/first LTX/restart,
-and refusal to erase committed data. Broader qualification is in progress.
+and refusal to erase committed data. The pinned runtime evidence qualifies those component and owning regressions.
 
 Still required for MR-10:
 
@@ -106,6 +111,11 @@ Still required for MR-10:
   command/apply generations, and transfer limits must cover configured images.
 - Authorized fresh-member admission and S3/peer seeding through a surviving live
   group, with explicit refusal of S3-only normal activation after quorum loss.
+- Encoded budgets must cover the largest admitted image. A near-64-MiB database
+  can exceed the current 64-MiB encoded/object limit after full-LTX overhead.
+  Raise the bounded codec/restore/transfer/archive budgets consistently and
+  qualify the maximum incompressible image; do not shrink the admitted image to
+  bypass this requirement.
 - Full native lifecycle/fault qualification and pinned completion evidence.
 
 The production host still refuses unsupported incoming snapshot work. The current

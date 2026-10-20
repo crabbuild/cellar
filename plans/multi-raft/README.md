@@ -42,16 +42,19 @@ effects and later operations/release/scaling work remain their original packages
 All 17 original packages remain in scope; the complete delivery goal is not
 achieved. MR-10 is in progress at the recovery boundary.
 
-The [MR-10 physical snapshot progress](evidence/MR-10-physical-progress.json) pins
-source `24410fb754b055078255ccf5d595c0893f0d1b0e`. All 218 cases across nine owning
-targets pass: nine snapshot, 121 existing archive/apply/host/read/runtime/storage
-regressions and 88 Node cases. All 13 recorded commands pass, including Clippy,
-format/layout, dependency policy, docs, plan tests and reviewed preflight.
-The [snapshot audit](snapshot-audit.md) records exact-ticket installation,
-committed replay, old-reader retention, mixed-marker refusal and seven process-kill
-cuts, together with the remaining native integration. Checkpoint scheduling and
-retention handoff, empty state, authenticated transfer ownership and authorized
-replacement-member seeding remain required; this progress does not complete MR-10.
+The [MR-10 runtime progress](evidence/MR-10-runtime-progress.json) pins source
+`0260abb94c15ee0375bea0f2508ac40ce1274f65`: 147 Rust cases pass across ten targets,
+including 15 snapshot and 17 LTX cases and the affected public Node Raft lifecycle.
+All 17 commands pass, including owning-target Clippy, cellar-ltx without backend
+defaults/with all features, format/layout, dependency policy, docs, plan tests and
+reviewed preflight. Runtime checkpoints serialize compaction with Ready storage;
+prospective/durable references survive late retirement, lost completion, failed
+sync and joined close. Strict empty/configuration snapshots allocate no database
+and support the first subsequent LTX command. The [snapshot audit](snapshot-audit.md)
+records the remaining native scheduling, authenticated transfer, largest-image
+budgets and authorized replacement-member recovery. MR-10 remains IN_PROGRESS.
+The [earlier physical record](evidence/MR-10-physical-progress.json) retains its
+separate 218-case/88-Node qualification at source `24410fb754b055078255ccf5d595c0893f0d1b0e`.
 
 The [earlier storage progress evidence](evidence/MR-09-storage-progress.json)
 retains its narrower 91-case qualification at source
