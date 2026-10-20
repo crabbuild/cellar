@@ -115,6 +115,7 @@ impl GroupWrite {
 #[derive(Clone)]
 pub struct GroupLog {
     pub(crate) key: u64,
+    pub(crate) birth_digest: [u8; 32],
     pub(crate) identity: ReplicaIdentity,
     pub(crate) owner: Arc<()>,
     pub(crate) closed: Arc<AtomicBool>,

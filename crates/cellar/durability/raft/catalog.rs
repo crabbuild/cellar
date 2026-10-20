@@ -281,6 +281,33 @@ impl NamespaceCatalog {
         &self.config
     }
 
+    /// Bind archive reads/writes to a selected immutable namespace and birth.
+    /// This capability supplies recovery material, never member authorization.
+    pub fn cell_archive(
+        &self,
+        birth: &GroupBirth,
+        host: cellar_ltx::LtxHost,
+        limits: super::archive::ArchiveLimits,
+    ) -> Result<super::archive::CellArchive, CatalogError> {
+        self.require_mode(NamespaceMode::Raft)?;
+        self.check_birth(birth)?;
+        limits.validate().map_err(|_| CatalogError::Limit)?;
+        Ok(super::archive::CellArchive::new(
+            self.inner.store.clone(),
+            format!(
+                "{}/archives/{}/{}",
+                self.data_prefix,
+                hex::encode(birth.scope.group.bytes()),
+                hex::encode(birth.scope.incarnation.bytes())
+            ),
+            birth,
+            self.root_digest,
+            self.config.schema_digest,
+            limits,
+            host,
+        ))
+    }
+
     pub fn require_mode(&self, mode: NamespaceMode) -> Result<(), CatalogError> {
         if mode != self.config.mode {
             return Err(CatalogError::WrongMode);

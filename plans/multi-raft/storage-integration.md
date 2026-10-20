@@ -96,3 +96,48 @@ private view; the distinction prevents raft-rs from turning a normal storage
 closure into a fatal lookup panic while the worker is winding down.
 
 Upstream reference: [Raft Engine 0.4.2](https://docs.rs/raft-engine/0.4.2/raft_engine/).
+
+## Committed archive storage component
+
+MR-09 is in progress. `NamespaceCatalog::cell_archive` binds access to the
+selected immutable namespace root and group birth. A captured archive cut retains
+an immutable published generation and the exact synced applied marker,
+configuration and bounded retained entry suffix. It cannot relabel an old image
+with a newer unrelated marker, or accept another engine birth under the same
+numeric group identity. Merely persisted suffix entries are excluded.
+
+The first archive is a full LTX snapshot. Later cuts may reuse it with contiguous
+normal-entry bundles, preserving no-op indices and each data entry's physical LTX
+envelope. Configuration changes, a missing retained suffix, or tail/count/byte
+budgets select a new full snapshot. The manifest binds namespace/birth/schema,
+snapshot index/term and ConfState, ordered entry ranges, final image geometry,
+LTX position and SHA-256, and every enumerated immutable dependency. Keys include
+the group/incarnation, range and content digest. Referenced objects are read back
+and checked before the head is advanced by conditional create/update. Lost PUT
+or CAS responses are reconciled with exact reads; no unconditional overwrite or
+object-list discovery chooses a recovery head.
+
+Before a head update, the complete proposed recovery set is physically replayed
+in a separate, exclusively opened `ArchiveVerifier` generation store. Its pinned
+result must match the final image digest. A failed replay quarantines that scratch
+owner and preserves the previous head. Snapshot encoding, large object hashing,
+tail decoding and physical replay run on the supplied LTX blocking domain. The
+scratch owner exposes no pins and reclaims successful verification images. It
+does not grant membership, leadership, read readiness or an SDK output permit.
+
+`ArchiveRecoverySet::restore` reconstructs only the cell image in a supplied
+generation store. It does not install a Raft snapshot or restore old votes or
+process identity. MR-10 owns atomic snapshot/engine installation and authorized
+member recovery. The archive component accepts explicit dependency bytes; until
+MR-12 supplies committed effect/dependency enumeration, unsupported Blob/effect
+operations remain refused. Orphaned immutable objects are retained; archive GC
+must later honor the complete manifest reference graph.
+
+The component tests use real SQLite/LTX and Raft Engine with directly persisted
+durable-marker fixtures. They include restore after deleting the producer's
+directory, physical tails, configuration checkpoints, concurrent/delayed heads,
+lost object/head responses, absent/corrupt objects, pinned retired images and
+failed replay before publication. These tests do not qualify native SDK S3
+acknowledgements, node-wide backlog admission or automatic member repair. S3
+commands remain refused before private execution until those boundaries are
+implemented and qualified; the original 17-package goal remains open.

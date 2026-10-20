@@ -1081,14 +1081,19 @@
       "id": "MR-09",
       "title": "Archive committed history and enforce durability modes",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-07"
       ],
       "modifies": [
         "crates/cellar/durability/raft/apply.rs",
         "crates/cellar/durability/raft/catalog.rs",
-        "crates/cellar/storage/object/bucket.rs"
+        "crates/cellar/storage/object/bucket.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/storage.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/archive.rs",

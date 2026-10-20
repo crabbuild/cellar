@@ -13,6 +13,8 @@ pub struct Store {
     pub fail_after: AtomicBool,
     pub fail_read: AtomicBool,
     pub fail_confirmation: AtomicBool,
+    pub fail_head_after: AtomicBool,
+    pub fail_head_confirmation: AtomicBool,
     pub non_create: AtomicUsize,
 }
 
@@ -45,6 +47,13 @@ impl ObjectStore for Store {
             return Err(failure());
         }
         let result = self.inner.put_opts(path, payload, options).await?;
+        let head = path.filename() == Some("head");
+        if head && self.fail_head_confirmation.swap(false, Ordering::AcqRel) {
+            self.fail_read.store(true, Ordering::Release);
+        }
+        if head && self.fail_head_after.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         if self.fail_confirmation.swap(false, Ordering::AcqRel) {
             self.fail_read.store(true, Ordering::Release);
         }

@@ -632,6 +632,7 @@ impl Worker {
         scope.validate().map_err(records::corrupt)?;
         Ok(GroupLog {
             key: mapping.key,
+            birth_digest: mapping.birth_digest,
             identity: ReplicaIdentity {
                 scope,
                 node: self.options.node,

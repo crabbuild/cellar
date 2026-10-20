@@ -348,7 +348,17 @@ shown by `plan.py show MR-08`; the manifest is authoritative for arguments.
 
 ### MR-09 Archive committed history and enforce durability modes
 
-Dependencies: MR-07. Phase: v1. Initial status: TODO.
+Dependencies: MR-07. Phase: v1. Status: IN_PROGRESS.
+
+The archive storage component now captures exact durable engine/image cuts,
+pins their immutable generations, and publishes bounded snapshot/tail/dependency
+sets through conditional heads. Each proposed head is downloaded, checked and
+physically replayed in a separate generation store before publication. Membership
+changes establish a new full snapshot with the configuration from that exact cut.
+These interfaces provide recovery material only. Node-owned archive scheduling,
+SDK S3 output gates, stronger retries and outage/disk admission remain unfinished;
+S3 commands remain refused before private execution. See the
+[storage integration notes](storage-integration.md#committed-archive-storage-component).
 
 Modify: `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/storage/object/bucket.rs`.
 

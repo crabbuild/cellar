@@ -41,6 +41,10 @@ pub use protocol::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate, ProtocolErro
 #[doc(hidden)]
 pub mod verification {
     pub use crate::raft::apply::{ImageApplier, ImageApplyError, PublishedImage};
+    pub use crate::raft::archive::{
+        ArchiveDependency, ArchiveError, ArchiveLimits, ArchiveRecoverySet, ArchiveVerifier,
+        CellArchive, CommittedArchiveCut,
+    };
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };

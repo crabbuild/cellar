@@ -25,8 +25,11 @@ retained tokens/receipts and joined restart. Repeated peer-fault histories cover
 queued expiry, saturation and delayed replies. These are local/loopback tests,
 not physical power-loss, zone, production capacity or full release qualification.
 
-MR-09 is ready. S3 archive/restore, snapshot installation, membership controllers,
-effects and later operations/release/scaling work remain pending. Unsupported
+MR-09 is in progress. Its archive storage component captures committed image
+cuts and verifies snapshot/LTX-tail/dependency sets through isolated physical
+replay before conditional head publication. Host archive scheduling, S3 output
+gates, stronger retries and outage admission remain pending. Snapshot installation,
+membership controllers, effects and later operations/release/scaling work remain pending. Unsupported
 SDK capabilities are refused. All 17 original packages remain in scope; the
 complete delivery goal is not achieved. The reviewed source baseline is
 `8f18c29a0f28977eb8a4cae51848982ad7d43739`.
