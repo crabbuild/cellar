@@ -115,7 +115,9 @@ API. External effects use committed intents and destination idempotency/receipts
 ### Namespace mode and group birth
 
 An immutable namespace root selects `Fleet` or `Raft`, schema/protocol digest,
-cluster identity and storage prefix. Both code paths refuse a conflicting mode.
+cluster identity and storage prefix. The application identity also binds required
+command names/contract digests; query contracts are checked independently at
+serving. Both code paths refuse a conflicting mode.
 Use conditional object-store creation for the initial root and per-cell birth
 record. Raft data lives under a disjoint `raft/<cluster>/<namespace>/` prefix;
 Fleet takeover, GC and lease renewal must never operate on it.

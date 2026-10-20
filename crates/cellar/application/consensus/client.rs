@@ -6,7 +6,7 @@ use super::{
     OperationKind, RaftClass,
 };
 use crate::raft::budget::{Budget, Permit};
-use cellar_logic::consensus::{MemberId, NamespaceId, Term};
+use cellar_logic::consensus::{LogIndex, LogPosition, MemberId, NamespaceId, Term};
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::pin::Pin;
@@ -81,6 +81,11 @@ pub struct CellStatus {
     pub term: Term,
     pub command_ready: bool,
     pub version: Option<CommittedVersion>,
+    /// Coherent runtime observations for diagnosis. A persisted suffix can be
+    /// uncommitted; these fields are never an SDK acknowledgement proof.
+    pub persisted: LogIndex,
+    pub committed: LogIndex,
+    pub applied: LogPosition,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import secrets
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -31,6 +32,23 @@ def run(binary, work):
     retry = int(time.time() * 1000) + 300_000
     client = "07" * 16
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+    # Fail late startup after node/service owners exist, then resume the same
+    # disks. This must join cleanly without resetting any voting history.
+    with socket.socket() as occupied:
+        occupied.bind(("127.0.0.1", 9913))
+        occupied.listen(1)
+        with (work / "startup-failure.log").open("wb") as output:
+            process = subprocess.Popen(argv, stdout=output, stderr=subprocess.STDOUT)
+            try:
+                assert process.wait(timeout=30) == 1, "late startup did not return a clean error"
+                assert all((work / f"raft-counter-{i}" / "raft").is_dir()
+                           for i in range(1, 4)), "failure occurred before all Raft owners started"
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait(timeout=10)
+    print("late startup failure joined owners; resuming the same disks", flush=True)
 
     def request(base, sequence=None, delta=None):
         path = "/counters/one"

@@ -743,6 +743,9 @@ impl Driver {
                         scope: scope.clone(),
                         position: image.position,
                     }),
+                    persisted: status.persisted,
+                    committed: status.committed,
+                    applied: status.applied,
                 })
             });
             reply(

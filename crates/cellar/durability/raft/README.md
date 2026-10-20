@@ -134,7 +134,10 @@ scheduling connect these mechanics to the pure output gate.
 The compiled SDK now provides `Registry::raft_class` and restricted `RaftClass`
 definitions. Mutable factories and workflows cannot share their class names;
 Fleet configuration refuses Raft definitions. Class name, explicit schema
-version and schema-definition digest form the immutable application identity.
+version, schema-definition digest and sorted required command contracts form
+the immutable application identity. Missing or changed commands cannot join
+under the same root. Query contracts remain independently checked so query-code
+availability does not determine voting compatibility.
 `stage_registered` checks that identity, operation kind/contract and normalized
 input digest before private execution or duplicate receipt lookup. The registered
 query bridge opens a verified image through the strict read-only SQLite opener,

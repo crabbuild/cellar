@@ -38,9 +38,18 @@ and 32 captured random bytes per attempt. Its SQL authorizer refuses ambient
 clock/random functions; use these captured values as SQL parameters. Additional
 input facilities require explicit host adapters before becoming SDK capabilities.
 
-`RaftClass::schema_digest()` binds the class name, explicit schema version and
-supplied schema-definition digest under the `cellar-raft-schema-1` SHA-256 domain.
-Use that value for the namespace root and physical update application digest.
+`RaftClass::schema_digest()` first binds the class name, explicit schema version
+and supplied schema-definition digest under the `cellar-raft-schema-1` SHA-256
+domain. It then binds that base digest and the sorted required command names and
+contract digests under `cellar-raft-class-1`, with explicit count/name lengths.
+Read this identity after registering commands and use it for the namespace root
+and physical update application digest. Omitting, renaming or changing a command
+cannot preserve voting compatibility by repeating the schema version/digest.
+Declaration order does not affect the identity. Query contracts remain separate:
+a replica with incompatible/missing query code can still vote with the matching
+required commands, but refuses that query before executing it. Changing required
+command contracts requires a fresh immutable namespace identity; this is a
+marker-1 hard cutover without a compatibility reader or in-place conversion.
 Commands and queries have separate operation contract digests. The shared
 `consensus::command_request_digest` helper binds the exact normalized input bytes
 under its own marker-1 domain; the registered execution bridge validates it even

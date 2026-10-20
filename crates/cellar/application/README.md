@@ -53,7 +53,9 @@ consumption, retries and their durability boundaries.
 `Registry::raft_class` registers a `RaftClass` separately from mutable `Cell`
 factories and workflows. Synchronous commands receive a borrowed transaction
 and captured inputs; queries receive only a pinned read-only image. Operation
-kind and contract digest are checked before callbacks. `Node::start_raft_cells` connects these definitions to node-owned producers and
+kind and contract digest are checked before callbacks. The namespace identity
+also binds required command names/digests, while query compatibility is checked
+per request. `Node::start_raft_cells` connects these definitions to node-owned producers and
 bounded `RaftCellHandle` commands, stale queries, receipts and closure. A returned
 future is admitted immediately; its deadline and cancellation cannot discard a
 submitted producer. Native HTTP and Axum can call those same handles; see the

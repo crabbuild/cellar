@@ -1,5 +1,7 @@
 //! Host integration starts with immutable catalog and initial-member admission.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_cluster.rs"]
+mod cluster;
 #[path = "../../../examples/raft-counter/counter.rs"]
 mod counter_example;
 #[path = "support/raft_node.rs"]
@@ -21,6 +23,352 @@ fn registered_counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [7; 32])?
         .command("Increment", [8; 32], |_, _| Ok(vec![]))?
         .query("Get", [9; 32], |_, _| Ok(vec![]))?)
+}
+
+#[test]
+fn command_manifest_binds_voting_compatibility_without_query_requirements() -> Result<()> {
+    let base = || RaftClass::new("Counter", 1, [7; 32]);
+    let complete = registered_counter()?;
+    let commands = base()?.command("Increment", [8; 32], |_, _| Ok(vec![]))?;
+    assert_eq!(complete.schema_digest(), commands.schema_digest());
+    assert_eq!(
+        complete.schema_digest(),
+        commands
+            .query("Other", [10; 32], |_, _| Ok(vec![]))?
+            .schema_digest()
+    );
+    assert_ne!(complete.schema_digest(), base()?.schema_digest());
+    assert_ne!(
+        complete.schema_digest(),
+        base()?
+            .command("Increment", [9; 32], |_, _| Ok(vec![]))?
+            .schema_digest()
+    );
+    assert_ne!(
+        complete.schema_digest(),
+        base()?
+            .command("Different", [8; 32], |_, _| Ok(vec![]))?
+            .schema_digest()
+    );
+    let first =
+        base()?
+            .command("A", [11; 32], |_, _| Ok(vec![]))?
+            .command("B", [12; 32], |_, _| Ok(vec![]))?;
+    let second =
+        base()?
+            .command("B", [12; 32], |_, _| Ok(vec![]))?
+            .command("A", [11; 32], |_, _| Ok(vec![]))?;
+    assert_eq!(first.schema_digest(), second.schema_digest());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn live_mode_admission_refuses_conflicts_before_mutable_execution() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    use futures_util::TryStreamExt;
+    let root = tempfile::tempdir()?;
+    let application = Arc::new(
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+            .raft_class(registered_counter()?)?,
+    );
+    let denied = public_node::node_declared(
+        root.path(),
+        application.clone(),
+        "raft-host",
+        vec!["Counter".into()],
+    )
+    .await;
+    let error = denied
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("Raft class admitted by Fleet startup"))?;
+    assert!(matches!(
+        error.downcast_ref::<RegistrationError>(),
+        Some(RegistrationError::WrongMode {
+            mode: NamespaceMode::Fleet,
+            ..
+        })
+    ));
+    let node = public_node::node(root.path(), application.clone()).await?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = registered_counter()?.schema_digest();
+    let registration = RaftCellRegistration {
+        namespace,
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:one", 5, 1),
+    };
+    // An implementation missing a required command cannot vote under the
+    // original application root, even with its name/version/definition repeated.
+    let incompatible = Arc::new(
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+            .raft_class(RaftClass::new("Counter", 1, [7; 32])?)?,
+    );
+    assert!(public_node::cells(
+        &node,
+        incompatible,
+        store.clone(),
+        registration.clone(),
+        false
+    )
+    .await
+    .is_err());
+    assert!(store.list(None).try_collect::<Vec<_>>().await?.is_empty());
+    assert!(!node.info().data_dir.join("raft").exists());
+    let called = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = called.clone();
+    let mutable = Arc::new(
+        Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).cell(
+            "Counter",
+            move |_, _| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                bail!("mutable constructor called")
+            },
+        )?,
+    );
+    let error = public_node::cells(&node, mutable, store.clone(), registration.clone(), false)
+        .await
+        .err()
+        .ok_or_else(|| anyhow::anyhow!("mutable registration admitted by Raft startup"))?;
+    assert!(matches!(
+        error.downcast_ref::<RegistrationError>(),
+        Some(RegistrationError::UnsupportedFactory(_))
+    ));
+    assert_eq!(called.load(Ordering::SeqCst), 0);
+    assert!(store.list(None).try_collect::<Vec<_>>().await?.is_empty());
+    assert!(!node.info().data_dir.join("raft").exists());
+    let catalog = Catalog::new(
+        store.clone(),
+        CatalogOptions {
+            prefix: "host/test".into(),
+            ..Default::default()
+        },
+    )?;
+    let mut fleet = registration.namespace.clone();
+    fleet.mode = NamespaceMode::Fleet;
+    catalog.open_namespace(fleet).await?;
+    assert!(
+        public_node::cells(&node, application, store, registration, false)
+            .await
+            .is_err()
+    );
+    assert_eq!(called.load(Ordering::SeqCst), 0);
+    assert!(!node.info().data_dir.join("raft").exists());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn submitted_partition_retains_producer_until_follower_barrier() -> Result<()> {
+    use cellar::sdk::consensus::*;
+    use std::{sync::atomic::AtomicUsize, time::Duration};
+    for retain_entry in [false, true] {
+        let calls: Vec<_> = (0..3).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+        let (gate, _entered) = public_node::Gate::new();
+        gate.release();
+        let definitions = calls
+            .iter()
+            .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+            .collect::<Result<Vec<_>>>()?;
+        let mut namespace = config(2, NamespaceMode::Raft, false);
+        namespace.schema_digest = definitions[0].schema;
+        let cluster = cluster::Cluster::start(
+            &definitions,
+            vec![RaftCellRegistration {
+                namespace,
+                class: "Counter".into(),
+                birth: proposal(2, "Counter:one", 5, 3),
+            }],
+            200,
+        )
+        .await?;
+        let handles = cluster
+            .services
+            .iter()
+            .map(|service| service.cell(NamespaceId::new([2; 16]).unwrap(), "Counter:one"))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        async fn leader(handles: &[RaftCellHandle], excluded: Option<usize>) -> Result<usize> {
+            Ok(tokio::time::timeout(Duration::from_secs(20), async {
+                loop {
+                    for (i, handle) in handles.iter().enumerate() {
+                        if Some(i) != excluded
+                            && handle
+                                .status()
+                                .await
+                                .is_ok_and(|status| status.command_ready)
+                        {
+                            return i;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await?)
+        }
+
+        async fn reads(
+            handles: &[RaftCellHandle],
+            contract: &OperationContract,
+            expected: i64,
+        ) -> Result<()> {
+            for handle in handles {
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    loop {
+                        if let Ok(read) = handle
+                            .query(contract.clone(), vec![], QueryOptions::default())
+                            .await
+                        {
+                            if read.result == expected.to_be_bytes() {
+                                return;
+                            }
+                        }
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                })
+                .await?;
+            }
+            Ok(())
+        }
+
+        async fn status(handle: &RaftCellHandle) -> Result<CellStatus> {
+            Ok(tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    match handle.status().await {
+                        Err(CommandFailure::Overloaded) => {
+                            tokio::time::sleep(Duration::from_millis(5)).await
+                        }
+                        result => return result,
+                    }
+                }
+            })
+            .await??)
+        }
+        let primary = leader(&handles, None).await?;
+        let receipt = handles[primary]
+            .command(
+                definitions[primary].increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::options(1)?,
+            )
+            .await?;
+        assert_eq!(receipt.result, 1_i64.to_be_bytes());
+        reads(&handles, &definitions[0].get, 1).await?;
+        cluster.isolate(primary, retain_entry).await?;
+        let mut options = public_node::options(2)?;
+        options.timeout = Duration::from_millis(500);
+        let id = options.id;
+        let pending = handles[primary].command(
+            definitions[primary].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            options,
+        );
+        assert_eq!(
+            pending.await,
+            Err(CommandFailure::Ambiguous { command: id })
+        );
+        let isolated = status(&handles[primary])
+            .await
+            .context("isolated leader status")?;
+        assert!(
+            isolated.persisted > receipt.version.position.index,
+            "no persisted submitted suffix; data reconnects {}",
+            cluster.data_attempts(primary)
+        );
+        assert_eq!(isolated.committed, receipt.version.position.index);
+        assert_eq!(isolated.term, receipt.version.position.term);
+        if retain_entry {
+            for (i, handle) in handles.iter().enumerate() {
+                if i != primary {
+                    let follower = status(handle)
+                        .await
+                        .context("unacknowledged follower status")?;
+                    assert_eq!(follower.persisted, isolated.persisted);
+                    assert_eq!(follower.committed, receipt.version.position.index);
+                }
+            }
+        }
+        assert_eq!(calls[primary].load(Ordering::SeqCst), 2);
+        assert!(
+            cluster.nodes[primary]
+                .services()
+                .application_work()
+                .pending_events
+                > 0
+        );
+        assert!(matches!(
+            handles[primary]
+                .command(
+                    definitions[primary].increment.clone(),
+                    1_i64.to_be_bytes().to_vec(),
+                    public_node::options(3)?
+                )
+                .await,
+            Err(CommandFailure::Overloaded)
+        ));
+        reads(&handles, &definitions[0].get, 1).await?;
+        let replacement = leader(&handles, Some(primary)).await?;
+        assert!(status(&handles[replacement]).await?.term > receipt.version.position.term);
+        // S3/catalog access remains available, but it cannot grant an isolated
+        // minority mutation authority or dispose of its unresolved producer.
+        assert!(
+            cluster.nodes[primary]
+                .services()
+                .application_work()
+                .pending_events
+                > 0
+        );
+        if retain_entry {
+            let majority: Vec<_> = handles
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != primary)
+                .map(|(_, handle)| handle.clone())
+                .collect();
+            reads(&majority, &definitions[0].get, 2).await?;
+        }
+        cluster.heal();
+        tokio::time::timeout(Duration::from_secs(15), async {
+            while cluster.nodes[primary]
+                .services()
+                .application_work()
+                .pending_events
+                != 0
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        let old = status(&handles[primary])
+            .await
+            .context("healed follower status")?;
+        assert_eq!(old.leader, Some(MemberId::new(replacement as u64 + 1)?));
+        assert!(old.term > receipt.version.position.term);
+        assert!(!old.command_ready);
+        reads(
+            &handles,
+            &definitions[0].get,
+            if retain_entry { 2 } else { 1 },
+        )
+        .await?;
+        let retried = handles[replacement]
+            .command(
+                definitions[replacement].increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                public_node::options(2)?,
+            )
+            .await?;
+        assert_eq!(retried.result, 2_i64.to_be_bytes());
+        reads(&handles, &definitions[0].get, 2).await?;
+        assert_eq!(
+            calls
+                .iter()
+                .map(|calls| calls.load(Ordering::SeqCst))
+                .sum::<usize>(),
+            if retain_entry { 2 } else { 3 }
+        );
+        cluster.close().await?;
+    }
+    Ok(())
 }
 
 #[test]

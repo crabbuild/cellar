@@ -74,7 +74,8 @@ python3 examples/raft-counter/smoke.py \
   "$CARGO_TARGET_DIR/debug/cellar-raft-counter" /tmp/cellar-counter-drill
 ```
 
-The drill checks both ingress paths on all
-three nodes, joined shutdown, retained receipts and new writes after restart.
+The drill first occupies the final Axum listener to force a late startup failure,
+then resumes the same disks. It checks both ingress paths on all three nodes,
+joined shutdown, retained receipts and new writes after restart.
 A recovered receipt can name a later verified covering image; its stored result
 and history must still match the original command.

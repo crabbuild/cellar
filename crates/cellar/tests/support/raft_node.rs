@@ -19,6 +19,15 @@ pub async fn node_named(
     application: Arc<dyn Application>,
     label: &str,
 ) -> Result<Node> {
+    node_declared(directory, application, label, vec![]).await
+}
+
+pub async fn node_declared(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    classes: Vec<String>,
+) -> Result<Node> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let probe_signer = Arc::new(PeerProbeSigner::generate());
@@ -69,7 +78,7 @@ pub async fn node_named(
     };
     let compiled =
         CompiledApplications::default().register(label, "test", move || Ok(application.clone()))?;
-    Node::start(config, services, graph::graph(label, "", vec![]), compiled).await
+    Node::start(config, services, graph::graph(label, "", classes), compiled).await
 }
 
 pub fn tls() -> Result<RaftTls> {

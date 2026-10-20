@@ -75,15 +75,13 @@ pub use native::{CompiledApplications, NativeDaemon};
 
 /// Explicit configuration for the node's shared Raft infrastructure. Cell
 /// registration and namespace routing remain separate application contracts.
-#[doc(hidden)]
 pub struct NodeRaftConfig {
-    pub log: crate::application::consensus::verification::ReplicaLogOptions,
-    pub consensus: crate::application::consensus::verification::RaftRuntimeOptions,
-    pub transport: crate::application::consensus::verification::TransportOptions,
+    pub log: crate::application::consensus::ReplicaLogOptions,
+    pub consensus: crate::application::consensus::RaftRuntimeOptions,
+    pub transport: crate::application::consensus::TransportOptions,
 }
 
 /// Caller-bound peer endpoints with independent control and data capacity.
-#[doc(hidden)]
 pub struct NodeRaftListeners {
     pub control: tokio::net::TcpListener,
     pub data: tokio::net::TcpListener,

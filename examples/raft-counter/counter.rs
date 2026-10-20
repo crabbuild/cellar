@@ -9,7 +9,7 @@ pub struct CounterApi {
     pub increment: OperationContract,
     pub get: OperationContract,
     secret: String,
-    namespace: cellar_logic::consensus::NamespaceId,
+    namespace: NamespaceId,
 }
 
 pub struct Reply {
@@ -34,11 +34,7 @@ pub fn definition() -> Result<RaftClass> {
 }
 
 impl CounterApi {
-    pub fn new(
-        secret: String,
-        namespace: cellar_logic::consensus::NamespaceId,
-        class: &RaftClass,
-    ) -> Result<Arc<Self>> {
+    pub fn new(secret: String, namespace: NamespaceId, class: &RaftClass) -> Result<Arc<Self>> {
         ensure!(
             secret.len() >= 16 && !secret.contains(['\r', '\n']),
             "use an HTTP bearer secret of at least 16 bytes"

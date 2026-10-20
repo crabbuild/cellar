@@ -6,7 +6,6 @@ use anyhow::{ensure, Result};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
 use cellar::sdk::{consensus::*, *};
-use cellar_logic::consensus::*;
 use std::{path::PathBuf, sync::Arc};
 
 fn graph(script: &str) -> DeploymentGraph {
@@ -65,6 +64,12 @@ async fn main() -> Result<()> {
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let mut nodes = Vec::new();
+    let mut services = Vec::new();
+    let mut servers = Vec::new();
+    let (stop, _) = tokio::sync::watch::channel(false);
+    // Join every successfully started owner even if a later listener/service
+    // fails. The caller's executor stays alive through this cleanup.
+    let serving = async {
     let mut apis = Vec::new();
     let mut applications = Vec::new();
     let mut listeners = Vec::new();
@@ -184,9 +189,6 @@ async fn main() -> Result<()> {
             },
         })
         .collect();
-    let mut services = Vec::new();
-    let mut servers = Vec::new();
-    let (stop, _) = tokio::sync::watch::channel(false);
     for (i, listeners) in listeners.into_iter().enumerate() {
         let log_dir = nodes[i].info().data_dir.join("raft");
         let mode = if log_dir.exists() {
@@ -246,6 +248,8 @@ async fn main() -> Result<()> {
     }
     cellar::note!("Raft counter: native ports 9901–9903; Axum ports 9911–9913; cells one/two. Ctrl-C joins all nodes. Three replicas share one machine; this is a development example.");
     tokio::signal::ctrl_c().await?;
+        Ok::<(), anyhow::Error>(())
+    }.await;
     let _ = stop.send(true);
     let mut failed = false;
     for server in servers {
@@ -257,6 +261,7 @@ async fn main() -> Result<()> {
     for node in nodes {
         failed |= node.shutdown(ShutdownMode::Preserve).await.is_err();
     }
+    serving?;
     ensure!(
         !failed,
         "incomplete shutdown: retain disks and retry original command IDs"

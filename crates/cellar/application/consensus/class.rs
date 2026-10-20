@@ -151,6 +151,7 @@ struct Query {
 pub struct RaftClass {
     name: String,
     schema_version: u32,
+    base_schema_digest: [u8; 32],
     schema_digest: [u8; 32],
     commands: BTreeMap<String, Command>,
     queries: BTreeMap<String, Query>,
@@ -180,13 +181,16 @@ impl RaftClass {
         hash.update(schema_version.to_be_bytes());
         hash.update(schema_digest);
         let schema_digest = hash.finalize().into();
-        Ok(Self {
+        let mut class = Self {
             name,
             schema_version,
+            base_schema_digest: schema_digest,
             schema_digest,
             commands: BTreeMap::new(),
             queries: BTreeMap::new(),
-        })
+        };
+        class.bind_command_manifest();
+        Ok(class)
     }
 
     pub fn name(&self) -> &str {
@@ -198,7 +202,9 @@ impl RaftClass {
     }
 
     /// Namespace/application identity binding class name, explicit version and
-    /// the supplied schema-definition digest. Use this value in the catalog.
+    /// the supplied schema-definition digest and required command contracts.
+    /// Query contracts are checked independently and do not change voting
+    /// compatibility. Read this value after registering commands for the catalog.
     pub fn schema_digest(&self) -> [u8; 32] {
         self.schema_digest
     }
@@ -221,6 +227,7 @@ impl RaftClass {
                 callback: Arc::new(callback),
             },
         );
+        self.bind_command_manifest();
         Ok(self)
     }
 
@@ -326,6 +333,21 @@ impl RaftClass {
             callback(&QueryContext { version, database }, input)
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
+    }
+
+    fn bind_command_manifest(&mut self) {
+        let mut hash = Sha256::new();
+        hash.update(b"cellar-raft-class-1");
+        hash.update(self.base_schema_digest);
+        hash.update((self.commands.len() as u16).to_be_bytes());
+        // BTree order makes declaration order irrelevant. A voter cannot omit
+        // or alter required commands while claiming the same application root.
+        for (name, command) in &self.commands {
+            hash.update((name.len() as u16).to_be_bytes());
+            hash.update(name.as_bytes());
+            hash.update(command.digest);
+        }
+        self.schema_digest = hash.finalize().into();
     }
 
     fn validate_new(&self, operation: &str, digest: [u8; 32]) -> Result<(), RegistrationError> {
