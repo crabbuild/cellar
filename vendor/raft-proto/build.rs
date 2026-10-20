@@ -16,7 +16,8 @@ fn main() {
     protobuf_codegen_pure::Codegen::new()
         .out_dir(&out)
         .inputs(&[base.join("proto/eraftpb.proto")])
-        .includes(&[base.join("include"), base.join("proto")])
+        // rustproto.proto is supplied by the pinned pure generator itself.
+        .includes(&[base.join("proto")])
         .run().expect("generate pinned Raft protobuf definitions");
     let generated = out.join("eraftpb.rs");
     let source = std::fs::read_to_string(&generated).unwrap();
@@ -27,5 +28,4 @@ fn main() {
     std::fs::write(&generated, source.as_bytes()).unwrap();
     std::fs::write(out.join("mod.rs"), "pub mod eraftpb;\n").unwrap();
     println!("cargo:rerun-if-changed=proto/eraftpb.proto");
-    println!("cargo:rerun-if-changed=include/rustproto.proto");
 }
