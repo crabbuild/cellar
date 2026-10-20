@@ -83,7 +83,7 @@ enum Phase {
     AbortSnapshot {
         ticket: ApplyTicket,
         key: WriteTicket,
-        applied: Option<(ApplyTicket, DurableApply)>,
+        applied: Option<Box<(ApplyTicket, DurableApply)>>,
         synced: bool,
     },
 }
@@ -651,7 +651,7 @@ impl Replica {
                         image: Some(completed.image),
                     };
                     write.applied = Some(applied.clone());
-                    Some((completed.ticket, applied))
+                    Some(Box::new((completed.ticket, applied)))
                 } else {
                     None
                 };
@@ -726,7 +726,7 @@ impl Replica {
             Phase::AbortSnapshot {
                 ticket, applied, ..
             } => {
-                if let Some((ticket, applied)) = applied {
+                if let Some((ticket, applied)) = applied.as_deref() {
                     if outbox
                         .push(RuntimeEventKind::Applied {
                             ticket: ticket.clone(),
