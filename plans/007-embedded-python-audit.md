@@ -1223,3 +1223,34 @@ Final local checks for this checkpoint:
 H02 is verified in this local scope. Q01 retains measured default-limit selection;
 A08/A12, H04/H06, P02 and Q12 remain open. Earlier Linux jobs exercise `bbb992c`,
 not these result/resource changes, and cannot close their final-source gate.
+
+Both provisioned CPython 3.14.5/3.14.5t environments also pass the latest-source
+package smoke with cron: pinned Pydantic/NumPy execution, durable receipt replay,
+KV/SQL/queue/alarm behavior, preserving restart and complete joined reports.
+The free-threaded run asserts that native-library work leaves the GIL disabled.
+The conventional environment initially refused its stale source inventory;
+`/tmp/cellar-6a8d-sdk-results-package-regular-before.log` retains the refusal.
+Only `source.sha256` differs in the recaptured inventory; all 3,289 runtime/package
+file entries are identical. A new inventory/archive/project generation passes
+without changing the original artifacts or disabling verification. Successful
+logs are `/tmp/cellar-6a8d-sdk-results-package-regular-after.log` and
+`/tmp/cellar-6a8d-sdk-results-package-ft.log`.
+
+At `bbb992c`, standard Linux push job `118840158738` completed every workflow
+step, including 87/87 native-node cases, adapter tests/lints, baseline harness,
+installed libraries/inventory refusal/archive recovery, changed-source rolling
+processes, supervisor restart and native examples. Its complete log is retained
+at `/tmp/cellar-6a8d-ci-39484171753-standard-success.log`. This does not explain
+the same-source standard PR job's two native failures. Both free-threaded jobs
+passed their workspace and installed-Python package/recovery steps and reached
+native examples; their terminal outcomes must be recorded separately. None of
+these earlier-source results qualifies the later resource/result fixes on Linux.
+
+
+The same `bbb992c` Linux push workflow `39484171753` subsequently completed
+successfully in both ABIs. Free-threaded job `118840158260` also passed all 87
+native-node tests, the full adapter/workspace checks, installed 3.14.5t libraries,
+inventory loss/tamper cases, archive recovery, TERM/INT replacement, forced-KILL
+supervisor restart and native examples. Its full log is
+`/tmp/cellar-6a8d-ci-39484171753-ft-success.log`. The same-source standard PR
+failure remains preserved and unresolved; newer source still needs Q12.
