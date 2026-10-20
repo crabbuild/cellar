@@ -1,5 +1,14 @@
 # Cellar architecture and integration plans
 
+## Runtime integration proposals
+
+| Design | Status | Scope |
+| --- | --- | --- |
+| [007: Embedded CPython through PyO3](007-embedded-python-pyo3.md) | Partial; full-plan audit active | Python request and cell handlers, invocation-bound SDK access, atomic storage batches, interpreter lifecycle, packaging and qualification gates |
+
+The optional interpreter adapter is implemented above the native Rust SDK.
+Its Python API sketches are not implemented or runnable examples.
+
 ## Primitive designs
 
 | Design | Status | Scope |

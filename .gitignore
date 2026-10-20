@@ -9,3 +9,6 @@ __pycache__/
 
 # Dashboard host audit records (never commit fleet operation history).
 console-audit.sqlite*
+
+# Local embedded-Python environments
+.venv/

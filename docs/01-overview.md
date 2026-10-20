@@ -30,7 +30,11 @@ serve factories that were never compiled into it.
 The workspace excludes JavaScript engines even with all features enabled.
 Source JavaScript, Node.js modules and former Python/Wasm wrappers are not
 executable application formats. A Python process inside the container example
-is a container workload; it is not a Cellar application loader.
+is a container workload; it is not a Cellar application loader. The optional
+[embedded CPython adapter](../crates/cellar-python/README.md) instead implements
+the native Rust contracts through PyO3. It runs trusted Python request and cell
+handlers inside a compiled host; see the [Python example](../examples/python/README.md)
+for its explicit runtime dependencies and supported SDK surface.
 
 ## Choose cell boundaries before choosing fleet size
 

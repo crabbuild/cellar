@@ -35,6 +35,14 @@ prefix. Replace `your_bucket` and `your_region` with your deployment values.
 Custom stores can use `--endpoint URL`. Supply credentials through supported
 providers.
 
+The optional [Python adapter](../crates/cellar-python/README.md) embeds Python
+source and its SDK facade in the executable, so those bytes participate in native
+artifact verification. Its libpython, standard library, site-packages and native
+shared libraries require separate provisioning or an immutable application image;
+they are not bundled or attested by this package format. Pin and qualify that
+external environment on every replica. Changing embedded Python source requires
+a new executable and process rollout, as changing Rust source does.
+
 ## Running workers and upgrading code
 
 Cellar supplies the worker runtime and fleet coordination inside each application

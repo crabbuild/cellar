@@ -1,0 +1,23 @@
+{
+  "cargo_manifest": "../../Cargo.toml",
+  "package": "cellar-python",
+  "binary": "cellar-python-example",
+  "profile": "dev",
+  "features": ["embed"],
+  "primary": {
+    "script_name": "python-example",
+    "application_version": "v1",
+    "cells": ["Counter"],
+    "bindings": [
+      {"type": "durable_object_namespace", "name": "COUNTERS", "class_name": "Counter"},
+      {"type": "kv", "name": "CACHE", "id": "python-example-cache"},
+      {"type": "sql", "name": "DB", "database_id": "python-example-db"},
+      {"type": "queue", "name": "JOBS", "queue": "python-example-jobs"}
+    ],
+    "queue_consumers": [{
+      "queue": "python-example-jobs", "max_batch_size": 10,
+      "max_batch_timeout": 1, "max_retries": 2, "max_concurrency": 2, "retry_delay": 1
+    }],
+    "crons": ["* * * * *"]
+  }
+}

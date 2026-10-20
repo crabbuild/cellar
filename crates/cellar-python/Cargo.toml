@@ -1,0 +1,55 @@
+[package]
+name = "cellar-python"
+version = "0.6.2"
+edition = "2021"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+repository = "https://github.com/crabbuild/cellar"
+description = "Invocation-scoped embedded CPython adapter for Cellar"
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = []
+embed = ["dep:pyo3", "dep:pyo3-build-config", "dep:libc"]
+
+[[bin]]
+name = "cellar-python-example"
+path = "../../examples/python/main.rs"
+required-features = ["embed"]
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+cellar.workspace = true
+futures-util.workspace = true
+libc = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+
+[build-dependencies]
+pyo3-build-config = { workspace = true, optional = true }
+serde_json.workspace = true
+
+[dev-dependencies]
+reqwest = { workspace = true, features = ["json"] }
+tempfile.workspace = true
+
+[[test]]
+name = "bridge"
+path = "tests/bridge.rs"
+harness = false
+required-features = ["embed"]
+
+[lints.clippy]
+disallowed_macros = "forbid"
+
+[[test]]
+name = "startup"
+path = "tests/startup.rs"
+harness = false
+required-features = ["embed"]

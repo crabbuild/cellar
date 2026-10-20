@@ -1,0 +1,561 @@
+# 007: Embedded CPython applications through PyO3
+
+Status: partial implementation; full-plan completion is unproven. The
+[requirement-by-requirement audit](007-embedded-python-audit.md) tracks the remaining
+implementation, artifact and qualification gates without reducing this plan's scope.
+
+Implementation: [cellar-python](../crates/cellar-python/README.md), with a
+[runnable example](../examples/python/README.md). Buffered HTTP, cell JSON and
+SQL, checked batches, alarms, KV, shared SQL, queue handlers and cron are wired
+through original invocation futures. One interpreter and a joined Rust supervisor
+have explicit admission, cancellation and returning-host shutdown contracts.
+Source and SDK facade bytes are embedded in the native executable. Installed
+package version pins are checked before admitting the host. A build-bound inventory can additionally verify the provisioned runtime, installed files, loaded libpython and source registrations before initialization.
+
+Local validation covers real-node storage conflicts, context expiration,
+cancellation, alarms, preserving restart, remote-owner routing and handoff
+recovery. The packaged smoke additionally covers Pydantic/native-extension imports,
+KV, SQL, queue delivery and cron. These are implementation checks, not broad
+production certification. The design below records the intended full contract.
+
+Remaining qualification: native-package publication/recovery of the runtime closure, full external native-library/OS attestation, forced-fence and quorum durability fault injection, binding-specific failure matrices, multi-platform qualification and throughput measurements. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
+background interpreter failure and default executor shutdown have local coverage. Python runtime and packages currently require separate provisioning;
+no complete environment is included in a native package. A bounded 1 ms polling
+bridge is used initially; notification-driven wakeups are deferred.
+Prepared: 2026-10-19.
+Source baseline: `4008db9d514c53c62989899302d8811db0182a64`.
+
+## Decision and intended outcome
+
+Add an optional `cellar-python` adapter that embeds native CPython in a compiled
+Rust application executable. Developers write request handlers, cell business
+logic and alarm handlers in Python, using ordinary compatible Python packages.
+Cellar continues to own ingress, placement, SQLite, transactions, output proofs,
+activation authority, recovery and shutdown.
+
+Use one process-wide, GIL-enabled CPython 3.14 interpreter and one managed
+`asyncio` loop initially. Python runs inside the Cellar application process;
+Docker, a Python child process, JavaScript and WebAssembly are not required.
+This is trusted application execution, not a sandbox for tenant-supplied code.
+A native extension crash can terminate the entire node process.
+
+Implement the adapter above the existing `Application` and `Cell` contracts.
+Do not add Python, PyO3 or I/O to `cellar-logic`, and do not replace the native
+worker's ownership or output-gate implementation. The compiled Rust host remains
+the deployment entry point. This extends the native application model with an
+optional interpreter; it does not restore the old Python Workers format.
+
+The first release must demonstrate real Python execution, a third-party package,
+atomic cell storage, an alarm, preserving restart and owner-loss recovery. Do
+not publish a Python example before that path runs end to end.
+
+## Current implementation and integration points
+
+| Existing component | Relevant contract | Proposed use |
+| --- | --- | --- |
+| [Application contracts](../crates/cellar/application/mod.rs) | `Application`, `Cell`, `HandlerFuture`, `Invocation`, `Output` | A Rust adapter converts invocations into Python tasks and responses back into native outputs |
+| [Native worker](../crates/cellar/runtime/workers/native/mod.rs) | Installs the original event context while polling application futures | Python SDK requests execute inside that original Rust future |
+| [Storage authority](../crates/cellar/application/storage/mod.rs) | Original domain, event and activation checks | Retain all checks on reads, writes, sync and commit |
+| [Transactions](../crates/cellar/application/storage/transaction.rs) | Short synchronous transactions and scoped asynchronous transactions | Execute bounded atomic batches without entering Python inside a transaction |
+| [Execution services](../crates/cellar/execution/services.rs) | Domain-owned services and application work | Own adapter work, admission, cancellation and cleanup |
+| [Native packaging](../crates/cellar/cli/native_deploy/mod.rs) | Verified native executable and application configuration | Add an explicit Python runtime/source artifact inventory |
+| [Native application ADR](../docs/adr/001-native-applications.md) | Compiled factories; no JavaScript engine | Keep compiled registration and define interpreter support as a new opt-in adapter |
+
+The old [Pyodide bundler](../crates/cellar/cli/deploy/python.rs) creates a
+JavaScript/Wasm bundle. The [current loader](../crates/cellar/runtime/workers/worker.rs)
+requires a registered compiled Rust application. Those old files are not a
+working Python runtime and are not the implementation base for this adapter.
+
+## Scope and compatibility contract
+
+The initial supported surface is deliberately narrower than the complete Rust SDK:
+
+| Initial scope | Deferred |
+| --- | --- |
+| Buffered HTTP request/response; JSON and bytes | Streaming bodies, WebSockets and ASGI compatibility |
+| Stateless Python handlers, cells, queues and scheduled handlers | Python-defined workflow callbacks |
+| Cell-local JSON, SQL and atomic checked batches; KV and shared SQL bindings | General SQL cursors and arbitrary Python transaction callbacks |
+| Cell-local durable alarms and explicit storage sync | Background `wait_until`, facets and compiled-loader Python bindings |
+| Declared, bounded cell calls through the host | Full SDK parity and arbitrary remote Python object access |
+| A qualified set of native Python dependencies | Every PyPI package, free-threaded Python and subinterpreters |
+
+Native CPython is the compatibility target. Pure Python packages and compatible
+native extensions can be used when their interpreter ABI, operating system,
+architecture and native dependencies match the packaged runtime. Import success
+is necessary but insufficient: representative calls, concurrency, shutdown and
+resource use need qualification. Support a single Python dependency environment
+per process, shared by all Python handlers in that process.
+
+Direct Python network clients, filesystem access and native library effects are
+outside Cellar's transactional boundary. They may be usable as trusted application
+code, but they do not acquire Cellar output gating, cancellation or exactly-once
+semantics. Prefer host-backed bindings for effects whose ordering depends on a
+cell mutation. External receivers still need idempotency and reconciliation.
+
+## Python application interface
+
+The following sketches describe the proposed interface, not an importable SDK.
+The bundled `cellar` facade wraps a private PyO3 module, `_cellar_native`.
+
+```python
+from pydantic import BaseModel
+from cellar import Response
+
+class Order(BaseModel):
+    id: str
+    total_cents: int
+
+async def fetch(request, ctx):
+    # Stateless ingress has binding access, but no cell-local storage.
+    order_id = request.path.rsplit("/", 1)[-1]
+    return await ctx.namespace("ORDERS").get_by_name(order_id).fetch(request)
+
+class Orders:
+    async def fetch(self, request, ctx):
+        order = Order.model_validate(await request.json())
+        if order.id != ctx.cell.name:
+            return Response.json({"error": "order identity mismatch"}, status=400)
+        await ctx.storage.apply(
+            checks={"order": ctx.storage.MISSING},
+            puts={"order": order.model_dump(mode="json")},
+            alarm_at_ms=ctx.now_ms() + 60_000,
+        )
+        return Response.json({"id": order.id}, status=201)
+
+    async def alarm(self, scheduled_ms, ctx):
+        await ctx.storage.apply(puts={"reminder_pending": True})
+```
+
+This create-only example returns a conflict on duplicate creation; it is not an
+idempotent API. A real retryable command stores a request digest and receipt
+with its business update and returns the retained receipt on a matching retry.
+Alarm delivery can repeat; alarm handlers must tolerate re-execution.
+The application supplies method/path validation and translates its Pydantic
+validation errors into its chosen client-error response. Arbitrary third-party
+exceptions are not automatically classified as SDK validation failures.
+
+Require `async def` handlers initially. A cell's Python instance is transient
+and is created lazily on its first admitted invocation. Its identity includes
+the owning domain, application generation and activation identity/epoch, never
+the business name alone. Constructors accept immutable identity/configuration
+only; they cannot use an invocation context or perform host calls. Async initialization, if added,
+needs an explicit gate rather than an implicit constructor convention.
+
+The host descriptor registers the module entry point, declared cell classes and
+supported events before node admission. Unsupported events fail explicitly.
+`validate_configuration` and `create_cell` remain nonblocking Rust operations;
+Python imports, constructor execution and reflection happen on the Python loop,
+not in synchronous factory callbacks on the Cellar worker.
+
+## Interpreter and executor model
+
+Use a process-owned `PythonRuntime` guard initialized before starting the node.
+The executable's main thread runs the managed Python `asyncio` loop. Explicit
+Rust runtimes drive the existing Cellar node and invocation futures on their
+own threads. The bootstrap owns the loop, threads and join sequence; no hidden
+global Tokio runtime or per-request interpreter is introduced.
+
+Choose one coordinated process signal owner. Initialize CPython with automatic
+signal-handler installation disabled, then let the Python-host bootstrap
+register the supported shutdown handlers and notify the Rust supervisor. Do not
+run a second independent `Host::run` signal supervisor. This bootstrap uses the
+explicit embedded-node APIs and must preserve both execution domains through
+node shutdown and join.
+
+A conceptual invocation has two directions:
+
+1. Rust admits an event and creates a bounded invocation mailbox, reply channel
+   and cancellation handle.
+2. The Python loop schedules the handler with an opaque invocation handle.
+3. A Python SDK method enqueues an owned host-operation request and awaits a
+   Python future. It does not call the storage implementation on that thread.
+4. The original Rust `HandlerFuture` polls its mailbox and the requested SDK
+   operation under the event/domain context installed by the native worker.
+5. An owned result is scheduled onto the Python loop with its thread-safe
+   scheduling API. The Python task resumes without blocking a Rust worker.
+6. The handler's final value becomes a native `Output`; the existing host proves
+   required writes and releases the output.
+
+In Rust, retain owned `Py<T>` handles only where supported by the selected
+PyO3 version. Never retain a `Python<'py>` token, a `Bound<'py, T>` borrow, a
+SQLite guard or a synchronous mutex across an await, queue wait or cross-thread
+notification. Convert to owned values while attached to Python and detach before
+waiting on Rust work.
+
+Evaluate a compatible, pinned `pyo3-async-runtimes` release for awaitable and
+future conversion. Its conversions do not propagate Cellar's execution-domain
+or installed-turn authority. Any internal runtime it uses must not execute host
+SDK operations. Do not adopt PyO3's experimental async-function support as an
+unexamined substitute for the invocation mailbox.
+
+All Python handler tasks share the interpreter and loop. Async I/O can overlap;
+Python bytecode is constrained by the GIL. A synchronous computation inside an
+async handler can block the Python loop while Rust routing/storage maintenance
+continues. Offloading trusted blocking library calls to bounded, supervised
+threads may be added, but it provides neither safe thread termination nor a
+promise of parallel Python bytecode execution. Scale CPU-bound workloads across
+node processes initially.
+
+## Context authority and cross-thread dispatch
+
+The Python context is an opaque handle into a Rust invocation registry, not a
+raw `Context`, SQLite connection, domain token or configurable cell ID. A
+registry entry retains the original Rust context plus runtime, generation,
+activation, invocation and cancellation identity. Python-supplied metadata
+cannot select another registry entry or expand a binding grant.
+
+Check authority when accepting an SDK request, immediately before its execution,
+and through the SDK's existing storage/commit/output checks. Queueing a request
+before fencing or cancellation does not authorize later execution. Stateless
+contexts cannot access cell storage. Transaction views cannot escape a batch.
+
+Resolve services only while the original Rust application future is being
+polled. A plain `tokio::spawn`, a Python `ContextVar`, a copied event ID or an
+OS thread-local cannot replace the original installed context. The bridge must
+not recursively call the same cell over HTTP to perform a storage operation;
+that can deadlock against the invocation or input gate it is meant to serve.
+
+For initial host operations, preserve Python call order with a bounded per-event
+queue and permit at most one outstanding mutating operation per invocation.
+Define and test concurrent reads and cancellation explicitly rather than
+inferring ordering from task scheduling. Nested calls to other cells use normal
+Cellar routing, admission, deadlines and ambiguity handling. The mailbox remains
+pollable while the parent awaits a nested call; use existing call-cycle behavior
+rather than adding an adapter-only bypass.
+
+Keep Python object registries on the interpreter loop. Rust cell proxies hold
+opaque object IDs and activation identity. Retirement marks an object unavailable
+before further dispatch; destruction runs on the interpreter loop. Releasing a
+Rust proxy must not block waiting for the GIL. Track pending destruction records
+until processed, bound their accumulation, and drain them before closing the
+loop. Do not silently lose cleanup requests when an ordinary work queue is full.
+The initial spike must establish whether this requires an explicit lifecycle
+hook in the application contract; `Cell` currently exposes invocation, not a
+Python-specific activation-retirement callback.
+
+## Atomic storage without Python callbacks inside SQLite transactions
+
+Implement `storage.apply` as a bounded declarative batch of checks, puts,
+deletes and an optional alarm change. Execute the complete batch through the
+existing `Storage::transaction_sync` on the Rust invocation driver. Validate
+all keys, encoded values, operation counts and aggregate bytes before starting.
+No Python code executes and no asynchronous wait occurs inside that callback.
+
+Checks compare the current presence/value with the expected presence/value.
+Missing is distinct from a stored JSON null. If any check fails, roll back all
+writes and return a typed `Conflict` result. Disallow duplicate/conflicting
+operations on a key and reject malformed alarm actions. A batch either commits
+its complete local mutation or has no local effect.
+
+Expose `read_json` as an immutable owned snapshot with explicit presence. A
+read-modify-write algorithm computes in Python, then includes its read snapshots
+as checks in `apply`. A conflict requires application-specific retry; the host
+must not automatically rerun a Python handler that may have called an external
+service. Unconditional batches remain available for writes that need no check.
+
+All mutations from the Python SDK use the same storage implementation as Rust.
+Do not maintain an adapter-only revision counter that native Rust writes could
+bypass. Native and Python updates must contend on the actual SQLite transaction
+and checks. Restrict revision-based optimizations to a later shared contract.
+
+Expose storage sync through the existing SDK for explicit proof boundaries.
+`apply` completion means local transaction success, not automatic replication
+proof at that point. The native handler response still crosses the output gate;
+callers waiting for an external effect must use an explicit durable intent and
+receiver protocol. A lost response can leave an ambiguous committed result.
+
+Defer arbitrary Python callbacks inside transactions. Moving a Python callback
+to another thread and awaiting its storage calls would require a separate design
+for transaction-view polling, input-gate ownership, reentrancy, cancellation and
+rollback. It cannot be implemented as a synchronous PyO3 call while holding a
+SQLite lock.
+
+## Values, errors and request boundaries
+
+Start with bounded buffered bodies and owned response values. Preserve headers
+as an ordered list of pairs so repeated fields are not lost. Construct the final
+response through the existing Rust response/body APIs. Streaming and upgrades
+need their own event-lifetime and backpressure contract before support is added.
+
+The initial storage/RPC codec accepts JSON-compatible values with explicit
+integer range checks, finite floats, UTF-8 strings, lists and string-keyed
+objects. Bytes use a separate tagged payload. Reject unsupported objects,
+cyclic containers, oversized nesting, non-finite floats and integer overflow;
+do not silently round Python integers. Applications serialize Decimal, datetime,
+NumPy values and Pydantic models explicitly. Do not use pickle as a persistence,
+RPC or package-loading format, and do not serialize arbitrary Python exceptions.
+
+| Failure | Proposed Python behavior | Host behavior |
+| --- | --- | --- |
+| Validation or unsupported value | `ValidationError` | No mutation; bounded error response |
+| Failed atomic check | `Conflict` | Roll back the complete batch |
+| Retired event/domain or activation | `ContextExpired` / `OwnershipLost` | Refuse new SDK work; preserve existing typed distinctions |
+| Admission or mailbox capacity | `Overloaded` | Bounded refusal; no unbounded queue growth |
+| Interrupted or unproven submitted mutation | `Ambiguous` | Do not imply rollback or blindly replay |
+| Handler exception | Sanitized handler failure | No success output; prior committed writes are not undone |
+| Native extension crash or process abort | No catchable Python guarantee | Whole-node recovery; accepted effects follow ordinary Cellar recovery rules |
+
+Cancellation remains cancellation. Do not catch it as a generic retryable
+application failure. Tracebacks are bounded and scrubbed of request bodies and
+secrets; public responses do not expose paths or internal stack frames by default.
+
+## Durable state and Python object lifetime
+
+SQLite, alarms and native durability proofs remain the source of truth. Module
+globals, class fields, asyncio tasks, caches, sockets, thread state and Python
+heap objects are transient. Recovery constructs a new interpreter/application
+process if needed and new cell objects from durable state. Do not snapshot a
+CPython heap or claim transparent continuation of arbitrary Python frames.
+
+Cell-local state changes and alarm updates share a transaction when supplied in
+one batch. Alarm handlers use persisted state to determine outstanding work and
+must tolerate duplicate invocation. Later workflow bindings must persist model
+outputs and nondeterministic choices through the existing workflow journal;
+ordinary coroutine suspension is not a durable workflow checkpoint.
+
+Python filesystem writes are not captured as cell SQLite changes. Python
+`sqlite3` or SQLAlchemy must not open a live Cellar cell database directly.
+Using a separate application database is possible, but it introduces a separate
+transaction and recovery authority. External libraries do not become Cellar
+bindings merely because they are imported in the same process.
+
+## Cancellation, background work and shutdown
+
+For each invocation, dropping or retiring the Rust driver immediately revokes
+host-operation admission and requests cancellation of its Python root task.
+Reject late mailbox operations and outputs. A transaction already executing
+retains the SDK's authority rechecks and rollback rules; cancellation after a
+commit does not establish that the mutation was undone.
+
+Use an owned cleanup lane that survives ordinary request admission closure.
+Never block a Rust destructor on Python. The supervisor retains cleanup work
+until cancellation is delivered, queued operations settle, object cleanup runs
+and the task is observed terminated, or the drain deadline expires.
+
+Do not initially expose post-response `wait_until`. Application-created tasks
+must not retain usable SDK context beyond the owning event. Python-created
+threads and tasks can still perform raw process effects; the trusted-code model
+cannot prevent those effects by expiring an SDK handle. At shutdown, cancel and
+observe remaining loop tasks, close async generators and managed executors, and
+record any work that cannot be joined.
+
+Shutdown order:
+
+1. Close public ingress and Python submission admission; retain accepted work.
+2. Drain native events and cooperative Python handlers with both runtimes alive.
+3. Cancel remaining handlers, revoke invocation handles and settle host cleanup.
+4. Join node shutdown/durability work; drain Python task/object cleanup.
+5. Close the Python loop after its work is settled and join Rust executors last.
+
+The process-owned supervisor returns a combined report containing the existing
+node report plus queued/running Python work, pending bridge operations, cleanup
+records, unmanaged loop tasks and exhausted budgets. A node-only zero exit or
+empty mailbox is not proof that Python work drained.
+
+There is no safe general-purpose hard kill for an in-process Python task or C
+extension. An infinite loop, blocked native call or cancellation-suppressing
+handler can prevent drain. The supervisor must mark the combined outcome
+incomplete and rely on an external process supervisor to terminate/restart the
+node when necessary. Do not call `Py_FinalizeEx` while threads may enter Python.
+Initialize once per process; do not finalize/reinitialize on cell eviction or
+application reload. Default production cleanup ends at process exit after
+managed work drains; controlled finalization is a separately tested embedding
+mode, not a recovery mechanism.
+
+## Deployment, dependencies and generation changes
+
+Use an immutable Python source/dependency bundle associated with the compiled
+host. Resolve and hash-lock dependencies during build, including platform wheels
+and native shared-library requirements. Requests must never trigger package
+installation. Do not install from the network at node startup.
+
+A Python-enabled deployment inventory must identify:
+
+- Native host digest, target and adapter version.
+- CPython major/minor, GIL mode, SOABI, runtime/shared-library inventory and digests.
+- Application module/source digest and registration descriptor.
+- Locked package artifacts, dependencies and relevant native library inventory.
+- Canonical import roots, supported platform and application configuration.
+
+Verify the actual runtime and bundle before loading application code and opening
+admission. Development may use an explicitly configured CPython installation
+and environment; production initially requires a qualified immutable runtime
+image or provisioned runtime closure. A container image is one packaging choice,
+not a requirement of embedding. An arbitrary mutable virtualenv is not a
+self-contained verified deployment artifact.
+
+Use explicit CPython initialization configuration: import paths, Python home,
+site behavior and environment handling are supplied by the executable bootstrap.
+Do not discover an interpreter or install packages inside library code. Ambient
+`PYTHONPATH`, current-directory imports and user site packages must not silently
+change the deployed application. Link libpython for embedding; do not accidentally
+use PyO3's extension-module linking mode for the host executable.
+
+The existing native package format does not inventory a Python runtime closure.
+Design and implement the additional artifact/metadata validation before claiming
+that `build`, `deploy` and `install` verify a Python-enabled deployment. Keep
+Cellar-owned format markers at 1 and use the repository's hard-cutover policy
+when introducing internal metadata; do not imply old packages gain support.
+
+One interpreter means shared `sys.modules`, native extension state and one
+Python dependency environment. The first release permits one Python application
+generation per process and refuses in-process Python hot replacement. Python
+source changes require draining/replacing the application process, retaining its
+durable Cellar data and identity. Ordinary native-only hosts keep their existing
+generation behavior. A later design can qualify overlapping Python generations;
+changing module names alone is not dependency or global-state isolation.
+
+## Limits, observability and trust
+
+Capture finite startup, request, body, response, JSON-depth, batch-operation,
+batch-byte, mailbox, live-task, resident-object and drain limits in the adapter
+configuration. Validate them before admission. Begin implementation with named
+limits in tests; choose shipping defaults from measurements, not estimates here.
+Apply bounded backpressure in both directions and release reservations on error,
+cancellation, retired activation and response-conversion failure.
+
+Measure queue wait, bridge round trips, Python handler duration, Rust SDK time,
+GIL-related contention, copied bytes, RSS, Python allocations, native allocation
+growth, resident objects, pending cleanup and drain outcomes. Python allocation
+accounting is not total process memory, particularly with NumPy/native libraries.
+Do not advertise per-cell hard memory or CPU isolation in a shared interpreter.
+Existing native CPU accounting measures Rust turn execution; it must not be
+reported as a measured or enforced Python CPU budget when work runs on the
+Python loop. Attribute Python work separately and disclose accounting gaps for
+native extensions and application threads.
+
+Trusted Python has ordinary process capabilities and can bypass wrapper APIs.
+The context bridge protects correct SDK usage; it is not a security boundary
+against malicious native Python code. Run incompatible dependencies, untrusted
+code, workloads requiring hard termination, GPU isolation or independent process
+control in separate worker processes/containers instead.
+
+## Proposed code organization
+
+Create a separate adapter crate, following the `cellar-axum` dependency direction:
+
+```text
+crates/cellar-python/
+  Cargo.toml
+  lib.rs
+  application.rs          Application/Cell proxies and registration descriptor
+  runtime/mod.rs          Interpreter bootstrap, loop ownership and lifecycle
+  runtime/bridge.rs       Bounded invocation messages and awaitable completion
+  runtime/objects.rs      Activation-scoped Python object registry and cleanup
+  storage.rs              JSON snapshots and checked atomic batch conversion
+  values.rs               Owned request/response codecs and Python errors
+  python/cellar/          Bundled Python facade and type annotations
+  tests/                  Public adapter lifecycle and recovery tests
+```
+
+Keep all PyO3 dependencies in this crate and centralize their versions in the
+workspace manifest. Prefer an explicit embedding feature so native-only builds
+do not require libpython. The workspace's all-feature CI will enable that
+feature, so provision the selected CPython toolchain in that job and add an
+explicit native-only dependency/build check. Do not add a JavaScript engine.
+
+Use existing SDK contracts whenever possible. Any required new public lifecycle
+or execution-domain registration hooks must be narrowly scoped, reviewed and
+covered by native-only regression tests. Do not expose installed-turn internals
+or let the adapter fabricate an activation context.
+
+## Implementation milestones and acceptance gates
+
+| Phase | Deliverable | Required evidence before proceeding |
+| --- | --- | --- |
+| M0: feasibility | Pin mutually compatible PyO3/async bridge versions and CPython 3.14; prove bootstrap and invocation pump | Python awaits a host operation while another Python task runs; original turn/domain checks pass; cancellation revokes queued work; two embedded domains cannot exchange contexts; no hidden runtime owns host I/O |
+| M1: real HTTP | Compiled host imports a pinned Python module and third-party validation package | Success/error/body-limit cases, native-extension import and representative execution, concurrent requests, exception sanitization, complete combined stop report |
+| M2: durable cells | Cell dispatch, JSON storage, checked batches, explicit sync and alarms | Atomic rollback, missing versus null, conflicts with native writers, duplicate alarm handling, restart persistence and acknowledged-write proof tests |
+| M3: failure/lifecycle | Activation object retirement, fencing, cancellation and supervised shutdown | Node kill and owner takeover preserve acknowledged state; stale Python task cannot mutate after ownership loss; deadlines and noncooperative code produce incomplete drain, never fabricated success |
+| M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
+| M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
+
+Do not weaken existing native SDK assertions to fit the Python adapter. Use the
+existing SDK, Axum host-parity and fleet recovery harnesses where applicable.
+Tests for process aborts, infinite loops and stuck C extensions run in disposable
+child hosts so they cannot hang the test runner. Include a test where the client
+loses a reply after commit and resolves it with the same receipt key.
+
+Publish qualified package versions and platforms. Start with a pure Python
+package, a PyO3-based extension and NumPy or another native numerical package;
+exercise actual operations, blocking behavior and teardown rather than import
+alone. Establish native Rust versus Python adapter latency, throughput, memory,
+copying and recovery baselines without claiming a performance target in advance.
+
+## Alternatives and decisions still needing evidence
+
+- **CPython worker process:** strongest alternative for fault containment,
+  independent termination and dependency isolation. Retain it for workloads the
+  embedded model cannot safely operate. It needs a separate IPC/storage bridge.
+- **Pyodide:** a different JS/Wasm execution stack with a different package ABI;
+  not needed to achieve native Python library support in this proposal.
+- **Subinterpreters/free-threaded CPython:** defer until the selected PyO3,
+  extensions, interpreter isolation and lifetime contracts are qualified.
+- **One interpreter per cell:** reject for the initial design; it multiplies
+  interpreter/import cost and assumes extension isolation that is not established.
+- **Arbitrary Python transaction callbacks:** defer; the batch API avoids holding
+  SQLite locks while calling back across runtimes.
+
+M0 must decide the exact loop/bootstrap APIs, whether an activation-retirement
+hook is necessary, and how combined shutdown reporting composes with the node
+supervisor. M4 must specify the native package metadata and runtime closure
+verification. These are explicit implementation gates, not claims that the
+current SDK already provides those seams.
+
+## References and planning validation
+
+Primary external references, consulted on 2026-10-19:
+
+- [PyO3: calling Python from Rust](https://pyo3.rs/main/python-from-rust.html).
+- [PyO3: parallelism and interpreter attachment](https://pyo3.rs/main/parallelism.html).
+- [PyO3: async/await constraints and experimental support](https://pyo3.rs/main/async-await.html).
+- [PyO3 async runtime bridge](https://github.com/PyO3/pyo3-async-runtimes).
+- [PyO3: building and distribution](https://pyo3.rs/main/building-and-distribution.html).
+- [CPython 3.14 initialization configuration](https://docs.python.org/3.14/c-api/init_config.html).
+- [CPython 3.14 interpreter lifecycle](https://docs.python.org/3.14/c-api/interp-lifecycle.html).
+
+This is a design based on source inspection and primary documentation. No PyO3
+prototype, package compatibility matrix, performance run or runtime recovery
+qualification was performed for this document. All Python APIs, new crate paths
+and package metadata above are proposals. Before implementation, record exact
+dependency pins and the results of M0; update the native application ADR when
+an implementation decision is accepted.
+
+Documentation validation: `python3 tools/docs/check.py` passed. The new plan's
+nine local source links, Python sketch syntax, code fences and index entry were
+checked, and `git diff --check` passed. No Rust tests were rerun for this
+documentation-only change.
+
+## Implementation validation (2026-10-19)
+
+Local validation used Rust 1.98.1, GIL-enabled CPython 3.14.6 and PyO3 0.30.1
+on macOS ARM64, with a checkout-specific Cargo target directory.
+
+- `cargo test -p cellar-python --features embed --locked`: passed. The real-node
+  harness checks HTTP bytes, native imports and thread-pool calls, foreign-loop
+  rejection, checked-batch conflict rollback, missing/null distinction, local SQL,
+  alarms, expired contexts, operation/body budgets, cancellation, abandoned writes,
+  preserving restart, remote routing and handoff recovery. Separate bounded child
+  processes check missing dependencies, supervisor errors/panics, stubborn tasks,
+  and fatal background work. The harness also checks interpreter reinitialization
+  refusal.
+- `python3 examples/python/smoke.py --cellar "$CARGO_TARGET_DIR/debug/cellar" --with-cron`:
+  passed against the real packaged host. Pydantic's native extension, HTTP input
+  validation, independent cells, alarms, KV, shared SQL, queue retry/settlement,
+  a real scheduled occurrence and preserving restart were exercised. A final
+  smoke without the minute wait passed after adding the foreign-loop guard.
+- `cargo check -p cellar-python --no-default-features --locked`: passed.
+- Clippy with `-D warnings`: passed for all `cellar-python` targets/features and
+  the `cellar` library.
+- Native daemon regression: passed. The broader native-node run passed 86 of 87
+  cases; its first bounded bootstrap-observation test hit the existing factory
+  entry deadline during concurrent builds. That exact test passed when run alone
+  (0.75 seconds). Its assertions and deadlines were unchanged; the initial broad
+  run is not recorded as an entirely passing suite.
+- `cargo format --check`, `cargo check-layout`, documentation integrity,
+  `git diff --check` and the all-feature JavaScript-engine dependency guard passed.
+
+The full workspace suite and Linux CI were not run locally. The workflow now
+installs CPython 3.14 and exercises the Python package on Linux. These checks do
+not qualify arbitrary Python packages, unclean fleet failures or the separately
+provisioned runtime/dependency closure.

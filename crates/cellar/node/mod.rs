@@ -3830,7 +3830,16 @@ const DEFAULT_REBALANCE_BATCH_CELLS: usize = 32;
 /// The walk is O(cached cells), so keep it off the hot maintenance cadence.
 const LOCAL_CACHE_PRUNE_PERIOD: std::time::Duration = std::time::Duration::from_secs(60);
 
-fn run_host(backend: Backend, local_graph: Option<DeploymentGraph>) -> anyhow::Result<()> {
+type HostStop = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+type HostObserver = Box<dyn FnOnce(crate::node_lifecycle::NodeOutcome) + Send>;
+
+fn run_host(
+    backend: Backend,
+    local_graph: Option<DeploymentGraph>,
+    stop: Option<HostStop>,
+    observer: Option<HostObserver>,
+) -> anyhow::Result<()> {
     crate::env_vars::validate()?;
     // Parse the telemetry group once, before any command or runtime work.
     // Its specialized values share the strict scalar parsers in env_vars.
@@ -3843,16 +3852,23 @@ fn run_host(backend: Backend, local_graph: Option<DeploymentGraph>) -> anyhow::R
     if let Some(workers) = crate::env_vars::positive::<usize>("CELLAR_TOKIO_THREADS")? {
         builder.worker_threads(workers);
     }
-    builder
-        .build()?
-        .block_on(async_main(telemetry_config, backend, local_graph))
+    builder.build()?.block_on(async_main(
+        telemetry_config,
+        backend,
+        local_graph,
+        stop,
+        observer,
+    ))
 }
 
 async fn async_main(
     telemetry_config: Option<crate::telemetry::Config>,
     backend: Backend,
     mut local_graph: Option<DeploymentGraph>,
+    stop: Option<HostStop>,
+    observer: Option<HostObserver>,
 ) -> anyhow::Result<()> {
+    let return_to_caller = stop.is_some();
     #[cfg(all(test, cellar_internal_tests))]
     let shutdown_accept_failure_test_active =
         std::env::var_os("CELLAR_DRAIN_ACCEPT_FAILURE_CHILD").is_some();
@@ -5229,7 +5245,14 @@ async fn async_main(
             shutdown_accept_failure_test_active,
         },
         async move {
+            let supplied_stop = async move {
+                match stop {
+                    Some(stop) => stop.await,
+                    None => std::future::pending::<()>().await,
+                }
+            };
             crate::asyncrt::select! {
+                _ = supplied_stop => ShutdownMode::Preserve,
                 _ = sigterm.recv() => ShutdownMode::Handoff,
                 _ = sigint.recv() => ShutdownMode::Handoff,
             }
@@ -5256,9 +5279,20 @@ async fn async_main(
     #[cfg(cellar_internal_tests)]
     drop(core_thread);
     let outcome = outcome?;
+    if let Some(observer) = observer {
+        observer(outcome.clone());
+    }
     if shutdown_report_json {
         crate::cli_output::Output::new(crate::cli_output::Format::Text)
             .line(format_args!("{}", outcome.cli_report()))?;
+    }
+    if return_to_caller {
+        drop(LOG_GUARD.lock().unwrap().take());
+        anyhow::ensure!(
+            outcome.cli_exit_code() == 0,
+            "host shutdown failed: {outcome:?}"
+        );
+        return Ok(());
     }
     // Process ownership belongs to this command-line adapter alone.
     exit_flushed(outcome.cli_exit_code());

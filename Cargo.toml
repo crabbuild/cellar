@@ -48,6 +48,7 @@ cellar-axum = { path = "crates/cellar-axum", version = "0.6.2" }
 cellar-logic = { path = "crates/cellar-logic" }
 cellar-ltx = { path = "crates/cellar-ltx" }
 cellar-native = { path = "crates/cellar-native" }
+cellar-python = { path = "crates/cellar-python" }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 ed25519-dalek = { version = "2", features = ["pkcs8"] }
 encoding_rs = "0.8"
@@ -125,6 +126,8 @@ crc = "3"
 crc-fast = { version = "1.10", default-features = false, features = ["std"] }
 percent-encoding = "2"
 proptest = "1"
+pyo3 = { version = "=0.30.1" }
+pyo3-build-config = { version = "=0.30.1" }
 # Syntax parsing belongs to repository formatting tooling, not the cell runtime.
 proc-macro2 = "1"
 syn = "2"

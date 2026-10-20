@@ -30,6 +30,13 @@ jobs:
         run: |
           rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --component rustfmt
           rustup default "$RUST_VERSION"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - name: Select embedded Python
+        run: echo "PYO3_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+      - name: Check native-only libraries without Python
+        run: PYO3_PYTHON=/nonexistent/cellar-native-only cargo check -p cellar -p cellar-python --no-default-features --lib --locked
       - name: Check Rust formatting
         run: cargo format --check
       - name: Check Rust module layout
@@ -58,6 +65,19 @@ jobs:
           python3 examples/axum-counter/generate_client.py "$RUNNER_TEMP/counter-openapi.json" "$RUNNER_TEMP/counter-client.rs"
           rustfmt --edition 2021 "$RUNNER_TEMP/counter-client.rs"
           diff examples/axum-counter/generated_client.rs "$RUNNER_TEMP/counter-client.rs"
+      - name: Exercise embedded Python package
+        run: |
+          python -m venv "$RUNNER_TEMP/cellar-python-venv"
+          "$RUNNER_TEMP/cellar-python-venv/bin/python" -m pip install --require-hashes --only-binary :all: -r examples/python/requirements.lock
+          export CELLAR_PYTHON_SITE_PACKAGES="$("$RUNNER_TEMP/cellar-python-venv/bin/python" -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+          export PYTHONDONTWRITEBYTECODE=1
+          export CELLAR_PYTHON_INVENTORY="$RUNNER_TEMP/cellar-python-inventory.json"
+          python tools/python/environment.py capture --python "$PYO3_PYTHON" \
+            --site-packages "$CELLAR_PYTHON_SITE_PACKAGES" --source examples/python/app.py \
+            --filename app.py --descriptor examples/python/descriptor.json \
+            --target x86_64-unknown-linux-gnu --output "$CELLAR_PYTHON_INVENTORY"
+          cargo build -p cellar --bin cellar --locked
+          python examples/python/smoke.py --cellar target/debug/cellar --with-cron
       - name: Build a Rust application package
         run: |
           cargo run -p cellar --bin cellar --locked -- \

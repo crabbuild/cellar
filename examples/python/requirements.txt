@@ -1,0 +1,7 @@
+# Runtime closure for the example (CPython 3.14, GIL enabled).
+annotated-types==0.7.0
+pydantic==2.12.3
+pydantic-core==2.41.4
+typing-extensions==4.15.0
+typing-inspection==0.4.2
+numpy==2.3.4

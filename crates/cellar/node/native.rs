@@ -93,6 +93,35 @@ impl NativeDaemon {
 
     /// Run the production node, without initializing a JavaScript engine.
     pub fn run(self) -> anyhow::Result<()> {
+        self.run_inner(None, None)
+    }
+
+    /// Run until a process signal or the supplied stop future completes, then
+    /// return after joining the host. Unlike `run`, this leaves process exit to
+    /// the caller so embedded runtimes can finish their own shutdown.
+    /// Call outside a Tokio runtime, once per process.
+    pub fn run_until(
+        self,
+        stop: impl std::future::Future<Output = ()> + Send + 'static,
+    ) -> anyhow::Result<()> {
+        self.run_inner(Some(Box::pin(stop)), None)
+    }
+
+    /// Observe the actual joined node outcome, including incomplete drain phases.
+    /// CLI commands which do not start a node do not invoke the observer.
+    pub fn run_until_observed(
+        self,
+        stop: impl std::future::Future<Output = ()> + Send + 'static,
+        observer: impl FnOnce(crate::node_lifecycle::NodeOutcome) + Send + 'static,
+    ) -> anyhow::Result<()> {
+        self.run_inner(Some(Box::pin(stop)), Some(Box::new(observer)))
+    }
+
+    fn run_inner(
+        self,
+        stop: Option<super::HostStop>,
+        observer: Option<super::HostObserver>,
+    ) -> anyhow::Result<()> {
         let arguments: Vec<_> = std::env::args_os().skip(1).collect();
         if arguments
             .first()
@@ -126,7 +155,12 @@ impl NativeDaemon {
         } else {
             self.local_graph
         };
-        super::run_host(Backend::Native(Arc::new(self.applications)), local_graph)
+        super::run_host(
+            Backend::Native(Arc::new(self.applications)),
+            local_graph,
+            stop,
+            observer,
+        )
     }
 }
 

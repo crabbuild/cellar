@@ -12,6 +12,10 @@ the [production release gates](21-production-readiness.md).
 
 ![Cellar architecture](diagrams/architecture.svg)
 
+The optional [embedded Python adapter](../crates/cellar-python/README.md) runs
+CPython 3.14 in a native Rust host. Its [runnable example](../examples/python/README.md)
+covers Python handlers, cell storage, alarms and infrastructure bindings.
+
 ## Choose a reading path
 
 | Reader | Recommended path | Deliverable |

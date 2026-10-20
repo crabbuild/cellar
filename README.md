@@ -8,6 +8,10 @@ Give each account, cart, room or workflow its own SQLite state. Write the
 business logic in Rust; Cellar handles ownership, routing, replication and
 recovery.
 
+The optional [embedded Python adapter](examples/python/README.md) runs Python
+business logic in a native Rust host using CPython 3.14 and PyO3, with Cellar
+storage, alarms, KV, SQL, queues and cron.
+
 [Quickstart](#quickstart) · [Write code](#work-with-cells) ·
 [Architecture](#how-cellar-works) · [Examples](#explore-the-sdk) ·
 [Documentation](docs/README.md)
