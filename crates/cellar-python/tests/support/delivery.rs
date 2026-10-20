@@ -1,7 +1,7 @@
 //! Independent Python consumer matrix against the native durable queue broker.
 use super::*;
 
-struct Observed(Arc<PythonApplication>);
+pub(super) struct Observed(pub(super) Arc<PythonApplication>);
 
 impl Application for Observed {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {

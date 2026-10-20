@@ -18,7 +18,22 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: full external native-library/OS attestation, binding-specific failure matrices, multi-platform qualification and throughput measurements. Real three-node tests now withhold both follower acknowledgements and bucket writes, then release actual follower acknowledgements with bucket writes still held. They exercise explicit sync and final output separately and refuse success when both proof paths fail. Native-writer conflicts and a stale Python task resumed after a real ownership fence are now directly tested. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
+Remaining qualification: external native-library/OS attestation, interrupted cron
+delivery, remaining admission/retirement races, production watchdog integration,
+native-versus-Python measurements and current-source CI. Independent KV, shared-SQL
+and queue matrices now cover cancellation, failed proof, explicit reconciliation,
+backpressure, resource cleanup and preserving restart. The queue producer drill
+also exposed and fixed a native reset race with a still-running alarm. Supported
+macOS ARM64/Linux x86_64 package/runtime qualification is recorded by exact version
+in the audit. Real three-node tests withhold both follower acknowledgements and
+bucket writes, then release actual follower acknowledgements with bucket writes
+still held. They exercise explicit sync and final output separately and refuse
+success when both proof paths fail. Native-writer conflicts and a stale Python
+task resumed after a real ownership fence are directly tested. Local CPU-loop
+and GIL-held C-call watchdog drills kill owners, remove local disks, recover
+acknowledged state from the development fleet bucket and verify new writes.
+Native factories also progress while Python remains blocked.
+Cancellation-suppressing asyncio tasks, host failures/panics,
 background interpreter failure and default executor shutdown have local coverage. Native projects can now bundle and restore a verified CPython/runtime/package
 closure. The real recovery drill removes the original runtime, installs from
 a private bucket and starts the installed host with a cleared environment,

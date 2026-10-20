@@ -36,28 +36,28 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | A11 | FIFO operations, one outstanding mutation per invocation | Concurrent mutation/read/cancel tests; explicit state machine | verified: native admission reservation rejects overlap; same-invocation read progresses during nested mutation; reservations release on drop |
 | A12 | Mailbox pollable during nested calls; existing cycle behavior | Nested-call progress, cycle and cancellation tests | partial: driver now polls pending SDK futures and mailbox together; direct same-invocation progress proven; explicit cycle/fence matrix remains |
 | A13 | Descriptor declares supported classes/events before admission | Cold validation and invalid registration tests | verified: cold descriptor async/constructor checks plus deployment hook rejecting absent classes, undeclared queue consumers and cron handlers before activation |
-| A14 | Native factories never call/import Python | Source/caller audit plus blocked-interpreter factory test | partial: proxies allocated in Rust |
+| A14 | Native factories never call/import Python | Source/caller audit plus blocked-interpreter factory test | verified locally: proxy creation uses only immutable Rust source descriptors, atomics and owned lifetime flags; in both CPU-loop and GIL-held C-call owner drills, a Rust root submits a new real cell activation and the native factory counter advances while Python remains blocked and its handler cannot complete |
 | A15 | Activation identity includes domain, generation and epoch | Retire/recreate and simultaneous same-name/domain tests | partial: unique proxy IDs and original Context |
-| A16 | No interpreter-per-cell or hot Python replacement | Process-wide guard and attempted reload tests | partial: one runtime guard; reload behavior needs coverage |
+| A16 | No interpreter-per-cell or hot Python replacement | Process-wide guard and attempted reload tests | verified locally and on Linux at 21f6b30: cell proxies share the process runtime, a second runtime is refused, live selector replacement is refused in process, and changed Python source executes only in the distinct replacement executable/process; trusted application mutation of Python globals is outside generation isolation |
 
 ## HTTP, codecs and failures (M1)
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | H01 | Buffered bytes/JSON HTTP; ordered repeated headers | Byte and duplicate-header round trips through real ingress | verified: binary body and ordered repeated request/response header round trips through real ingress |
-| H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: native and facade depth guards agree at 64; exact native request body/header-count/header-byte limits and real-node exact/over-depth refusal pass; complete response/value/admission and reservation boundary coverage remains |
+| H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: depth 64 and real-node nested input limits pass; dedicated real ingress/output tests accept exactly 4,096 body bytes, 128 repeated headers and 32,768 header-name/value bytes and reject the next byte/header; a 65,536-byte whole batch commits, the next byte is refused without mutation, and joined reports show no reservations; completion-envelope and full admission/saturation boundaries remain |
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | partial: public ValidationError/Overloaded/Ambiguous/OwnershipLost classes, explicit outcomes and fixed sanitized messages; native typed routing verdicts preserved; real protocol/codec/batch refusals and ambiguous constructor/absent-binding tests pass; some bindings flatten native causes internally, and live routing-verdict fault coverage remains |
-| H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | partial: task cancellation plus packaged lost-response receipt reconciliation (S09) pass; independent pending-operation/binding cancellation and ambiguity matrices remain |
+| H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; cron-specific interrupted delivery remains Q08 |
 | H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler, destructor and raw-thread failures sanitized and counted; import/registration/descriptor errors expose fixed stage messages without a Python exception source; subprocess tests refuse exception/path sentinels and arbitrary exception `__str__` execution; initialization/loader and complete error-path review remain |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
-| H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | partial: managed-runtime smoke now executes pinned Pydantic, NumPy, hashing and pure Python inspection; platform matrix remains open |
+| H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | verified for macOS ARM64/Linux x86_64 qualification: pinned Pydantic/core, NumPy, hashing and pure Python inspection perform real work; managed executor operations join and TERM/INT replacement reaps the old process with complete reports; arbitrary private native-library pools are explicitly outside in-process drain accounting; exact versions/platforms remain Q09 |
 
 ## Atomic storage, alarms and durability (M2)
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| S01 | Bounded declarative atomic batch, no Python/await under transaction | Source audit, malformed batches, aggregate byte/count boundaries | partial: batch uses transaction_sync; budgets incomplete |
+| S01 | Bounded declarative atomic batch, no Python/await under transaction | Source audit, malformed batches, aggregate byte/count boundaries | verified locally: native validation precedes a Rust-only transaction_sync closure with owned JSON and no Python/await; max_value_bytes caps the entire serialized batch, max_batch_operations sums checks/puts/deletes/alarm together; malformed corpus, exact/over operation counts and 65,536/65,537-byte aggregate payload cases retain atomic writes/alarm state and release reservations |
 | S02 | Presence-aware null/missing checks and full rollback | Conflict/rollback tests asserting all mutations and alarm unchanged | verified: failed check retains all JSON state and previous alarm; presence/null/missing tests pass |
 | S03 | No duplicate/conflicting keys or malformed alarms | Negative batch corpus at owning boundary | verified: real bridge corpus refuses duplicate deletes, put/delete overlap, invalid/reserved/oversized keys, malformed snapshots, unknown fields, invalid/conflicting alarms and over-budget batches; no partial writes/alarm changes; exact operation boundary commits |
 | S04 | Conflicts with native Rust writers | Concurrent Python snapshot/native mutation/check refusal test | verified: same-cell Rust transaction commits while Python holds a snapshot; Python checked batch refuses and leaves the native value/other write intact with no partial Python mutation |
@@ -72,7 +72,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | L01 | Root cancellation revokes SDK admission immediately | Queued/late writes refused before execution and after fence | partial: expiry/abandoned-operation tests |
-| L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | partial: polling registry; no explicit cleanup lane/report |
+| L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | partial: Rust retirement only revokes owned flags; the loop polls registry retirement independently of SDK admission, publishes object/retirement gauges before destructor cleanup and reports incomplete blocking cleanup; complete retirement/closure race coverage remains |
 | L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | partial: weak-reference probe observes actual cell object collection after managed shutdown; independent eviction/redeploy cases remain |
 | L04 | Close async generators and managed executor work | Async-generator finally + thread/executor join tests | verified for managed loop: async-generator finally observed; default-executor work joined; raw/native private pools remain application-owned |
 | L05 | Combined report includes native report and all bridge/task/cleanup/budget work | Serialized combined report, incomplete cases, queued/running counts | verified locally for runtime-owned work and explicitly recorded native nodes: combined outcomes and host failure source, task/invocation/object/retirement gauges, bridge reservations and admitted/terminal operation conservation; live pending SDK work, all native-future/reply drop stages and incomplete lifecycle cases are directly tested; private application/library pools remain application-owned |
@@ -81,8 +81,8 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | L08 | External watchdog supports hard termination/restart | Bounded child-host watchdog drill and recovered acknowledged state | partial: bounded external hard-stop/recovery drill implemented; deployment still must configure a production process supervisor and startup/health deadlines |
 | L09 | Unclean owner death/takeover retains acknowledged state | Kill owner, remove local disk, recover from fleet, new write | verified in local development fleet: acknowledged write, hard owner death, complete owner disk deletion, bucket recovery and new write; independent quorum proof faults are recorded in S05 |
 | L10 | Stale Python task cannot mutate after ownership loss | Pause old handler, force fence/takeover, resume old handler, inspect state | verified: real node lease mismatch fences old domain; after lease expiry successor recovers acknowledged state; cancellation-suppressing old Python task resumes and gets ContextExpired, with no late mutation |
-| L11 | Initialize once; never finalize while threads enter | Source audit, duplicate runtime refusal and error-path join tests | partial: initial guard and subprocess tests |
-| L12 | Raw Python effects/heap/coroutines not claimed durable or isolated | API/docs audit and recovery examples with explicit persisted state | partial: limitations documented |
+| L11 | Initialize once; never finalize while threads enter | Source audit, duplicate runtime refusal and error-path join tests | verified for runtime-owned work: main-thread process guard refuses reinitialization; no interpreter-finalization path exists; supervisor success/error/panic and interpreter failure close admission, detach the GIL for the host join, clean owned profiling and retain incomplete work; duplicate-runtime and disposable error-path tests pass; private application pools remain application-owned |
+| L12 | Raw Python effects/heap/coroutines not claimed durable or isolated | API/docs audit and recovery examples with explicit persisted state | verified for the documented contract: SDK, adapter, example and accepted ADR explicitly exclude raw effects, coroutine frames, private heaps/pools and untrusted-code isolation; crash/restart examples recover persisted business state/receipts through Cellar rather than Python frames |
 
 ## Verified deployment and replacement (M4)
 
@@ -109,11 +109,11 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | partial: RAII aggregate reservations cover starts, requests, results and completions; unit saturation/drop and joined zero-reservation reports pass; full stress matrix remains |
 | Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
-| Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | partial: real KV writes/reads across two nodes; retained live/expired handles refuse reads/writes and leave each namespace intact; cancellation, independent backpressure/replay and restart matrices remain |
-| Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | partial: actual shared-SQL DDL/DML/query on two nodes; live/expired retained handles refuse inserts, both databases retain only their own row; cancellation, independent backpressure/replay and restart matrices remain |
-| Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | partial: real broker matrix verifies default/explicit ack, handler errors after ack, first conflicting ack/retry decision, same-ID redelivery, retry exhaustion, timeout/cancel expiry, retained consumer-handle authority, producer overlap backpressure, idempotent SQL effects, empty persisted backlog and zero managed work over restart; independent in-flight producer failure/cancellation reconciliation remains |
+| Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | verified locally: real two-domain reads/writes refuse live-cross/expired handles; independent before-submit/in-flight cancellation, held/failed native data proof, conservative unknown failure without adapter replay, explicit idempotent-set reconciliation, 1-admitted/31-refused overlap pressure and preserving restart retain exact effects with complete reports and zero pending operations/reservations |
+| Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | verified locally: actual two-domain DDL/DML/queries refuse retained-handle writes; independent before-submit/in-flight cancellation, failed native proof, unknown failure without replay, explicit primary-key receipt reconciliation, 1-admitted/31-refused overlap pressure and restart retain singular effects with complete reports and zero managed work |
+| Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | verified locally: real consumer matrix covers default/explicit ack, handler errors after ack, first conflicting decision, same-ID retry/exhaustion, timeout/cancel expiry and retained-handle authority; independent producer before-submit/in-flight cancellation, held/failed proof, unknown-result reconciliation and overlap pressure run through the real broker; SQL business receipts remain singular and the empty broker/effects persist across restart with complete reports; this drill reproduced and now passes the native running-alarm reset regression |
 | Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real native alarm/history matrix proves same-occurrence retry, explicit no_retry after error, refusal of live-cross/expired controllers, idempotent SQL effects and exact execution-history/active-alarm persistence over restart; native timeout/cancellation and replay after unclean interruption remain |
-| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 passed pinned Pydantic/NumPy/pure-library workloads; verified archive restoration and changed-source TERM/INT handoff also pass on Linux x86_64 CPython 3.14.5 at fe6d2f8; newer observation/receipt source still needs fresh Linux execution |
+| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for the stated platform/version scope: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 execute pinned Pydantic/NumPy/pure-library workloads; full 21f6b30 PR CI also passes provisioned CPython 3.14.5 archive restore, changed-source TERM/INT handoff, observation and exact receipt checks; newer native reset/binding tests still require current-source Linux execution under Q12; other platforms/library versions are unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
 | Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: both complete Linux SDK workflows on fe6d2f8 passed tests, doctests, Clippy, package restoration/rolling and native examples; current observation/receipt follow-ups have local checks but require fresh complete CI |
@@ -122,16 +122,19 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Current work
 
-1. Finish independent KV/SQL/queue/cron failure, replay and backpressure matrices.
-   Native durability pause/failure tests now pass locally through Python.
+1. Finish cron cancellation/interruption replay and the remaining queued,
+   execution, commit/output and retirement race matrices. Independent KV,
+   shared-SQL and queue matrices now pass locally, including real proof faults.
 2. Verify external native-library/OS prerequisites and complete the platform
    matrix. Two genuinely different source packages now pass process handoff locally.
 3. Complete remaining typed-error/cleanup race qualification and reproducible
    Rust/Python latency/throughput/memory/recovery measurements. Runtime-owned
    operation accounting, latency histograms and live interpreter observations
    now have direct local evidence.
-4. Run fresh complete CI after the current hardening changes, then reconcile
-   every remaining partial/missing audit row and executable documentation.
+4. Run fresh complete CI after the current hardening changes and investigate
+   the distinct cold-follower receipt/drain-token failures in push run
+   39423723894. PR run 39423731169 passed completely at the same 21f6b30 source.
+   Reconcile every remaining partial/missing row and executable documentation.
 
 No scope reduction or production-readiness claim is implied by this ordering.
 
@@ -728,3 +731,91 @@ fixture: queue metrics are floating-point values, native alarm admission uses
 real UTC, and cron history's observation time changes on every read. Delivery
 and durable-record assertions were retained. Current source still requires
 fresh Linux execution after push; 7f9c0ef workflows remain live at this checkpoint.
+
+## In-flight binding faults, native alarm reset and exact limits
+
+`--runtime-binding-faults` independently exercises real KV writes, shared-SQL
+inserts and queue producer calls. Each surface has cancellation before first
+submission, cancellation while real data proof is held, failed proof returning
+`Ambiguous/unknown`, and explicit caller-driven reconciliation. A separate
+SDK-free Python handler observes progress while the original native request is
+polled. Mutation attempts remain at one until reconciliation is explicitly
+requested. A cancelled in-flight call leaves its local effect in these fixtures;
+failed proof can retain or discard unacknowledged work. The initial fixture's
+assumption that every failed mutation must remain present was incorrect and was
+removed for failed-proof cases only; cancellation, unknown outcome, no-replay and
+final singular-effect assertions remain. Reconciliation uses an idempotent KV
+set, SQL primary-key receipt and queue consumer business receipt. This does not
+give the producer an exactly-once delivery guarantee.
+
+For each binding, a concurrent 32-operation burst admits one mutation and refuses
+31 with `Overloaded/not_committed`. Cancel-before-submit leaves no effect. Final
+SQL/queue records contain exactly the expected business keys, KV retains the
+expected values, and preserving restart retains them all with an empty broker.
+Both native outcomes and the Python report must complete, with settled operation
+counts and no pending reservations/tasks/objects/threads.
+
+The producer proof drill reproducibly crashed the native core twice with
+`cell ... is firing an alarm while not resident`. A pure public-event regression
+in `cellar-logic/tests/alarm_reset.rs` then reproduced the same invariant in
+under a second before the fix. The ranked hypothesis confirmed by that test was
+that reset settled alarms already waiting on a durability barrier, but omitted
+an alarm whose handler was still running when another request's proof failed.
+Reset now retires that firing operation before replacing residency with cleanup,
+using the existing failed-alarm settlement. It retains discoverable wake state,
+refuses late consuming-commit completion and still discards the unproven runtime.
+The regression covers both running and already-gated alarms, no premature wake
+reconciliation, stale completion and runtime-stop completion. The original
+unmodified broker fault scenario passes after the fix. No invariant was weakened.
+The reset documentation also now states that durable recovery may retain an
+unacknowledged write; reset is not a rollback certificate.
+
+`--runtime-limits` qualifies exact input/output body and header boundaries through
+real ingress and nested native fetch. It accepts 4,096 bytes, 128 repeated headers
+and 32,768 header-name/value bytes, rejecting the next byte/header. Nested
+rejections do not invoke the cell. Reqwest's smaller response-header-count bound
+initially refused the valid 128-header response; a finite 64-KiB/10-second raw HTTP
+reader now verifies that response without changing the adapter limit. A complete
+65,536-byte batch envelope commits, the 65,537-byte envelope fails validation and
+both prior value and alarm remain unchanged. The owning batch byte/count policy
+is now explicit in the adapter guide.
+
+The external CPU-loop and GIL-held-C watchdog cases also observe native factory
+progress: a Rust root activates another cell while the interpreter is blocked;
+the real factory count advances to two, while the Python handler remains pending.
+This proves factory allocation itself does not wait for or enter Python. The
+child now explicitly records its native outcome if it exits cooperatively.
+
+Current local validation (Rust 1.98.1, macOS ARM64, CPython 3.14.6):
+
+- All ordinary `cellar-logic` integration tests pass, including the regression
+  observed failing before the production fix.
+- All 364 host library tests and the native queue/cron integration cases pass.
+- All 87 native-node cases passed serially in 654.96 seconds with the reset fix,
+  including both cases that failed in the Linux push run described below.
+- The full all-feature Python unit/bridge/bootstrap/doctest suite passes with
+  binding faults, limit boundaries and blocked-interpreter factory probes.
+- Strict Core/adapter/logic all-target/all-feature Clippy passes. Final
+  format/layout/dependency/docs/native-only checks are recorded after execution.
+
+Linux PR workflow 39423731169 on 21f6b30 completed successfully: full workspace
+tests/doctests/Clippy, CPython 3.14.8 adapter cases, provisioned CPython 3.14.5
+package, archive restoration, changed-source TERM/INT handoff and native examples.
+The same-source push workflow 39423723894 passed 85/87 native-node cases, then
+failed (1) the delayed cold-follower lease replay/receipt assertion and (2) the
+progressing drain-token case after node lease expiry. The first is not itself a
+lease-expiry diagnostic. Its assertion now prints the original/replayed receipt
+data and expiry cut when it fails; its condition is unchanged. These failures
+remain evidence requiring investigation rather than discarded flakes. The
+superseded 7f9c0ef runs 39420831382/39420823815 were cancelled by normal workflow
+concurrency when 21f6b30 was pushed, not completed qualification. Current native
+reset/binding/limit changes still require fresh Linux execution after push.
+
+Final checks after the native reset, binding, limit and factory changes passed:
+`cargo format --check`, `cargo check-layout` (601 Rust files), the 415-package
+all-feature no-JavaScript guard, documentation integrity, native-only adapter
+compilation with a nonexistent interpreter, and `git diff --check`. The final
+all-feature adapter suite and strict `cellar`/`cellar-python`/`cellar-logic`
+all-target/all-feature Clippy also pass after all Rust edits. No internal harness
+flag was enabled. These results close their stated local requirements, not the
+remaining audit or current-source Linux requirements.

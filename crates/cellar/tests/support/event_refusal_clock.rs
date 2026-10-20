@@ -1678,7 +1678,8 @@ async fn run_case(
         replay["processed"] == 1
             && replay["batch"]["records"] == original["batch"]["records"]
             && number(&replay["batch"]["issued_ms"])? >= expiry_cut
-            && replay["batch"]["receipt"] != original["batch"]["receipt"]
+            && replay["batch"]["receipt"] != original["batch"]["receipt"],
+        "recovered lease replay changed records, processing or receipt identity: original={original}; replay={replay}; expiry_cut={expiry_cut}"
     );
     let replacement = Receipt::decode(
         replay["batch"]["receipt"]

@@ -7,6 +7,8 @@ use pyo3::types::PyAnyMethods;
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc, time::Duration};
 
+#[path = "support/binding_faults.rs"]
+mod binding_faults;
 #[path = "support/bindings.rs"]
 mod bindings;
 #[path = "support/delivery.rs"]
@@ -20,6 +22,8 @@ mod fencing;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod fixture;
+#[path = "support/limits.rs"]
+mod limits;
 #[path = "support/native_writer.rs"]
 mod native_writer;
 #[path = "support/schedules.rs"]
@@ -205,6 +209,12 @@ fn main() -> Result<()> {
     if mode == "--runtime-schedules" {
         return schedules::child();
     }
+    if mode == "--runtime-binding-faults" {
+        return binding_faults::child();
+    }
+    if mode == "--runtime-limits" {
+        return limits::child();
+    }
     if mode == "--runtime-bindings" {
         return bindings::child();
     }
@@ -360,6 +370,8 @@ fn main() -> Result<()> {
         "--runtime-bindings",
         "--runtime-delivery",
         "--runtime-schedules",
+        "--runtime-binding-faults",
+        "--runtime-limits",
     ] {
         lifecycle_mode(mode)?;
     }
@@ -710,19 +722,19 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         .stderr(output.as_file().try_clone()?)
         .spawn()?;
     let deadline = std::time::Instant::now()
-        + Duration::from_secs(
-            if matches!(
-                mode,
-                "--runtime-durability"
-                    | "--runtime-bindings"
-                    | "--runtime-delivery"
-                    | "--runtime-schedules"
-            ) {
-                60
-            } else {
-                15
-            },
-        );
+        + Duration::from_secs(if mode == "--runtime-binding-faults" {
+            90
+        } else if matches!(
+            mode,
+            "--runtime-durability"
+                | "--runtime-bindings"
+                | "--runtime-delivery"
+                | "--runtime-schedules"
+        ) {
+            60
+        } else {
+            15
+        });
     loop {
         if let Some(status) = child.try_wait()? {
             let log = std::fs::read_to_string(output.path())?;

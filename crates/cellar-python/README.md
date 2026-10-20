@@ -108,6 +108,10 @@ separate operations.
 `Options` bounds concurrent invocations, request/response bytes, bridge value
 bytes, aggregate native bridge bytes, operations per invocation, operations per atomic batch, live asyncio tasks and resident Python objects. Admission
 fails immediately when full. Each invocation's operation channel is bounded.
+`max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
+batch, rather than each row separately. `max_batch_operations` counts checks,
+puts, deletes and an optional alarm decision together. Rejected oversized
+batches apply no partial writes or alarm changes.
 The single interpreter polls bridge messages every millisecond by default;
 `poll_interval` controls this latency/idle-CPU tradeoff. This is a first adapter,
 not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies. Task limits cover managed-loop work, not raw application threads or external native pools.
