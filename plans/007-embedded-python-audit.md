@@ -1175,3 +1175,15 @@ doctests and Clippy still cover all packages/features. Both matrix entries
 and separate test coverage are checked from the parsed workflow.
 SDK-result envelope/depth boundaries, broader typed-error/routing races,
 external native prerequisites and final Linux execution remain open.
+
+Linux PR job `118840183160` at `bbb992c` subsequently failed 2/87 native-node
+cases. `storage_isolated_event_owner_expires_and_recovers_before_replay` lost its
+successor to `NodeLeaseExpired`, then its client observed connection refusal.
+`live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns` failed
+before the injected fault: the new diagnostic proves its initial consumer
+response was `{"error":"Unavailable"}`, rather than an empty successful record.
+The complete log is retained at
+`/tmp/cellar-6a8d-ci-39484178821-standard-failure.log`. A claiming consumer fetch
+must not be blindly retried as a read-only probe. The free-threaded PR job and
+both push jobs were still live when this failure was recorded. These failures
+remain Q12; their assertions/deadlines are unchanged.
