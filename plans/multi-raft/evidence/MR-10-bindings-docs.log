@@ -1,0 +1,4 @@
+Source revision: 88b05883acaba7881fcf30fc0d06e0dc2474725c
+Command: ["python3", "tools/docs/check.py"]
+
+Validated 36 documents, 6 crate READMEs, 10 visual guides, 6 flows and 622 local references.

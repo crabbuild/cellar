@@ -47,7 +47,26 @@ define the remaining delivery order: recovery, automatic repair, durable busines
 features, node operations, release qualification, then larger scale/federation.
 Recovery through the public Node path is the current priority.
 
-The [native recovery progress](evidence/MR-10-native-progress.json) pins source
+The [member-binding progress](evidence/MR-10-bindings-progress.json) pins source
+`88b05883acaba7881fcf30fc0d06e0dc2474725c`: 198 Rust cases and all 21 commands pass,
+including 30 snapshot, 27 archive, 18 read, six protocol contract and 22 library
+cases, owning Raft regressions and the affected public Node Raft lifecycle.
+Clippy, both cellar-ltx backend feature modes, format (633 Rust files), layout,
+dependency policy, docs, 17 plan tests and 68-anchor preflight pass. The snapshot
+inventory includes all 20 required cases. Joined node/disk bindings and retired-ID
+high-water now survive journal sync, snapshot transfer, compaction and restart;
+archives verify their immutable birth IDs. Stale/unbound/rebound proposals, direct
+fresh voters, empty-learner promotion and mixed member/snapshot markers are refused.
+
+This changes the internal namespace protocol identity to
+`cellar-raft-ltx-1/members-1` while keeping format markers at 1. Earlier namespace
+roots are refused; use a fresh experimental namespace/prefix and local Raft state.
+There is no compatibility reader or migration. Binding observations do not grant
+fresh-member admission. Native live-quorum authorization, peer/S3 seeding, permanent
+claim reconciliation and the remaining native crash matrix are the next MR-10 work.
+MR-11 through MR-17 remain open.
+
+The earlier [native recovery progress](evidence/MR-10-native-progress.json) pins source
 `08b2bca3da32982795994d0240844324437ff0c7`: 304 Rust cases pass across 17 binaries,
 including 26 snapshot, 18 read and all 88 public Node cases. All 21 commands pass,
 including owning/integration Clippy, cellar-ltx backend feature modes,

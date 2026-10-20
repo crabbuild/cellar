@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "ad5818a1ba4d68f0cb1ca36890e34f819eadd5a1",
+  "baseline_revision": "88b05883acaba7881fcf30fc0d06e0dc2474725c",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1491,6 +1491,7 @@
         ]
       ],
       "evidence": [
+        "evidence/MR-10-bindings-progress.json",
         "evidence/MR-10-native-progress.json",
         "evidence/MR-10-quorum-progress.json"
       ]

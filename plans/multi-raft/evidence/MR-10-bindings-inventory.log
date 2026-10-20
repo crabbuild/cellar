@@ -1,0 +1,4 @@
+Source revision: 88b05883acaba7881fcf30fc0d06e0dc2474725c
+Command: ["python3", "plans/multi-raft/plan.py", "check-list", "MR-10", "plans/multi-raft/evidence/MR-10-bindings-snapshot-list.log"]
+
+Listed test inventory passed: 20 required cases. Test execution is still required.
