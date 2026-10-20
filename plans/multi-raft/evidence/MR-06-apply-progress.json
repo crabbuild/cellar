@@ -1,0 +1,94 @@
+{
+  "task_id": "MR-06",
+  "source_revision": "c2266dc1818bbd80f653674db93477078cf0e79b",
+  "scope": "Partial MR-06: committed data image verification, durable engine-marker publication and recovery. MR-06 remains IN_PROGRESS.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "3265f81362af43e8dd55fab4222bc691b17d6f0ab33ca0637957283b6d59cb9e",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite image fixtures, production single-voter RawNode and Raft Engine, injected filesystem sync gates, four SIGKILL child-process cuts; serial ordinary integration targets; debug assertions enabled; isolated checkout target; debuginfo=0",
+  "limitations": "This is partial implementation evidence, not MR-06 completion. LTX payloads are produced from real SQLite fixture deltas rather than the pending private command/capture adapter. Private command transactions, persistent receipts, client sequence/expiry floors and speculative-state rebuilding remain required. Only apply_marker_crash_cut from the seven planned MR-06 gates is covered. Command/SDK/query serving, S3 archive/restore, physical power loss and production performance/capacity remain unqualified. The ignored child entry point runs through its parent.",
+  "tests": [
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "result": "passed"
+    }
+  ],
+  "pending_required_tests": [
+    "private_commit_not_visible",
+    "lost_proposal_rebuild",
+    "duplicate_command_receipt",
+    "conflicting_command_digest",
+    "oversized_delta_atomic_refusal",
+    "receipt_expiry_floor"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_execution",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-06-apply-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_execution",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-06-apply-test.log"
+    }
+  ],
+  "lockfile_digest": "6a0912497882655fe96c11b4073db659d3d40342357448533e70830cd9f1a43b",
+  "additional_checks": [
+    "evidence/MR-06-apply-clippy.log",
+    "evidence/MR-06-apply-regressions.log",
+    "evidence/MR-06-apply-format.log",
+    "evidence/MR-06-apply-format-check.log",
+    "evidence/MR-06-apply-layout.log",
+    "evidence/MR-06-apply-dependencies.log",
+    "evidence/MR-06-apply-docs.log",
+    "evidence/MR-06-apply-plan-tests.log",
+    "evidence/MR-06-apply-inventory.log"
+  ],
+  "additional_check_results": {
+    "publication": "Held engine sync leaves the old durable marker and public head unchanged. A prepared generation cannot be published or replaced by a second pending apply until its exact marker is durably accepted.",
+    "identity": "Entry/ticket identity, the exact committed cache entry, contiguous applied prefix, group/schema digest and LTX base precede image preparation. An unrelated Entry cannot trigger serialization before comparison to the bounded durable entry.",
+    "recovery": "A committed update whose image was prepared before shutdown replays from the engine-selected old image. A newer orphan does not become the current head.",
+    "process_faults": "Four child kills: after image sealing but before apply completion; before engine marker fsync; after engine marker fsync but before cache/publication completion; after publication. Before fsync either coherent prefix is permitted; after successful fsync the new verified image must recover. Every recovered head matches its engine marker and image digest.",
+    "regressions": "61 passed across native_raft_contract (6), native_raft_ltx (15), native_raft_runtime (14), native_raft_storage (10), native_raft_transport (9), native_replication (6) and native_storage (1). Four ignored helpers are invoked by their parent tests.",
+    "checks": "Cellar library/native_raft_execution Clippy with warnings denied, formatting, layout, dependency policy, documentation and all 17 planning-tool cases passed. Existing vendored Raft warnings remain in the raw logs."
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

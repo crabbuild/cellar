@@ -231,6 +231,10 @@ Modify: `crates/cellar/durability/replication/backend.rs`, `crates/cellar/storag
 
 Create: `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/tests/native_raft_execution.rs`.
 
+Partial [apply evidence](evidence/MR-06-apply-progress.json) covers the engine-marker
+image owner and crash recovery. Private command capture and receipt semantics
+remain unimplemented; six required cases remain outstanding.
+
 The apply marker now carries page geometry explicitly. MR-04 is also a prerequisite
 because its transport fixture consumes this shared marker contract.
 

@@ -50,3 +50,12 @@ qualification of engine apply markers. Actual SQLite queries use injected
 readers, retain immutable generations and refuse mutations. LTX core/all-feature
 builds, Clippy, formatting, layout, dependency policy, documentation and all 17
 planning-tool tests passed. Command/SDK serving, S3 and scale remain pending.
+
+
+Partial MR-06 image/apply integration is recorded in
+[MR-06 apply evidence](evidence/MR-06-apply-progress.json), pinned to source
+`c2266dc1818bbd80f653674db93477078cf0e79b`. Four integration cases and 61 regressions passed.
+Four SIGKILL cuts cover the actual engine marker and verified images, including
+after marker fsync but before public cache completion. Clippy and repository
+checks passed. This does not complete MR-06: private command/capture production,
+receipts and six named command cases remain required.
