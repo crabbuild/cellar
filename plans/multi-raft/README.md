@@ -1,17 +1,15 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation in progress. MR-01 through MR-05 are complete with
-recorded evidence; MR-06 is in progress. Shared log storage, the multi-group
-Raft driver, authenticated bounded TLS peer transport and verified immutable
-SQLite/LTX images are implemented. Command/query serving, snapshot integration
-and S3 archive/restore remain pending. See [task status](tasks.json),
-[MR-01 evidence](evidence/MR-01.json), [MR-02 evidence](evidence/MR-02.json),
-[MR-03 evidence](evidence/MR-03.json), [MR-04 evidence](evidence/MR-04.json)
-and [MR-05 evidence](evidence/MR-05.json).
-Partial [MR-06 apply evidence](evidence/MR-06-apply-progress.json) covers verified
-image publication through the durable engine marker and process-kill recovery;
-private command execution and receipt handling remain in progress.
-The reviewed source baseline is `c2266dc1818bbd80f653674db93477078cf0e79b`.
+Status: implementation in progress. MR-01 through MR-06 are complete with
+recorded evidence; MR-07 is in progress. Shared log storage, the multi-group
+Raft driver, authenticated bounded TLS peer transport, verified immutable
+SQLite/LTX images and private command/receipt mechanics are implemented.
+SDK command/query serving, snapshot integration and S3 archive/restore remain
+pending. See [task status](tasks.json), [MR-01 evidence](evidence/MR-01.json),
+[MR-02 evidence](evidence/MR-02.json), [MR-03 evidence](evidence/MR-03.json),
+[MR-04 evidence](evidence/MR-04.json), [MR-05 evidence](evidence/MR-05.json)
+and [MR-06 evidence](evidence/MR-06.json).
+The reviewed source baseline is `3b526e7bb54e5b40cda314db9341c92298aa3107`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

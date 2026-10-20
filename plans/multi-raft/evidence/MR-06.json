@@ -1,0 +1,127 @@
+{
+  "task_id": "MR-06",
+  "source_revision": "3b526e7bb54e5b40cda314db9341c92298aa3107",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "3f081cbff5d771b7ba1574f010899acefa4c4f6ddfc0d0e6b5ae28fbe400d196",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real native SQLite command/WAL capture, production single-voter RawNode and Raft Engine, direct injected capture/image filesystem, real process kills and sync gates; serial ordinary integration targets; debug assertions enabled; isolated checkout target; debuginfo=0",
+  "limitations": "MR-06 private command, receipt and image/apply component qualification. The combined command path uses a real single-voter group, not the pending public SDK/node/ingress integration or a deployed multi-node command service. MR-07 must own scheduling, revalidate live authority, preserve unresolved owners across cancellation/eviction, join execution before reopening, and bind ingress/output gates. Native Rust application callbacks are trusted; alternate storage requires a compatible explicit SQLite VFS. S3 archival/restore, effects, repair, physical power-loss and production performance/capacity remain pending. Preview and committed image copies are both materialized; no performance improvement claim is made. Ignored child entry points are invoked by their parent cases.",
+  "tests": [
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "result": "passed"
+    },
+    {
+      "name": "command_failure_and_result_limit_roll_back",
+      "result": "passed"
+    },
+    {
+      "name": "command_transaction_restricts_sql_and_captures_inputs",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_command_digest",
+      "result": "passed"
+    },
+    {
+      "name": "duplicate_command_receipt",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "result": "passed"
+    },
+    {
+      "name": "lost_proposal_rebuild",
+      "result": "passed"
+    },
+    {
+      "name": "oversized_delta_atomic_refusal",
+      "result": "passed"
+    },
+    {
+      "name": "private_checkpoint_capture_covers_control_writes",
+      "result": "passed"
+    },
+    {
+      "name": "private_commit_not_visible",
+      "result": "passed"
+    },
+    {
+      "name": "receipt_expiry_floor",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_command_recovery",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_execution",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-06-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_execution",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-06-test.log"
+    }
+  ],
+  "lockfile_digest": "6a0912497882655fe96c11b4073db659d3d40342357448533e70830cd9f1a43b",
+  "additional_checks": [
+    "evidence/MR-06-clippy.log",
+    "evidence/MR-06-regressions.log",
+    "evidence/MR-06-format.log",
+    "evidence/MR-06-format-check.log",
+    "evidence/MR-06-layout.log",
+    "evidence/MR-06-dependencies.log",
+    "evidence/MR-06-docs.log",
+    "evidence/MR-06-plan-tests.log",
+    "evidence/MR-06-inventory.log"
+  ],
+  "additional_check_results": {
+    "capture": "Real Db WAL capture resumes from the exact committed LTX position, includes opening/schema/control writes, checks file/decode budgets and freezes the logical SQLite SHA-256. A verified preview applies the entire cut before proposal submission. A 1400-row, 4096-byte-per-row transaction crosses the real 1000-page checkpoint threshold and verifies multiple complete LTX files, the full result image SHA-256, with SQL confirming the expected payload length.",
+    "receipts": "Business state and the bounded result, request/operation/contract digests, minimum durability and retry window commit in one private transaction. A lost response and fresh engine/runtime/private-image restart return the original S3-minimum receipt without running the callback again. This minimum is not an archive acknowledgement.",
+    "floors": "Gap, conflicting and expired sequences are refused; early pruning returns a typed retention error. Replicated expiry retains the client floor after deleting receipts, including across restart. Receipt/client pressure refuses work instead of removing floors or shortening retry promises.",
+    "speculation": "One staged/submitted proposal blocks further callbacks. Same-authority rebuild of a submitted uncertain proposal is refused. Recovery/new-term execution rebuilds from the durable marker, while an explicitly unsubmitted attempt can rebuild under the same authority. Oversized deltas, oversized results, callback errors and panics cannot expose private mutation or consume a committed client sequence.",
+    "process_faults": "Nine SIGKILL cuts across three parent cases: before local transaction commit, after local commit during capture, after complete capture/preview verification, after marking submission before RPC, after durable Raft commit before image application, after image sealing, before engine apply-marker fsync, after fsync before public cache completion, and after publication. Before a proposal no public mutation/receipt survives. A committed command replays its exact captured mutation/receipt and deduplicates the retry. Marker cuts recover only coherent verified prefixes.",
+    "sql_contract": "The callback cannot commit/rollback/begin/savepoint, access reserved tables, attach, write temporary schema, VACUUM, change PRAGMAs or use ambient SQL clock/random functions. Explicit captured time/random inputs remain available. Query publication remains separate from the writable image.",
+    "regressions": "61 passed across native_raft_contract (6), native_raft_ltx (15), native_raft_runtime (14), native_raft_storage (10), native_raft_transport (9), native_replication (6) and native_storage (1). Four ignored helpers are invoked by their parents. This run used the final production code; subsequent changes added/adjusted only checkpoint/expiry test assertions and documentation. The complete owning target and Clippy were rerun on final Rust source.",
+    "checks": "Cellar library/native_raft_execution Clippy with warnings denied, formatting, layout, dependency policy, documentation and all 17 planning-tool cases passed. Existing vendored Raft warnings remain in the raw logs."
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

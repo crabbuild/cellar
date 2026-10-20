@@ -59,3 +59,16 @@ Four SIGKILL cuts cover the actual engine marker and verified images, including
 after marker fsync but before public cache completion. Clippy and repository
 checks passed. This does not complete MR-06: private command/capture production,
 receipts and six named command cases remain required.
+
+
+MR-06 private command implementation and component qualification are recorded in
+[MR-06 evidence](evidence/MR-06.json), pinned to source
+`3b526e7bb54e5b40cda314db9341c92298aa3107`. All 14 command/apply cases, including the seven
+required gates, passed. Real WAL capture, a multi-file checkpoint cut, durable
+receipts, expiry floors and nine SIGKILL cuts are covered. All 61 regressions
+passed on the same production code; final owning tests and Clippy also include
+the subsequent test-only checkpoint/expiry assertions. Formatting, layout,
+dependency policy, documentation and all 17 planning-tool cases passed. This is
+not yet SDK/node command serving: MR-07 must bind authorization, live authority,
+output gates and cancellation/eviction ownership. S3, repair and scale remain
+pending.

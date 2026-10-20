@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "c2266dc1818bbd80f653674db93477078cf0e79b",
+  "baseline_revision": "3b526e7bb54e5b40cda314db9341c92298aa3107",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -650,7 +650,7 @@
       "id": "MR-06",
       "title": "Stage commands privately and bind results to committed LTX",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-03",
         "MR-04",
@@ -768,14 +768,14 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-06-apply-progress.json"
+        "evidence/MR-06.json"
       ]
     },
     {
       "id": "MR-07",
       "title": "Integrate Raft authority and command registration with the host",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-04",
         "MR-06"

@@ -225,15 +225,17 @@ shown by `plan.py show MR-05`; the manifest is authoritative for arguments.
 
 ### MR-06 Stage commands privately and bind results to committed LTX
 
-Dependencies: MR-03, MR-04, MR-05. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-03, MR-04, MR-05. Phase: v1. Status: DONE. Evidence: [MR-06](evidence/MR-06.json).
 
 Modify: `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_runtime_fixture.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar-ltx/README.md`.
 
 Create: `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/tests/native_raft_execution.rs`, `crates/cellar/durability/raft/working.rs`, `crates/cellar/durability/raft/receipts.rs`, `crates/cellar/storage/sqlite/command.rs`.
 
-Partial [apply evidence](evidence/MR-06-apply-progress.json) covers the engine-marker
-image owner and crash recovery. Private command capture and receipt semantics
-remain unimplemented; six required cases remain outstanding.
+[MR-06 evidence](evidence/MR-06.json) covers private command/capture production,
+replicated receipt/expiry semantics and durable image publication. The earlier
+[partial apply record](evidence/MR-06-apply-progress.json) is retained as history.
+SDK ingress, live authority revalidation, cancellation/eviction ownership and
+output-gate integration remain MR-07 deliverables.
 
 The command adapter uses the existing public `Db` capture API and a separate
 owning SQL adapter. Fleet upload and activation transaction paths are unchanged;
@@ -266,7 +268,7 @@ shown by `plan.py show MR-06`; the manifest is authoritative for arguments.
 
 ### MR-07 Integrate Raft authority and command registration with the host
 
-Dependencies: MR-04, MR-06. Phase: v1. Initial status: TODO.
+Dependencies: MR-04, MR-06. Phase: v1. Status: IN_PROGRESS.
 
 Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/consensus/mod.rs`.
 
