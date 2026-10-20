@@ -75,7 +75,7 @@ impl Interpreter {
             let version = CStr::from_ptr(ffi::Py_GetVersion()).to_string_lossy();
             ensure!(
                 version.starts_with("3.14."),
-                "linked runtime must be CPython 3.14, got {version}"
+                "linked runtime must be CPython 3.14"
             );
         }
         let config = Config::new()?;
@@ -119,23 +119,25 @@ impl Interpreter {
 }
 
 fn canonical(path: &Path, directory: bool) -> Result<PathBuf> {
+    let text = path.to_str().context("CPython paths must be UTF-8")?;
     ensure!(
-        path.is_absolute(),
-        "CPython paths must be absolute: {}",
-        path.display()
+        !text.contains('\0'),
+        "CPython paths must not contain NUL bytes"
     );
+    ensure!(path.is_absolute(), "CPython paths must be absolute");
     let path = path
         .canonicalize()
-        .with_context(|| format!("CPython path is missing: {}", path.display()))?;
-    let metadata = path.metadata()?;
+        .map_err(|_| anyhow::anyhow!("CPython path is missing or inaccessible"))?;
+    let metadata = path
+        .metadata()
+        .map_err(|_| anyhow::anyhow!("CPython path metadata is inaccessible"))?;
     ensure!(
         if directory {
             metadata.is_dir()
         } else {
             metadata.is_file()
         },
-        "invalid CPython path kind: {}",
-        path.display()
+        "invalid CPython path kind"
     );
     ensure!(path.to_str().is_some(), "CPython paths must be UTF-8");
     Ok(path)
@@ -194,18 +196,8 @@ impl Config {
         if status >= 0 {
             return Ok(());
         }
-        let mut error = std::ptr::null();
-        // SAFETY: config is live; the returned UTF-8 pointer is borrowed until
-        // the next config API call and is copied before any such call or free.
-        unsafe {
-            ffi::PyInitConfig_GetError(self.0.as_ptr(), &mut error);
-            if !error.is_null() {
-                bail!(
-                    "CPython initialization failed: {}",
-                    CStr::from_ptr(error).to_string_lossy()
-                );
-            }
-        }
+        // CPython diagnostics can retain configured paths or import failures.
+        // Do not format or retain them in the host's public error chain.
         bail!("CPython initialization failed")
     }
 
@@ -215,7 +207,8 @@ impl Config {
     }
 
     fn string(&self, name: &CStr, value: &Path) -> Result<()> {
-        let value = CString::new(value.to_str().context("CPython path must be UTF-8")?)?;
+        let value = CString::new(value.to_str().context("CPython path must be UTF-8")?)
+            .map_err(|_| anyhow::anyhow!("CPython paths must not contain NUL bytes"))?;
         // SAFETY: the setter copies the live C string into the owned config.
         self.check(unsafe {
             ffi::PyInitConfig_SetStr(self.0.as_ptr(), name.as_ptr(), value.as_ptr())
@@ -227,7 +220,7 @@ impl Config {
             .iter()
             .map(|path| {
                 CString::new(path.to_str().context("CPython import root must be UTF-8")?)
-                    .map_err(Into::into)
+                    .map_err(|_| anyhow::anyhow!("CPython paths must not contain NUL bytes"))
             })
             .collect::<Result<Vec<_>>>()?;
         let mut pointers = strings

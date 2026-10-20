@@ -98,6 +98,10 @@ runtime reference with its exact host. All feature/format markers remain 1.
 On a disposable private environment, the mutation drill preserves and restores
 files while proving startup rejection. Never share its roots with a running host.
 The scratch prefix guard refuses mutation of roots outside the supplied prefix.
+For failures handled by the embedded runtime, the drill also checks that the
+complete captured diagnostic omits inventoried private paths. Removing libpython
+can instead fail in the OS loader before `main`; its diagnostic is outside the
+runtime's error boundary.
 
 ```sh
 python3 tools/python/qualify_inventory.py \

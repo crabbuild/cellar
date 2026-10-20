@@ -18,8 +18,8 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: bootstrap/loader failure privacy, external native-library/OS
-attestation, measured operating defaults, diagnosis of preserved native test failures
+Remaining qualification: external native-library/OS attestation, measured operating
+defaults, diagnosis of preserved native test failures
 and final-source Linux CI. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements now have direct evidence in the audit.
 Independent KV, shared-SQL
@@ -530,9 +530,9 @@ The deliverables in all six phases are implemented, but that does not close all
 acceptance gates. M0 now has direct local authority/cycle evidence in both
 threading ABIs, and M2 has evidence for every storage/alarm requirement in the
 [completion audit](007-embedded-python-audit.md). Final-source platform
-qualification is still shared by every phase. M1 retains bootstrap/loader privacy
-qualification; M3
-retains final Linux lifecycle qualification and investigation of native test
+qualification is still shared by every phase. M1 now has direct local managed-error
+privacy evidence, including bootstrap and response conversion. M3 retains final
+Linux lifecycle qualification and investigation of native test
 failures; M4 retains external OS/native-library prerequisite attestation. M5's
 KV, SQL, queue and cron bindings have independent local failure tests, while
 ASGI/streaming remain explicitly deferred optional adapters.

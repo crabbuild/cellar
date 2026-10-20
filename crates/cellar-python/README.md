@@ -168,6 +168,16 @@ uses CPython's [isolated configuration](https://docs.python.org/3.14/c-api/init_
 no ambient Python paths, user site, `.pth`/customize hooks, argv parsing, automatic
 signal handlers or bytecode writes. Import roots must be absolute and are canonicalized before initialization.
 
+Managed startup failures expose bounded stage messages. Filesystem paths,
+expected/actual ABI or distribution values, CPython initialization diagnostics
+and nested inventory errors are not retained in the public error chain. Handler,
+import and registration failures also omit Python exception values and traceback
+paths without calling arbitrary exception formatting. Combined `Incomplete`
+reports retain typed native outcomes and the Rust supervisor's own error source.
+The host controls logging of that source. Application/library output and OS
+loader diagnostics before `main` runs remain process output; embedding is not
+an output sandbox.
+
 Bootstrap imports `signal` before asyncio and removes CPython's implicitly
 installed default INT handler. Disabling initialization signal handlers alone
 does not prevent that later import from installing it. Existing native host

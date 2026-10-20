@@ -9,8 +9,8 @@ isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
 subsequently requested and is an additional supported build/qualification scope.
 
 Core deliverables now span M0–M5, including both CPython threading ABIs. The
-full objective is **not achieved**: loader privacy, external
-native prerequisites, operating defaults and final-source qualification retain
+full objective is **not achieved**: external native prerequisites, operating
+defaults and final-source qualification retain
 open gates. A verified row covers only its explicitly
 stated evidence and scope.
 
@@ -52,7 +52,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | verified locally in both threading ABIs: public error classes, explicit outcomes and fixed messages retain codec/batch/conflict and real expiration/fencing coverage; real native residency exhaustion reaches Python as Overloaded/unknown before the target handler enters, then the same caller reuses its mutation reservation; failed output proof reaches a still-live caller as Ambiguous/unknown with one handler attempt and no replay; ownership routing classification is unit-tested. Some native bindings flatten internal causes: unavailable provenance remains unknown, never inferred rollback. Final Linux execution remains Q12 |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; Q08 independently qualifies cron interruption |
-| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler, destructor and raw-thread failures sanitized and counted; import/registration/descriptor errors expose fixed stage messages without a Python exception source; subprocess tests refuse exception/path sentinels and arbitrary exception `__str__` execution; source and filename NULs are refused before CString construction (regression proved retained source bytes before the fix); initialization/loader and complete error-path review remain |
+| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | verified locally in both threading ABIs for managed errors: 33 disposable bootstrap cases include private relative/missing/wrong-kind/NUL paths, ABI and pin values, missing distribution and failed stdlib initialization/import; fixed messages retain no input-bearing source, and captured process output omits sentinels. Real HTTP malformed completion/header/body/JSON cases omit values and paths, remain bounded and retain caller usability; nested failures stay Ambiguous/unknown with exact committed effects and no replay. Rebuilt inventory-bound packages pass tamper/loss drills with complete diagnostic path checks. Typed Incomplete/native outcomes and the Rust supervisor source remain intact; arbitrary application/library output and pre-main OS loader diagnostics remain process-owned under the trusted execution contract. Final Linux execution remains Q12 |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | verified for macOS ARM64/Linux x86_64 qualification: pinned Pydantic/core, NumPy, hashing and pure Python inspection perform real work; managed executor operations join and TERM/INT replacement reaps the old process with complete reports; arbitrary private native-library pools are explicitly outside in-process drain accounting; exact versions/platforms remain Q09 |
 
@@ -119,7 +119,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both 0bfd83f free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: current macOS regular/free-threaded adapter suites, strict adapter/native test-target Clippy, exact clock-refusal recovery and format/layout/dependency/docs guards pass. Both Linux workflows 39493103694 and 39493117351 at 0bfd83f completed successfully in both ABIs, including native 87/87, adapter/workspace checks, cron, baseline harness, installed libraries/inventory refusal/archive recovery, process replacement/supervisor and native examples. Later authority/cycle and typed-failure fixtures still require final-source Linux execution. Preserved event-owner lease, initial consumer admission and drain-token failures remain unexplained; passing retries do not close their diagnosis |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: current macOS regular/free-threaded adapter suites, strict adapter/native test-target Clippy, exact clock-refusal recovery and format/layout/dependency/docs guards pass. Both Linux workflows 39493103694 and 39493117351 at 0bfd83f completed successfully in both ABIs, including native 87/87, adapter/workspace checks, cron, baseline harness, installed libraries/inventory refusal/archive recovery, process replacement/supervisor and native examples. All four c5acacc Linux adapter steps pass the authority/cycle and typed-failure fixtures; both workflows are still running native workspace/lint qualification. Subsequent privacy fixes require Linux execution. Preserved event-owner lease, initial consumer admission and drain-token failures remain unexplained; passing retries do not close their diagnosis |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -133,10 +133,9 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
 | 1 | Failure/lifecycle reliability | Q12: diagnose the preserved native event-owner lease, initial consumer admission and drain-token failures; retain assertions and deadlines. Run the new authority/cycle and typed-failure fixtures on Linux in both ABIs. A passing retry alone does not explain a failure. |
-| 2 | Bootstrap failure privacy | H06: reproduce path/secret leakage through initialization, configuration, inventory and loader failures with disposable-process sentinels; expose bounded stage errors without arbitrary exception formatting. Preserve typed lifecycle reports. |
-| 3 | Deployment dependency closure | P02: distinguish bundled artifacts from OS/native prerequisites, attest supported host requirements and resolved external dependencies, and refuse incompatible/missing prerequisites before admission; qualify offline restoration on each supported target. |
-| 4 | Measured operating defaults | Q01: use reproducible mixed workloads, increasing concurrency and saturation to justify shipping limits; record latency, memory, overload behavior and joined recovery in both ABIs. State the operating scope; existing development baselines are not production SLOs. |
-| 5 | Final release evidence | Q12/Q14: run complete affected tests/lints, installed example, archive recovery and process replacement against the final source in both ABIs; publish exact versions/platforms and reconcile every remaining partial row. |
+| 2 | Deployment dependency closure | P02: distinguish bundled artifacts from OS/native prerequisites, attest supported host requirements and resolved external dependencies, and refuse incompatible/missing prerequisites before admission; qualify offline restoration on each supported target. |
+| 3 | Measured operating defaults | Q01: use reproducible mixed workloads, increasing concurrency and saturation to justify shipping limits; record latency, memory, overload behavior and joined recovery in both ABIs. State the operating scope; existing development baselines are not production SLOs. |
+| 4 | Final release evidence | Q12/Q14: run complete affected tests/lints, installed example, archive recovery and process replacement against the final source in both ABIs; publish exact versions/platforms and reconcile every remaining partial row. |
 
 Do not expand ASGI/streaming while these core gates remain. Those adapters are
 explicitly optional/deferred and need their own independent qualification when
@@ -1371,3 +1370,72 @@ H04 now has direct local evidence. The open requirement rows are H06, P02,
 Q01 and Q12. Current work orders reliability diagnosis, bootstrap privacy,
 external prerequisite attestation, measured defaults and final-source release
 evidence. Optional ASGI/streaming do not take priority over these gates.
+
+
+## Managed bootstrap and response privacy checkpoint
+
+The sentinel regression reproduced retained private values in relative, missing,
+wrong-kind and NUL-containing interpreter paths, SOABI mismatch and expected/actual
+distribution-version diagnostics. Path checks now refuse invalid input before
+CString construction and replace filesystem errors without retaining their
+sources. ABI and pin mismatches use fixed messages. CPython initialization no
+longer formats the raw configuration diagnostic. Inventory verification retains
+its strict checks but drops underlying error sources at the runtime boundary.
+
+The first private distribution-name fixture used an unnormalized dist-info
+folder and correctly reached the existing sanitized missing-distribution error.
+Normalizing its folder tests a genuine version mismatch; a separate missing-pin
+case preserves the original sanitized PyErr path. Empty stdlib roots and a real
+encodings import raising a private exception both refuse initialization without
+printing their sentinel. All private errors have one source-free message of at
+most 128 bytes. Existing imports/descriptors/custom exception __str__ and raw
+thread/destructor hooks remain qualified.
+
+A second real-node regression exposed a public HTTP leak: malformed response
+headers reached Serde, whose error quoted the private value, and native ingress
+formatted the handler's complete error chain. Completion decoding and response
+conversion now replace their errors with fixed stages before returning to native
+ingress. The native authority checks and output-proof gates remain unchanged.
+The regression separately checks bounded response bodies, headers and child logs;
+valid subsequent requests still succeed. Nested cell cases write before failing,
+reach the live caller as Ambiguous/unknown and retain exactly one write per call.
+The local native raw-header transport case is tested separately from public HTTP
+wire rejection; redaction does not reinterpret legitimate application data as a
+proven refusal. Exact persisted effects and settled accounting rule out rollback
+claims or automatic replay.
+
+Final checks on macOS ARM64 pass:
+
+- Complete adapter unit/bridge/bootstrap/doctest suites and strict all-target,
+  all-feature Clippy with CPython 3.14.6 and independent CPython 3.14.5t. Both use
+  the CI --test-threads=1 invocation; the harness still runs all 33 startup cases.
+- Real native CLI builds of inventory-bound CPython 3.14.5/3.14.5t packages, then
+  valid/changed source/changed extension/missing source/extension/package root/
+  libpython/unlisted-file/restored-runtime drills. For runtime-managed failures,
+  the entire captured diagnostic omits inventoried private paths. The OS loader
+  can diagnose missing libpython before main; the runtime cannot intercept that
+  process output. Arbitrary application/library output is likewise not sandboxed.
+- Native-only library checks pass with a nonexistent interpreter. Format/layout
+  cover 621 Rust files; the dependency graph remains 415 packages with no
+  JavaScript engine. Documentation and diff checks pass.
+
+Logs are /tmp/cellar-6a8d-privacy-{regular,ft}-suite-final.log, corresponding
+Clippy logs, package-build logs and inventory logs. Earlier failing regressions
+remain in `/tmp/cellar-6a8d-private-path-before.log`, the
+`/tmp/cellar-6a8d-private-pin-{expected,actual}-before.log` files and
+`/tmp/cellar-6a8d-privacy-response-sentinel-before.log`. No temporary diagnostic
+probe remains. The initial nested raw-header fixture expectation also remains
+in `/tmp/cellar-6a8d-privacy-response-nested-ft.log`; its transport-versus-wire
+assumption was corrected without changing native header behavior.
+
+H06 is verified in this local managed-error scope. P02, Q01 and Q12 remain open.
+At published c5acacc, all four Linux adapter steps passed the authority/cycle and
+typed-error fixtures; both workflows still run their native workspace/lint gates.
+These results do not qualify the later privacy changes. Do not cancel useful
+qualification merely to publish this next local commit.
+
+The next P02 survey finds 30 native binaries and 23 distinct direct OS-library
+references in each macOS package. Canonicalizing /tmp to /private/tmp removes a
+false external-libpython classification. Many actual OS libraries are supplied
+by the dyld shared cache (the SDK documents that their disk paths can be absent).
+This survey is not transitive prerequisite attestation; P02 remains open.

@@ -441,7 +441,8 @@ impl PythonRuntime {
         options.validate()?;
         source.validate()?;
         initialization::ensure_main_thread()?;
-        inventory::verify(&options, &source)?;
+        inventory::verify(&options, &source)
+            .map_err(|_| anyhow::anyhow!("Python runtime inventory verification failed"))?;
         ensure!(
             !INITIALIZED.swap(true, Ordering::AcqRel),
             "embedded Python may be started only once per process"
@@ -494,11 +495,7 @@ impl PythonRuntime {
                 "cpython-{}{}{}-{multiarch}",
                 version.0, version.1, abi_flags
             );
-            ensure!(
-                soabi == options.interpreter.soabi,
-                "CPython SOABI mismatch: expected {}, got {soabi}",
-                options.interpreter.soabi
-            );
+            ensure!(soabi == options.interpreter.soabi, "CPython SOABI mismatch");
             options.environment.install(py)?;
             initialization::preserve_host_signals(py)?;
             for (name, expected) in &source.distributions {
@@ -506,10 +503,7 @@ impl PythonRuntime {
                     .import("importlib.metadata")?
                     .call_method1("version", (name.as_str(),))?
                     .extract()?;
-                ensure!(
-                    actual == *expected,
-                    "Python distribution {name}: expected {expected}, got {actual}"
-                );
+                ensure!(actual == *expected, "Python distribution version mismatch");
             }
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;

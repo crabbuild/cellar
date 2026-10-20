@@ -32,12 +32,20 @@ def main():
             assert result.returncode == 0, result.stderr.decode(errors="replace")
         else:
             assert result.returncode != 0, "corrupted environment admitted host"
-            expected = (b"Python provisioned files differ", b"No such file", b"Python inventory layout mismatch")
+            expected = (b"Python runtime inventory verification failed",
+                        b"CPython path is missing or inaccessible")
             if loader_failure:
                 expected += (b"Library not loaded", b"error while loading shared libraries",
                              b"loaded libpython is outside the verified inventory")
             assert any(message in result.stderr for message in expected), result.stderr
             assert b"UNAPPROVED-IMPORT-EXECUTED" not in result.stderr
+            if not loader_failure:
+                # Inspect the complete captured error, not just its top-level
+                # stage. The OS loader can emit paths before main() runs when
+                # libpython itself is absent; that case is process-owned.
+                private_paths = [*inventory["roots"], inventory["home"],
+                                 inventory["executable"], inventory["source"]["filename"]]
+                assert all(os.fsencode(path) not in result.stderr for path in private_paths), "inventory failure exposed a private path"
 
     run(True)
     source = next(Path(path) for path, entry in inventory["files"].items()

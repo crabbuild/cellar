@@ -34,6 +34,8 @@ mod lifetimes;
 mod limits;
 #[path = "support/native_writer.rs"]
 mod native_writer;
+#[path = "support/privacy.rs"]
+mod privacy;
 #[path = "support/proof_authority.rs"]
 mod proof_authority;
 #[path = "support/python_control.rs"]
@@ -219,6 +221,9 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-privacy" {
+        return privacy::child();
+    }
     if mode == "--runtime-proof-authority-failure" {
         return proof_authority::child("failure", false);
     }
@@ -451,6 +456,7 @@ fn main() -> Result<()> {
         "--runtime-proof-authority-output-fence",
         "--runtime-proof-authority-failure",
         "--runtime-routing",
+        "--runtime-privacy",
         "--runtime-lifetimes",
         "--runtime-lifetimes-close",
         "--runtime-lifetimes-cancel",
@@ -862,7 +868,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
             let log = std::fs::read_to_string(output.path())?;
             ensure!(
                 !log.contains("PRIVATE-UNMANAGED-EXCEPTION-SENTINEL"),
-                "unmanaged Python exception reached process logs: {mode}"
+                "private Python diagnostic reached process logs: {mode}"
             );
             ensure!(status.success(), "lifecycle test failed: {mode}: {log}");
             return Ok(());

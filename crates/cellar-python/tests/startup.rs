@@ -40,7 +40,7 @@ fn main() -> Result<()> {
     if arguments.len() == 3 {
         return child(&arguments[1], Path::new(&arguments[2]));
     }
-    for mode in [
+    let modes = [
         "isolated",
         "unlisted",
         "missing-home",
@@ -63,7 +63,31 @@ fn main() -> Result<()> {
         "private-descriptor",
         "private-nul-source",
         "private-nul-filename",
-    ] {
+        "private-relative-root",
+        "private-missing-home",
+        "private-home-kind",
+        "private-nul-path",
+        "private-soabi",
+        "private-pin-expected",
+        "private-pin-actual",
+        "private-pin-name",
+        "private-missing-pin",
+        "private-init-failure",
+        "private-init-import",
+    ];
+    // Cargo forwards libtest flags to this harness-free binary too. Preserve
+    // full-suite execution for those flags while permitting one named scenario.
+    let selected = arguments.get(1).filter(|value| !value.starts_with('-'));
+    if let Some(selected) = selected {
+        ensure!(
+            modes.contains(&selected.as_str()),
+            "unknown startup scenario"
+        );
+    }
+    for mode in modes
+        .into_iter()
+        .filter(|mode| selected.is_none_or(|selected| selected == mode))
+    {
         let directory = tempfile::tempdir()?;
         let root = directory.path().canonicalize()?;
         let ambient = root.join("ambient");
@@ -200,6 +224,39 @@ gc.collect()
             );
         }
         "missing-home" => options.interpreter.home = root.join("missing"),
+        "private-relative-root" => options
+            .module_paths
+            .push("PRIVATE-BOOTSTRAP-SENTINEL".into()),
+        "private-missing-home" => {
+            options.interpreter.home = root.join("PRIVATE-BOOTSTRAP-SENTINEL")
+        }
+        "private-home-kind" => {
+            let path = root.join("PRIVATE-BOOTSTRAP-SENTINEL");
+            std::fs::write(&path, "a file is not an interpreter home")?;
+            options.interpreter.home = path;
+        }
+        "private-nul-path" => options.interpreter.home = root.join("PRIVATE-BOOTSTRAP-SENTINEL\0"),
+        "private-soabi" => {
+            let prefix = if options.interpreter.soabi.starts_with("cpython-314t-") {
+                "cpython-314t-"
+            } else {
+                "cpython-314-"
+            };
+            options.interpreter.soabi = format!("{prefix}PRIVATE-BOOTSTRAP-SENTINEL");
+        }
+        "private-init-failure" | "private-init-import" => {
+            let path = root.join("PRIVATE-BOOTSTRAP-SENTINEL");
+            std::fs::create_dir(&path)?;
+            if mode == "private-init-import" {
+                let encodings = path.join("encodings");
+                std::fs::create_dir(&encodings)?;
+                std::fs::write(
+                    encodings.join("__init__.py"),
+                    "raise RuntimeError('PRIVATE-BOOTSTRAP-SENTINEL')\n",
+                )?;
+            }
+            options.interpreter.standard_library_paths = vec![path];
+        }
         "empty-mailbox" => options.max_pending_operations = 0,
         "oversized-mailbox" => options.max_pending_operations = usize::MAX,
         "undersized-value-budget" => options.max_value_bytes = 127,
@@ -262,6 +319,35 @@ gc.collect()
         "bad-constructor" | "async-constructor" => source = source.cell("Broken"),
         "duplicate-event" => source = source.events([EventKind::Fetch, EventKind::Fetch]),
         "private-descriptor" => source = source.cell("PRIVATE-BOOTSTRAP-SENTINEL"),
+        "private-pin-expected" | "private-pin-actual" | "private-pin-name" => {
+            let name = if mode == "private-pin-name" {
+                "PRIVATE-BOOTSTRAP-SENTINEL"
+            } else {
+                "approved_dependency"
+            };
+            let actual = if mode == "private-pin-actual" {
+                "PRIVATE-BOOTSTRAP-SENTINEL"
+            } else {
+                "1.0"
+            };
+            let expected = if mode == "private-pin-expected" {
+                "PRIVATE-BOOTSTRAP-SENTINEL"
+            } else {
+                "2.0"
+            };
+            let metadata = root
+                .join("explicit")
+                .join(format!("{}-1.0.dist-info", name.replace('-', "_")));
+            std::fs::create_dir(&metadata)?;
+            std::fs::write(
+                metadata.join("METADATA"),
+                format!("Metadata-Version: 2.1\nName: {name}\nVersion: {actual}\n"),
+            )?;
+            source = source.require_distribution(name, expected);
+        }
+        "private-missing-pin" => {
+            source = source.require_distribution("PRIVATE-BOOTSTRAP-SENTINEL", "1.0")
+        }
         _ => {}
     }
     let result = unsafe {
@@ -321,6 +407,16 @@ gc.collect()
         }
         "duplicate-event" => "duplicate Python event",
         "missing-home" => "CPython path is missing",
+        "private-missing-home" => "CPython path is missing",
+        "private-home-kind" => "invalid CPython path kind",
+        "private-nul-path" => "CPython paths must not contain NUL bytes",
+        "private-relative-root" => "must be absolute",
+        "private-soabi" => "SOABI mismatch",
+        "private-pin-expected" | "private-pin-actual" | "private-pin-name" => {
+            "Python distribution version mismatch"
+        }
+        "private-missing-pin" => "Python interpreter execution failed",
+        "private-init-failure" | "private-init-import" => "CPython initialization failed",
         "empty-mailbox" | "oversized-mailbox" => "mailbox capacity is outside its supported range",
         "undersized-value-budget" => "value budget must be at least 128 bytes",
         "wrong-abi" => "SOABI mismatch",
@@ -330,6 +426,12 @@ gc.collect()
         _ => anyhow::bail!("unknown startup mode"),
     };
     let error = result.expect_err("invalid bootstrap must fail");
+    if mode.starts_with("private-") {
+        ensure!(
+            error.chain().count() == 1 && error.to_string().len() <= 128,
+            "bootstrap failure retained an unbounded error chain"
+        );
+    }
     ensure!(
         !error.is::<std::ffi::NulError>(),
         "startup retained original source/filename bytes in a CString error"

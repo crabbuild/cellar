@@ -328,13 +328,16 @@ impl PythonApplication {
                 } => {
                     let _reservation = reservation;
                     ensure!(!failed, "Python handler failed");
-                    let value: Value = serde_json::from_str(&payload)?;
+                    let value: Value = serde_json::from_str(&payload).map_err(|_| {
+                        anyhow::anyhow!("Python handler completion decoding failed")
+                    })?;
                     return if kind == "fetch" {
-                        Ok(Output::Http(values::output(
-                            &context,
-                            &value,
-                            self.runtime.options.max_body_bytes,
-                        )?))
+                        // Serde and HTTP conversion errors may quote malformed
+                        // application values. Native ingress formats the full
+                        // handler error chain, so replace it at this boundary.
+                        values::output(&context, &value, self.runtime.options.max_body_bytes)
+                            .map(Output::Http)
+                            .map_err(|_| anyhow::anyhow!("Python response conversion failed"))
                     } else {
                         Ok(Output::Done)
                     };
