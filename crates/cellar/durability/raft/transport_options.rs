@@ -1,8 +1,23 @@
 //! Explicit wire, queue and connection bounds; control has independent capacity.
 
 use super::transport::TransportError;
+use cellar_logic::consensus::{DiskLineage, NodeId, ProcessGeneration};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::sync::Arc;
+
+/// A physical peer endpoint shared by several groups. It identifies no voting
+/// or learner member; each consensus message retains its own group identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaftPeerNode {
+    pub node: NodeId,
+    pub disk: DiskLineage,
+    pub process: ProcessGeneration,
+    pub label: String,
+    pub server_name: String,
+    pub control_address: std::net::SocketAddr,
+    pub data_address: std::net::SocketAddr,
+    pub query_address: std::net::SocketAddr,
+}
 
 #[derive(Clone, Debug)]
 pub struct TransportOptions {

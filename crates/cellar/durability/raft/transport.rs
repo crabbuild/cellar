@@ -5,7 +5,7 @@ use super::budget::{Budget, Permit};
 use super::completion::RuntimeError;
 use super::runtime::RaftRuntime;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
-use super::transport_options::{RaftTls, TransportOptions};
+use super::transport_options::{RaftPeerNode, RaftTls, TransportOptions};
 use crate::asyncrt::DomainToken;
 use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
@@ -82,13 +82,6 @@ pub struct RaftPeer {
 }
 
 impl RaftPeer {
-    fn address(&self, lane: Lane) -> SocketAddr {
-        match lane {
-            Lane::Control => self.control_address,
-            Lane::Data => self.data_address,
-        }
-    }
-
     fn same_host(&self, other: &Self) -> bool {
         self.replica.node == other.replica.node
             && self.replica.disk == other.replica.disk
@@ -98,6 +91,41 @@ impl RaftPeer {
             && self.control_address == other.control_address
             && self.data_address == other.data_address
             && self.query_address == other.query_address
+    }
+}
+
+impl From<&RaftPeer> for RaftPeerNode {
+    fn from(peer: &RaftPeer) -> Self {
+        Self {
+            node: peer.replica.node,
+            disk: peer.replica.disk,
+            process: peer.replica.process,
+            label: peer.label.clone(),
+            server_name: peer.server_name.clone(),
+            control_address: peer.control_address,
+            data_address: peer.data_address,
+            query_address: peer.query_address,
+        }
+    }
+}
+
+impl RaftPeerNode {
+    fn address(&self, lane: Lane) -> SocketAddr {
+        match lane {
+            Lane::Control => self.control_address,
+            Lane::Data => self.data_address,
+        }
+    }
+
+    fn same_host(&self, peer: &RaftPeer) -> bool {
+        self.node == peer.replica.node
+            && self.disk == peer.replica.disk
+            && self.process == peer.replica.process
+            && self.label == peer.label
+            && self.server_name == peer.server_name
+            && self.control_address == peer.control_address
+            && self.data_address == peer.data_address
+            && self.query_address == peer.query_address
     }
 }
 
@@ -174,7 +202,7 @@ struct SendRequest {
 }
 
 struct Pool {
-    peer: RaftPeer,
+    peer: RaftPeerNode,
     tx: [mpsc::Sender<SendRequest>; 2],
     query: mpsc::Sender<queries::SendQuery>,
     outgoing: Banks,
@@ -470,7 +498,7 @@ impl RaftTransport {
             let (query, qrx) = mpsc::channel(state.options.queue_items);
             let (stop, _) = watch::channel(false);
             let pool = Arc::new(Pool {
-                peer: peer.clone(),
+                peer: RaftPeerNode::from(peer),
                 tx: [control, data],
                 query,
                 stop,

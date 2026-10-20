@@ -19,7 +19,6 @@ use cellar_ltx::generation::{GenerationLimits, ImageId, ReadServices};
 use futures_util::{future::BoxFuture, stream::FuturesUnordered, StreamExt};
 use rand::RngCore;
 use std::collections::{BTreeMap, BTreeSet};
-use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -81,17 +80,7 @@ impl RaftHostOptions {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct RaftPeerNode {
-    pub node: NodeId,
-    pub disk: DiskLineage,
-    pub process: ProcessGeneration,
-    pub label: String,
-    pub server_name: String,
-    pub control_address: SocketAddr,
-    pub data_address: SocketAddr,
-    pub query_address: SocketAddr,
-}
+pub use super::transport_options::RaftPeerNode;
 
 #[derive(Clone, Debug)]
 pub struct RaftCellRegistration {

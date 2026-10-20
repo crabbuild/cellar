@@ -202,8 +202,10 @@ the actual responding member, independently of the history token.
 
 `NodeRaftListeners::query` and `RaftPeer::query_address` provide the separate
 query endpoint. A peer has one bounded query queue/connection alongside its
-control and LTX connections. Query MAC domains, exporter label and marker-1
-framing are independent of consensus frames. Requests/replies bind full route,
+control and LTX connections. A shared pool owns the physical RaftPeerNode
+endpoint; it retains no group or member identity. Each consensus request still
+carries and validates its own full member route. Query MAC domains, exporter
+label and marker-1 framing are independent of consensus frames. Requests/replies bind full route,
 schema, sequence, request tag and payload digest. The receiver forces local
 query execution; it cannot recursively route. The sender deducts queued and
 handshake time before sending a remaining timeout, while the origin separately
@@ -221,7 +223,8 @@ reader or translation path.
 This entry point still routes from a registered local replica. The receiver
 maps the physical origin to a configured current member before admission;
 encoding a node identity alone does not grant namespace access. Independent
-namespace-origin grants and routing-only handles remain open in the
+namespace-origin grants, independent pool installation and routing-only handles
+remain open in the
 [read audit](../../../../plans/multi-raft/read-audit.md). The counter's native
 and Axum HTTP paths expose consistency, tokens and bounded member options, and
 their executable restart drill includes remote strong reads and cross-cell refusal.
