@@ -142,3 +142,7 @@ Snapshot installation, automatic membership repair, committed effects, operation
 limits/metrics and complete release/scaling qualification remain their planned
 work packages. A SQLite image or a successful local close is not an S3 recovery
 proof and never authorizes discarding replica disks.
+
+The [MR-07 evidence](evidence/MR-07.json) pins the implementation revision,
+executable digests, exact commands, repeated histories and qualification limits.
+All four MR-07 implementation steps and six required case names are covered.

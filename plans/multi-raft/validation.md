@@ -119,3 +119,21 @@ preflight pass. The baseline has 68 anchors, including the Axum integration.
 MR-07 stays IN_PROGRESS pending its complete mode-isolation and submitted-node
 transition audit. Strong query consistency, S3 archive/restore, snapshot install,
 membership repair and later delivery/scaling qualification remain pending.
+
+MR-07 is complete at source `b52a299656c2b565980d23c9b46675e5aaba3b72`; see
+[final evidence](evidence/MR-07.json) and the [host audit](host-audit.md). All 47
+owning cases pass (20 host, 16 command/apply, 11 pure core), including all six
+planned host cases. Five repeated TLS partition runs each cover an overwritten
+submission and an unacknowledged entry retained/committed by the healthy pair.
+Callback counts, persisted/committed observations, visible values and old-node
+retirement distinguish the outcomes. Live startup refuses mode, mutable-factory
+and required-command-manifest conflicts before catalog/log admission.
+
+Both Axum feature suites pass 27/33 cases including their compile doctest;
+21 existing Fleet/actor/runtime/storage regressions pass. Those broader runs
+precede only the example startup-cleanup refinement. Final Clippy, owning and
+exact host commands, formatting and layout include that refinement. The actual
+executable first fails late startup with an occupied final listener, resumes
+the same disks and then verifies six endpoints, joined shutdown, retained
+receipts and new writes across restart. This remains the MR-07 boundary;
+read consistency, S3 archive/restore and the other original packages remain open.

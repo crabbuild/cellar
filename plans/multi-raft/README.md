@@ -1,25 +1,26 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation in progress. MR-01 through MR-06 are complete with
-recorded evidence; MR-07 remains in progress pending its final host-contract
-audit. Shared log storage, multi-group Raft, authenticated peer transport,
-verified SQLite/LTX images, restricted command definitions and node-owned
-command/query serving are implemented. All six planned MR-07 host cases are
-present and passing in the recorded runs. Public handles serve Quorum commands
-and stale queries through bounded, joined SQL workers. Native HTTP and Axum
-share the counter example's normalization and dispatcher.
+Status: implementation in progress. MR-01 through MR-07 are complete with
+recorded evidence. Shared log storage, multi-group Raft, authenticated peer
+transport, verified SQLite/LTX images, restricted definitions and node-owned
+command/query serving are implemented. All six planned MR-07 host cases pass;
+its [evidence](evidence/MR-07.json) records 47 owning cases and the
+[host audit](host-audit.md) covers mode and submitted-producer transitions.
 
-The counter executable runs three nodes and two groups. Its process drill
-checks both ingress paths on all replicas, joined shutdown, retained receipts
-and subsequent writes after restart. Separate host tests cover leader failover,
-callback cancellation/shutdown, exact receipt gates and unpolled deadlines.
-Stronger query consistency, S3 archive/restore, snapshot installation and
-membership controllers remain pending; unsupported SDK capabilities are refused.
-See [task status](tasks.json), [catalog evidence](evidence/MR-07-catalog-progress.json)
-and [registration/lifecycle evidence](evidence/MR-07-registration-progress.json)
-for preceding component coverage. [Host-serving evidence](evidence/MR-07-host-progress.json) accompanies this
-checkpoint; these tests do not establish production capacity or full delivery.
-The reviewed source baseline is `67c9f003977594eb58aa2d5e7ce7d866724d02a6`.
+Public handles serve Quorum commands and stale committed-image queries through
+bounded, joined SQL workers. The application identity pins required command
+contracts while query compatibility stays independent of voting. Native HTTP
+and Axum share the counter's normalization and dispatcher. Its executable drill
+checks six endpoints, late startup failure with disk reuse, joined shutdown,
+retained receipts and new writes after restart. Real TLS partition fixtures cover
+both a discarded proposal and a retained proposal committed by the majority.
+
+MR-08 and MR-09 are ready for implementation. Stronger query consistency,
+authenticated tokens, S3 archive/restore, snapshot installation, membership
+controllers, effects and later release/scaling work remain pending. Unsupported
+SDK capabilities are refused. These tests do not establish production capacity
+or completion of the full delivery scope. The reviewed source baseline is
+`b52a299656c2b565980d23c9b46675e5aaba3b72`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite
