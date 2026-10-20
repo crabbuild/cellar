@@ -76,13 +76,15 @@ base/result through `GenerationStore`. Preparation returns a runtime completion,
 not a readable image pin. `publish` releases a `PublishedImage` only after the
 engine's synced marker names that exact prepared generation. A delayed event
 can be reconciled against the durable cache; later protocol-only entries may
-cover the same image. Recovery adopts only the image selected by that engine
-marker, with mandatory digest, length, LTX position and page geometry validation.
+cover the same image. Recovery adopts both the applied image and the independent
+image selected by the durable Raft snapshot. It validates every reference before
+retiring other inventory, with mandatory digest, length, LTX position and page
+geometry validation. Newer applied state does not retire the only snapshot image.
 
 The internal marker-1 image record now includes `page_size`. Recreate older
 experimental Raft storage for this hard cutover; no compatibility reader is
-provided. Orphan images remain retained pending explicit recovery/retention
-reconciliation. The image owner alone does not authorize leader execution,
+provided. Recovery reclaims orphan images only after adopting the complete
+authoritative reference set. The image owner alone does not authorize leader execution,
 query consistency or a successful SDK command.
 
 `PrivateExecutor` owns an exclusively locked writable directory. Opening or
@@ -384,3 +386,26 @@ proof boundary, resource contracts and qualification scope. Run the owning
 `native_raft_archive` target for native SDK durability, store faults, isolated
 restore, retention and three-voter failover. It does not qualify physical S3,
 power loss, production scale or automatic member restoration.
+
+
+## Physical snapshots under implementation
+
+`snapshot.rs` supplies bounded source capture, full LTX encoding, ordered chunk
+assembly and destination generation sealing. Marker-1 descriptors bind the full
+cell history, immutable birth/schema, index/term, canonical ConfState, exact image
+marker and encoded payload length/digest. Unknown fields and noncanonical metadata
+are refused. A source package pins its generation through transfer/checkpoint
+sync; a download creates no Raft authority. A prepared image produces a completion
+only for the exact runtime ticket and becomes public only after the corresponding
+engine snapshot and applied marker are observed durable.
+
+`ImageApplier` retains the snapshot generation independently from the latest
+applied generation, including across restart and newer data publications. A new
+durable checkpoint replaces the old reference; reader/transfer pins continue to
+protect retired bytes. Snapshot encode/download operations belong on the owning
+blocking domain. Their per-transfer limits do not replace the node-wide admission,
+authenticated RPC scheduling and transfer lifetime ownership still required by
+MR-10. Automatic fresh-member recovery, quorum-loss refusal and full native-host
+lifecycle qualification remain unfinished. The component process-kill matrix
+covers image sync/rename/directory sync, engine sync/reply and publication. The owning verification
+target is `native_raft_snapshot`; this component does not complete MR-10.

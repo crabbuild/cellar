@@ -22,6 +22,7 @@ mod receipts;
 mod records;
 mod replica;
 pub(crate) mod runtime;
+pub(crate) mod snapshot;
 pub(crate) mod storage;
 pub(crate) mod transport;
 mod transport_frame;

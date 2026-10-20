@@ -23,6 +23,7 @@ pub enum ImageApplyError {
     Log(LogError),
     Envelope(ProtocolError),
     Images(GenerationError),
+    Snapshot(Box<super::snapshot::SnapshotError>),
 }
 
 impl fmt::Display for ImageApplyError {
@@ -79,6 +80,7 @@ pub struct ImageApplier {
     application_digest: [u8; 32],
     limits: EnvelopeLimits,
     current: Option<PublishedImage>,
+    snapshot_pin: Option<GenerationPin>,
     pending: Option<Pending>,
 }
 
@@ -92,6 +94,8 @@ impl ImageApplier {
         limits: EnvelopeLimits,
     ) -> Result<Self, ImageApplyError> {
         limits.validate().map_err(ImageApplyError::Envelope)?;
+        let snapshot_pin = super::snapshot::recover_pin(&group, &images, application_digest)
+            .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
         let applied = group.applied().map_err(ImageApplyError::Log)?;
         let current = applied
             .image
@@ -110,18 +114,112 @@ impl ImageApplier {
                 })
             })
             .transpose()?;
-        Ok(Self {
+        let applier = Self {
             group,
             images,
             application_digest,
             limits,
             current,
+            snapshot_pin,
             pending: None,
-        })
+        };
+        // Both marker families are authoritative. Validate/adopt all of them
+        // before retiring any inventory; a bad snapshot must fail closed.
+        applier
+            .images
+            .retain_only(&applier.retained_images())
+            .map_err(ImageApplyError::Images)?;
+        applier
+            .images
+            .reclaim(4096)
+            .map_err(ImageApplyError::Images)?;
+        Ok(applier)
     }
 
     pub fn current(&self) -> Option<PublishedImage> {
         self.current.clone()
+    }
+
+    fn retained_images(&self) -> Vec<ImageId> {
+        self.current
+            .iter()
+            .map(|image| image.pin.id())
+            .chain(self.snapshot_pin.iter().map(GenerationPin::id))
+            .collect()
+    }
+
+    /// Reconcile only an already durable checkpoint. Keep its separate image
+    /// reference even after newer applied images replace the public head.
+    pub fn refresh_snapshot(&mut self) -> Result<(), ImageApplyError> {
+        let next = super::snapshot::recover_pin(&self.group, &self.images, self.application_digest)
+            .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
+        let old = std::mem::replace(&mut self.snapshot_pin, next);
+        if let Some(old) = old {
+            let id = old.id();
+            if self
+                .current
+                .as_ref()
+                .is_none_or(|image| image.pin.id() != id)
+                && self
+                    .snapshot_pin
+                    .as_ref()
+                    .is_none_or(|image| image.id() != id)
+            {
+                self.images.retire(id).map_err(ImageApplyError::Images)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn publish_snapshot(
+        &mut self,
+        group: &GroupLog,
+        snapshot: &::raft::prelude::Snapshot,
+        pin: GenerationPin,
+    ) -> Result<PublishedImage, ImageApplyError> {
+        if self.pending.is_some() {
+            return Err(ImageApplyError::Busy);
+        }
+        let position = {
+            let cache = self.group.read().map_err(ImageApplyError::Log)?;
+            if group.identity() != self.group.identity()
+                || cache.snapshot != *snapshot
+                || cache.applied.image.as_ref() != Some(&marker(&pin))
+                || cache.applied.position.index.get() < snapshot.get_metadata().index
+            {
+                return Err(ImageApplyError::Unpublished);
+            }
+            cache.applied.position
+        };
+        // Prove that the bytes are in this applier's directory even if a caller
+        // supplied a pin from another store with the same logical identity.
+        let pin = self
+            .images
+            .adopt(pin.id(), pin.state())
+            .map_err(ImageApplyError::Images)?;
+        self.refresh_snapshot()?;
+        let head = PublishedImage {
+            pin,
+            position,
+            scope: self.group.identity().scope.clone(),
+            proposal: None,
+            application_digest: self.application_digest,
+        };
+        let previous = self.current.replace(head.clone());
+        if let Some(previous) = previous {
+            if previous.pin.id() != head.pin.id()
+                && self
+                    .snapshot_pin
+                    .as_ref()
+                    .is_none_or(|pin| pin.id() != previous.pin.id())
+            {
+                self.images
+                    .retire(previous.pin.id())
+                    .map_err(ImageApplyError::Images)?;
+            }
+        }
+        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
+        Ok(head)
     }
 
     /// Capture the exact durable cut covered by this pin. Protocol-only entries
@@ -259,6 +357,7 @@ impl ImageApplier {
     /// Call after `Applied`, or while reconciling a lost event. A successful
     /// `complete_apply` call is not sufficient: the cache changes only after sync.
     pub fn publish(&mut self, ticket: &ApplyTicket) -> Result<PublishedImage, ImageApplyError> {
+        self.refresh_snapshot()?;
         let pending = self.pending.as_ref().ok_or(ImageApplyError::Unpublished)?;
         if pending.ticket != *ticket {
             return Err(ImageApplyError::Invalid("pending ticket"));
@@ -285,7 +384,12 @@ impl ImageApplier {
         // can establish a full archive cut; old reader/archive pins protect any
         // older bytes still in use while retirement permits bounded reclamation.
         if let Some(previous) = previous {
-            if previous.pin.id() != head.pin.id() {
+            if previous.pin.id() != head.pin.id()
+                && self
+                    .snapshot_pin
+                    .as_ref()
+                    .is_none_or(|pin| pin.id() != previous.pin.id())
+            {
                 self.images
                     .retire(previous.pin.id())
                     .map_err(ImageApplyError::Images)?;
@@ -321,7 +425,7 @@ fn marker_for(id: ImageId, state: ImageState) -> CommittedImage {
     }
 }
 
-fn marker_state(marker: &CommittedImage) -> ImageState {
+pub(crate) fn marker_state(marker: &CommittedImage) -> ImageState {
     ImageState {
         epoch: marker.ltx_epoch,
         txid: TXID(marker.txid),
@@ -332,7 +436,7 @@ fn marker_state(marker: &CommittedImage) -> ImageState {
     }
 }
 
-fn marker_id(marker: &CommittedImage) -> Result<ImageId, ImageApplyError> {
+pub(crate) fn marker_id(marker: &CommittedImage) -> Result<ImageId, ImageApplyError> {
     let name = marker
         .name
         .strip_suffix(".sqlite")

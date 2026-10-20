@@ -1219,7 +1219,7 @@
       "id": "MR-10",
       "title": "Install snapshots and recover durable group state",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-09",
         "MR-05",
@@ -1229,12 +1229,16 @@
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/apply.rs",
         "crates/cellar/durability/raft/transport.rs",
-        "crates/cellar/node/embedded.rs"
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/application/consensus/mod.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
         "crates/cellar/durability/raft/recovery.rs",
-        "crates/cellar/tests/native_raft_snapshot.rs"
+        "crates/cellar/tests/native_raft_snapshot.rs",
+        "plans/multi-raft/snapshot-audit.md"
       ],
       "steps": [
         "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",

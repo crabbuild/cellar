@@ -340,15 +340,6 @@ impl Pool {
             )
             .map_err(super::execution::storage)?;
             let view = applier.current().as_ref().map(ImageView::of);
-            let retained = applier
-                .current()
-                .map(|image| image.pin().id())
-                .into_iter()
-                .collect::<Vec<_>>();
-            images
-                .retain_only(&retained)
-                .map_err(super::execution::storage)?;
-            images.reclaim(4096).map_err(super::execution::storage)?;
             let options = PrivateOptions {
                 directory: storage.directory.join("private"),
                 host: storage.host,

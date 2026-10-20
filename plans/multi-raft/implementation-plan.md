@@ -396,7 +396,17 @@ shown by `plan.py show MR-09`; the manifest is authoritative for arguments.
 
 ### MR-10 Install snapshots and recover durable group state
 
-Dependencies: MR-09, MR-05, MR-03. Phase: v1. Initial status: TODO.
+Dependencies: MR-09, MR-05, MR-03. Phase: v1. Status: IN_PROGRESS.
+
+The physical snapshot component now captures exact committed cuts, binds canonical
+history/schema/configuration metadata to full LTX bytes, assembles bounded ordered
+chunks and seals destination generations before producing an exact runtime
+completion. Publication observes the synced engine install, rather than the
+completion request. Recovery adopts both the durable snapshot image and the
+newer applied image before reclaiming inventory. The [snapshot audit](snapshot-audit.md) records the implemented boundary and
+component/runtime qualification in progress. Node-owned authenticated snapshot transfer, fresh-member join
+admission and the complete crash/recovery matrix remain required; MR-10 is not
+complete.
 
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
 
