@@ -119,6 +119,7 @@ pub struct GroupStatus {
     pub persisted: LogIndex,
     pub committed: LogIndex,
     pub applied: LogPosition,
+    pub checkpoint: LogPosition,
     pub awaiting_ready: bool,
     pub awaiting_apply: bool,
     pub election_timeout: usize,
@@ -172,6 +173,7 @@ pub enum RuntimeEventKind {
     Snapshot {
         ticket: ApplyTicket,
         snapshot: Snapshot,
+        source: u64,
     },
     Applied {
         ticket: ApplyTicket,

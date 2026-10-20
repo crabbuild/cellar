@@ -1247,13 +1247,22 @@
         "crates/cellar/durability/raft/host.rs",
         "crates/cellar/tests/native_raft_host.rs",
         "crates/cellar/durability/raft/options.rs",
-        "crates/cellar/tests/native_raft_transport.rs"
+        "crates/cellar/tests/native_raft_transport.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/transport_options.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
         "crates/cellar/durability/raft/recovery.rs",
         "crates/cellar/tests/native_raft_snapshot.rs",
-        "plans/multi-raft/snapshot-audit.md"
+        "plans/multi-raft/snapshot-audit.md",
+        "crates/cellar/durability/raft/snapshot_transport.rs",
+        "crates/cellar/durability/raft/host_snapshot.rs"
       ],
       "steps": [
         "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",
@@ -1378,6 +1387,43 @@
             "I04",
             "I05",
             "I11"
+          ]
+        },
+        {
+          "name": "native_snapshot_catchup_resumes_follower_reads",
+          "oracle": "An isolated native follower installs the compacted checkpoint over authenticated bounded chunk RPCs, catches up and serves the retained token without business callbacks",
+          "invariants": [
+            "I02",
+            "I04",
+            "I05",
+            "I10"
+          ]
+        },
+        {
+          "name": "native_snapshot_interrupted_transfer_retries_without_blocking_other_groups",
+          "oracle": "A partial native transfer supplies no read result; deadline/abort and retry restore the follower while a healthy second group keeps writing",
+          "invariants": [
+            "I02",
+            "I07",
+            "I10",
+            "I13"
+          ]
+        },
+        {
+          "name": "native_snapshot_shutdown_joins_partial_transfer",
+          "oracle": "Native close joins partial transfer, sockets, blocking owners and reservations even while network responses remain held",
+          "invariants": [
+            "I07",
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "native_snapshot_admission_refuses_insufficient_restore_capacity",
+          "oracle": "Native startup rejects encoded/image-slot/copy budgets before creating namespace objects or permanent member storage",
+          "invariants": [
+            "I04",
+            "I13"
           ]
         }
       ],

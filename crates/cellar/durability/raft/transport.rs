@@ -25,6 +25,8 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
 #[path = "query_transport.rs"]
 mod queries;
+#[path = "snapshot_transport.rs"]
+pub(crate) mod snapshots;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Lane {
@@ -271,6 +273,10 @@ struct State {
     refused: AtomicU64,
     failed: AtomicU64,
     claim: Mutex<Option<super::runtime::TransportClaim>>,
+    snapshot_source: Mutex<Option<std::sync::Weak<snapshots::Source>>>,
+    snapshot_source_budget: Arc<Budget>,
+    snapshot_receive_budget: Arc<Budget>,
+    snapshot_connections: Arc<Semaphore>,
 }
 
 struct Handle(Arc<State>);
@@ -345,6 +351,7 @@ impl RaftTransport {
         domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let claim = runtime.claim_transport()?;
         let (stop, _) = watch::channel(false);
+        let snapshot_memory = snapshots::memory_bound(&options);
         let state = Arc::new(State {
             domain,
             runtime,
@@ -382,6 +389,10 @@ impl RaftTransport {
             failed: AtomicU64::new(0),
             options,
             claim: Mutex::new(Some(claim)),
+            snapshot_source: Mutex::new(None),
+            snapshot_source_budget: Budget::new(snapshot_memory, 1),
+            snapshot_receive_budget: Budget::new(snapshot_memory, 1),
+            snapshot_connections: Arc::new(Semaphore::new(1)),
         });
         let service = Self {
             handle: Arc::new(Handle(state.clone())),
@@ -1058,8 +1069,23 @@ impl State {
         let mut sequence = 0;
         let mut source_host = None;
         loop {
+            let mut prefix = [0; frame::PREFIX];
+            self.bounded(None, async {
+                stream.read_exact(&mut prefix).await?;
+                Ok(())
+            })
+            .await?;
+            if &prefix[..4] == snapshots::REQUEST_MAGIC {
+                if lane != Lane::Data || sequence != 0 {
+                    return Err(TransportError::Protocol);
+                }
+                return self.receive_snapshot(&mut stream, &exporter, prefix).await;
+            }
             let head = self
-                .bounded(None, read_head(&mut stream, &self.options, lane, false))
+                .bounded(
+                    None,
+                    read_head_after_prefix(&mut stream, &self.options, lane, false, prefix),
+                )
                 .await?;
             let header = head.request(&self.auth, &exporter)?;
             if header.lane != lane || header.sequence()? <= sequence {
@@ -1291,6 +1317,16 @@ async fn read_head<S: AsyncRead + Unpin>(
 ) -> Result<FrameHead, TransportError> {
     let mut prefix = [0; frame::PREFIX];
     stream.read_exact(&mut prefix).await?;
+    read_head_after_prefix(stream, options, lane, response, prefix).await
+}
+
+async fn read_head_after_prefix<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    options: &TransportOptions,
+    lane: Lane,
+    response: bool,
+    prefix: [u8; frame::PREFIX],
+) -> Result<FrameHead, TransportError> {
     let (header_len, payload_len) = frame::parse_prefix(&prefix, options, lane, response)?;
     let mut header = vec![0; header_len];
     stream.read_exact(&mut header).await?;

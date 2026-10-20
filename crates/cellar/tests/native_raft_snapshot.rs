@@ -1,5 +1,5 @@
-//! Physical snapshot components over real SQLite/LTX and Raft Engine. These
-//! fixtures do not qualify automatic member repair or snapshot RPC scheduling.
+//! Physical snapshots and native TLS catch-up over real SQLite/LTX and Raft
+//! Engine. Fresh-member authorization and automatic repair remain separate.
 #![allow(clippy::disallowed_methods)]
 #[path = "support/raft_ltx_fault.rs"]
 #[allow(dead_code)]
@@ -11,7 +11,14 @@ mod images;
 #[allow(dead_code)]
 mod log_fault;
 
-use anyhow::{ensure, Result};
+#[path = "support/raft_cluster.rs"]
+#[allow(dead_code)]
+mod cluster;
+#[path = "support/raft_node.rs"]
+#[allow(dead_code)]
+mod public_node;
+
+use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::*;
 use cellar::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate};
 use cellar::sdk::ExecutionDomain;
@@ -30,6 +37,362 @@ fn scope() -> GroupScope {
         group: GroupId::new([7; 16]).unwrap(),
         incarnation: IncarnationId::new([3; 16]).unwrap(),
     }
+}
+
+fn native_snapshot_config() -> NamespaceConfig {
+    NamespaceConfig::new(
+        scope().cluster,
+        scope().namespace,
+        cellar_logic::NamespaceMode::Raft,
+        [3; 32],
+    )
+}
+
+fn native_snapshot_birth(cell: &str, group: u8) -> BirthProposal {
+    BirthProposal {
+        scope: GroupScope {
+            cell: cell.into(),
+            group: GroupId::new([group; 16]).unwrap(),
+            ..scope()
+        },
+        voters: (1..=3)
+            .map(|id| InitialMember {
+                member: MemberId::new(id).unwrap(),
+                node: NodeId::new([id as u8; 16]).unwrap(),
+            })
+            .collect(),
+        learners: vec![],
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_snapshot_catchup_resumes_follower_reads() -> Result<()> {
+    native_snapshot_drill(false, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_snapshot_interrupted_transfer_retries_without_blocking_other_groups() -> Result<()>
+{
+    native_snapshot_drill(true, false).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_snapshot_shutdown_joins_partial_transfer() -> Result<()> {
+    native_snapshot_drill(true, true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_snapshot_admission_refuses_insufficient_restore_capacity() -> Result<()> {
+    use futures_util::StreamExt as _;
+    use object_store::ObjectStore as _;
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let definition = public_node::counter(Arc::new(std::sync::atomic::AtomicUsize::new(0)), gate)?;
+    for profile in ["encoded", "generations", "copies"] {
+        let root = tempfile::tempdir()?;
+        let node = public_node::node(root.path(), definition.application.clone()).await?;
+        let store = Arc::new(object_store::memory::InMemory::new());
+        let mut host = cellar::sdk::consensus::RaftHostOptions::default();
+        let mut transport = TransportOptions::default();
+        match profile {
+            "encoded" => transport.max_snapshot_bytes = host.execution.max_image_bytes as usize,
+            "generations" => host.images.max_generations = 5,
+            "copies" => host.images.max_bytes = host.execution.max_image_bytes * 7,
+            _ => unreachable!(),
+        }
+        let mut namespace = native_snapshot_config();
+        namespace.schema_digest = definition.schema;
+        let registration = cellar::sdk::consensus::RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
+            namespace,
+            class: "Counter".into(),
+            birth: native_snapshot_birth("Counter:snapshot", 5),
+        };
+        let result = public_node::cells_with_transport(
+            &node,
+            definition.application.clone(),
+            store.clone(),
+            registration,
+            false,
+            host,
+            transport,
+        )
+        .await;
+        ensure!(
+            result.is_err(),
+            "invalid snapshot admission {profile} started a member"
+        );
+        ensure!(
+            !node.info().data_dir.join("raft").exists(),
+            "invalid {profile} opened permanent member storage"
+        );
+        ensure!(
+            store.list(None).next().await.is_none(),
+            "invalid {profile} created catalog/claim objects"
+        );
+        node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+    }
+    Ok(())
+}
+
+async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<()> {
+    use cellar::sdk::consensus::*;
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    let calls: Vec<_> = (0..3).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let definitions = calls
+        .iter()
+        .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+        .collect::<Result<Vec<_>>>()?;
+    let mut namespace = native_snapshot_config();
+    namespace.schema_digest = definitions[0].schema;
+    let host = RaftHostOptions {
+        checkpoint_entries: 4,
+        ..Default::default()
+    };
+    let cluster = cluster::Cluster::start_with_transport(
+        &definitions,
+        vec![
+            RaftCellRegistration {
+                placement: RaftCellPlacement::Replica,
+                namespace,
+                class: "Counter".into(),
+                birth: native_snapshot_birth("Counter:snapshot", 5),
+            },
+            RaftCellRegistration {
+                placement: RaftCellPlacement::Replica,
+                namespace: {
+                    let mut namespace = native_snapshot_config();
+                    namespace.schema_digest = definitions[0].schema;
+                    namespace
+                },
+                class: "Counter".into(),
+                birth: native_snapshot_birth("Counter:healthy", 6),
+            },
+        ],
+        20,
+        host,
+        TransportOptions {
+            snapshot_chunk_bytes: 257,
+            io_timeout_ms: 1000,
+            snapshot_timeout_ms: 1500,
+            ..Default::default()
+        },
+    )
+    .await?;
+    let handles = cluster
+        .services
+        .iter()
+        .map(|service| service.cell(NamespaceId::new([2; 16]).unwrap(), "Counter:snapshot"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            for (i, handle) in handles.iter().enumerate() {
+                if handle
+                    .status()
+                    .await
+                    .is_ok_and(|status| status.command_ready)
+                {
+                    return i;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let follower = (primary + 1) % 3;
+    let before = handles[follower]
+        .status()
+        .await
+        .context("initial follower status")?
+        .applied;
+    cluster.isolate(follower, false).await?;
+    let mut last = None;
+    for sequence in 1..=12 {
+        let options = public_node::options(sequence)?;
+        let receipt = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                match handles[primary]
+                    .command(
+                        definitions[primary].increment.clone(),
+                        1i64.to_be_bytes().to_vec(),
+                        options.clone(),
+                    )
+                    .await
+                {
+                    Ok(receipt) => return Ok::<_, anyhow::Error>(receipt),
+                    Err(
+                        CommandFailure::Unavailable
+                        | CommandFailure::Overloaded
+                        | CommandFailure::NotLeader { .. }
+                        | CommandFailure::Ambiguous { .. },
+                    ) => tokio::time::sleep(Duration::from_millis(10)).await,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })
+        .await
+        .with_context(|| format!("snapshot fixture command {sequence}, primary {primary}"))??;
+        assert_eq!(receipt.result, (sequence as i64).to_be_bytes());
+        last = Some(receipt);
+    }
+    let last = last.unwrap();
+    let cut = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let status = handles[primary].status().await?;
+            if status.checkpoint.index > before.index {
+                return Ok::<_, anyhow::Error>(status.checkpoint);
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    assert_eq!(calls[follower].load(Ordering::SeqCst), 0);
+    let before_attempts = cluster.data_attempts(follower);
+    let hold = if interrupt {
+        Some(cluster.hold_data_responses_after(follower, primary, 4096)?)
+    } else {
+        None
+    };
+    cluster.heal();
+    if interrupt {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while cluster.held_data_response_bytes(follower, primary) == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("partial snapshot response hold")?;
+        let blocked = handles[follower]
+            .query(
+                definitions[follower].get.clone(),
+                vec![],
+                QueryOptions {
+                    consistency: QueryConsistency::AtLeast(last.version_token.clone()),
+                    timeout: Duration::from_millis(100),
+                    ..Default::default()
+                },
+            )
+            .await;
+        ensure!(
+            matches!(
+                blocked,
+                Err(CommandFailure::VersionUnavailable | CommandFailure::Unavailable)
+            ),
+            "an unfinished transfer supplied a query result: {blocked:?}"
+        );
+        let healthy = cluster
+            .services
+            .iter()
+            .map(|service| service.cell(NamespaceId::new([2; 16]).unwrap(), "Counter:healthy"))
+            .collect::<Result<Vec<_>, _>>()?;
+        let healthy_primary = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                for (node, handle) in healthy.iter().enumerate() {
+                    if node != follower
+                        && handle
+                            .status()
+                            .await
+                            .is_ok_and(|status| status.command_ready)
+                    {
+                        return node;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        let options = public_node::options(1)?;
+        let result = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match healthy[healthy_primary]
+                    .command(
+                        definitions[healthy_primary].increment.clone(),
+                        1i64.to_be_bytes().to_vec(),
+                        options.clone(),
+                    )
+                    .await
+                {
+                    Ok(receipt) => return Ok::<_, anyhow::Error>(receipt),
+                    Err(
+                        CommandFailure::Unavailable
+                        | CommandFailure::Overloaded
+                        | CommandFailure::NotLeader { .. }
+                        | CommandFailure::Ambiguous { .. },
+                    ) => tokio::time::sleep(Duration::from_millis(10)).await,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })
+        .await
+        .context("healthy group progress during transfer")??;
+        assert_eq!(result.result, 1i64.to_be_bytes());
+        if close_pending {
+            tokio::time::timeout(Duration::from_secs(5), cluster.close())
+                .await
+                .context("joined native snapshot shutdown")??;
+            drop(hold);
+            return Ok(());
+        }
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while cluster.data_attempts(follower) < before_attempts + 2 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .context("snapshot retry after deadline")?;
+    }
+    drop(hold);
+    tokio::time::timeout(Duration::from_secs(15), async {
+        loop {
+            if handles[follower]
+                .status()
+                .await
+                .is_ok_and(|status| status.checkpoint.index >= cut.index)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .context("native snapshot installation")?;
+    let read = handles[follower]
+        .query(
+            definitions[follower].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(last.version_token.clone()),
+                timeout: Duration::from_secs(15),
+                ..Default::default()
+            },
+        )
+        .await
+        .context("restored follower query")?;
+    assert_eq!(read.result, 12i64.to_be_bytes());
+    let status = handles[follower].status().await?;
+    ensure!(
+        status.checkpoint.index >= cut.index,
+        "the compacted prefix must arrive through an installed snapshot"
+    );
+    ensure!(status.applied.index >= last.version.position.index);
+    assert_eq!(
+        calls[follower].load(Ordering::SeqCst),
+        0,
+        "followers must not replay business commands"
+    );
+    assert_eq!(
+        calls
+            .iter()
+            .map(|calls| calls.load(Ordering::SeqCst))
+            .sum::<usize>(),
+        if interrupt { 13 } else { 12 }
+    );
+    cluster.close().await
 }
 
 fn marker(pin: &GenerationPin) -> CommittedImage {
@@ -1091,7 +1454,9 @@ async fn empty_configuration_snapshot_installs_then_applies_first_ltx() -> Resul
     while !installed && tokio::time::Instant::now() < deadline {
         if let Ok(event) = events.try_recv() {
             match event.kind {
-                RuntimeEventKind::Snapshot { ticket, snapshot } => {
+                RuntimeEventKind::Snapshot {
+                    ticket, snapshot, ..
+                } => {
                     let image = SnapshotDownload::new(
                         &target.group,
                         [9; 32],
@@ -1682,7 +2047,9 @@ async fn snapshot_runtime_installs_physical_image_with_exact_ticket() -> Result<
                         2 => follower.step(&scope(), message).await?,
                         _ => (),
                     },
-                    RuntimeEventKind::Snapshot { ticket, snapshot } => {
+                    RuntimeEventKind::Snapshot {
+                        ticket, snapshot, ..
+                    } => {
                         assert_eq!(node, 2);
                         assert_eq!(snapshot, package.snapshot());
                         assert_eq!(target.group.applied()?.position.index.get(), 1);

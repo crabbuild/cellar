@@ -670,6 +670,11 @@ impl Node {
     ) -> anyhow::Result<crate::application::consensus::RaftCells> {
         use crate::application::consensus::{RaftCellPlacement, RegistrationError};
         config.host.validate()?;
+        config.infrastructure.transport.validate()?;
+        config
+            .infrastructure
+            .transport
+            .snapshot_limits(config.host.execution.max_image_bytes)?;
         anyhow::ensure!(
             !config.cells.is_empty() && config.cells.len() <= config.host.max_groups,
             "invalid registered Raft cell count"

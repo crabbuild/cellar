@@ -191,7 +191,9 @@ impl Cluster {
                                 .push((index, replica.scope.group, committed.get()));
                         }
                     }
-                    RuntimeEventKind::Snapshot { ticket, snapshot } => {
+                    RuntimeEventKind::Snapshot {
+                        ticket, snapshot, ..
+                    } => {
                         ensure!(
                             self.allow_snapshots,
                             "unexpected snapshot in retained-log fixture"

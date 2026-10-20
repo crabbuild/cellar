@@ -122,6 +122,27 @@ pub async fn cells_with_host(
     recover: bool,
     host: RaftHostOptions,
 ) -> Result<RaftCells> {
+    cells_with_transport(
+        node,
+        application,
+        store,
+        registration,
+        recover,
+        host,
+        TransportOptions::default(),
+    )
+    .await
+}
+
+pub async fn cells_with_transport(
+    node: &Node,
+    application: Arc<dyn Application>,
+    store: Arc<dyn ObjectStore>,
+    registration: RaftCellRegistration,
+    recover: bool,
+    host: RaftHostOptions,
+    transport: TransportOptions,
+) -> Result<RaftCells> {
     let tls = tls()?;
     node.start_raft_cells(
         RaftCellsConfig {
@@ -142,7 +163,7 @@ pub async fn cells_with_host(
                     tick_interval_ms: Some(10),
                     ..Default::default()
                 },
-                transport: TransportOptions::default(),
+                transport,
             },
             catalog: CatalogOptions {
                 prefix: "host/test".into(),

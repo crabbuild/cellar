@@ -28,8 +28,15 @@ use std::sync::{
 };
 use tokio::sync::{mpsc, Notify};
 
+#[path = "host_snapshot.rs"]
+mod snapshots;
+
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Enable native snapshot recovery and its larger image admission floor.
+    pub enable_snapshots: bool,
+    /// Applied entries between automatic checkpoints; zero disables compaction.
+    pub checkpoint_entries: u64,
     pub archive: RaftArchiveOptions,
     pub max_groups: usize,
     pub blocking_workers: usize,
@@ -50,6 +57,8 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            enable_snapshots: true,
+            checkpoint_entries: 256,
             archive: RaftArchiveOptions::default(),
             max_groups: 128,
             blocking_workers: 2,
@@ -73,13 +82,18 @@ impl RaftHostOptions {
             self.archive.limits.envelope == self.execution.envelope,
             "archive and execution envelope limits must agree"
         );
-        // The current base, private preview and next committed image coexist;
-        // preparing the latter reserves two copies of its peak. Extra archive
-        // pins may backpressure apply until those owned jobs release them.
+        // Snapshot/current/private/apply/incoming and an older source transfer
+        // may coexist. Preparation reserves two copies. Additional reader or
+        // archive pins may still apply bounded backpressure.
+        let (generations, copies) = if self.enable_snapshots {
+            (6, 8)
+        } else {
+            (3, 4)
+        };
         anyhow::ensure!(
-            self.images.max_generations >= 3
-                && self.images.max_bytes >= self.execution.max_image_bytes.saturating_mul(4),
-            "image admission must cover three generations and four maximum image copies"
+            self.images.max_generations >= generations
+                && self.images.max_bytes >= self.execution.max_image_bytes.saturating_mul(copies),
+            "image admission cannot cover configured snapshot/private/apply ownership"
         );
         let apply = self.images.apply;
         let envelope = self.execution.envelope;
@@ -187,6 +201,9 @@ pub(crate) async fn start(
         origins,
     } = registrations;
     options.validate()?;
+    let snapshot_limits = service
+        .transport
+        .snapshot_limits(options.execution.max_image_bytes)?;
     anyhow::ensure!(
         !registrations.is_empty() && registrations.len() <= options.max_groups,
         "invalid registered group count"
@@ -404,6 +421,11 @@ pub(crate) async fn start(
                     apply_ticket: None,
                     apply_retry_at: 0,
                     failed: false,
+                    incoming: None,
+                    source_request: None,
+                    apply_inflight: false,
+                    checkpoint_busy: false,
+                    checkpoint_retry_at: 0,
                 },
             );
             permit.attach(&service.runtime).await?;
@@ -504,6 +526,8 @@ pub(crate) async fn start(
             read_sequence: 0,
             budget,
             local,
+            snapshot_limits,
+            snapshot_source: None,
         };
         driver.run(requests, closes).await;
         let result = driver.shutdown().await;
@@ -627,6 +651,11 @@ struct Cell {
     apply_ticket: Option<ApplyTicket>,
     apply_retry_at: u64,
     failed: bool,
+    incoming: Option<snapshots::Incoming>,
+    source_request: Option<snapshots::SourceRequest>,
+    apply_inflight: bool,
+    checkpoint_busy: bool,
+    checkpoint_retry_at: u64,
 }
 
 enum StatusPurpose {
@@ -638,6 +667,10 @@ enum StatusPurpose {
 }
 
 enum SqlPurpose {
+    Checkpoint,
+    SnapshotSource(Box<::raft::prelude::Message>),
+    SnapshotPrepare(ApplyTicket),
+    SnapshotPublish(ApplyTicket),
     CaptureArchive,
     Stage,
     Mark,
@@ -649,6 +682,28 @@ enum SqlPurpose {
 }
 
 enum Job {
+    SnapshotSent {
+        lease: u64,
+        result: Result<(), super::transport::TransportError>,
+    },
+    SnapshotFetched {
+        ticket: ApplyTicket,
+        result: Box<
+            Result<super::transport::snapshots::ReceivedSnapshot, super::transport::TransportError>,
+        >,
+    },
+    SnapshotAuthorized {
+        ticket: ApplyTicket,
+        result: Result<(), RuntimeError>,
+    },
+    SnapshotAbort {
+        ticket: ApplyTicket,
+        result: Result<(), RuntimeError>,
+    },
+    Checkpoint {
+        scope: GroupScope,
+        result: Result<(), RuntimeError>,
+    },
     Archived {
         scope: GroupScope,
         position: LogPosition,
@@ -696,6 +751,8 @@ enum Job {
 }
 
 struct Driver {
+    snapshot_limits: super::snapshot::SnapshotLimits,
+    snapshot_source: Option<super::transport::snapshots::SnapshotSource>,
     archive_owner: Option<super::host_archive::Owner>,
     local: Arc<client::Handle>,
     log: super::storage::ReplicaLog,
@@ -766,6 +823,9 @@ impl Driver {
             };
             if read.expired() || cell.failed {
                 self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
+                continue;
+            }
+            if cell.incoming.is_some() {
                 continue;
             }
             if now < read.retry_at {
@@ -1198,6 +1258,10 @@ impl Driver {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
         }
+        if cell.incoming.is_some() && matches!(&request.kind, Kind::Command { .. }) {
+            reply(&mut request, Err(CommandFailure::Unavailable));
+            return;
+        }
         if request.control.cancelled() {
             return;
         }
@@ -1325,6 +1389,7 @@ impl Driver {
                     leader: status.leader.and_then(|id| MemberId::new(id).ok()),
                     term: status.term,
                     command_ready: cell.pending.is_none()
+                        && cell.incoming.is_none()
                         && cell.core.authority().is_some()
                         && status.protocol_ready
                         && !status.awaiting_apply
@@ -1338,6 +1403,7 @@ impl Driver {
                     persisted: status.persisted,
                     committed: status.committed,
                     applied: status.applied,
+                    checkpoint: status.checkpoint,
                     archived: cell.archived,
                 })
             });
@@ -1596,6 +1662,16 @@ impl Driver {
         purpose: SqlPurpose,
         result: Result<sql::Output, ExecutionError>,
     ) {
+        if matches!(
+            &purpose,
+            SqlPurpose::Checkpoint
+                | SqlPurpose::SnapshotSource(_)
+                | SqlPurpose::SnapshotPrepare(_)
+                | SqlPurpose::SnapshotPublish(_)
+        ) {
+            self.on_snapshot_sql(scope, purpose, result);
+            return;
+        }
         let Some(cell) = self.cells.get_mut(&scope) else {
             return;
         };
@@ -1800,6 +1876,7 @@ impl Driver {
             }
             (SqlPurpose::Publish(ticket), Value::Published { view, receipt }) => {
                 cell.image = Some(view);
+                cell.apply_inflight = false;
                 cell.apply_ticket = None;
                 if let Ok(Some(progress)) =
                     progress(&cell.group, cell.image.as_ref(), cell.archived)
@@ -1848,6 +1925,10 @@ impl Driver {
     fn on_event(&mut self, event: RuntimeEvent) {
         match &event.kind {
             RuntimeEventKind::Message { replica, message } => {
+                if message.get_msg_type() == ::raft::prelude::MessageType::MsgSnapshot {
+                    self.send_snapshot(&replica.scope, message.clone());
+                    return;
+                }
                 if self
                     .transport
                     .submit(&replica.scope, message.clone())
@@ -1873,6 +1954,7 @@ impl Driver {
                     if cell.apply.is_some() {
                         self.fail(&scope);
                     } else {
+                        cell.apply_inflight = true;
                         cell.apply = Some(event);
                         self.applying.insert(scope);
                     }
@@ -1904,7 +1986,18 @@ impl Driver {
                 }
             }
             RuntimeEventKind::Failed { replica, .. } => self.fail(&replica.scope),
-            RuntimeEventKind::Snapshot { ticket, .. } => self.fail(&ticket.replica().scope),
+            RuntimeEventKind::Snapshot {
+                ticket,
+                snapshot,
+                source,
+            } => self.receive_snapshot(ticket.clone(), snapshot.clone(), *source),
+            RuntimeEventKind::SnapshotInstalled { ticket, .. } => self.snapshot_installed(ticket),
+            RuntimeEventKind::SnapshotAborted { ticket, .. } => self.snapshot_aborted(ticket),
+            RuntimeEventKind::Checkpointed { ticket } => {
+                if let Some(cell) = self.cells.get_mut(&ticket.replica().scope) {
+                    cell.checkpoint_busy = false;
+                }
+            }
             RuntimeEventKind::ReadIndex {
                 replica,
                 index,
@@ -1939,12 +2032,20 @@ impl Driver {
     }
 
     fn pump(&mut self) {
+        self.pump_snapshots();
         for scope in self.applying.clone() {
             let Some(cell) = self.cells.get_mut(&scope) else {
                 continue;
             };
             if cell.failed {
                 self.applying.remove(&scope);
+                continue;
+            }
+            if cell
+                .incoming
+                .as_ref()
+                .is_some_and(|incoming| !incoming.allows_apply())
+            {
                 continue;
             }
             if cell.sql_busy || cell.apply_retry_at > crate::asyncrt::mono_ms() {
@@ -1980,7 +2081,7 @@ impl Driver {
             let Some(cell) = self.cells.get_mut(&scope) else {
                 continue;
             };
-            if cell.failed || cell.sql_busy || cell.status_busy {
+            if cell.failed || cell.sql_busy || cell.status_busy || cell.incoming.is_some() {
                 continue;
             }
             let Some(pending) = cell.pending.as_mut() else {
@@ -2095,6 +2196,11 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            job @ (Job::SnapshotSent { .. }
+            | Job::SnapshotFetched { .. }
+            | Job::SnapshotAuthorized { .. }
+            | Job::SnapshotAbort { .. }
+            | Job::Checkpoint { .. }) => self.on_snapshot_job(job),
             Job::Archived {
                 scope,
                 position,
@@ -2258,6 +2364,7 @@ impl Driver {
 
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
+        self.snapshot_source.take();
         if let Some(owner) = &self.archive_owner {
             let _ = owner.cancellation.send(true);
         }

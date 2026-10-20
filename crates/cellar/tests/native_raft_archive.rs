@@ -1116,6 +1116,7 @@ async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()>
 async fn archive_commands_reclaim_generations_with_small_disk_admission() -> Result<()> {
     let mut options = RaftHostOptions::default();
     options.images.max_generations = 3;
+    options.enable_snapshots = false;
     let native = Native::start(Arc::new(faults::Store::default()), options, Durability::S3).await?;
     for sequence in 1..=40 {
         let receipt = native.retry(sequence, Durability::S3).await?;
@@ -1183,6 +1184,7 @@ async fn s3_three_voter_failover_restores_only_committed_commands() -> Result<()
     };
     let mut host = RaftHostOptions::default();
     host.images.max_generations = 3;
+    host.enable_snapshots = false;
     let cluster =
         cluster::Cluster::start_with_host(&definitions, vec![registration], 20, host).await?;
     let handles = cluster
@@ -1329,6 +1331,7 @@ async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Res
     store.archive_hang.store(true, Ordering::Release);
     let mut options = RaftHostOptions::default();
     options.images.max_generations = 3;
+    options.enable_snapshots = false;
     options.archive.limits.io_timeout_ms = 60_000;
     let native = Native::start(store.clone(), options, Durability::Quorum).await?;
     native.retry(1, Durability::Quorum).await?;

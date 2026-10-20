@@ -199,6 +199,10 @@ impl Replica {
             persisted: LogIndex::new(cache.last_index()),
             committed: LogIndex::new(cache.hard_state.commit),
             applied: cache.applied.position,
+            checkpoint: LogPosition {
+                index: LogIndex::new(cache.snapshot.get_metadata().index),
+                term: Term::new(cache.snapshot.get_metadata().term),
+            },
             awaiting_ready: !self.idle(),
             awaiting_apply: self.apply_ticket.is_some(),
             election_timeout: self.node.raft.randomized_election_timeout(),
@@ -709,6 +713,7 @@ impl Replica {
                         .push(RuntimeEventKind::Snapshot {
                             ticket: ticket.clone(),
                             snapshot: snapshot.clone(),
+                            source: self.node.raft.leader_id,
                         })
                         .is_none()
                     {

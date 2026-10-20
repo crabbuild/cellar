@@ -24,6 +24,7 @@ struct Fault {
     blocked: bool,
     stopped: bool,
     hold_response: bool,
+    hold_after: Option<usize>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -48,7 +49,10 @@ pub struct HeldResponses(watch::Sender<Fault>);
 
 impl Drop for HeldResponses {
     fn drop(&mut self) {
-        self.0.send_modify(|fault| fault.hold_response = false);
+        self.0.send_modify(|fault| {
+            fault.hold_response = false;
+            fault.hold_after = None;
+        });
     }
 }
 
@@ -68,20 +72,38 @@ async fn forward_responses(
     held: Arc<AtomicUsize>,
 ) -> std::io::Result<()> {
     let mut buffer = [0; 16 * 1024];
+    let mut forwarded = 0usize;
     loop {
         let count = reader.read(&mut buffer).await?;
         if count == 0 {
             return Ok(());
         }
-        if faults.borrow().hold_response {
-            held.fetch_add(count, Ordering::SeqCst);
-        }
-        while faults.borrow_and_update().hold_response {
-            if faults.changed().await.is_err() {
-                return Ok(());
+        let mut offset = 0;
+        let mut counted = false;
+        while offset < count {
+            let fault = *faults.borrow_and_update();
+            let allowance = if fault.hold_response {
+                0
+            } else {
+                fault
+                    .hold_after
+                    .map_or(count - offset, |after| after.saturating_sub(forwarded))
+            };
+            if allowance == 0 {
+                if !counted {
+                    held.fetch_add(count - offset, Ordering::SeqCst);
+                    counted = true;
+                }
+                if faults.changed().await.is_err() {
+                    return Ok(());
+                }
+                continue;
             }
+            let end = count.min(offset.saturating_add(allowance));
+            writer.write_all(&buffer[offset..end]).await?;
+            forwarded += end - offset;
+            offset = end;
         }
-        writer.write_all(&buffer[..count]).await?;
     }
 }
 
@@ -216,7 +238,26 @@ impl Cluster {
         tick_ms: u64,
         host: RaftHostOptions,
     ) -> Result<Self> {
-        Self::start_layout(definitions, registrations, tick_ms, host, None).await
+        Self::start_layout(
+            definitions,
+            registrations,
+            tick_ms,
+            host,
+            None,
+            TransportOptions::default(),
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_with_transport(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        tick_ms: u64,
+        host: RaftHostOptions,
+        transport: TransportOptions,
+    ) -> Result<Self> {
+        Self::start_layout(definitions, registrations, tick_ms, host, None, transport).await
     }
 
     // Some targets only use the three-voter partition fixture.
@@ -228,7 +269,15 @@ impl Cluster {
         host: RaftHostOptions,
         namespaces: &[(ClusterId, NamespaceId)],
     ) -> Result<Self> {
-        Self::start_layout(definitions, registrations, tick_ms, host, Some(namespaces)).await
+        Self::start_layout(
+            definitions,
+            registrations,
+            tick_ms,
+            host,
+            Some(namespaces),
+            TransportOptions::default(),
+        )
+        .await
     }
 
     async fn start_layout(
@@ -237,6 +286,7 @@ impl Cluster {
         tick_ms: u64,
         host: RaftHostOptions,
         namespaces: Option<&[(ClusterId, NamespaceId)]>,
+        transport: TransportOptions,
     ) -> Result<Self> {
         let count = if namespaces.is_some() { 4 } else { 3 };
         ensure!(definitions.len() == count, "incorrect fixture node count");
@@ -328,7 +378,7 @@ impl Cluster {
                                     tick_interval_ms: Some(tick_ms),
                                     ..Default::default()
                                 },
-                                transport: TransportOptions::default(),
+                                transport: transport.clone(),
                             },
                             catalog: CatalogOptions {
                                 prefix: "partition/test".into(),
@@ -410,6 +460,46 @@ impl Cluster {
         for (_, _, _, proxy) in &self.links {
             proxy.block(false);
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn hold_data_responses(&self, source: usize, target: usize) -> Result<HeldResponses> {
+        let proxy = self
+            .links
+            .iter()
+            .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
+            .map(|(_, _, _, proxy)| proxy)
+            .ok_or_else(|| anyhow::anyhow!("data link not found"))?;
+        proxy.state.send_modify(|fault| fault.hold_response = true);
+        Ok(HeldResponses(proxy.state.clone()))
+    }
+
+    #[allow(dead_code)]
+    pub fn hold_data_responses_after(
+        &self,
+        source: usize,
+        target: usize,
+        after: usize,
+    ) -> Result<HeldResponses> {
+        let proxy = self
+            .links
+            .iter()
+            .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
+            .map(|(_, _, _, proxy)| proxy)
+            .ok_or_else(|| anyhow::anyhow!("data link not found"))?;
+        proxy
+            .state
+            .send_modify(|fault| fault.hold_after = Some(after));
+        Ok(HeldResponses(proxy.state.clone()))
+    }
+
+    #[allow(dead_code)]
+    pub fn held_data_response_bytes(&self, source: usize, target: usize) -> usize {
+        self.links
+            .iter()
+            .filter(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Data)
+            .map(|(_, _, _, proxy)| proxy.held_response_bytes.load(Ordering::SeqCst))
+            .sum()
     }
 
     pub fn data_attempts(&self, node: usize) -> usize {

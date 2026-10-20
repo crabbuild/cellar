@@ -67,11 +67,10 @@ after its public Node path and failure cases pass together.
 | 5 | Qualify the initial release | Complete workload batching, benchmarks, checked operation histories, fault/recovery drills and soak tests. Publish the supported topology and measured limits with reproducible evidence. | MR-14, MR-15 |
 | 6 | Expand the supported scale | Qualify measured group density and larger cluster tiers, then independent-cluster federation. Millions of cells and millions of physical nodes are separate qualification targets. | MR-16, MR-17 |
 
-The immediate implementation sequence for priority 1 is safe exact-ticket abort,
-native checkpoint/source scheduling, peer transfer and host publication, followed
-by authorized fresh-member/S3 recovery and the complete recovery fault matrix.
-Keep automatic compaction disabled until native transfer can serve its retained
-checkpoints. Keep each later package's dependency and acceptance gates intact.
+Priority 1 now includes safe exact-ticket abort and native checkpoint/source
+scheduling, peer transfer and host publication for existing replicas. Next are
+authorized fresh-member/S3 recovery and the complete recovery fault matrix.
+Keep each later package's dependency and acceptance gates intact.
 
 ## Package dependency order
 
@@ -443,6 +442,14 @@ records remaining native scheduling, authenticated transfer/cancellation ownersh
 host readiness/generation admission and fresh-member authorization/quorum-loss
 refusal. MR-10 is not complete.
 
+The native host now captures periodic checkpoints and pins the exact requested
+source before sending snapshot metadata. Member-only pulls use separate bounded
+TLS connections, ordered authenticated chunks and fixed deadlines. The SQL owner
+seals and publishes only after the exact durable install. Older physical apply
+forces abort/join before retry; other groups retain command and query progress.
+Native drills cover catch-up, partial-transfer retry and joined shutdown. Snapshot
+admission is checked before catalog objects or member storage are created.
+
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
 
 Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/tests/native_raft_snapshot.rs`.
@@ -471,6 +478,10 @@ Stop conditions: Stop if restart repairs applied/commit mismatch by inventing pr
 | `snapshot_abort_preserves_vote_and_committed_image` | Cancellation persists required term/vote over the old committed prefix, refuses late install and preserves the old image/checkpoint across restart |
 | `snapshot_abort_joins_older_apply_and_allows_retry` | Cancellation joins the existing physical apply before completion; a fresh ticket can install the retried snapshot |
 | `snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix` | Failed cancellation sync releases no progress or acknowledgement and restart recovers the coherent old image/prefix |
+| `native_snapshot_catchup_resumes_follower_reads` | An isolated native follower installs the compacted checkpoint through bounded authenticated chunks, catches up and serves the retained token without business callbacks |
+| `native_snapshot_interrupted_transfer_retries_without_blocking_other_groups` | A partial transfer supplies no read result; retry restores the follower while a second group keeps writing |
+| `native_snapshot_shutdown_joins_partial_transfer` | Native close joins the transfer, sockets, blocking owners and reservations while responses remain held |
+| `native_snapshot_admission_refuses_insufficient_restore_capacity` | Startup rejects encoded/image-slot/copy budgets before creating namespace objects or permanent member storage |
 
 Verification target: `native_raft_snapshot`. Run the exact list/test commands
 shown by `plan.py show MR-10`; the manifest is authoritative for arguments.

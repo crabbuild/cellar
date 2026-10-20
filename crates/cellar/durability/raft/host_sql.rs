@@ -9,6 +9,8 @@ use super::completion::{
     ApplyCompletion, ApplyTicket, GroupStatus, RuntimeEvent, RuntimeEventKind,
 };
 use super::execution::*;
+use super::snapshot::{PreparedSnapshot, SnapshotCheckpoint, SnapshotLimits, SnapshotPackage};
+use super::transport::snapshots::{ReceivedSnapshot, SourceReservation};
 use crate::application::consensus::client::{AttemptControl, Work};
 use crate::application::consensus::{OperationContract, RaftClass};
 use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope};
@@ -80,6 +82,22 @@ pub(crate) enum Action {
     CaptureArchive {
         limits: ArchiveLimits,
     },
+    CaptureCheckpoint {
+        limits: SnapshotLimits,
+        reservation: SourceReservation,
+    },
+    CaptureSnapshot {
+        snapshot: Box<::raft::prelude::Snapshot>,
+        limits: SnapshotLimits,
+        reservation: SourceReservation,
+    },
+    PrepareSnapshot {
+        ticket: ApplyTicket,
+        received: Box<ReceivedSnapshot>,
+    },
+    PublishSnapshot {
+        ticket: ApplyTicket,
+    },
     Query {
         contract: OperationContract,
         input: Vec<u8>,
@@ -97,6 +115,13 @@ pub(crate) enum Value {
     Retired(cellar_logic::consensus::LogPosition),
     Prepared(ApplyCompletion),
     ArchiveCut(Option<Box<CommittedArchiveCut>>),
+    Checkpoint(Box<SnapshotCheckpoint>),
+    SnapshotSource {
+        package: Box<SnapshotPackage>,
+        reservation: SourceReservation,
+    },
+    SnapshotPrepared(Box<super::completion::SnapshotCompletion>),
+    SnapshotPublished(Option<ImageView>),
     Published {
         view: ImageView,
         receipt: Option<(CommandIdentity, CommittedReceipt)>,
@@ -356,6 +381,7 @@ impl Pool {
                     class,
                     options,
                     applier,
+                    snapshot: None,
                     private: None,
                     active: None,
                 },
@@ -380,6 +406,7 @@ struct Cell {
     class: Arc<RaftClass>,
     options: PrivateOptions,
     applier: ImageApplier,
+    snapshot: Option<(ApplyTicket, PreparedSnapshot, Permit)>,
     private: Option<PrivateExecutor>,
     active: Option<CommandIdentity>,
 }
@@ -551,6 +578,94 @@ impl Cell {
                     .transpose()
                     .map_err(super::execution::storage)?;
                 Ok(Value::ArchiveCut(cut.map(Box::new)))
+            }
+            Action::CaptureCheckpoint {
+                limits,
+                reservation,
+            } => {
+                let _reservation = reservation;
+                let package = match self
+                    .applier
+                    .queryable()
+                    .map_err(super::execution::storage)?
+                {
+                    Some(image) => SnapshotPackage::capture(&self.group, image, limits),
+                    None => SnapshotPackage::capture_empty(
+                        &self.group,
+                        self.class.schema_digest(),
+                        limits,
+                    ),
+                }
+                .map_err(super::execution::storage)?;
+                Ok(Value::Checkpoint(Box::new(package.checkpoint_material())))
+            }
+            Action::CaptureSnapshot {
+                snapshot,
+                limits,
+                reservation,
+            } => {
+                let package = SnapshotPackage::retained(
+                    &self.group,
+                    &self.options.images,
+                    self.class.schema_digest(),
+                    &snapshot,
+                    limits,
+                )
+                .map_err(super::execution::storage)?;
+                Ok(Value::SnapshotSource {
+                    package: Box::new(package),
+                    reservation,
+                })
+            }
+            Action::PrepareSnapshot { ticket, received } => {
+                if self.snapshot.is_some() {
+                    return Err(ExecutionError::Invalid("snapshot already prepared"));
+                }
+                let (prepared, reservation) =
+                    received
+                        .finish(&self.options.images)
+                        .map_err(|error| match error {
+                            super::snapshot::SnapshotError::Limit
+                            | super::snapshot::SnapshotError::Images(
+                                cellar_ltx::generation::GenerationError::Limit,
+                            ) => ExecutionError::Refused(CommandFailure::Overloaded),
+                            super::snapshot::SnapshotError::Invalid(_) => {
+                                ExecutionError::Invalid("snapshot verification")
+                            }
+                            error => super::execution::storage(error),
+                        })?;
+                let completion = prepared
+                    .completion(&ticket)
+                    .map_err(super::execution::storage)?;
+                self.snapshot = Some((ticket, prepared, reservation));
+                Ok(Value::SnapshotPrepared(Box::new(completion)))
+            }
+            Action::PublishSnapshot { ticket } => {
+                let Some((expected, prepared, _reservation)) = self.snapshot.take() else {
+                    return Err(ExecutionError::Invalid("missing prepared snapshot"));
+                };
+                if expected != ticket {
+                    return Err(ExecutionError::Invalid("snapshot publication ticket"));
+                }
+                let current = if self
+                    .group
+                    .applied()
+                    .map_err(super::execution::storage)?
+                    .image
+                    .is_some()
+                {
+                    Some(ImageView::of(
+                        &prepared
+                            .publish(&mut self.applier)
+                            .map_err(super::execution::storage)?,
+                    ))
+                } else {
+                    prepared
+                        .publish_empty(&mut self.applier)
+                        .map_err(super::execution::storage)?;
+                    None
+                };
+                Ok(Value::SnapshotPublished(current))
             }
             Action::Query {
                 contract,

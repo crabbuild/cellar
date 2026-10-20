@@ -435,6 +435,10 @@ pub struct SnapshotDownload {
 }
 
 impl SnapshotDownload {
+    pub(crate) fn encoded_length(&self) -> usize {
+        self.descriptor.encoded_length
+    }
+
     pub fn new(
         group: &GroupLog,
         schema: [u8; 32],
@@ -463,7 +467,7 @@ impl SnapshotDownload {
             return Err(SnapshotError::Limit);
         }
         self.bytes
-            .try_reserve_exact(bytes.len())
+            .try_reserve_exact(self.descriptor.encoded_length - self.bytes.len())
             .map_err(|_| SnapshotError::Limit)?;
         self.bytes.extend_from_slice(bytes);
         Ok(())

@@ -117,6 +117,8 @@ pub struct CellStatus {
     pub persisted: LogIndex,
     pub committed: LogIndex,
     pub applied: LogPosition,
+    /// The durable Raft checkpoint boundary; it grants no read or write proof.
+    pub checkpoint: LogPosition,
     pub archived: LogIndex,
 }
 

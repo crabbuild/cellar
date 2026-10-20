@@ -49,6 +49,10 @@ pub struct TransportOptions {
     pub node_data_bytes: usize,
     pub queue_items: usize,
     pub io_timeout_ms: u64,
+    /// Whole-transfer deadline, independent of the per-I/O idle deadline.
+    pub snapshot_timeout_ms: u64,
+    pub max_snapshot_bytes: usize,
+    pub snapshot_chunk_bytes: usize,
 }
 
 impl Default for TransportOptions {
@@ -72,11 +76,29 @@ impl Default for TransportOptions {
             node_data_bytes: 128 * 1024 * 1024,
             queue_items: 128,
             io_timeout_ms: 5000,
+            snapshot_timeout_ms: 30_000,
+            max_snapshot_bytes: 128 * 1024 * 1024,
+            snapshot_chunk_bytes: 1024 * 1024,
         }
     }
 }
 
 impl TransportOptions {
+    pub(crate) fn snapshot_limits(
+        &self,
+        image_bytes: u64,
+    ) -> Result<super::snapshot::SnapshotLimits, TransportError> {
+        let limits = super::snapshot::SnapshotLimits {
+            max_image_bytes: image_bytes,
+            max_encoded_bytes: self.max_snapshot_bytes,
+            max_chunk_bytes: self.snapshot_chunk_bytes,
+        };
+        limits
+            .validate()
+            .map_err(|e| TransportError::Invalid(e.to_string()))?;
+        Ok(limits)
+    }
+
     pub(crate) fn validate(&self) -> Result<(), TransportError> {
         if self.max_peers == 0
             || self.max_peers > 4096
@@ -101,6 +123,10 @@ impl TransportOptions {
             || self.queue_items > 4096
             || self.io_timeout_ms == 0
             || self.io_timeout_ms > 60_000
+            || !(1..=300_000).contains(&self.snapshot_timeout_ms)
+            || !(512..=128 * 1024 * 1024).contains(&self.max_snapshot_bytes)
+            || !(1..=1024 * 1024).contains(&self.snapshot_chunk_bytes)
+            || self.snapshot_chunk_bytes > self.max_snapshot_bytes
         {
             return Err(TransportError::Invalid("invalid transport limits".into()));
         }

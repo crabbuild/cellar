@@ -261,9 +261,9 @@ responses cannot regress a completed/retiring producer. Node shutdown joins all
 started callbacks before releasing directory ownership. A close report records
 unfinished command IDs without proving S3 coverage or authorizing disk deletion.
 See the [counter example](../../../../examples/raft-counter/README.md) for native
-HTTP and Axum gateways over the same handles. Minimum-version/linearizable reads,
-S3 archive gates, snapshot installation and membership controllers remain later
-work packages; unsupported capabilities are explicitly refused.
+HTTP and Axum gateways over the same handles. Explicit follower reads, S3 archive
+gates and native snapshot installation are described below. Membership controllers
+and unsupported business capabilities remain separate work packages.
 
 Incoming snapshots similarly require a `Snapshot` effect completion before the
 Ready's snapshot metadata or dependent messages can advance. The host verifier
@@ -404,7 +404,10 @@ unreferenced application generations. Live pins survive retirement. Capacity
 pressure can defer an already committed apply while retaining its original
 runtime admission; it cannot acknowledge before publication or discard its only
 recovery path. Host configuration requires compatible execution/apply/archive
-limits, at least three generations and four maximum-image copies of capacity.
+limits. Native snapshot recovery requires at least six generations and eight
+maximum-image copies. The explicit non-compacting profile with
+`enable_snapshots = false` retains the three-generation/four-copy admission floor;
+it cannot recover through native snapshots.
 
 The [archive audit](../../../../plans/multi-raft/archive-audit.md) records the
 proof boundary, resource contracts and qualification scope. Run the owning
@@ -413,7 +416,7 @@ restore, retention and three-voter failover. It does not qualify physical S3,
 power loss, production scale or automatic member restoration.
 
 
-## Physical snapshots under implementation
+## Native snapshots and remaining member recovery
 
 `snapshot.rs` supplies bounded source capture, full LTX encoding, ordered chunk
 assembly and destination generation sealing. Marker-1 descriptors bind the full
@@ -428,9 +431,10 @@ engine snapshot and applied marker are observed durable.
 applied generation, including across restart and newer data publications. A new
 durable checkpoint replaces the old reference; reader/transfer pins continue to
 protect retired bytes. Snapshot encode/download operations belong on the owning
-blocking domain. Their per-transfer limits do not replace the node-wide admission,
-authenticated RPC scheduling and transfer lifetime ownership still required by
-MR-10. Automatic fresh-member recovery, quorum-loss refusal and full native-host
+blocking domain. `host_snapshot.rs` schedules native checkpoints, source captures,
+downloads and publication; `snapshot_transport.rs` supplies member-only bounded
+pulls over separate TLS data connections. Automatic fresh-member recovery,
+quorum-loss refusal and full native-host
 lifecycle qualification remain unfinished. The component process-kill matrix
 covers image sync/rename/directory sync, engine sync/reply and publication. The owning verification
 target is `native_raft_snapshot`; this component does not complete MR-10.
@@ -448,9 +452,34 @@ Empty/configuration-only snapshot descriptors carry no image or encoded payload.
 They preserve configuration/index/term without allocating a SQLite database; the
 first committed LTX update can subsequently establish the initial image.
 `recovery.rs` validates coherent engine-selected reference sets before startup GC.
-Native checkpoint scheduling, authenticated snapshot transfer and authorized
-replacement-member admission are still MR-10 work; these component APIs alone do
-not enable automatic compaction in the production host.
+Native checkpoint scheduling defaults to one cut per 256 applied entries;
+`checkpoint_entries = 0` disables automatic compaction. The host pins and registers
+the exact requested source cut before sending `MsgSnapshot`. The receiver validates
+the descriptor against its local ticket, fetches ordered chunks and seals on its
+SQL owner. It waits for `SnapshotInstalled` before publishing the image and
+releasing waiting reads. A snapshot arriving during older physical apply is
+aborted so that owner can complete before a fresh transfer. Late completions cannot
+authorize the new ticket. An authorized install must instead be joined.
+
+Snapshot bodies have separate node admission: one source capture/lease and one
+receiver, each charged for encoded bytes plus four maximum-image working copies.
+Neither consumes command/query output budgets. Defaults allow 128 MiB encoded,
+1 MiB chunks, a 30-second whole-transfer deadline and the existing five-second I/O
+idle deadline. Source leases also bind the current member/process route; source
+pins survive checkpoint replacement until the lease completes or expires. Empty
+snapshots need no body lease or socket. Delivery failure only releases the matching
+source lease; it never proves install. TLS framing authenticates both directions,
+the descriptor digest, full physical route, transfer/offset and payload digest.
+Revisions and membership are rechecked throughout a transfer. Public status
+includes the durable checkpoint boundary without granting any authority.
+
+The native recovery drills isolate a follower until its leader has compacted the
+missing prefix, then require physical snapshot installation and an AtLeast query.
+Other drills interrupt ciphertext after the handshake and initial chunks, require
+retry without blocking a second group's writes, and join shutdown while a partial
+transfer remains held. Followers execute no business callbacks. Startup refuses
+inadequate restore admission before creating catalog objects or member storage.
+These drills do not yet authorize a replacement identity after disk loss.
 
 `SnapshotPackage::retained` captures the exact durable checkpoint requested by a
 transfer, even after a newer image becomes applied. It verifies the selected

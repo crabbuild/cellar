@@ -396,7 +396,7 @@ fn protocol_digest() -> [u8; 32] {
     Sha256::digest(b"cellar-raft-peer-1:tls13-exporter:hmac-sha256:protobuf2:bounded-strict").into()
 }
 
-fn decimal(value: &str) -> Result<u64, TransportError> {
+pub(super) fn decimal(value: &str) -> Result<u64, TransportError> {
     if value.is_empty()
         || value.len() > 20
         || !value.bytes().all(|b| b.is_ascii_digit())
