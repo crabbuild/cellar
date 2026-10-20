@@ -1,0 +1,9 @@
+{
+  "package_validation": "passed",
+  "tasks": 17,
+  "cases": 104,
+  "source_anchors": 62,
+  "local_links": 33
+}
+Source preflight passed: 62 anchors at baseline 24261b84fe9c9b71e18b1e521fb821bd14c0c8d1.
+Listed test inventory passed: 6 required cases. Test execution is still required.

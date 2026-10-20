@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "03156b96915ee2dbb1b6e13720c6362aea65f497",
+  "baseline_revision": "24261b84fe9c9b71e18b1e521fb821bd14c0c8d1",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -412,7 +412,7 @@
       "id": "MR-04",
       "title": "Add authenticated bounded peer transport",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-03"
       ],
@@ -524,13 +524,15 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-04.json"
+      ]
     },
     {
       "id": "MR-05",
       "title": "Implement verified LTX apply and immutable generations",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-01"
       ],

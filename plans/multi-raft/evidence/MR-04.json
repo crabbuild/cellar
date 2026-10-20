@@ -1,0 +1,110 @@
+{
+  "task_id": "MR-04",
+  "source_revision": "24261b84fe9c9b71e18b1e521fb821bd14c0c8d1",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "5ad6eefd213db29a9dccbc99a1079676e5c3df59985b44c26850bb284bf36013",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real TLS 1.3 sockets; three OS child peer-host processes with production engines, RawNodes and transport; explicit manual ticks; serial integration targets; debug assertions enabled; isolated checkout target; debuginfo=0",
+  "limitations": "MR-04 transport qualification only. Child peer hosts use opaque fixture images rather than verified SQLite/LTX application. The embedded-node test qualifies infrastructure ownership, not Raft namespace/SDK command/query registration. Trusted route installation is not the durable birth/membership controller; MR-07/MR-11 remain required. S3 archival/restore, application/query behavior, production infrastructure, resident-memory and capacity qualification remain pending. No performance, end-to-end serving or deployment claim is made. The ignored child entry point is invoked by its parent test.",
+  "tests": [
+    {
+      "name": "concurrent_senders_preserve_connection_sequence",
+      "result": "passed"
+    },
+    {
+      "name": "control_traffic_reserved",
+      "result": "passed"
+    },
+    {
+      "name": "one_way_partition",
+      "result": "passed"
+    },
+    {
+      "name": "peer_response_authenticated",
+      "result": "passed"
+    },
+    {
+      "name": "protected_transport_refuses_wrong_hostname_and_plaintext",
+      "result": "passed"
+    },
+    {
+      "name": "stale_incarnation_message",
+      "result": "passed"
+    },
+    {
+      "name": "transport_byte_limits",
+      "result": "passed"
+    },
+    {
+      "name": "transport_owner_and_domain_shutdown",
+      "result": "passed"
+    },
+    {
+      "name": "unknown_group_no_allocation",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_transport",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-04-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_transport",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-04-test.log"
+    }
+  ],
+  "lockfile_digest": "58577499016f9ec0acafcec08b960cec97e53734b55498c95671010376212d23",
+  "additional_checks": [
+    "evidence/MR-04-frames.log",
+    "evidence/MR-04-embedded.log",
+    "evidence/MR-04-core-regressions.log",
+    "evidence/MR-04-regressions.log",
+    "evidence/MR-04-clippy.log",
+    "evidence/MR-04-layout.log",
+    "evidence/MR-04-format.log",
+    "evidence/MR-04-format-check.log",
+    "evidence/MR-04-dependencies.log",
+    "evidence/MR-04-docs.log",
+    "evidence/MR-04-plan-tests.log",
+    "evidence/MR-04-inventory.log"
+  ],
+  "additional_check_results": {
+    "frames_and_lifecycle": "8 passed: bounded prefix/protobuf preflight, request/response channel/target binding, strict identity/header checks and poisoned-registry join regression.",
+    "core_regressions": "37 passed on final Rust source across native_raft_contract, native_raft_runtime, native_raft_storage, native_replication and native_storage. Two ignored child helpers are invoked by their parents.",
+    "embedded_service": "The embedded_node_joins_raft_service_with_retained_handles case passed on final Rust source, with the actual public Node bootstrap/shutdown and retained service handles.",
+    "broader_regressions": "All 88 native_node cases and 37 core cases passed in the broader run. That run began before the final transport-only enqueue refinement; the owning embedded service case, all core cases and all transport/frame cases were rerun on the final source. The native_node implementation was unchanged between those runs.",
+    "concurrency": "32 concurrent senders preserve authenticated sequence order on a shared connection; bodies and permits drop before delivery completion wakes its observer.",
+    "isolation": "Held TLS bulk data exhausts the peer data budget while independent control traffic succeeds. Close refunds held bytes/items and releases task ownership.",
+    "security": "Forged response tags, wrong TLS hostname, plaintext, unknown groups, stale histories/processes and oversized headers/payloads are refused without durable progress. Responses bind TLS exporter, request tag and reversed exact route.",
+    "process_faults": "Three child peer hosts drive two groups with different leaders over shared physical-peer pools. A one-way partition cannot advance the isolated node; the majority progresses. Fresh authenticated frames exercise duplicate, reordered and delayed Raft messages before healing."
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

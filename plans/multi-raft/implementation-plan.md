@@ -167,7 +167,7 @@ shown by `plan.py show MR-03`; the manifest is authoritative for arguments.
 
 ### MR-04 Add authenticated bounded peer transport
 
-Dependencies: MR-03. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-03. Phase: v1. Status: DONE. Evidence: [MR-04](evidence/MR-04.json).
 
 Modify: `crates/cellar/fleet/peer/auth.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/node/mod.rs`, `crates/cellar/sdk.rs`, `crates/cellar/tests/native_node.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/budget.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/README.md`.
 

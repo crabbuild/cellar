@@ -1,12 +1,13 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation in progress. MR-01 through MR-03 are complete with
-recorded evidence; MR-04 is in progress. Shared log storage and the multi-group
-Raft driver are implemented. Peer transport, SQLite/LTX application and end-to-end
-serving remain unimplemented. See [task status](tasks.json),
-[MR-01 evidence](evidence/MR-01.json), [MR-02 evidence](evidence/MR-02.json) and
-[MR-03 evidence](evidence/MR-03.json). The reviewed source baseline is
-`03156b96915ee2dbb1b6e13720c6362aea65f497`.
+Status: implementation in progress. MR-01 through MR-04 are complete with
+recorded evidence; MR-05 is in progress. Shared log storage, the multi-group
+Raft driver and authenticated bounded TLS peer transport are implemented.
+Verified SQLite/LTX application, command/query serving and S3 archive/restore
+remain pending. See [task status](tasks.json),
+[MR-01 evidence](evidence/MR-01.json), [MR-02 evidence](evidence/MR-02.json),
+[MR-03 evidence](evidence/MR-03.json) and [MR-04 evidence](evidence/MR-04.json).
+The reviewed source baseline is `24261b84fe9c9b71e18b1e521fb821bd14c0c8d1`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

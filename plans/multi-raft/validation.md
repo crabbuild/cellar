@@ -28,3 +28,14 @@ At that initial validation point, no Rust runtime code or dependencies changed. 
 runtime cases, fault qualification and scale benchmarks have not been run.
 This initial result did not establish completion of any implementation package.
 Consult tasks.json and the per-task evidence for subsequent implementation work.
+
+
+MR-04 transport implementation and scoped qualification are recorded in
+[MR-04 evidence](evidence/MR-04.json), pinned to source
+`24261b84fe9c9b71e18b1e521fb821bd14c0c8d1`. Nine transport cases, eight frame/lifecycle
+cases, the embedded-node service case and 37 core regressions passed on the final
+Rust source. The broader 88-case node run also passed; its relationship to the
+final transport-only queue refinement is recorded in the evidence. Three real
+child peer hosts exercise TLS, two groups, independent leaders, one-way loss,
+duplication, reordering and delayed Raft responses. These checks do not qualify
+SQLite/LTX, S3, end-to-end SDK serving, production performance or capacity.
