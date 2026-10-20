@@ -80,6 +80,12 @@ enum Phase {
         key: WriteTicket,
         synced: bool,
     },
+    AbortSnapshot {
+        ticket: ApplyTicket,
+        key: WriteTicket,
+        applied: Option<(ApplyTicket, DurableApply)>,
+        synced: bool,
+    },
 }
 
 pub(crate) struct Replica {
@@ -98,6 +104,8 @@ pub(crate) struct Replica {
     pub apply_bytes: usize,
     last_sync: u64,
     source_observed: Option<(u64, u64, u64)>,
+    abort_snapshot: Option<ApplyTicket>,
+    seed: [u8; 32],
 }
 
 impl Replica {
@@ -155,6 +163,8 @@ impl Replica {
             apply_bytes: 0,
             last_sync: 0,
             source_observed: None,
+            abort_snapshot: None,
+            seed,
         })
     }
 
@@ -477,6 +487,9 @@ impl Replica {
     }
 
     pub fn complete_snapshot(&mut self, completed: SnapshotCompletion) -> Result<(), RuntimeError> {
+        if self.abort_snapshot.is_some() {
+            return Err(RuntimeError::StaleCompletion);
+        }
         let Phase::Ready {
             ready,
             snapshot_ticket: Some(expected),
@@ -514,12 +527,40 @@ impl Replica {
         Ok(())
     }
 
+    pub fn abort_snapshot(&mut self, ticket: ApplyTicket) -> Result<(), RuntimeError> {
+        if self.abort_snapshot.as_ref() == Some(&ticket) {
+            return Ok(());
+        }
+        let Phase::Ready {
+            snapshot_ticket: Some(expected),
+            snapshot_authorized: false,
+            synced: false,
+            ..
+        } = &self.phase
+        else {
+            return Err(RuntimeError::StaleCompletion);
+        };
+        if expected != &ticket
+            || self.snapshot_applied.is_some()
+            || self.snapshot_reference.is_some()
+            || self.write.is_some()
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        // An older physical apply still owns its ticket. Drive joins its
+        // completion before fencing term/vote and rebuilding from stable state.
+        self.abort_snapshot = Some(ticket);
+        Ok(())
+    }
+
     pub fn synced(&mut self, ticket: &WriteTicket, sequence: u64) -> Result<(), RuntimeError> {
         if sequence <= self.last_sync {
             return Err(RuntimeError::StaleCompletion);
         }
         match &mut self.phase {
-            Phase::Ready { key, synced, .. } | Phase::Apply { key, synced, .. }
+            Phase::Ready { key, synced, .. }
+            | Phase::Apply { key, synced, .. }
+            | Phase::AbortSnapshot { key, synced, .. }
                 if key == ticket =>
             {
                 *synced = true
@@ -575,6 +616,63 @@ impl Replica {
                 }
             };
         }
+        if matches!(
+            &self.phase,
+            Phase::Ready {
+                snapshot_authorized: false,
+                ..
+            }
+        ) {
+            if let Some(ticket) = &self.abort_snapshot {
+                if self.apply_ticket.is_some() && self.finished_apply.is_none() {
+                    return Ok(false);
+                }
+                let mut hard = self.node.raft.hard_state();
+                // Restoring an unstable snapshot has already raised RawNode's
+                // commit index. Its bytes are uninstalled: retain the stable
+                // commit while persisting the term/vote needed to refuse a
+                // second vote after cancellation or a crash.
+                hard.commit = self.log.initial_state()?.hard_state.commit;
+                let mut write = GroupWrite::new(&self.log);
+                write.hard_state = Some(hard);
+                let applied = if let Some(completed) = self.finished_apply.take() {
+                    if self.apply_ticket.as_ref() != Some(&completed.ticket)
+                        || self.apply.front().map(entry_position)
+                            != Some(completed.ticket.position())
+                    {
+                        return Err(RuntimeError::StaleCompletion);
+                    }
+                    // This capability is now consumed by the abort write.
+                    // A duplicate completion cannot reacquire its effect while
+                    // storage sync or the abort event is still pending.
+                    self.apply_ticket = None;
+                    let applied = DurableApply {
+                        position: completed.ticket.position(),
+                        image: Some(completed.image),
+                    };
+                    write.applied = Some(applied.clone());
+                    Some((completed.ticket, applied))
+                } else {
+                    None
+                };
+                let key = WriteTicket {
+                    key: operations.ticket(
+                        self.log.identity(),
+                        ticket.position(),
+                        ticket.entry_digest(),
+                    )?,
+                    ready: 0,
+                };
+                self.write = Some((key.clone(), write));
+                self.phase = Phase::AbortSnapshot {
+                    ticket: ticket.clone(),
+                    key,
+                    applied,
+                    synced: false,
+                };
+                return Ok(true);
+            }
+        }
         match &mut self.phase {
             Phase::Ready {
                 ready,
@@ -623,7 +721,39 @@ impl Replica {
             Phase::Ready { synced: false, .. }
             | Phase::Light { synced: false, .. }
             | Phase::Checkpoint { synced: false, .. }
+            | Phase::AbortSnapshot { synced: false, .. }
             | Phase::Apply { synced: false, .. } => Ok(false),
+            Phase::AbortSnapshot {
+                ticket, applied, ..
+            } => {
+                if let Some((ticket, applied)) = applied {
+                    if outbox
+                        .push(RuntimeEventKind::Applied {
+                            ticket: ticket.clone(),
+                            applied: applied.clone(),
+                        })
+                        .is_some()
+                    {
+                        return Ok(false);
+                    }
+                    let Phase::AbortSnapshot { applied, .. } = &mut self.phase else {
+                        unreachable!()
+                    };
+                    *applied = None;
+                    return Ok(true);
+                }
+                let event = RuntimeEventKind::SnapshotAborted {
+                    ticket: ticket.clone(),
+                    applied: self.log.applied()?,
+                };
+                let mut recovered = Self::new(self.log.clone(), options, self.seed)?;
+                recovered.last_sync = self.last_sync;
+                if outbox.push(event).is_some() {
+                    return Ok(false);
+                }
+                *self = recovered;
+                Ok(true)
+            }
             Phase::Ready {
                 ready,
                 messages_taken,

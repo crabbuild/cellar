@@ -331,6 +331,371 @@ fn runtime_options() -> RaftRuntimeOptions {
     }
 }
 
+async fn next_kind(events: &mut RuntimeEvents) -> Result<RuntimeEventKind> {
+    let event = tokio::time::timeout(std::time::Duration::from_secs(10), events.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("runtime event stream closed"))?;
+    if let RuntimeEventKind::Failed { error, .. } = event.kind {
+        anyhow::bail!("runtime failed: {error}");
+    }
+    Ok(event.kind)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_abort_preserves_vote_and_committed_image() -> Result<()> {
+    for incoming_term in [3, 4] {
+        let root = tempfile::tempdir()?;
+        let mut source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+        let mut target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Create).await?;
+        source.commit(1).await?;
+        source.commit(2).await?;
+        target.commit(1).await?;
+        let mut hard = target.group.initial_state()?.hard_state;
+        hard.term = 3;
+        hard.vote = 2;
+        let mut write = GroupWrite::new(&target.group);
+        write.hard_state = Some(hard);
+        target.log.persist(OperationId::new(4), vec![write]).await?;
+        let (runtime, mut events) = target
+            .domain
+            .run(RaftRuntime::start(target.log.clone(), runtime_options()))
+            .await??;
+        runtime
+            .checkpoint(target.package()?.checkpoint_material())
+            .await?;
+        checkpointed(&mut events).await?;
+        let package = source.package()?;
+        runtime
+            .step(
+                &scope(),
+                raft::prelude::Message {
+                    from: 1,
+                    to: 2,
+                    term: incoming_term,
+                    msg_type: raft::prelude::MessageType::MsgSnapshot,
+                    snapshot: Some(package.snapshot()).into(),
+                    ..Default::default()
+                },
+            )
+            .await?;
+        let ticket = loop {
+            if let RuntimeEventKind::Snapshot { ticket, .. } = next_kind(&mut events).await? {
+                break ticket;
+            }
+        };
+        let prepared = download(&package, &target)?;
+        let late = prepared.completion(&ticket)?;
+        runtime.abort_snapshot(ticket.clone()).await?;
+        loop {
+            match next_kind(&mut events).await? {
+                RuntimeEventKind::SnapshotAborted {
+                    ticket: aborted,
+                    applied,
+                } => {
+                    assert_eq!(aborted, ticket);
+                    assert_eq!(applied.position.index.get(), 2);
+                    break;
+                }
+                RuntimeEventKind::SnapshotInstalled { .. } => {
+                    anyhow::bail!("aborted snapshot installed")
+                }
+                RuntimeEventKind::Message { message, .. } => ensure!(
+                    message.get_msg_type() != raft::prelude::MessageType::MsgAppendResponse,
+                    "aborted snapshot must not acknowledge installation"
+                ),
+                _ => (),
+            }
+        }
+        ensure!(matches!(
+            runtime.complete_snapshot(late).await,
+            Err(RuntimeError::StaleCompletion)
+        ));
+        ensure!(prepared.publish(&mut target.applier()?).is_err());
+        let hard = target.group.initial_state()?.hard_state;
+        assert_eq!(hard.term, incoming_term);
+        assert_eq!(hard.vote, if incoming_term == 3 { 2 } else { 0 });
+        assert_eq!(hard.commit, 2);
+        assert_eq!(target.group.snapshot(0, 1)?.get_metadata().index, 2);
+        assert_eq!(value(target.applier()?.current().unwrap().pin())?, 1);
+        runtime
+            .step(
+                &scope(),
+                raft::prelude::Message {
+                    from: 3,
+                    to: 2,
+                    term: incoming_term,
+                    index: 2,
+                    log_term: 2,
+                    msg_type: raft::prelude::MessageType::MsgRequestVote,
+                    ..Default::default()
+                },
+            )
+            .await?;
+        loop {
+            if let RuntimeEventKind::Message { message, .. } = next_kind(&mut events).await? {
+                if message.get_msg_type() == raft::prelude::MessageType::MsgRequestVoteResponse {
+                    assert_eq!(message.to, 3);
+                    assert_eq!(message.reject, incoming_term == 3);
+                    assert_eq!(
+                        target.group.initial_state()?.hard_state.vote,
+                        if incoming_term == 3 { 2 } else { 3 }
+                    );
+                    break;
+                }
+            }
+        }
+        runtime.close().await?;
+        target.close().await?;
+        let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Resume).await?;
+        assert_eq!(value(target.applier()?.current().unwrap().pin())?, 1);
+        assert_eq!(target.group.initial_state()?.hard_state.commit, 2);
+        assert_eq!(target.group.snapshot(0, 1)?.get_metadata().index, 2);
+        target.close().await?;
+        drop(package);
+        source.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_abort_joins_older_apply_and_allows_retry() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let gate = log_fault::Gate::new(None);
+    let mut source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let target = Fixture::with_filesystems(
+        &root.path().join("target"),
+        2,
+        LogOpenMode::Create,
+        Arc::new(DirectFileSystem),
+        Arc::new(log_fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    for value in 1..=4 {
+        source.commit(value).await?;
+    }
+    let package = source.package()?;
+    let entries = source
+        .group
+        .entries(2, 4, None, raft::GetEntriesContext::empty(false))?;
+    let (runtime, mut events) = target
+        .domain
+        .run(RaftRuntime::start(target.log.clone(), runtime_options()))
+        .await??;
+    runtime
+        .step(
+            &scope(),
+            raft::prelude::Message {
+                from: 1,
+                to: 2,
+                term: 2,
+                index: 1,
+                log_term: 1,
+                commit: 2,
+                entries: entries.into(),
+                msg_type: raft::prelude::MessageType::MsgAppend,
+                ..Default::default()
+            },
+        )
+        .await?;
+    let (apply_ticket, entry) = loop {
+        if let RuntimeEventKind::Apply { ticket, entry } = next_kind(&mut events).await? {
+            break (ticket, entry);
+        }
+    };
+    assert_eq!(target.group.last_index()?, 3);
+    let snapshot_message = raft::prelude::Message {
+        from: 1,
+        to: 2,
+        term: 3,
+        msg_type: raft::prelude::MessageType::MsgSnapshot,
+        snapshot: Some(package.snapshot()).into(),
+        ..Default::default()
+    };
+    runtime.step(&scope(), snapshot_message.clone()).await?;
+    let ticket = loop {
+        if let RuntimeEventKind::Snapshot { ticket, .. } = next_kind(&mut events).await? {
+            break ticket;
+        }
+    };
+    runtime.abort_snapshot(ticket.clone()).await?;
+    while let Ok(Some(event)) =
+        tokio::time::timeout(std::time::Duration::from_millis(20), events.recv()).await
+    {
+        ensure!(
+            matches!(event.kind, RuntimeEventKind::Persisted { .. }),
+            "abort must await the physical owner: {:?}",
+            event.kind
+        );
+    }
+    assert_eq!(target.group.applied()?.position.index.get(), 1);
+    let mut applier = target.applier()?;
+    let completion = applier.prepare(apply_ticket.clone(), &entry, images::id(1))?;
+    let release = gate.arm(log_fault::HOLD_SYNC);
+    runtime.complete_apply(completion.clone()).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(10), gate.entered.notified()).await?;
+    ensure!(matches!(
+        runtime.complete_apply(completion).await,
+        Err(RuntimeError::StaleCompletion)
+    ));
+    runtime.abort_snapshot(ticket.clone()).await?;
+    drop(release);
+    let mut published = false;
+    loop {
+        match next_kind(&mut events).await? {
+            RuntimeEventKind::Applied {
+                ticket: old,
+                applied,
+            } => {
+                assert_eq!(old, apply_ticket);
+                assert_eq!(applied.position.index.get(), 2);
+                assert_eq!(value(applier.publish(&old)?.pin())?, 1);
+                published = true;
+            }
+            RuntimeEventKind::SnapshotAborted {
+                ticket: aborted,
+                applied,
+            } => {
+                assert_eq!(aborted, ticket);
+                ensure!(
+                    published,
+                    "older image publication must precede abort completion"
+                );
+                assert_eq!(applied.position.index.get(), 2);
+                break;
+            }
+            RuntimeEventKind::SnapshotInstalled { .. } => {
+                anyhow::bail!("aborted snapshot installed")
+            }
+            _ => (),
+        }
+    }
+    let hard = target.group.initial_state()?.hard_state;
+    assert_eq!((hard.term, hard.vote, hard.commit), (3, 0, 2));
+    assert_eq!(
+        target.group.last_index()?,
+        3,
+        "uncommitted suffix is retained"
+    );
+    let stale = download(&package, &target)?.completion(&ticket)?;
+    runtime.step(&scope(), snapshot_message).await?;
+    let retry = loop {
+        if let RuntimeEventKind::Snapshot { ticket, .. } = next_kind(&mut events).await? {
+            break ticket;
+        }
+    };
+    ensure!(
+        retry != ticket,
+        "a retry must receive a fresh operation capability"
+    );
+    ensure!(matches!(
+        runtime.complete_snapshot(stale).await,
+        Err(RuntimeError::StaleCompletion)
+    ));
+    let prepared = download(&package, &target)?;
+    runtime
+        .complete_snapshot(prepared.completion(&retry)?)
+        .await?;
+    ensure!(matches!(
+        runtime.abort_snapshot(retry.clone()).await,
+        Err(RuntimeError::StaleCompletion)
+    ));
+    loop {
+        if let RuntimeEventKind::SnapshotInstalled { ticket, applied } =
+            next_kind(&mut events).await?
+        {
+            assert_eq!(ticket, retry);
+            assert_eq!(applied.position.index.get(), 5);
+            break;
+        }
+    }
+    assert_eq!(value(prepared.publish(&mut applier)?.pin())?, 4);
+    runtime.close().await?;
+    drop(applier);
+    drop(package);
+    source.close().await?;
+    target.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let gate = log_fault::Gate::new(None);
+    let mut source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let mut target = Fixture::with_filesystems(
+        &root.path().join("target"),
+        2,
+        LogOpenMode::Create,
+        Arc::new(DirectFileSystem),
+        Arc::new(log_fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    source.commit(1).await?;
+    source.commit(2).await?;
+    target.commit(1).await?;
+    let package = source.package()?;
+    let prepared = download(&package, &target)?;
+    let (runtime, mut events) = target
+        .domain
+        .run(RaftRuntime::start(target.log.clone(), runtime_options()))
+        .await??;
+    runtime
+        .step(
+            &scope(),
+            raft::prelude::Message {
+                from: 1,
+                to: 2,
+                term: 3,
+                msg_type: raft::prelude::MessageType::MsgSnapshot,
+                snapshot: Some(package.snapshot()).into(),
+                ..Default::default()
+            },
+        )
+        .await?;
+    let ticket = loop {
+        if let RuntimeEventKind::Snapshot { ticket, .. } = next_kind(&mut events).await? {
+            break ticket;
+        }
+    };
+    let _release = gate.arm(log_fault::FAIL_SYNC);
+    runtime.abort_snapshot(ticket).await?;
+    loop {
+        // An engine-wide failure closes the worker's event stream; a scoped
+        // failure may instead emit Failed. Neither may release an install/abort
+        // completion or a dependent Raft acknowledgement.
+        let Some(event) =
+            tokio::time::timeout(std::time::Duration::from_secs(10), events.recv()).await?
+        else {
+            break;
+        };
+        match event.kind {
+            RuntimeEventKind::Failed { .. } => break,
+            RuntimeEventKind::SnapshotInstalled { .. }
+            | RuntimeEventKind::SnapshotAborted { .. }
+            | RuntimeEventKind::Message { .. } => anyhow::bail!("failed abort released progress"),
+            _ => (),
+        }
+    }
+    ensure!(runtime.status(&scope()).await.is_err());
+    ensure!(runtime.close().await.is_err());
+    ensure!(target.log.close().await.is_err());
+    target.domain.shutdown().await;
+    drop(prepared);
+    drop(target);
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Resume).await?;
+    let hard = target.group.initial_state()?.hard_state;
+    ensure!(
+        (hard.term, hard.vote) == (2, 1) || (hard.term, hard.vote) == (3, 0),
+        "an uncertain write may preserve either coherent HardState"
+    );
+    assert_eq!(hard.commit, 2);
+    assert_eq!(target.group.snapshot(0, 1)?.get_metadata().index, 1);
+    assert_eq!(value(target.applier()?.current().unwrap().pin())?, 1);
+    assert_eq!(target.images.usage()?.generations, 1);
+    target.close().await?;
+    drop(package);
+    source.close().await
+}
+
 /// Exactly the admitted 64-MiB image, with incompressible overflow pages. The
 /// SQLite record header has six bytes and 39 local bytes; each overflow page
 /// carries 508 bytes. Three root pages plus the chain fill 131,072 pages.

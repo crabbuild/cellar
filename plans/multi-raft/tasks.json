@@ -1351,6 +1351,34 @@
           "invariants": [
             "I13"
           ]
+        },
+        {
+          "name": "snapshot_abort_preserves_vote_and_committed_image",
+          "oracle": "Cancellation persists required term/vote over the old committed prefix, refuses late install and preserves the old image/checkpoint across restart",
+          "invariants": [
+            "I04",
+            "I05",
+            "I07",
+            "I11"
+          ]
+        },
+        {
+          "name": "snapshot_abort_joins_older_apply_and_allows_retry",
+          "oracle": "Cancellation joins the existing physical apply before completion; a fresh ticket can install the retried snapshot",
+          "invariants": [
+            "I04",
+            "I07",
+            "I10"
+          ]
+        },
+        {
+          "name": "snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix",
+          "oracle": "Failed cancellation sync releases no progress or acknowledgement and restart recovers the coherent old image/prefix",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
         }
       ],
       "verification": [

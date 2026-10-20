@@ -50,8 +50,30 @@ cargo test -p cellar --test native_raft_contract --locked -- --test-threads=1
 The temporary listing is diagnostic; copy the final commands/results into durable
 task evidence. Do not use a temporary file as the only release record.
 
-## Dependency order
+## Feature priorities and delivery milestones
 
+Prioritize complete native features in this order. MR-01 through MR-09 provide
+leader commands, follower queries and committed S3 archives; they do not yet
+provide the recovery and operating lifecycle required for a release. Component
+tests qualify their stated boundary. Mark a feature milestone complete only
+after its public Node path and failure cases pass together.
+
+| Priority | User-visible milestone | Completion gate | Packages |
+| --- | --- | --- | --- |
+| 1 | Recover a lagging or replacement replica | Create a checkpoint, transfer the exact cut over authenticated bounded RPCs or restore from S3, replay committed LTX, then resume follower reads. Interrupted transfers retry safely; lost disks use newly authorized member identities; missing quorum refuses normal activation. | MR-10 |
+| 2 | Repair redundancy automatically | Detect an unavailable replica, place and seed a learner, verify catch-up, promote it and remove the old member while commands and queries continue. Resume interrupted membership changes after restart. | MR-11 |
+| 3 | Run durable business features | Commit alarms, outbox entries and referenced Blob dependencies with the cell state. Only an authorized leader dispatches effects; retries and recovery preserve delivery contracts. | MR-12 |
+| 4 | Operate and maintain nodes | Expose role-aware readiness, resource limits and metrics. Drain, restart and shut down through the public Node/CLI paths; require explicit fencing and a new history for disaster restore. | MR-13 |
+| 5 | Qualify the initial release | Complete workload batching, benchmarks, checked operation histories, fault/recovery drills and soak tests. Publish the supported topology and measured limits with reproducible evidence. | MR-14, MR-15 |
+| 6 | Expand the supported scale | Qualify measured group density and larger cluster tiers, then independent-cluster federation. Millions of cells and millions of physical nodes are separate qualification targets. | MR-16, MR-17 |
+
+The immediate implementation sequence for priority 1 is safe exact-ticket abort,
+native checkpoint/source scheduling, peer transfer and host publication, followed
+by authorized fresh-member/S3 recovery and the complete recovery fault matrix.
+Keep automatic compaction disabled until native transfer can serve its retained
+checkpoints. Keep each later package's dependency and acceptance gates intact.
+
+## Package dependency order
 
 | Task | Result | Dependencies | Release |
 | --- | --- | --- | --- |
@@ -445,6 +467,9 @@ Stop conditions: Stop if restart repairs applied/commit mismatch by inventing pr
 | `retained_checkpoint_capture_never_substitutes_newer_state` | A replaced checkpoint is refused while an already captured transfer remains coherent through GC |
 | `retained_empty_checkpoint_has_no_image_or_payload` | An empty retained checkpoint invents no image or payload |
 | `snapshot_limits_require_full_encoded_image_capacity` | Encoded admission covers full-LTX overhead without shrinking the admitted image |
+| `snapshot_abort_preserves_vote_and_committed_image` | Cancellation persists required term/vote over the old committed prefix, refuses late install and preserves the old image/checkpoint across restart |
+| `snapshot_abort_joins_older_apply_and_allows_retry` | Cancellation joins the existing physical apply before completion; a fresh ticket can install the retried snapshot |
+| `snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix` | Failed cancellation sync releases no progress or acknowledgement and restart recovers the coherent old image/prefix |
 
 Verification target: `native_raft_snapshot`. Run the exact list/test commands
 shown by `plan.py show MR-10`; the manifest is authoritative for arguments.

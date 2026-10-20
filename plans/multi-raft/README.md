@@ -42,6 +42,11 @@ effects and later operations/release/scaling work remain their original packages
 All 17 original packages remain in scope; the complete delivery goal is not
 achieved. MR-10 is in progress at the recovery boundary.
 
+The [feature priorities and milestones](implementation-plan.md#feature-priorities-and-delivery-milestones)
+define the remaining delivery order: recovery, automatic repair, durable business
+features, node operations, release qualification, then larger scale/federation.
+Recovery through the public Node path is the current priority.
+
 The [MR-10 peer-admission progress](evidence/MR-10-inbound-progress.json) pins source
 `ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`: 157 Rust cases pass across ten targets,
 including 19 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node

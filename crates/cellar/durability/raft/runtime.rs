@@ -71,6 +71,7 @@ enum Command {
     Attach(GroupScope),
     Apply(ApplyCompletion),
     Snapshot(Box<SnapshotCompletion>),
+    AbortSnapshot(ApplyTicket),
     Checkpoint(Box<SnapshotCheckpoint>),
     Tick,
     Close,
@@ -251,7 +252,10 @@ impl RaftRuntime {
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?,
             _ => (),
         }
-        let budget = if matches!(&command, Command::Apply(_) | Command::Snapshot(_)) {
+        let budget = if matches!(
+            &command,
+            Command::Apply(_) | Command::Snapshot(_) | Command::AbortSnapshot(_)
+        ) {
             &self.inner.completions
         } else if matches!(&command, Command::Hint { .. }) {
             &self.inner.hints
@@ -478,6 +482,17 @@ impl RaftRuntime {
         completed: SnapshotCompletion,
     ) -> Result<(), RuntimeError> {
         self.call(4096, Command::Snapshot(Box::new(completed)))
+            .await
+            .map(|_| ())
+    }
+
+    /// Cancel before install authorization. Admission does not prove completion:
+    /// `SnapshotAborted` follows required term/vote and older apply persistence.
+    /// The older physical apply keeps its existing ticket until it completes.
+    /// After `complete_snapshot` is accepted, cancellation is refused; a stale
+    /// completion error does not prove install failure. Join its final outcome.
+    pub async fn abort_snapshot(&self, ticket: ApplyTicket) -> Result<(), RuntimeError> {
+        self.call(4096, Command::AbortSnapshot(ticket))
             .await
             .map(|_| ())
     }
@@ -841,6 +856,15 @@ impl Worker {
                 .and_then(|g| match &g.failed {
                     Some(error) => Err(error.clone()),
                     None => g.replica.complete_snapshot(*completed),
+                })
+                .map(|()| Response::Unit),
+            Command::AbortSnapshot(ticket) => self
+                .groups
+                .get_mut(&ticket.replica().scope)
+                .ok_or(RuntimeError::NotFound)
+                .and_then(|group| match &group.failed {
+                    Some(error) => Err(error.clone()),
+                    None => group.replica.abort_snapshot(ticket),
                 })
                 .map(|()| Response::Unit),
             Command::Tick => {

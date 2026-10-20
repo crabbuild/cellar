@@ -181,6 +181,12 @@ pub enum RuntimeEventKind {
         ticket: ApplyTicket,
         applied: DurableApply,
     },
+    /// Cancellation is durable; the image and checkpoint remain at their old
+    /// prefix. Any older physical apply emits Applied before this event.
+    SnapshotAborted {
+        ticket: ApplyTicket,
+        applied: DurableApply,
+    },
     Checkpointed {
         ticket: ApplyTicket,
     },
@@ -228,6 +234,7 @@ impl RuntimeEventKind {
             Self::Applied { .. }
             | Self::Checkpointed { .. }
             | Self::SnapshotInstalled { .. }
+            | Self::SnapshotAborted { .. }
             | Self::Failed { .. }
             | Self::Persisted { .. } => 1024,
         }
