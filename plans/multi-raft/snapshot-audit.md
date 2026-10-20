@@ -1,8 +1,8 @@
 # Physical snapshot boundary
 
-MR-10 is in progress. The [runtime progress evidence](evidence/MR-10-runtime-progress.json)
-pins source `0260abb94c15ee0375bea0f2508ac40ce1274f65`: 147 Rust cases pass across
-ten targets, including 15 snapshot, 17 LTX and the affected public Node Raft
+MR-10 is in progress. The [boundary progress evidence](evidence/MR-10-boundary-progress.json)
+pins source `a5619f3d522fd942372c520f02a52945fd0ec7b5`: 152 Rust cases pass across
+ten targets, including 19 snapshot, 17 LTX, 23 host and the affected public Node Raft
 lifecycle case. All 17 commands pass, with executable/log digests. Clippy and
 checks cover owning targets and cellar-ltx without backend defaults and with all
 features; format checks 629 Rust files. Layout, dependency policy, docs, 17 plan
@@ -12,7 +12,7 @@ are invoked by owning parents and excluded from counts.
 The [earlier physical progress](evidence/MR-10-physical-progress.json) retains its
 separate 218-case/88-Node qualification at source
 `24410fb754b055078255ccf5d595c0893f0d1b0e`; it is historical, not the current
-runtime qualification. Native automatic scheduling, snapshot RPCs and authorized
+boundary qualification. Native automatic scheduling, snapshot RPCs and authorized
 member recovery remain unfinished. All 17 delivery packages remain in scope.
 
 ## Identity and bytes
@@ -110,7 +110,7 @@ runtime batch settles reference handoff even when its event consumer is gone.
 The owning target now additionally exercises delayed checkpoint/newer apply/late
 retirement/restart, lost completion, failed sync with joined producers, stale engine
 material, busy-apply refusal, empty configuration installation/first LTX/restart,
-and refusal to erase committed data. The pinned runtime evidence qualifies those component and owning regressions.
+and refusal to erase committed data. The pinned boundary evidence qualifies those component and owning regressions.
 
 The boundary fixture adds an exact 64-MiB real SQLite image with seeded random
 overflow pages and a passing integrity check. Its encoded LTX exceeds 64 MiB.
@@ -127,6 +127,13 @@ Still required for MR-10:
   using the runtime API and the SQL owner's serialized state.
 - Authenticated bounded peer snapshot RPCs with reserved control capacity, source
   pins, transfer admission, deadlines, cancellation and joined shutdown.
+  The current inbound peer loop awaits group execution before acknowledging frame
+  admission. A group waiting for a snapshot can therefore block the pooled control
+  connection for other groups. Native transfer must separate bounded message
+  admission from execution while retaining its request charge, validate again at
+  execution, and qualify a held snapshot plus healthy second-group control traffic
+  over the same authenticated connection. Frame admission is never an install or
+  commit acknowledgement.
 - Native host handling of incoming snapshots and atomic readiness transitions,
   including pending commands/queries and image-capacity pressure. Minimum image
   admission must account for the independent snapshot reference and private

@@ -406,13 +406,17 @@ prospective/durable image references, including uncertain I/O and joined close.
 Empty/configuration-only snapshots carry no image and can precede the first LTX
 command. `recovery.rs` validates coherent engine-selected references before GC.
 
-The [runtime evidence](evidence/MR-10-runtime-progress.json) pins source
-`0260abb94c15ee0375bea0f2508ac40ce1274f65`: all 147 Rust cases and 17 commands pass,
-including 15 snapshot and 17 LTX cases, the owning regressions, affected public
-Node Raft lifecycle and both cellar-ltx backend feature modes. The earlier
-[physical progress](evidence/MR-10-physical-progress.json) remains a historical
-component record. The [snapshot audit](snapshot-audit.md) records the remaining
-native scheduling/transfer ownership, largest-image budgets, host readiness and
+The [boundary evidence](evidence/MR-10-boundary-progress.json) pins source
+`a5619f3d522fd942372c520f02a52945fd0ec7b5`: all 152 Rust cases and 17 commands pass,
+including 19 snapshot, 17 LTX and 23 host cases, the owning regressions, affected
+public Node Raft lifecycle and both cellar-ltx backend feature modes. The exact
+64-MiB incompressible image transfers at an older retained cut and its newer
+snapshot-plus-tail archive restores after both local node directories are deleted.
+Insufficient encoded admission is refused before member storage opens. The earlier
+[runtime progress](evidence/MR-10-runtime-progress.json) and
+[physical progress](evidence/MR-10-physical-progress.json) remain historical component
+records. The [snapshot audit](snapshot-audit.md) records remaining native scheduling,
+authenticated transfer ownership, host readiness/generation admission and
 fresh-member authorization/quorum-loss refusal. MR-10 is not complete.
 
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
@@ -436,6 +440,10 @@ Stop conditions: Stop if restart repairs applied/commit mismatch by inventing pr
 | `compacted_boundary_term` | Snapshot boundary term remains usable for log matching |
 | `missing_quorum_restore_refused` | Available S3 bytes cannot independently reactivate an existing group |
 | `snapshot_old_reader` | A query pinned before install remains coherent through install and GC |
+| `maximum_image_retained_snapshot_and_archive_roundtrip` | The largest admitted incompressible SQLite image transfers at the retained cut and its newer archive restores after deleting local node directories |
+| `retained_checkpoint_capture_never_substitutes_newer_state` | A replaced checkpoint is refused while an already captured transfer remains coherent through GC |
+| `retained_empty_checkpoint_has_no_image_or_payload` | An empty retained checkpoint invents no image or payload |
+| `snapshot_limits_require_full_encoded_image_capacity` | Encoded admission covers full-LTX overhead without shrinking the admitted image |
 
 Verification target: `native_raft_snapshot`. Run the exact list/test commands
 shown by `plan.py show MR-10`; the manifest is authoritative for arguments.

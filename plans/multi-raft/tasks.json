@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "0260abb94c15ee0375bea0f2508ac40ce1274f65",
+  "baseline_revision": "a5619f3d522fd942372c520f02a52945fd0ec7b5",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1239,7 +1239,13 @@
         "crates/cellar/durability/raft/runtime.rs",
         "crates/cellar/tests/native_raft_ltx.rs",
         "crates/cellar/tests/native_raft_runtime.rs",
-        "crates/cellar/tests/support/raft_runtime_fixture.rs"
+        "crates/cellar/tests/support/raft_runtime_fixture.rs",
+        "crates/cellar-ltx/src/apply.rs",
+        "crates/cellar-ltx/src/bounded_ltx.rs",
+        "crates/cellar-ltx/src/ltx.rs",
+        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/tests/native_raft_host.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
@@ -1309,6 +1315,40 @@
             "I02",
             "I10"
           ]
+        },
+        {
+          "name": "maximum_image_retained_snapshot_and_archive_roundtrip",
+          "oracle": "The largest admitted incompressible SQLite image transfers at the exact retained cut and its newer archive restores after local node directories are deleted",
+          "invariants": [
+            "I04",
+            "I09",
+            "I10",
+            "I13"
+          ]
+        },
+        {
+          "name": "retained_checkpoint_capture_never_substitutes_newer_state",
+          "oracle": "Replacement refuses a new request for the old checkpoint while an already pinned transfer remains coherent through GC",
+          "invariants": [
+            "I05",
+            "I07",
+            "I10"
+          ]
+        },
+        {
+          "name": "retained_empty_checkpoint_has_no_image_or_payload",
+          "oracle": "Serving an empty durable checkpoint invents no image or encoded payload",
+          "invariants": [
+            "I04",
+            "I10"
+          ]
+        },
+        {
+          "name": "snapshot_limits_require_full_encoded_image_capacity",
+          "oracle": "Encoded admission covers full-LTX overhead without reducing admitted image size",
+          "invariants": [
+            "I13"
+          ]
         }
       ],
       "verification": [
@@ -1336,7 +1376,7 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-10-runtime-progress.json"
+        "evidence/MR-10-boundary-progress.json"
       ]
     },
     {

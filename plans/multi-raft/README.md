@@ -42,17 +42,19 @@ effects and later operations/release/scaling work remain their original packages
 All 17 original packages remain in scope; the complete delivery goal is not
 achieved. MR-10 is in progress at the recovery boundary.
 
-The [MR-10 runtime progress](evidence/MR-10-runtime-progress.json) pins source
-`0260abb94c15ee0375bea0f2508ac40ce1274f65`: 147 Rust cases pass across ten targets,
-including 15 snapshot and 17 LTX cases and the affected public Node Raft lifecycle.
-All 17 commands pass, including owning-target Clippy, cellar-ltx without backend
-defaults/with all features, format/layout, dependency policy, docs, plan tests and
-reviewed preflight. Runtime checkpoints serialize compaction with Ready storage;
-prospective/durable references survive late retirement, lost completion, failed
-sync and joined close. Strict empty/configuration snapshots allocate no database
-and support the first subsequent LTX command. The [snapshot audit](snapshot-audit.md)
-records the remaining native scheduling, authenticated transfer, largest-image
-budgets and authorized replacement-member recovery. MR-10 remains IN_PROGRESS.
+The [MR-10 boundary progress](evidence/MR-10-boundary-progress.json) pins source
+`a5619f3d522fd942372c520f02a52945fd0ec7b5`: 152 Rust cases pass across ten targets,
+including 19 snapshot, 17 LTX, 23 host and the affected public Node Raft lifecycle
+cases. All 17 commands pass, including owning-target Clippy, cellar-ltx without
+backend defaults/with all features, format/layout, dependency policy, docs,
+17 plan tests and reviewed preflight. Exact retained checkpoints survive newer
+applies and already captured transfers survive replacement/GC. Encoded limits
+cover the largest admitted 64-MiB image; a real incompressible SQLite fixture
+transfers the older cut and restores the newer archive after deleting both local
+node directories. Runtime checkpoint/reference and empty/configuration regressions
+also pass. The [snapshot audit](snapshot-audit.md) records remaining native
+scheduling, authenticated transfer, host readiness/generation admission and
+replacement-member authorization. MR-10 remains IN_PROGRESS.
 The [earlier physical record](evidence/MR-10-physical-progress.json) retains its
 separate 218-case/88-Node qualification at source `24410fb754b055078255ccf5d595c0893f0d1b0e`.
 

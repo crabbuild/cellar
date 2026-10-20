@@ -18,7 +18,7 @@ class PackageTests(unittest.TestCase):
     def test_current_package(self):
         stats = self.validate()
         self.assertEqual(stats["tasks"], 17)
-        self.assertEqual(stats["cases"], 104)
+        self.assertEqual(stats["cases"], 108)
 
     def test_cycle_rejected(self):
         self.manifest["tasks"][0]["depends_on"] = ["MR-15"]
