@@ -1,0 +1,384 @@
+{
+  "task_id": "MR-08",
+  "source_revision": "8d79426992d4177116dd86eef28aec7a61fc4737",
+  "scope": "Partial MR-08: live ordinary Context/Storage capture refusal and shared native/Axum HTTP normalization for explicit consistency, authenticated minimum tokens and bounded member routing. The full read audit and all 17 original packages remain in scope.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "31815f81de46eb99d941e0c514ba47476ac8588a8f2f343a2407b44a6a65038b",
+  "executables": {
+    "native_raft_host": {
+      "sha256": "6904713a839080a403e9e0c6ce333064c65286697bcaa731e2fa2e8338836f45",
+      "bytes": 128426928
+    },
+    "native_raft_reads": {
+      "sha256": "31815f81de46eb99d941e0c514ba47476ac8588a8f2f343a2407b44a6a65038b",
+      "bytes": 125673152
+    },
+    "cellar-raft-counter": {
+      "sha256": "b92631c1763f6054b20d672f882e0f6355e44553d5571b6fe5228fe25840bfec",
+      "bytes": 127247360
+    }
+  },
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite/LTX/Raft Engine and authenticated TLS TCP; three embedded nodes with separate domains/directories in one OS process, external executable restart drill; isolated checkout target; no cellar_internal_tests",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "limitations": "MR-08 remains IN_PROGRESS. Query saturation, queued deadlines, delayed TCP replies and general directory/ingress routing outside group membership remain open in read-audit.md. The library implementation is unchanged at this checkpoint; this evidence refreshes only the owning host/read targets, HTTP executable, targeted Clippy and repository checks. Earlier local/network evidence retains its own source revision. Native Rust callbacks are trusted/cooperative. These loopback same-machine tests do not establish physical power-loss or zone resilience, production capacity, S3 archive/restore, snapshot installation, membership repair, effects or the remaining release/scaling packages. S3 command durability remains refused before private work; object-store use is catalog/public-key metadata only. Existing vendored warnings remain visible.",
+  "tests": [
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_deadline_and_payload_limits",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_rotation_survives_restart_and_ambiguous_catalog_write",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_token_auth_scope",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "ordinary_context::active_ordinary_context_and_storage_are_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_write_capability_denied",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "completed_unpolled_responses_keep_their_byte_budget",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "voter_without_query_code_can_route_to_a_compatible_replica",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "remote_query_wait_cannot_block_its_ltx_catchup",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_query_deadline_interrupts_sql_and_joins_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "stale_is_committed_prefix",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "read_your_writes_follower",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "linearizable_read_barrier",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "minority_strong_read_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "fallback_preserves_contract",
+      "target": "native_raft_reads",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "name": "owning",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_reads",
+        "--locked",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-owning.log",
+      "sha256": "93f1d25b3ac7a0633e44606e97d089b08c0a40f6418aaa6f3998b7b37d0548a5"
+    },
+    {
+      "name": "build",
+      "argv": [
+        "cargo",
+        "build",
+        "-p",
+        "cellar",
+        "--bin",
+        "cellar-raft-counter",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-build.log",
+      "sha256": "49d1928a0586ae13156e470a20c9d202b6b0b7ae51de6b20c9ef40ae3d3b6141"
+    },
+    {
+      "name": "smoke",
+      "argv": [
+        "python3",
+        "examples/raft-counter/smoke.py",
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-counter",
+        "/tmp/cellar-mr08-http-drill-a446bf4c"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-smoke.log",
+      "sha256": "b527df1d8149643c9c974c1b1cc79fd9b28b47ab22d36caab72b1ff3fe4e6a2d"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_reads",
+        "--bin",
+        "cellar-raft-counter",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-clippy.log",
+      "sha256": "1e7131459b543947d5a4f77990b1047fe2ae7c3d61c723b404a84da27b500b5a"
+    },
+    {
+      "name": "format-check",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-format-check.log",
+      "sha256": "af14908fb9f7725d1722d678c72e29f2697f0c1cc4215551b5ca5fe91eef3d98"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-layout.log",
+      "sha256": "54472b89130955eaa3453429a9ff510aad3c71959b424c6a2822f576fab7a957"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-dependencies.log",
+      "sha256": "cd9b4bc0a4d6cceb1ceaaa504cf45ec4e72ba4c8c998b71f282445dbf2dd5f3c"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-docs.log",
+      "sha256": "7bc3363f30745ca0dbd1c4d46077be8a34a32ca7374e8a188cd6834100405514"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-plan-tests.log",
+      "sha256": "cac38877907e2d8c44333c48961b598e19869d9f554b4c939775357fd1cb3bc3"
+    },
+    {
+      "name": "plan-validate",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-plan-validate.log",
+      "sha256": "afbbe9cfc9c59f3376172e0e540a9f100ac1ffd94fbe5f6e04d2cc3c45d138c6"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-http-preflight.log",
+      "sha256": "03c8d7928c37406d3c622ed9184df22808431be7adffd5626c7e582da86c1288"
+    }
+  ],
+  "results": {
+    "owning_passed": 34,
+    "host_passed": 20,
+    "read_passed": 14,
+    "executable_drill": "late startup failure joined owners; resuming the same disks\nphase 0: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown\nphase 1: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown\nretained command receipt and subsequent writes survived a three-node restart",
+    "remote_strong_reads": 24,
+    "http_endpoints": 6,
+    "process_phases": 2
+  },
+  "requirements": [
+    {
+      "step": 1,
+      "status": "live capability boundary qualified",
+      "evidence": "A Raft query refuses captured Context storage/namespace/background-work and Storage read/write/SQL/alarm calls while the original invocation remains live on the same domain; that invocation resumes with unchanged state."
+    },
+    {
+      "step": 2,
+      "status": "HTTP/executable component coverage added",
+      "evidence": "Both native and Axum ingress pass exact SDK query options. All three consistency modes, local/member execution and 24 explicitly remote AtLeast/linearizable reads pass before/after restart."
+    },
+    {
+      "step": 3,
+      "status": "HTTP token authentication/retention coverage added",
+      "evidence": "Responses expose opaque SDK tokens. Missing/mismatched/oversized tokens and invalid signatures cannot downgrade consistency. Pre-restart tokens survive ordinary restart; cross-cell minimums return WrongIncarnation even with fallback enabled."
+    },
+    {
+      "step": 4,
+      "status": "registered-member HTTP integration qualified; general ingress/directory remains open",
+      "evidence": "Bounded distinct member/attempt/deadline/fallback options are parsed identically through both hosts. Actual serving member is exposed; the drill requires another Raft member and disables fallback."
+    }
+  ],
+  "audit": "read-audit.md"
+}

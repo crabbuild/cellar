@@ -4,7 +4,9 @@ Status: IN_PROGRESS. The [local-read evidence](evidence/MR-08-local-progress.jso
 qualifies the preceding local implementation. Network member routing, fallback,
 independent LTX catch-up and query-code-independent forwarding have passing
 component tests; [network evidence](evidence/MR-08-network-progress.json) pins
-source, executable digests, commands and qualification limits. They do
+source, executable digests, commands and qualification limits. The
+[HTTP/context evidence](evidence/MR-08-http-progress.json) adds live ordinary
+capability capture and actual native/Axum consistency/token requests. They do
 not close MR-08 or the complete delivery goal.
 
 ## Read proof and image ownership
@@ -52,17 +54,31 @@ the query connection, drops the destination SDK waiter and joins its SQL work.
 SQL interruption observes a node-owned atomic flag. Completed responses retain
 byte admission until consumed or dropped.
 
+## Live capability and HTTP checks
+
+`ordinary_context::active_ordinary_context_and_storage_are_refused` holds an
+ordinary cell invocation open on the same node/domain while a Raft query uses
+its captured Context and Storage. Context storage/namespace/background-work
+entry points and Storage read/write/SQL/alarm calls are refused. The original
+invocation remains active throughout the query and resumes with its state
+unchanged; retirement is not the refusal oracle.
+
+The counter's native and Axum adapters normalize explicit consistency, minimum
+token, stale-read policy and bounded member attempts through the same path.
+Successful responses expose their SDK-issued token and actual serving member.
+The HTTP parity case covers all three modes, local/member routing, duplicate or
+mismatched options, invalid bounds and signature/contract refusal without
+consistency downgrade. The executable drill runs both HTTP paths on all three
+nodes before and after joined restart. Minimum-version and linearizable reads
+select another replica without fallback, report that member, and observe
+the required committed value. Pre-restart tokens remain usable; another cell's
+token is refused even with fallback enabled.
+
 ## Remaining audit and delivery work
 
 - Complete the RPC boundary audit beyond the passing cancellation, independent
   LTX progress and same-consistency fallback histories, including saturation,
   queued deadlines and delayed replies against real TCP faults.
-- Exercise captured ordinary Context/Storage while the ordinary invocation is
-  still active. Context entry checks and Storage activation checks currently
-  require the installed ordinary IoContext; SQL workers install only their
-  execution domain. Static inspection is not the complete observable test.
-- Integrate tokens and consistency/routing options into native/Axum counter HTTP
-  and run the external process drill through those paths.
 - Audit directory/ingress routing outside a group's voting/read membership. The
   current RPC origin uses a registered local replica; this does not establish
   arbitrary-node routing for the complete placement/directory architecture.

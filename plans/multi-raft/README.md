@@ -20,15 +20,19 @@ retain [local evidence](evidence/MR-08-local-progress.json). Separately owned TL
 query RPCs now support bounded member selection, explicit leader fallback and
 forwarding from voters without query code; [network evidence](evidence/MR-08-network-progress.json)
 records 83 owning cases, 12 Raft unit cases and repeated network histories.
-The [read audit](read-audit.md) retains active ordinary-context capture, counter
-HTTP integration, broader RPC faults and directory/ingress routing outside
-registered group membership. All seven named cases exist; MR-08 is not closed.
+The [HTTP/context evidence](evidence/MR-08-http-progress.json) adds 34 owning
+host/read cases, captured capabilities during a live ordinary invocation, and
+explicit consistency/tokens through native/Axum HTTP. Its executable drill
+verifies 24 remote strong reads, retained tokens and cross-cell refusal before
+and after restart. The [read audit](read-audit.md) retains broader RPC faults and
+directory/ingress routing outside registered group membership. All seven named
+cases exist; MR-08 is not closed.
 MR-09 is
 ready for implementation. S3 archive/restore, snapshot installation, membership
 controllers, effects and later release/scaling work remain pending. Unsupported
 SDK capabilities are refused. These tests do not establish production capacity
 or completion of the full delivery scope. The reviewed source baseline is
-`4c0916dc5fec5259213ed19de0f91a3c30abb39f`.
+`8d79426992d4177116dd86eef28aec7a61fc4737`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "4c0916dc5fec5259213ed19de0f91a3c30abb39f",
+  "baseline_revision": "8d79426992d4177116dd86eef28aec7a61fc4737",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -962,7 +962,9 @@
         "crates/cellar/tests/native_node.rs",
         "crates/cellar/tests/native_raft_transport.rs",
         "crates/cellar/tests/support/raft_network.rs",
-        "crates/cellar/application/consensus/class.rs"
+        "crates/cellar/application/consensus/class.rs",
+        "examples/raft-counter/counter.rs",
+        "examples/raft-counter/smoke.py"
       ],
       "creates": [
         "crates/cellar/durability/raft/query.rs",
@@ -972,7 +974,8 @@
         "crates/cellar/durability/raft/query_wire.rs",
         "crates/cellar/durability/raft/query_wire_tests.rs",
         "crates/cellar/durability/raft/query_transport.rs",
-        "plans/multi-raft/read-audit.md"
+        "plans/multi-raft/read-audit.md",
+        "crates/cellar/tests/support/raft_read_context.rs"
       ],
       "steps": [
         "Implement read-only query registration, snapshot pinning and served-version propagation.",
@@ -1070,7 +1073,8 @@
       ],
       "evidence": [
         "evidence/MR-08-local-progress.json",
-        "evidence/MR-08-network-progress.json"
+        "evidence/MR-08-network-progress.json",
+        "evidence/MR-08-http-progress.json"
       ]
     },
     {

@@ -310,18 +310,20 @@ shown by `plan.py show MR-07`; the manifest is authoritative for arguments.
 
 Dependencies: MR-07. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_node.rs`, `examples/raft-counter/main.rs`, `crates/cellar/durability/raft/README.md`, `examples/raft-counter/README.md`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/durability/raft/transport_options.rs`, `crates/cellar/durability/raft/transport_tests.rs`, `crates/cellar/node/mod.rs`, `crates/cellar/tests/native_node.rs`, `crates/cellar/tests/native_raft_transport.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/application/consensus/class.rs`.
+Modify: `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_node.rs`, `examples/raft-counter/main.rs`, `crates/cellar/durability/raft/README.md`, `examples/raft-counter/README.md`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/durability/raft/transport_options.rs`, `crates/cellar/durability/raft/transport_tests.rs`, `crates/cellar/node/mod.rs`, `crates/cellar/tests/native_node.rs`, `crates/cellar/tests/native_raft_transport.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/application/consensus/class.rs`, `examples/raft-counter/counter.rs`, `examples/raft-counter/smoke.py`.
 
-Create: `crates/cellar/durability/raft/query.rs`, `crates/cellar/durability/raft/version.rs`, `crates/cellar/tests/native_raft_reads.rs`, `crates/cellar/durability/raft/query_route.rs`, `crates/cellar/durability/raft/query_wire.rs`, `crates/cellar/durability/raft/query_wire_tests.rs`, `crates/cellar/durability/raft/query_transport.rs`, `plans/multi-raft/read-audit.md`.
+Create: `crates/cellar/durability/raft/query.rs`, `crates/cellar/durability/raft/version.rs`, `crates/cellar/tests/native_raft_reads.rs`, `crates/cellar/durability/raft/query_route.rs`, `crates/cellar/durability/raft/query_wire.rs`, `crates/cellar/durability/raft/query_wire_tests.rs`, `crates/cellar/durability/raft/query_transport.rs`, `plans/multi-raft/read-audit.md`, `crates/cellar/tests/support/raft_read_context.rs`.
 
 Partial [local read evidence](evidence/MR-08-local-progress.json) and
 [network evidence](evidence/MR-08-network-progress.json) retain component
 qualification. The latter records 83 owning cases, 12 Raft unit cases and all
 seven required case names, including real TCP member selection/fallback under
 unchanged consistency and deadlines. Query-code-independent forwarding and LTX
-catch-up during a waiting RPC are covered. The [read audit](read-audit.md) keeps
-active captured ordinary Context/Storage, counter HTTP options, broader RPC faults
-and directory/ingress routing outside group membership open. MR-08 remains
+catch-up during a waiting RPC are covered. [HTTP/context evidence](evidence/MR-08-http-progress.json)
+adds 34 owning host/read cases, live ordinary capability refusal, native/Axum
+read options and an executable restart drill with 24 remote strong reads and
+retained/cross-cell tokens. The [read audit](read-audit.md) keeps broader RPC
+faults and directory/ingress routing outside group membership open. MR-08 remains
 IN_PROGRESS; the case list alone does not prove the complete contract.
 
 1. Implement read-only query registration, snapshot pinning and served-version propagation.
