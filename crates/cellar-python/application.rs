@@ -342,6 +342,32 @@ impl Drop for Lifetime {
 }
 
 impl Application for PythonApplication {
+    fn validate_configuration(
+        &self,
+        options: &cellar::engine_api::WorkerConfigOptions,
+    ) -> Result<()> {
+        ensure!(
+            options.queue_consumers.is_empty() || self.source.supports(None, "queue"),
+            "Python queue consumers require a declared queue handler"
+        );
+        for class in &options.do_classes {
+            ensure!(
+                cellar::deploy::is_reserved_class(class) || self.supports_cell(class),
+                "Python deployment names an unregistered cell class"
+            );
+        }
+        Ok(())
+    }
+
+    fn validate_deployment(&self, deployment: &cellar::fleet::LoadedDeployment) -> Result<()> {
+        self.validate_configuration(&deployment.options)?;
+        ensure!(
+            deployment.crons.is_empty() || self.source.supports(None, "scheduled"),
+            "Python cron declarations require a declared scheduled handler"
+        );
+        Ok(())
+    }
+
     fn invoke(self: Arc<Self>, context: Context, invocation: Invocation) -> HandlerFuture<Output> {
         if let Invocation::Queue(batch) = invocation {
             return queue::dispatch(batch, move |event| async move {

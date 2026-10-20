@@ -53,7 +53,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
             "cellar build PROJECT.json --output DIRECTORY\n\
              cellar dev PROJECT.json [--host IP] [--port PORT] [--logs] [--no-watch]\n\
              cellar deploy DIRECTORY --bucket NAME [--endpoint URL] [--region REGION]\n\
-             cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE]\n\n\
+             cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE] [--python-root PREFIX]\n\n\
              Build compiles Rust without JavaScript-engine dependencies. Deploy publishes\n\
              verified executables, assets and configuration. Install verifies downloaded code and\n\
              writes a new executable path; use your process supervisor to activate it.\n\n\
@@ -69,6 +69,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
             .context("native command requires a project file or package directory")?,
     );
     let mut output = None;
+    let mut python_root = None;
     let mut bucket = None;
     let mut endpoint = None;
     let mut region = std::env::var("AWS_REGION").unwrap_or_else(|_| "us-east-1".into());
@@ -79,6 +80,7 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
             .with_context(|| format!("{flag} requires a value"))?;
         match flag.as_str() {
             "--output" => output = Some(PathBuf::from(value)),
+            "--python-root" => python_root = Some(PathBuf::from(value)),
             "--bucket" => bucket = Some(value),
             "--endpoint" => endpoint = Some(value),
             "--region" => region = value,
@@ -121,10 +123,11 @@ pub async fn run(arguments: Vec<String>) -> Result<()> {
         }
         "install" => {
             package
-                .install(
+                .install_with_python(
                     &bucket,
                     &target,
                     &output.context("native install requires --output")?,
+                    python_root.as_deref(),
                 )
                 .await?
         }

@@ -16,6 +16,6 @@ mod values;
 pub use application::{EventKind, PythonApplication, Source};
 #[cfg(feature = "embed")]
 pub use runtime::{
-    is_verified_build, BridgeReport, Environment, Incomplete, Interpreter, Options, PythonRuntime,
-    Report, Stop,
+    is_verified_build, verified_inventory_sha256, BridgeReport, Environment, Incomplete,
+    Interpreter, Options, PythonRuntime, Report, Stop,
 };

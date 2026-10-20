@@ -115,8 +115,7 @@ process APIs still have ordinary process capabilities, and user writes to
 `Options::module_paths` explicitly adds installed dependency directories.
 `Source::require_distribution(name, version)` refuses startup on a missing or
 mismatched installed distribution. No request installs packages. Build and deploy
-a pinned Python runtime and dependency environment on every node. The native
-package currently **does not transport libpython, the standard library, site-packages or transitive shared libraries**. The optional build-bound inventory verifies provisioned runtime/package files before startup; it does not publish or restore them. Use an immutable application image or provision those assets through the [verified environment workflow](../../tools/python/README.md). Exact distribution version checks alone do not attest file contents or external OS libraries.
+a pinned Python runtime and dependency environment on every node. Native projects can carry a `python_environment` declaration that stages, publishes and restores the hash-verified runtime/stdlib/package archive with the executable. The installer requires an explicit `--python-root` matching its immutable prefix and never overwrites different existing contents. Bound package roots become the default import paths; startup needs no Python path flags. The process registers its inventory identity, and generation admission rejects a different declaration before running factories. Follow the [environment build/install workflow](../../tools/python/README.md). System libraries outside the closure remain OS prerequisites and require separate platform qualification.
 
 This is trusted native execution: Python libraries can access the host OS and
 external services, and native extension crashes affect the entire Cellar process.
@@ -172,3 +171,5 @@ qualification and verified deployment closure work remain tracked in the
 Public Python APIs include type annotations. `loop.shutdown_asyncgens()` and the managed executor are closed while the loop remains alive. Background exceptions trigger a sanitized runtime failure; exception repr and traceback data are not logged by the runner. The report covers runtime-owned work and explicitly recorded native nodes; it does not certify arbitrary raw Python/native threads or the process-wide heap.
 
 `PythonApplication::bridge_report()` returns an atomic live snapshot for a host-owned metrics exporter. The example emits the combined report when `CELLAR_SHUTDOWN_REPORT_JSON=1`; its smoke asserts native drain phases and zero remaining managed work/reservations.
+
+Python deployment validation rejects queue consumers or cron schedules whose root event handlers were not declared, and classes absent from the source descriptor, before generation activation. Cell constructors must be synchronous; construction failures do not fabricate successful object creation/retirement counts.

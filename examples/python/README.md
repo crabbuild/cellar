@@ -71,10 +71,14 @@ The Rust bridge test also checks atomic conflict rollback, missing versus null,
 binary HTTP, native-library imports, handler failures, body limits, cancellation,
 context expiration and clean shutdown.
 
-Native packaging includes the executable and deployment configuration. Provision
-the matching libpython, standard library and locked packages separately on every
-node, or build an immutable image containing them. The [verified environment workflow](../../tools/python/README.md) binds an inventory of these external runtime assets into the host and refuses altered files before startup. Automatic runtime archive publication and recovery remain open. Python source and the Cellar
-Python SDK facade are covered because they are compiled into the executable.
+Native packaging can include the matching runtime and locked packages through a
+`python_environment` declaration. The [environment workflow](../../tools/python/README.md)
+builds the inventory/archive, prepares a native project, publishes verified blobs
+before the selector and restores them with `cellar install --python-root PREFIX`.
+The installed host uses its compiled import roots and checks all file contents
+before startup. Python source and the SDK facade stay embedded in the executable.
+System-library/OS prerequisites and the remaining production fault/performance
+matrix are tracked in the [completion audit](../../plans/007-embedded-python-audit.md).
 See the [adapter contract and limitations](../../crates/cellar-python/README.md)
 before using it for production workloads.
 

@@ -3,6 +3,11 @@ use anyhow::Result;
 use cellar::sdk::Host;
 use cellar_python::{EventKind, Options, PythonRuntime, Source};
 
+const APPLICATION_VERSION: &str = match option_env!("CELLAR_APPLICATION_VERSION") {
+    Some(version) => version,
+    None => "v1",
+};
+
 fn main() -> Result<()> {
     let mut options = Options::default();
     if let Some(paths) = std::env::var_os("CELLAR_PYTHON_SITE_PACKAGES") {
@@ -24,11 +29,19 @@ fn main() -> Result<()> {
                 .require_distribution("numpy", "2.3.4"),
             |application, stop| {
                 let monitor = stop.clone();
-                Host::fleet()
-                    .register("python-example", "v1", move || Ok(application.clone()))?
-                    .run_until_observed(stop.cancelled(), move |outcome| {
-                        monitor.record_node(outcome)
-                    })
+                let mut host = Host::fleet();
+                if let Some(inventory) = cellar_python::verified_inventory_sha256() {
+                    host = host.runtime_inventory(
+                        cellar::protocol::FEATURE_EMBEDDED_PYTHON_V1,
+                        inventory,
+                    )?;
+                }
+                host.register("python-example", APPLICATION_VERSION, move || {
+                    Ok(application.clone())
+                })?
+                .run_until_observed(stop.cancelled(), move |outcome| {
+                    monitor.record_node(outcome)
+                })
             },
         )
     };

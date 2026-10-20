@@ -35,7 +35,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | A10 | Opaque invocation identity; metadata cannot choose authority | Cross-event/domain/generation/activation negative tests | partial: each native sender is tied to its driver |
 | A11 | FIFO operations, one outstanding mutation per invocation | Concurrent mutation/read/cancel tests; explicit state machine | verified: native admission reservation rejects overlap; same-invocation read progresses during nested mutation; reservations release on drop |
 | A12 | Mailbox pollable during nested calls; existing cycle behavior | Nested-call progress, cycle and cancellation tests | partial: driver now polls pending SDK futures and mailbox together; direct same-invocation progress proven; explicit cycle/fence matrix remains |
-| A13 | Descriptor declares supported classes/events before admission | Cold validation and invalid registration tests | partial: explicit root/cell event descriptor and cold async/constructor validation; invalid registrations refused before host; manifest-event consistency still needs coverage |
+| A13 | Descriptor declares supported classes/events before admission | Cold validation and invalid registration tests | verified: cold descriptor async/constructor checks plus deployment hook rejecting absent classes, undeclared queue consumers and cron handlers before activation |
 | A14 | Native factories never call/import Python | Source/caller audit plus blocked-interpreter factory test | partial: proxies allocated in Rust |
 | A15 | Activation identity includes domain, generation and epoch | Retire/recreate and simultaneous same-name/domain tests | partial: unique proxy IDs and original Context |
 | A16 | No interpreter-per-cell or hot Python replacement | Process-wide guard and attempted reload tests | partial: one runtime guard; reload behavior needs coverage |
@@ -88,18 +88,18 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Initial audit |
 | --- | --- | --- | --- |
-| P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | partial: embedded inventory binds source digest, classes/events and distribution pins; native-package descriptor metadata/rolling versions remain open |
+| P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
 | P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: hash-locked platform wheels install offline; inventory covers bundled files; full OS/native dependency closure and artifact recovery remain open |
-| P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | partial: build-bound file inventory, target/GIL/SOABI/micro version and actual loaded-libpython identity checked before code; OS/library closure remains open |
-| P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | missing |
-| P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | missing |
-| P06 | Verify runtime/source/dependencies before importing app or admission | Sentinel app not run for each invalid artifact/ABI/environment case | partial: inventory verification precedes initialization/import/admission and mutation drill passes; full native-package artifact matrix remains open |
+| P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | verified for supported targets: CPython/GIL/SOABI/micro version/target, actual loaded libpython and exact file contents/executable modes; external OS closure tracked in P02 |
+| P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | verified: typed native runtime references, format marker 1, embedded-python-v1 feature gate and executable/inventory pairing; malformed pairing tests added |
+| P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | verified locally: build/stage, pre-selector verified bucket publication, corrupt/missing blob refusal and real restoration with original runtime absent |
+| P06 | Verify runtime/source/dependencies before importing app or admission | Sentinel app not run for each invalid artifact/ABI/environment case | verified: inventory/ABI/source before initialization/import; process digest before application factory/generation; real installed-host and tamper drills |
 | P07 | Explicit home, roots, site behavior, no ambient user/PYTHONPATH/CWD | Hostile startup environment and .pth/customize injection tests | verified: `startup` path/site/CWD/sysconfig override tests plus explicit environment view |
-| P08 | No network install at startup or request; offline qualified environment | Network disabled/failing installer and clean-runtime deployment smoke | partial: independent runtime with offline hash-locked wheel installation and real packaged smoke passed; runtime closure not yet transported by native installer |
+| P08 | No network install at startup or request; offline qualified environment | Network disabled/failing installer and clean-runtime deployment smoke | verified locally: hash-locked offline wheel install and archive-restored host launched with cleared environment; no runtime package installer |
 | P09 | Wrong ABI/missing library/tampered source refuses startup | Disposable startup matrix with no admitted request or app side effect | partial: startup invalid ABI/home plus bound-inventory missing/changed source, changed extension and extra files refused; package/library loss matrix remains open |
 | P10 | One immutable generation per process; ordinary native generations unchanged | In-process replacement refusal, native-only regression, rolling two binaries | partial: native regressions; Python replacement matrix missing |
 | P11 | Old/new host handoff and runtime artifact recovery | Versioned process handoff, restored artifact installation, retained state | missing |
-| P12 | Runnable example from fresh installation | Documented build/install/run/recovery test from clean environment | partial: provisioned venv smoke only |
+| P12 | Runnable example from fresh installation | Documented build/install/run/recovery test from clean environment | verified for local supported package: fresh-prefix archive restore, cleared-environment HTTP/native numerical work/receipt replay and complete preserving stop; platform matrix remains separate |
 
 ## Limits, metrics, SDK growth and qualification (M5)
 
@@ -113,10 +113,10 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | partial: happy-path smoke |
 | Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | partial: retry smoke |
 | Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real tick smoke |
-| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: pinned pure Python, PyO3/Pydantic native and NumPy matrix/hash concurrency pass on macOS ARM64; Linux CI changes present but unexecuted locally |
+| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 passed pinned Pydantic/NumPy/pure-library workloads; new archive path Linux CI still pending |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | partial: local no-embed and JS graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: prior node run 86/87, isolated rerun; full workspace not run |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: foundation full workspace tests and complete Linux SDK CI passed; new archive/protocol/deployment-hook changes need final affected checks and fresh CI |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | partial: public facade type annotations added and immutable CellIdentity; accepted design decision records still need final consistency review |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | partial: obsolete proposal-only and API sketches remain |
 
@@ -249,3 +249,87 @@ The example can emit its combined report under `CELLAR_SHUTDOWN_REPORT_JSON=1`;
 the smoke asserts native phase completion and zero remaining managed work
 and bridge reservations. This stricter inventory-backed smoke passed with real cron. `PythonApplication::bridge_report` exposes a live atomic
 snapshot for host-owned metrics export. The final repository-wide run remains in progress. A current native-only check with a nonexistent Python interpreter, adapter all-feature tests and all-target Clippy passed after the task-admission, report and loader-identity refinements.
+
+## Native runtime distribution checkpoint
+
+The runtime/package provisioning gap now has an executable native-package path:
+
+- Added shared typed inventories and per-executable `PythonEnvironmentRef`
+  declarations, `embedded-python-v1` gating, bounded format-1 archives and
+  executable/inventory/archive digest pairing. Native-only code still has no
+  interpreter dependency; the new tar reader is a deployment-tool dependency.
+- `PythonProject` is an explicit native project input. Build validates the
+  provisioned tree and archive before invoking Cargo, selects its host-build
+  interpreter, embeds the inventory, sets loader search paths for the final
+  binary, stages its archive and recomputes the native deployment identity.
+  Ordinary native projects ignore ambient inventory flags.
+- Publication validates all staged blobs before any selector mutation. The
+  installer uses bounded bucket reads, checks digests/types/paths/symlinks and
+  writes only verified content blobs into a private staging tree. It never calls
+  tar unpack. Publication of the prefix atomically refuses existing destinations,
+  including empty competing directories. Matching prefixes are read-only verified
+  and reused; changed prefixes are refused before executable publication.
+- `Host::runtime_inventory` and `CompiledApplications::runtime_inventory` bind
+  the process identity to graph/package admission, including later generations.
+  Missing or changed identities refuse before application factories. Bound
+  package roots are compiled defaults, so the installed host needs no Python
+  home/path/site environment flags.
+- Four archive/file/bucket tests passed, covering valid restore, modes/links,
+  reuse, wrong target/prefix, missing/duplicate/unlisted/corrupt blobs, escaping
+  symlinks, tar symlink entries, staged corruption before selector mutation,
+  remote corruption before executable publication and refusal to overwrite.
+  A separate native admission test proves mismatched identities never enter a
+  factory and exact identities do. Feature/pairing integration cases were added.
+- The real `python-package-qualification` executable passed. It published the
+  actual built example, moved the entire original runtime prefix aside, restored
+  it from the private bucket, launched the installed host with `env_clear`, ran
+  native NumPy work and receipt replay, proved a complete preserving shutdown,
+  checked the installed package in another clean process and restored the
+  original tree. No ambient interpreter or site-packages flags were supplied.
+
+Qualification preserved two real failed attempts: the first used an invalid
+private-store bucket name; the second requested single-node handoff without a
+successor and correctly produced an incomplete native/Python report. The drill
+now uses the native development supervisor's preserving-stop endpoint for its
+single-node topology, while retaining strict complete-report assertions. No
+assertion was weakened or incomplete handoff relabelled as a graceful drain.
+
+Constructor/event validation refinements: async constructors are refused during
+cold registration, successful object creation is counted only after construction
+succeeds, and constructor failure/recovery is tested without fabricated cleanup
+counts. The first synthetic queue declaration omitted required native settings;
+that test fixture was corrected. The constructor test also learned the native
+nested-call contract: a failed target constructor yields SDK `HostError`, rather
+than an HTTP response value. The current adapter test suite passes those cases.
+
+Foundation commit `fc45907` passed the full local workspace unit/integration
+suite (including all 87 native-node tests) and both complete Linux SDK workflow
+runs, 39385543593 and 39385478532. Linux used CPython 3.14.8 with Pydantic 2.12.3 /
+pydantic-core 2.41.4 and NumPy 2.3.4. These results precede the later archive
+changes; new package/protocol/hook checks and fresh Linux CI are still required.
+
+The full goal remains active. Outstanding gates include OS/transitive external
+library attestation, rolling different-version process handoff, explicit
+Python/native writer and stale-Python-after-fence cases, quorum proof pause/fail
+qualification, binding-specific fault/replay/backpressure matrices, complete
+cleanup/error telemetry and measured Rust/Python latency/throughput/memory/copy/
+recovery baselines. The archive milestone does not complete the full plan.
+
+Final archive checkpoint corrections and checks:
+
+- The new deployment validator initially mistook framework-owned SQL/KV/queue
+  classes for missing Python factories. It now uses Cellar's existing reserved
+  class predicate; regression coverage permits those native classes while still
+  refusing a missing Python class. The real restored-host and adapter tests
+  caught this before publication of the follow-up commit.
+- After correction, adapter all-feature tests and affected Core/adapter
+  all-target/all-feature Clippy with `-D warnings` passed. Native artifact
+  integration tests (8 cases), all four archive/bucket tests and the separate
+  pre-factory runtime identity test passed. The fresh real-package recovery
+  drill was rerun successfully against the final validation path.
+- Native-only compilation with an invalid interpreter path, documentation
+  integrity and the 415-package native dependency graph passed. The new Linux
+  workflow uses a private independent runtime and removes/restores it in the
+  same real-package qualification drill; that follow-up CI has not run yet.
+
+Final prepared-project package smoke passed after the reserved-class correction, including real cron, preserving restart, lost-response reconciliation and strict combined native/Python report assertions. The fresh removal/restoration package drill also passed against that same validation path.

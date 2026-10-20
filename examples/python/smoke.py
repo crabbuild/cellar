@@ -86,9 +86,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cellar", required=True, type=Path)
     parser.add_argument("--with-cron", action="store_true")
+    parser.add_argument("--project", type=Path, default=Path(__file__).with_name("project.json"))
     args = parser.parse_args()
     cellar = args.cellar.resolve()
-    project = Path(__file__).with_name("project.json").resolve()
+    project = args.project.resolve()
     with tempfile.TemporaryDirectory(prefix="cellar-python-smoke-") as temporary:
         root = Path(temporary)
         staged = private_project(project, root)

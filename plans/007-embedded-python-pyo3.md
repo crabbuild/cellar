@@ -18,9 +18,12 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: native-package publication/recovery of the runtime closure, full external native-library/OS attestation, forced-fence and quorum durability fault injection, binding-specific failure matrices, multi-platform qualification and throughput measurements. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
-background interpreter failure and default executor shutdown have local coverage. Python runtime and packages currently require separate provisioning;
-no complete environment is included in a native package. A bounded 1 ms polling
+Remaining qualification: full external native-library/OS attestation, forced-fence and quorum durability fault injection, binding-specific failure matrices, multi-platform qualification and throughput measurements. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
+background interpreter failure and default executor shutdown have local coverage. Native projects can now bundle and restore a verified CPython/runtime/package
+closure. The real recovery drill removes the original runtime, installs from
+a private bucket and starts the installed host with a cleared environment,
+including numerical native libraries and complete joined shutdown. System
+libraries outside that closure remain platform prerequisites. A bounded 1 ms polling
 bridge is used initially; notification-driven wakeups are deferred.
 Prepared: 2026-10-19.
 Source baseline: `4008db9d514c53c62989899302d8811db0182a64`.

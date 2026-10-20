@@ -21,6 +21,9 @@ def validate(module, descriptor):
         if not inspect.isclass(cell):
             raise TypeError("Registered Cellar cells must be classes")
         inspect.signature(cell).bind()
+        for constructor in (cell.__new__, cell.__init__):
+            if inspect.iscoroutinefunction(constructor) or inspect.isasyncgenfunction(constructor):
+                raise TypeError("Cellar constructors must be synchronous")
         handlers(cell, events, 3)
 
 
@@ -36,8 +39,8 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
                 if len(objects) >= maximum:
                     stats["budget_exhaustions"] += 1
                     raise RuntimeError("Cellar Python object capacity exhausted")
-                stats["objects_created"] += 1
                 objects[key] = (getattr(module, payload["class"])(), bridge)
+                stats["objects_created"] += 1
             target = objects[key][0]
         kind, value = payload["kind"], payload["event"]
         handler = getattr(target, kind)

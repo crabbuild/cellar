@@ -234,3 +234,10 @@ impl Drop for Config {
         }
     }
 }
+
+pub(super) fn bound_module_paths() -> Vec<PathBuf> {
+    build_layout::MODULE_PATHS
+        .iter()
+        .map(PathBuf::from)
+        .collect()
+}

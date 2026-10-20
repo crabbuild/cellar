@@ -49,6 +49,7 @@ fn main() -> Result<()> {
         "missing-handler",
         "sync-handler",
         "bad-constructor",
+        "async-constructor",
         "duplicate-event",
     ] {
         let directory = tempfile::tempdir()?;
@@ -130,6 +131,7 @@ fn child(mode: &str, root: &Path) -> Result<()> {
     let code = match mode {
         "unlisted" => "import ambient_dependency",
         "sync-handler" => "def fetch(request, ctx): return None",
+        "async-constructor" => "class Broken:\n async def __init__(self): pass\n async def fetch(self, request, ctx): pass",
         "bad-constructor" => "class Broken:\n def __init__(self, required): pass\n async def fetch(self, request, ctx): pass",
         _ => APPLICATION,
     };
@@ -171,7 +173,7 @@ fn child(mode: &str, root: &Path) -> Result<()> {
     let mut source = Source::new(code, "startup.py");
     match mode {
         "missing-handler" | "sync-handler" => source = source.events([EventKind::Fetch]),
-        "bad-constructor" => source = source.cell("Broken"),
+        "bad-constructor" | "async-constructor" => source = source.cell("Broken"),
         "duplicate-event" => source = source.events([EventKind::Fetch, EventKind::Fetch]),
         _ => {}
     }
@@ -196,6 +198,7 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         "unlisted" => "ambient_dependency",
         "missing-handler" | "sync-handler" => "must be async functions",
         "bad-constructor" => "required",
+        "async-constructor" => "must be synchronous",
         "duplicate-event" => "duplicate Python event",
         "missing-home" => "CPython path is missing",
         "wrong-abi" => "SOABI mismatch",

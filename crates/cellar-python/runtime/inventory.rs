@@ -4,49 +4,18 @@
 use super::{initialization::build_layout, Options};
 use crate::Source;
 use anyhow::{ensure, Context as _, Result};
-use serde::Deserialize;
+use cellar::protocol::{PythonFile as Entry, PythonInventory as Inventory};
 use sha2::{Digest, Sha256};
-use std::{
-    collections::BTreeMap,
-    io::Read,
-    path::{Path, PathBuf},
-};
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Inventory {
-    format: u32,
-    target: String,
-    version: String,
-    soabi: String,
-    home: PathBuf,
-    executable: PathBuf,
-    standard_library_paths: Vec<PathBuf>,
-    module_paths: Vec<PathBuf>,
-    roots: Vec<PathBuf>,
-    source: Application,
-    files: BTreeMap<PathBuf, Entry>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Application {
-    sha256: String,
-    filename: String,
-    descriptor: serde_json::Value,
-    distributions: Vec<(String, String)>,
-}
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
-enum Entry {
-    File { bytes: u64, sha256: String },
-    Symlink { target: PathBuf },
-}
+use std::path::{Path, PathBuf};
 
 /// Return whether this executable has a build-bound filesystem inventory.
 pub fn is_verified_build() -> bool {
     !build_layout::INVENTORY.is_empty()
+}
+
+/// Digest of the build-bound inventory, for process-level deployment admission.
+pub fn verified_inventory_sha256() -> Option<String> {
+    is_verified_build().then(|| format!("{:x}", Sha256::digest(build_layout::INVENTORY.as_bytes())))
 }
 
 pub(super) fn verify(options: &Options, source: &Source) -> Result<()> {
@@ -81,22 +50,7 @@ pub(super) fn verify(options: &Options, source: &Source) -> Result<()> {
             && inventory.source.distributions == source.distributions,
         "Python source/registration inventory mismatch"
     );
-    ensure!(
-        !inventory.roots.is_empty() && inventory.files.len() <= 200_000,
-        "Python inventory file limit"
-    );
-    let mut actual = BTreeMap::new();
-    for root in &inventory.roots {
-        ensure!(
-            root.is_absolute() && root.canonicalize()? == *root && root.is_dir(),
-            "Python inventory root must be canonical directory"
-        );
-        scan(root, &inventory.roots, &mut actual)?;
-    }
-    ensure!(
-        actual == inventory.files,
-        "Python provisioned files differ from the compiled inventory"
-    );
+    cellar::native_deploy::verify_python_inventory_files(&inventory)?;
     for path in inventory
         .standard_library_paths
         .iter()
@@ -159,51 +113,4 @@ fn loaded_library() -> Result<PathBuf> {
     Path::new(path)
         .canonicalize()
         .context("locate loaded libpython")
-}
-
-fn scan(path: &Path, roots: &[PathBuf], actual: &mut BTreeMap<PathBuf, Entry>) -> Result<()> {
-    ensure!(actual.len() <= 200_000, "Python inventory file limit");
-    let metadata = std::fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() {
-        let target = std::fs::read_link(path)?;
-        let resolved = path.canonicalize()?;
-        ensure!(
-            roots.iter().any(|root| resolved.starts_with(root)),
-            "Python inventory symlink escapes closure"
-        );
-        actual.insert(path.into(), Entry::Symlink { target });
-    } else if metadata.is_dir() {
-        for child in std::fs::read_dir(path)? {
-            scan(&child?.path(), roots, actual)?;
-        }
-    } else {
-        ensure!(
-            metadata.is_file(),
-            "Python inventory contains a special file"
-        );
-        let mut file = std::fs::File::open(path)?;
-        let mut digest = Sha256::new();
-        let mut buffer = [0u8; 65536];
-        let mut bytes = 0u64;
-        loop {
-            let count = file.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            bytes += count as u64;
-            digest.update(&buffer[..count]);
-        }
-        ensure!(
-            bytes == metadata.len(),
-            "Python inventory file changed while hashing"
-        );
-        actual.insert(
-            path.into(),
-            Entry::File {
-                bytes,
-                sha256: format!("{:x}", digest.finalize()),
-            },
-        );
-    }
-    Ok(())
 }

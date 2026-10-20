@@ -271,6 +271,19 @@ fn main() -> Result<()> {
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
+                let mut unsupported = fixture::graph("python-test", "", vec!["Counter".into()]);
+                unsupported.primary.crons.push("* * * * *".into());
+                ensure!(application.validate_deployment(&unsupported.primary).is_err(), "undeclared cron event accepted");
+                unsupported.primary.crons.clear();
+                unsupported.primary.options.queue_consumers.push(serde_json::from_value(json!({"queue":"test", "max_batch_size":10, "max_batch_timeout":1, "max_retries":2}))?);
+                ensure!(application.validate_deployment(&unsupported.primary).is_err(), "undeclared queue event accepted");
+                unsupported.primary.options.queue_consumers.clear();
+                unsupported.primary.options.do_classes.extend([
+                    cellar::deploy::SQL_CLASS.into(), cellar::deploy::KV_CLASS.into(), cellar::deploy::QUEUE_CLASS.into(),
+                ]);
+                application.validate_deployment(&unsupported.primary)?;
+                unsupported.primary.options.do_classes.push("MissingPythonClass".into());
+                ensure!(application.validate_deployment(&unsupported.primary).is_err(), "undeclared Python class accepted");
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(10))
                     .build()?;
@@ -297,6 +310,7 @@ fn main() -> Result<()> {
                         == 64
                 );
                 ensure!(call("/library").send().await?.json::<String>().await?.len() == 64);
+                ensure!(call("/constructor-failure").send().await?.json::<bool>().await?);
                 ensure!(call("/codec").send().await?.json::<bool>().await?);
                 ensure!(call("/task-budget").send().await?.json::<bool>().await?);
                 let repeated = call("/headers")

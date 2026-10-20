@@ -12,11 +12,25 @@ host_release = asyncio.Event()
 mailbox_progress = False
 generator_closed = False
 held_generator = None
+fail_constructor = False
 
 async def fetch(request, ctx):
-    global saved, live_context, mailbox_progress, held_generator
+    global saved, live_context, mailbox_progress, held_generator, fail_constructor
     if request.path == "/duplicate-alarm":
         return await ctx.namespace("COUNTERS").get_by_name("duplicates").fetch(request)
+    if request.path == "/constructor-failure":
+        fail_constructor = True
+        try:
+            try:
+                await ctx.namespace("COUNTERS").get_by_name("constructor").fetch(Request("http://cell/count"))
+                raise AssertionError("failed constructor accepted a fetch")
+            except SDKError as error:
+                assert error.code == "HostError"
+        finally:
+            fail_constructor = False
+        recovered = await ctx.namespace("COUNTERS").get_by_name("constructor").fetch(Request("http://cell/count"))
+        assert recovered.status == 200
+        return Response.json(True)
     if request.path == "/task-budget":
         tasks = []
         try:
@@ -169,6 +183,10 @@ async def fetch(request, ctx):
 
 
 class Counter:
+    def __init__(self):
+        if fail_constructor:
+            raise ValueError("controlled construction failure")
+
     async def fetch(self, request, ctx):
         storage = ctx.storage
         if request.path == "/codec":

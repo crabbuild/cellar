@@ -26,7 +26,7 @@ mod inventory;
 pub(crate) use bridge::{Event, InvocationBridge, Life, Start};
 pub use environment::Environment;
 pub use initialization::Interpreter;
-pub use inventory::is_verified_build;
+pub use inventory::{is_verified_build, verified_inventory_sha256};
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 const FACADE: &str = include_str!("../python/cellar.py");
@@ -55,7 +55,7 @@ impl Default for Options {
         Self {
             interpreter: Interpreter::default(),
             environment: Environment::default(),
-            module_paths: Vec::new(),
+            module_paths: initialization::bound_module_paths(),
             max_invocations: 128,
             max_body_bytes: 1024 * 1024,
             max_value_bytes: 2 * 1024 * 1024,
@@ -144,8 +144,8 @@ pub struct Incomplete {
 
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}",
-            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed)
+        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, queued_bridge_bytes={}, bridge_reservations={}",
+            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.queued_bytes, self.report.bridge.pending_reservations)
     }
 }
 

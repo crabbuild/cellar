@@ -6,6 +6,9 @@ no package manager, application module or site hook runs during verification.
 """
 import argparse
 import hashlib
+import gzip
+import io
+import tarfile
 import json
 import os
 from pathlib import Path
@@ -40,7 +43,7 @@ def files(roots):
             after = path.stat()
             if (before.st_size, before.st_mtime_ns, before.st_ino) != (after.st_size, after.st_mtime_ns, after.st_ino):
                 raise ValueError("File changed while hashing: " + str(path))
-            result[str(path)] = {"kind": "file", "bytes": after.st_size, "sha256": value}
+            result[str(path)] = {"kind": "file", "bytes": after.st_size, "sha256": value, "executable": bool(after.st_mode & 0o111)}
         else:
             raise ValueError("Special files are not allowed: " + str(path))
 
@@ -87,6 +90,49 @@ def verify(args):
     print(f"Verified {len(actual)} provisioned files")
 
 
+def bundle(args):
+    raw = args.inventory.read_bytes()
+    inventory = json.loads(raw)
+    prefix = args.prefix.resolve(strict=True)
+    roots = [Path(root) for root in inventory["roots"]]
+    if prefix == Path(prefix.anchor) or not all(root.is_relative_to(prefix) for root in roots):
+        raise ValueError("Bundle roots must be within one explicit non-root prefix")
+    if any(args.output.resolve().is_relative_to(root) for root in roots):
+        raise ValueError("Archive output must be outside captured import roots")
+    if files(roots) != inventory["files"]:
+        raise ValueError("Provisioned files differ from inventory")
+    metadata = json.dumps(dict(format=1, prefix=str(prefix), inventory_sha256=hashlib.sha256(raw).hexdigest()), sort_keys=True).encode()
+    with args.output.open("xb") as destination:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=destination, mtime=0) as compressed:
+            with tarfile.open(fileobj=compressed, mode="w|", format=tarfile.USTAR_FORMAT) as archive:
+                def add(name, size, source):
+                    info = tarfile.TarInfo(name)
+                    info.size, info.mode, info.mtime = size, 0o444, 0
+                    archive.addfile(info, source)
+                add("environment.json", len(metadata), io.BytesIO(metadata))
+                add("inventory.json", len(raw), io.BytesIO(raw))
+                seen = set()
+                for path, entry in sorted(inventory["files"].items()):
+                    if entry["kind"] == "file" and entry["sha256"] not in seen:
+                        seen.add(entry["sha256"])
+                        with open(path, "rb") as stream:
+                            add("blobs/" + entry["sha256"], entry["bytes"], stream)
+    print("Environment archive SHA-256 " + digest(args.output))
+
+
+def project(args):
+    source = args.project.resolve(strict=True)
+    config = json.loads(source.read_text())
+    if config.get("cohosted") or config["primary"].get("assets") or config["primary"].get("containers"):
+        raise ValueError("Prepare this example's asset/container/cohost paths explicitly before bundling")
+    config["cargo_manifest"] = str((source.parent / config["cargo_manifest"]).resolve(strict=True))
+    if args.version is not None:
+        config["primary"]["application_version"] = args.version
+    config["python_environment"] = dict(inventory=str(args.inventory.resolve(strict=True)), archive=str(args.archive.resolve(strict=True)))
+    args.output.write_text(json.dumps(config, indent=2) + "\n")
+    print("Prepared native project " + str(args.output))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -100,8 +146,18 @@ def main():
     command.add_argument("--output", type=Path, required=True)
     command = commands.add_parser("verify")
     command.add_argument("inventory", type=Path)
+    command = commands.add_parser("bundle")
+    command.add_argument("inventory", type=Path)
+    command.add_argument("--prefix", type=Path, required=True)
+    command.add_argument("--output", type=Path, required=True)
+    command = commands.add_parser("project")
+    command.add_argument("project", type=Path)
+    command.add_argument("--inventory", type=Path, required=True)
+    command.add_argument("--archive", type=Path, required=True)
+    command.add_argument("--version")
+    command.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    {"capture": capture, "verify": verify}[args.command](args)
+    {"capture": capture, "verify": verify, "bundle": bundle, "project": project}[args.command](args)
 
 
 if __name__ == "__main__":

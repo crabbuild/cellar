@@ -117,8 +117,29 @@ json.dump({
         }
         None => String::new(),
     };
+    let modules: Vec<String> = if inventory.is_empty() {
+        Vec::new()
+    } else {
+        let value: serde_json::Value = serde_json::from_str(&inventory)?;
+        value["module_paths"]
+            .as_array()
+            .ok_or_else(|| Error::other("Python inventory requires module_paths"))?
+            .iter()
+            .map(|path| {
+                let path = path
+                    .as_str()
+                    .ok_or_else(|| Error::other("Python module path must be a string"))?;
+                if !PathBuf::from(path).is_absolute() || path.contains('\0') {
+                    return Err(Error::other(
+                        "Python module paths must be absolute and NUL-free",
+                    ));
+                }
+                Ok(path.to_string())
+            })
+            .collect::<Result<Vec<_>, Error>>()?
+    };
     let generated = format!(
-        "pub const INVENTORY: &str = {inventory:?};\npub const TARGET: &str = {target:?};\npub const HOME: &str = {home:?};\npub const EXECUTABLE: &str = {executable:?};\npub const SOABI: &str = {soabi:?};\npub const PATHS: &[&str] = &{paths:?};\n",
+        "pub const INVENTORY: &str = {inventory:?};\npub const MODULE_PATHS: &[&str] = &{modules:?};\npub const TARGET: &str = {target:?};\npub const HOME: &str = {home:?};\npub const EXECUTABLE: &str = {executable:?};\npub const SOABI: &str = {soabi:?};\npub const PATHS: &[&str] = &{paths:?};\n",
         target = std::env::var("TARGET")?,
     );
     std::fs::write(
