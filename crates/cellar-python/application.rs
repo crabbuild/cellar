@@ -275,12 +275,13 @@ impl PythonApplication {
                                 )
                                 .await
                             }
-                            Err(error) => Err(error.into()),
+                            Err(error) => {
+                                Err(anyhow::Error::from(error).context(crate::failure::Validation))
+                            }
                         };
                         let envelope = match result {
                             Ok(value) => json!({"ok":true,"value":value}),
-                            Err(error) => json!({"ok":false,"error":error.to_string(),
-                                "code":if error.is::<crate::storage::Conflict>() {"Conflict"} else {"HostError"}}),
+                            Err(error) => crate::failure::envelope(&name, &error),
                         };
                         let encoded = serde_json::to_string(&envelope)
                             .and_then(|encoded| {

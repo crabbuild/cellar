@@ -97,6 +97,29 @@ pub(crate) fn field<'a>(value: &'a Value, name: &str) -> Result<&'a str> {
         .with_context(|| format!("{name} must be a string"))
 }
 
+/// Match the facade's depth limit at the native effect boundary too. The JSON
+/// parser's own recursion bound is deliberately not this SDK value contract.
+pub(crate) fn check_depth(value: &Value) -> Result<()> {
+    fn visit(value: &Value, depth: usize) -> Result<()> {
+        ensure!(depth <= 64, "Python SDK value exceeds nesting limit");
+        match value {
+            Value::Array(values) => {
+                for value in values {
+                    visit(value, depth + 1)?;
+                }
+            }
+            Value::Object(values) => {
+                for value in values.values() {
+                    visit(value, depth + 1)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+    visit(value, 0)
+}
+
 /// JSON messages retain their shape; binary queue messages use an explicit tag.
 pub(crate) fn queue_body(body: &cellar::sdk::queue::Body) -> Result<Value> {
     use cellar::sdk::queue::Body;
@@ -106,4 +129,21 @@ pub(crate) fn queue_body(body: &cellar::sdk::queue::Body) -> Result<Value> {
         Body::Bytes(value) => json!({"$bytes":STANDARD.encode(value)}),
         Body::JsonValue(value) | Body::Structured(value) => value.to_json()?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nested_request_body_and_header_limits_have_exact_boundaries() {
+        let mut request = json!({"url":"http://cell/", "method":"POST", "headers":[], "body":STANDARD.encode(vec![0; 4096])});
+        assert!(input(&request, 4096).is_ok());
+        request["body"] = json!(STANDARD.encode(vec![0; 4097]));
+        assert!(input(&request, 4096).is_err());
+        assert!(headers(&vec![("x".into(), "y".into()); 128]).is_ok());
+        assert!(headers(&vec![("x".into(), "y".into()); 129]).is_err());
+        assert!(headers(&[("x".into(), "y".repeat(32767))]).is_ok());
+        assert!(headers(&[("x".into(), "y".repeat(32768))]).is_err());
+    }
 }

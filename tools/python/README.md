@@ -146,8 +146,12 @@ The bridge harness separately runs disposable CPU-loop and GIL-held native-call
 hosts. It kills each owner, deletes all owner-local databases, recovers from the
 fleet bucket and verifies a new write includes the previously acknowledged
 state. No clean-drain report may be produced for a hard-killed host. These are
-local development-fleet drills; quorum replication faults remain a separate
-qualification gate. Production must use a process supervisor with a finite
+local development-fleet drills. The bridge harness also pauses both real
+follower append traffic and bucket data writes in a three-node fleet: sync and
+final output wait for proof, actual follower acknowledgements release success
+while bucket writes remain held, and failure of both paths refuses success.
+Independent binding failure/replay and the broader platform matrix remain in
+the completion audit. Production must use a process supervisor with a finite
 startup deadline, a Python-served health check, bounded graceful-stop time, hard
 termination and restart. Rust cannot safely interrupt arbitrary Python C code.
 

@@ -27,6 +27,7 @@ pub(crate) async fn execute(
     value: Value,
     options: &Options,
 ) -> Result<Value> {
+    validate(name, &value).context(crate::failure::Validation)?;
     match name {
         "clock.now" => Ok(json!(cellar::asyncrt::wall_ms())),
         "storage.read" => {
@@ -47,7 +48,8 @@ pub(crate) async fn execute(
         "alarm.get" => Ok(json!(context.storage()?.get_alarm()?)),
         "var" => Ok(json!(context.var(field(&value, "name")?))),
         "cell.fetch" => {
-            let request = values::input(&value["request"], options.max_body_bytes)?;
+            let request = values::input(&value["request"], options.max_body_bytes)
+                .context(crate::failure::Validation)?;
             let result = context
                 .namespace(field(&value, "binding")?)?
                 .get_by_name(field(&value, "name")?)
@@ -113,7 +115,8 @@ pub(crate) async fn execute(
             let result = context
                 .sql(field(&value, "binding")?)?
                 .prepare(field(&value, "sql")?)
-                .bind_json(params)?
+                .bind_json(params)
+                .context(crate::failure::Validation)?
                 .all(context)
                 .await?;
             Ok(serde_json::to_value(result)?)
@@ -168,6 +171,57 @@ pub(crate) async fn execute(
         }
         _ => bail!("unsupported Python SDK operation: {name}"),
     }
+}
+
+/// Validate the bridge protocol before entering SDK code. This marker must not
+/// wrap a backend result: a backend error can follow a committed mutation.
+fn validate(name: &str, value: &Value) -> Result<()> {
+    values::check_depth(value)?;
+    ensure!(value.is_object(), "operation payload must be an object");
+    let fields: &[&str] = match name {
+        "clock.now" | "alarm.get" | "storage.sync" | "storage.apply" => &[],
+        "storage.read" => &["key"],
+        "var" => &["name"],
+        "storage.sql" => &["sql"],
+        "cell.fetch" => &["binding", "name"],
+        "kv.get" | "kv.put" | "kv.delete" => &["binding", "key"],
+        "kv.list" => &["binding", "prefix"],
+        "sql.query" => &["binding", "sql"],
+        "queue.send" => &["binding"],
+        "queue.settle" => &[],
+        "cron.no_retry" => &[],
+        _ => bail!("unsupported operation"),
+    };
+    for name in fields {
+        field(value, name)?;
+    }
+    match name {
+        "storage.sql" | "sql.query" => {
+            ensure!(value["params"].is_array(), "SQL params must be an array");
+        }
+        "kv.put" => {
+            ensure!(value.get("value").is_some(), "missing KV value");
+            optional::<f64>(value, "ttl_seconds")?;
+        }
+        "kv.list" => {
+            optional::<i64>(value, "limit")?;
+            optional::<String>(value, "cursor")?;
+        }
+        "queue.send" => {
+            ensure!(value.get("body").is_some(), "missing queue body");
+            optional::<u32>(value, "delay_seconds")?;
+        }
+        "queue.settle" => {
+            ensure!(value["retry"].is_boolean(), "invalid retry decision");
+            ensure!(
+                optional::<i32>(value, "delay_seconds")?.is_none_or(|delay| delay >= 0),
+                "negative queue retry delay"
+            );
+            optional::<String>(value, "id")?;
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 fn optional<T: serde::de::DeserializeOwned>(value: &Value, name: &str) -> Result<Option<T>> {

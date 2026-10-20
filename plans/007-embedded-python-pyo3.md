@@ -18,7 +18,7 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: full external native-library/OS attestation, quorum durability fault injection, binding-specific failure matrices, multi-platform qualification and throughput measurements. Native-writer conflicts and a stale Python task resumed after a real ownership fence are now directly tested. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
+Remaining qualification: full external native-library/OS attestation, binding-specific failure matrices, multi-platform qualification and throughput measurements. Real three-node tests now withhold both follower acknowledgements and bucket writes, then release actual follower acknowledgements with bucket writes still held. They exercise explicit sync and final output separately and refuse success when both proof paths fail. Native-writer conflicts and a stale Python task resumed after a real ownership fence are now directly tested. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
 background interpreter failure and default executor shutdown have local coverage. Native projects can now bundle and restore a verified CPython/runtime/package
 closure. The real recovery drill removes the original runtime, installs from
 a private bucket and starts the installed host with a cleared environment,
@@ -54,7 +54,7 @@ not publish a Python example before that path runs end to end.
 
 ## Current implementation and integration points
 
-| Existing component | Relevant contract | Proposed use |
+| Existing component | Relevant contract | Adapter integration |
 | --- | --- | --- |
 | [Application contracts](../crates/cellar/application/mod.rs) | `Application`, `Cell`, `HandlerFuture`, `Invocation`, `Output` | A Rust adapter converts invocations into Python tasks and responses back into native outputs |
 | [Native worker](../crates/cellar/runtime/workers/native/mod.rs) | Installs the original event context while polling application futures | Python SDK requests execute inside that original Rust future |
@@ -230,9 +230,10 @@ before further dispatch; destruction runs on the interpreter loop. Releasing a
 Rust proxy must not block waiting for the GIL. Track pending destruction records
 until processed, bound their accumulation, and drain them before closing the
 loop. Do not silently lose cleanup requests when an ordinary work queue is full.
-The initial spike must establish whether this requires an explicit lifecycle
-hook in the application contract; `Cell` currently exposes invocation, not a
-Python-specific activation-retirement callback.
+The adapter uses a Rust-owned activation liveness flag. Proxy drop revokes that
+flag without entering Python; the loop observes retirement independently of the
+ordinary request mailbox. This requires no Python-specific public `Cell` hook.
+The audit separately tracks pending cleanup accounting and retirement races.
 
 ## Atomic storage without Python callbacks inside SQLite transactions
 
@@ -286,15 +287,25 @@ do not silently round Python integers. Applications serialize Decimal, datetime,
 NumPy values and Pydantic models explicitly. Do not use pickle as a persistence,
 RPC or package-loading format, and do not serialize arbitrary Python exceptions.
 
-| Failure | Proposed Python behavior | Host behavior |
+| Failure | Python behavior | Host behavior |
 | --- | --- | --- |
 | Validation or unsupported value | `ValidationError` | No mutation; bounded error response |
 | Failed atomic check | `Conflict` | Roll back the complete batch |
-| Retired event/domain or activation | `ContextExpired` / `OwnershipLost` | Refuse new SDK work; preserve existing typed distinctions |
+| Retired event/domain or activation | `SDKError(code="ContextExpired")` / `OwnershipLost` | Refuse new SDK work; ownership loss does not establish rollback |
 | Admission or mailbox capacity | `Overloaded` | Bounded refusal; no unbounded queue growth |
-| Interrupted or unproven submitted mutation | `Ambiguous` | Do not imply rollback or blindly replay |
+| Failed submitted mutation without a proven refusal | `Ambiguous` with `outcome="unknown"` | Do not imply rollback or blindly replay |
 | Handler exception | Sanitized handler failure | No success output; prior committed writes are not undone |
 | Native extension crash or process abort | No catchable Python guarantee | Whole-node recovery; accepted effects follow ordinary Cellar recovery rules |
+
+Validation and pre-dispatch overload refusals carry `outcome="not_committed"`;
+this describes that operation, not earlier writes by its invocation. A submitted
+call returning a native capacity verdict remains `Overloaded/unknown`: a callee
+can propagate its nested call's refusal after committing its own writes. Unknown submitted reads
+retain `HostError`. The bridge preserves native typed routing verdicts where
+available and conservatively classifies generic mutation failures as ambiguous.
+Backend error text is replaced with a fixed code before returning to Python.
+Some native bindings reduce causes internally; the adapter does not reconstruct
+a stronger outcome by parsing their messages.
 
 Cancellation remains cancellation. Do not catch it as a generic retryable
 application failure. Tracebacks are bounded and scrubbed of request bodies and
@@ -432,9 +443,9 @@ against malicious native Python code. Run incompatible dependencies, untrusted
 code, workloads requiring hard termination, GPU isolation or independent process
 control in separate worker processes/containers instead.
 
-## Proposed code organization
+## Code organization
 
-Create a separate adapter crate, following the `cellar-axum` dependency direction:
+The separate adapter crate follows the `cellar-axum` dependency direction:
 
 ```text
 crates/cellar-python/
@@ -443,10 +454,15 @@ crates/cellar-python/
   application.rs          Application/Cell proxies and registration descriptor
   runtime/mod.rs          Interpreter bootstrap, loop ownership and lifecycle
   runtime/bridge.rs       Bounded invocation messages and awaitable completion
-  runtime/objects.rs      Activation-scoped Python object registry and cleanup
+  runtime/initialization.rs Isolated CPython initialization and host signals
+  runtime/inventory.rs     Verification before interpreter initialization
+  runtime/budget.rs        Native bridge resource reservations
+  operations.rs           SDK dispatch within the original native invocation
+  failure.rs              Proven refusals and conservative mutation ambiguity
   storage.rs              JSON snapshots and checked atomic batch conversion
-  values.rs               Owned request/response codecs and Python errors
-  python/cellar/          Bundled Python facade and type annotations
+  values.rs               Owned request/response codecs
+  python/cellar.py         Bundled typed Python facade
+  python/runner.py         Loop, activation registry, task cleanup and metrics
   tests/                  Public adapter lifecycle and recovery tests
 ```
 
@@ -498,11 +514,11 @@ copying and recovery baselines without claiming a performance target in advance.
 - **Arbitrary Python transaction callbacks:** defer; the batch API avoids holding
   SQLite locks while calling back across runtimes.
 
-M0 must decide the exact loop/bootstrap APIs, whether an activation-retirement
-hook is necessary, and how combined shutdown reporting composes with the node
-supervisor. M4 must specify the native package metadata and runtime closure
-verification. These are explicit implementation gates, not claims that the
-current SDK already provides those seams.
+Accepted bootstrap, bridge, retirement, combined reporting and deployment
+decisions are recorded in [ADR 004](../docs/adr/004-embedded-python.md). The
+[completion audit](007-embedded-python-audit.md) retains the remaining direct
+evidence gates for those contracts; accepting a design does not qualify every
+failure, package or platform.
 
 ## References and planning validation
 
@@ -516,14 +532,15 @@ Primary external references, consulted on 2026-10-19:
 - [CPython 3.14 initialization configuration](https://docs.python.org/3.14/c-api/init_config.html).
 - [CPython 3.14 interpreter lifecycle](https://docs.python.org/3.14/c-api/interp-lifecycle.html).
 
-This is a design based on source inspection and primary documentation. No PyO3
-prototype, package compatibility matrix, performance run or runtime recovery
-qualification was performed for this document. All Python APIs, new crate paths
-and package metadata above are proposals. Before implementation, record exact
-dependency pins and the results of M0; update the native application ADR when
-an implementation decision is accepted.
+The original design was prepared from source inspection and primary
+documentation before implementation. The current adapter pins PyO3 and its
+build configuration to 0.30.1 and targets GIL-enabled shared CPython 3.14.
+The interface and organization above describe the executable implementation.
+Qualification results below and in the audit record their exact scope.
+Performance baselines and the remaining audit gates are not implied by the
+implementation or by acceptance of ADR 004.
 
-Documentation validation: `python3 tools/docs/check.py` passed. The new plan's
+Original design-only validation: `python3 tools/docs/check.py` passed. The new plan's
 nine local source links, Python sketch syntax, code fences and index entry were
 checked, and `git diff --check` passed. No Rust tests were rerun for this
 documentation-only change.

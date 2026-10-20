@@ -1,4 +1,4 @@
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::Context;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -33,7 +33,7 @@ impl std::fmt::Display for Conflict {
 
 impl std::error::Error for Conflict {}
 
-pub(crate) fn apply(context: &Context, value: Value, maximum: usize) -> Result<Value> {
+fn validate(value: Value, maximum: usize) -> Result<Batch> {
     let batch: Batch = serde_json::from_value(value)?;
     ensure!(
         batch
@@ -73,6 +73,11 @@ pub(crate) fn apply(context: &Context, value: Value, maximum: usize) -> Result<V
             "invalid Python storage key"
         );
     }
+    Ok(batch)
+}
+
+pub(crate) fn apply(context: &Context, value: Value, maximum: usize) -> Result<Value> {
+    let batch = validate(value, maximum).context(crate::failure::Validation)?;
     context.storage()?.transaction_sync(|tx| {
         for (key, snapshot) in &batch.checks {
             let current = tx.get_json(key)?;

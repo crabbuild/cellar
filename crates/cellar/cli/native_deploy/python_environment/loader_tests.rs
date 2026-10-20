@@ -43,8 +43,10 @@ fn verified_rpath_wins_over_ambient_same_soname_library() -> Result<()> {
         "x86_64-unknown-linux-gnu",
         [bound.clone()].into_iter().collect(),
     )?;
-    let linker: Vec<_> = arguments
-        .chunks_exact(2)
+    let (pairs, remainder) = arguments.as_chunks::<2>();
+    anyhow::ensure!(remainder.is_empty(), "unpaired Rust linker argument");
+    let linker: Vec<_> = pairs
+        .iter()
         .map(|pair| {
             assert_eq!(pair[0], "-C");
             pair[1].strip_prefix("link-arg=").unwrap()

@@ -6,6 +6,12 @@ use cellar_python::{EventKind, Options, PythonApplication, PythonRuntime, Source
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc, time::Duration};
 
+#[path = "support/bindings.rs"]
+mod bindings;
+#[path = "support/durability.rs"]
+mod durability;
+#[path = "support/fault_gates.rs"]
+mod fault_gates;
 #[path = "support/fencing.rs"]
 mod fencing;
 #[path = "../../cellar/tests/support/html.rs"]
@@ -35,6 +41,36 @@ async fn start_configured(
     name: &str,
     bucket: Option<cellar::bucket::Bucket>,
     configure: impl FnOnce(&mut NodeConfig),
+) -> Result<(Node, String)> {
+    start_services(path, application, name, bucket, move |config, _| {
+        configure(config)
+    })
+    .await
+}
+
+async fn start_services(
+    path: &Path,
+    application: Arc<dyn Application>,
+    name: &str,
+    bucket: Option<cellar::bucket::Bucket>,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices),
+) -> Result<(Node, String)> {
+    start_graph(
+        path,
+        application,
+        name,
+        bucket,
+        move |config, services, _| configure(config, services),
+    )
+    .await
+}
+
+async fn start_graph(
+    path: &Path,
+    application: Arc<dyn Application>,
+    name: &str,
+    bucket: Option<cellar::bucket::Bucket>,
+    configure: impl FnOnce(&mut NodeConfig, &mut NodeServices, &mut DeploymentGraph),
 ) -> Result<(Node, String)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -75,7 +111,6 @@ async fn start_configured(
     );
     config.maintenance.rebalance = false;
     config.runtime.handler_budget = Duration::from_millis(250);
-    configure(&mut config);
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::new();
     let peer_auth = Arc::new(PeerAuth::new([31; 32], name)?);
@@ -110,7 +145,7 @@ async fn start_configured(
             })
         })
         .transpose()?;
-    let services = NodeServices {
+    let mut services = NodeServices {
         wall_clock: None,
         http_client: None,
         host_executor: executor.clone(),
@@ -127,6 +162,7 @@ async fn start_configured(
     let mut graph = fixture::graph("python-test", "", vec!["Counter".into()]);
     graph.primary.options.bindings = vec![("COUNTERS".into(), "Counter".into())];
     graph.primary.options.vars = vec![("DOMAIN_MARKER".into(), name.into())];
+    configure(&mut config, &mut services, &mut graph);
     let applications =
         CompiledApplications::default()
             .register("python-test", "test", move || Ok(application.clone()))?;
@@ -158,6 +194,12 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-bindings" {
+        return bindings::child();
+    }
+    if mode == "--runtime-durability" {
+        return durability::child();
+    }
     if mode == "--runtime-fenced" {
         return fencing::child();
     }
@@ -284,6 +326,8 @@ fn main() -> Result<()> {
         "--runtime-unraisable",
         "--runtime-thread-error",
         "--runtime-fenced",
+        "--runtime-durability",
+        "--runtime-bindings",
     ] {
         lifecycle_mode(mode)?;
     }
@@ -384,6 +428,7 @@ fn main() -> Result<()> {
                 ensure!(call("/generator").send().await?.json::<bool>().await?);
                 ensure!(call("/atomic").send().await?.error_for_status().context("atomic storage")?.json::<bool>().await?);
                 ensure!(call("/batch-validation").send().await?.error_for_status().context("batch validation")?.json::<bool>().await?);
+                ensure!(call("/protocol-validation").send().await?.error_for_status().context("protocol validation")?.json::<bool>().await?);
                 ensure!(call("/unawaited").send().await?.json::<bool>().await?);
                 ensure!(call("/late").send().await?.json::<Value>().await?.is_null());
                 ensure!(call("/budget").send().await?.json::<bool>().await?);
@@ -562,7 +607,14 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         .stdout(output.as_file().try_clone()?)
         .stderr(output.as_file().try_clone()?)
         .spawn()?;
-    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    let deadline = std::time::Instant::now()
+        + Duration::from_secs(
+            if matches!(mode, "--runtime-durability" | "--runtime-bindings") {
+                60
+            } else {
+                15
+            },
+        );
     loop {
         if let Some(status) = child.try_wait()? {
             let log = std::fs::read_to_string(output.path())?;

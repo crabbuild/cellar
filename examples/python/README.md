@@ -15,7 +15,7 @@ From the repository root:
 
 ```sh
 export PATH="$HOME/.cargo/bin:$PATH"
-export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-6a8d"
+export CARGO_TARGET_DIR="$HOME/Workspace/crabbuild-target/cellar-my-checkout"
 export PYO3_PYTHON="$(command -v python3.14)"
 "$PYO3_PYTHON" -m venv examples/python/.venv
 examples/python/.venv/bin/python -m pip install --require-hashes --only-binary :all: -r examples/python/requirements.lock

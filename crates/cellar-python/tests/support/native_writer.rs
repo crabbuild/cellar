@@ -28,6 +28,24 @@ struct NativeWriter(Arc<dyn Cell>);
 
 impl Cell for NativeWriter {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        if matches!(&event, Invocation::Fetch(request) if request.url.ends_with("/native-overload"))
+        {
+            return Box::pin(async move {
+                context.storage()?.transaction_sync(|tx| {
+                    let count = tx
+                        .get_json("overload-committed")?
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0);
+                    tx.put_json("overload-committed", &json!(count + 1))
+                })?;
+                // Model a callee propagating a nested admission failure after
+                // its own write. This verdict alone cannot prove rollback.
+                Err(cellar::cell_dispatch::RoutedRequestError(
+                    cellar_logic::RequestError::CapacityExhausted,
+                )
+                .into())
+            });
+        }
         if matches!(&event, Invocation::Fetch(request) if request.url.ends_with("/native-write")) {
             return Box::pin(async move {
                 context.storage()?.transaction_sync(|tx| {
@@ -44,6 +62,19 @@ impl Cell for NativeWriter {
 }
 
 pub async fn qualify(client: &reqwest::Client, url: &str) -> Result<()> {
+    let classification: Value = client
+        .get(format!("{url}/overload-after-write"))
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    ensure!(
+        // The native SDK returns a callee's handler failure without its inner
+        // typed route verdict. Python must retain uncertainty and never replay.
+        classification == json!({"code":"Ambiguous","outcome":"unknown","count":1}),
+        "committed overload result: {classification}"
+    );
     let attempt = client.get(format!("{url}/native-conflict")).send();
     let writer = async {
         loop {

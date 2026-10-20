@@ -47,17 +47,48 @@ def _encode(value):
         elif isinstance(item, (list, tuple)):
             for child in item:
                 check(child, depth + 1)
-    check(value)
-    return _json.dumps(value, allow_nan=False, separators=(",", ":"))
+    try:
+        check(value)
+        return _json.dumps(value, allow_nan=False, separators=(",", ":"))
+    except (ValueError, TypeError, RecursionError) as error:
+        raise ValidationError("Unsupported Cellar value") from error
 
 
 class SDKError(Exception):
     """A host operation failed. Mutations are never automatically retried."""
 
-    def __init__(self, message: str, code: str = "HostError") -> None:
+    def __init__(self, message: str, code: str = "HostError", outcome: str | None = None) -> None:
         super().__init__(message)
         self.code = code
-        self.outcome = "not_committed" if code in ("Conflict", "ContextExpired", "ContextMismatch", "NotSubmitted") else "unknown"
+        self.outcome = outcome or ("not_committed" if code in ("Conflict", "ContextExpired", "ContextMismatch", "NotSubmitted", "ValidationError") else "unknown")
+
+
+class ValidationError(SDKError, ValueError):
+    """An invalid value or operation was refused before applying effects."""
+
+    def __init__(self, message: str = "Invalid Cellar operation", code: str = "ValidationError", outcome: str | None = None) -> None:
+        super().__init__(message, code, outcome)
+
+
+class Overloaded(SDKError):
+    """Capacity was exhausted. Inspect outcome before deciding how to retry."""
+
+    def __init__(self, message: str = "Cellar capacity exhausted", code: str = "Overloaded", outcome: str | None = None) -> None:
+        super().__init__(message, code, outcome)
+
+
+class Ambiguous(SDKError):
+    """A submitted mutation failed without establishing whether it committed."""
+
+    def __init__(self, message: str = "Cellar mutation outcome is unknown", code: str = "Ambiguous", outcome: str | None = None) -> None:
+        super().__init__(message, code, outcome)
+
+
+class OwnershipLost(SDKError):
+    """Native ownership was lost; this does not establish mutation rollback."""
+
+    def __init__(self, message: str = "Cellar ownership lost", code: str = "OwnershipLost", outcome: str | None = None) -> None:
+        super().__init__(message, code, outcome)
 
 
 class ContextMismatch(SDKError):
@@ -140,7 +171,7 @@ class Storage:
     async def apply(self, *, checks: Mapping[str, Snapshot] | None = None, puts: Mapping[str, JSON] | None = None, deletes: Iterable[str] = (), alarm_at_ms: int | None = None, delete_alarm: bool = False) -> None:
         checks = checks or {}
         if any(not isinstance(value, Snapshot) for value in checks.values()):
-            raise TypeError("checks must contain Snapshot values from read_json or MISSING")
+            raise ValidationError("checks must contain Snapshot values from read_json or MISSING")
         return await self._context._call(
             "storage.apply", checks={key: dict(present=s.present, value=s.value) for key, s in checks.items()},
             puts=puts or {}, deletes=list(deletes), alarm_at_ms=alarm_at_ms, delete_alarm=delete_alarm)
@@ -277,8 +308,12 @@ class Context:
             encoded = _encode(payload)
             try:
                 self._bridge.submit(sequence, operation, encoded)
-            except (RuntimeError, ValueError) as error:
-                raise SDKError(str(error), "NotSubmitted") from error
+            except BlockingIOError as error:
+                raise Overloaded(outcome="not_committed") from error
+            except ValueError as error:
+                raise ValidationError() from error
+            except RuntimeError as error:
+                raise SDKError("Cellar operation was not submitted", "NotSubmitted") from error
             return await future
         finally:
             self._pending.pop(sequence, None)
@@ -293,7 +328,12 @@ class Context:
         else:
             error = value["error"]
             code = value["code"]
-            future.set_exception(Conflict(error, code) if code == "Conflict" else SDKError(error, code))
+            # The native envelope carries an explicit outcome. Never infer a
+            # rollback from a submitted mutation's generic backend failure.
+            error_type = {"Conflict": Conflict, "ValidationError": ValidationError,
+                          "Overloaded": Overloaded, "Ambiguous": Ambiguous,
+                          "OwnershipLost": OwnershipLost}.get(code, SDKError)
+            future.set_exception(error_type(error, code, value["outcome"]))
 
     def _close(self):
         self._bridge.expire()

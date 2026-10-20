@@ -2,7 +2,7 @@ import asyncio
 import hashlib
 import json
 import weakref
-from cellar import Conflict, MISSING, Request, Response, SDKError
+from cellar import Ambiguous, Conflict, MISSING, Overloaded, Request, Response, SDKError, ValidationError
 
 saved = None
 live_context = None
@@ -14,6 +14,9 @@ mailbox_progress = False
 generator_closed = False
 held_generator = None
 fail_constructor = False
+proof_sync_completed = False
+proof_python_returned = False
+proof_attempts = {}
 instances = weakref.WeakSet()
 native_snapshot_ready = asyncio.Event()
 native_snapshot_release = asyncio.Event()
@@ -23,6 +26,45 @@ fence_result = None
 
 async def fetch(request, ctx):
     global saved, live_context, mailbox_progress, held_generator, fail_constructor
+    global proof_sync_completed, proof_python_returned
+    if request.path == "/proof/reset":
+        proof_sync_completed = proof_python_returned = False
+        return Response.json(True)
+    if request.path == "/proof/progress":
+        return Response.json({"sync": proof_sync_completed, "returned": proof_python_returned})
+    if request.path == "/proof/attempts":
+        return Response.json(proof_attempts)
+    if request.path == "/protocol-validation":
+        invalid = [("unknown", {}), ("kv.put", {"binding": 42, "key": "x", "value": True}),
+                   ("sql.query", {"binding": "DB", "sql": "INSERT", "params": {}}),
+                   ("queue.send", {"binding": "JOBS", "body": {}, "delay_seconds": -1}),
+                   ("queue.settle", {"retry": True, "delay_seconds": -1}),
+                   ("cell.fetch", {"binding": "COUNTERS", "name": "unused", "request": {}})]
+        for operation, payload in invalid:
+            try:
+                await ctx._call(operation, **payload)
+                raise AssertionError("invalid operation reached SDK execution")
+            except ValidationError as error:
+                assert error.code == "ValidationError" and error.outcome == "not_committed"
+        try:
+            await ctx.namespace("PRIVATE-BINDING-SENTINEL").get_by_name("unused").fetch(Request("http://cell/"))
+            raise AssertionError("absent binding succeeded")
+        except Ambiguous as error:
+            # No source inspection or message guessing converts a generic
+            # submitted failure into a claim of rollback.
+            assert error.outcome == "unknown"
+            assert "PRIVATE-BINDING-SENTINEL" not in str(error)
+        return Response.json(True)
+    if request.path == "/overload-after-write":
+        cell = ctx.namespace("COUNTERS").get_by_name("overload")
+        try:
+            await cell.fetch(Request("http://cell/native-overload"))
+            raise AssertionError("native failure returned success")
+        except SDKError as error:
+            classification = {"code": error.code, "outcome": error.outcome}
+        result = await cell.fetch(Request("http://cell/overload-state"))
+        classification["count"] = json.loads(result.body)
+        return Response.json(classification)
     if request.path == "/unraisable":
         class Resource:
             def __del__(self):
@@ -59,7 +101,7 @@ async def fetch(request, ctx):
                 await ctx.namespace("COUNTERS").get_by_name("constructor").fetch(Request("http://cell/count"))
                 raise AssertionError("failed constructor accepted a fetch")
             except SDKError as error:
-                assert error.code == "HostError"
+                assert error.code == "Ambiguous" and error.outcome == "unknown"
         finally:
             fail_constructor = False
         recovered = await ctx.namespace("COUNTERS").get_by_name("constructor").fetch(Request("http://cell/count"))
@@ -106,7 +148,8 @@ async def fetch(request, ctx):
             await ctx.namespace("COUNTERS").get_by_name("forbidden").fetch(Request("http://cell/counter"))
             raise AssertionError("concurrent mutation accepted")
         except SDKError as error:
-            assert error.code == "NotSubmitted"
+            assert isinstance(error, Overloaded)
+            assert error.code == "Overloaded"
         mailbox_progress = True
         return await nested
     if request.path == "/host-waiting":
@@ -171,7 +214,7 @@ async def fetch(request, ctx):
             try:
                 await ctx.var("SECRET")
             except SDKError as error:
-                assert error.code == "NotSubmitted" and error.outcome == "not_committed"
+                assert error.code == "Overloaded" and error.outcome == "not_committed"
                 return Response.json(True)
         raise AssertionError("operation limit did not apply")
     if request.path == "/cancel":
@@ -224,7 +267,23 @@ class Counter:
 
     async def fetch(self, request, ctx):
         global fence_result
+        global proof_sync_completed, proof_python_returned
         storage = ctx.storage
+        if request.path == "/overload-state":
+            return Response.json(await storage.get_json("overload-committed"))
+        if request.path == "/proof/state":
+            return Response.json({key: await storage.get_json("proof:" + key) for key in ("sync", "output", "failure")})
+        if request.path.startswith("/proof/"):
+            operation = request.path.rsplit("/", 1)[1]
+            proof_attempts[operation] = proof_attempts.get(operation, 0) + 1
+            key = "proof:" + operation
+            snapshot = await storage.read_json(key)
+            await storage.apply(checks={key: snapshot}, puts={key: (snapshot.value if snapshot.present else 0) + 1})
+            if request.path in ("/proof/sync", "/proof/failure"):
+                await storage.sync()
+                proof_sync_completed = True
+            proof_python_returned = True
+            return Response.json(True)
         if request.path == "/fence-write":
             assert await storage.get_json("count") == 1
             fence_waiting.set()
@@ -248,6 +307,11 @@ class Counter:
                                   "late": (await storage.read_json("fenced-write")).present})
         if request.path == "/batch-validation":
             original_alarm = await storage.get_alarm()
+            try:
+                await storage.apply(checks={"key": False}, puts={"batch-invalid": True})
+                raise AssertionError("malformed snapshot accepted")
+            except ValidationError as error:
+                assert error.outcome == "not_committed"
             invalid = [
                 {"deletes": ["same", "same"]},
                 {"puts": {"same": 1}, "deletes": ["same"]},
@@ -270,8 +334,8 @@ class Counter:
                 try:
                     await ctx._call("storage.apply", **batch)
                     raise AssertionError("invalid batch reached its transaction")
-                except SDKError:
-                    pass
+                except SDKError as error:
+                    assert error.code == "ValidationError" and error.outcome == "not_committed"
                 assert not (await storage.read_json("batch-invalid")).present
                 assert await storage.get_alarm() == original_alarm
             # Exactly four operations: one check, one put, one delete, one alarm.
@@ -296,6 +360,29 @@ class Counter:
                                       "native": await storage.get_json("native-only", False),
                                       "python": (await storage.read_json("python-only")).present})
         if request.path == "/codec":
+            async def raw_apply(puts):
+                # Bypass the facade codec to verify native depth refusal before
+                # effects, rather than testing the Python encoder twice.
+                ctx._sequence += 1
+                sequence = ctx._sequence
+                future = asyncio.get_running_loop().create_future()
+                ctx._pending[sequence] = future
+                try:
+                    ctx._bridge.submit(sequence, "storage.apply", json.dumps({"puts": puts}))
+                    await future
+                finally:
+                    ctx._pending.pop(sequence, None)
+            exact = None
+            for _ in range(62):
+                exact = [exact]
+            await raw_apply({"depth-exact": exact})
+            assert await storage.get_json("depth-exact") == exact
+            try:
+                await raw_apply({"depth-over": [exact]})
+                raise AssertionError("native depth limit accepted an over-limit write")
+            except ValidationError as error:
+                assert error.outcome == "not_committed"
+            assert not (await storage.read_json("depth-over")).present
             cycle = []
             cycle.append(cycle)
             deep = None
@@ -307,8 +394,8 @@ class Counter:
                 try:
                     await storage.put_json("codec-invalid", value)
                     raise AssertionError("unsupported value reached storage")
-                except (ValueError, TypeError, RecursionError):
-                    pass
+                except ValidationError as error:
+                    assert error.outcome == "not_committed"
             assert not (await storage.read_json("codec-invalid")).present
             valid = [-(2**63), 2**64-1, None, False, {"nested": [1, "é", 1.5]}]
             for value in valid:
@@ -329,7 +416,7 @@ class Counter:
                 await storage.put_json("forbidden", True)
                 raise AssertionError("overlapping mutation accepted")
             except SDKError as error:
-                assert error.code == "NotSubmitted"
+                assert error.code == "Overloaded"
             return Response.json(True)
         if request.path == "/late":
             return Response.json(await storage.get_json("forbidden"))

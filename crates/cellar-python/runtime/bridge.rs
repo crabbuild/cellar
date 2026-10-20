@@ -83,15 +83,18 @@ impl InvocationBridge {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
         }
         self.ensure_scope(py)?;
-        if payload.len() > self.max_bytes
-            || self.operations.fetch_add(1, Ordering::Relaxed) >= self.max_operations
-        {
+        if payload.len() > self.max_bytes {
             return Err(pyo3::exceptions::PyValueError::new_err(
+                "Python SDK value budget exceeded",
+            ));
+        }
+        if self.operations.fetch_add(1, Ordering::Relaxed) >= self.max_operations {
+            return Err(pyo3::exceptions::PyBlockingIOError::new_err(
                 "Python SDK operation budget exceeded",
             ));
         }
         let reservation = self.budget.reserve(payload.len()).map_err(|_| {
-            pyo3::exceptions::PyRuntimeError::new_err(
+            pyo3::exceptions::PyBlockingIOError::new_err(
                 "Python aggregate bridge byte budget exhausted",
             )
         })?;
@@ -101,7 +104,7 @@ impl InvocationBridge {
             self.mutation
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
                 .map_err(|_| {
-                    pyo3::exceptions::PyRuntimeError::new_err(
+                    pyo3::exceptions::PyBlockingIOError::new_err(
                         "Only one outstanding Cellar mutation is allowed per invocation",
                     )
                 })?;
@@ -115,10 +118,13 @@ impl InvocationBridge {
                 mutation,
                 reservation,
             })
-            .map_err(|_| {
-                pyo3::exceptions::PyRuntimeError::new_err(
-                    "Python SDK operation queue is full or closed",
-                )
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => pyo3::exceptions::PyBlockingIOError::new_err(
+                    "Python SDK operation queue is full",
+                ),
+                mpsc::error::TrySendError::Closed(_) => pyo3::exceptions::PyRuntimeError::new_err(
+                    "Python SDK operation queue is closed",
+                ),
             })
     }
 

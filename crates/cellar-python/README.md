@@ -45,9 +45,18 @@ loop are refused at both the Python API and native sender. The invocation scope
 is an additional caller check; native SDK authority still comes from the original
 Rust context. SDK errors do not automatically retry mutations:
 a failed response may follow a committed write. `SDKError.code` distinguishes
-`HostError`, `ContextExpired`, `ContextMismatch`, `NotSubmitted` and `Conflict`;
-`outcome` is `unknown` for general host errors and `not_committed` for caller
-scope, expiration, admission or conflict refusals.
+`ValidationError`, `Overloaded`, `OwnershipLost`, `Ambiguous`, `HostError`,
+`ContextExpired`, `ContextMismatch`, `NotSubmitted` and `Conflict`. Validation,
+caller scope, expiration, pre-dispatch admission and conflict refusals have
+`outcome="not_committed"` for that operation. A native capacity verdict returned
+by a submitted call is `Overloaded/unknown`: it may be propagated by a callee
+after that callee committed its own writes. A submitted mutation with no proven refusal is `Ambiguous`
+with `outcome="unknown"`; ownership loss also leaves its outcome unknown.
+Generic submitted reads retain `HostError`. Native typed routing verdicts are
+preserved where available; the adapter never infers rollback by parsing backend
+error text. Backend messages are replaced with fixed codes before returning to
+Python. Import `ValidationError`, `Overloaded`, `Ambiguous` and `OwnershipLost`
+to catch those errors by class. Cancellation remains `asyncio.CancelledError`.
 
 ## Python API
 

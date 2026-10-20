@@ -4,6 +4,8 @@
 #[cfg(feature = "embed")]
 mod application;
 #[cfg(feature = "embed")]
+mod failure;
+#[cfg(feature = "embed")]
 mod operations;
 #[cfg(feature = "embed")]
 mod runtime;
