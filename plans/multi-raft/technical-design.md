@@ -385,6 +385,14 @@ Route by advertised queryable position as a hint and verify again at the server.
 Use bounded retry and one optional leader fallback under the same consistency
 mode and original deadline.
 
+A routing node need not host a voter or learner for the queried cell. Query
+origins authenticate their node, disk, process and label independently of any
+Raft member ID, with explicit namespace read authorization. The target retains
+its complete replica/history/schema identity and validates its current group
+membership, query contract and required read proof. A routing-only binding
+creates no local Raft member or SQLite execution state. Directory information
+discovers destinations; it does not grant namespace access or mutation authority.
+
 ## 9 Durability and S3 archive
 
 `Quorum` success requires Raft commit and durable local state publication.

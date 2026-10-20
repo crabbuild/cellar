@@ -70,6 +70,30 @@ exchange must return the newer image and exact serving member. These component
 histories do not establish arbitrary-node routing or the full release failure
 matrix.
 
+## Query origin identity
+
+The [origin evidence](evidence/MR-08-origin-progress.json) pins this boundary's
+56 owning cases, 13 Raft unit cases and executable drill. Queries use a dedicated
+route representation. The source carries a typed
+NodeIdentity (node/disk/process) and label, without a voting or learner member
+ID; the target retains its full replica/history/schema identity. A response
+reverses the exact outstanding route, and that orientation cannot decode as a
+new request. Unit checks reject injected origin members, missing/noncanonical
+target members, zero physical identities and replies bound to another origin.
+The query route cannot deserialize as the member-bearing consensus route.
+
+This separates identity encoding from voting without enabling unapproved
+origins. The current destination maps the full physical identity and label to
+a configured group member, then checks that member and the destination against
+the current configuration before body admission and around execution.
+Consensus-message authorization is unchanged. Shared pools now own a physical
+RaftPeerNode endpoint without retaining the first group's member identity.
+Independent namespace grants, installation of pools for authorized nonmembers
+and routing-only bindings still need implementation; no
+local voter may be invented to supply a query identity. Experimental query
+peers must upgrade together for this marker-1 hard cutover. There is no old
+query reader or translation fallback.
+
 ## Live capability and HTTP checks
 
 `ordinary_context::active_ordinary_context_and_storage_are_refused` holds an

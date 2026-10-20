@@ -27,14 +27,17 @@ verifies 24 remote strong reads, retained tokens and cross-cell refusal before
 and after restart. [Peer-fault evidence](evidence/MR-08-peer-progress.json) adds
 36 owning cases and repeated saturation, queued expiry and delayed TCP reply
 histories. The [read audit](read-audit.md) retains directory/ingress routing
-outside registered group membership and final requirements review. All seven
+outside registered group membership and final requirements review.
+[Origin identity evidence](evidence/MR-08-origin-progress.json) adds 56 owning
+cases and 13 Raft unit cases for query-specific node/disk/process origins.
+Namespace grants, independent pool installation and routing-only bindings remain open. All seven
 named cases exist; MR-08 is not closed.
 MR-09 is
 ready for implementation. S3 archive/restore, snapshot installation, membership
 controllers, effects and later release/scaling work remain pending. Unsupported
 SDK capabilities are refused. These tests do not establish production capacity
 or completion of the full delivery scope. The reviewed source baseline is
-`1ac7a3e11482274b536dc2389280969e8963887c`.
+`66ccb2dadaa611ef04b0c25642dc4010d6e8b2c6`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite
