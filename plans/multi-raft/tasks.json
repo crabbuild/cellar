@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "3b526e7bb54e5b40cda314db9341c92298aa3107",
+  "baseline_revision": "cff6a84ee446d5538f519eed5cea243be7931ea9",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -894,7 +894,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-07-catalog-progress.json"
+      ]
     },
     {
       "id": "MR-08",

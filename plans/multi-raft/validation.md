@@ -72,3 +72,13 @@ dependency policy, documentation and all 17 planning-tool cases passed. This is
 not yet SDK/node command serving: MR-07 must bind authorization, live authority,
 output gates and cancellation/eviction ownership. S3, repair and scale remain
 pending.
+
+
+Partial MR-07 catalog/bootstrap work is recorded in
+[MR-07 catalog evidence](evidence/MR-07-catalog-progress.json), pinned to source
+`cff6a84ee446d5538f519eed5cea243be7931ea9`. Seven catalog cases passed, along with 82
+regressions and the owning embedded-node lifecycle case. The record identifies
+the subsequent catalog-only refinement and final owning reruns. Conditional
+creation, lost responses, conflicting modes/identities, missing stable state and
+parked voting admission are covered. Public SDK/actor/ingress integration and
+five named MR-07 gates remain outstanding; MR-07 is still IN_PROGRESS.

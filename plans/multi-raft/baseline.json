@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "3b526e7bb54e5b40cda314db9341c92298aa3107",
+  "revision": "cff6a84ee446d5538f519eed5cea243be7931ea9",
   "prepared_date": "2026-10-19",
   "files": [
     {
@@ -170,11 +170,11 @@
     },
     {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "38b3d31d4ac23511b61d38c753fefd944b5bd9b69b540fd0d9289a4b1e3eb2e9"
+      "sha256": "a52e69699b5074a46daf62caa42f9b25c0763d2154b4118d93ff091052d49c78"
     },
     {
       "path": "crates/cellar/node/mod.rs",
-      "sha256": "c40962f3307a8741724e401fb8d8434aae394c0cc267c04e08ed895128a6a9a7"
+      "sha256": "cc74dbdfeae1afdb423bf42c5e23d2a18e4a11537ef2bc43067c3845be07a4e6"
     },
     {
       "path": "crates/cellar/runtime/workers/native/mod.rs",

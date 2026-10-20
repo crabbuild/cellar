@@ -9,7 +9,11 @@ pending. See [task status](tasks.json), [MR-01 evidence](evidence/MR-01.json),
 [MR-02 evidence](evidence/MR-02.json), [MR-03 evidence](evidence/MR-03.json),
 [MR-04 evidence](evidence/MR-04.json), [MR-05 evidence](evidence/MR-05.json)
 and [MR-06 evidence](evidence/MR-06.json).
-The reviewed source baseline is `3b526e7bb54e5b40cda314db9341c92298aa3107`.
+Partial [MR-07 catalog evidence](evidence/MR-07-catalog-progress.json) covers
+immutable namespace/birth records and permanent initial-member claims. Embedded
+Raft infrastructure starts parked pending verified admission; SDK/actor command
+integration and the public example remain in progress.
+The reviewed source baseline is `cff6a84ee446d5538f519eed5cea243be7931ea9`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

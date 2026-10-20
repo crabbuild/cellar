@@ -1,0 +1,4 @@
+Partial catalog checkpoint: the full MR-07 inventory is expected to remain incomplete.
+ERROR: Missing or ambiguous listed case: raft_gate_exact_receipt
+
+Exit code: 1 (expected incomplete inventory; MR-07 remains IN_PROGRESS)

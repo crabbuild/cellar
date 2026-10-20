@@ -274,6 +274,12 @@ Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `cr
 
 Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`.
 
+Partial [catalog evidence](evidence/MR-07-catalog-progress.json) covers immutable
+namespace/birth records, permanent bootstrap claims and parked node startup.
+Only `namespace_mode_conflict` from the six planned cases is covered so far;
+SDK registration, actor command/output ownership, both ingress paths and the
+compiling example remain required.
+
 1. Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.
 2. Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.
 3. Settle core output gates from exact committed/applied receipts and complete authority identity; keep Fleet proofs separate.
