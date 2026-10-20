@@ -535,6 +535,12 @@ exercise actual operations, blocking behavior and teardown rather than import
 alone. Establish native Rust versus Python adapter latency, throughput, memory,
 copying and recovery baselines without claiming a performance target in advance.
 
+The [recorded development baselines](007-embedded-python-baselines.md) now
+provide matched CPython 3.14.5/3.14.5t and native-only measurements, repeated raw
+request evidence, memory/copy observations and bucket-only owner-loss recovery.
+They state the shared-machine load and development-store limits explicitly;
+remaining qualification gates are tracked independently in the audit.
+
 ## Alternatives and decisions still needing evidence
 
 - **CPython worker process:** strongest alternative for fault containment,

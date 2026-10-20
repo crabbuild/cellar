@@ -51,6 +51,8 @@ python3 tools/python/baseline.py --native-host "$CELLAR_BASELINE_BIN/native" \
   --python-host "free-threaded=$CELLAR_BASELINE_BIN/python-free-threaded" \
   --output "$CELLAR_BASELINE_BIN/evidence" --build-profile lab --count 100 --warmup 10 \
   --concurrency 4 --repetitions 3
+python3 tools/python/baseline_report.py "$CELLAR_BASELINE_BIN/evidence/baseline.json" \
+  > "$CELLAR_BASELINE_BIN/evidence/report.md"
 ```
 
 The output directory must be new and owns all processes and test data. The
@@ -63,6 +65,13 @@ match that declaration; the caller still owns the build/profile provenance.
 Python reports
 its actual ABI/GIL state before/after work and recovery; a free-threaded run must
 remain GIL-off.
+
+`baseline_report.py` accepts JSON or gzip-compressed JSON. Before rendering it
+checks complete repetitions, raw request/percentile/copy consistency, recovered
+values against the acknowledged command ledger, subsequent writes, and native
+and Python cleanup. Corrupted receipts, published percentiles or incomplete
+drain/cleanup refuse a report. The [recorded development measurements](../../plans/007-embedded-python-baselines.md)
+include raw evidence and its exact scope.
 
 ## Interpret the evidence
 

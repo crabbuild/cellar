@@ -84,6 +84,7 @@ jobs:
           python tools/python/baseline.py --native-host "$RUNNER_TEMP/baseline-native" \
             --python-host "selected=$RUNNER_TEMP/baseline-python" \
             --output "$RUNNER_TEMP/python-baseline" --build-profile dev --count 3 --warmup 1 --concurrency 2 --repetitions 1
+          python tools/python/baseline_report.py "$RUNNER_TEMP/python-baseline/baseline.json" > "$RUNNER_TEMP/python-baseline/report.md"
       - name: Exercise embedded Python package
         run: |
           python -m pip install uv==0.11.19
