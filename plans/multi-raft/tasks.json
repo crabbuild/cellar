@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "8f18c29a0f28977eb8a4cae51848982ad7d43739",
+  "baseline_revision": "2298fd442f0b867695b564527a66b61684aff2c2",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1081,7 +1081,7 @@
       "id": "MR-09",
       "title": "Archive committed history and enforce durability modes",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-07"
       ],
@@ -1113,7 +1113,8 @@
         "crates/cellar/durability/raft/archive.rs",
         "crates/cellar/durability/raft/manifest.rs",
         "crates/cellar/tests/native_raft_archive.rs",
-        "crates/cellar/durability/raft/host_archive.rs"
+        "crates/cellar/durability/raft/host_archive.rs",
+        "plans/multi-raft/archive-audit.md"
       ],
       "steps": [
         "Build immutable committed-prefix archive bundles and manifests including entry metadata and external object dependencies.",
@@ -1211,7 +1212,7 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-09-storage-progress.json"
+        "evidence/MR-09.json"
       ]
     },
     {

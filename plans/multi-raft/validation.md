@@ -185,3 +185,34 @@ broader RPC fault cases and directory/ingress routing outside registered group
 membership still require implementation/audit. All later original packages,
 including S3 archive/restore and complete scaling/release qualification, remain
 open. These fixtures make no production-capacity claim.
+
+
+## MR-09 committed archive and SDK durability boundary
+
+Source `2298fd442f0b867695b564527a66b61684aff2c2` completes MR-09 with
+[exact evidence](evidence/MR-09.json) and an [archive audit](archive-audit.md).
+All seven required cases are implemented and pass in the 26-case owning target.
+Native SDK tests restore acknowledged state and exact receipt/minimum-durability
+rows from object storage after deleting source storage, strengthen retries
+without business reexecution, resume after restart, bound outage admission,
+retain recovery material and reject late success for an unpolled expired waiter.
+Real three-voter TLS isolation/healing tests prove minority refusal and restored
+committed state after leader replacement. Image pressure defers a committed
+apply while preserving its runtime admission, then resumes without corruption.
+Shutdown joins hung I/O and releases the workspace before reporting completion.
+
+The full owning run passes 251 Rust cases: 26 archive, 6 contracts, 16 execution,
+22 host, 16 LTX, 17 reads, 14 runtime, 10 storage, 9 transport, 11 pure lifecycle,
+16 Raft library and 88 Node cases. Six ignored process entry points are invoked
+by their owning parents and excluded. Axum feature runs pass 27/33 including the
+compile doctest; the actual counter executable passes six-endpoint remote reads,
+late startup cleanup and retained-receipt restart. All 23 recorded commands pass,
+including Clippy in affected feature modes, format/layout, dependency policy,
+docs, 17 plan tests and reviewed source preflight. The two changed baseline
+files are the image guide and bucket conditional-store adapter; their reviewed
+hashes and baseline revision now match this source.
+
+This milestone does not qualify physical S3, power loss, zones, production
+capacity/performance, atomic member snapshot installation, automatic repair,
+committed effects or a full release. MR-10 through MR-17 retain their original
+scope; the full goal remains unachieved.

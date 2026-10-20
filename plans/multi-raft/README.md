@@ -1,6 +1,6 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation in progress. MR-01 through MR-08 are complete with
+Status: implementation in progress. MR-01 through MR-09 are complete with
 source-pinned evidence. Shared durable log storage, multi-group Raft,
 authenticated transport, verified SQLite/LTX images, restricted definitions and
 node-owned command/query serving are implemented. The [MR-08 evidence](evidence/MR-08.json)
@@ -16,32 +16,36 @@ processes separately from voting; live revocation cancels old work. Startup
 receives the current trusted view; durable distribution and dynamic placement
 remain controller work.
 
-Current qualification records 89 component owning cases, 88 Node cases and 14
-Raft unit cases, plus Axum feature runs with 27/33 cases including the compile
-doctest. Four-node SDK/native/Axum histories cover nonmember access and refusal,
-all three modes, exact fallback proofs and no local member creation. The external
+The [MR-09 evidence](evidence/MR-09.json) pins source
+`2298fd442f0b867695b564527a66b61684aff2c2`: 251 Rust cases pass, including all
+26 archive requirements/cases, 88 Node cases, 16 Raft library cases and 11 pure
+command lifecycle cases. The remaining owning targets cover storage, physical
+LTX, runtime, transport, host and read contracts. Six ignored process child
+entry points are invoked by owning parents and excluded from those counts.
+Axum feature runs pass 27/33 cases including the compile doctest. The external
 counter drill covers six endpoints, 24 remote strong reads, late startup cleanup,
-retained tokens/receipts and joined restart. Repeated peer-fault histories cover
-queued expiry, saturation and delayed replies. These are local/loopback tests,
-not physical power-loss, zone, production capacity or full release qualification.
+retained tokens/receipts and joined restart. All 23 recorded commands pass,
+including Clippy for the affected crates/feature modes, formatting, layout,
+dependency policy, docs, 17 planning tests and the reviewed 68-anchor preflight.
+These local/loopback checks do not qualify physical S3, power loss, zones,
+production capacity or a complete release.
 
-MR-09 is in progress. Its archive storage component captures committed image
-cuts and verifies snapshot/LTX-tail/dependency sets through isolated physical
-replay before conditional head publication. Host archive scheduling, S3 output
-gates, stronger retries and outage admission are implemented and undergoing final
-qualification; see the [archive audit](archive-audit.md). Snapshot installation,
-membership controllers, effects and later operations/release/scaling work remain pending. Unsupported
-SDK capabilities are refused. All 17 original packages remain in scope; the
-complete delivery goal is not achieved. The completed read-contract baseline is
-`8f18c29a0f28977eb8a4cae51848982ad7d43739`.
+MR-09 is complete at the archive/output boundary. Committed image cuts and
+snapshot/LTX-tail/dependency sets are physically replayed before conditional
+head publication. Node-owned scheduling settles exact S3 proofs, preserves
+minimum durability and stronger retries, and backpressures new callbacks under
+bounded retention. Deadline, cancellation, directory ownership and deferred
+apply under image pressure are covered by the [archive audit](archive-audit.md).
+The archive reconstructs cell images and receipts; atomic Raft snapshot
+installation and authorized member recovery remain MR-10. Membership controllers,
+effects and later operations/release/scaling work remain their original packages.
+All 17 original packages remain in scope; the complete delivery goal is not
+achieved. MR-10 is the next recovery boundary.
 
-The [MR-09 storage evidence](evidence/MR-09-storage-progress.json) pins source
-`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`: 13 archive cases, 62 existing
-host/storage/execution/runtime cases and 16 Raft library cases pass, together
-with Clippy and the repository checks. Four ignored process child entry points
-are invoked by owning parents and excluded from those counts. The archive
-fixtures persist durable engine markers directly; they do not qualify SDK S3
-acknowledgements or Raft snapshot installation.
+The [earlier storage progress evidence](evidence/MR-09-storage-progress.json)
+retains its narrower 91-case qualification at source
+`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. Completion uses MR-09.json, not that
+historical component-only record.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

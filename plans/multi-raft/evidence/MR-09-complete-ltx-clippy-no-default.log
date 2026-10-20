@@ -1,0 +1,3 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["cargo", "clippy", "-p", "cellar-ltx", "--no-default-features", "--locked", "--", "-D", "warnings"]}
+    Checking cellar-ltx v0.0.0 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-ltx)
+    Finished `dev` profile [unoptimized] target(s) in 1.33s

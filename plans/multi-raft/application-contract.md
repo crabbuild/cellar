@@ -8,8 +8,8 @@ to node-owned producers. The counter example in `examples/raft-counter/README.md
 uses both native HTTP and Axum. Local Stale, AtLeast and safe ReadIndex paths
 are implemented and qualified in MR-08, including bounded replica routing and
 explicit same-consistency leader fallback. MR-09 connects S3 output gates,
-stronger receipt retries and archive image restoration; final qualification is
-pending in the [archive audit](archive-audit.md). Atomic member snapshot install
+stronger receipt retries and archive image restoration, qualified in the
+[archive audit](archive-audit.md). Atomic member snapshot install
 and effect adapters remain their respective later work packages.
 
 ## Commands and queries

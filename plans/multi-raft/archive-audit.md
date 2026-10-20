@@ -1,6 +1,6 @@
 # Committed archive and output boundary
 
-MR-09 is in progress pending final qualification. Its node-owned dispatcher now
+MR-09 is complete with [source-pinned evidence](evidence/MR-09.json). Its node-owned dispatcher now
 connects archive publication to command output. MR-10 still owns atomic Raft
 snapshot installation and authorized replacement-member recovery; the original
 17-package delivery goal remains open.
@@ -100,3 +100,11 @@ image tests cover complete reference validation and retained readers.
 These tests do not qualify physical S3, power loss, zones, production performance,
 automatic member repair, committed effects or a full release. Those remain their
 original later packages and qualification gates.
+
+Final qualification pins source `2298fd442f0b867695b564527a66b61684aff2c2`:
+26 archive cases and 225 other Rust cases pass. Axum feature runs pass 27/33
+cases including the compile doctest, and the real executable passes its native/
+Axum restart drill. All 23 recorded commands pass. The six ignored process
+child entry points are invoked by their owning parents and excluded from the
+251-case Rust count. The raw output, command arguments, executable digests and
+limits are retained in the evidence; MR-10 through MR-17 remain unfinished.

@@ -1,0 +1,6 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["python3", "-m", "unittest", "discover", "-s", "plans/multi-raft", "-p", "test_plan.py"]}
+.................
+----------------------------------------------------------------------
+Ran 17 tests in 0.060s
+
+OK

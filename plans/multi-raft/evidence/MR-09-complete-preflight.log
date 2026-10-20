@@ -1,0 +1,2 @@
+{"source_revision": "2298fd442f0b867695b564527a66b61684aff2c2", "argv": ["python3", "plans/multi-raft/plan.py", "preflight"], "baseline_sha256": "315622d2fa58544a401e27403ce1c9e2f4d7508db48df536f80b66f91f6256e7"}
+Source preflight passed: 68 anchors at baseline 2298fd442f0b867695b564527a66b61684aff2c2.

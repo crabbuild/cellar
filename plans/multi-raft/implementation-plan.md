@@ -348,7 +348,7 @@ shown by `plan.py show MR-08`; the manifest is authoritative for arguments.
 
 ### MR-09 Archive committed history and enforce durability modes
 
-Dependencies: MR-07. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-07. Phase: v1. Status: DONE.
 
 The archive storage component now captures exact durable engine/image cuts,
 pins their immutable generations, and publishes bounded snapshot/tail/dependency
@@ -357,14 +357,16 @@ physically replayed in a separate generation store before publication. Membershi
 changes establish a new full snapshot with the configuration from that exact cut.
 The node-owned dispatcher now settles S3 output from these proofs, preserves
 minimum durability and stronger retries, and bounds backlog admission and image
-retention. Final qualification is pending. Atomic Raft snapshot installation and
+retention. Atomic Raft snapshot installation and
 authorized member recovery remain MR-10. See the
 [archive boundary audit](archive-audit.md) and
 [storage integration notes](storage-integration.md#committed-archive-storage-component).
-The [storage progress evidence](evidence/MR-09-storage-progress.json) records
-91 passing Rust cases and the exact checks at source
-`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. It predates the host integration
-and does not qualify the newer SDK durability/admission boundary.
+The [completed evidence](evidence/MR-09.json) pins source
+`2298fd442f0b867695b564527a66b61684aff2c2`: all seven named requirements and
+26 archive cases pass, together with 225 other Rust cases, Axum feature runs,
+the executable restart drill and the repository checks. The earlier
+[storage progress record](evidence/MR-09-storage-progress.json) remains historical;
+it does not supply the DONE gate. This completes MR-09, not the 17-package goal.
 
 Modify: `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/storage/object/bucket.rs`.
 

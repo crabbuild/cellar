@@ -99,7 +99,7 @@ Upstream reference: [Raft Engine 0.4.2](https://docs.rs/raft-engine/0.4.2/raft_e
 
 ## Committed archive storage component
 
-MR-09 is in progress. `NamespaceCatalog::cell_archive` binds access to the
+MR-09 supplies `NamespaceCatalog::cell_archive`, which binds access to the
 selected immutable namespace root and group birth. A captured archive cut retains
 an immutable published generation and the exact synced applied marker,
 configuration and bounded retained entry suffix. It cannot relabel an old image
@@ -142,8 +142,8 @@ lost object/head responses, absent/corrupt objects, pinned retired images and
 failed replay before publication. Those fixtures alone do not qualify native
 SDK S3 acknowledgements, node-wide backlog admission or automatic member repair.
 The subsequent host integration now connects S3 output gates, stronger retries,
-backlog admission, bounded I/O and joined workspace ownership; its final
-qualification is pending in the [archive audit](archive-audit.md). Atomic member
+backlog admission, bounded I/O and joined workspace ownership; its completed
+qualification is recorded in the [archive audit](archive-audit.md). Atomic member
 repair remains MR-10/MR-11 and the original 17-package goal remains open.
 
 The [storage progress evidence](evidence/MR-09-storage-progress.json) records
@@ -152,3 +152,10 @@ library cases at source `122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. The two new
 library cases cover membership-set normalization and refusal of duplicate or
 unknown configuration fields. Exact commands, executable/log digests, repository
 checks and the remaining scope are recorded with the evidence.
+
+The [completed MR-09 evidence](evidence/MR-09.json) supersedes that narrower
+component record for the DONE gate. Source
+`2298fd442f0b867695b564527a66b61684aff2c2` passes 251 Rust cases and all 23
+recorded checks, including actual SDK S3 output, stronger retries, retention,
+three-voter failover, isolated receipt restore and the durable bucket adapter.
+Atomic member installation/recovery and the complete delivery goal remain open.
