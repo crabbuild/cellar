@@ -403,10 +403,15 @@ history/schema/configuration metadata to full LTX bytes, assembles bounded order
 chunks and seals destination generations before producing an exact runtime
 completion. Publication observes the synced engine install, rather than the
 completion request. Recovery adopts both the durable snapshot image and the
-newer applied image before reclaiming inventory. The [snapshot audit](snapshot-audit.md) records the implemented boundary and
-component/runtime qualification in progress. Node-owned authenticated snapshot transfer, fresh-member join
-admission and the complete crash/recovery matrix remain required; MR-10 is not
-complete.
+newer applied image before reclaiming inventory. The
+[snapshot audit](snapshot-audit.md) records the implemented boundary and
+component/runtime qualification. The [physical progress evidence](evidence/MR-10-physical-progress.json)
+pins source `24410fb754b055078255ccf5d595c0893f0d1b0e`: nine snapshot cases and
+209 existing owning/Node cases pass, with all 13 recorded commands. The component
+process-kill matrix covers seven image/engine/publication cuts. Native checkpoint
+scheduling/retention handoff, empty state, authenticated transfer, fresh-member
+join admission and full native lifecycle qualification remain required; MR-10 is
+not complete.
 
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
 

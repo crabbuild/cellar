@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "2298fd442f0b867695b564527a66b61684aff2c2",
+  "baseline_revision": "24410fb754b055078255ccf5d595c0893f0d1b0e",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1328,7 +1328,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-10-physical-progress.json"
+      ]
     },
     {
       "id": "MR-11",

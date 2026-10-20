@@ -216,3 +216,32 @@ This milestone does not qualify physical S3, power loss, zones, production
 capacity/performance, atomic member snapshot installation, automatic repair,
 committed effects or a full release. MR-10 through MR-17 retain their original
 scope; the full goal remains unachieved.
+
+
+## MR-10 physical snapshot progress
+
+The [physical snapshot record](evidence/MR-10-physical-progress.json) pins source
+`24410fb754b055078255ccf5d595c0893f0d1b0e`. All 218 Rust cases pass: nine snapshot,
+26 archive, 16 execution, 22 host, 16 LTX, 17 reads, 14 runtime, 10 storage and
+88 Node. Six ignored process entry points are invoked by their owning parents.
+All 13 commands pass, with executable/log digests retained. Clippy denies warnings
+for affected targets; format checks 628 Rust files. Layout, dependency policy,
+docs, 17 plan tests and the reviewed 68-anchor preflight pass. The one changed
+baseline anchor is the LTX guide's independent snapshot/applied reference rule.
+
+New cases use real SQLite/LTX and Raft Engine, actual RawNode tickets, manually
+forwarded messages and bounded chunks. They cover coherent physical installation,
+wrong history/schema/configuration/position, incomplete/corrupt transfer and name
+collision refusal, old readers through GC, compacted boundary terms, durable
+committed replay preserving an uncommitted suffix, independent snapshot retention
+across newer state/restart and mixed applied/snapshot marker refusal. Seven
+process-kill cuts cover image sync/rename/directory sync, engine sync/reply and
+publication. Process kill is not power-loss qualification.
+
+MR-10 remains IN_PROGRESS. Source checkpoint fixtures run with publication
+quiesced before RawNodes start; native checkpoint scheduling/retention handoff,
+empty/configuration-only snapshots, authenticated node-owned transfer and native
+host readiness/cancellation integration remain unfinished. Fresh-member S3/peer
+seeding and missing-quorum normal-restore refusal still require implementation
+and qualification. The [snapshot audit](snapshot-audit.md) records these limits.
+This progress does not complete MR-10, a release or the original 17-package goal.

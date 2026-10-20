@@ -40,7 +40,18 @@ The archive reconstructs cell images and receipts; atomic Raft snapshot
 installation and authorized member recovery remain MR-10. Membership controllers,
 effects and later operations/release/scaling work remain their original packages.
 All 17 original packages remain in scope; the complete delivery goal is not
-achieved. MR-10 is the next recovery boundary.
+achieved. MR-10 is in progress at the recovery boundary.
+
+The [MR-10 physical snapshot progress](evidence/MR-10-physical-progress.json) pins
+source `24410fb754b055078255ccf5d595c0893f0d1b0e`. All 218 cases across nine owning
+targets pass: nine snapshot, 121 existing archive/apply/host/read/runtime/storage
+regressions and 88 Node cases. All 13 recorded commands pass, including Clippy,
+format/layout, dependency policy, docs, plan tests and reviewed preflight.
+The [snapshot audit](snapshot-audit.md) records exact-ticket installation,
+committed replay, old-reader retention, mixed-marker refusal and seven process-kill
+cuts, together with the remaining native integration. Checkpoint scheduling and
+retention handoff, empty state, authenticated transfer ownership and authorized
+replacement-member seeding remain required; this progress does not complete MR-10.
 
 The [earlier storage progress evidence](evidence/MR-09-storage-progress.json)
 retains its narrower 91-case qualification at source
