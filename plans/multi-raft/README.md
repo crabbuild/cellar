@@ -13,7 +13,11 @@ Partial [MR-07 catalog evidence](evidence/MR-07-catalog-progress.json) covers
 immutable namespace/birth records and permanent initial-member claims. Embedded
 Raft infrastructure starts parked pending verified admission; SDK/actor command
 integration and the public example remain in progress.
-The reviewed source baseline is `cff6a84ee446d5538f519eed5cea243be7931ea9`.
+Partial [MR-07 registration/lifecycle evidence](evidence/MR-07-registration-progress.json)
+covers the restricted SDK definitions, registered execution/query bridge and
+pure command core. The node-owned scheduler, public handles and ingress are
+still required.
+The reviewed source baseline is `78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

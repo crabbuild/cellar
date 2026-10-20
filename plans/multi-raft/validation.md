@@ -82,3 +82,17 @@ the subsequent catalog-only refinement and final owning reruns. Conditional
 creation, lost responses, conflicting modes/identities, missing stable state and
 parked voting admission are covered. Public SDK/actor/ingress integration and
 five named MR-07 gates remain outstanding; MR-07 is still IN_PROGRESS.
+
+
+Partial MR-07 registration/execution/lifecycle work is recorded in
+[MR-07 registration evidence](evidence/MR-07-registration-progress.json), pinned to
+`78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96`. All 34 owning cases pass (9 host,
+15 actual command/apply integration and 10 pure lifecycle cases). Restricted
+registration, normalized request binding, strict read-only queries, exact
+receipt gates, cancellation ownership and prior-term retries are covered at
+their component boundaries. The 164-case broader run includes all 88 embedded
+node cases; 14 additional existing pure-core regressions also pass. The evidence
+records the final schema-check refinement and owning reruns. Clippy and repository
+checks pass. This does not qualify the missing node-owned dispatcher or public
+handles/ingress: four planned host cases remain absent and MR-07 remains
+IN_PROGRESS. S3 archive/restore and full end-to-end serving remain pending.

@@ -276,8 +276,9 @@ Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.
 
 Partial [catalog evidence](evidence/MR-07-catalog-progress.json) covers immutable
 namespace/birth records, permanent bootstrap claims and parked node startup.
-The restricted SDK definitions, registered private execution/query bridge and
-pure command lifecycle/output core are also implemented. The
+Partial [registration/lifecycle evidence](evidence/MR-07-registration-progress.json)
+covers the restricted SDK definitions, registered private execution/query bridge
+and pure command lifecycle/output core. The
 `namespace_mode_conflict` and `unsupported_factory_refused` cases are covered.
 The node-owned scheduler, live authority/proof plumbing, public handles, both
 ingress paths and compiling example still remain required; component tests do

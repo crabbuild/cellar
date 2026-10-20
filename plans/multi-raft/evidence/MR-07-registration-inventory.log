@@ -1,0 +1,4 @@
+Partial MR-07 checkpoint: full host inventory remains incomplete.
+ERROR: Missing or ambiguous listed case: raft_gate_exact_receipt
+
+Exit code: 1 (expected incomplete inventory; MR-07 remains IN_PROGRESS)

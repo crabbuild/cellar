@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "cff6a84ee446d5538f519eed5cea243be7931ea9",
+  "baseline_revision": "78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -905,7 +905,8 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-07-catalog-progress.json"
+        "evidence/MR-07-catalog-progress.json",
+        "evidence/MR-07-registration-progress.json"
       ]
     },
     {

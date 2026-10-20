@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "cff6a84ee446d5538f519eed5cea243be7931ea9",
+  "revision": "78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96",
   "prepared_date": "2026-10-19",
   "files": [
     {
@@ -38,7 +38,7 @@
     },
     {
       "path": "crates/cellar-logic/lib.rs",
-      "sha256": "f273c2de27e492530d9f2e973b58e7beec7841f24a7aae9e1a3b5e068e8a6d53"
+      "sha256": "6c0a0fb0f9fbb4e054647b8a06bfce2be1c8bc1f0ed2eff87cb96a04ad510f19"
     },
     {
       "path": "crates/cellar-logic/log_tier.rs",
@@ -106,7 +106,7 @@
     },
     {
       "path": "crates/cellar/application/README.md",
-      "sha256": "bfdd2b8516e15a93236f54c07a5b197823551b590e20e0fb5f110fc69e609dd0"
+      "sha256": "0e32c534f6f1dbeace29d5faaa5ee6a463409f409105638b4fe7b835750cf6e0"
     },
     {
       "path": "crates/cellar/application/cells.rs",
@@ -114,7 +114,7 @@
     },
     {
       "path": "crates/cellar/application/mod.rs",
-      "sha256": "0dd09ef939be0128f67c0b7434540d278d8556d59e94e09c0d02a55e5327aa50"
+      "sha256": "1e0042400fb90fa1a0e2d4cf7c7921efa91dedd472c11b318e694ffc42a9e0b9"
     },
     {
       "path": "crates/cellar/application/outbox.rs",
@@ -186,7 +186,7 @@
     },
     {
       "path": "crates/cellar/sdk.rs",
-      "sha256": "c24dd37fc39118bba1aa5dd1c1207378bf51819fad9f7239d06f99e30c86a5df"
+      "sha256": "5f38035c82f0251c29dd74bb0ac36585cdba24189c212001a6c4b0c879a20e4c"
     },
     {
       "path": "crates/cellar/storage/object/bucket.rs",

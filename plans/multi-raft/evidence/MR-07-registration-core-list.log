@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized] target(s) in 0.05s
+     Running tests/raft_command.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/raft_command-50e8ef0c45a04b1a)
+admission_needs_current_term_and_verified_queryable_progress: test
+delayed_proofs_cannot_cross_any_authority_or_operation_identity: test
+namespace_minimum_and_stronger_retry_wait_for_archive: test
+private_cancellation_waits_for_callback_join_and_discard: test
+protocol_work_during_a_private_callback_prevents_submission: test
+result_requires_exact_entry_and_verified_receipt: test
+retry_uses_the_verified_receipt_cut_without_reproposing_or_relabeling: test
+revoked_term_never_reactivates_from_a_delayed_status_reply: test
+submitted_cancellation_retains_producer_and_command_slot: test
+unresolved_submission_needs_new_term_and_applied_barrier_to_reconcile: test
+
+10 tests, 0 benchmarks

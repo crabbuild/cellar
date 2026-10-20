@@ -1,0 +1,44 @@
+   Compiling cellar-logic v0.1.0 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-logic)
+    Finished `test` profile [unoptimized] target(s) in 0.46s
+     Running tests/event_interleavings.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/event_interleavings-78749d1fa2cf4607)
+
+running 2 tests
+test late_wake_confirmations_and_old_owner_cleanup_preserve_the_successor ... ok
+test lease_settlement_expiry_extension_and_retention_orders_never_skip_progress ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/raft_command.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/raft_command-50e8ef0c45a04b1a)
+
+running 10 tests
+test admission_needs_current_term_and_verified_queryable_progress ... ok
+test delayed_proofs_cannot_cross_any_authority_or_operation_identity ... ok
+test namespace_minimum_and_stronger_retry_wait_for_archive ... ok
+test private_cancellation_waits_for_callback_join_and_discard ... ok
+test protocol_work_during_a_private_callback_prevents_submission ... ok
+test result_requires_exact_entry_and_verified_receipt ... ok
+test retry_uses_the_verified_receipt_cut_without_reproposing_or_relabeling ... ok
+test revoked_term_never_reactivates_from_a_delayed_status_reply ... ok
+test submitted_cancellation_retains_producer_and_command_slot ... ok
+test unresolved_submission_needs_new_term_and_applied_barrier_to_reconcile ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/routing_cache.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/routing_cache-075d3ec1a2e1e58e)
+
+running 12 tests
+test a_preserved_lineage_keeps_same_name_activation_available ... ok
+test a_reused_node_name_cannot_route_or_claim_another_lineage ... ok
+test a_zero_route_cache_retains_authority_for_resident_and_dormant_cells ... ok
+test ambiguous_takeover_preserves_the_acquire_reconciliation_bound ... ok
+test an_ambiguous_takeover_readback_retains_the_predecessor_restore ... ok
+test cancelled_queued_requests_do_not_leave_idle_routing_history ... ok
+test disabling_routing_history_preserves_inflight_and_queued_requests ... ok
+test expired_queue_history_is_reclaimed_and_old_timers_cannot_expire_new_demand ... ok
+test failed_route_history_is_bounded_and_forgotten_operations_stay_stale ... ok
+test live_remote_routes_reuse_authority_and_evict_the_least_recently_used_record ... ok
+test missing_owner_lease_requires_recovery_before_claiming ... ok
+test terminal_adoption_failures_advance_drain_progress_without_counting_stale_replies ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
