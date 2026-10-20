@@ -104,22 +104,7 @@ impl Prepared {
             !directories.is_empty() && directories.len() <= 32,
             "Python closure needs bounded libpython search directories"
         );
-        let mut arguments = Vec::new();
-        for directory in directories {
-            // Separate -Xlinker arguments preserve spaces and commas in paths.
-            // No shell is involved, and flags cannot be injected through a path.
-            for value in [
-                "-Xlinker",
-                "-rpath",
-                "-Xlinker",
-                directory
-                    .to_str()
-                    .context("Python library path must be UTF-8")?,
-            ] {
-                arguments.extend(["-C".to_string(), format!("link-arg={value}")]);
-            }
-        }
-        Ok(arguments)
+        rpath_arguments(self.target(), directories)
     }
 
     pub(super) fn stage(
@@ -298,3 +283,35 @@ fn read_bounded(reference: &PythonEnvironmentRef, path: &Path) -> Result<Vec<u8>
     reference.verify_archive(&bytes)?;
     Ok(bytes)
 }
+
+fn rpath_arguments(
+    target: &str,
+    directories: std::collections::BTreeSet<PathBuf>,
+) -> Result<Vec<String>> {
+    let mut arguments = Vec::new();
+    if target.contains("-linux-gnu") {
+        // GNU RUNPATH follows LD_LIBRARY_PATH. A verified host must prefer its
+        // inventoried interpreter over another ambient Python with the same
+        // SONAME, including actions/setup-python's loader environment.
+        arguments.extend(["-C".into(), "link-arg=-Wl,--disable-new-dtags".into()]);
+    }
+    for directory in directories {
+        let directory = directory
+            .to_str()
+            .context("Python library path must be UTF-8")?;
+        ensure!(
+            !target.contains("-linux-") || (!directory.contains(':') && !directory.contains('$')),
+            "Python library path contains Linux loader separators or dynamic tokens"
+        );
+        // Separate -Xlinker arguments preserve spaces and commas in paths.
+        // No shell is involved, and flags cannot be injected through a path.
+        for value in ["-Xlinker", "-rpath", "-Xlinker", directory] {
+            arguments.extend(["-C".into(), format!("link-arg={value}")]);
+        }
+    }
+    Ok(arguments)
+}
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "loader_tests.rs"]
+mod loader_tests;
