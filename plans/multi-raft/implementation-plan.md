@@ -308,28 +308,21 @@ shown by `plan.py show MR-07`; the manifest is authoritative for arguments.
 
 ### MR-08 Serve explicit follower query consistency modes
 
-Dependencies: MR-07. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-07. Phase: v1. Status: DONE.
 
 Modify: `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_node.rs`, `examples/raft-counter/main.rs`, `crates/cellar/durability/raft/README.md`, `examples/raft-counter/README.md`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/durability/raft/transport_options.rs`, `crates/cellar/durability/raft/transport_tests.rs`, `crates/cellar/node/mod.rs`, `crates/cellar/tests/native_node.rs`, `crates/cellar/tests/native_raft_transport.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/application/consensus/class.rs`, `examples/raft-counter/counter.rs`, `examples/raft-counter/smoke.py`, `crates/cellar-logic/consensus.rs`.
 
 Create: `crates/cellar/durability/raft/query.rs`, `crates/cellar/durability/raft/version.rs`, `crates/cellar/tests/native_raft_reads.rs`, `crates/cellar/durability/raft/query_route.rs`, `crates/cellar/durability/raft/query_wire.rs`, `crates/cellar/durability/raft/query_wire_tests.rs`, `crates/cellar/durability/raft/query_transport.rs`, `plans/multi-raft/read-audit.md`, `crates/cellar/tests/support/raft_read_context.rs`, `crates/cellar/durability/raft/query_identity.rs`.
 
-Partial [local read evidence](evidence/MR-08-local-progress.json) and
-[network evidence](evidence/MR-08-network-progress.json) retain component
-qualification. The latter records 83 owning cases, 12 Raft unit cases and all
-seven required case names, including real TCP member selection/fallback under
-unchanged consistency and deadlines. Query-code-independent forwarding and LTX
-catch-up during a waiting RPC are covered. [HTTP/context evidence](evidence/MR-08-http-progress.json)
-adds 34 owning host/read cases, live ordinary capability refusal, native/Axum
-read options and an executable restart drill with 24 remote strong reads and
-retained/cross-cell tokens. [Peer-fault evidence](evidence/MR-08-peer-progress.json)
-adds 36 owning cases and repeated saturation, queued expiry and delayed TCP
-reply histories. [Origin identity evidence](evidence/MR-08-origin-progress.json)
-adds 56 owning cases and 13 Raft unit cases using query-specific node/disk/process
-origins. The [read audit](read-audit.md) keeps namespace grants, independent peer-pool
-installation, routing-only bindings, directory integration and final requirements review
-open. MR-08 remains IN_PROGRESS; the case list alone does not prove the complete
-contract.
+The [final read evidence](evidence/MR-08.json) pins source, executable digests,
+exact commands and raw outputs. All seven required cases and the
+[requirement-to-boundary review](read-audit.md) are covered. Qualification includes
+89 component owning cases, 88 Node cases, 14 Raft unit cases, native/Axum HTTP and
+the external restart drill. Query-only ingress verifies existing metadata and
+creates no member/image; namespace grants retain independent live revocation.
+Controller-owned durable topology/grant distribution and large directory
+lifecycles remain their original later packages; this task does not close the
+17-package goal.
 
 1. Implement read-only query registration, snapshot pinning and served-version propagation.
 2. Implement Stale, AtLeast and safe ReadIndex barriers with unique request correlation and original deadlines.

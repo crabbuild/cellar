@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "66ccb2dadaa611ef04b0c25642dc4010d6e8b2c6",
+  "baseline_revision": "8f18c29a0f28977eb8a4cae51848982ad7d43739",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -928,7 +928,7 @@
       "id": "MR-08",
       "title": "Serve explicit follower query consistency modes",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-07"
       ],
@@ -1074,11 +1074,7 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-08-local-progress.json",
-        "evidence/MR-08-network-progress.json",
-        "evidence/MR-08-http-progress.json",
-        "evidence/MR-08-peer-progress.json",
-        "evidence/MR-08-origin-progress.json"
+        "evidence/MR-08.json"
       ]
     },
     {

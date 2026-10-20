@@ -1,43 +1,35 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation in progress. MR-01 through MR-07 are complete with
-recorded evidence. Shared log storage, multi-group Raft, authenticated peer
-transport, verified SQLite/LTX images, restricted definitions and node-owned
-command/query serving are implemented. All six planned MR-07 host cases pass;
-its [evidence](evidence/MR-07.json) records 47 owning cases and the
-[host audit](host-audit.md) covers mode and submitted-producer transitions.
+Status: implementation in progress. MR-01 through MR-08 are complete with
+source-pinned evidence. Shared durable log storage, multi-group Raft,
+authenticated transport, verified SQLite/LTX images, restricted definitions and
+node-owned command/query serving are implemented. The [MR-08 evidence](evidence/MR-08.json)
+and [read audit](read-audit.md) cover the completed read-contract boundary.
 
-Public handles serve Quorum commands and committed-image queries through
-bounded, joined SQL workers. The application identity pins required command
-contracts while query compatibility stays independent of voting. Native HTTP
-and Axum share the counter's normalization and dispatcher. Its executable drill
-checks six endpoints, late startup failure with disk reuse, joined shutdown,
-retained receipts and new writes after restart. Real TLS partition fixtures cover
-both a discarded proposal and a retained proposal committed by the majority.
+Queries support Stale, authenticated AtLeast and safe ReadIndex consistency.
+Bounded member attempts and one optional hint preserve contract/input/token,
+stale policy and the original deadline. Query RPCs have independent capacity;
+waiting reads cannot occupy their control/LTX catch-up connection. A query-only
+ingress can read existing cell histories without query code or local
+member/image state. Trusted namespace-origin grants authorize exact physical
+processes separately from voting; live revocation cancels old work. Startup
+receives the current trusted view; durable distribution and dynamic placement
+remain controller work.
 
-MR-08 is in progress. Local Stale/AtLeast/ReadIndex queries and opaque tokens
-retain [local evidence](evidence/MR-08-local-progress.json). Separately owned TLS
-query RPCs now support bounded member selection, explicit leader fallback and
-forwarding from voters without query code; [network evidence](evidence/MR-08-network-progress.json)
-records 83 owning cases, 12 Raft unit cases and repeated network histories.
-The [HTTP/context evidence](evidence/MR-08-http-progress.json) adds 34 owning
-host/read cases, captured capabilities during a live ordinary invocation, and
-explicit consistency/tokens through native/Axum HTTP. Its executable drill
-verifies 24 remote strong reads, retained tokens and cross-cell refusal before
-and after restart. [Peer-fault evidence](evidence/MR-08-peer-progress.json) adds
-36 owning cases and repeated saturation, queued expiry and delayed TCP reply
-histories. The [read audit](read-audit.md) retains directory/ingress routing
-outside registered group membership and final requirements review.
-[Origin identity evidence](evidence/MR-08-origin-progress.json) adds 56 owning
-cases and 13 Raft unit cases for query-specific node/disk/process origins.
-Namespace grants, independent pool installation and routing-only bindings remain open. All seven
-named cases exist; MR-08 is not closed.
-MR-09 is
-ready for implementation. S3 archive/restore, snapshot installation, membership
-controllers, effects and later release/scaling work remain pending. Unsupported
-SDK capabilities are refused. These tests do not establish production capacity
-or completion of the full delivery scope. The reviewed source baseline is
-`66ccb2dadaa611ef04b0c25642dc4010d6e8b2c6`.
+Current qualification records 89 component owning cases, 88 Node cases and 14
+Raft unit cases, plus Axum feature runs with 27/33 cases including the compile
+doctest. Four-node SDK/native/Axum histories cover nonmember access and refusal,
+all three modes, exact fallback proofs and no local member creation. The external
+counter drill covers six endpoints, 24 remote strong reads, late startup cleanup,
+retained tokens/receipts and joined restart. Repeated peer-fault histories cover
+queued expiry, saturation and delayed replies. These are local/loopback tests,
+not physical power-loss, zone, production capacity or full release qualification.
+
+MR-09 is ready. S3 archive/restore, snapshot installation, membership controllers,
+effects and later operations/release/scaling work remain pending. Unsupported
+SDK capabilities are refused. All 17 original packages remain in scope; the
+complete delivery goal is not achieved. The reviewed source baseline is
+`8f18c29a0f28977eb8a4cae51848982ad7d43739`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

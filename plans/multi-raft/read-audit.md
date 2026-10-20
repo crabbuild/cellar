@@ -1,13 +1,11 @@
 # MR-08 read-contract audit
 
-Status: IN_PROGRESS. The [local-read evidence](evidence/MR-08-local-progress.json)
-qualifies the preceding local implementation. Network member routing, fallback,
-independent LTX catch-up and query-code-independent forwarding have passing
-component tests; [network evidence](evidence/MR-08-network-progress.json) pins
-source, executable digests, commands and qualification limits. The
-[HTTP/context evidence](evidence/MR-08-http-progress.json) adds live ordinary
-capability capture and actual native/Axum consistency/token requests. They do
-not close MR-08 or the complete delivery goal.
+Status: DONE at the MR-08 read-contract boundary. The [final evidence](evidence/MR-08.json)
+pins the qualified source, executable digests, exact commands and raw output.
+It includes all seven named cases, the additional capability/HTTP/peer-fault/
+nonmember histories and the requirements review below. Preceding local/network/
+HTTP/origin progress records retain their historical source provenance. This is
+not completion of the original 17-package delivery goal.
 
 ## Read proof and image ownership
 
@@ -82,17 +80,32 @@ new request. Unit checks reject injected origin members, missing/noncanonical
 target members, zero physical identities and replies bound to another origin.
 The query route cannot deserialize as the member-bearing consensus route.
 
-This separates identity encoding from voting without enabling unapproved
-origins. The current destination maps the full physical identity and label to
-a configured group member, then checks that member and the destination against
-the current configuration before body admission and around execution.
-Consensus-message authorization is unchanged. Shared pools now own a physical
-RaftPeerNode endpoint without retaining the first group's member identity.
-Independent namespace grants, installation of pools for authorized nonmembers
-and routing-only bindings still need implementation; no
-local voter may be invented to supply a query identity. Experimental query
-peers must upgrade together for this marker-1 hard cutover. There is no old
-query reader or translation fallback.
+The destination checks its complete target identity and live membership, then
+accepts either a matching current group member or an explicit namespace-origin
+grant. Grants bind cluster/namespace/node/disk/process/label independently of
+discovery. Revocation cancels body, query and response waits. Live revisions
+retain bounded tombstones; a regrant cannot revive a request holding the old
+permission. A different namespace can keep the same pool without sharing access.
+Process replacement must agree across remaining references. The revocation unit
+history exercises these transitions and confirms that granting queries never
+authorizes a consensus frame.
+
+`RaftCellPlacement::QueryRouter` reads and verifies an existing namespace/birth,
+installs a query-only view, and creates no member, private executor or image.
+Its handle refuses commands, local reads and status. A four-node TLS history
+uses a router without query code outside both groups: all three read modes work
+in the granted namespace, the other namespace is refused, and minimum-version
+and linearizable fallback retain their proof after a candidate is isolated.
+After join, reopening its actual engine shows zero groups; no SQLite cell image
+was created. A separate startup test refuses absent roots/births before opening
+member storage. Consensus routes remain unchanged. Experimental query peers
+must upgrade together for the marker-1 hard cutover; no old reader or translation
+fallback exists.
+
+These grants are trusted control-plane inputs. Runtime revisions/tombstones do
+not persist an operator's policy independently of configuration: restart must
+supply the current trusted view. Durable distribution, dynamic placement and
+large directory lifecycles remain controller/scaling work in the original plan.
 
 ## Live capability and HTTP checks
 
@@ -114,18 +127,19 @@ select another replica without fallback, report that member, and observe
 the required committed value. Pre-restart tokens remain usable; another cell's
 token is refused even with fallback enabled.
 
-## Remaining audit and delivery work
+## Requirement-to-boundary review
 
-- Audit directory/ingress routing outside a group's voting/read membership. The
-  current RPC origin uses a registered local replica; this does not establish
-  arbitrary-node routing for the complete placement/directory architecture.
-  A general query origin needs its authenticated node/disk/process identity and
-  namespace authorization independently of voting identity. Query-only routes
-  must not initialize a local voter or relax consensus-message membership
-  checks. Destination scope, code, permission and read-proof validation remain
-  mandatory; discovery metadata cannot grant mutation authority.
-- Record final source-pinned evidence and requirements coverage before closing
-  MR-08. Presence of the seven named cases alone does not prove every contract.
+| MR-08 requirement | Owning boundary and observable evidence |
+| --- | --- |
+| Read-only registration, one pinned committed image, exact served version | `class.rs`, `host_sql.rs` and `ImageApplier::queryable` retain and verify the image/marker. SQL/PRAGMA/ATTACH refusal, live captured Context/Storage, spanning-query image/version checks and callback-capability tests cover the observable boundary. |
+| Stale, AtLeast and fresh safe ReadIndex under original invocation/deadline | `query.rs` and the host read controller correlate context/term/status generations. Follower minimum-version, completed-write barrier, minority refusal, leader-change, unpolled interruption and exact pinned-prefix histories pass. Runtime status, freshness and leader hints never settle a strong read. |
+| Authenticated history tokens and independent access permission | `version.rs`, the public-key catalog ledger, query framing and namespace-origin grants bind complete history/schema/process identity. Byte tampering, cross-history/schema, expiry/key rotation/restart, ambiguous catalog writes, namespace refusal and live revocation histories exercise the contracts. Native callbacks are trusted; no OS sandbox is claimed. |
+| Bounded member selection and same-consistency fallback | `query_route.rs` and the independently owned query transport keep the original contract/input/token/policy and deadline. Candidate bounds, fallback, LTX progress while a query waits, peer saturation/queued expiry and delayed TCP reply isolation are covered. The four-node router proves nonmember ingress without query code or member/image creation; missing root/birth startup is refused. |
+
+The controller must supply current trusted topology and grant configuration on
+restart. Dynamic placement/repair, durable control-plane distribution and large
+directory/federation lifecycles remain their original MR-11/MR-13/MR-17 work.
+This boundary review does not claim those packages or the full delivery goal.
 
 Native Rust callbacks remain trusted and cooperative; the framework is not an
 OS sandbox. These local/loopback fixtures do not establish physical power-loss,

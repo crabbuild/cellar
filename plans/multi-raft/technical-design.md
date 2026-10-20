@@ -393,6 +393,14 @@ membership, query contract and required read proof. A routing-only binding
 creates no local Raft member or SQLite execution state. Directory information
 discovers destinations; it does not grant namespace access or mutation authority.
 
+Trusted namespace-origin grants bind the exact physical process independently
+of voting membership. Replacing or revoking a live grant cancels work holding
+its old permission, with bounded revision tombstones preventing stale updates.
+Permissions are checked before body admission and around execution/reply work.
+The control plane supplies its current trusted view on restart and owns durable
+distribution. A routing-only registration reads existing root/birth metadata;
+missing history is refused before member storage opens.
+
 ## 9 Durability and S3 archive
 
 `Quorum` success requires Raft commit and durable local state publication.

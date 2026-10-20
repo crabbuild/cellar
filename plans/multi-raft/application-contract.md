@@ -192,10 +192,22 @@ between one millisecond and sixty seconds, and an explicit leader-fallback flag.
 The total query deadline is fixed on initial admission. Each attempt preserves
 its contract/input, consistency/token and stale policy. A fallback uses an
 untried leader hint and obtains the same read proof at its destination.
-`QueryResult::served_by` reports the responding member. A forwarding voter need
+`QueryResult::served_by` reports the responding member. A forwarding origin need
 not have compatible query code; the destination must check it before execution.
-General directory/ingress routing outside registered local replicas and counter
-HTTP integration remain part of the [read audit](read-audit.md).
+
+Each `RaftCellRegistration` explicitly selects `RaftCellPlacement::Replica` or
+`QueryRouter { leader_hint }`. A routing-only binding requires an existing
+namespace/birth and cannot create a member or SQLite image. It rejects command,
+local-query and local-status calls; choose explicit replica routing. Its optional
+leader hint is discovery metadata and never supplies a read barrier.
+`RaftCellsConfig::query_origins` installs trusted namespace read grants for exact
+cluster/namespace/node/disk/process endpoints. These grants do not authorize
+Raft messages or change membership. Live revocation cancels old query waits;
+revision tombstones prevent stale updates/regrants from reviving those requests.
+The embedding supplies current trusted grants on restart; durable distribution
+and dynamic placement remain controller work. See the [read audit](read-audit.md)
+for scope and [counter HTTP contract](https://github.com/crabbuild/cellar/blob/8f18c29a0f28977eb8a4cae51848982ad7d43739/examples/raft-counter/README.md) for
+the native/Axum consistency, token and bounded-routing headers.
 
 `RaftCellsServices::versions` supplies explicit managed Ed25519 signing and
 verification keys. Configured token lifetime is between one millisecond and
