@@ -653,12 +653,20 @@
       "status": "IN_PROGRESS",
       "depends_on": [
         "MR-03",
+        "MR-04",
         "MR-05"
       ],
       "modifies": [
         "crates/cellar/durability/replication/backend.rs",
         "crates/cellar/storage/sqlite/mod.rs",
-        "crates/cellar/application/storage/transaction.rs"
+        "crates/cellar/application/storage/transaction.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/tests/support/raft_runtime_fixture.rs",
+        "crates/cellar/tests/support/raft_network.rs",
+        "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/execution.rs",

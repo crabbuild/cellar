@@ -19,6 +19,7 @@ pub struct CommittedImage {
     pub ltx_epoch: u64,
     pub txid: u64,
     pub checksum: u64,
+    pub page_size: u32,
 }
 
 impl CommittedImage {
@@ -33,6 +34,7 @@ impl CommittedImage {
                 .all(|byte| byte.is_ascii_alphanumeric() || b"-_.".contains(&byte))
             || self.length > 64 * 1024 * 1024
             || self.ltx_epoch == 0
+            || !cellar_ltx::ltx::is_valid_page_size(self.page_size)
         {
             return Err(LogError::Invalid("invalid committed image marker".into()));
         }

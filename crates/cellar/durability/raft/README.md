@@ -38,6 +38,23 @@ The apply worker must verify, sync and rename an immutable image before returnin
 `advance_apply_to`. Physical SQLite/LTX verification belongs to the image worker;
 the runtime tests use an explicitly separate application stub.
 
+`ImageApplier` supplies this physical verifier for committed data entries. It
+checks the complete replica/ticket/entry identity against the durable committed
+apply head, decodes the scoped application envelope and applies its exact LTX
+base/result through `GenerationStore`. Preparation returns a runtime completion,
+not a readable image pin. `publish` releases a `PublishedImage` only after the
+engine's synced marker names that exact prepared generation. A delayed event
+can be reconciled against the durable cache; later protocol-only entries may
+cover the same image. Recovery adopts only the image selected by that engine
+marker, with mandatory digest, length, LTX position and page geometry validation.
+
+The internal marker-1 image record now includes `page_size`. Recreate older
+experimental Raft storage for this hard cutover; no compatibility reader is
+provided. Orphan images remain retained pending explicit recovery/retention
+reconciliation. Private command production, receipt transactions, host dispatch
+and output-gate integration remain MR-06/MR-07 work. The image owner alone does
+not authorize leader execution, query consistency or a successful SDK command.
+
 Incoming snapshots similarly require a `Snapshot` effect completion before the
 Ready's snapshot metadata or dependent messages can advance. The host verifier
 must bind the image and metadata to the exact snapshot. `SnapshotInstalled` is

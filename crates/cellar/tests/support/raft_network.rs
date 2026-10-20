@@ -266,6 +266,7 @@ fn fixture_image(path: &Path, ticket: &ApplyTicket) -> Result<CommittedImage> {
         length: bytes.len() as u64,
         ltx_epoch: 1,
         txid: ticket.position().index.get(),
+        page_size: 512,
         checksum: 0,
     })
 }

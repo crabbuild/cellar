@@ -60,7 +60,7 @@ task evidence. Do not use a temporary file as the only release record.
 | MR-03 | Drive multiple RawNode instances with ordered Ready handling | MR-02 | v1 |
 | MR-04 | Add authenticated bounded peer transport | MR-03 | v1 |
 | MR-05 | Implement verified LTX apply and immutable generations | MR-01 | v1 |
-| MR-06 | Stage commands privately and bind results to committed LTX | MR-03, MR-05 | v1 |
+| MR-06 | Stage commands privately and bind results to committed LTX | MR-03, MR-04, MR-05 | v1 |
 | MR-07 | Integrate Raft authority and command registration with the host | MR-04, MR-06 | v1 |
 | MR-08 | Serve explicit follower query consistency modes | MR-07 | v1 |
 | MR-09 | Archive committed history and enforce durability modes | MR-07 | v1 |
@@ -225,11 +225,14 @@ shown by `plan.py show MR-05`; the manifest is authoritative for arguments.
 
 ### MR-06 Stage commands privately and bind results to committed LTX
 
-Dependencies: MR-03, MR-05. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-03, MR-04, MR-05. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/durability/replication/backend.rs`, `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar/application/storage/transaction.rs`.
+Modify: `crates/cellar/durability/replication/backend.rs`, `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar/application/storage/transaction.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_runtime_fixture.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/durability/raft/README.md`.
 
 Create: `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/tests/native_raft_execution.rs`.
+
+The apply marker now carries page geometry explicitly. MR-04 is also a prerequisite
+because its transport fixture consumes this shared marker contract.
 
 1. Add private execution images, one command transaction and one pending data proposal per cell.
 2. Persist request digest, bounded result and per-client sequence/expiry floors in the business transaction; capture all intervening LTX/control writes and the frozen result image digest.

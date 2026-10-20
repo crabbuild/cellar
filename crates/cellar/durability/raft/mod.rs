@@ -1,5 +1,6 @@
 //! Node-owned multi-group Raft effects. Business authority remains in the core.
 
+pub(crate) mod apply;
 mod budget;
 pub(crate) mod cache;
 pub(crate) mod completion;

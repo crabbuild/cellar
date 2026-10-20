@@ -524,6 +524,7 @@ async fn snapshot_requires_verified_install() -> Result<()> {
         length: bytes.len() as u64,
         ltx_epoch: 1,
         txid: 5,
+        page_size: 512,
         checksum: 5,
     };
     let mut write = GroupWrite::new(&group);
