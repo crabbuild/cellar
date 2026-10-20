@@ -51,9 +51,54 @@ marker, with mandatory digest, length, LTX position and page geometry validation
 The internal marker-1 image record now includes `page_size`. Recreate older
 experimental Raft storage for this hard cutover; no compatibility reader is
 provided. Orphan images remain retained pending explicit recovery/retention
-reconciliation. Private command production, receipt transactions, host dispatch
-and output-gate integration remain MR-06/MR-07 work. The image owner alone does
-not authorize leader execution, query consistency or a successful SDK command.
+reconciliation. The image owner alone does not authorize leader execution,
+query consistency or a successful SDK command.
+
+`PrivateExecutor` owns an exclusively locked writable directory. Opening or
+rebuilding it copies the marker-selected immutable base, verifies that copy,
+opens the ordinary WAL capture engine and seeds its continuation at the exact
+committed LTX position. Opening/control writes join the next proposed cut; a
+zero-page continuation file is never replicated as data. No Fleet uploader,
+maintenance timer or output ticket can operate on this private image.
+
+A checked `CommandAuthority` observes a current-term, caught-up leader and binds
+the replica, term, applied marker and command base. One synchronous callback
+receives `CommandTransaction`, SQL and explicit host-captured time/random inputs.
+It cannot access the connection, commit early, start a nested transaction, use
+reserved tables, attach another database, write temporary state or invoke SQL's
+ambient clock/random functions. Native application code remains trusted; this
+facade is not an OS sandbox. Callback errors, panics and oversized results roll
+back. Any uncertain private state requires rebuilding before another callback.
+
+The transaction stores the command ID, operation/contract/request digests,
+bounded encoded result, minimum requested durability and retry deadline beside
+the business mutation. Per-client sequence and expiry floors use canonical
+big-endian u64 blobs. New sequences must be contiguous; conflicting retries and
+expired sequences are refused. Client and receipt budgets refuse admission
+instead of deleting promised retry state. A replicated pruning update can remove
+only an expired contiguous prefix; its client floor remains after receipt removal.
+
+After local commit, capture includes every intervening complete LTX file. Bounds
+are checked before reading/decompressing; SQLite's frozen logical image supplies
+the mandatory result digest. A separate retained preview generation verifies the
+entire physical apply before proposal submission. This correctness-first path
+materializes both a preview and the eventual committed generation; its cost is
+part of release qualification, not a performance claim.
+
+`mark_submitted` runs before awaiting the runtime. A lost response or cancelled
+waiter keeps the single command slot occupied. Abandoning that submission needs
+a new term/process with its applied barrier; an unsubmitted attempt can rebuild
+under the same authority. Neither path continues from the surviving writable
+file. The host must revalidate live runtime authority before submitting bytes.
+
+`finish` accepts only the exact published group/proposal/image, then reads the
+receipt from that immutable generation. It returns a covering position and the
+receipt's minimum durability, not S3 archive proof or an SDK success gate. A fresh
+caught-up authority observation permits reuse only when the frozen private state
+still exactly matches that head. Otherwise rebuild. Preview cleanup and capture
+history trimming stay bounded; orphan/public-image retention is reconciled by
+the archive/recovery controllers. SDK registration, ingress, output gating and
+node-owned command scheduling remain MR-07 work.
 
 Incoming snapshots similarly require a `Snapshot` effect completion before the
 Ready's snapshot metadata or dependent messages can advance. The host verifier

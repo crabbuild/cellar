@@ -85,7 +85,8 @@ Raft publication authority remain the host's responsibility.
 Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`
 for real SQLite images, checksum/chain corruption, retained readers, injected
 I/O failures and process-kill publication cuts. Those cuts use a fixture marker;
-engine marker atomicity is qualified by the later command/apply integration.
+engine marker atomicity and private command capture are exercised separately
+by the host's [Raft command/apply integration](../cellar/durability/raft/README.md).
 
 ## Select backend features
 

@@ -227,13 +227,17 @@ shown by `plan.py show MR-05`; the manifest is authoritative for arguments.
 
 Dependencies: MR-03, MR-04, MR-05. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/durability/replication/backend.rs`, `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar/application/storage/transaction.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_runtime_fixture.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/durability/raft/README.md`.
+Modify: `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_runtime_fixture.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar-ltx/README.md`.
 
-Create: `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/tests/native_raft_execution.rs`.
+Create: `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/tests/native_raft_execution.rs`, `crates/cellar/durability/raft/working.rs`, `crates/cellar/durability/raft/receipts.rs`, `crates/cellar/storage/sqlite/command.rs`.
 
 Partial [apply evidence](evidence/MR-06-apply-progress.json) covers the engine-marker
 image owner and crash recovery. Private command capture and receipt semantics
 remain unimplemented; six required cases remain outstanding.
+
+The command adapter uses the existing public `Db` capture API and a separate
+owning SQL adapter. Fleet upload and activation transaction paths are unchanged;
+no Fleet output ticket is converted into a Raft or LTX version.
 
 The apply marker now carries page geometry explicitly. MR-04 is also a prerequisite
 because its transport fixture consumes this shared marker contract.

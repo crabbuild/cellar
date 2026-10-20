@@ -16,6 +16,9 @@ use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+mod command;
+pub(crate) use command::CommandDatabase;
+pub use command::{CommandInputs, CommandTransaction};
 mod console;
 mod event_schema;
 #[cfg(test)]

@@ -29,6 +29,11 @@ is trusted code, so a Rust type is not a sandbox against deliberate direct OS I/
 Document and test the supported contract; applications that bypass it are outside
 the durability/effect guarantee.
 
+The internal MR-06 transaction facade supplies a captured Unix-millisecond value
+and 32 captured random bytes per attempt. Its SQL authorizer refuses ambient
+clock/random functions; use these captured values as SQL parameters. Additional
+input facilities require explicit host adapters before becoming SDK capabilities.
+
 Queries receive no general `Context`, writable `Storage`, normal cell constructor,
 alarm setter or outbound-network capability. SQLite authorizer/read-only flags
 must reject writes, schema changes, ATTACH, mutating PRAGMA and writable extension

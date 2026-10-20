@@ -22,6 +22,11 @@ pub mod verification {
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,
         RuntimeEventKind, SnapshotCompletion,
     };
+    pub use crate::raft::execution::{
+        AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest, CommittedReceipt,
+        ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand, PrivateExecutor,
+        PrivateOptions, StageOutcome, StoredReceipt,
+    };
     pub use crate::raft::options::RaftRuntimeOptions;
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};
     pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};

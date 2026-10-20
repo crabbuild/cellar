@@ -57,6 +57,7 @@ struct Host {
     runtime: RaftRuntime,
     events: RuntimeEvents,
     applier: ImageApplier,
+    images: GenerationStore,
     gate: Arc<fault::Gate>,
 }
 
@@ -107,7 +108,7 @@ impl Host {
         )?;
         let applier = ImageApplier::recover(
             log.group(&scope())?,
-            images,
+            images.clone(),
             [9; 32],
             EnvelopeLimits::default(),
         )?;
@@ -126,6 +127,7 @@ impl Host {
             runtime,
             events,
             applier,
+            images,
             gate,
         })
     }
@@ -449,4 +451,676 @@ async fn apply_crash_process() -> Result<()> {
     drop(host.applied(&ticket).await?);
     assert_eq!(mode, AFTER_PUBLICATION);
     pause_child(&root)
+}
+
+impl Host {
+    async fn authority(&self) -> Result<CommandAuthority> {
+        for _ in 0..3000 {
+            let status = self.runtime.status(&scope()).await?;
+            match CommandAuthority::from_status(self.log.group(&scope())?, &status) {
+                Ok(authority) => return Ok(authority),
+                Err(ExecutionError::Refused(CommandFailure::Unavailable)) => (),
+                Err(error) => return Err(error.into()),
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+        bail!("command authority did not become current")
+    }
+
+    async fn private(&self, root: &Path, limits: ExecutionLimits) -> Result<PrivateExecutor> {
+        self.private_with_clock(root, limits, Arc::new(|| 10)).await
+    }
+
+    async fn private_with_clock(
+        &self,
+        root: &Path,
+        limits: ExecutionLimits,
+        clock: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Result<PrivateExecutor> {
+        let host = cellar_ltx::LtxHost::new(
+            move || clock(),
+            |_| Ok(Duration::ZERO),
+            |path| async move { std::fs::read(path) },
+            |job| async move {
+                job();
+                Ok(())
+            },
+        )
+        .with_filesystem(Arc::new(DirectFileSystem));
+        Ok(PrivateExecutor::open(
+            PrivateOptions {
+                directory: root.join("private"),
+                host,
+                sqlite_vfs: None,
+                images: self.images.clone(),
+                query_services: cellar_ltx::generation::ReadServices {
+                    now_unix_millis: Arc::new(|| 10),
+                    fill_random: Arc::new(|bytes| bytes.fill(17)),
+                },
+                application_digest: [9; 32],
+                limits,
+            },
+            self.authority().await?,
+            self.applier.current(),
+        )?)
+    }
+
+    async fn commit_private(
+        &mut self,
+        executor: &mut PrivateExecutor,
+        prepared: PreparedCommand,
+        image: u8,
+    ) -> Result<AppliedExecution> {
+        executor.mark_submitted(prepared.proposal())?;
+        self.runtime
+            .propose(&scope(), prepared.context(), prepared.bytes().to_vec())
+            .await?;
+        let (ticket, entry) = self.next_apply().await?;
+        let completion = self
+            .applier
+            .prepare(ticket.clone(), &entry, images::id(image))?;
+        self.runtime.complete_apply(completion).await?;
+        let published = self.applied(&ticket).await?;
+        let applied = executor.finish(published)?;
+        executor.refresh_authority(self.authority().await?)?;
+        Ok(applied)
+    }
+
+    fn counter(&self) -> Result<i64> {
+        let query = images::query(self.applier.current().unwrap().pin())?;
+        Ok(query
+            .connection()
+            .query_row("SELECT value FROM counter", [], |r| r.get(0))?)
+    }
+}
+
+fn attempt(sequence: u64, tag: u8) -> Result<CommandAttempt> {
+    Ok(CommandAttempt {
+        request: CommandRequest {
+            id: CommandId::new(ClientId::new([1; 16])?, sequence)?,
+            operation: "Counter.Change".into(),
+            contract_digest: [9; 32],
+            request_digest: [sequence as u8; 32],
+            durability: Durability::Quorum,
+            retry_until_ms: 1000,
+        },
+        proposal: ProposalId::new([tag; 16])?,
+        preview: images::id(tag + 64),
+        inputs: cellar::storage::CommandInputs {
+            now_unix_millis: 10,
+            random: [17; 32],
+        },
+    })
+}
+
+fn prepared(outcome: StageOutcome) -> Result<PreparedCommand> {
+    match outcome {
+        StageOutcome::Prepared(value) => Ok(value),
+        StageOutcome::Duplicate(_) => bail!("expected a new command"),
+    }
+}
+
+fn initialize(transaction: &cellar::storage::CommandTransaction<'_>) -> Result<Vec<u8>> {
+    transaction
+        .execute_batch("CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7)")?;
+    Ok(7_i64.to_be_bytes().to_vec())
+}
+
+fn increment(transaction: &cellar::storage::CommandTransaction<'_>) -> Result<Vec<u8>> {
+    transaction.execute("UPDATE counter SET value=value+1", [])?;
+    let value: i64 = transaction.query_row("SELECT value FROM counter", [], |r| r.get(0))?;
+    Ok(value.to_be_bytes().to_vec())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn duplicate_command_receipt() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    let mut request = attempt(2, 2)?;
+    request.request.durability = Durability::S3;
+    let second = prepared(executor.stage(request, increment)?)?;
+    let result = host.commit_private(&mut executor, second, 2).await?;
+    let AppliedExecution::Command(result) = result else {
+        bail!("wrong applied kind")
+    };
+    assert_eq!(result.receipt().result(), 8_i64.to_be_bytes());
+    assert_eq!(result.receipt().minimum_durability(), Durability::S3);
+    drop(result);
+    drop(executor);
+    host.close().await?;
+    // Lose the reply, then retry against a fresh engine/runtime/private image.
+    let mut host = Host::open(root.path(), true).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let duplicate = executor.stage(attempt(2, 3)?, |_| panic!("duplicate callback executed"))?;
+    let StageOutcome::Duplicate(result) = duplicate else {
+        bail!("retry was executed again")
+    };
+    assert_eq!(result.receipt().result(), 8_i64.to_be_bytes());
+    assert_eq!(result.receipt().minimum_durability(), Durability::S3);
+    assert_eq!(host.counter()?, 8);
+    let third = prepared(executor.stage(attempt(3, 4)?, increment)?)?;
+    host.commit_private(&mut executor, third, 3).await?;
+    assert_eq!(host.counter()?, 9);
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn conflicting_command_digest() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    for field in 0..3 {
+        let mut conflict = attempt(1, 2)?;
+        match field {
+            0 => conflict.request.request_digest = [88; 32],
+            1 => conflict.request.contract_digest = [88; 32],
+            _ => conflict.request.operation = "Other.Operation".into(),
+        };
+        assert!(matches!(
+            executor.stage(conflict, |_| panic!("conflicting command executed")),
+            Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+        ));
+        assert_eq!(executor.status(), ExecutionStatus::Ready);
+        assert_eq!(host.counter()?, 7);
+    }
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lost_proposal_rebuild() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    let lost = prepared(executor.stage(attempt(2, 2)?, increment)?)?;
+    executor.mark_submitted(lost.proposal())?;
+    assert_eq!(executor.status(), ExecutionStatus::Submitted);
+    assert!(matches!(
+        executor.stage(attempt(3, 3)?, |_| panic!("second command ran")),
+        Err(ExecutionError::Busy)
+    ));
+    assert!(matches!(
+        executor.rebuild(host.applier.current(), host.authority().await?),
+        Err(ExecutionError::Uncertain)
+    ));
+    assert_eq!(host.counter()?, 7);
+    // No reply establishes whether admission happened. Lose the process; the
+    // next leader establishes its barrier before rebuilding from the marker.
+    drop(lost);
+    drop(executor);
+    host.close().await?;
+    let mut host = Host::open(root.path(), true).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let retry = prepared(executor.stage(attempt(2, 3)?, increment)?)?;
+    host.commit_private(&mut executor, retry, 2).await?;
+    assert_eq!(host.counter()?, 8);
+    let abandoned = prepared(executor.stage(attempt(3, 4)?, increment)?)?;
+    assert!(matches!(
+        executor.stage(attempt(4, 5)?, increment),
+        Err(ExecutionError::Busy)
+    ));
+    // A staged proposal known never to have been submitted can be abandoned
+    // under the same authority, but its surviving writable delta cannot be reused.
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    drop(abandoned);
+    let retry = prepared(executor.stage(attempt(3, 5)?, increment)?)?;
+    host.commit_private(&mut executor, retry, 3).await?;
+    assert_eq!(host.counter()?, 9);
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn oversized_delta_atomic_refusal() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut limits = ExecutionLimits::default();
+    limits.envelope.max_payload_bytes = 8192;
+    let mut executor = host.private(root.path(), limits).await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    let mut state = 7_u64;
+    let mut noise = vec![0; 40_000];
+    for byte in &mut noise {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        *byte = state as u8;
+    }
+    assert!(executor
+        .stage(attempt(2, 2)?, |transaction| {
+            transaction
+                .execute_batch("CREATE TABLE payload(value BLOB);UPDATE counter SET value=999")?;
+            transaction.execute("INSERT INTO payload VALUES(?1)", [noise])?;
+            Ok(vec![99])
+        })
+        .is_err());
+    assert_eq!(executor.status(), ExecutionStatus::RebuildRequired);
+    assert_eq!(host.counter()?, 7);
+    assert!(executor.refresh_authority(host.authority().await?).is_err());
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    let small = prepared(executor.stage(attempt(2, 3)?, increment)?)?;
+    host.commit_private(&mut executor, small, 2).await?;
+    assert_eq!(host.counter()?, 8);
+    let query = images::query(host.applier.current().unwrap().pin())?;
+    assert_eq!(
+        query.connection().query_row(
+            "SELECT count(*) FROM sqlite_master WHERE name='payload'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )?,
+        0
+    );
+    drop(query);
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn receipt_expiry_floor() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let limits = ExecutionLimits {
+        max_client_identities: 1,
+        max_retained_receipts: 2,
+        ..Default::default()
+    };
+    let mut executor = host.private(root.path(), limits).await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    assert!(matches!(
+        executor.stage(attempt(3, 2)?, |_| panic!("gap executed")),
+        Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+            next: 2
+        }))
+    ));
+    let second = prepared(executor.stage(attempt(2, 2)?, increment)?)?;
+    host.commit_private(&mut executor, second, 2).await?;
+    assert!(matches!(
+        executor.stage(attempt(3, 3)?, increment),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    let inputs = cellar::storage::CommandInputs {
+        now_unix_millis: 999,
+        random: [1; 32],
+    };
+    assert!(matches!(
+        executor.stage_prune(
+            ClientId::new([1; 16])?,
+            2,
+            ProposalId::new([3; 16])?,
+            images::id(67),
+            inputs
+        ),
+        Err(ExecutionError::RetentionNotExpired)
+    ));
+    executor.rebuild(host.applier.current(), host.authority().await?)?;
+    let pruning = executor.stage_prune(
+        ClientId::new([1; 16])?,
+        2,
+        ProposalId::new([4; 16])?,
+        images::id(68),
+        cellar::storage::CommandInputs {
+            now_unix_millis: 1000,
+            ..inputs
+        },
+    )?;
+    assert!(matches!(
+        host.commit_private(&mut executor, pruning, 3).await?,
+        AppliedExecution::Pruned { through: 2, .. }
+    ));
+    assert!(matches!(
+        executor.stage(attempt(1, 5)?, |_| panic!("expired command executed")),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    let mut other = attempt(1, 5)?;
+    other.request.id = CommandId::new(ClientId::new([2; 16])?, 1)?;
+    assert!(matches!(
+        executor.stage(other, initialize),
+        Err(ExecutionError::Refused(CommandFailure::Overloaded))
+    ));
+    assert!(matches!(
+        executor.stage(attempt(4, 5)?, increment),
+        Err(ExecutionError::Refused(CommandFailure::SequenceGap {
+            next: 3
+        }))
+    ));
+    let third = prepared(executor.stage(attempt(3, 5)?, increment)?)?;
+    host.commit_private(&mut executor, third, 4).await?;
+    assert_eq!(host.counter()?, 9);
+    drop(executor);
+    host.close().await?;
+    let mut host = Host::open(root.path(), true).await?;
+    host.elect().await?;
+    let mut executor = host.private(root.path(), limits).await?;
+    assert!(matches!(
+        executor.stage(attempt(1, 6)?, increment),
+        Err(ExecutionError::Refused(CommandFailure::CommandExpired))
+    ));
+    assert!(matches!(
+        executor.stage(attempt(3, 6)?, |_| panic!("retained command executed"))?,
+        StageOutcome::Duplicate(_)
+    ));
+    drop(executor);
+    host.close().await
+}
+
+const BEFORE_PRIVATE_COMMIT: u8 = 110;
+const AFTER_PRIVATE_COMMIT: u8 = 111;
+const AFTER_PRIVATE_FREEZE: u8 = 112;
+const BEFORE_PRIVATE_SUBMISSION: u8 = 113;
+
+const AFTER_PRIVATE_RAFT_COMMIT: u8 = 114;
+
+async fn kill_private_child(root: &Path, mode: u8) -> Result<()> {
+    struct Child(std::process::Child);
+
+    impl Drop for Child {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let log = std::fs::File::create(root.join("private-child.log"))?;
+    let mut child = Child(
+        std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--ignored",
+                "--exact",
+                "private_crash_process",
+                "--nocapture",
+            ])
+            .env("CELLAR_PRIVATE_CRASH_ROOT", root)
+            .env("CELLAR_PRIVATE_CRASH_MODE", mode.to_string())
+            .stdout(std::process::Stdio::from(log.try_clone()?))
+            .stderr(std::process::Stdio::from(log))
+            .spawn()?,
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    while !root.join("reached").exists() {
+        if child.0.try_wait()?.is_some() || std::time::Instant::now() > deadline {
+            bail!(
+                "missed private cut {mode}: {}",
+                std::fs::read_to_string(root.join("private-child.log"))?
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    // Observe the actual private transaction boundary independently. These
+    // bytes are deliberately never offered to the application's query path.
+    let private = rusqlite::Connection::open_with_flags(
+        root.join("private/working.sqlite"),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )?;
+    let value: i64 = private.query_row("SELECT value FROM counter", [], |r| r.get(0))?;
+    let receipts: i64 =
+        private.query_row("SELECT count(*) FROM __sys_raft_receipts", [], |r| r.get(0))?;
+    assert_eq!(value, if mode == BEFORE_PRIVATE_COMMIT { 7 } else { 8 });
+    assert_eq!(receipts, if mode == BEFORE_PRIVATE_COMMIT { 1 } else { 2 });
+    drop(private);
+    child.0.kill()?;
+    let _ = child.0.wait()?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn private_commit_not_visible() -> Result<()> {
+    for mode in [
+        BEFORE_PRIVATE_COMMIT,
+        AFTER_PRIVATE_COMMIT,
+        AFTER_PRIVATE_FREEZE,
+        BEFORE_PRIVATE_SUBMISSION,
+    ] {
+        let root = tempfile::tempdir()?;
+        let mut host = Host::open(root.path(), false).await?;
+        host.elect().await?;
+        let mut executor = host
+            .private(root.path(), ExecutionLimits::default())
+            .await?;
+        let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+        host.commit_private(&mut executor, first, 1).await?;
+        drop(executor);
+        host.close().await?;
+
+        kill_private_child(root.path(), mode).await?;
+        let mut recovered = Host::open_process(root.path(), true, 4, None).await?;
+        assert_eq!(recovered.counter()?, 7);
+        recovered.elect().await?;
+        let mut executor = recovered
+            .private(root.path(), ExecutionLimits::default())
+            .await?;
+        let retry = prepared(executor.stage(attempt(2, 3)?, increment)?)?;
+        recovered.commit_private(&mut executor, retry, 2).await?;
+        assert_eq!(recovered.counter()?, 8);
+        drop(executor);
+        recovered.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "child entry point invoked and killed by the private command crash tests"]
+async fn private_crash_process() -> Result<()> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let root = std::path::PathBuf::from(std::env::var("CELLAR_PRIVATE_CRASH_ROOT")?);
+    let mode: u8 = std::env::var("CELLAR_PRIVATE_CRASH_MODE")?.parse()?;
+    let mut host = Host::open_process(&root, true, 3, None).await?;
+    host.elect().await?;
+    let trigger = Arc::new(AtomicBool::new(false));
+    let clock_trigger = trigger.clone();
+    let clock_root = root.clone();
+    let clock = Arc::new(move || {
+        if mode == AFTER_PRIVATE_COMMIT && clock_trigger.swap(false, Ordering::AcqRel) {
+            pause_child(&clock_root).unwrap();
+        }
+        10
+    });
+    let mut executor = host
+        .private_with_clock(&root, ExecutionLimits::default(), clock)
+        .await?;
+    let staged = prepared(executor.stage(attempt(2, 2)?, |transaction| {
+        let result = increment(transaction)?;
+        if mode == BEFORE_PRIVATE_COMMIT {
+            pause_child(&root)?;
+        }
+        trigger.store(true, Ordering::Release);
+        Ok(result)
+    })?)?;
+    if mode == BEFORE_PRIVATE_SUBMISSION || mode == AFTER_PRIVATE_RAFT_COMMIT {
+        executor.mark_submitted(staged.proposal())?;
+    }
+    if mode == AFTER_PRIVATE_RAFT_COMMIT {
+        host.runtime
+            .propose(&scope(), staged.context(), staged.bytes().to_vec())
+            .await?;
+        let _ = host.next_apply().await?;
+        pause_child(&root)?;
+    }
+    assert!(mode == AFTER_PRIVATE_FREEZE || mode == BEFORE_PRIVATE_SUBMISSION);
+    pause_child(&root)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn command_transaction_restricts_sql_and_captures_inputs() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, |transaction| {
+        for sql in [
+            "COMMIT",
+            "ROLLBACK",
+            "BEGIN",
+            "SAVEPOINT escape",
+            "ATTACH ':memory:' AS other",
+            "CREATE TEMP TABLE escape(value)",
+            "PRAGMA writable_schema=ON",
+            "VACUUM",
+            "DROP TABLE __sys_raft_receipts",
+            "CREATE TABLE __sys_intruder(value)",
+        ] {
+            assert!(transaction.execute_batch(sql).is_err(), "accepted {sql}");
+        }
+        for sql in [
+            "SELECT random()",
+            "SELECT current_timestamp",
+            "SELECT count(*) FROM __sys_raft_receipts",
+        ] {
+            assert!(
+                transaction
+                    .query_row(sql, [], |r| r.get::<_, rusqlite::types::Value>(0))
+                    .is_err(),
+                "accepted {sql}"
+            );
+        }
+        assert_eq!(transaction.inputs().now_unix_millis, 10);
+        assert_eq!(transaction.inputs().random, [17; 32]);
+        initialize(transaction)
+    })?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    assert_eq!(host.counter()?, 7);
+    drop(executor);
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn submitted_command_recovery() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    drop(executor);
+    host.close().await?;
+    kill_private_child(root.path(), AFTER_PRIVATE_RAFT_COMMIT).await?;
+    let mut recovered = Host::open_process(root.path(), true, 4, None).await?;
+    assert_eq!(recovered.counter()?, 7);
+    let (ticket, entry) = recovered.next_apply().await?;
+    let completion = recovered
+        .applier
+        .prepare(ticket.clone(), &entry, images::id(2))?;
+    recovered.runtime.complete_apply(completion).await?;
+    drop(recovered.applied(&ticket).await?);
+    assert_eq!(recovered.counter()?, 8);
+    recovered.elect().await?;
+    let mut executor = recovered
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let retry = executor.stage(attempt(2, 3)?, |_| {
+        panic!("committed command executed again")
+    })?;
+    let StageOutcome::Duplicate(receipt) = retry else {
+        bail!("committed receipt lost during replay")
+    };
+    assert_eq!(receipt.receipt().result(), 8_i64.to_be_bytes());
+    drop(executor);
+    recovered.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn command_failure_and_result_limit_roll_back() -> Result<()> {
+    for mode in 0..3 {
+        let root = tempfile::tempdir()?;
+        let mut host = Host::open(root.path(), false).await?;
+        host.elect().await?;
+        let mut executor = host
+            .private(root.path(), ExecutionLimits::default())
+            .await?;
+        let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+        host.commit_private(&mut executor, first, 1).await?;
+        let result = executor.stage(attempt(2, 2)?, |transaction| {
+            transaction.execute("UPDATE counter SET value=999", [])?;
+            match mode {
+                0 => bail!("callback failed"),
+                1 => panic!("callback panicked"),
+                _ => Ok(vec![0; 64 * 1024 + 1]),
+            }
+        });
+        if mode == 2 {
+            assert!(matches!(
+                result,
+                Err(ExecutionError::Refused(CommandFailure::Overloaded))
+            ));
+        } else {
+            assert!(result.is_err());
+        }
+        assert_eq!(executor.status(), ExecutionStatus::RebuildRequired);
+        assert_eq!(host.counter()?, 7);
+        executor.rebuild(host.applier.current(), host.authority().await?)?;
+        let retry = prepared(executor.stage(attempt(2, 3)?, increment)?)?;
+        host.commit_private(&mut executor, retry, 2).await?;
+        assert_eq!(host.counter()?, 8);
+        drop(executor);
+        host.close().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn private_checkpoint_capture_covers_control_writes() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    // Exceed the real capture engine's default 1000-page checkpoint threshold.
+    // Its sealing/control transaction must join the same proposal's complete cut.
+    let second = prepared(executor.stage(attempt(2, 2)?, |transaction| {
+        transaction.execute_batch("CREATE TABLE payload(value BLOB)")?;
+        for _ in 0..1400 {
+            transaction.execute("INSERT INTO payload VALUES(zeroblob(4096))", [])?;
+        }
+        increment(transaction)
+    })?)?;
+    let update = CellUpdate::decode(second.bytes(), EnvelopeLimits::default())?;
+    assert!(
+        update.files.len() > 1,
+        "fixture did not exercise checkpoint/control capture"
+    );
+    host.commit_private(&mut executor, second, 2).await?;
+    assert_eq!(host.counter()?, 8);
+    let query = images::query(host.applier.current().unwrap().pin())?;
+    assert_eq!(
+        query
+            .connection()
+            .query_row("SELECT sum(length(value)) FROM payload", [], |r| r
+                .get::<_, i64>(0))?,
+        1400 * 4096
+    );
+    drop(query);
+    drop(executor);
+    host.close().await
 }

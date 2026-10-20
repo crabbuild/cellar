@@ -7,7 +7,7 @@ use super::completion::{ApplyCompletion, ApplyTicket};
 use super::storage::LogError;
 use crate::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, ProtocolError};
 use ::raft::prelude::{Entry, EntryType};
-use cellar_logic::consensus::LogPosition;
+use cellar_logic::consensus::{GroupScope, LogPosition, ProposalId};
 use cellar_ltx::apply::{ImageState, ImageUpdate, LtxSegment};
 use cellar_ltx::generation::{GenerationError, GenerationPin, GenerationStore, ImageId};
 use cellar_ltx::{ltx, TXID};
@@ -39,9 +39,19 @@ impl std::error::Error for ImageApplyError {}
 pub struct PublishedImage {
     pin: GenerationPin,
     position: LogPosition,
+    scope: GroupScope,
+    proposal: Option<ProposalId>,
 }
 
 impl PublishedImage {
+    pub fn scope(&self) -> &GroupScope {
+        &self.scope
+    }
+
+    pub fn proposal(&self) -> Option<ProposalId> {
+        self.proposal
+    }
+
     pub fn pin(&self) -> GenerationPin {
         self.pin.clone()
     }
@@ -55,6 +65,7 @@ struct Pending {
     ticket: ApplyTicket,
     pin: GenerationPin,
     marker: CommittedImage,
+    proposal: ProposalId,
 }
 
 pub struct ImageApplier {
@@ -88,6 +99,8 @@ impl ImageApplier {
                 Ok::<_, ImageApplyError>(PublishedImage {
                     pin,
                     position: applied.position,
+                    scope: group.identity().scope.clone(),
+                    proposal: None,
                 })
             })
             .transpose()?;
@@ -209,6 +222,7 @@ impl ImageApplier {
             ticket: ticket.clone(),
             pin,
             marker: image.clone(),
+            proposal: update.proposal,
         });
         Ok(ApplyCompletion { ticket, image })
     }
@@ -232,6 +246,8 @@ impl ImageApplier {
         let head = PublishedImage {
             pin: pending.pin.clone(),
             position: ticket.position(),
+            scope: self.group.identity().scope.clone(),
+            proposal: Some(pending.proposal),
         };
         self.current = Some(head.clone());
         self.pending = None;
@@ -248,7 +264,7 @@ pub(crate) fn image_position(state: ImageState) -> LtxImage {
     }
 }
 
-fn marker(pin: &GenerationPin) -> CommittedImage {
+pub(crate) fn marker(pin: &GenerationPin) -> CommittedImage {
     marker_for(pin.id(), pin.state())
 }
 
