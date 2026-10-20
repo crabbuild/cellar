@@ -16,7 +16,7 @@ use cellar::application::consensus::verification::*;
 use cellar::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate};
 use cellar::sdk::ExecutionDomain;
 use cellar_logic::consensus::*;
-use cellar_ltx::generation::{GenerationLimits, GenerationPin, GenerationStore};
+use cellar_ltx::generation::{GenerationPin, GenerationStore};
 use cellar_ltx::{DirectFileSystem, FileSystem};
 use protobuf::Message as _;
 use raft::{prelude::Entry, Storage};
@@ -154,10 +154,7 @@ impl Fixture {
             }
             LogOpenMode::Resume => log.group(&scope())?,
         };
-        let mut limits = GenerationLimits::default();
-        limits.apply = cellar::sdk::consensus::RaftHostOptions::default()
-            .images
-            .apply;
+        let limits = cellar::sdk::consensus::RaftHostOptions::default().images;
         let images = GenerationStore::open(root.join("images"), image_fs, limits)?;
         Ok(Self {
             domain,
@@ -334,6 +331,29 @@ fn runtime_options() -> RaftRuntimeOptions {
     }
 }
 
+/// Exactly the admitted 64-MiB image, with incompressible overflow pages. The
+/// SQLite record header has six bytes and 39 local bytes; each overflow page
+/// carries 508 bytes. Three root pages plus the chain fill 131,072 pages.
+fn maximum_image() -> Result<(Vec<u8>, usize)> {
+    use rand::{RngCore, SeedableRng};
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("maximum.sqlite");
+    let connection = rusqlite::Connection::open(&path)?;
+    connection.execute_batch("PRAGMA page_size=512;PRAGMA journal_mode=MEMORY;PRAGMA synchronous=OFF;PRAGMA max_page_count=131072;CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(1);CREATE TABLE payloads(id INTEGER PRIMARY KEY,value BLOB);")?;
+    let length = (131_072 - 3) * 508 + 33;
+    let mut payload = vec![0; length];
+    rand::rngs::StdRng::seed_from_u64(212).fill_bytes(&mut payload);
+    connection.execute("INSERT INTO payloads VALUES(1,?1)", [payload])?;
+    assert_eq!(
+        connection.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))?,
+        "ok"
+    );
+    drop(connection);
+    let bytes = std::fs::read(path)?;
+    assert_eq!(bytes.len(), 64 * 1024 * 1024);
+    Ok((bytes, length))
+}
+
 #[test]
 fn snapshot_limits_require_full_encoded_image_capacity() -> Result<()> {
     let mut limits = SnapshotLimits::default();
@@ -396,7 +416,7 @@ async fn maximum_image_retained_snapshot_and_archive_roundtrip() -> Result<()> {
         birth.digest(),
     )
     .await?;
-    let (bytes, payload_length) = images::maximum_image()?;
+    let (bytes, payload_length) = maximum_image()?;
     let cut = images::Cut::new(&[], &bytes, 0, false, true);
     ensure!(
         cut.bytes.len() > 64 * 1024 * 1024,
