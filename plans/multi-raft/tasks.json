@@ -60,7 +60,7 @@
         "crates/cellar/tests/native_raft_contract.rs"
       ],
       "steps": [
-        "Implement pure identity, authority, durability and version types, with explicit legacy/Raft discrimination.",
+        "Implement pure identity, authority, durability and version types, with explicit Fleet/Raft discrimination.",
         "Define marker-1 envelope, maximum sizes, canonical digest inputs, token scope and error taxonomy from the design.",
         "Add a checked-in deterministic protocol-boundary model and fake clock/disk/transport support usable without cellar_internal_tests.",
         "Model speculative execution, commit, publication, archive and stale-completion events; require the core to reject illegal transitions."
@@ -77,7 +77,7 @@
       "test_cases": [
         {
           "name": "mode_isolation",
-          "oracle": "A legacy proof cannot settle a Raft operation and vice versa",
+          "oracle": "A Fleet proof cannot settle a Raft operation and vice versa",
           "invariants": [
             "I01",
             "I06",
@@ -604,7 +604,7 @@
       ],
       "acceptance": [
         "Leader kill at every command step preserves the client receipt contract.",
-        "No numeric cast maps legacy output tickets into Raft/LTX versions."
+        "No numeric cast maps Fleet output tickets into Raft/LTX versions."
       ],
       "stop_conditions": [
         "Stop if a second command can execute while its base proposal is uncertain.",
@@ -722,8 +722,8 @@
       ],
       "steps": [
         "Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.",
-        "Route Raft commands through restricted class definitions; reject legacy mutable factory registration in that mode.",
-        "Settle core output gates from exact committed/applied receipts and complete authority identity; keep legacy proofs separate.",
+        "Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.",
+        "Settle core output gates from exact committed/applied receipts and complete authority identity; keep Fleet proofs separate.",
         "Ship a compiling counter example through native and Axum ingress, adding the Cargo target explicitly."
       ],
       "acceptance": [
@@ -732,7 +732,7 @@
       ],
       "stop_conditions": [
         "Stop if the old owner CAS and Raft can independently grant mutation authority.",
-        "Do not route background writes through legacy methods as a temporary shortcut."
+        "Do not route background writes through Fleet methods as a temporary shortcut."
       ],
       "test_target": "native_raft_host",
       "test_cases": [
@@ -745,8 +745,8 @@
           ]
         },
         {
-          "name": "legacy_gate_unchanged",
-          "oracle": "Legacy bucket/fleet proof behavior remains unchanged with feature off",
+          "name": "fleet_gate_unchanged",
+          "oracle": "Fleet bucket/follower proof behavior remains unchanged with feature off",
           "invariants": [
             "I16"
           ]
@@ -1290,7 +1290,7 @@
         "Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.",
         "Recover wake scheduling after election without ordinary cell constructors or user traffic.",
         "Bind dispatch attempts to current activation while retaining stable receiver idempotency keys across races.",
-        "Validate unsupported legacy Workflow/Queue/container/socket capabilities at registration rather than running them under the wrong authority."
+        "Validate unsupported existing Workflow/Queue/container/socket capabilities at registration rather than running them under the wrong authority."
       ],
       "acceptance": [
         "Producer/receiver examples demonstrate recovery using durable receipts.",
@@ -1444,7 +1444,7 @@
         },
         {
           "name": "rollback_mode_guard",
-          "oracle": "Feature disable never opens Raft data with legacy ownership",
+          "oracle": "Feature disable never opens Raft data with Fleet ownership",
           "invariants": [
             "I06",
             "I16"
@@ -1509,7 +1509,7 @@
       "steps": [
         "Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.",
         "Deliver the runner interface and reference workload from qualification.md, with executable/image freshness checks.",
-        "Measure copy/apply cost, group density and failure recovery against legacy fleet and bucket baselines under equivalent contracts.",
+        "Measure copy/apply cost, group density and failure recovery against current fleet and bucket baselines under equivalent contracts.",
         "Record numeric deployment SLO profiles and offered-load methodology before performance qualification."
       ],
       "acceptance": [
@@ -1670,7 +1670,7 @@
           ]
         },
         {
-          "name": "legacy_regression_matrix",
+          "name": "fleet_regression_matrix",
           "oracle": "Feature-off existing applications and lifecycle contracts remain valid",
           "invariants": [
             "I16"

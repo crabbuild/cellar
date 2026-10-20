@@ -16,7 +16,7 @@ available as their owning work packages are implemented.
    [technical design](technical-design.md) and relevant current code/callers/tests.
 2. Start only when dependencies are DONE. Keep one owner of each shared code
    boundary; independent prerequisites do not authorize concurrent edits.
-3. Preserve legacy mode and add the new isolated namespace behind a default-off
+3. Preserve Fleet mode and add the new isolated namespace behind a default-off
    runtime capability. Never land an intermediate state that acknowledges with
    weaker proof, exposes speculative images, or bypasses node lifecycle ownership.
 4. Add named tests with the behavior stated in the manifest. List tests and
@@ -86,7 +86,7 @@ Modify: `crates/cellar-logic/types.rs`, `crates/cellar-logic/lib.rs`, `crates/ce
 
 Create: `crates/cellar-logic/consensus.rs`, `crates/cellar/tests/support/raft_model.rs`, `crates/cellar/tests/native_raft_contract.rs`.
 
-1. Implement pure identity, authority, durability and version types, with explicit legacy/Raft discrimination.
+1. Implement pure identity, authority, durability and version types, with explicit Fleet/Raft discrimination.
 2. Define marker-1 envelope, maximum sizes, canonical digest inputs, token scope and error taxonomy from the design.
 3. Add a checked-in deterministic protocol-boundary model and fake clock/disk/transport support usable without cellar_internal_tests.
 4. Model speculative execution, commit, publication, archive and stale-completion events; require the core to reject illegal transitions.
@@ -97,7 +97,7 @@ Stop conditions: Stop if authority cannot be expressed without reusing owner epo
 
 | Required test | Observable result |
 | --- | --- |
-| `mode_isolation` | A legacy proof cannot settle a Raft operation and vice versa |
+| `mode_isolation` | A Fleet proof cannot settle a Raft operation and vice versa |
 | `incarnation_token_scope` | Equal indices in different histories do not satisfy a token |
 | `speculative_visibility_model` | Only committed and published state can be observed |
 | `late_completion_model` | Old term/process/operation completion cannot release a new request |
@@ -236,7 +236,7 @@ Create: `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/
 3. Publish committed image then sync the engine apply marker before returning a covered completion.
 4. Rebuild private state after rejected/uncertain proposals and leadership changes; retain uncommitted log entries for normal Raft reconciliation.
 
-Acceptance: Leader kill at every command step preserves the client receipt contract. No numeric cast maps legacy output tickets into Raft/LTX versions.
+Acceptance: Leader kill at every command step preserves the client receipt contract. No numeric cast maps Fleet output tickets into Raft/LTX versions.
 
 Stop conditions: Stop if a second command can execute while its base proposal is uncertain. Do not expose the leader's writable image to query code.
 
@@ -262,18 +262,18 @@ Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `cr
 Create: `crates/cellar/application/consensus.rs`, `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`.
 
 1. Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.
-2. Route Raft commands through restricted class definitions; reject legacy mutable factory registration in that mode.
-3. Settle core output gates from exact committed/applied receipts and complete authority identity; keep legacy proofs separate.
+2. Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.
+3. Settle core output gates from exact committed/applied receipts and complete authority identity; keep Fleet proofs separate.
 4. Ship a compiling counter example through native and Axum ingress, adding the Cargo target explicitly.
 
 Acceptance: Normal host command admission works end to end through the public SDK. Existing native_storage, native_replication and native_log_protocol targets still pass.
 
-Stop conditions: Stop if the old owner CAS and Raft can independently grant mutation authority. Do not route background writes through legacy methods as a temporary shortcut.
+Stop conditions: Stop if the old owner CAS and Raft can independently grant mutation authority. Do not route background writes through Fleet methods as a temporary shortcut.
 
 | Required test | Observable result |
 | --- | --- |
 | `raft_gate_exact_receipt` | Only a matching committed applied receipt releases success |
-| `legacy_gate_unchanged` | Legacy bucket/fleet proof behavior remains unchanged with feature off |
+| `fleet_gate_unchanged` | Fleet bucket/follower proof behavior remains unchanged with feature off |
 | `namespace_mode_conflict` | Conflicting root mode or group birth cannot admit a second writer |
 | `retained_handle_fenced` | A handle from an old activation cannot modify private state |
 | `native_axum_command_parity` | Both ingress adapters enforce identical registration and receipt behavior |
@@ -412,7 +412,7 @@ Create: `crates/cellar/durability/raft/effects.rs`, `crates/cellar/tests/native_
 1. Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.
 2. Recover wake scheduling after election without ordinary cell constructors or user traffic.
 3. Bind dispatch attempts to current activation while retaining stable receiver idempotency keys across races.
-4. Validate unsupported legacy Workflow/Queue/container/socket capabilities at registration rather than running them under the wrong authority.
+4. Validate unsupported existing Workflow/Queue/container/socket capabilities at registration rather than running them under the wrong authority.
 
 Acceptance: Producer/receiver examples demonstrate recovery using durable receipts. Follower nodes never run business timers or effect callbacks for followed groups.
 
@@ -453,7 +453,7 @@ Stop conditions: Stop if cancellation drops owned blocking work without a truthf
 | `shutdown_pending_proposal` | Returned stop proof distinguishes committed/ambiguous work and joins tasks |
 | `shutdown_archive_lag` | Quorum stop cannot authorize disk deletion while S3 coverage is incomplete |
 | `disaster_old_quorum_fenced` | Restore refuses cutover without the required old-deployment fence evidence |
-| `rollback_mode_guard` | Feature disable never opens Raft data with legacy ownership |
+| `rollback_mode_guard` | Feature disable never opens Raft data with Fleet ownership |
 | `metrics_group_cardinality` | Fleet metrics remain bounded while sampled group inspection is available |
 
 Verification target: `native_raft_operations`. Run the exact list/test commands
@@ -469,7 +469,7 @@ Create: `tools/perf/raft_run.py`, `tools/perf/raft_workload.rs`, `tools/perf/tes
 
 1. Optimize shared log batches, pooled transport and fair scheduling while retaining per-group Ready ordering.
 2. Deliver the runner interface and reference workload from qualification.md, with executable/image freshness checks.
-3. Measure copy/apply cost, group density and failure recovery against legacy fleet and bucket baselines under equivalent contracts.
+3. Measure copy/apply cost, group density and failure recovery against current fleet and bucket baselines under equivalent contracts.
 4. Record numeric deployment SLO profiles and offered-load methodology before performance qualification.
 
 Acceptance: Q0 and preliminary Q1 runs emit raw ledgers, all required metrics and reconciled results. Performance claims compare the same durability contract and disclose hardware.
@@ -512,7 +512,7 @@ Stop conditions: Any hard safety failure blocks release regardless of throughput
 | `history_accepts_ambiguous_commit` | Oracle permits either outcome while enforcing receipt idempotency |
 | `all_disk_s3_recovery` | New-incarnation archive restore contains every S3-acknowledged effect |
 | `no_bucket_fallback_after_partition` | A minority cannot resume writes when S3 remains available |
-| `legacy_regression_matrix` | Feature-off existing applications and lifecycle contracts remain valid |
+| `fleet_regression_matrix` | Feature-off existing applications and lifecycle contracts remain valid |
 
 Verification target: `native_raft_qualification`. Run the exact list/test commands
 shown by `plan.py show MR-15`; the manifest is authoritative for arguments.

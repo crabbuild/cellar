@@ -67,7 +67,7 @@ an implementation prerequisite, not an instruction to bypass safety.
 - Stale, minimum-version and safe ReadIndex linearizable queries.
 - Raft owns leadership and membership. No bucket-only fallback after quorum loss.
 - An isolated namespace and storage prefix with immutable mode selection.
-  Existing legacy cells retain their current authority protocol.
+  Cells in Fleet mode retain their current authority protocol.
 - Automatic replica repair and balanced placement are first-release requirements.
 - Small materialized databases first. Shared-cell groups, Raft hibernation,
   page-versioned execution and federation are separate scaling milestones.
@@ -79,7 +79,7 @@ later scaling work, with their own release evidence. Hundreds/thousands of nodes
 and millions of logical cells are qualification targets, not established limits.
 Millions of physical nodes require federation and are not a single-cluster promise.
 
-The earlier `codex/read-replica-design` proposal preserves the legacy ownership
+The earlier `codex/read-replica-design` proposal preserves the Fleet ownership
 protocol and treats read copies as disposable caches. This proposal instead
 introduces consensus-backed authority and durable voting replicas. Reuse its
 query isolation ideas where useful; it is not a prerequisite branch and this

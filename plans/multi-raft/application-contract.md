@@ -128,7 +128,7 @@ command is acknowledged. Such commands can incur object-store latency even in
 Quorum mode. Archive manifests retain those dependencies. Multi-cell service calls,
 WebSockets, mutable containers, existing Workflow and Queue callbacks are refused
 for Raft classes until their capability adapters receive equivalent qualification;
-ordinary legacy classes continue to support their existing behavior.
+classes in Fleet mode continue to support their existing behavior.
 
 ## Deployment and authentication
 

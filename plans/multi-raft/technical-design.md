@@ -12,11 +12,13 @@ normal data entries contain LTX page changes. Only the leader executes commands;
 all serving replicas apply committed history to read-only SQLite generations.
 S3 stores committed snapshots, archive segments and recovery manifests.
 
-The existing fleet already acknowledges writes after all installed durability
-followers fsync, before S3 upload. `FleetShipper::ship_batch` and
-`log_tier::ack_fleet_allowed` implement that rule. Its bucket fallback and owner
-CAS are correct for that protocol. This mode replaces those decisions with Raft
-quorums; changing the follower count alone would not implement consensus.
+`Fleet` names the current mode, which uses lease-based ownership, follower
+durability proofs and an object-store fallback. Its replicated write path
+acknowledges writes after all installed durability followers fsync, before S3
+upload. `FleetShipper::ship_batch` and `log_tier::ack_fleet_allowed` implement that
+rule. Its bucket fallback and owner CAS are correct for that protocol. Raft mode
+replaces those decisions with quorum consensus; changing the follower count alone
+would not implement consensus.
 
 First release supports bounded, fully materialized databases, one outstanding
 data proposal per cell, three voters across three configured failure domains,
@@ -33,7 +35,7 @@ Healthy-write speedup is not guaranteed: persistent logs, digest computation and
 committed-image publication add work. Adding nodes distributes cells; a single
 hot cell still has one leader and one outstanding data proposal in this release.
 
-Excluded from the first release: live conversion of legacy cells, multiple cells
+Excluded from the first release: live conversion of Fleet cells, multiple cells
 per group, automatic hot-cell splitting, arbitrary native mutable handlers,
 cross-cell transactions, timestamp-wide snapshots, clock-lease reads, general
 multi-region writes, and S3-only activation of an existing group without quorum.
@@ -61,7 +63,7 @@ flowchart TB
 | `crates/cellar-logic/types.rs`, `output_gate.rs`, `cell.rs`, `routing.rs` | Typed Raft authority, proof settlement and mode-aware activation/routing |
 | `crates/cellar/actor/effects.rs`, `production.rs`, `output_proofs.rs` | Execute consensus effects and return versioned observations |
 | `crates/cellar/durability/replication/backend.rs` | Reuse exact WAL capture mechanics; do not credit old fleet/bucket tickets for Raft cells |
-| `crates/cellar/durability/log/mod.rs` | Legacy node-log ownership remains isolated; no Raft quorum policy hidden in this shipper |
+| `crates/cellar/durability/log/mod.rs` | Fleet node-log ownership remains isolated; no Raft quorum policy hidden in this shipper |
 | `crates/cellar-ltx/src/db.rs`, `ltx.rs`, `host.rs` | Add bounded capture/apply/checksum/image mechanics through injected filesystem services |
 | `crates/cellar/storage/sqlite/mod.rs` | Private execution opener and separate committed query opener |
 | `crates/cellar/runtime/invocation/gates.rs`, `runtime/workers/native/mod.rs` | Enforce command/query capabilities and activation fencing |
@@ -112,11 +114,11 @@ API. External effects use committed intents and destination idempotency/receipts
 
 ### Namespace mode and group birth
 
-An immutable namespace root selects `Legacy` or `Raft`, schema/protocol digest,
+An immutable namespace root selects `Fleet` or `Raft`, schema/protocol digest,
 cluster identity and storage prefix. Both code paths refuse a conflicting mode.
 Use conditional object-store creation for the initial root and per-cell birth
 record. Raft data lives under a disjoint `raft/<cluster>/<namespace>/` prefix;
-legacy takeover, GC and lease renewal must never operate on it.
+Fleet takeover, GC and lease renewal must never operate on it.
 
 The birth record fixes group/incarnation, initial member IDs, placement and an
 initial empty-state digest. Simultaneous creators converge on the same record;
@@ -158,7 +160,7 @@ Birth records and deletion tombstones are retained to prevent identity reuse.
 | I13 | Resource exhaustion returns a typed refusal or backpressure, never a weaker proof |
 | I14 | Shutdown joins owned tasks and reports unfinished work without fabricating durability |
 | I15 | Restored/new incarnations never satisfy tokens or messages from unrelated histories |
-| I16 | Legacy behavior is unchanged when Raft mode is absent |
+| I16 | Fleet behavior is unchanged when Raft mode is absent |
 
 ## 5 Log and persistence contract
 
@@ -280,7 +282,7 @@ checks. No-op business commands still persist their receipt when a durable resul
 is promised; Raft no-op entries remain separate protocol entries.
 
 The Raft capture adapter exclusively owns maintenance of its private image.
-Ordinary legacy `LtxRepl` upload/checkpoint loops cannot run against that path.
+Ordinary Fleet `LtxRepl` upload/checkpoint loops cannot run against that path.
 Seed capture cursors from the verified committed LTX position on reopen; local
 zero-page continuation markers are capture bookkeeping, not replicated data or
 archive proof. Any schema/control write made while opening the private database
@@ -490,7 +492,7 @@ callbacks. Leadership loss cancels delivery attempts; destination deduplication
 handles effects that raced with cancellation. Durable wake discovery is rebuilt
 from committed state without requiring incoming traffic.
 
-First release does not silently enable every legacy SDK building block. Register
+First release does not silently enable every existing SDK building block. Register
 Raft-compatible capability adapters explicitly; unsupported bindings fail during
 application validation. The implementation plan includes alarms and outbox;
 other workflows/queues require equivalent command-based adapters before admission.
@@ -509,7 +511,7 @@ support the same development protocol/schema digest. Cellar-owned markers remain
 1 per repository convention; incompatible development state uses a hard cutover
 with explicit preservation/export of needed data. No implicit migration reader.
 
-Disabling the feature does not make existing Raft data readable by legacy mode.
+Disabling the feature does not make existing Raft data readable by Fleet mode.
 Rollback means route back to a compatible Raft binary or stop admission while
 preserving the group disks. Export/import into another namespace requires a
 quiesced verified boundary and is a later migration tool, not a flag flip.

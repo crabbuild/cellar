@@ -172,4 +172,4 @@ cannot be entered as runtime evidence.
 Enable a new isolated namespace on a small canary only after those gates. Expand
 traffic within measured capacity and check errors, apply/archive lag and repair
 load. Rollback routes to a compatible Raft binary; it does not reinterpret the
-namespace as legacy data or destroy the durable replica directories.
+namespace as Fleet data or destroy the durable replica directories.
