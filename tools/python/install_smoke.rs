@@ -14,6 +14,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod installed_host;
+mod rolling;
+
 struct Process(Child);
 
 impl Drop for Process {
@@ -80,14 +83,17 @@ impl Drop for Original {
 
 fn main() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
-    let package = PathBuf::from(
-        arguments
-            .next()
-            .context("usage: python-package-qualification PACKAGE_DIR SCRATCH_PREFIX")?,
-    )
+    let package = PathBuf::from(arguments.next().context(
+        "usage: python-package-qualification PACKAGE_DIR SCRATCH_PREFIX [NEXT_PACKAGE_DIR]",
+    )?)
     .canonicalize()?;
     let scratch =
         PathBuf::from(arguments.next().context("scratch prefix is required")?).canonicalize()?;
+    let replacement = arguments
+        .next()
+        .map(PathBuf::from)
+        .map(|path| path.canonicalize())
+        .transpose()?;
     ensure!(
         arguments.next().is_none(),
         "unexpected qualification arguments"
@@ -159,74 +165,19 @@ fn main() -> Result<()> {
         }
     })?;
     cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!("PASS native Python package: bucket publication, original runtime removed, closure restored, clean-environment host, native libraries, receipt replay and joined shutdown"))?;
+    if let Some(replacement) = replacement {
+        runtime.block_on(rolling::qualify(&package, &replacement, &scratch))?;
+    }
     Ok(())
 }
 
 async fn run_installed(host: &Path, package: &Path, store: &Path, work: &Path) -> Result<()> {
-    let output = work.join("installed-host.log");
-    let stdout = std::fs::File::create(&output)?;
-    let mut process = Process(
-        Command::new(host)
-            .env_clear()
-            .args([
-                "--no-control-plane",
-                "--listen",
-                "127.0.0.1:0",
-                "--internal-listen",
-                "127.0.0.1:0",
-            ])
-            .env("CELLAR_NATIVE_FLEET", "1")
-            .env("CELLAR_INTERNAL_DEV_STORE", store)
-            .env("CELLAR_BUCKET", "cellar-dev")
-            .env("CELLAR_NODE", "installed-python")
-            .env("CELLAR_TEST_DATA_DIR", work.join("node"))
-            .env("CELLAR_TOKIO_THREADS", "2")
-            .env("CELLAR_PLACEMENT_WEIGHT", "1")
-            .env("CELLAR_REBALANCE_INTERVAL_MS", "0")
-            .env("CELLAR_DURABILITY", "bucket")
-            .env("CELLAR_SHUTDOWN_TOTAL_MS", "8000")
-            .env("CELLAR_SHUTDOWN_REPORT_JSON", "1")
-            .stdout(Stdio::from(stdout.try_clone()?))
-            .stderr(Stdio::from(stdout))
-            .spawn()?,
-    );
+    let process =
+        installed_host::InstalledHost::start(host, store, work, "installed-python").await?;
+    let origin = &process.origin;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()?;
-    let deadline = Instant::now() + Duration::from_secs(30);
-    let (origin, internal) = loop {
-        ensure!(
-            process.0.try_wait()?.is_none(),
-            "installed host exited: {}",
-            std::fs::read_to_string(&output)?
-        );
-        let text = std::fs::read_to_string(&output)?;
-        if let Some(address) = text.lines().find_map(|line| {
-            line.strip_prefix("cellar listening on ")
-                .and_then(|rest| rest.split_whitespace().next())
-        }) {
-            let origin = format!("http://{address}");
-            let internal = text.lines().find_map(|line| {
-                line.strip_prefix("cellar internal listening on ")
-                    .and_then(|rest| rest.split_whitespace().next())
-            });
-            if let Some(internal) = internal {
-                if client
-                    .get(format!("{origin}/health"))
-                    .send()
-                    .await
-                    .is_ok_and(|response| response.status().is_success())
-                {
-                    break (origin, format!("http://{internal}"));
-                }
-            }
-        }
-        ensure!(
-            Instant::now() < deadline,
-            "installed host readiness expired: {text}"
-        );
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    };
     let libraries: Value = client
         .get(format!("{origin}/libraries"))
         .send()
@@ -257,52 +208,7 @@ async fn run_installed(host: &Path, package: &Path, store: &Path, work: &Path) -
     // preserving shutdown as `cellar dev`, then verify every native phase.
     // A real SIGTERM handoff without a successor correctly reported incomplete
     // in the initial drill; that evidence must not be relabelled as a drain.
-    client
-        .post(format!("{internal}/shutdown?handoff=preserve"))
-        .send()
-        .await?
-        .error_for_status()?;
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if let Some(status) = process.0.try_wait()? {
-            ensure!(
-                status.success(),
-                "installed host failed shutdown: {}",
-                std::fs::read_to_string(&output)?
-            );
-            break;
-        }
-        ensure!(Instant::now() < deadline, "installed host failed to join");
-        tokio::time::sleep(Duration::from_millis(25)).await;
-    }
-    let text = std::fs::read_to_string(&output)?;
-    let report: Value = text
-        .lines()
-        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-        .find(|value| value["event"] == "embedded_python_shutdown")
-        .context("missing installed-host combined report")?;
-    let report = &report["report"];
-    ensure!(
-        report["runtime_failed"] == false
-            && report["host_failed"] == false
-            && report["objects_created"] == report["objects_retired"],
-        "installed Python host reported incomplete cleanup"
-    );
-    ensure!(
-        report["pending_tasks"] == 0
-            && report["pending_threads"] == 0
-            && report["pending_objects"] == 0
-            && report["bridge"]["pending_reservations"] == 0
-            && report["bridge"]["queued_bytes"] == 0,
-        "installed host left work pending"
-    );
-    ensure!(
-        report["native_outcomes"]
-            .as_array()
-            .is_some_and(|outcomes| !outcomes.is_empty()
-                && outcomes.iter().all(|outcome| outcome["complete"] == true)),
-        "installed native host did not drain"
-    );
+    process.stop(&client, true).await?;
     // Also exercise the installed package checker under a separately clean
     // process environment, with no ambient interpreter or site-packages flags.
     let mut checker = Process(

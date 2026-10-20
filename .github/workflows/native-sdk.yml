@@ -91,8 +91,12 @@ jobs:
           python examples/python/smoke.py --cellar target/debug/cellar \
             --project "$CELLAR_PYTHON_PREFIX/project.json" --with-cron
           target/debug/cellar build "$CELLAR_PYTHON_PREFIX/project.json" --output "$RUNNER_TEMP/python-package"
+          python tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
+            --output "$RUNNER_TEMP/python-rolling-project"
+          target/debug/cellar build "$RUNNER_TEMP/python-rolling-project/project.json" \
+            --output "$RUNNER_TEMP/python-package-v2"
           cargo run -p cellar --example python-package-qualification --locked -- \
-            "$RUNNER_TEMP/python-package" "$RUNNER_TEMP"
+            "$RUNNER_TEMP/python-package" "$RUNNER_TEMP" "$RUNNER_TEMP/python-package-v2"
       - name: Build a Rust application package
         run: |
           cargo run -p cellar --bin cellar --locked -- \

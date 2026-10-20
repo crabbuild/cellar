@@ -106,6 +106,34 @@ cargo run -p cellar --example python-package-qualification --locked -- \
   /absolute/private/path/python-package /absolute/private/path
 ```
 
+To qualify a Python source upgrade, generate a private application fixture with
+changed cell handler code, build its distinct native package, and supply that
+package as the third qualification argument:
+
+```sh
+python3 tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
+  --output /absolute/private/path/rolling-project
+"$CARGO_TARGET_DIR/debug/cellar" build /absolute/private/path/rolling-project/project.json \
+  --output /absolute/private/path/python-package-v2
+cargo run -p cellar --example python-package-qualification --locked -- \
+  /absolute/private/path/python-package /absolute/private/path \
+  /absolute/private/path/python-package-v2
+```
+
+The generator creates a new directory, copies the example entry point, changes
+the Python cell handler, recaptures/bundles its source inventory and derives a
+private Cargo lock from the repository lock offline. It refuses added dependency
+versions. Repository sources and provisioned runtime files are unchanged.
+The qualification checks different executable, application-version and inventory
+identities; observes the old process refusing in-process adoption; verifies that
+the old executable refuses the new package; and exercises real TERM and INT
+handoff in separate development fleets. A header from the changed Python cell
+handler proves the replacement code ran after takeover. Acknowledged state and
+the exact retained response receipt must survive, and both combined shutdown
+reports must be complete. This covers source changes with the same pinned
+CPython/package environment; upgrading OS/native dependencies needs its own
+qualification.
+
 The package qualification tool requires a private scratch prefix and no running
 host sharing it. It publishes to a private bucket, moves the original runtime
 aside, restores the closure, launches the installed host with a cleared process
