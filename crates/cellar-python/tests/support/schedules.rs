@@ -3,7 +3,7 @@ use super::*;
 
 const EXPRESSIONS: [&str; 4] = ["* * * * *", "*/1 * * * *", "* 0-23 * * *", "* * 1-31 * *"];
 
-struct Observed(Arc<PythonApplication>);
+pub(super) struct Observed(pub(super) Arc<PythonApplication>);
 
 impl Application for Observed {
     fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {

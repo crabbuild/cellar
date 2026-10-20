@@ -186,6 +186,17 @@ decline retry. Use a job/time-window ID to deduplicate application jobs and
 design a catch-up policy for downtime. Avoid assuming a schedule can replace
 an audit of missed business work.
 
+The scheduling cell persists the original occurrence, remaining expressions and
+retry progress beside its alarm. Recreating an activation retains a pending
+retry. If a handler is interrupted, recovery repeats its unfinished expression
+with the original `scheduled_ms`; its earlier history entry remains `started`
+with no fabricated completion. Application effects still require idempotency:
+an interrupted handler may already have committed an effect. Finished expressions
+are checkpointed with their history so that recovery can skip them. Existing
+native retry limits and calendar scheduling policy still apply. Changing the
+deployment or schedule configuration replaces pending work from the previous
+configuration; retained history remains available for reconciliation.
+
 ## Test failure and replay behavior
 
 Before releasing async work, test crash before/after state commit, after the

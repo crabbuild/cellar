@@ -26,6 +26,8 @@ mod fixture;
 mod limits;
 #[path = "support/native_writer.rs"]
 mod native_writer;
+#[path = "support/schedule_recovery.rs"]
+mod schedule_recovery;
 #[path = "support/schedules.rs"]
 mod schedules;
 #[path = "support/watchdog.rs"]
@@ -203,6 +205,19 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-schedule-recovery" {
+        return schedule_recovery::qualify();
+    }
+    if mode == "--schedule-owner" {
+        return schedule_recovery::child(
+            &std::env::args().nth(2).context("schedule recovery mode")?,
+            Path::new(
+                &std::env::args()
+                    .nth(3)
+                    .context("schedule recovery directory")?,
+            ),
+        );
+    }
     if mode == "--runtime-watchdog" {
         return watchdog::qualify();
     }
@@ -373,6 +388,7 @@ fn main() -> Result<()> {
         "--runtime-bindings",
         "--runtime-delivery",
         "--runtime-schedules",
+        "--runtime-schedule-recovery",
         "--runtime-binding-faults",
         "--runtime-limits",
     ] {
@@ -736,7 +752,9 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         .stderr(output.as_file().try_clone()?)
         .spawn()?;
     let deadline = std::time::Instant::now()
-        + Duration::from_secs(if mode == "--runtime-binding-faults" {
+        + Duration::from_secs(if mode == "--runtime-schedule-recovery" {
+            240
+        } else if mode == "--runtime-binding-faults" {
             90
         } else if matches!(
             mode,

@@ -88,7 +88,10 @@ Queue acknowledgements are settlement decisions inside the current delivery;
 the broker persists them when dispatch returns. An acknowledgement followed by
 a handler exception is retained; a timeout that drops dispatch can redeliver.
 The first conflicting message/batch ack or retry decision wins. Cron retries
-retain the original occurrence timestamp. `no_retry()` declines retry when that
+retain the original occurrence timestamp across timeout, activation recreation
+and owner recovery. The native scheduling cell checkpoints completed expressions
+and resumes unfinished work; interrupted history remains unfinished. A new
+deployment/schedule configuration replaces previous pending work. `no_retry()` declines retry when that
 scheduled handler fails. Settlement controls cannot be reused in another live
 invocation or after their original invocation expires.
 Queue text bodies become strings; bytes become `{"$bytes":"BASE64"}`; structured

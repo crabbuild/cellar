@@ -114,7 +114,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | verified locally: real two-domain reads/writes refuse live-cross/expired handles; independent before-submit/in-flight cancellation, held/failed native data proof, conservative unknown failure without adapter replay, explicit idempotent-set reconciliation, 1-admitted/31-refused overlap pressure and preserving restart retain exact effects with complete reports and zero pending operations/reservations |
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | verified locally: actual two-domain DDL/DML/queries refuse retained-handle writes; independent before-submit/in-flight cancellation, failed native proof, unknown failure without replay, explicit primary-key receipt reconciliation, 1-admitted/31-refused overlap pressure and restart retain singular effects with complete reports and zero managed work |
 | Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | verified locally: real consumer matrix covers default/explicit ack, handler errors after ack, first conflicting decision, same-ID retry/exhaustion, timeout/cancel expiry and retained-handle authority; independent producer before-submit/in-flight cancellation, held/failed proof, unknown-result reconciliation and overlap pressure run through the real broker; SQL business receipts remain singular and the empty broker/effects persist across restart with complete reports; this drill reproduced and now passes the native running-alarm reset regression |
-| Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real native alarm/history matrix proves same-occurrence retry, explicit no_retry after error, refusal of live-cross/expired controllers, idempotent SQL effects and exact execution-history/active-alarm persistence over restart; native timeout/cancellation and replay after unclean interruption remain |
+| Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | verified locally on standard and free-threaded CPython: real native alarm/history matrix proves same-occurrence retry, explicit no_retry after error, refusal of live-cross/expired controllers, idempotent SQL effects and exact history/alarm persistence over restart; independent timeout and killed-owner/local-disk deletion tests preserve the original occurrence and interrupted history, reject late SQL/no_retry, recover one SQL effect across two attempts and completely join the replacement; current-source Linux qualification remains Q12 |
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for the stated platform/version scope: macOS ARM64 CPython 3.14.5/3.14.6 plus free-threaded 3.14.5t, and Linux x86_64 CPython 3.14.8 execute pinned Pydantic/NumPy/pure-library workloads; full 21f6b30 PR CI also passes provisioned CPython 3.14.5 archive restore, changed-source TERM/INT handoff, observation and exact receipt checks; newer native reset/binding tests still require current-source Linux execution under Q12; other platforms/library versions are unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
@@ -124,7 +124,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Current work
 
-1. Finish cron cancellation/interruption replay and the remaining queued,
+1. Finish the remaining queued,
    execution, commit/output and retirement race matrices. Independent KV,
    shared-SQL and queue matrices now pass locally, including real proof faults.
 2. Verify external native-library/OS prerequisites and complete the platform
@@ -1010,3 +1010,45 @@ documentation generation/integrity, native-only compilation with a nonexistent
 interpreter and `git diff --check` pass. The workflow parses with independent
 3.14/3.14t matrix entries. Fresh Linux execution of the final source is pending;
 pre-amendment workflows cannot qualify the new ABI support.
+
+## Durable cron progress and independent interruption qualification
+
+The Q08 regression exposed activation-local pending cron state: retiring a
+scheduling cell after a failed expression discarded its retry identity and
+re-armed the next calendar occurrence. The new native regression failed on that
+behavior before the fix. Pending occurrence, expression indices, attempt and
+in-flight progress now live in the scheduling cell's SQLite state. History and
+expression progress commit in one synchronous transaction; the next alarm and
+its owed set also commit together through the existing native output gate.
+The pure scheduling/backoff policy and native retry ceiling are unchanged.
+The configuration fingerprint excludes activation identity, but a changed
+deployment/schedule intentionally replaces its old pending work. This uses a
+format-1 document and no legacy state reader.
+
+The native integration test now recreates a cell before a retry, interrupts a
+resumed fan-out after earlier expressions completed, then checks that only the
+remaining expression repeats with its original timestamp. Interrupted history
+retains its null completion fields. The complete native cron test passes.
+
+The independent Python `--runtime-schedule-recovery` fixture runs against real
+UTC and separate private development fleets. A 1,500 ms native handler timeout
+cancels the first attempt and refuses both late SQL mutation and `no_retry` as
+`ContextExpired/not_committed`. Another owner is killed after a proof-gated SQL
+effect, all its local cell files are removed, its lease expires, and a new
+process recovers from the fleet bucket. Both cases retain the original
+occurrence, exactly one SQL business effect and two recorded attempts. The
+first history record stays `started`, the second completes, the calendar
+resumes and the surviving process records complete joined shutdown. This
+fixture passes on CPython 3.14.6 and free-threaded CPython 3.14.5t/macOS ARM64.
+The final fixtures execute serially against real UTC, following the repository's
+lease-sensitive test guidance. Both complete adapter suites pass, including
+bootstrap and joined cleanup. Strict host/adapter Clippy, free-threaded adapter
+Clippy, formatting/layout (608 Rust files), dependency and documentation guards
+and the final native cron regression pass. Fresh Linux execution remains pending.
+
+The first fixture configuration was refused because its recovery backoff did
+not cover the lease TTL. A subsequent run with a shifted fixture clock exposed
+that native alarm claims use real UTC; its retry deadline was outside the
+shifted clock's observation window. The final fixture uses real UTC without
+changing the production deadline/backoff policy or weakening occurrence,
+history, authority or receipt assertions.
