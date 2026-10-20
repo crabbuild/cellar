@@ -112,6 +112,12 @@ fails immediately when full. Each invocation's operation channel is bounded.
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
 batches apply no partial writes or alarm changes.
+
+For alarms, persist a business occurrence ID in the same `apply` batch as
+`alarm_at_ms`. Native retry backoff can change the handler's `scheduled_ms`;
+use the persisted identity for the receipt, and commit that receipt with the
+business effect. The example uses a checked durable sequence and retains its
+current intent so a retry with a different delivery deadline still deduplicates.
 The single interpreter polls bridge messages every millisecond by default;
 `poll_interval` controls this latency/idle-CPU tradeoff. This is a first adapter,
 not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies. Task limits cover managed-loop work, not raw application threads or external native pools.

@@ -129,6 +129,9 @@ def main():
             assert call("/counters/b")["count"] == 0
             call("/counters/a/alarm", method="POST")
             eventually(lambda: call("/counters/a"), lambda value: value["alarms"] == 1)
+            for occurrence in (1, 2):
+                call("/counters/rearmed/alarm", method="POST")
+                eventually(lambda: call("/counters/rearmed"), lambda value: value["alarms"] == occurrence)
             value = {"message": "Python KV", "nullable": None}
             assert call("/kv", method="POST", data=value) == value
             assert call("/sql", method="POST", data="Python SQL")["results"] == [{"body": "Python SQL"}]
@@ -146,6 +149,7 @@ def main():
         try:
             origin = restarted.ready()
             assert request(origin, "/counters/a") == {"count": 7, "alarms": 1}
+            assert request(origin, "/counters/rearmed") == {"count": 0, "alarms": 2}
             assert request(origin, "/counters/receipt") == {"count": 9, "alarms": 0}
             assert receipt_request(origin, 9, "lost-response") == {"count": 9, "alarms": 0}
             assert receipt_request(origin, 9, "lost-response", wire=True) == lost_receipt

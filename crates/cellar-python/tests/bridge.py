@@ -24,6 +24,7 @@ native_snapshot_release = asyncio.Event()
 fence_waiting = asyncio.Event()
 fence_release = asyncio.Event()
 fence_result = None
+alarm_deliveries = []
 
 async def fetch(request, ctx):
     global saved, live_context, mailbox_progress, held_generator, fail_constructor
@@ -275,6 +276,31 @@ class Counter:
         global fence_result
         global proof_sync_completed, proof_python_returned
         storage = ctx.storage
+        if request.path == "/durable-alarm-arm":
+            original_alarm = await storage.get_alarm()
+            original_intent = await storage.read_json("alarm-intent")
+            deadline = await ctx.now_ms() + 10_000
+            try:
+                await storage.apply(checks={"count": MISSING},
+                                    puts={"alarm-intent": deadline}, alarm_at_ms=deadline)
+            except Conflict as error:
+                assert error.outcome == "not_committed"
+            else:
+                raise AssertionError("failed check armed an alarm")
+            assert await storage.get_alarm() == original_alarm
+            assert await storage.read_json("alarm-intent") == original_intent
+            await storage.apply(checks={"alarm-intent": original_intent},
+                                puts={"alarm-intent": deadline}, alarm_at_ms=deadline)
+            assert await storage.get_alarm() == deadline
+            return Response.json(deadline)
+        if request.path in ("/durable-alarm-state", "/durable-alarm-repeat"):
+            deadline = await storage.get_json("alarm-intent")
+            if request.path.endswith("repeat"):
+                await self.alarm(deadline + 1_000, ctx)
+            return Response.json({"intent": deadline,
+                                  "receipt": await storage.get_json("alarm:" + str(deadline), False),
+                                  "effects": await storage.get_json("alarms", 0),
+                                  "deliveries": alarm_deliveries})
         if request.path == "/overload-state":
             return Response.json(await storage.get_json("overload-committed"))
         if request.path == "/proof/state":

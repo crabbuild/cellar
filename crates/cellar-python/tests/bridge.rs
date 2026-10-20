@@ -203,6 +203,9 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-watchdog" {
+        return watchdog::qualify();
+    }
     if mode == "--runtime-delivery" {
         return delivery::child();
     }

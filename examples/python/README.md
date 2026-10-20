@@ -48,10 +48,15 @@ curl http://127.0.0.1:9876/jobs
 curl http://127.0.0.1:9876/cron
 ```
 
-The named counter survives preserving restarts. Its alarm increments `alarms` once per persisted occurrence receipt.
+The named counter survives preserving restarts. Scheduling an alarm commits a
+checked occurrence sequence, current intent and native alarm together. Its handler
+increments `alarms` once per persisted occurrence receipt. Native retries can
+change `scheduled_ms`; the handler deduplicates using its persisted intent.
+Pending alarms from the earlier example lack this intent format; use fresh
+development state or explicit application reconciliation when updating them.
 `/jobs` shows queue effects in KV; `/cron` shows the latest real minute occurrence.
 Queue and cron deliveries can repeat; production business effects need
-idempotency keys. Counter POST requests accept an `idempotency-key` header (1..128 ASCII letters, digits, `-`, `_`, `.`). The rendered response status, body bytes and ordered application headers commit atomically with the receipt and increment; matching retries return those retained fields, including after restart or later writes. Transport-generated metadata such as Date is outside this application receipt. Reusing a key for a different amount returns 409. Retain receipt keys for the application's complete retry/reconciliation window.
+idempotency keys. Counter increment POST requests accept an `idempotency-key` header (1..128 ASCII letters, digits, `-`, `_`, `.`). The rendered response status, body bytes and ordered application headers commit atomically with the receipt and increment; matching retries return those retained fields, including after restart or later writes. Transport-generated metadata such as Date is outside this application receipt. Reusing a key for a different amount returns 409. Retain receipt keys for the application's complete retry/reconciliation window. Each successful alarm scheduling POST creates a new occurrence and replaces the pending native alarm.
 
 ## Validate and package
 

@@ -71,7 +71,14 @@ class Counter:
     async def fetch(self, request, ctx):
         storage = ctx.storage
         if request.path.endswith("/alarm") and request.method == "POST":
-            await storage.set_alarm(await ctx.now_ms() + 500)
+            sequence = await storage.read_json("alarm-sequence")
+            occurrence = (sequence.value if sequence.present else 0) + 1
+            try:
+                await storage.apply(checks={"alarm-sequence": sequence},
+                                    puts={"alarm-sequence": occurrence, "alarm-intent": occurrence},
+                                    alarm_at_ms=await ctx.now_ms() + 500)
+            except Conflict:
+                return Response.json({"error": "conflicting alarm schedule"}, 409)
         if request.method == "POST" and not request.path.endswith("/alarm"):
             try:
                 change = Increment.model_validate(await request.json() if request.body else {})
@@ -110,10 +117,15 @@ class Counter:
                               "alarms": await storage.get_json("alarms", 0)})
 
     async def alarm(self, scheduled_ms, ctx):
-        receipt_key = "alarm:" + str(scheduled_ms)
+        # Native retry backoff can change scheduled_ms. Business identity comes
+        # from the intent committed atomically with the original alarm instead.
+        intent = await ctx.storage.read_json("alarm-intent")
+        if not intent.present:
+            return
+        receipt_key = "alarm:" + str(intent.value)
         receipt = await ctx.storage.read_json(receipt_key)
         if receipt.present:
             return
         snapshot = await ctx.storage.read_json("alarms")
-        await ctx.storage.apply(checks={receipt_key: receipt, "alarms": snapshot},
+        await ctx.storage.apply(checks={"alarm-intent": intent, receipt_key: receipt, "alarms": snapshot},
                                 puts={receipt_key: True, "alarms": (snapshot.value if snapshot.present else 0) + 1})

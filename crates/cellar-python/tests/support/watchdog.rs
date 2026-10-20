@@ -68,9 +68,28 @@ pub(super) fn child(mode: &str, root: &Path) -> Result<()> {
     let directory = root.to_path_buf();
     let recovered = mode == "--owner-recovered";
     let marker = directory.join("clean-shutdown.json");
+    // Execute the shipped example's actual alarm method without requiring its
+    // unrelated numerical/validation dependencies in this stdlib-only fixture.
+    // The existing fixture owns routing and arms a durable business identity.
+    let source = format!(
+        r#"{}
+import ast
+_example_tree = ast.parse({})
+_example_class = next(node for node in _example_tree.body if isinstance(node, ast.ClassDef) and node.name == "Counter")
+_example_globals = {{"__name__": "qualified_example_alarm"}}
+exec(compile(ast.Module(body=[_example_class], type_ignores=[]), "example_app.py", "exec"), _example_globals)
+_example_alarm = _example_globals["Counter"].alarm
+async def _observed_example_alarm(self, scheduled_ms, ctx):
+    alarm_deliveries.append(scheduled_ms)
+    return await _example_alarm(self, scheduled_ms, ctx)
+Counter.alarm = _observed_example_alarm
+"#,
+        include_str!("../bridge.py"),
+        serde_json::to_string(include_str!("../../../../examples/python/app.py"))?
+    );
     let report = run(
         Options::default(),
-        Source::new(include_str!("../bridge.py"), "bridge.py")
+        Source::new(source, "bridge.py")
             .events([EventKind::Fetch])
             .cell_events("Counter", [EventKind::Fetch, EventKind::Alarm]),
         move |application, stop| {
@@ -183,6 +202,14 @@ pub(super) fn qualify() -> Result<()> {
                 before["count"] == 1,
                 "write was not acknowledged before kill"
             );
+            let alarm: i64 = client
+                .post(format!("{url}/durable-alarm-arm"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            let armed = Instant::now();
             // Trigger noncooperation, verify it cannot fabricate a successful
             // heartbeat or shutdown, then exercise the external hard-stop path.
             let trigger = client.get(format!("{url}/{route}")).send().await;
@@ -217,6 +244,11 @@ pub(super) fn qualify() -> Result<()> {
                 owner.0.try_wait()?.is_none(),
                 "noncooperative runtime exited without watchdog"
             );
+            // Let the acknowledged native alarm become due while Python is
+            // stalled. Its durable intent must survive the owner and disk loss.
+            if let Some(remaining) = Duration::from_millis(11_000).checked_sub(armed.elapsed()) {
+                tokio::time::sleep(remaining).await;
+            }
             owner.0.kill()?;
             owner.0.wait()?;
             ensure!(
@@ -239,6 +271,48 @@ pub(super) fn qualify() -> Result<()> {
             ensure!(
                 recovered["count"] == 2,
                 "{route}: recovery lost acknowledged state: {recovered}"
+            );
+            let expected = json!({"intent":alarm,"receipt":true,"effects":1});
+            let mut observed = Value::Null;
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    let mut state: Value = client
+                        .get(format!("{url}/durable-alarm-state"))
+                        .send()
+                        .await?
+                        .error_for_status()?
+                        .json()
+                        .await?;
+                    observed = state.clone();
+                    let deliveries = state.as_object_mut().context("alarm state object")?
+                        .remove("deliveries").context("alarm delivery timestamps")?;
+                    if state == expected {
+                        ensure!(deliveries.as_array().and_then(|rows|rows.first())
+                            .and_then(Value::as_i64).is_some_and(|delivered|delivered > alarm),
+                            "{route}: native retry did not change the delivery deadline: {deliveries}");
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    ensure!(
+                        state["intent"] == alarm
+                            && state["effects"].as_u64().is_some_and(|count| count <= 1),
+                        "{route}: recovered alarm lost atomic state or duplicated effects: {state}"
+                    );
+                    tokio::time::sleep(Duration::from_millis(25)).await;
+                }
+            })
+            .await
+            .with_context(|| format!("acknowledged alarm did not recover: {observed}"))??;
+            let mut replay: Value = client
+                .get(format!("{url}/durable-alarm-repeat"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            replay.as_object_mut().context("alarm replay object")?.remove("deliveries");
+            ensure!(
+                replay == expected,
+                "{route}: original alarm occurrence replay duplicated effects: {replay}"
             );
         }
         Ok(())

@@ -33,6 +33,10 @@ task resumed after a real ownership fence are directly tested. Local CPU-loop
 and GIL-held C-call watchdog drills kill owners, remove local disks, recover
 acknowledged state from the development fleet bucket and verify new writes.
 Native factories also progress while Python remains blocked.
+The owner-loss alarm regression additionally exposed mutable retry deadlines;
+the example now commits a stable business occurrence with its alarm and uses
+that identity for receipts. The actual example handler survives native timeout,
+owner death and disk deletion with one effect despite a changed delivery time.
 The shipped Unix `cellar supervise` now provides bounded startup/liveness,
 process-group shutdown, joined restarts and per-process health correlation.
 Its process tests and a real installed-host forced-KILL/replacement drill pass

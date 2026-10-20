@@ -62,7 +62,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | S03 | No duplicate/conflicting keys or malformed alarms | Negative batch corpus at owning boundary | verified: real bridge corpus refuses duplicate deletes, put/delete overlap, invalid/reserved/oversized keys, malformed snapshots, unknown fields, invalid/conflicting alarms and over-budget batches; no partial writes/alarm changes; exact operation boundary commits |
 | S04 | Conflicts with native Rust writers | Concurrent Python snapshot/native mutation/check refusal test | verified: same-cell Rust transaction commits while Python holds a snapshot; Python checked batch refuses and leaves the native value/other write intact with no partial Python mutation |
 | S05 | Sync and response output proof retain native semantics | Controlled replication pause/failure, response withheld/refused | verified locally: real authenticated three-node fleet plus bucket; sync and final output remain pending while both proof paths are held; actual follower acknowledgements release success with bucket still held; both paths failing yields HTTP error and exactly one handler attempt, never a rollback claim |
-| S06 | Durable alarm mutation atomic with cell state | Crash/recovery and failed-check alarm tests | partial: real alarm executes |
+| S06 | Durable alarm mutation atomic with cell state | Crash/recovery and failed-check alarm tests | verified locally: a failed check changes neither intent nor alarm; one checked batch commits intent and alarm; CPU-loop and GIL-held C owners become noncooperative, native delivery times out/retries, owners are killed and all local databases deleted; the actual shipped example alarm method recovers the persisted occurrence receipt with one effect despite a changed native delivery deadline, and another delivery timestamp cannot duplicate it |
 | S07 | Duplicate alarms safe by persisted occurrence | Repeat same occurrence with idempotent durable effect | verified: sample persists an occurrence receipt atomically; bridge invokes the same occurrence twice and observes one increment |
 | S08 | State persists over preserving restart | Real-node restart and packaged host restart | verified locally: real Python cell restart and remote handoff recover acknowledged state; provisioned host restart and changed-source process upgrade preserve exact receipts; independent queue/cron fixtures also retain SQL effects, attempts, settled broker state and cron history |
 | S09 | Lost committed response resolved with same receipt key | Disposable host reply loss followed by receipt reconciliation | verified locally with direct wire comparison: proxy discards proof-gated success; rendered application status/body/header fields persist atomically with the effect and replay exactly before/after restart and after later writes; different-amount reuse refuses; changed-source process upgrade also compares exact application response fields |
@@ -116,7 +116,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for the stated platform/version scope: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 execute pinned Pydantic/NumPy/pure-library workloads; full 21f6b30 PR CI also passes provisioned CPython 3.14.5 archive restore, changed-source TERM/INT handoff, observation and exact receipt checks; newer native reset/binding tests still require current-source Linux execution under Q12; other platforms/library versions are unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: both complete Linux SDK workflows on fe6d2f8 passed tests, doctests, Clippy, package restoration/rolling and native examples; current observation/receipt follow-ups have local checks but require fresh complete CI |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: full Linux push workflow 39446982367 passed at dd0df44, including native-node and binding/proof matrices, doctests/Clippy and package recovery/handoff; final supervisor/startup/loss/alarm changes pass local full adapter tests, strict Clippy, package smoke and guards but need fresh complete Linux execution |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -894,3 +894,55 @@ The operator service template has not been activated on this development machine
 It is a deployment recipe, not evidence of an actual production fleet rollout.
 The remaining requirement rows stay open; this checkpoint does not complete the
 full plan.
+
+
+## Durable alarm identity and owner-loss regression (2026-10-20)
+
+A new alarm crash/recovery test exposed an application bug: native alarm retry
+backoff changes the next `scheduled_ms`. The example had used that mutable
+deadline as a receipt identity. Both the original fixture and the actual shipped
+example method failed with recovered `effects=1` but a missing original occurrence
+receipt. The real native retry used a different deadline; this was not a lost
+state write or a reason to relax the assertion.
+
+The example now commits a checked durable occurrence sequence, current intent
+and the native alarm in one `storage.apply` batch. The handler checks that
+intent and commits its stable receipt with the effect. It retains the intent
+through redelivery and uses the timestamp only as native scheduling metadata.
+There is no mutation replay in the adapter. Each successful scheduling POST
+creates a new occurrence and replaces the previous pending native alarm.
+
+The regression executes the example's actual AST-extracted `Counter.alarm`
+method in the stdlib-only disposable host, avoiding an independently copied
+implementation. It checks failed-batch rollback, acknowledged state+alarm,
+noncooperative CPU/C owners, delivery timeout, hard kill, complete owner-local
+disk deletion, native retry with an observed delivery deadline greater than the
+original intent, stable receipt/effect recovery, and another explicitly delivered
+timestamp without a second effect. Both CPU-loop and GIL-held-C cases pass after
+the production example fix. The full all-feature adapter suite and strict
+adapter Clippy pass afterward. The fresh bound CPython 3.14.5 packaged smoke also passes Pydantic/NumPy,
+KV/SQL/queue/cron, two successive alarm occurrences in a separate counter, both
+retained after restart, exact lost-response receipts and complete joined reports.
+
+This changes the example's internal alarm state contract. Pre-fix development
+state with pending alarms lacks the persisted occurrence identity; use fresh
+example state or application-specific reconciliation. No legacy timestamp
+reader or silent state migration is introduced.
+
+
+Final fresh alarm inventory identity:
+`66b64ab88609be2dc56100aa33effc62d2ece8591f028eb3ab293972c706ff49`,
+with archive
+`77cebe4e0dce85df90c7969571e765347e2c61c74d3cbba5dcf633eaee9c015d`.
+The bound source changed, so the packaged smoke used a recaptured environment
+and fresh project rather than reusing the previously sealed source descriptor.
+The last complete combined archive/rolling/supervisor run predates the alarm
+example change; fresh full Linux execution still must qualify the final source.
+
+
+After the alarm fix, final local format/layout checks (606 Rust files), the
+415-package all-feature no-JavaScript dependency guard, documentation integrity
+and `git diff --check` pass. Linux workflows 39458257880/39458250262 were still
+running at d5639c7 when this subsequently discovered alarm fix was prepared.
+Their pre-alarm source cannot qualify the corrected example; final-source CI
+must run again. Superseded workflow cancellations are not successful evidence.
