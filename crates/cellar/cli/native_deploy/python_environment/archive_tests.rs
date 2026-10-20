@@ -239,82 +239,88 @@ async fn bucket_publication_and_install_restore_runtime_and_refuse_corruption_be
         native_deploy::{current_target, executable_identity, ApplicationConfig, Package},
         protocol::FEATURE_EMBEDDED_PYTHON_V1,
     };
-    crate::asyncrt::set_host_handle(tokio::runtime::Handle::current());
-    let fixture = Fixture::new()?;
-    let mut reference = fixture.write("")?;
-    let root = fixture.path.parent().unwrap();
-    let staged = root.join("staged");
-    std::fs::create_dir_all(staged.join("python"))?;
-    let source = root.join("host-source");
-    std::fs::write(&source, b"verified native host fixture")?;
-    let artifact = executable_identity(&source, current_target())?;
-    reference.executable_sha256 = artifact.sha256.clone();
-    std::fs::copy(&source, staged.join(&artifact.sha256))?;
-    let archive_path = staged.join("python").join(&reference.archive_sha256);
-    std::fs::write(&archive_path, b"corrupt staged archive")?;
-    let config: ApplicationConfig = serde_json::from_value(
-        serde_json::json!({"script_name":"python-package-test","application_version":"v1"}),
-    )?;
-    let mut manifest = config.manifest(vec![artifact])?;
-    manifest
-        .native
-        .as_mut()
-        .unwrap()
-        .python
-        .push(reference.clone());
-    manifest
-        .required_features
-        .push(FEATURE_EMBEDDED_PYTHON_V1.into());
-    manifest.version = crate::native_deploy::deployment_identity(&manifest)?;
-    let package = Package {
-        primary: manifest,
-        cohosted: vec![],
-    };
-    package.validate()?;
-    let bucket = Bucket::open_dev(&root.join("bucket.sqlite"))?;
-    assert!(package.publish_staged(&bucket, &staged).await.is_err());
-    assert!(bucket.get("deploy/current.json").await?.is_none());
-    std::fs::copy(&fixture.path, &archive_path)?;
-    package.publish_staged(&bucket, &staged).await?;
-    assert_eq!(
-        crate::fleet::read_current_pointer(&bucket)
-            .await?
-            .script_name
-            .as_deref(),
-        Some("python-package-test")
-    );
-    let installed = root.join("installed-host");
-    assert!(package
-        .install(&bucket, current_target(), &installed)
-        .await
-        .is_err());
-    assert!(!installed.exists() && !fixture.prefix.exists());
-    let bytes = std::fs::read(&fixture.path)?;
-    bucket
-        .put(&reference.key()?, b"corrupt remote archive".to_vec())
-        .await?;
-    assert!(package
-        .install_with_python(&bucket, current_target(), &installed, Some(&fixture.prefix))
-        .await
-        .is_err());
-    assert!(!installed.exists() && !fixture.prefix.exists());
-    bucket.put(&reference.key()?, bytes).await?;
-    package
-        .install_with_python(&bucket, current_target(), &installed, Some(&fixture.prefix))
-        .await?;
-    assert_eq!(std::fs::read(&installed)?, std::fs::read(&source)?);
-    verify_inventory_files(&fixture.inventory)?;
-    let second = root.join("second-host");
-    package
-        .install_with_python(&bucket, current_target(), &second, Some(&fixture.prefix))
-        .await?;
-    assert_eq!(std::fs::read(&second)?, std::fs::read(&source)?);
-    std::fs::write(fixture.prefix.join("site/unlisted.py"), b"unlisted code")?;
-    let refused = root.join("refused-host");
-    assert!(package
-        .install_with_python(&bucket, current_target(), &refused, Some(&fixture.prefix))
-        .await
-        .is_err());
-    assert!(!refused.exists());
-    Ok(())
+    let domain = crate::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async {
+            let fixture = Fixture::new()?;
+            let mut reference = fixture.write("")?;
+            let root = fixture.path.parent().unwrap();
+            let staged = root.join("staged");
+            std::fs::create_dir_all(staged.join("python"))?;
+            let source = root.join("host-source");
+            std::fs::write(&source, b"verified native host fixture")?;
+            let artifact = executable_identity(&source, current_target())?;
+            reference.executable_sha256 = artifact.sha256.clone();
+            std::fs::copy(&source, staged.join(&artifact.sha256))?;
+            let archive_path = staged.join("python").join(&reference.archive_sha256);
+            std::fs::write(&archive_path, b"corrupt staged archive")?;
+            let config: ApplicationConfig = serde_json::from_value(
+                serde_json::json!({"script_name":"python-package-test","application_version":"v1"}),
+            )?;
+            let mut manifest = config.manifest(vec![artifact])?;
+            manifest
+                .native
+                .as_mut()
+                .unwrap()
+                .python
+                .push(reference.clone());
+            manifest
+                .required_features
+                .push(FEATURE_EMBEDDED_PYTHON_V1.into());
+            manifest.version = crate::native_deploy::deployment_identity(&manifest)?;
+            let package = Package {
+                primary: manifest,
+                cohosted: vec![],
+            };
+            package.validate()?;
+            let bucket = Bucket::open_dev(&root.join("bucket.sqlite"))?;
+            assert!(package.publish_staged(&bucket, &staged).await.is_err());
+            assert!(bucket.get("deploy/current.json").await?.is_none());
+            std::fs::copy(&fixture.path, &archive_path)?;
+            package.publish_staged(&bucket, &staged).await?;
+            assert_eq!(
+                crate::fleet::read_current_pointer(&bucket)
+                    .await?
+                    .script_name
+                    .as_deref(),
+                Some("python-package-test")
+            );
+            let installed = root.join("installed-host");
+            assert!(package
+                .install(&bucket, current_target(), &installed)
+                .await
+                .is_err());
+            assert!(!installed.exists() && !fixture.prefix.exists());
+            let bytes = std::fs::read(&fixture.path)?;
+            bucket
+                .put(&reference.key()?, b"corrupt remote archive".to_vec())
+                .await?;
+            assert!(package
+                .install_with_python(&bucket, current_target(), &installed, Some(&fixture.prefix))
+                .await
+                .is_err());
+            assert!(!installed.exists() && !fixture.prefix.exists());
+            bucket.put(&reference.key()?, bytes).await?;
+            package
+                .install_with_python(&bucket, current_target(), &installed, Some(&fixture.prefix))
+                .await?;
+            assert_eq!(std::fs::read(&installed)?, std::fs::read(&source)?);
+            verify_inventory_files(&fixture.inventory)?;
+            let second = root.join("second-host");
+            package
+                .install_with_python(&bucket, current_target(), &second, Some(&fixture.prefix))
+                .await?;
+            assert_eq!(std::fs::read(&second)?, std::fs::read(&source)?);
+            std::fs::write(fixture.prefix.join("site/unlisted.py"), b"unlisted code")?;
+            let refused = root.join("refused-host");
+            assert!(package
+                .install_with_python(&bucket, current_target(), &refused, Some(&fixture.prefix))
+                .await
+                .is_err());
+            assert!(!refused.exists());
+            Ok(())
+        })
+        .await;
+    domain.shutdown().await;
+    result?
 }
