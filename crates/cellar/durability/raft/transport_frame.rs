@@ -86,7 +86,7 @@ impl Route {
         &self.target.label
     }
 
-    fn reversed(&self) -> Self {
+    pub(super) fn reversed(&self) -> Self {
         Self {
             scope: self.scope.clone(),
             schema: self.schema,

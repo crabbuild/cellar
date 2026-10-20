@@ -81,10 +81,11 @@ pub struct NodeRaftConfig {
     pub transport: crate::application::consensus::TransportOptions,
 }
 
-/// Caller-bound peer endpoints with independent control and data capacity.
+/// Caller-bound peer endpoints with independent control, data and query capacity.
 pub struct NodeRaftListeners {
     pub control: tokio::net::TcpListener,
     pub data: tokio::net::TcpListener,
+    pub query: tokio::net::TcpListener,
 }
 
 /// Infrastructure handles owned by the embedded node's execution domain. The

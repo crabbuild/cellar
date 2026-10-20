@@ -64,11 +64,26 @@ pub enum StaleReadPolicy {
     DisconnectedHistorical,
 }
 
+#[derive(Clone, Debug, Default)]
+pub enum QueryRouting {
+    #[default]
+    Local,
+    /// Try at most eight distinct members in priority order, then optionally
+    /// one untried leader hint. Each attempt retains the same consistency,
+    /// token and captured input under the original invocation deadline.
+    Replicas {
+        members: Vec<MemberId>,
+        attempt_timeout: Duration,
+        leader_fallback: bool,
+    },
+}
+
 #[derive(Clone, Debug)]
 pub struct QueryOptions {
     pub consistency: QueryConsistency,
     pub timeout: Duration,
     pub stale_policy: StaleReadPolicy,
+    pub routing: QueryRouting,
 }
 
 impl Default for QueryOptions {
@@ -77,6 +92,7 @@ impl Default for QueryOptions {
             consistency: QueryConsistency::Stale,
             timeout: Duration::from_secs(5),
             stale_policy: StaleReadPolicy::RecentSource,
+            routing: QueryRouting::Local,
         }
     }
 }
@@ -86,6 +102,7 @@ pub struct QueryResult {
     pub result: Vec<u8>,
     pub version: CommittedVersion,
     pub version_token: VersionToken,
+    pub served_by: MemberId,
 }
 
 /// Discovery/readiness observation, never a grant of mutation authority.
@@ -322,9 +339,45 @@ impl RaftCellHandle {
                     }
                 }
                 Kind::Query {
-                    contract, input, ..
+                    contract,
+                    input,
+                    options,
                 } => {
-                    self.validate(contract, OperationKind::Query, input)?;
+                    if matches!(options.routing, QueryRouting::Local) {
+                        self.validate(contract, OperationKind::Query, input)?;
+                    } else {
+                        // A voter may forward a query whose implementation is
+                        // only installed on another replica. Destination code
+                        // compatibility remains mandatory before execution.
+                        if contract.kind != OperationKind::Query
+                            || contract.digest == [0; 32]
+                            || super::class::validate_name(&contract.operation).is_err()
+                        {
+                            return Err(CommandFailure::UnsupportedCapability);
+                        }
+                        if input.len() > self.handle.max_input_bytes {
+                            return Err(CommandFailure::Overloaded);
+                        }
+                    }
+                    if let QueryRouting::Replicas {
+                        members,
+                        attempt_timeout,
+                        ..
+                    } = &options.routing
+                    {
+                        if members.is_empty()
+                            || members.len() > 8
+                            || members
+                                .iter()
+                                .collect::<std::collections::BTreeSet<_>>()
+                                .len()
+                                != members.len()
+                            || attempt_timeout.as_millis() == 0
+                            || *attempt_timeout > Duration::from_secs(60)
+                        {
+                            return Err(CommandFailure::UnsupportedConsistency);
+                        }
+                    }
                 }
                 Kind::Status => (),
             }
@@ -467,9 +520,29 @@ pub(crate) struct AttemptControl {
     state: Arc<AtomicU8>,
     deadline: AtomicU64,
     domain: crate::asyncrt::DomainToken,
+    changed: Notify,
 }
 
 impl AttemptControl {
+    pub(crate) fn deadline(&self) -> u64 {
+        self.deadline.load(Ordering::Acquire)
+    }
+
+    pub(crate) async fn cancellation(&self) {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.cancelled() {
+                return;
+            }
+            let Ok(timer) = self.domain.sleep_until(self.deadline()) else {
+                return;
+            };
+            crate::asyncrt::select! { _ = &mut changed => (), _ = timer => { self.cancel(); return; } }
+        }
+    }
+
     /// SQLite's panic-contained progress hook captures only this atomic flag.
     /// The node read controller checks the injected deadline even for an
     /// unpolled waiter and raises it on expiry, cancellation or shutdown.
@@ -490,11 +563,16 @@ impl AttemptControl {
             state: Arc::new(AtomicU8::new(0)),
             deadline: AtomicU64::new(u64::MAX),
             domain,
+            changed: Notify::new(),
         }
     }
 
     pub fn cancel(&self) -> bool {
-        self.state.fetch_or(1, Ordering::AcqRel) & 2 != 0
+        let old = self.state.fetch_or(1, Ordering::AcqRel);
+        if old & 1 == 0 {
+            self.changed.notify_waiters();
+        }
+        old & 2 != 0
     }
 
     pub fn cancelled(&self) -> bool {

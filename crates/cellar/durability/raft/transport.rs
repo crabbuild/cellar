@@ -1,5 +1,5 @@
-//! Node-owned TLS connections multiplex groups. Separate control/data listeners,
-//! workers and byte budgets keep bulk work out of reserved control capacity.
+//! Node-owned TLS connections multiplex groups. Independent control, data and
+//! query listeners/workers/budgets preserve progress while queries await LTX.
 
 use super::budget::{Budget, Permit};
 use super::completion::RuntimeError;
@@ -22,6 +22,9 @@ use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
+
+#[path = "query_transport.rs"]
+mod queries;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Lane {
@@ -75,6 +78,7 @@ pub struct RaftPeer {
     pub server_name: String,
     pub control_address: SocketAddr,
     pub data_address: SocketAddr,
+    pub query_address: SocketAddr,
 }
 
 impl RaftPeer {
@@ -93,6 +97,7 @@ impl RaftPeer {
             && self.server_name == other.server_name
             && self.control_address == other.control_address
             && self.data_address == other.data_address
+            && self.query_address == other.query_address
     }
 }
 
@@ -123,6 +128,8 @@ pub struct TransportUsage {
     pub data_bytes: usize,
     pub control_items: usize,
     pub data_items: usize,
+    pub query_bytes: usize,
+    pub query_items: usize,
     pub tasks: usize,
     pub peers: usize,
     pub groups: usize,
@@ -134,13 +141,15 @@ pub struct TransportUsage {
 struct Banks {
     control: Arc<Budget>,
     data: Arc<Budget>,
+    query: Arc<Budget>,
 }
 
 impl Banks {
-    fn new(control: usize, data: usize, items: usize) -> Self {
+    fn new(control: usize, data: usize, query: usize, items: usize) -> Self {
         Self {
             control: Budget::new(control, items),
             data: Budget::new(data, items),
+            query: Budget::new(query, items),
         }
     }
 
@@ -167,6 +176,7 @@ struct SendRequest {
 struct Pool {
     peer: RaftPeer,
     tx: [mpsc::Sender<SendRequest>; 2],
+    query: mpsc::Sender<queries::SendQuery>,
     outgoing: Banks,
     incoming: Banks,
     stop: watch::Sender<bool>,
@@ -187,6 +197,8 @@ struct State {
     options: TransportOptions,
     local_control: SocketAddr,
     local_data: SocketAddr,
+    local_query: SocketAddr,
+    query_gateway: Mutex<Option<std::sync::Weak<crate::application::consensus::client::Handle>>>,
     registry: Mutex<Registry>,
     outgoing: Banks,
     incoming: Banks,
@@ -246,7 +258,7 @@ impl Future for OwnedTask {
 }
 
 impl RaftTransport {
-    /// Both listeners must be caller-bound. All accepted sockets, deadlines and
+    /// All three listeners must be caller-bound. Accepted sockets, deadlines and
     /// workers belong to the runtime's execution domain and join on its shutdown.
     pub async fn start(
         runtime: RaftRuntime,
@@ -254,14 +266,17 @@ impl RaftTransport {
         tls: RaftTls,
         control: TcpListener,
         data: TcpListener,
+        query: TcpListener,
         options: TransportOptions,
     ) -> Result<Self, TransportError> {
         options.validate()?;
         let local_control = control.local_addr()?;
         let local_data = data.local_addr()?;
-        if local_control == local_data {
+        let local_query = query.local_addr()?;
+        if local_control == local_data || local_query == local_control || local_query == local_data
+        {
             return Err(TransportError::Invalid(
-                "separate control/data listeners required".into(),
+                "separate control/data/query listeners required".into(),
             ));
         }
         let domain = runtime.log().domain();
@@ -275,6 +290,8 @@ impl RaftTransport {
             tls,
             local_control,
             local_data,
+            local_query,
+            query_gateway: Mutex::new(None),
             registry: Mutex::new(Registry {
                 closed: false,
                 tasks: 0,
@@ -284,11 +301,13 @@ impl RaftTransport {
             outgoing: Banks::new(
                 options.node_control_bytes,
                 options.node_data_bytes,
+                options.node_query_bytes,
                 options.queue_items * options.max_peers,
             ),
             incoming: Banks::new(
                 options.node_control_bytes,
                 options.node_data_bytes,
+                options.node_query_bytes,
                 options.max_connections_per_lane,
             ),
             stop,
@@ -309,6 +328,10 @@ impl RaftTransport {
                 worker.listen(listener, lane).await;
             })?;
         }
+        let worker = state.clone();
+        state.spawn(async move {
+            worker.listen_queries(query).await;
+        })?;
         Ok(service)
     }
 
@@ -318,6 +341,10 @@ impl RaftTransport {
 
     pub fn data_address(&self) -> SocketAddr {
         self.handle.0.local_data
+    }
+
+    pub fn query_address(&self) -> SocketAddr {
+        self.handle.0.local_query
     }
 
     pub fn install_group(&self, route: GroupRoute) -> Result<(), TransportError> {
@@ -358,6 +385,8 @@ impl RaftTransport {
                 || crate::machine::validate_node_name(&peer.label).is_err()
                 || rustls::pki_types::ServerName::try_from(peer.server_name.clone()).is_err()
                 || peer.control_address == peer.data_address
+                || peer.query_address == peer.control_address
+                || peer.query_address == peer.data_address
             {
                 return Err(TransportError::Identity);
             }
@@ -420,10 +449,11 @@ impl RaftTransport {
         }
         // Reserve all worker slots before changing this registry view. Spawn
         // reservations and close share the same lock, so close cannot miss them.
-        if registry.tasks + 2 * route.peers.len() > state.task_limit() {
+        if registry.tasks + 3 * route.peers.len() > state.task_limit() {
             return Err(TransportError::Overloaded);
         }
         let mut starts = Vec::new();
+        let mut query_starts = Vec::new();
         for peer in route.peers.iter().filter(|p| p.replica.node != local.node) {
             if registry
                 .pools
@@ -437,25 +467,30 @@ impl RaftTransport {
             }
             let (control, crx) = mpsc::channel(state.options.queue_items);
             let (data, drx) = mpsc::channel(state.options.queue_items);
+            let (query, qrx) = mpsc::channel(state.options.queue_items);
             let (stop, _) = watch::channel(false);
             let pool = Arc::new(Pool {
                 peer: peer.clone(),
                 tx: [control, data],
+                query,
                 stop,
                 outgoing: Banks::new(
                     state.options.peer_control_bytes,
                     state.options.peer_data_bytes,
+                    state.options.peer_query_bytes,
                     state.options.queue_items,
                 ),
                 incoming: Banks::new(
                     state.options.peer_control_bytes,
                     state.options.peer_data_bytes,
+                    state.options.peer_query_bytes,
                     state.options.max_connections_per_lane,
                 ),
             });
-            registry.tasks += 2;
+            registry.tasks += 3;
             starts.push((pool.clone(), Lane::Control, crx, TaskGuard(state.clone())));
             starts.push((pool.clone(), Lane::Data, drx, TaskGuard(state.clone())));
+            query_starts.push((pool.clone(), qrx, TaskGuard(state.clone())));
             registry.pools.insert(peer.replica.node, pool);
         }
         registry.groups.insert(route.scope.clone(), Arc::new(route));
@@ -477,6 +512,12 @@ impl RaftTransport {
             let worker = state.clone();
             state.spawn_reserved(guard, async move {
                 worker.send_loop(pool, lane, rx).await;
+            })?;
+        }
+        for (pool, rx, guard) in query_starts {
+            let worker = state.clone();
+            state.spawn_reserved(guard, async move {
+                worker.send_queries(pool, rx).await;
             })?;
         }
         Ok(())
@@ -625,11 +666,15 @@ impl RaftTransport {
         let (db, di) = pool.outgoing.data.usage();
         let (rcb, rci) = pool.incoming.control.usage();
         let (rdb, rdi) = pool.incoming.data.usage();
+        let (qb, qi) = pool.outgoing.query.usage();
+        let (rqb, rqi) = pool.incoming.query.usage();
         Ok(TransportUsage {
             control_bytes: cb + rcb,
             data_bytes: db + rdb,
             control_items: ci + rci,
             data_items: di + rdi,
+            query_bytes: qb + rqb,
+            query_items: qi + rqi,
             ..Default::default()
         })
     }
@@ -682,7 +727,7 @@ impl State {
     }
 
     fn task_limit(&self) -> usize {
-        2 + 4 * self.options.max_peers + 2 * self.options.max_connections_per_lane
+        3 + 6 * self.options.max_peers + 3 * self.options.max_connections_per_lane
     }
 
     fn stop(&self) {
@@ -692,6 +737,9 @@ impl State {
             registry.tasks == 0
         };
         self.stop.send_replace(true);
+        if let Ok(mut gateway) = self.query_gateway.lock() {
+            gateway.take();
+        }
         if finished {
             if let Ok(mut claim) = self.claim.lock() {
                 claim.take();
@@ -736,12 +784,16 @@ impl State {
         let (db, di) = self.outgoing.data.usage();
         let (rcb, rci) = self.incoming.control.usage();
         let (rdb, rdi) = self.incoming.data.usage();
+        let (qb, qi) = self.outgoing.query.usage();
+        let (rqb, rqi) = self.incoming.query.usage();
         let registry = self.lifecycle_registry();
         TransportUsage {
             control_bytes: cb + rcb,
             data_bytes: db + rdb,
             control_items: ci + rci,
             data_items: di + rdi,
+            query_bytes: qb + rqb,
+            query_items: qi + rqi,
             tasks: registry.tasks,
             peers: registry.pools.len(),
             groups: registry.groups.len(),
@@ -752,37 +804,40 @@ impl State {
     }
 
     fn current(&self, request: &SendRequest) -> bool {
+        self.current_route(&request.scope, &request.route, &request.peer)
+    }
+
+    fn current_route(&self, scope: &GroupScope, route: &Arc<GroupRoute>, peer: &RaftPeer) -> bool {
         self.registry.lock().is_ok_and(|r| {
             self.admit(&r).is_ok()
-                && r.groups
-                    .get(&request.scope)
-                    .is_some_and(|g| Arc::ptr_eq(g, &request.route))
+                && r.groups.get(scope).is_some_and(|g| Arc::ptr_eq(g, route))
                 && r.pools
-                    .get(&request.peer.replica.node)
-                    .is_some_and(|p| p.peer.same_host(&request.peer))
-                && self.runtime.log().group(&request.scope).is_ok_and(|group| {
+                    .get(&peer.replica.node)
+                    .is_some_and(|p| p.peer.same_host(peer))
+                && self.runtime.log().group(scope).is_ok_and(|group| {
                     group.read().is_ok_and(|g| {
                         let conf = &g.conf_state;
-                        [
-                            group.identity().member.get(),
-                            request.peer.replica.member.get(),
-                        ]
-                        .into_iter()
-                        .all(|member| {
-                            conf.voters
-                                .iter()
-                                .chain(&conf.voters_outgoing)
-                                .chain(&conf.learners)
-                                .chain(&conf.learners_next)
-                                .any(|id| *id == member)
-                        })
+                        [group.identity().member.get(), peer.replica.member.get()]
+                            .into_iter()
+                            .all(|member| {
+                                conf.voters
+                                    .iter()
+                                    .chain(&conf.voters_outgoing)
+                                    .chain(&conf.learners)
+                                    .chain(&conf.learners_next)
+                                    .any(|id| *id == member)
+                            })
                     })
                 })
         })
     }
 
     fn authorize(&self, header: &RequestHeader) -> Result<Arc<Pool>, TransportError> {
-        let (source, target) = header.route.decode()?;
+        self.authorize_route(&header.route)
+    }
+
+    fn authorize_route(&self, wire: &Route) -> Result<Arc<Pool>, TransportError> {
+        let (source, target) = wire.decode()?;
         let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
         self.admit(&registry)?;
         let route = registry
@@ -795,15 +850,15 @@ impl State {
             .group(&target.scope)
             .map_err(|_| TransportError::UnknownGroup)?;
         if *group.identity() != target
-            || header.route.target_label() != self.auth.source()
-            || header.route.schema() != route.schema_digest
+            || wire.target_label() != self.auth.source()
+            || wire.schema() != route.schema_digest
         {
             return Err(TransportError::StalePeer);
         }
         let peer = route
             .peers
             .iter()
-            .find(|p| p.replica == source && p.label == header.route.source_label())
+            .find(|p| p.replica == source && p.label == wire.source_label())
             .ok_or(TransportError::StalePeer)?;
         let conf = group
             .read()

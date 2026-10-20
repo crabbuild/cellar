@@ -136,6 +136,7 @@ pub async fn cells(
             listeners: NodeRaftListeners {
                 control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
                 data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+                query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
             },
             tls,
             store,

@@ -1160,12 +1160,14 @@ async fn embedded_node_joins_raft_service_with_retained_handles() -> Result<()> 
             NodeRaftListeners {
                 control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
                 data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+                query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
             },
             tls,
         )
         .await?;
     let control = service.transport.control_address();
     let data = service.transport.data_address();
+    let query = service.transport.query_address();
     // The node's existing domain must join the service even while its public
     // storage/runtime/transport handles remain in the application's possession.
     node.shutdown(ShutdownMode::Preserve).await?;
@@ -1174,6 +1176,7 @@ async fn embedded_node_joins_raft_service_with_retained_handles() -> Result<()> 
     assert_eq!(service.transport.usage().tasks, 0);
     let _control = tokio::net::TcpListener::bind(control).await?;
     let _data = tokio::net::TcpListener::bind(data).await?;
+    let _query = tokio::net::TcpListener::bind(query).await?;
     Ok(())
 }
 

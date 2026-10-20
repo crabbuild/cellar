@@ -365,7 +365,7 @@ impl RaftClass {
     }
 }
 
-fn validate_name(name: &str) -> Result<(), RegistrationError> {
+pub(super) fn validate_name(name: &str) -> Result<(), RegistrationError> {
     if !cellar_logic::cell::valid_cell_scope(name) || name.len() > 128 || name.contains(':') {
         return Err(RegistrationError::Invalid("class/operation name"));
     }

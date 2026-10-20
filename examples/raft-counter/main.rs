@@ -141,6 +141,7 @@ async fn main() -> Result<()> {
         );
         let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let mut process = [0; 16];
         getrandom::fill(&mut process)?;
         peers.push(RaftPeerNode {
@@ -151,8 +152,9 @@ async fn main() -> Result<()> {
             server_name: "localhost".into(),
             control_address: control.local_addr()?,
             data_address: data.local_addr()?,
+                query_address: query.local_addr()?,
         });
-        listeners.push(NodeRaftListeners { control, data });
+        listeners.push(NodeRaftListeners { control, data, query });
         apis.push(api);
         applications.push(application);
     }

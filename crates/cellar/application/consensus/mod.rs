@@ -25,7 +25,7 @@ pub use class::{
 };
 pub use client::{
     CellStatus, CommandOptions, CommandReceipt, QueryConsistency, QueryOptions, QueryResult,
-    RaftCellHandle, RaftCells, RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
+    QueryRouting, RaftCellHandle, RaftCells, RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
 };
 
 pub use cellar_logic::consensus::{

@@ -6,8 +6,9 @@ exported through `cellar::sdk`. `Node::start_raft_cells`, public command/query
 handles and receipts connect Quorum commands and committed-image reads
 to node-owned producers. The counter example in `examples/raft-counter/README.md`
 uses both native HTTP and Axum. Local Stale, AtLeast and safe ReadIndex paths
-are implemented in MR-08 and undergoing qualification; replica routing/fallback
-remain open. S3 archive/restore and effect adapters below remain contracts for
+are implemented in MR-08. Routing from registered replicas and explicit leader
+fallback are undergoing qualification; the remaining read audit stays open.
+S3 archive/restore and effect adapters below remain contracts for
 their respective work packages.
 
 ## Commands and queries
@@ -184,6 +185,17 @@ Tokens bind cluster, namespace, cell, group, incarnation, application digest,
 index, term, issuance and expiry. They survive ordinary leadership changes;
 cross-history comparisons fail. The returned position names the cut captured
 with the pinned image, including verified protocol-only coverage of that image.
+
+`QueryOptions::routing` defaults to local execution. `QueryRouting::Replicas`
+accepts up to eight distinct member IDs in priority order, a per-attempt timeout
+between one millisecond and sixty seconds, and an explicit leader-fallback flag.
+The total query deadline is fixed on initial admission. Each attempt preserves
+its contract/input, consistency/token and stale policy. A fallback uses an
+untried leader hint and obtains the same read proof at its destination.
+`QueryResult::served_by` reports the responding member. A forwarding voter need
+not have compatible query code; the destination must check it before execution.
+General directory/ingress routing outside registered local replicas and counter
+HTTP integration remain part of the [read audit](read-audit.md).
 
 `RaftCellsServices::versions` supplies explicit managed Ed25519 signing and
 verification keys. Configured token lifetime is between one millisecond and

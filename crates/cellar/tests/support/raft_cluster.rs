@@ -24,6 +24,13 @@ struct Fault {
     stopped: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Link {
+    Control,
+    Data,
+    Query,
+}
+
 struct Proxy {
     address: SocketAddr,
     state: watch::Sender<Fault>,
@@ -125,7 +132,7 @@ impl Drop for Proxy {
 pub struct Cluster {
     pub nodes: Vec<Node>,
     pub services: Vec<RaftCells>,
-    links: Vec<(usize, usize, bool, Proxy)>,
+    links: Vec<(usize, usize, Link, Proxy)>,
     _roots: Vec<tempfile::TempDir>,
 }
 
@@ -169,6 +176,7 @@ impl Cluster {
             );
             let control = TcpListener::bind("127.0.0.1:0").await?;
             let data = TcpListener::bind("127.0.0.1:0").await?;
+            let query = TcpListener::bind("127.0.0.1:0").await?;
             peers.push(RaftPeerNode {
                 node: NodeId::new([i as u8 + 1; 16])?,
                 disk: DiskLineage::new([i as u8 + 10; 16])?,
@@ -177,8 +185,13 @@ impl Cluster {
                 server_name: "localhost".into(),
                 control_address: control.local_addr()?,
                 data_address: data.local_addr()?,
+                query_address: query.local_addr()?,
             });
-            listeners.push(NodeRaftListeners { control, data });
+            listeners.push(NodeRaftListeners {
+                control,
+                data,
+                query,
+            });
         }
         let mut links = Vec::new();
         let mut routes = Vec::new();
@@ -190,10 +203,13 @@ impl Cluster {
                 }
                 let control = Proxy::start(peer.control_address).await?;
                 let data = Proxy::start(peer.data_address).await?;
+                let query = Proxy::start(peer.query_address).await?;
                 peer.control_address = control.address;
                 peer.data_address = data.address;
-                links.push((source, target, false, control));
-                links.push((source, target, true, data));
+                peer.query_address = query.address;
+                links.push((source, target, Link::Control, control));
+                links.push((source, target, Link::Data, data));
+                links.push((source, target, Link::Query, query));
             }
             routes.push(route);
         }
@@ -246,8 +262,25 @@ impl Cluster {
     }
 
     pub async fn isolate(&self, node: usize, retain_outgoing_data: bool) -> Result<()> {
-        let blocked = |source: usize, target: usize, data: bool| {
-            target == node || (source == node && !(data && retain_outgoing_data))
+        self.isolate_links(node, retain_outgoing_data, true).await
+    }
+
+    // This shared fixture is compiled by targets which only use full isolation.
+    #[allow(dead_code)]
+    pub async fn isolate_consensus(&self, node: usize) -> Result<()> {
+        self.isolate_links(node, false, false).await
+    }
+
+    async fn isolate_links(
+        &self,
+        node: usize,
+        retain_outgoing_data: bool,
+        queries: bool,
+    ) -> Result<()> {
+        let blocked = |source: usize, target: usize, lane: Link| {
+            (queries || lane != Link::Query)
+                && (target == node
+                    || (source == node && !(lane == Link::Data && retain_outgoing_data)))
         };
         for (source, target, data, proxy) in &self.links {
             if blocked(*source, *target, *data) {
@@ -274,7 +307,7 @@ impl Cluster {
     pub fn data_attempts(&self, node: usize) -> usize {
         self.links
             .iter()
-            .filter(|(source, _, data, _)| *source == node && *data)
+            .filter(|(source, _, lane, _)| *source == node && *lane == Link::Data)
             .map(|(_, _, _, proxy)| proxy.attempts.load(Ordering::SeqCst))
             .sum()
     }

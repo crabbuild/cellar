@@ -12,6 +12,8 @@ pub(crate) mod host;
 mod host_sql;
 pub(crate) mod options;
 mod query;
+mod query_route;
+mod query_wire;
 mod receipts;
 mod records;
 mod replica;

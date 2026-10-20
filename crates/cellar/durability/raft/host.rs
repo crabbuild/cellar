@@ -90,6 +90,7 @@ pub struct RaftPeerNode {
     pub server_name: String,
     pub control_address: SocketAddr,
     pub data_address: SocketAddr,
+    pub query_address: SocketAddr,
 }
 
 #[derive(Clone, Debug)]
@@ -208,6 +209,7 @@ pub(crate) async fn start(
                         server_name: "localhost".into(),
                         control_address: service.transport.control_address(),
                         data_address: service.transport.data_address(),
+                        query_address: service.transport.query_address(),
                     }
                 } else {
                     let peer = peers
@@ -225,6 +227,7 @@ pub(crate) async fn start(
                         server_name: peer.server_name.clone(),
                         control_address: peer.control_address,
                         data_address: peer.data_address,
+                        query_address: peer.query_address,
                     }
                 });
             }
@@ -292,6 +295,14 @@ pub(crate) async fn start(
         bindings,
         work: crate::asyncrt::services().application_work_registry(),
     });
+    if let Err(error) = service.transport.install_query_gateway(handle.clone()) {
+        let _ = service.runtime.close().await;
+        service.transport.close().await;
+        let _ = pool.join().await;
+        let _ = service.log.close().await;
+        return Err(error.into());
+    }
+    let local = handle.clone();
     let crate::daemon::NodeRaftService {
         log,
         runtime,
@@ -330,6 +341,7 @@ pub(crate) async fn start(
             read_nonce,
             read_sequence: 0,
             budget,
+            local,
         };
         driver.run(requests, closes).await;
         let result = driver.shutdown().await;
@@ -467,6 +479,10 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Routed {
+        request: Box<Request>,
+        result: Result<super::query_route::RoutedOutput, CommandFailure>,
+    },
     ReadStarted {
         id: ReadId,
         attempt: u64,
@@ -505,6 +521,7 @@ enum Job {
 }
 
 struct Driver {
+    local: Arc<client::Handle>,
     log: super::storage::ReplicaLog,
     runtime: RaftRuntime,
     events: RuntimeEvents,
@@ -943,6 +960,37 @@ impl Driver {
                 } else {
                     None
                 };
+                if !matches!(options.routing, client::QueryRouting::Local) {
+                    let Some(binding) = self
+                        .local
+                        .bindings
+                        .get(&(scope.namespace, scope.cell.clone()))
+                        .cloned()
+                        .filter(|binding| binding.scope == scope)
+                    else {
+                        reply(&mut request, Err(CommandFailure::Unavailable));
+                        return;
+                    };
+                    let context = super::query_route::RouteContext {
+                        local: crate::application::consensus::RaftCellHandle {
+                            handle: self.local.clone(),
+                            binding,
+                        },
+                        member: cell.group.identity().member,
+                        runtime: self.runtime.clone(),
+                        transport: self.transport.clone(),
+                        keys: self.versions.clone(),
+                        control: request.control.clone(),
+                        minimum,
+                    };
+                    self.jobs.push(Box::pin(async move {
+                        Job::Routed {
+                            request: Box::new(request),
+                            result: context.run(contract, input, options).await,
+                        }
+                    }));
+                    return;
+                }
                 let Some(sequence) = self.read_sequence.checked_add(1) else {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
@@ -1331,6 +1379,7 @@ impl Driver {
                                     result: value.result,
                                     version: value.version,
                                     version_token,
+                                    served_by: cell.group.identity().member,
                                 })
                             })
                             .ok_or(CommandFailure::VersionUnavailable)
@@ -1630,6 +1679,23 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Routed {
+                mut request,
+                result,
+            } => {
+                if request.control.cancelled() || self.closing.load(Ordering::Acquire) {
+                    reply(&mut request, Err(CommandFailure::VersionUnavailable));
+                } else {
+                    match result {
+                        Ok(output) => reply_charged(
+                            &mut request,
+                            Ok(Response::Query(output.result)),
+                            Some(output.bytes),
+                        ),
+                        Err(error) => reply(&mut request, Err(error)),
+                    }
+                }
+            }
             Job::ReadSource { id, result } => self.on_read_source(id, result),
             Job::ReadLeader { id, check, result } => self.on_read_leader(id, check, result),
             Job::ReadStarted {

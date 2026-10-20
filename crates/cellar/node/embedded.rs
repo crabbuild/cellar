@@ -770,6 +770,7 @@ impl Node {
                     tls,
                     listeners.control,
                     listeners.data,
+                    listeners.query,
                     config.transport,
                 )
                 .await

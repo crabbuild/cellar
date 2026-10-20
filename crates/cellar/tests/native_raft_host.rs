@@ -743,6 +743,7 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
         );
         let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let query = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         peers.push(RaftPeerNode {
             node: NodeId::new([i as u8 + 1; 16])?,
             disk: DiskLineage::new([i as u8 + 10; 16])?,
@@ -751,8 +752,13 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
             server_name: "localhost".into(),
             control_address: control.local_addr()?,
             data_address: data.local_addr()?,
+            query_address: query.local_addr()?,
         });
-        listeners.push(NodeRaftListeners { control, data });
+        listeners.push(NodeRaftListeners {
+            control,
+            data,
+            query,
+        });
     }
     let store = Arc::new(object_store::memory::InMemory::new());
     let namespace_id = NamespaceId::new([2; 16])?;

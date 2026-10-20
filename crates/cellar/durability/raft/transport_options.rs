@@ -12,6 +12,10 @@ pub struct TransportOptions {
     pub max_header_bytes: usize,
     pub max_message_bytes: usize,
     pub max_control_bytes: usize,
+    pub max_query_request_bytes: usize,
+    pub max_query_response_bytes: usize,
+    pub peer_query_bytes: usize,
+    pub node_query_bytes: usize,
     pub max_entries: usize,
     pub peer_control_bytes: usize,
     pub peer_data_bytes: usize,
@@ -30,6 +34,10 @@ impl Default for TransportOptions {
             max_header_bytes: 8192,
             max_message_bytes: 20 * 1024 * 1024,
             max_control_bytes: 64 * 1024,
+            max_query_request_bytes: 2 * 1024 * 1024,
+            max_query_response_bytes: 128 * 1024,
+            peer_query_bytes: 8 * 1024 * 1024,
+            node_query_bytes: 64 * 1024 * 1024,
             max_entries: 16_384,
             peer_control_bytes: 1024 * 1024,
             peer_data_bytes: 32 * 1024 * 1024,
@@ -56,6 +64,8 @@ impl TransportOptions {
             || self.max_control_bytes == 0
             || self.max_control_bytes > 64 * 1024
             || self.max_control_bytes > self.max_message_bytes
+            || !(4096..=64 * 1024 * 1024).contains(&self.max_query_request_bytes)
+            || !(4096..=8 * 1024 * 1024).contains(&self.max_query_response_bytes)
             || self.max_entries == 0
             || self.max_entries > 65_536
             || self.queue_items == 0
@@ -83,6 +93,15 @@ impl TransportOptions {
                     "invalid transport byte budgets".into(),
                 ));
             }
+        }
+        let query_reservation = 2 * self.max_query_request_bytes
+            + 2 * self.max_query_response_bytes
+            + 2 * (self.max_header_bytes + 52);
+        if self.peer_query_bytes < query_reservation
+            || self.node_query_bytes < self.peer_query_bytes
+            || self.node_query_bytes > 1024 * 1024 * 1024
+        {
+            return Err(TransportError::Invalid("invalid query byte budgets".into()));
         }
         Ok(())
     }

@@ -40,13 +40,21 @@ fn append(bytes: usize) -> Message {
     m
 }
 
-fn addresses(a: &Host, b: &Host) -> Vec<(std::net::SocketAddr, std::net::SocketAddr)> {
+fn addresses(
+    a: &Host,
+    b: &Host,
+) -> Vec<(
+    std::net::SocketAddr,
+    std::net::SocketAddr,
+    std::net::SocketAddr,
+)> {
     vec![
         a.addresses(),
         b.addresses(),
         (
             "127.0.0.1:1".parse().unwrap(),
             "127.0.0.1:2".parse().unwrap(),
+            "127.0.0.1:3".parse().unwrap(),
         ),
     ]
 }
@@ -84,8 +92,12 @@ async fn peer_response_authenticated() -> Result<()> {
     });
     let peers = vec![
         a.addresses(),
-        (fake_address, "127.0.0.1:2".parse()?),
-        ("127.0.0.1:3".parse()?, "127.0.0.1:4".parse()?),
+        (fake_address, "127.0.0.1:2".parse()?, "127.0.0.1:5".parse()?),
+        (
+            "127.0.0.1:3".parse()?,
+            "127.0.0.1:4".parse()?,
+            "127.0.0.1:6".parse()?,
+        ),
     ];
     a.transport.install_group(route(&scope(10), &peers))?;
     let before = a.log.group(&scope(10))?.initial_state()?.hard_state;
@@ -293,7 +305,7 @@ async fn one_way_partition() -> Result<()> {
     let mut c = Process::start(&dir.path().join("c"), 3).await?;
     let addresses: Vec<_> = [a.addresses, b.addresses, c.addresses]
         .into_iter()
-        .map(|(a, b)| json!([a.to_string(), b.to_string()]))
+        .map(|(a, b, c)| json!([a.to_string(), b.to_string(), c.to_string()]))
         .collect();
     for process in [&mut a, &mut b, &mut c] {
         process
@@ -380,6 +392,7 @@ async fn transport_owner_and_domain_shutdown() -> Result<()> {
         tls()?,
         TcpListener::bind("127.0.0.1:0").await?,
         TcpListener::bind("127.0.0.1:0").await?,
+        TcpListener::bind("127.0.0.1:0").await?,
         TransportOptions::default(),
     )
     .await;
@@ -395,14 +408,17 @@ async fn transport_owner_and_domain_shutdown() -> Result<()> {
         tls()?,
         TcpListener::bind("127.0.0.1:0").await?,
         TcpListener::bind("127.0.0.1:0").await?,
+        TcpListener::bind("127.0.0.1:0").await?,
         TransportOptions::default(),
     )
     .await?;
     let control = replacement.control_address();
     let data = replacement.data_address();
+    let query = replacement.query_address();
     tokio::time::timeout(Duration::from_secs(2), a.domain.shutdown()).await?;
     tokio::time::timeout(Duration::from_secs(2), replacement.close()).await?;
     assert_eq!(replacement.usage().tasks, 0);
+    let _query = TcpListener::bind(query).await?;
     assert_eq!(replacement.usage().control_bytes, 0);
     assert_eq!(replacement.usage().data_bytes, 0);
     // Listeners were released before close's task count reached zero.

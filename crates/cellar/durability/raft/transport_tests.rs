@@ -38,6 +38,7 @@ async fn poisoned_registry_still_waits_for_resource_owners() -> anyhow::Result<(
         tls,
         TcpListener::bind("127.0.0.1:0").await?,
         TcpListener::bind("127.0.0.1:0").await?,
+        TcpListener::bind("127.0.0.1:0").await?,
         TransportOptions::default(),
     )
     .await?;

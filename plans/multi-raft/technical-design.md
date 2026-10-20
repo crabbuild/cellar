@@ -506,6 +506,15 @@ bounded event loops, shared disk/apply pools and pooled authenticated transport.
 Control messages have reserved capacity so snapshot transfers and user queries
 cannot starve votes and heartbeats. Bound bytes, not just message counts.
 
+Use independent control, LTX and query listeners/connections with separate byte
+and item admission. A query awaiting LTX catch-up must not occupy the connection
+needed for that replication. Query frames use distinct MAC domains, TLS exporter
+labels and marker-1 framing. Bind replies to their exact request and payload;
+force local destination execution so routing cannot recurse between replicas.
+Deduct queue/handshake time from a forwarded timeout and independently retain
+the invocation deadline at the origin. Closing a query connection cancels its
+destination waiter; callback ownership remains joined before resource release.
+
 Configuration must explicitly bound resident groups, open databases, command
 slots, proposal bytes, peer queues, in-flight bytes, apply queues, snapshot slots,
 snapshot bandwidth, archive backlog, pinned query generations and controller work.

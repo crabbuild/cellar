@@ -20,6 +20,10 @@ use std::{
 type Query = dyn for<'a> Fn(&QueryContext<'a>, &[u8]) -> Result<Vec<u8>> + Send + Sync;
 
 fn counter(query: Arc<Query>) -> Result<public_node::Counter> {
+    counter_query(Some(query))
+}
+
+fn counter_query(query: Option<Arc<Query>>) -> Result<public_node::Counter> {
     use cellar::sdk::{Output, Registry};
     let class = RaftClass::new("Counter", 1, [21; 32])?
         .command("Increment", [22; 32], |context, input| {
@@ -28,12 +32,20 @@ fn counter(query: Arc<Query>) -> Result<public_node::Counter> {
             context.sql().execute("UPDATE counter SET value=value+?1", [delta])?;
             let value: i64 = context.sql().query_row("SELECT value FROM counter", [], |row| row.get(0))?;
             Ok(value.to_be_bytes().to_vec())
-        })?
-        .query("Get", [23; 32], move |context, input| query(context, input))?;
+        })?;
+    let class = if let Some(query) = query {
+        class.query("Get", [23; 32], move |context, input| query(context, input))?
+    } else {
+        class
+    };
     Ok(public_node::Counter {
         schema: class.schema_digest(),
         increment: class.contract("Increment").unwrap(),
-        get: class.contract("Get").unwrap(),
+        get: OperationContract {
+            operation: "Get".into(),
+            kind: OperationKind::Query,
+            digest: [23; 32],
+        },
         application: Arc::new(
             Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?,
         ),
@@ -75,6 +87,13 @@ impl Fixture {
         let definitions = (0..3)
             .map(|_| counter(query.clone()))
             .collect::<Result<Vec<_>>>()?;
+        Self::start_definitions(definitions, host).await
+    }
+
+    async fn start_definitions(
+        definitions: Vec<public_node::Counter>,
+        host: RaftHostOptions,
+    ) -> Result<Self> {
         let namespace = NamespaceConfig::new(
             scope().cluster,
             scope().namespace,
@@ -116,7 +135,25 @@ impl Fixture {
                 public_node::options(1)?,
             )
             .await?;
-        for handle in &handles {
+        for (index, handle) in handles.iter().enumerate() {
+            if definitions[index]
+                .application
+                .resolve_raft_class("Counter")?
+                .validate_operation(&definitions[0].get)
+                .is_err()
+            {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while !handle
+                        .status()
+                        .await
+                        .is_ok_and(|status| status.applied.index >= initial.version.position.index)
+                    {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await?;
+                continue;
+            }
             let result = handle
                 .query(definitions[0].get.clone(), vec![], at_least(&initial))
                 .await?;
@@ -196,6 +233,157 @@ async fn read_your_writes_follower() -> Result<()> {
     let read = pending.await?;
     assert_eq!(read.result, 5_i64.to_be_bytes());
     assert!(read.version.covers(&written.version)?);
+    fixture.close().await
+}
+
+fn routed(receipt: &CommandReceipt, member: usize, fallback: bool) -> QueryOptions {
+    QueryOptions {
+        routing: QueryRouting::Replicas {
+            members: vec![MemberId::new(member as u64 + 1).unwrap()],
+            attempt_timeout: Duration::from_millis(180),
+            leader_fallback: fallback,
+        },
+        timeout: Duration::from_secs(2),
+        ..at_least(receipt)
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn fallback_preserves_contract() -> Result<()> {
+    let fixture = Fixture::start(Arc::new(get)).await?;
+    let primary = leader(&fixture.handles, None).await?;
+    let source = (primary + 1) % 3;
+    let target = (primary + 2) % 3;
+    fixture.cluster.isolate_consensus(target).await?;
+    let newer = fixture.write(primary, 2, 4).await?;
+    assert_eq!(newer.result, 5_i64.to_be_bytes());
+    // A real RPC can reach the isolated replica's older image. It must wait
+    // for the exact token rather than answer its stale value of one.
+    assert!(matches!(
+        fixture.handles[source]
+            .query(
+                fixture.definition.get.clone(),
+                vec![],
+                routed(&newer, target, false)
+            )
+            .await,
+        Err(CommandFailure::VersionUnavailable)
+    ));
+    let read = fixture.handles[source]
+        .query(
+            fixture.definition.get.clone(),
+            vec![],
+            routed(&newer, target, true),
+        )
+        .await?;
+    assert_eq!(read.result, 5_i64.to_be_bytes());
+    assert_eq!(read.served_by, MemberId::new(primary as u64 + 1)?);
+    assert!(read.version.covers(&newer.version)?);
+    let mut strong = routed(&newer, target, true);
+    strong.consistency = QueryConsistency::Linearizable;
+    let read = fixture.handles[source]
+        .query(fixture.definition.get.clone(), vec![], strong)
+        .await?;
+    assert_eq!(read.result, 5_i64.to_be_bytes());
+    assert_eq!(read.served_by, MemberId::new(primary as u64 + 1)?);
+    // The candidate's longer attempt budget and fallback cannot restart the
+    // original invocation deadline. Both nodes must release cancelled work.
+    let mut short = routed(&newer, target, true);
+    short.timeout = Duration::from_millis(100);
+    short.routing = QueryRouting::Replicas {
+        members: vec![MemberId::new(target as u64 + 1)?],
+        attempt_timeout: Duration::from_secs(1),
+        leader_fallback: true,
+    };
+    assert!(matches!(
+        tokio::time::timeout(
+            Duration::from_millis(500),
+            fixture.handles[source].query(fixture.definition.get.clone(), vec![], short)
+        )
+        .await?,
+        Err(CommandFailure::VersionUnavailable)
+    ));
+    tokio::time::timeout(Duration::from_millis(500), async {
+        while [source, target].iter().any(|i| {
+            fixture.cluster.nodes[*i]
+                .services()
+                .application_work()
+                .pending_events
+                != 0
+        }) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    fixture.cluster.heal();
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn remote_query_wait_cannot_block_its_ltx_catchup() -> Result<()> {
+    let fixture = Fixture::start(Arc::new(get)).await?;
+    let primary = leader(&fixture.handles, None).await?;
+    let source = (primary + 1) % 3;
+    let target = (primary + 2) % 3;
+    fixture.cluster.isolate_consensus(target).await?;
+    let newer = fixture.write(primary, 2, 4).await?;
+    let mut options = routed(&newer, target, false);
+    options.timeout = Duration::from_secs(5);
+    options.routing = QueryRouting::Replicas {
+        members: vec![MemberId::new(target as u64 + 1)?],
+        attempt_timeout: Duration::from_secs(5),
+        leader_fallback: false,
+    };
+    let query = fixture.handles[source].query(fixture.definition.get.clone(), vec![], options);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while fixture.cluster.nodes[target]
+            .services()
+            .application_work()
+            .pending_events
+            == 0
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    fixture.cluster.heal();
+    let read = query.await?;
+    assert_eq!(read.result, 5_i64.to_be_bytes());
+    assert_eq!(read.served_by, MemberId::new(target as u64 + 1)?);
+    assert!(read.version.covers(&newer.version)?);
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn voter_without_query_code_can_route_to_a_compatible_replica() -> Result<()> {
+    let definitions = vec![
+        counter_query(None)?,
+        counter(Arc::new(get))?,
+        counter(Arc::new(get))?,
+    ];
+    assert_eq!(definitions[0].schema, definitions[1].schema);
+    let fixture = Fixture::start_definitions(definitions, RaftHostOptions::default()).await?;
+    assert!(matches!(
+        fixture.handles[0]
+            .query(
+                fixture.definition.get.clone(),
+                vec![],
+                at_least(&fixture.initial)
+            )
+            .await,
+        Err(CommandFailure::UnsupportedCapability)
+    ));
+    let mut options = at_least(&fixture.initial);
+    options.routing = QueryRouting::Replicas {
+        members: vec![MemberId::new(1)?, MemberId::new(2)?],
+        attempt_timeout: Duration::from_millis(500),
+        leader_fallback: false,
+    };
+    let read = fixture.handles[0]
+        .query(fixture.definition.get.clone(), vec![], options)
+        .await?;
+    assert_eq!(read.result, 1_i64.to_be_bytes());
+    assert_eq!(read.served_by, MemberId::new(2)?);
     fixture.close().await
 }
 

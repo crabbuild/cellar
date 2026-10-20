@@ -92,7 +92,7 @@ pub fn client_tls() -> Result<tokio_rustls::TlsConnector> {
     Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
 }
 
-pub fn route(scope: &GroupScope, addresses: &[(SocketAddr, SocketAddr)]) -> GroupRoute {
+pub fn route(scope: &GroupScope, addresses: &[(SocketAddr, SocketAddr, SocketAddr)]) -> GroupRoute {
     GroupRoute {
         scope: scope.clone(),
         schema_digest: [4; 32],
@@ -100,12 +100,13 @@ pub fn route(scope: &GroupScope, addresses: &[(SocketAddr, SocketAddr)]) -> Grou
         peers: addresses
             .iter()
             .enumerate()
-            .map(|(i, (control, data))| RaftPeer {
+            .map(|(i, (control, data, query))| RaftPeer {
                 replica: identity(scope, i + 1),
                 label: format!("node-{}", i + 1),
                 server_name: "localhost".into(),
                 control_address: *control,
                 data_address: *data,
+                query_address: *query,
             })
             .collect(),
     }
@@ -167,6 +168,7 @@ impl Host {
             tls()?,
             TcpListener::bind("127.0.0.1:0").await?,
             TcpListener::bind("127.0.0.1:0").await?,
+            TcpListener::bind("127.0.0.1:0").await?,
             options,
         )
         .await?;
@@ -180,10 +182,11 @@ impl Host {
         })
     }
 
-    pub fn addresses(&self) -> (SocketAddr, SocketAddr) {
+    pub fn addresses(&self) -> (SocketAddr, SocketAddr, SocketAddr) {
         (
             self.transport.control_address(),
             self.transport.data_address(),
+            self.transport.query_address(),
         )
     }
 
@@ -295,7 +298,9 @@ pub async fn process_main() -> Result<()> {
     .await?;
     let faults = Arc::new(Mutex::new(Faults::default()));
     host.dispatcher(faults.clone())?;
-    reply(&json!({"ready":[host.addresses().0.to_string(),host.addresses().1.to_string()]}))?;
+    reply(
+        &json!({"ready":[host.addresses().0.to_string(),host.addresses().1.to_string(),host.addresses().2.to_string()]}),
+    )?;
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     while let Some(line) = lines.next_line().await? {
         let command: Value = serde_json::from_str(&line)?;
@@ -303,7 +308,7 @@ pub async fn process_main() -> Result<()> {
         let response: Result<Value> = async {
             Ok(match command["op"].as_str().context("op")? {
                 "install" => {
-                    let addresses: Vec<(SocketAddr,SocketAddr)> = command["addresses"].as_array().context("addresses")?.iter().map(|p| Ok((p[0].as_str().context("control")?.parse()?,p[1].as_str().context("data")?.parse()?))).collect::<Result<_>>()?;
+                    let addresses: Vec<(SocketAddr,SocketAddr,SocketAddr)> = command["addresses"].as_array().context("addresses")?.iter().map(|p| Ok((p[0].as_str().context("control")?.parse()?,p[1].as_str().context("data")?.parse()?,p[2].as_str().context("query")?.parse()?))).collect::<Result<_>>()?;
                     for id in IDS { host.transport.install_group(route(&scope(id), &addresses))?; }
                     json!({"ok":true})
                 }
@@ -362,7 +367,7 @@ pub struct Process {
     pub child: Child,
     stdin: ChildStdin,
     stdout: tokio::io::Lines<BufReader<ChildStdout>>,
-    pub addresses: (SocketAddr, SocketAddr),
+    pub addresses: (SocketAddr, SocketAddr, SocketAddr),
 }
 
 impl Process {
@@ -389,7 +394,11 @@ impl Process {
             child,
             stdin,
             stdout,
-            addresses: ("127.0.0.1:1".parse()?, "127.0.0.1:2".parse()?),
+            addresses: (
+                "127.0.0.1:1".parse()?,
+                "127.0.0.1:2".parse()?,
+                "127.0.0.1:3".parse()?,
+            ),
         };
         let ready = process.read().await?;
         process.addresses = (
@@ -398,6 +407,7 @@ impl Process {
                 .context("ready control")?
                 .parse()?,
             ready["ready"][1].as_str().context("ready data")?.parse()?,
+            ready["ready"][2].as_str().context("ready query")?.parse()?,
         );
         Ok(process)
     }

@@ -192,8 +192,28 @@ conditional updates and exact reads; configuration cannot silently drop a live
 verifier on restart. The catalog supplies no new trust roots or consensus
 authority. Key rotation and token lifetime are described in the
 [application contract](../../../../plans/multi-raft/application-contract.md).
-Replica routing and leader fallback remain MR-08 work; these local read paths
-do not claim completion of that package.
+`QueryRouting::Replicas` tries up to eight distinct configured members in priority
+order, with one optional untried leader hint. The caller supplies a bounded
+per-attempt timeout; every attempt keeps the same contract, captured input,
+consistency/token and stale policy under the invocation's original deadline.
+Forwarding does not require query code on the origin voter. The destination
+still requires a matching query definition before execution. `served_by` names
+the actual responding member, independently of the history token.
+
+`NodeRaftListeners::query` and `RaftPeer::query_address` provide the separate
+query endpoint. A peer has one bounded query queue/connection alongside its
+control and LTX connections. Query MAC domains, exporter label and marker-1
+framing are independent of consensus frames. Requests/replies bind full route,
+schema, sequence, request tag and payload digest. The receiver forces local
+query execution; it cannot recursively route. The sender deducts queued and
+handshake time before sending a remaining timeout, while the origin separately
+enforces its deadline. Closing the connection cancels the destination waiter.
+Request/response representations remain charged through delivery.
+
+This entry point currently routes from a registered local replica. General
+directory/ingress routing, counter HTTP options and the remaining capability
+audit remain open in the [read audit](../../../../plans/multi-raft/read-audit.md).
+These paths do not claim completion of MR-08 or the full delivery scope.
 
 Fresh status checks precede staging, submission and successful output. Transient
 protocol Ready work defers preflight or duplicate-receipt settlement under the
