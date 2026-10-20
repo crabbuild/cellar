@@ -42,6 +42,11 @@ bytes.workspace = true
 object_store.workspace = true
 reqwest = { workspace = true, features = ["json"] }
 tempfile.workspace = true
+tikv-jemallocator.workspace = true
+
+[[example]]
+name = "python-baseline"
+path = "../../tools/python/baseline.rs"
 
 [[test]]
 name = "bridge"

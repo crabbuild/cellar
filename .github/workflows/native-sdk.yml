@@ -75,6 +75,15 @@ jobs:
           python3 examples/axum-counter/generate_client.py "$RUNNER_TEMP/counter-openapi.json" "$RUNNER_TEMP/counter-client.rs"
           rustfmt --edition 2021 "$RUNNER_TEMP/counter-client.rs"
           diff examples/axum-counter/generated_client.rs "$RUNNER_TEMP/counter-client.rs"
+      - name: Verify native and Python baseline harness
+        run: |
+          cargo build -p cellar-python --example python-baseline --no-default-features --locked
+          cp target/debug/examples/python-baseline "$RUNNER_TEMP/baseline-native"
+          cargo build -p cellar-python --example python-baseline --features embed --locked
+          cp target/debug/examples/python-baseline "$RUNNER_TEMP/baseline-python"
+          python tools/python/baseline.py --native-host "$RUNNER_TEMP/baseline-native" \
+            --python-host "selected=$RUNNER_TEMP/baseline-python" \
+            --output "$RUNNER_TEMP/python-baseline" --build-profile dev --count 3 --warmup 1 --concurrency 2 --repetitions 1
       - name: Exercise embedded Python package
         run: |
           python -m pip install uv==0.11.19

@@ -6,6 +6,10 @@ Rust executable includes the Python source and starts one interpreter and one
 asyncio loop on the process main thread. No container or Python subprocess is
 required. The default feature set does not build or link Python.
 
+The [baseline harness](../../tools/python/baseline.md) compares equivalent native
+and Python handlers through real HTTP, checked durable updates and owner-loss
+recovery, retaining latency, throughput, memory and bridge-copy evidence.
+
 See the [runnable Python example](../../examples/python/README.md) for installation,
 packaging, requests, infrastructure bindings and a smoke test.
 
