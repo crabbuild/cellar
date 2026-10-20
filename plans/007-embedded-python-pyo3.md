@@ -525,10 +525,11 @@ or let the adapter fabricate an activation context.
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
 
 The deliverables in all six phases are implemented, but that does not close all
-acceptance gates. M2 has direct evidence for every storage/alarm requirement in
-the [completion audit](007-embedded-python-audit.md); final-source platform
-qualification is still shared by every phase. M0 retains authority-race and
-nested-call cycle/fencing coverage; M1 retains error/privacy qualification; M3
+acceptance gates. M0 now has direct local authority/cycle evidence in both
+threading ABIs, and M2 has evidence for every storage/alarm requirement in the
+[completion audit](007-embedded-python-audit.md). Final-source platform
+qualification is still shared by every phase. M1 retains error/privacy
+qualification; M3
 retains final Linux lifecycle qualification and investigation of native test
 failures; M4 retains external OS/native-library prerequisite attestation. M5's
 KV, SQL, queue and cron bindings have independent local failure tests, while

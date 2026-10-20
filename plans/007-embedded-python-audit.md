@@ -9,9 +9,9 @@ isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
 subsequently requested and is an additional supported build/qualification scope.
 
 Core deliverables now span M0–M5, including both CPython threading ABIs. The
-full objective is **not achieved**: authority races, typed failures, loader
-privacy, external native prerequisites, operating defaults and final-source
-qualification retain open gates. A verified row covers only its explicitly
+full objective is **not achieved**: typed failures, loader privacy, external
+native prerequisites, operating defaults and final-source qualification retain
+open gates. A verified row covers only its explicitly
 stated evidence and scope.
 
 Status meanings: **partial** = some implementation/evidence exists;
@@ -32,11 +32,11 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | A05 | One coordinated signal owner | Disposable process INT/TERM tests; no competing interpreter handlers | verified locally: startup preserves existing native handlers and removes CPython implicit INT handling; real TERM/INT handoff with two compiled Python processes yields complete joined reports |
 | A06 | No hidden runtime executes SDK operations | Source audit plus instrumented original-turn/domain tests | verified locally: operation futures remain inside the original native application driver; live cross-domain binding tests refuse handle exchange; driver polls nested calls without a separate SDK executor |
 | A07 | Owned values only across thread/await boundary | Source review and lifecycle tests; no borrowed Python/SQLite guards | verified locally: owned strings, JSON, revocation flags, reservations and supported owned Py handles cross the bridge; native operations retain no Python token/borrow or SQLite guard across awaits; current lifecycle suite passes |
-| A08 | Native authority checked at enqueue, execution, commit/output | Pending-operation cancellation and forced-fence tests | partial: native SDK checks retained; actual lease-fence/resumed-Python refusal is verified in L10; full queued/execution/commit race matrix remains |
+| A08 | Native authority checked at enqueue, execution, commit/output | Pending-operation cancellation and forced-fence tests | verified locally in both threading ABIs: live native poll gates prove one mutation admitted/queued but not started, then dropped by deadline or actual node-lease fence with no effect; three-node authenticated peer/bucket proof holds independently interrupt sync and final output by deadline/fence after a native write, refuse success and late facade/raw-sender mutations, retain one handler attempt and recover acknowledged state without claiming rollback of unacknowledged state; original Context turn/domain/epoch checks and synchronous transaction commit rechecks remain intact; all reports conserve operations and release resources; final Linux matrix remains Q12 |
 | A09 | Two embedded domains cannot exchange live contexts | Simultaneously live contexts in two nodes: cross-use refused | verified: reproduced live cross-domain read, then blocked API and native sender in `bridge` |
 | A10 | Opaque invocation identity; metadata cannot choose authority | Cross-event/domain/generation/activation negative tests | verified locally in both threading ABIs: simultaneous live same-name domains refuse cross-use through both facade and native sender even with copied identity metadata; retained event, generation and retired-activation contexts refuse mutations; native authority remains the original Rust Context |
 | A11 | FIFO operations, one outstanding mutation per invocation | Concurrent mutation/read/cancel tests; explicit state machine | verified: native admission reservation rejects overlap; same-invocation read progresses during nested mutation; reservations release on drop |
-| A12 | Mailbox pollable during nested calls; existing cycle behavior | Nested-call progress, cycle and cancellation tests | partial: driver now polls pending SDK futures and mailbox together; direct same-invocation progress proven; explicit cycle/fence matrix remains |
+| A12 | Mailbox pollable during nested calls; existing cycle behavior | Nested-call progress, cycle and cancellation tests | verified locally in both threading ABIs: same-invocation reads progress during a pending mutation; real A→B→A routing reenters the same Python object/activation while the first A frame awaits B, refuses use of its first context through facade and native sender, and completes all native writes; separate deadline and actual lease-fence cases revoke all four suspended root/outer/middle/inner contexts, refuse late mutations and preserve acknowledged state in the same or successor domain with settled accounting |
 | A13 | Descriptor declares supported classes/events before admission | Cold validation and invalid registration tests | verified: cold descriptor async/constructor checks plus deployment hook rejecting absent classes, undeclared queue consumers and cron handlers before activation |
 | A14 | Native factories never call/import Python | Source/caller audit plus blocked-interpreter factory test | verified locally: proxy creation uses only immutable Rust source descriptors, atomics and owned lifetime flags; in both CPU-loop and GIL-held C-call owner drills, a Rust root submits a new real cell activation and the native factory counter advances while Python remains blocked and its handler cannot complete |
 | A15 | Activation identity includes domain, generation and epoch | Retire/recreate and simultaneous same-name/domain tests | verified locally in both threading ABIs: distinct simultaneous same-name domains, actual pressure/operator eviction with fresh instances and exact next epochs, same-epoch native generation swap with a fresh instance, state recovery and forced-fence successor collection; exhausted IDs refuse without wrapping and concurrent allocations remain unique |
@@ -74,7 +74,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| L01 | Root cancellation revokes SDK admission immediately | Queued/late writes refused before execution and after fence | verified locally for managed cancellation in both threading ABIs: handler return/abandoned work, native timeout and lease fence expire SDK authority; self-cancelled root/cell handlers wake the original native driver despite retained senders and refuse late mutations, including after a committed write; full execution/commit race coverage remains A08 |
+| L01 | Root cancellation revokes SDK admission immediately | Queued/late writes refused before execution and after fence | verified locally for managed cancellation in both threading ABIs: handler return/abandoned work, native timeout and lease fence expire SDK authority; self-cancelled root/cell handlers wake the original native driver despite retained senders and refuse late mutations, including after a committed write; queued/execution/proof-output race coverage is recorded in A08 |
 | L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | verified locally for runtime-owned cleanup in both threading ABIs: atomic-only Rust retirement, actual weak collection during otherwise idle Python after native drain, and two resident nodes joining after process-global admission closure; cleanup remains independent of SDK admission, and blocked destructors/noncooperative work retain incomplete reports |
 | L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | verified locally in both threading ABIs: actual weak references clear after resident pressure eviction, signed management eviction, native generation swap, idle forced drain, global admission closure and fence-task completion before successor invocation; a cancellation-suppressing task correctly keeps its object alive until it exits |
 | L04 | Close async generators and managed executor work | Async-generator finally + thread/executor join tests | verified for managed loop: async-generator finally observed; default-executor work joined; raw/native private pools remain application-owned |
@@ -132,7 +132,7 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | Result and authority correctness | H02 result byte/depth boundaries now pass locally in both ABIs, including one retained SQL mutation after a refused reply. A08/A12: deterministically hold work at queued, execution and commit/output boundaries, cancel or fence it, and prove no stale mutation; exercise nested cycles without deadlock. H04: preserve available typed route causes without inventing rollback provenance. |
+| 1 | Typed error correctness | A08/A12 authority and cycle gates now have direct local evidence in both ABIs, including queued and proof/output faults. H04: complete live routing-verdict coverage and preserve available typed causes without inventing rollback provenance. |
 | 2 | Failure/lifecycle qualification | Q12: diagnose the preserved native event-owner lease, initial consumer admission and drain-token failures; retain assertions and deadlines. Run the latest cancellation/retirement/resource fixes on Linux in both ABIs. A passing retry alone does not explain a failure. |
 | 3 | Deployment dependency closure | P02: distinguish bundled artifacts from OS/native prerequisites, attest the supported host requirements and resolved external dependencies, and refuse incompatible/missing prerequisites before admission; qualify offline restoration on each supported target. |
 | 4 | Privacy and operating limits | H06: finish bootstrap/loader failure review with path/secret sentinels. Q01: use reproducible workload and saturation measurements to justify shipping defaults and document their operating scope; development baselines are not production SLOs. |
@@ -1254,3 +1254,68 @@ inventory loss/tamper cases, archive recovery, TERM/INT replacement, forced-KILL
 supervisor restart and native examples. Its full log is
 `/tmp/cellar-6a8d-ci-39484171753-ft-success.log`. The same-source standard PR
 failure remains preserved and unresolved; newer source still needs Q12.
+
+
+## Original-turn authority and nested-call qualification checkpoint
+
+Eight new disposable real-node cases cover the original Rust invocation before
+native execution and after a native write, while sync/output proof is pending.
+They keep SDK futures inside their original installed turn; caller-owned Python
+fixture controls only observe flags and release barriers.
+
+- [Queued authority fixtures](../crates/cellar-python/tests/support/authority.rs)
+  synchronize between complete polls of the original native future. After the
+  Python handler enters, the supervisor closes that poll gate and releases its
+  real SDK mutation. Bridge counters prove admission increased by one, queued
+  work is exactly one and started work did not increase. Native deadline or an
+  actual lease mismatch drops it before execution. A cancellation-suppressing
+  Python frame then attempts both facade and raw-sender writes: both refuse
+  `ContextExpired`. The acknowledged seed remains 7 and all three attempted
+  mutation keys remain absent after local or successor recovery. Exactly one
+  queued observation is abandoned and every reservation settles.
+- [Proof authority fixtures](../crates/cellar-python/tests/support/proof_authority.rs)
+  use three nodes and the real authenticated peer transport and bucket. Both
+  proof paths are held after a real native mutation. Separate sync/output cases
+  prove the request stays pending, then interrupt it by deadline or actual
+  lease mismatch. Reopening proof paths cannot resurrect the successful reply
+  or Python authority. Facade/raw late writes refuse, the handler attempt count
+  stays one, acknowledged seed state survives and the unacknowledged pending
+  value may be absent or 1, never interpreted as rollback or replay.
+- [Call-cycle fixtures](../crates/cellar-python/tests/support/cycles.rs) perform
+  real A→B→A routing. The inner A uses the same Python object and activation
+  identity while the outer A awaits B, yet cannot use its distinct invocation's
+  context through either bridge path. All three own-context writes complete.
+  Independent deadline/fence cases suspend four original contexts, observe all
+  losing authority before releasing retained Python frames, refuse late writes
+  and preserve the acknowledged cycle state after recovery.
+
+Native `Context::check_turn` still checks the installed turn, execution domain,
+retirement, activation epoch and source generation. `storage.apply` retains a
+Rust-only synchronous transaction; its native `Guard::finish` rechecks
+`activation_scope` before commit. Python callbacks/awaits are absent from that
+critical section. No SDK executor or production authority hook was introduced.
+
+The initial cycle-successor fixture omitted the required recovery backoff and
+correctly refused startup; its configured rerun passes. The first logged-node
+fence fixture changed its generation to an invented session; recovery correctly
+refused missing true witnesses. The retained log is
+`/tmp/cellar-6a8d-proof-authority-sync-fence-first.log`. Logged-node fixtures now
+change the published address to trigger `NodeLeaseMismatch` while preserving
+actual generation/log provenance. They wait out the published lease before
+recovery. Original non-log generation-mismatch tests remain intact through the
+shared fault helper. No production recovery assertion or guard was weakened.
+
+Qualification:
+
+- Full `cargo test -p cellar-python --features embed --locked` passes with
+  conventional CPython 3.14.6 and free-threaded CPython 3.14.5t on macOS ARM64:
+  10 library tests, the full bridge harness including all eight cases, isolated
+  bootstrap and doctests. Logs: `/tmp/cellar-6a8d-authority-regular.log` and
+  `/tmp/cellar-6a8d-authority-ft.log`.
+- Strict all-target/all-feature adapter Clippy passes in both ABIs. The single
+  redundant result wrapper found by Clippy was removed without a lint suppression.
+- Format/layout checks cover 619 Rust files. The dependency graph still has
+  415 packages and no JavaScript engine. Documentation and diff checks pass.
+
+A08/A12 are verified in this local scope. H04/H06, P02, Q01 and Q12 remain open;
+the currently published Linux runs test `0bfd83f`, before these new fixtures.

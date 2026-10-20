@@ -7,12 +7,16 @@ use pyo3::types::PyAnyMethods;
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc, time::Duration};
 
+#[path = "support/authority.rs"]
+mod authority;
 #[path = "support/binding_faults.rs"]
 mod binding_faults;
 #[path = "support/bindings.rs"]
 mod bindings;
 #[path = "support/capacity.rs"]
 mod capacity;
+#[path = "support/cycles.rs"]
+mod cycles;
 #[path = "support/delivery.rs"]
 mod delivery;
 #[path = "support/durability.rs"]
@@ -30,6 +34,10 @@ mod lifetimes;
 mod limits;
 #[path = "support/native_writer.rs"]
 mod native_writer;
+#[path = "support/proof_authority.rs"]
+mod proof_authority;
+#[path = "support/python_control.rs"]
+mod python_control;
 #[path = "support/schedule_recovery.rs"]
 mod schedule_recovery;
 #[path = "support/schedules.rs"]
@@ -209,6 +217,17 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if let Some(mode) = mode.strip_prefix("--runtime-proof-authority-") {
+        let (kind, outcome) = mode.split_once('-').context("proof authority mode")?;
+        ensure!(matches!(kind, "sync" | "output") && matches!(outcome, "deadline" | "fence"));
+        return proof_authority::child(kind, outcome == "fence");
+    }
+    if mode == "--runtime-authority" || mode == "--runtime-authority-fence" {
+        return authority::child(mode.ends_with("-fence"));
+    }
+    if mode == "--runtime-cycles" || mode == "--runtime-cycles-fence" {
+        return cycles::child(mode.ends_with("-fence"));
+    }
     if let Some(mode) = mode.strip_prefix("--runtime-capacity-") {
         return capacity::child(mode);
     }
@@ -414,6 +433,14 @@ fn main() -> Result<()> {
         "--runtime-schedule-recovery",
         "--runtime-binding-faults",
         "--runtime-limits",
+        "--runtime-cycles",
+        "--runtime-cycles-fence",
+        "--runtime-authority",
+        "--runtime-authority-fence",
+        "--runtime-proof-authority-sync-deadline",
+        "--runtime-proof-authority-sync-fence",
+        "--runtime-proof-authority-output-deadline",
+        "--runtime-proof-authority-output-fence",
         "--runtime-lifetimes",
         "--runtime-lifetimes-close",
         "--runtime-lifetimes-cancel",
@@ -792,6 +819,14 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         } else if matches!(
             mode,
             "--runtime-durability"
+                | "--runtime-cycles"
+                | "--runtime-cycles-fence"
+                | "--runtime-authority"
+                | "--runtime-authority-fence"
+                | "--runtime-proof-authority-sync-deadline"
+                | "--runtime-proof-authority-sync-fence"
+                | "--runtime-proof-authority-output-deadline"
+                | "--runtime-proof-authority-output-fence"
                 | "--runtime-bindings"
                 | "--runtime-delivery"
                 | "--runtime-schedules"

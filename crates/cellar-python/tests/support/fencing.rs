@@ -2,6 +2,52 @@
 //! acknowledged state in a new domain, and resume the noncooperative old task.
 use super::*;
 
+/// Change the real published node generation, then join its observed outcome.
+/// The caller must honor the synthetic generation's lease before takeover.
+pub(super) async fn force_node(
+    bucket: &cellar::bucket::Bucket,
+    node: Node,
+    name: &str,
+) -> Result<NodeOutcome> {
+    force_lease_field(bucket, node, name, "generation", "replacement-process").await
+}
+
+/// Preserve real log-session provenance while forcing a lease-identity mismatch.
+pub(super) async fn force_node_address(
+    bucket: &cellar::bucket::Bucket,
+    node: Node,
+    name: &str,
+) -> Result<NodeOutcome> {
+    force_lease_field(bucket, node, name, "addr", "http://127.0.0.1:1").await
+}
+
+async fn force_lease_field(
+    bucket: &cellar::bucket::Bucket,
+    node: Node,
+    name: &str,
+    field: &str,
+    value: &str,
+) -> Result<NodeOutcome> {
+    let domain = cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let fault = domain
+        .run(async {
+            let key = format!("nodes/{name}.json");
+            let (bytes, _) = bucket.get(&key).await?.context("published node lease")?;
+            let mut lease: Value = serde_json::from_slice(&bytes)?;
+            lease[field] = json!(value);
+            bucket.put(&key, serde_json::to_vec(&lease)?).await?;
+            Ok::<_, anyhow::Error>(())
+        })
+        .await;
+    domain.shutdown().await;
+    fault??;
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        node.run_until(std::future::pending()),
+    )
+    .await?
+}
+
 pub(super) fn child() -> Result<()> {
     let directory = tempfile::tempdir()?;
     let failure = run(
@@ -49,25 +95,7 @@ pub(super) fn child() -> Result<()> {
                         .await
                 });
                 wait_value(&client, &url, "/fence-waiting", json!(true)).await?;
-                let domain =
-                    cellar::asyncrt::ExecutionDomain::new(tokio::runtime::Handle::current());
-                let fault = domain
-                    .run(async {
-                        let key = "nodes/python-fenced.json";
-                        let (bytes, _) = bucket.get(key).await?.expect("published node lease");
-                        let mut lease: Value = serde_json::from_slice(&bytes)?;
-                        lease["generation"] = json!("replacement-process");
-                        bucket.put(key, serde_json::to_vec(&lease)?).await?;
-                        Ok::<_, anyhow::Error>(())
-                    })
-                    .await;
-                domain.shutdown().await;
-                fault??;
-                let outcome = tokio::time::timeout(
-                    Duration::from_secs(10),
-                    node.run_until(std::future::pending()),
-                )
-                .await??;
+                let outcome = force_node(&bucket, node, "python-fenced").await?;
                 ensure!(
                     outcome
                         == NodeOutcome::Fenced {
