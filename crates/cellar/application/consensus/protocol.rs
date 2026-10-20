@@ -260,8 +260,12 @@ impl CellUpdate {
     }
 }
 
+pub(crate) fn protocol_identity() -> [u8; 32] {
+    Sha256::digest(PROTOCOL.as_bytes()).into()
+}
+
 fn protocol_digest() -> String {
-    hex::encode(Sha256::digest(PROTOCOL.as_bytes()))
+    hex::encode(protocol_identity())
 }
 
 fn decode_hex<const N: usize>(value: &str) -> Result<[u8; N], ProtocolError> {

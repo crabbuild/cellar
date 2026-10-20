@@ -120,6 +120,23 @@ impl RaftRuntime {
         log: ReplicaLog,
         options: RaftRuntimeOptions,
     ) -> Result<(Self, RuntimeEvents), RuntimeError> {
+        Self::start_with_existing(log, options, true).await
+    }
+
+    /// Do not instantiate any recovered RawNodes before the catalog/member
+    /// authority has been reconciled. Explicit verified attachment follows.
+    pub async fn start_parked(
+        log: ReplicaLog,
+        options: RaftRuntimeOptions,
+    ) -> Result<(Self, RuntimeEvents), RuntimeError> {
+        Self::start_with_existing(log, options, false).await
+    }
+
+    async fn start_with_existing(
+        log: ReplicaLog,
+        options: RaftRuntimeOptions,
+        attach_existing: bool,
+    ) -> Result<(Self, RuntimeEvents), RuntimeError> {
         options.validate(log.limits())?;
         let lease = log.claim_runtime()?;
         let domain = log.domain();
@@ -153,14 +170,15 @@ impl RaftRuntime {
                     }
                 }
                 let _closed = ClosedOnDrop(closed);
-                let mut worker = match Worker::new(log, options, events, worker_domain) {
-                    Ok(worker) => worker,
-                    Err(error) => {
-                        lease.release();
-                        let _ = ready.send(Err(error));
-                        return;
-                    }
-                };
+                let mut worker =
+                    match Worker::new(log, options, events, worker_domain, attach_existing) {
+                        Ok(worker) => worker,
+                        Err(error) => {
+                            lease.release();
+                            let _ = ready.send(Err(error));
+                            return;
+                        }
+                    };
                 if ready.send(Ok(())).is_err() {
                     lease.release();
                     return;
@@ -489,6 +507,7 @@ impl Worker {
         options: RaftRuntimeOptions,
         events: mpsc::Sender<RuntimeEvent>,
         domain: crate::asyncrt::DomainToken,
+        attach_existing: bool,
     ) -> Result<Self, RuntimeError> {
         let mut seed = [0; 32];
         match options.election_seed {
@@ -512,8 +531,10 @@ impl Worker {
             seed,
             retry_at: 0,
         };
-        for group in worker.log.groups()? {
-            worker.attach(group.identity().scope.clone())?;
+        if attach_existing {
+            for group in worker.log.groups()? {
+                worker.attach(group.identity().scope.clone())?;
+            }
         }
         Ok(worker)
     }

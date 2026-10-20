@@ -92,6 +92,7 @@ pub struct NodeRaftListeners {
 /// Infrastructure handles owned by the embedded node's execution domain. The
 /// host dispatcher consumes events, routes messages and supplies verified image
 /// completions. Transport admission itself is never a write acknowledgement.
+/// Recovered groups remain parked until catalog/bootstrap admission attaches them.
 #[doc(hidden)]
 pub struct NodeRaftService {
     pub log: crate::application::consensus::verification::ReplicaLog,

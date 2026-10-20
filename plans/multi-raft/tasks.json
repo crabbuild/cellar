@@ -794,12 +794,19 @@
         "crates/cellar/application/cells.rs",
         "crates/cellar/sdk.rs",
         "crates/cellar/Cargo.toml",
-        "crates/cellar/application/consensus/mod.rs"
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/node/mod.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/catalog.rs",
         "examples/raft-counter/main.rs",
-        "crates/cellar/tests/native_raft_host.rs"
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs"
       ],
       "steps": [
         "Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.",

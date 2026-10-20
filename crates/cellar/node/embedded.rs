@@ -663,6 +663,8 @@ impl Node {
     /// Start opt-in Raft infrastructure on this node's existing executor and
     /// injected filesystem. It does not change Fleet routing or register Raft
     /// cell handlers. The caller owns event dispatch and listener configuration.
+    /// All groups, including recovered ones, start parked. Reconcile catalog
+    /// birth/member claims before attaching them through a bootstrap permit.
     #[doc(hidden)]
     pub async fn start_raft_service(
         &self,
@@ -679,7 +681,7 @@ impl Node {
             .run(async {
                 let log = ReplicaLog::open(config.log, crate::asyncrt::fs()).await?;
                 let (runtime, events) =
-                    match RaftRuntime::start(log.clone(), config.consensus).await {
+                    match RaftRuntime::start_parked(log.clone(), config.consensus).await {
                         Ok(runtime) => runtime,
                         Err(error) => {
                             let _ = log.close().await;

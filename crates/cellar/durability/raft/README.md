@@ -18,6 +18,37 @@ closed. This avoids turning ordinary cancellation or an I/O failure into a
 raft-rs storage panic; no successful write or application proof can bypass the
 closed engine's persistence boundary.
 
+`Catalog` selects immutable namespace mode/schema/protocol/storage-prefix records
+with conditional object creation. Raft data uses a disjoint `raft/<cluster>/<ns>/`
+prefix. Per-cell births fix their group/incarnation, initial placement and empty
+state; concurrent creators follow the winning record. A permanent group-ID
+reservation prevents reusing that identity for another cell/history. Every
+create is reconciled by bounded exact-key reads, including a lost response;
+there is no overwrite fallback, key listing or lease-based birth replacement.
+Records have strict canonical marker-1 framing and a content digest. Root mode,
+schema, cluster, minimum durability and voter policy cannot change in place.
+Three initial voters are required unless the immutable root explicitly selects
+the single-voter development policy.
+
+Initial attachment requires a permanent member claim binding member, disk
+lineage and birth digest. The adapter reads the claim first, syncs/verifies local
+genesis through the engine, then conditionally creates and reads back the claim.
+A claim with absent local stable state refuses blank initialization, including
+when a caller supplies the old disk identity in another directory. Competing
+disks cannot both acquire the member. The returned `BootstrapPermit` binds the
+selected catalog and exact engine owner; an old permit cannot attach a reopened
+engine. Committed configuration remains membership authority after bootstrap.
+
+`Node::start_raft_service` starts its runtime parked, including recovered groups.
+No RawNode exists or votes until verified attachment. `RaftRuntime::start` retains
+its direct trusted-embedding/verification behavior; normal node integration uses
+`start_parked` and catalog permits. This adapter currently rereads claims on
+restart: an unavailable/unconfirmed catalog leaves attachment closed. Retaining
+local confirmed catalog receipts and snapshot/join recovery metadata remains
+recovery-controller work. Running groups do not consult the catalog for append,
+vote or command authority. SDK registration/dispatch and full actor integration
+remain in progress.
+
 `RaftRuntime` owns one async execution-domain task for all attached groups.
 Each `RawNode` is mutated only on that worker. It collects at most one Ready per
 group, batches independent groups' writes, and polls the storage future alongside

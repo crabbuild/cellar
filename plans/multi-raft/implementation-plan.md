@@ -270,9 +270,9 @@ shown by `plan.py show MR-06`; the manifest is authoritative for arguments.
 
 Dependencies: MR-04, MR-06. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/consensus/mod.rs`.
+Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/node/mod.rs`.
 
-Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`.
+Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`.
 
 1. Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.
 2. Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.

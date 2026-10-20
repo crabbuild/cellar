@@ -3,6 +3,8 @@
 pub(crate) mod apply;
 mod budget;
 pub(crate) mod cache;
+pub(crate) mod catalog;
+mod catalog_wire;
 pub(crate) mod completion;
 pub(crate) mod execution;
 mod filesystem;

@@ -18,6 +18,10 @@ pub mod verification {
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };
+    pub use crate::raft::catalog::{
+        BirthProposal, BootstrapPermit, Catalog, CatalogError, CatalogOptions, GroupBirth,
+        InitialMember, NamespaceCatalog, NamespaceConfig, VoterPolicy,
+    };
     pub use crate::raft::completion::{
         AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,
         RuntimeEventKind, SnapshotCompletion,
