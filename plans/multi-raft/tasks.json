@@ -1195,7 +1195,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-09-storage-progress.json"
+      ]
     },
     {
       "id": "MR-10",

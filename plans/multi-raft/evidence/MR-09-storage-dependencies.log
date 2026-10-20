@@ -1,0 +1,2 @@
+{"source_revision": "122a1c7b9a50af74bf9a8c6ab1efa781986661e3", "argv": ["python3", "tools/check_native_dependencies.py"]}
+Cellar workspace (all features): 439 reachable packages; no JavaScript engine

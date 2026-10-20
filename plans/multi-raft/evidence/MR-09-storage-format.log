@@ -1,0 +1,2 @@
+{"source_revision": "122a1c7b9a50af74bf9a8c6ab1efa781986661e3", "argv": ["cargo", "format", "--check"]}
+Checked 625 Rust files

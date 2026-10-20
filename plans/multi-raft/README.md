@@ -31,8 +31,16 @@ replay before conditional head publication. Host archive scheduling, S3 output
 gates, stronger retries and outage admission remain pending. Snapshot installation,
 membership controllers, effects and later operations/release/scaling work remain pending. Unsupported
 SDK capabilities are refused. All 17 original packages remain in scope; the
-complete delivery goal is not achieved. The reviewed source baseline is
+complete delivery goal is not achieved. The completed read-contract baseline is
 `8f18c29a0f28977eb8a4cae51848982ad7d43739`.
+
+The [MR-09 storage evidence](evidence/MR-09-storage-progress.json) pins source
+`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`: 13 archive cases, 62 existing
+host/storage/execution/runtime cases and 16 Raft library cases pass, together
+with Clippy and the repository checks. Four ignored process child entry points
+are invoked by owning parents and excluded from those counts. The archive
+fixtures persist durable engine markers directly; they do not qualify SDK S3
+acknowledgements or Raft snapshot installation.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

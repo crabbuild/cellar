@@ -143,3 +143,10 @@ failed replay before publication. These tests do not qualify native SDK S3
 acknowledgements, node-wide backlog admission or automatic member repair. S3
 commands remain refused before private execution until those boundaries are
 implemented and qualified; the original 17-package goal remains open.
+
+The [storage progress evidence](evidence/MR-09-storage-progress.json) records
+13 archive cases, 62 existing host/storage/execution/runtime cases and 16 Raft
+library cases at source `122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. The two new
+library cases cover membership-set normalization and refusal of duplicate or
+unknown configuration fields. Exact commands, executable/log digests, repository
+checks and the remaining scope are recorded with the evidence.

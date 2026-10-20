@@ -359,6 +359,10 @@ These interfaces provide recovery material only. Node-owned archive scheduling,
 SDK S3 output gates, stronger retries and outage/disk admission remain unfinished;
 S3 commands remain refused before private execution. See the
 [storage integration notes](storage-integration.md#committed-archive-storage-component).
+The [storage progress evidence](evidence/MR-09-storage-progress.json) records
+91 passing Rust cases and the exact checks at source
+`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. This does not satisfy the five
+remaining host durability/admission requirements below or complete MR-09.
 
 Modify: `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/storage/object/bucket.rs`.
 
