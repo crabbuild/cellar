@@ -1,4 +1,5 @@
 // Copyright 2019 TiKV Project Authors. Licensed under Apache-2.0.
+// Modified for Cellar: accept the owning host's election RNG seed.
 
 // Copyright 2015 The etcd Authors
 //
@@ -24,7 +25,7 @@ use crate::eraftpb::{
 };
 use protobuf::Message as _;
 use raft_proto::ConfChangeI;
-use rand::{self, Rng};
+use rand::{self, Rng, SeedableRng};
 use slog::{self, Logger};
 
 #[cfg(feature = "failpoints")]
@@ -249,6 +250,8 @@ pub struct RaftCore<T: Storage> {
     randomized_election_timeout: usize,
     min_election_timeout: usize,
     max_election_timeout: usize,
+    // Cellar adapter: a host-seeded stream avoids hidden process RNG decisions.
+    election_rng: Option<rand::rngs::StdRng>,
 
     /// The logger for the raft structure.
     pub(crate) logger: slog::Logger,
@@ -325,6 +328,13 @@ impl<T: Storage> Raft<T> {
     /// Creates a new raft for use on the node.
     #[allow(clippy::new_ret_no_self)]
     pub fn new(c: &Config, store: T, logger: &Logger) -> Result<Self> {
+        Self::new_with_election_seed(c, store, logger, None)
+    }
+
+    /// Cellar adapter: preserve the election algorithm with an explicit RNG seed.
+    pub fn new_with_election_seed(
+        c: &Config, store: T, logger: &Logger, seed: Option<[u8; 32]>,
+    ) -> Result<Self> {
         c.validate()?;
         let logger = logger.new(o!("raft_id" => c.id));
         let raft_state = store.initial_state()?;
@@ -359,6 +369,7 @@ impl<T: Storage> Raft<T> {
                 randomized_election_timeout: Default::default(),
                 min_election_timeout: c.min_election_tick(),
                 max_election_timeout: c.max_election_tick(),
+                election_rng: seed.map(rand::rngs::StdRng::from_seed),
                 skip_bcast_commit: c.skip_bcast_commit,
                 batch_append: c.batch_append,
                 logger,
@@ -2806,8 +2817,11 @@ impl<T: Storage> Raft<T> {
     /// Regenerates and stores the election timeout.
     pub fn reset_randomized_election_timeout(&mut self) {
         let prev_timeout = self.randomized_election_timeout;
-        let timeout =
-            rand::thread_rng().gen_range(self.min_election_timeout..self.max_election_timeout);
+        let range = self.min_election_timeout..self.max_election_timeout;
+        let timeout = match self.election_rng.as_mut() {
+            Some(rng) => rng.gen_range(range),
+            None => rand::thread_rng().gen_range(range),
+        };
         debug!(
             self.logger,
             "reset election timeout {prev_timeout} -> {timeout} at {election_elapsed}",

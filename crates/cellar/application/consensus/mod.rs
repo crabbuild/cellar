@@ -17,6 +17,12 @@ pub mod verification {
     pub use crate::raft::cache::{
         CommittedImage, DurableApply, GroupLog, GroupWrite, SnapshotChange,
     };
+    pub use crate::raft::completion::{
+        AcceptedProposal, ApplyCompletion, ApplyTicket, GroupStatus, RuntimeError, RuntimeEvent,
+        RuntimeEventKind, SnapshotCompletion,
+    };
+    pub use crate::raft::options::RaftRuntimeOptions;
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};
+    pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};
     pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
 }

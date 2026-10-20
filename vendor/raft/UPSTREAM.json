@@ -9,8 +9,10 @@
     "path_in_vcs": ""
   },
   "registry_checksum": "f12688b23a649902762d4c11d854d73c49c9b93138f2de16403ef9f571ad5bae",
-  "patch_scope": "Manifest-only path selection of the attributed raft-proto adapter; consensus Rust source is unchanged.",
+  "patch_scope": "Direct raft-proto adapter path and an explicit host-seeded election RNG constructor. Election, voting, log and membership algorithms are retained; default upstream constructors preserve their RNG behavior.",
   "patched_files": [
-    "Cargo.toml"
+    "Cargo.toml",
+    "src/raft.rs",
+    "src/raw_node.rs"
   ]
 }

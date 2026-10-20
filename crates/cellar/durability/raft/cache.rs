@@ -22,7 +22,7 @@ pub struct CommittedImage {
 }
 
 impl CommittedImage {
-    fn validate(&self) -> Result<(), LogError> {
+    pub(crate) fn validate(&self) -> Result<(), LogError> {
         if self.name.is_empty()
             || self.name.len() > 128
             || self.name == "."
@@ -157,7 +157,71 @@ fn raft_error(error: LogError) -> ::raft::Error {
     ::raft::Error::Store(StorageError::Other(Box::new(error)))
 }
 
+/// Mechanical Raft lookups may finish against the last durable cache while an
+/// engine closes. This private view cannot establish an application proof.
+#[derive(Clone)]
+pub(crate) struct ConsensusStorage {
+    cache: Arc<RwLock<CachedGroup>>,
+    closed: Arc<AtomicBool>,
+}
+
+impl ConsensusStorage {
+    fn read(&self) -> Result<RwLockReadGuard<'_, CachedGroup>, LogError> {
+        self.cache.read().map_err(|_| {
+            self.closed.store(true, Ordering::Release);
+            LogError::Corrupt("Raft cache lock poisoned".into())
+        })
+    }
+}
+
+impl GroupLog {
+    pub(crate) fn consensus_storage(&self) -> ConsensusStorage {
+        ConsensusStorage {
+            cache: self.cache.clone(),
+            closed: self.closed.clone(),
+        }
+    }
+
+    fn checked_storage(&self) -> ::raft::Result<ConsensusStorage> {
+        drop(self.read().map_err(raft_error)?);
+        Ok(self.consensus_storage())
+    }
+}
+
 impl Storage for GroupLog {
+    fn initial_state(&self) -> ::raft::Result<RaftState> {
+        self.checked_storage()?.initial_state()
+    }
+
+    fn entries(
+        &self,
+        low: u64,
+        high: u64,
+        max_size: impl Into<Option<u64>>,
+        context: GetEntriesContext,
+    ) -> ::raft::Result<Vec<Entry>> {
+        self.checked_storage()?
+            .entries(low, high, max_size, context)
+    }
+
+    fn term(&self, index: u64) -> ::raft::Result<u64> {
+        self.checked_storage()?.term(index)
+    }
+
+    fn first_index(&self) -> ::raft::Result<u64> {
+        self.checked_storage()?.first_index()
+    }
+
+    fn last_index(&self) -> ::raft::Result<u64> {
+        self.checked_storage()?.last_index()
+    }
+
+    fn snapshot(&self, request_index: u64, to: u64) -> ::raft::Result<Snapshot> {
+        self.checked_storage()?.snapshot(request_index, to)
+    }
+}
+
+impl Storage for ConsensusStorage {
     fn initial_state(&self) -> ::raft::Result<RaftState> {
         let cache = self.read().map_err(raft_error)?;
         Ok(RaftState::new(

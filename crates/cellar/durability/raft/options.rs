@@ -76,3 +76,87 @@ impl ReplicaLogOptions {
         Ok(())
     }
 }
+
+/// Node-wide consensus limits. `None` ticks are for an explicit external clock.
+#[derive(Clone, Debug)]
+pub struct RaftRuntimeOptions {
+    pub tick_interval_ms: Option<u64>,
+    pub election_seed: Option<[u8; 32]>,
+    pub max_groups: usize,
+    pub max_requests: usize,
+    pub max_request_bytes: usize,
+    pub max_events: usize,
+    pub max_event_bytes: usize,
+    /// Stop new Ready collection at this threshold; retain already collected work.
+    pub max_ready_bytes: usize,
+    /// Stop new committed-entry collection here; a collected Ready is retained.
+    pub max_apply_bytes: usize,
+    pub max_group_apply_bytes: usize,
+    pub max_batch_groups: usize,
+    pub max_message_bytes: usize,
+    pub max_proposal_bytes: usize,
+    pub max_members_per_group: usize,
+    pub max_pending_reads: usize,
+}
+
+impl Default for RaftRuntimeOptions {
+    fn default() -> Self {
+        Self {
+            tick_interval_ms: Some(100),
+            election_seed: None,
+            max_groups: 4096,
+            max_requests: 256,
+            max_request_bytes: 64 * 1024 * 1024,
+            max_events: 256,
+            max_event_bytes: 128 * 1024 * 1024,
+            max_ready_bytes: 256 * 1024 * 1024,
+            max_apply_bytes: 64 * 1024 * 1024,
+            max_group_apply_bytes: 32 * 1024 * 1024,
+            max_batch_groups: 64,
+            max_message_bytes: 20 * 1024 * 1024,
+            max_proposal_bytes: 16 * 1024 * 1024,
+            max_members_per_group: 7,
+            max_pending_reads: 256,
+        }
+    }
+}
+
+impl RaftRuntimeOptions {
+    pub(crate) fn validate(
+        &self,
+        log: &ReplicaLogOptions,
+    ) -> Result<(), super::completion::RuntimeError> {
+        if self.tick_interval_ms.is_some_and(|n| n == 0 || n > 60_000)
+            || self.max_groups == 0
+            || self.max_groups > log.max_groups
+            || self.max_requests == 0
+            || self.max_requests > 4096
+            || self.max_events == 0
+            || self.max_events > 4096
+            || self.max_proposal_bytes == 0
+            || self.max_proposal_bytes > 16 * 1024 * 1024
+            || self.max_message_bytes < self.max_proposal_bytes + 4096
+            || self.max_message_bytes > 32 * 1024 * 1024
+            || self.max_request_bytes < self.max_message_bytes + 4096
+            || self.max_request_bytes > 512 * 1024 * 1024
+            || self.max_event_bytes < self.max_message_bytes + 4096
+            || self.max_event_bytes > 512 * 1024 * 1024
+            || self.max_ready_bytes < self.max_event_bytes
+            || self.max_ready_bytes > 1024 * 1024 * 1024
+            || self.max_group_apply_bytes < self.max_proposal_bytes + 4096
+            || self.max_group_apply_bytes > self.max_apply_bytes
+            || self.max_apply_bytes > 512 * 1024 * 1024
+            || self.max_batch_groups == 0
+            || self.max_batch_groups > 256
+            || self.max_members_per_group < 3
+            || self.max_members_per_group > 16
+            || self.max_pending_reads == 0
+            || self.max_pending_reads > 4096
+        {
+            return Err(super::completion::RuntimeError::Invalid(
+                "invalid runtime bounds".into(),
+            ));
+        }
+        Ok(())
+    }
+}

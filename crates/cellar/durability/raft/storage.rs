@@ -109,6 +109,7 @@ struct LogHandle {
     pending: Arc<AtomicUsize>,
     options: ReplicaLogOptions,
     closing: AtomicBool,
+    runtime_claimed: AtomicBool,
     abort: Arc<AtomicBool>,
     closed: Arc<AtomicBool>,
     terminal: Arc<Mutex<Option<Result<(), LogError>>>>,
@@ -154,7 +155,34 @@ enum Work {
     Close(Reply<()>),
 }
 
+/// Exclusive consensus ownership; normal release follows a final storage fence.
+pub(crate) struct RuntimeLease(Arc<LogHandle>);
+
+impl RuntimeLease {
+    /// Dropping an unfenced worker deliberately leaves the claim poisoned.
+    pub(crate) fn release(self) {
+        self.0.runtime_claimed.store(false, Ordering::Release);
+    }
+}
+
 impl ReplicaLog {
+    pub(crate) fn claim_runtime(&self) -> Result<RuntimeLease, LogError> {
+        self.admit()?;
+        self.inner
+            .runtime_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| LogError::AlreadyExists)?;
+        Ok(RuntimeLease(self.inner.clone()))
+    }
+
+    pub(crate) fn domain(&self) -> crate::asyncrt::DomainToken {
+        self.inner.domain.clone()
+    }
+
+    pub(crate) fn limits(&self) -> &ReplicaLogOptions {
+        &self.inner.options
+    }
+
     pub async fn open(
         options: ReplicaLogOptions,
         filesystem: Arc<dyn FileSystem>,
@@ -178,6 +206,7 @@ impl ReplicaLog {
                 pending: Arc::new(AtomicUsize::new(0)),
                 options: options.clone(),
                 closing: AtomicBool::new(false),
+                runtime_claimed: AtomicBool::new(false),
                 abort: abort.clone(),
                 closed: closed.clone(),
                 terminal: terminal.clone(),

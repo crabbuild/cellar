@@ -1,4 +1,5 @@
 // Copyright 2019 TiKV Project Authors. Licensed under Apache-2.0.
+// Modified for Cellar: accept the owning host's election RNG seed.
 
 // Copyright 2015 The etcd Authors
 //
@@ -300,8 +301,15 @@ impl<T: Storage> RawNode<T> {
     #[allow(clippy::new_ret_no_self)]
     /// Create a new RawNode given some [`Config`].
     pub fn new(config: &Config, store: T, logger: &Logger) -> Result<Self> {
+        Self::new_with_election_seed(config, store, logger, None)
+    }
+
+    /// Cellar adapter: use the owning host's seed for election randomness.
+    pub fn new_with_election_seed(
+        config: &Config, store: T, logger: &Logger, seed: Option<[u8; 32]>,
+    ) -> Result<Self> {
         assert_ne!(config.id, 0, "config.id must not be zero");
-        let r = Raft::new(config, store, logger)?;
+        let r = Raft::new_with_election_seed(config, store, logger, seed)?;
         let mut rn = RawNode {
             raft: r,
             prev_hs: Default::default(),
