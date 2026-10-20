@@ -1,7 +1,11 @@
 //! Shared business operations and HTTP normalization for both example hosts.
 use anyhow::{ensure, Result};
 use cellar::sdk::{consensus::*, Application, Invocation, Output, RaftClass, Registry};
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use subtle::ConstantTimeEq;
 
 pub struct CounterApi {
@@ -15,6 +19,107 @@ pub struct CounterApi {
 pub struct Reply {
     pub status: u16,
     pub body: Vec<u8>,
+}
+
+enum Operation {
+    Command(i64, CommandOptions),
+    Query(QueryOptions),
+}
+
+const READ_HEADERS: [&str; 7] = [
+    "x-read-consistency",
+    "x-min-version",
+    "x-read-policy",
+    "x-query-timeout-ms",
+    "x-query-members",
+    "x-query-attempt-ms",
+    "x-leader-fallback",
+];
+
+fn header<'a>(headers: &'a [(String, String)], key: &str) -> Result<Option<&'a str>> {
+    let mut values = headers
+        .iter()
+        .filter(|(name, _)| name.eq_ignore_ascii_case(key));
+    let value = values.next().map(|(_, value)| value.as_str());
+    ensure!(values.next().is_none(), "duplicate header");
+    Ok(value)
+}
+
+fn read_options(headers: &[(String, String)]) -> Result<QueryOptions> {
+    let minimum = header(headers, "x-min-version")?;
+    let consistency = match header(headers, "x-read-consistency")?.unwrap_or("stale") {
+        "stale" => QueryConsistency::Stale,
+        "linearizable" => QueryConsistency::Linearizable,
+        "at-least" => QueryConsistency::AtLeast(VersionToken::from_encoded(
+            minimum.ok_or_else(|| anyhow::anyhow!("provide x-min-version"))?,
+        )?),
+        _ => anyhow::bail!("invalid read consistency"),
+    };
+    ensure!(
+        minimum.is_none() || matches!(consistency, QueryConsistency::AtLeast(_)),
+        "unexpected minimum version"
+    );
+    let policy = header(headers, "x-read-policy")?;
+    ensure!(
+        policy.is_none() || matches!(consistency, QueryConsistency::Stale),
+        "read policy requires stale consistency"
+    );
+    let stale_policy = match policy.unwrap_or("recent-source") {
+        "recent-source" => StaleReadPolicy::RecentSource,
+        "disconnected-historical" => StaleReadPolicy::DisconnectedHistorical,
+        _ => anyhow::bail!("invalid stale read policy"),
+    };
+    let timeout_ms = header(headers, "x-query-timeout-ms")?
+        .unwrap_or("5000")
+        .parse::<u64>()?;
+    ensure!((1..=5000).contains(&timeout_ms), "invalid query timeout");
+    let members = header(headers, "x-query-members")?;
+    let attempt = header(headers, "x-query-attempt-ms")?;
+    let fallback = header(headers, "x-leader-fallback")?;
+    let routing = if let Some(members) = members {
+        let mut selected = Vec::new();
+        let mut unique = BTreeSet::new();
+        for value in members.split(',').take(9) {
+            let id = value.parse::<u64>()?;
+            ensure!(id.to_string() == value, "noncanonical member ID");
+            let member = MemberId::new(id)?;
+            ensure!(
+                selected.len() < 8 && unique.insert(member),
+                "invalid member list"
+            );
+            selected.push(member);
+        }
+        let attempt_ms = attempt
+            .map(str::parse::<u64>)
+            .transpose()?
+            .unwrap_or(250.min(timeout_ms));
+        ensure!(
+            (1..=timeout_ms).contains(&attempt_ms),
+            "invalid attempt timeout"
+        );
+        let leader_fallback = match fallback.unwrap_or("false") {
+            "true" => true,
+            "false" => false,
+            _ => anyhow::bail!("invalid fallback policy"),
+        };
+        QueryRouting::Replicas {
+            members: selected,
+            attempt_timeout: Duration::from_millis(attempt_ms),
+            leader_fallback,
+        }
+    } else {
+        ensure!(
+            attempt.is_none() && fallback.is_none(),
+            "routing policy requires members"
+        );
+        QueryRouting::Local
+    };
+    Ok(QueryOptions {
+        consistency,
+        timeout: Duration::from_millis(timeout_ms),
+        stale_policy,
+        routing,
+    })
 }
 
 pub fn definition() -> Result<RaftClass> {
@@ -51,14 +156,6 @@ impl CounterApi {
     /// The demo bearer grants access to its fixed namespace. Real applications
     /// must bind authenticated principals and allowed cells at their ingress.
     pub async fn request(&self, method: &str, url: &str, headers: &[(String, String)]) -> Reply {
-        fn header<'a>(headers: &'a [(String, String)], key: &str) -> Result<Option<&'a str>> {
-            let mut values = headers
-                .iter()
-                .filter(|(name, _)| name.eq_ignore_ascii_case(key));
-            let value = values.next().map(|(_, value)| value.as_str());
-            ensure!(values.next().is_none(), "duplicate header");
-            Ok(value)
-        }
         let text = |status, text: &str| Reply {
             status,
             body: text.as_bytes().to_vec(),
@@ -102,9 +199,12 @@ impl CounterApi {
                     url.query().is_none(),
                     "query parameters unsupported for GET"
                 );
-                return Ok((cell, contract, None));
+                return Ok((cell, contract, Operation::Query(read_options(headers)?)));
             }
             ensure!(method == "POST", "use GET or POST");
+            for key in READ_HEADERS {
+                ensure!(header(headers, key)?.is_none(), "read options require GET");
+            }
             let mut query = url.query_pairs();
             let (key, value) = query
                 .next()
@@ -129,34 +229,42 @@ impl CounterApi {
             Ok((
                 cell,
                 contract,
-                Some((delta, CommandOptions::new(id, retry))),
+                Operation::Command(delta, CommandOptions::new(id, retry)),
             ))
         })();
-        let (cell, contract, command) = match parsed {
+        let (cell, contract, operation) = match parsed {
             Ok(value) => value,
             Err(_) => return text(400, "invalid request or unavailable cell"),
         };
-        let result = if let Some((delta, options)) = command {
-            cell.command(contract, delta.to_be_bytes().to_vec(), options)
+        let result = match operation {
+            Operation::Command(delta, options) => cell
+                .command(contract, delta.to_be_bytes().to_vec(), options)
                 .await
-                .map(|receipt| (receipt.result, receipt.version))
-        } else {
-            cell.query(contract, vec![], QueryOptions::default())
-                .await
-                .map(|result| (result.result, result.version))
+                .map(|receipt| (receipt.result, receipt.version, receipt.version_token, None)),
+            Operation::Query(options) => {
+                cell.query(contract, vec![], options).await.map(|result| {
+                    (
+                        result.result,
+                        result.version,
+                        result.version_token,
+                        Some(result.served_by.get()),
+                    )
+                })
+            }
         };
         match result {
-            Ok((value, version)) => {
+            Ok((value, version, token, served_by)) => {
                 let Ok(value) = value.try_into().map(i64::from_be_bytes) else {
                     return text(500, "invalid counter result");
                 };
-                Reply { status: 200, body: serde_json::json!({ "value": value, "index": version.position.index.get(), "term": version.position.term.get(), "group": hex::encode(version.scope.group.bytes()), "incarnation": hex::encode(version.scope.incarnation.bytes()) }).to_string().into_bytes() }
+                Reply { status: 200, body: serde_json::json!({ "value": value, "index": version.position.index.get(), "term": version.position.term.get(), "group": hex::encode(version.scope.group.bytes()), "incarnation": hex::encode(version.scope.incarnation.bytes()), "version_token": token.as_str(), "served_by": served_by }).to_string().into_bytes() }
             }
             Err(error) => {
                 let status = match error {
                     CommandFailure::CommandConflict
                     | CommandFailure::CommandExpired
-                    | CommandFailure::SequenceGap { .. } => 409,
+                    | CommandFailure::SequenceGap { .. }
+                    | CommandFailure::WrongIncarnation => 409,
                     CommandFailure::UnsupportedCapability
                     | CommandFailure::UnsupportedConsistency => 422,
                     CommandFailure::CorruptState => 500,

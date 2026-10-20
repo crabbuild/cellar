@@ -662,6 +662,119 @@ async fn native_axum_command_parity() -> Result<()> {
         let receipt: serde_json::Value = response.json().await?;
         assert_eq!(receipt["value"], 7);
         assert_eq!(receipt["index"], original.version.position.index.get());
+        let token = receipt["version_token"].as_str().unwrap();
+        VersionToken::from_encoded(token)?;
+        assert!(receipt["served_by"].is_null());
+        for consistency in ["stale", "at-least", "linearizable"] {
+            for routed in [false, true] {
+                let mut request = client
+                    .get(url)
+                    .bearer_auth(secret)
+                    .header("x-read-consistency", consistency);
+                if consistency == "at-least" {
+                    request = request.header("x-min-version", token);
+                }
+                if routed {
+                    request = request
+                        .header("x-query-members", "1")
+                        .header("x-query-attempt-ms", "1000")
+                        .header("x-query-timeout-ms", "2000")
+                        .header("x-leader-fallback", "true");
+                }
+                let response = request.send().await?;
+                assert_eq!(response.status(), 200, "{consistency}, routed={routed}");
+                let read: serde_json::Value = response.json().await?;
+                assert_eq!(read["value"], 7);
+                assert_eq!(read["served_by"], 1);
+                assert_eq!(read["group"], receipt["group"]);
+                assert_eq!(read["incarnation"], receipt["incarnation"]);
+                assert!(read["index"].as_u64().unwrap() >= original.version.position.index.get());
+                VersionToken::from_encoded(read["version_token"].as_str().unwrap())?;
+            }
+        }
+        let response = client
+            .get(url)
+            .bearer_auth(secret)
+            .header("x-read-policy", "disconnected-historical")
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.json::<serde_json::Value>().await?["value"], 7);
+
+        // Reject invalid or mismatched options at both real ingress paths.
+        // None may quietly execute with default consistency or routing.
+        let invalid = vec![
+            vec![("x-read-consistency", "at-least")],
+            vec![("x-min-version", token)],
+            vec![
+                ("x-read-consistency", "linearizable"),
+                ("x-min-version", token),
+            ],
+            vec![("x-read-consistency", "unknown")],
+            vec![("x-read-policy", "unknown")],
+            vec![
+                ("x-read-consistency", "linearizable"),
+                ("x-read-policy", "recent-source"),
+            ],
+            vec![("x-query-timeout-ms", "0")],
+            vec![("x-query-timeout-ms", "5001")],
+            vec![("x-query-members", "1,1")],
+            vec![("x-query-members", "0")],
+            vec![("x-query-members", "01")],
+            vec![("x-query-members", "1,2,3,4,5,6,7,8,9")],
+            vec![("x-query-attempt-ms", "10")],
+            vec![("x-leader-fallback", "true")],
+            vec![("x-query-members", "1"), ("x-query-attempt-ms", "0")],
+            vec![
+                ("x-query-members", "1"),
+                ("x-query-attempt-ms", "1001"),
+                ("x-query-timeout-ms", "1000"),
+            ],
+            vec![("x-query-members", "1"), ("x-leader-fallback", "yes")],
+            vec![
+                ("x-read-consistency", "stale"),
+                ("x-read-consistency", "linearizable"),
+            ],
+        ];
+        for headers in invalid {
+            let mut request = client.get(url).bearer_auth(secret);
+            for (key, value) in &headers {
+                request = request.header(*key, *value);
+            }
+            let response = request.send().await?;
+            assert_eq!(response.status(), 400, "invalid options: {headers:?}");
+        }
+        let oversized = "a".repeat(1900);
+        let response = client
+            .get(url)
+            .bearer_auth(secret)
+            .header("x-read-consistency", "at-least")
+            .header("x-min-version", oversized)
+            .send()
+            .await?;
+        assert_eq!(response.status(), 400);
+        // A structurally valid token with a bad signature reaches server-side
+        // authentication and cannot downgrade to an ordinary stale query.
+        use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
+        let mut forged = URL_SAFE_NO_PAD.decode(token)?;
+        *forged.last_mut().unwrap() ^= 1;
+        let response = client
+            .get(url)
+            .bearer_auth(secret)
+            .header("x-read-consistency", "at-least")
+            .header("x-min-version", URL_SAFE_NO_PAD.encode(forged))
+            .send()
+            .await?;
+        assert_eq!(response.status(), 503);
+        assert_eq!(response.text().await?, "VersionUnavailable");
+        let response = client
+            .get(url)
+            .bearer_auth(secret)
+            .header("x-read-consistency", "linearizable")
+            .header("x-contract-digest", hex::encode([99; 32]))
+            .send()
+            .await?;
+        assert_eq!(response.status(), 422);
         // Digest and kind checking happen before a conflicting duplicate can
         // return a stored success or call application code.
         let bad = client
@@ -681,6 +794,15 @@ async fn native_axum_command_parity() -> Result<()> {
             .send()
             .await?;
         assert_eq!(conflict.status(), 409);
+        let invalid_command = client
+            .post(format!("{url}?delta=7"))
+            .bearer_auth(secret)
+            .header("x-command-id", &command_id)
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .header("x-read-consistency", "linearizable")
+            .send()
+            .await?;
+        assert_eq!(invalid_command.status(), 400);
         assert_eq!(client.get(url).send().await?.status(), 401);
     }
     for (i, url) in urls.iter().enumerate() {

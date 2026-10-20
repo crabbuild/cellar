@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the real three-node executable, stop it and verify retained receipts.
+"""Run real native/Axum reads, remote routing and retained receipts after restart.
 
 Usage: python3 examples/raft-counter/smoke.py BINARY NEW_WORK_DIRECTORY
 Requires the example's six loopback ports to be free. Retains the work directory
@@ -50,9 +50,10 @@ def run(binary, work):
                     process.wait(timeout=10)
     print("late startup failure joined owners; resuming the same disks", flush=True)
 
-    def request(base, sequence=None, delta=None):
-        path = "/counters/one"
+    def request(base, sequence=None, delta=None, *, cell="one", read_headers=None):
+        path = f"/counters/{cell}"
         headers = {"authorization": f"Bearer {token}"}
+        headers.update(read_headers or {})
         method = "GET"
         if sequence is not None:
             method = "POST"
@@ -70,19 +71,21 @@ def run(binary, work):
         with (work / f"process-{phase}.log").open("wb") as output:
             process = subprocess.Popen(argv, stdout=output, stderr=subprocess.STDOUT)
             try:
-                def command(sequence, delta, expected, candidates):
+                def command(sequence, delta, expected, candidates, *, cell="one"):
                     deadline = time.monotonic() + 30
                     while time.monotonic() < deadline:
                         if process.poll() is not None:
                             raise RuntimeError(f"example exited {process.returncode}")
                         for base in candidates:
                             try:
-                                status, body = request(base, sequence, delta)
+                                status, body = request(base, sequence, delta, cell=cell)
                             except OSError:
                                 continue
                             if status == 200:
                                 result = json.loads(body)
                                 assert result["value"] == expected, result
+                                assert isinstance(result["version_token"], str)
+                                assert result["served_by"] is None
                                 return result
                             assert status == 503, (status, body)
                         time.sleep(0.02)
@@ -93,7 +96,7 @@ def run(binary, work):
                 original = command(1, 7, 7, bases)
                 if phase == 0:
                     first = original
-                    command(2, 2, 9, bases[3:])
+                    latest = command(2, 2, 9, bases[3:])
                     expected = 9
                 else:
                     # A reconstructed receipt may name a later verified covering
@@ -101,9 +104,10 @@ def run(binary, work):
                     assert all(original[k] == first[k] for k in
                                ["group", "incarnation", "value"]), (original, first)
                     assert original["index"] >= first["index"], (original, first)
-                    command(3, 4, 13, bases[:3])
+                    latest = command(3, 4, 13, bases[:3])
                     expected = 13
-                for base in bases:
+                other = command(1, 31, 31, bases, cell="two")
+                for i, base in enumerate(bases):
                     deadline = time.monotonic() + 15
                     while time.monotonic() < deadline:
                         status, body = request(base)
@@ -112,9 +116,39 @@ def run(binary, work):
                         time.sleep(0.02)
                     else:
                         raise TimeoutError(f"replica did not publish at {base}")
+                    # Select a different physical node so every ingress path
+                    # traverses the dedicated query RPC, without leader fallback.
+                    remote = ((i + 1) % 3) + 1
+                    for consistency in ["at-least", "linearizable"]:
+                        headers = {"x-read-consistency": consistency,
+                                   "x-query-members": str(remote),
+                                   "x-query-attempt-ms": "2000",
+                                   "x-query-timeout-ms": "4000"}
+                        if consistency == "at-least":
+                            headers["x-min-version"] = latest["version_token"]
+                        status, body = request(base, read_headers=headers)
+                        assert status == 200, (status, body)
+                        read = json.loads(body)
+                        assert read["value"] == expected, read
+                        assert read["served_by"] == remote, read
+                        assert read["index"] >= latest["index"], (read, latest)
+                        assert all(read[k] == latest[k] for k in ["group", "incarnation"])
+                        assert isinstance(read["version_token"], str)
+                    # A pre-restart token remains usable after ordinary restart;
+                    # a token from another cell never establishes a minimum.
+                    status, body = request(base, read_headers={
+                        "x-read-consistency": "at-least", "x-min-version": first["version_token"]})
+                    assert status == 200 and json.loads(body)["value"] == expected, (status, body)
+                    status, body = request(base, cell="two", read_headers={
+                        "x-read-consistency": "at-least", "x-min-version": latest["version_token"],
+                        "x-query-members": str(remote), "x-leader-fallback": "true"})
+                    assert status == 409 and body == b"WrongIncarnation", (status, body)
+                    status, body = request(base, cell="two", read_headers={
+                        "x-read-consistency": "at-least", "x-min-version": other["version_token"]})
+                    assert status == 200 and json.loads(body)["value"] == 31, (status, body)
                 process.send_signal(signal.SIGINT)
                 assert process.wait(timeout=30) == 0, "example shutdown failed"
-                print(f"phase {phase}: six HTTP endpoints agree; joined shutdown", flush=True)
+                print(f"phase {phase}: six HTTP endpoints verify strong remote reads and cell-scoped tokens; joined shutdown", flush=True)
             finally:
                 if process.poll() is None:
                     process.kill()

@@ -3,6 +3,8 @@
 #[allow(dead_code)]
 #[path = "support/raft_cluster.rs"]
 mod cluster;
+#[path = "support/raft_read_context.rs"]
+mod ordinary_context;
 #[allow(dead_code)]
 #[path = "support/raft_node.rs"]
 mod public_node;
