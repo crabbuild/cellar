@@ -212,10 +212,7 @@ impl CommittedArchiveCut {
         // ConfState is persisted atomically with the applied marker. Protocol
         // entries may advance it while retaining the exact same image.
         let position = applied.position;
-        let conf_state = cache
-            .conf_state
-            .write_to_bytes()
-            .map_err(|_| ArchiveError::Corrupt("archive configuration"))?;
+        let conf_state = manifest::encode_conf(&cache.conf_state)?;
         let mut entries = Vec::new();
         let mut bytes = 0usize;
         for (_, entry) in cache

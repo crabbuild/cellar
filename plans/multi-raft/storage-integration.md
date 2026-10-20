@@ -105,6 +105,8 @@ an immutable published generation and the exact synced applied marker,
 configuration and bounded retained entry suffix. It cannot relabel an old image
 with a newer unrelated marker, or accept another engine birth under the same
 numeric group identity. Merely persisted suffix entries are excluded.
+Archive ConfState lists are sorted before encoding/comparison: raft-rs emits
+unordered sets, so their iteration order must not create false history conflicts.
 
 The first archive is a full LTX snapshot. Later cuts may reuse it with contiguous
 normal-entry bundles, preserving no-op indices and each data entry's physical LTX

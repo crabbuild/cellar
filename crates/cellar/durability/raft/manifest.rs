@@ -284,16 +284,28 @@ pub(crate) fn decode_conf(bytes: &[u8]) -> Result<ConfState, ArchiveError> {
     }
     let conf = ConfState::parse_from_bytes(bytes)
         .map_err(|_| ArchiveError::Corrupt("archive configuration"))?;
-    validate_conf(&conf).map_err(ArchiveError::Log)?;
-    if conf
-        .write_to_bytes()
-        .map_err(|_| ArchiveError::Corrupt("archive configuration"))?
-        != bytes
-        || conf.get_unknown_fields().iter().next().is_some()
-    {
+    if encode_conf(&conf)? != bytes {
         return Err(ArchiveError::Corrupt("noncanonical archive configuration"));
     }
     Ok(conf)
+}
+
+pub(crate) fn encode_conf(conf: &ConfState) -> Result<Vec<u8>, ArchiveError> {
+    validate_conf(conf).map_err(ArchiveError::Log)?;
+    if conf.get_unknown_fields().iter().next().is_some() {
+        return Err(ArchiveError::Corrupt(
+            "unknown archive configuration fields",
+        ));
+    }
+    // raft-rs emits these sets in hash iteration order. Normalize archive
+    // bytes so independently applied equivalent configurations compare equal.
+    let mut conf = conf.clone();
+    conf.voters.sort_unstable();
+    conf.voters_outgoing.sort_unstable();
+    conf.learners.sort_unstable();
+    conf.learners_next.sort_unstable();
+    conf.write_to_bytes()
+        .map_err(|_| ArchiveError::Corrupt("archive configuration"))
 }
 
 const MAGIC: &[u8; 8] = b"CLRARC01";
@@ -340,4 +352,49 @@ pub(crate) fn decode<T: DeserializeOwned + Serialize>(
 
 pub(crate) fn digest(bytes: &[u8]) -> [u8; 32] {
     Sha256::digest(bytes).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_configuration_set_order_is_canonical() -> Result<(), ArchiveError> {
+        let mut first = ConfState {
+            voters: vec![9, 1, 5],
+            voters_outgoing: vec![3, 9, 1],
+            learners: vec![11, 7],
+            learners_next: vec![3],
+            auto_leave: true,
+            ..Default::default()
+        };
+        let encoded = encode_conf(&first)?;
+        let raw = first
+            .write_to_bytes()
+            .map_err(|_| ArchiveError::Corrupt("test configuration"))?;
+        assert!(decode_conf(&raw).is_err());
+        first.voters.reverse();
+        first.voters_outgoing.reverse();
+        first.learners.reverse();
+        first.learners_next.reverse();
+        assert_eq!(encoded, encode_conf(&first)?);
+        let canonical = decode_conf(&encoded)?;
+        assert_eq!(canonical.voters, vec![1, 5, 9]);
+        assert_eq!(canonical.voters_outgoing, vec![1, 3, 9]);
+        assert_eq!(canonical.learners, vec![7, 11]);
+        assert_eq!(canonical.learners_next, vec![3]);
+        Ok(())
+    }
+
+    #[test]
+    fn archive_configuration_unknown_and_duplicate_members_refused() {
+        let mut conf = ConfState {
+            voters: vec![1, 1],
+            ..Default::default()
+        };
+        assert!(encode_conf(&conf).is_err());
+        conf.voters.pop();
+        conf.mut_unknown_fields().add_varint(99, 1);
+        assert!(encode_conf(&conf).is_err());
+    }
 }
