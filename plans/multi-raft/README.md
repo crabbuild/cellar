@@ -59,9 +59,18 @@ transfers. Startup rejects insufficient capacity before creating catalog/member
 state. A forced lost ReadIndex reply also recovers under the original deadline
 with the term and leader unchanged; successful strong reads still require quorum.
 
+The [quorum-loss follow-up](evidence/MR-10-quorum-progress.json) pins
+`ad5818a1ba4d68f0cb1ca36890e34f819eadd5a1`: all 27 snapshot cases and 12 commands pass,
+including all 17 required inventory names. Only the snapshot integration test
+changed since the separate 304-case qualification. A three-voter group archives
+an acknowledged command, then loses two consensus owners. Available archive bytes
+cannot establish a command acknowledgement or strong-read proof. Physical restore
+into three blank replacement directories still refuses an old claimed identity,
+a different disk and an unassigned node; every failed attempt leaves no local
+group/voting state. Explicit disconnected historical reads remain coherent.
+
 The [snapshot audit](snapshot-audit.md) records the implemented native path and
-remaining authorized fresh-member/S3 admission, quorum-loss refusal and native
-crash qualification. MR-10 remains IN_PROGRESS. The earlier
+remaining authorized fresh-member/S3 admission and native crash qualification. MR-10 remains IN_PROGRESS. The earlier
 [cancellation record](evidence/MR-10-abort-progress.json) pins its 160-case scope at
 `c6aaca08153d039717a07195d05a8b0248ac6fe5`; the
 [peer-admission record](evidence/MR-10-inbound-progress.json) pins 157 cases at

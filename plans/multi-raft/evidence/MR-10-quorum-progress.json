@@ -1,0 +1,346 @@
+{
+  "task_id": "MR-10",
+  "source_revision": "ad5818a1ba4d68f0cb1ca36890e34f819eadd5a1",
+  "scope": "Native quorum-loss restore refusal qualification; MR-10 remains IN_PROGRESS. A public three-voter group first acknowledges an S3-durable command. Closing two consensus owners leaves archived bytes available but refuses commands and linearizable reads. Explicit disconnected historical reads remain coherent. The archive is physically restored into replacement directories; cloned disk identity without stable group state, a different disk, and an unassigned node all receive the exact typed refusal and leave no group/voting state.",
+  "production_sources_unchanged_since": "08b2bca3da32982795994d0240844324437ff0c7",
+  "parent_qualification": "evidence/MR-10-native-progress.json",
+  "parent_qualification_sha256": "0d5dceacbe474d375719fdb7cfd7f270c28172d23807e2281d9120474faea4ff",
+  "changed_crate_paths": [
+    "crates/cellar/tests/native_raft_snapshot.rs"
+  ],
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; public three-voter nodes with two stopped consensus owners; in-memory object store; physical archive restoration into three blank node directories; typed catalog refusals and empty-group checks; complete snapshot target with seven process-kill cuts and native TLS drills; no cellar_internal_tests",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "executable_digest": "9fe37c2623bdd69eae4822aaded1dcc5c853603f336cfb6e58f9d93b7eea4a73",
+  "executables": {
+    "native_raft_snapshot": {
+      "sha256": "9fe37c2623bdd69eae4822aaded1dcc5c853603f336cfb6e58f9d93b7eea4a73",
+      "bytes": 128120160
+    }
+  },
+  "tests": [
+    {
+      "name": "checkpoint_completion_loss_still_retains_durable_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_failed_sync_preserves_prospective_recovery_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_handoff_survives_newer_apply_late_retirement_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_refuses_material_from_reopened_engine",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "compacted_boundary_term",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "empty_configuration_snapshot_installs_then_applies_first_ltx",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "empty_snapshot_refuses_data_and_cannot_erase_committed_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "maximum_image_retained_snapshot_and_archive_roundtrip",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "missing_quorum_restore_refused",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_admission_refuses_insufficient_restore_capacity",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_catchup_resumes_follower_reads",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_interrupted_transfer_retries_without_blocking_other_groups",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_shutdown_joins_partial_transfer",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "restart_committed_replay",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "retained_checkpoint_capture_never_substitutes_newer_state",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "retained_empty_checkpoint_has_no_image_or_payload",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_joins_older_apply_and_allows_retry",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_preserves_vote_and_committed_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_download_bounds_and_incomplete_refusal",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_install_crash_matrix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_limits_require_full_encoded_image_capacity",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_old_reader",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_reference_survives_newer_head_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_runtime_installs_physical_image_with_exact_ticket",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_same_cut_cannot_name_an_unrelated_applied_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_wrong_history",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "name": "snapshot-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-snapshot-list.log",
+      "elapsed_seconds": 0.23,
+      "sha256": "b1301dde40100958f395db46862e95df3293d4505b76b549c550de5ac6324ba0"
+    },
+    {
+      "name": "inventory",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "check-list",
+        "MR-10",
+        "plans/multi-raft/evidence/MR-10-quorum-snapshot-list.log"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-inventory.log",
+      "elapsed_seconds": 0.08,
+      "sha256": "ac558adf45ae62f1c584d48a2556529e23a02fc1fd1348bd4be35fc5e6f21f47"
+    },
+    {
+      "name": "snapshot-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-snapshot-test.log",
+      "elapsed_seconds": 49.35,
+      "sha256": "6c35ba2f32c6aa59683768f014bea16745e99819f23259b4d34df8d71cfb26a3"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-clippy.log",
+      "elapsed_seconds": 2.19,
+      "sha256": "60147b68a03e2e25e085f2e093c3dfe0134770ad785c63497ec73d64d0548ba7"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-format.log",
+      "elapsed_seconds": 35.17,
+      "sha256": "a8cdfc0f95b9bd93e586ac074b7b4569723502b431a626a1d001874affbfddbb"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-layout.log",
+      "elapsed_seconds": 0.11,
+      "sha256": "4aafa7666e416e0f1eb7533d5506cef85a4fb184368402b0e0f29c79fcc45cb9"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-dependencies.log",
+      "elapsed_seconds": 0.24,
+      "sha256": "66d4bfd33c6a3ee0dfd3a395fee31991a85a59f1e0a308a6cd886de77ee71523"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-docs.log",
+      "elapsed_seconds": 0.06,
+      "sha256": "8d2bcbcf8d202a59798e972d1464a255d1a189ac31d5901369aab55317be9e22"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-plan.log",
+      "elapsed_seconds": 0.08,
+      "sha256": "23269061291fbf6f0318c338ecc3873f03e0e0f3ff5d8b21502df88fa3dc63d6"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-plan-tests.log",
+      "elapsed_seconds": 0.12,
+      "sha256": "13b629a5ab7d8c26f7afca512c1680cd37efe59a7cb7d7632f090c78916bb2fb"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-preflight.log",
+      "elapsed_seconds": 0.09,
+      "sha256": "66b3f1903c427ad4f65aba47283077db44796a2c5efb585dc31e8c47ed77adec"
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-10-quorum-diff.log",
+      "elapsed_seconds": 0.02,
+      "sha256": "f28478b37c085b5f5ac0eaac42a2d1486a80d7693ccbedca8666d36f727c590b"
+    }
+  ],
+  "limitations": "Only the snapshot integration test changed since the separately pinned 304-case native qualification; its production code is identical. This record reruns all 27 snapshot cases and 12 commands, including all 17 required inventory names, owning Clippy and repository policy checks. It is not another 27 unique cases added to the 304-case run; one new refusal case was added. Fresh-member authorization and S3/peer learner seeding, the complete native crash matrix, MR-11 through MR-17 and the full delivery goal remain unfinished. The object-store backend is in-memory and does not qualify physical S3 or power loss. No automatic repair, production capacity/performance, zones, larger cluster scale, federation or release qualification is claimed. The ignored snapshot process child is invoked by its owning parent.",
+  "counts": {
+    "rust_passed": 27,
+    "by_target": {
+      "native_raft_snapshot": 27
+    },
+    "successful_commands": 12,
+    "required_inventory_cases": 17,
+    "new_refusal_cases": 1,
+    "planning_cases": 17,
+    "ignored_child_entrypoints": 1
+  }
+}

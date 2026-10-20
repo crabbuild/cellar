@@ -434,8 +434,8 @@ regressions and both cellar-ltx backend feature modes. Exact-ticket abort joins
 older physical apply; native transfers retry and close through owned lifecycles.
 A dropped ReadIndex reply retries within its original invocation and still needs
 quorum proof. The [snapshot audit](snapshot-audit.md) records the implemented path
-and remaining fresh-member authorization/S3 seeding, explicit quorum-loss restore
-refusal and the full native recovery fault matrix. MR-10 is not complete.
+and remaining fresh-member authorization/S3 seeding and the full native recovery
+fault matrix. MR-10 is not complete.
 
 The native host now captures periodic checkpoints and pins the exact requested
 source before sending snapshot metadata. Member-only pulls use separate bounded
@@ -444,6 +444,17 @@ seals and publishes only after the exact durable install. Older physical apply
 forces abort/join before retry; other groups retain command and query progress.
 Native drills cover catch-up, partial-transfer retry and joined shutdown. Snapshot
 admission is checked before catalog objects or member storage are created.
+
+The [quorum-loss follow-up](evidence/MR-10-quorum-progress.json) pins
+`ad5818a1ba4d68f0cb1ca36890e34f819eadd5a1`: all 27 snapshot cases and 12 commands pass,
+including all 17 required inventory names. Only the snapshot integration test
+changed since the separate 304-case qualification. A three-voter group archives
+an acknowledged command, then loses two consensus owners. Available archive bytes
+cannot establish a command acknowledgement or strong-read proof. Physical restore
+into three blank replacement directories still refuses an old claimed identity,
+a different disk and an unassigned node; every failed attempt leaves no local
+group/voting state. Explicit disconnected historical reads remain coherent.
+
 
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
 

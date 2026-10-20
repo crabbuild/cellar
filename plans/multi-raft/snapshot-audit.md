@@ -9,6 +9,16 @@ Format checks 631 Rust files. Layout, dependency policy, docs, 17 plan tests and
 the reviewed 68-anchor preflight pass. Seven ignored process children are invoked
 by owning parents and excluded from counts.
 
+The [quorum-loss follow-up](evidence/MR-10-quorum-progress.json) pins
+`ad5818a1ba4d68f0cb1ca36890e34f819eadd5a1`: all 27 snapshot cases and 12 commands pass,
+including all 17 required inventory names. Only the snapshot integration test
+changed since the separate 304-case qualification. A three-voter group archives
+an acknowledged command, then loses two consensus owners. Available archive bytes
+cannot establish a command acknowledgement or strong-read proof. Physical restore
+into three blank replacement directories still refuses an old claimed identity,
+a different disk and an unassigned node; every failed attempt leaves no local
+group/voting state. Explicit disconnected historical reads remain coherent.
+
 The [cancellation record](evidence/MR-10-abort-progress.json),
 [peer-admission record](evidence/MR-10-inbound-progress.json) and
 [earlier physical record](evidence/MR-10-physical-progress.json) preserve their
@@ -228,7 +238,6 @@ Still required for MR-10:
 - Authorized fresh-member admission and S3/peer seeding through a surviving live
   group. Preserve committed member/node/disk bindings across compaction and never
   reuse a lost voter's identity or restore its votes from an archive.
-- Explicit native quorum-loss restore refusal with available archived cell bytes.
 - Complete native process-crash, recovery/readiness and image-pressure fault
   qualification, followed by pinned package completion evidence.
 
