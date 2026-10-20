@@ -196,7 +196,7 @@ shown by `plan.py show MR-04`; the manifest is authoritative for arguments.
 
 ### MR-05 Implement verified LTX apply and immutable generations
 
-Dependencies: MR-01. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-01. Phase: v1. Status: DONE. Evidence: [MR-05](evidence/MR-05.json).
 
 Modify: `crates/cellar-ltx/src/lib.rs`, `crates/cellar-ltx/src/host.rs`, `crates/cellar-ltx/src/ltx.rs`, `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar-ltx/Cargo.toml`, `Cargo.lock`, `crates/cellar-ltx/README.md`.
 
@@ -225,7 +225,7 @@ shown by `plan.py show MR-05`; the manifest is authoritative for arguments.
 
 ### MR-06 Stage commands privately and bind results to committed LTX
 
-Dependencies: MR-03, MR-05. Phase: v1. Initial status: TODO.
+Dependencies: MR-03, MR-05. Phase: v1. Status: IN_PROGRESS.
 
 Modify: `crates/cellar/durability/replication/backend.rs`, `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar/application/storage/transaction.rs`.
 

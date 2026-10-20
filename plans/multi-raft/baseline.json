@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "24261b84fe9c9b71e18b1e521fb821bd14c0c8d1",
+  "revision": "fd82ca8deec8c8c56ac9a0e527af5a10956bbc9c",
   "prepared_date": "2026-10-19",
   "files": [
     {
@@ -14,7 +14,7 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "58577499016f9ec0acafcec08b960cec97e53734b55498c95671010376212d23"
+      "sha256": "6a0912497882655fe96c11b4073db659d3d40342357448533e70830cd9f1a43b"
     },
     {
       "path": "Cargo.toml",
@@ -62,11 +62,11 @@
     },
     {
       "path": "crates/cellar-ltx/Cargo.toml",
-      "sha256": "9ff4d12944fbbbb273eb20246c8778c83c922d4489b204ac37b639752c8cf972"
+      "sha256": "85c2bc182c6862cec41d1ca02bef57c296a33733fe2025b60f4681c6a1b27116"
     },
     {
       "path": "crates/cellar-ltx/README.md",
-      "sha256": "3cfc6529e5649eb27f12b424de6347c0fedbb755df21bade6a50e55b99ce371d"
+      "sha256": "573f0cf79864697c7735d2fa03d54f8e14d09452cd3cbc42bad2e33876f225ae"
     },
     {
       "path": "crates/cellar-ltx/reference/ltx-format.md",
@@ -78,15 +78,15 @@
     },
     {
       "path": "crates/cellar-ltx/src/host.rs",
-      "sha256": "8f4284840fbce97954d4c59b8bd814f7605f1477665f21af127998e840b9a677"
+      "sha256": "35333404c52cdfaf2a8b154e713fd01ff8aad9accbcad232aec14bf168e6817a"
     },
     {
       "path": "crates/cellar-ltx/src/lib.rs",
-      "sha256": "9b4dfa803d8c188caa9551f3192a0abd185e2e159772599ed480c170b580bbae"
+      "sha256": "2f04d0da40d013abc0ada7aabb1bb7d5353366c57419a700fd8a664e3bda6a8a"
     },
     {
       "path": "crates/cellar-ltx/src/ltx.rs",
-      "sha256": "ae1c56ed8a573fe007e5b206df9f2c1ad9502b4217893a6757496daeb28d1f35"
+      "sha256": "c32c9f3d13c927179b227db4bde1a032f1274b854dc3d554d0310b4201cd3367"
     },
     {
       "path": "crates/cellar/Cargo.toml",
@@ -190,7 +190,7 @@
     },
     {
       "path": "crates/cellar/storage/sqlite/mod.rs",
-      "sha256": "a1ba3837b5915663230fcb72faa96526ee1efe203df226cb8e3f01d56415bd02"
+      "sha256": "8fb066ce977eb22da5d4145002309aad685078456355b8dbac6f96a8a16a1e65"
     },
     {
       "path": "crates/cellar/tests/native_node.rs",

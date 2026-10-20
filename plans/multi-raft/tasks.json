@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "24261b84fe9c9b71e18b1e521fb821bd14c0c8d1",
+  "baseline_revision": "fd82ca8deec8c8c56ac9a0e527af5a10956bbc9c",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -532,7 +532,7 @@
       "id": "MR-05",
       "title": "Implement verified LTX apply and immutable generations",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-01"
       ],
@@ -642,13 +642,15 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-05.json"
+      ]
     },
     {
       "id": "MR-06",
       "title": "Stage commands privately and bind results to committed LTX",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-03",
         "MR-05"

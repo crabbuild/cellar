@@ -1,0 +1,133 @@
+{
+  "task_id": "MR-05",
+  "source_revision": "fd82ca8deec8c8c56ac9a0e527af5a10956bbc9c",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "359efcb018577d70124f2132f0962c9414bd57353eccee23c864af5100678e0e",
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite databases and injected DirectFileSystem; four SIGKILL child publication cuts; ordinary serial integration targets; debug assertions enabled; isolated checkout target; debuginfo=0",
+  "limitations": "MR-05 physical LTX verification, immutable image publication, retention and read-only SQLite qualification only. The crash-cut parent uses a plain-file fixture marker, not the Raft Engine apply marker: engine/image atomicity and command receipts remain MR-06 work. The query opener does not establish committed/query-serving authority. Capture and command/SDK integration, real group snapshot transfer, S3 archival/restore, physical power-loss, production infrastructure and performance/capacity qualification remain pending. The ignored child entry point is invoked and killed by its parent. No end-to-end serving or deployment claim is made.",
+  "tests": [
+    {
+      "name": "bounded_decoder_checks_physical_index_and_snapshot_coverage",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_matches_both_ltx_writers",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_refuses_expansion_before_decompression",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_rejects_mutation_without_panics",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_round_trips_real_sqlite_state",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_image_reclamation",
+      "result": "passed"
+    },
+    {
+      "name": "image_sync_before_marker",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_query_uses_injected_filesystem",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_reader_pinning",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_checksum_corruption",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_exact_base",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_growth_truncation",
+      "result": "passed"
+    },
+    {
+      "name": "multi_file_apply_and_optional_checksum_transitions",
+      "result": "passed"
+    },
+    {
+      "name": "query_services_and_directory_ownership_are_independent",
+      "result": "passed"
+    },
+    {
+      "name": "unexpected_final_name_is_never_overwritten",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_ltx",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-05-list.log"
+    },
+    {
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_ltx",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-05-test.log"
+    }
+  ],
+  "lockfile_digest": "6a0912497882655fe96c11b4073db659d3d40342357448533e70830cd9f1a43b",
+  "additional_checks": [
+    "evidence/MR-05-regressions.log",
+    "evidence/MR-05-clippy.log",
+    "evidence/MR-05-check-core.log",
+    "evidence/MR-05-check-features.log",
+    "evidence/MR-05-format.log",
+    "evidence/MR-05-format-check.log",
+    "evidence/MR-05-layout.log",
+    "evidence/MR-05-dependencies.log",
+    "evidence/MR-05-docs.log",
+    "evidence/MR-05-plan-tests.log",
+    "evidence/MR-05-inventory.log"
+  ],
+  "additional_check_results": {
+    "decoder": "Both upstream LTX writer representations and optional database checksums; complete physical index/snapshot coverage, exact compressed lengths and bounded scratch/decoded allocations. Every truncation and bit mutation of representative files is refused without unwinding.",
+    "apply": "Real SQLite images cover exact base/result SHA-256, TXID gaps, declared byte/page bounds, page growth, truncation, multi-file updates and checksum enable/disable transitions. Valid file CRC with altered data still fails database CRC or mandatory result SHA-256.",
+    "publication": "Image fsync precedes exclusive final-name reservation, rename and directory fsync. Injected image/directory sync failures leave the old marker selected. Unexpected names are not overwritten; ambiguous final-name creation quarantines admission and preserves inventory.",
+    "process_faults": "Real SIGKILL cuts before image sync, after rename, after directory sync and after fixture-marker sync recover the image selected by the retained marker. An orphan/newest image is never chosen implicitly.",
+    "queries": "Actual SQL pins unchanged generations while newer ones are built; DDL/DML/temp/ATTACH/transaction/mutating PRAGMA operations are refused. Reads and read failures use injected file handles. Concurrent connections retain independent host clocks and keep the directory lock until the last reader closes.",
+    "reclamation": "Generation/disk admission refuses excess work; reader and durable retention roots prevent deletion. Recovery preserves unverified files pending authoritative marker selection. Deletion sync precedes capacity refund.",
+    "regressions": "46 passed across native_raft_contract (6), native_raft_runtime (14), native_raft_storage (10), native_raft_transport (9), native_replication (6) and native_storage (1). Three ignored child helpers are invoked by their parent cases.",
+    "checks": "Cellar and LTX libraries plus native_raft_ltx pass Clippy with warnings denied; LTX core and all-feature checks pass. Existing vendored Raft warnings remain visible in the raw logs. Formatting, module layout, native dependency policy, documentation and all 17 planning-tool tests pass."
+  },
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  }
+}

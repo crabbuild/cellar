@@ -39,3 +39,14 @@ final transport-only queue refinement is recorded in the evidence. Three real
 child peer hosts exercise TLS, two groups, independent leaders, one-way loss,
 duplication, reordering and delayed Raft responses. These checks do not qualify
 SQLite/LTX, S3, end-to-end SDK serving, production performance or capacity.
+
+
+MR-05 verified image implementation and scoped qualification are recorded in
+[MR-05 evidence](evidence/MR-05.json), pinned to source
+`fd82ca8deec8c8c56ac9a0e527af5a10956bbc9c`. All 15 image cases and 46 contract, Raft and
+existing replication/storage regressions passed. Four SIGKILL cuts exercise
+image publication and selection through a fixture marker; this is not yet
+qualification of engine apply markers. Actual SQLite queries use injected
+readers, retain immutable generations and refuse mutations. LTX core/all-feature
+builds, Clippy, formatting, layout, dependency policy, documentation and all 17
+planning-tool tests passed. Command/SDK serving, S3 and scale remain pending.
