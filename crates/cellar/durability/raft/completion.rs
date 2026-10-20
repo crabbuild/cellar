@@ -4,7 +4,9 @@ use super::budget::Permit;
 use super::cache::{CommittedImage, DurableApply};
 use super::storage::LogError;
 use ::raft::prelude::{Entry, Message, Snapshot};
-use cellar_logic::consensus::{LogIndex, LogPosition, OperationId, ReplicaIdentity, Term};
+use cellar_logic::consensus::{
+    LogIndex, LogPosition, MemberId, OperationId, ReplicaIdentity, Term,
+};
 use protobuf::Message as _;
 use sha2::{Digest, Sha256};
 use std::fmt;
@@ -117,6 +119,32 @@ pub struct GroupStatus {
     pub awaiting_ready: bool,
     pub awaiting_apply: bool,
     pub election_timeout: usize,
+}
+
+impl GroupStatus {
+    /// Project every protocol admission predicate into the command core. The
+    /// host allocates `sequence` before requesting this status, and supplies
+    /// separately verified image/archive progress to that core.
+    pub fn leadership_observation(
+        &self,
+        sequence: u64,
+    ) -> Result<cellar_logic::raft_command::LeadershipObservation, RuntimeError> {
+        Ok(cellar_logic::raft_command::LeadershipObservation {
+            replica: self.replica.clone(),
+            sequence,
+            term: self.term,
+            leader: self
+                .leader
+                .map(MemberId::new)
+                .transpose()
+                .map_err(|error| RuntimeError::Invalid(error.to_string()))?,
+            is_leader: self.is_leader,
+            protocol_ready: self.protocol_ready,
+            awaiting_ready: self.awaiting_ready,
+            awaiting_apply: self.awaiting_apply,
+            barrier: self.applied,
+        })
+    }
 }
 
 #[derive(Debug)]

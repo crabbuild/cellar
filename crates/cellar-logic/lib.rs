@@ -29,6 +29,7 @@ mod output_gate;
 pub mod peer;
 pub mod pressure;
 pub mod queue;
+pub mod raft_command;
 pub mod rebalance;
 pub mod restore;
 pub mod routing;

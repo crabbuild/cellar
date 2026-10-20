@@ -14,6 +14,18 @@ pub struct ImmutableQuery {
 }
 
 impl ImmutableQuery {
+    /// Application SQL retains the read-only authorizer and the reservation of
+    /// framework tables. Framework receipt lookup uses its separate connection
+    /// path; a query callback cannot depend on or expose those private rows.
+    pub fn query_row<T>(
+        &self,
+        sql: &str,
+        params: impl rusqlite::Params,
+        read: impl FnOnce(&rusqlite::Row<'_>) -> rusqlite::Result<T>,
+    ) -> anyhow::Result<T> {
+        super::as_user_sql(|| self.connection().query_row(sql, params, read)).map_err(Into::into)
+    }
+
     /// The borrow retains the generation pin for statements/cursors as well as
     /// the connection. Application query facades expose only read operations.
     pub fn connection(&self) -> &Connection {

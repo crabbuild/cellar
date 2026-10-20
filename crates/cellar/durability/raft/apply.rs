@@ -41,6 +41,7 @@ pub struct PublishedImage {
     position: LogPosition,
     scope: GroupScope,
     proposal: Option<ProposalId>,
+    application_digest: [u8; 32],
 }
 
 impl PublishedImage {
@@ -58,6 +59,10 @@ impl PublishedImage {
 
     pub fn position(&self) -> LogPosition {
         self.position
+    }
+
+    pub fn application_digest(&self) -> [u8; 32] {
+        self.application_digest
     }
 }
 
@@ -101,6 +106,7 @@ impl ImageApplier {
                     position: applied.position,
                     scope: group.identity().scope.clone(),
                     proposal: None,
+                    application_digest,
                 })
             })
             .transpose()?;
@@ -244,6 +250,7 @@ impl ImageApplier {
             return Err(ImageApplyError::Unpublished);
         }
         let head = PublishedImage {
+            application_digest: self.application_digest,
             pin: pending.pin.clone(),
             position: ticket.position(),
             scope: self.group.identity().scope.clone(),

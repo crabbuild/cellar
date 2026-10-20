@@ -3,7 +3,14 @@
 //! These values describe durable identities and physical update envelopes.
 //! Transport, storage and command registration are supplied by the host.
 
+mod class;
 pub(crate) mod protocol;
+
+pub use crate::storage::{CommandInputs, CommandTransaction};
+pub use class::{
+    command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
+    RaftClass, RegistrationError,
+};
 
 pub use cellar_logic::consensus::{
     ClientId, CommandFailure, CommandId, CommittedVersion, Durability, GroupScope,
@@ -27,9 +34,9 @@ pub mod verification {
         RuntimeEventKind, SnapshotCompletion,
     };
     pub use crate::raft::execution::{
-        AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest, CommittedReceipt,
-        ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand, PrivateExecutor,
-        PrivateOptions, StageOutcome, StoredReceipt,
+        query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
+        CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
+        PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
     };
     pub use crate::raft::options::RaftRuntimeOptions;
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};

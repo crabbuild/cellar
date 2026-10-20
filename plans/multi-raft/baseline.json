@@ -105,6 +105,10 @@
       "sha256": "75f193960ec074bc66d74f40f89bece080af0faeafc3b1cb905b68293b765c27"
     },
     {
+      "path": "crates/cellar/application/README.md",
+      "sha256": "bfdd2b8516e15a93236f54c07a5b197823551b590e20e0fb5f110fc69e609dd0"
+    },
+    {
       "path": "crates/cellar/application/cells.rs",
       "sha256": "7c0425bd4e4e8df08e95dbd22c53f8ef0cae5c736d804baa90b7d2e1a9b2956e"
     },

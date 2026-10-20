@@ -59,6 +59,7 @@ struct Host {
     applier: ImageApplier,
     images: GenerationStore,
     gate: Arc<fault::Gate>,
+    application_digest: [u8; 32],
 }
 
 impl Host {
@@ -71,6 +72,16 @@ impl Host {
         recover: bool,
         process: u8,
         signal: Option<std::path::PathBuf>,
+    ) -> Result<Self> {
+        Self::open_schema(root, recover, process, signal, [9; 32]).await
+    }
+
+    async fn open_schema(
+        root: &Path,
+        recover: bool,
+        process: u8,
+        signal: Option<std::path::PathBuf>,
+        application_digest: [u8; 32],
     ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let gate = fault::Gate::new(signal);
@@ -109,7 +120,7 @@ impl Host {
         let applier = ImageApplier::recover(
             log.group(&scope())?,
             images.clone(),
-            [9; 32],
+            application_digest,
             EnvelopeLimits::default(),
         )?;
         let (runtime, events) = RaftRuntime::start(
@@ -129,6 +140,7 @@ impl Host {
             applier,
             images,
             gate,
+            application_digest,
         })
     }
 
@@ -497,7 +509,7 @@ impl Host {
                     now_unix_millis: Arc::new(|| 10),
                     fill_random: Arc::new(|bytes| bytes.fill(17)),
                 },
-                application_digest: [9; 32],
+                application_digest: self.application_digest,
                 limits,
             },
             self.authority().await?,
@@ -558,6 +570,327 @@ fn prepared(outcome: StageOutcome) -> Result<PreparedCommand> {
         StageOutcome::Prepared(value) => Ok(value),
         StageOutcome::Duplicate(_) => bail!("expected a new command"),
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn registered_command_uses_exact_image_receipt_and_read_only_query() -> Result<()> {
+    use cellar::sdk::consensus::command_request_digest;
+    use cellar::sdk::{OperationKind, RaftClass, RegistrationError};
+    use cellar_logic::raft_command::{Cancellation, CommandState};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let called = calls.clone();
+    let class = RaftClass::new("Counter", 1, [22; 32])?
+        .command("Increment", [23; 32], move |context, input| {
+            called.fetch_add(1, Ordering::SeqCst);
+            assert_eq!(context.identity(), &scope());
+            assert_eq!(context.command().sequence(), 1);
+            assert_eq!(context.inputs().now_unix_millis, 10);
+            assert_eq!(context.inputs().random, [17; 32]);
+            let delta = i64::from_be_bytes(input.try_into()?);
+            context.sql().execute_batch("CREATE TABLE IF NOT EXISTS counter(value INTEGER); INSERT INTO counter SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM counter)")?;
+            context.sql().execute("UPDATE counter SET value=value+?1", [delta])?;
+            let value: i64 = context.sql().query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+            Ok(value.to_be_bytes().to_vec())
+        })?
+        .query("Get", [24; 32], |context, _| {
+            assert_eq!(context.identity(), &scope());
+            assert!(context.version().position.index.get() > 0);
+            for sql in [
+                "UPDATE counter SET value=999 RETURNING value",
+                "PRAGMA user_version=8",
+                "ATTACH DATABASE ':memory:' AS other",
+                "CREATE TABLE unauthorized(value INTEGER)",
+                "SELECT count(*) FROM __sys_raft_receipts",
+            ] {
+                assert!(context.query_row(sql, [], |row| row.get::<_, i64>(0)).is_err(), "{sql}");
+            }
+            let value: i64 = context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+            Ok(value.to_be_bytes().to_vec())
+        })?;
+    let input = 7_i64.to_be_bytes();
+    let registered_attempt = |tag: u8| -> Result<CommandAttempt> {
+        let mut request = attempt(1, tag)?;
+        request.request.operation = "Increment".into();
+        request.request.contract_digest = [23; 32];
+        request.request.request_digest = command_request_digest(&input);
+        Ok(request)
+    };
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open_schema(root.path(), false, 1, None, class.schema_digest()).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let mut wrong = registered_attempt(1)?;
+    wrong.request.contract_digest = [25; 32];
+    assert!(matches!(
+        executor.stage_registered(wrong, &class, &input),
+        Err(ExecutionError::Registration(
+            RegistrationError::ContractMismatch
+        ))
+    ));
+    assert!(matches!(
+        executor.stage_registered(registered_attempt(1)?, &class, b"changed"),
+        Err(ExecutionError::Refused(CommandFailure::CommandConflict))
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(executor.status(), ExecutionStatus::Ready);
+    let mut query_as_command = registered_attempt(1)?;
+    query_as_command.request.operation = "Get".into();
+    query_as_command.request.contract_digest = [24; 32];
+    assert!(matches!(
+        executor.stage_registered(query_as_command, &class, &input),
+        Err(ExecutionError::Registration(
+            RegistrationError::KindMismatch
+        ))
+    ));
+
+    let status = host.runtime.status(&scope()).await?;
+    let mut core = CommandState::new(
+        ReplicaProgress::checkpoint(
+            status.replica.clone(),
+            status.applied.index,
+            LogIndex::new(0),
+        )?,
+        Durability::Quorum,
+    )?;
+    let authority = core
+        .observe_leadership(status.leadership_observation(1)?)?
+        .authority
+        .unwrap();
+    let request = registered_attempt(1)?;
+    let identity = core.admit(
+        &authority,
+        request.request.id,
+        request.proposal,
+        request.request.durability,
+    )?;
+    let staged = prepared(executor.stage_registered(request, &class, &input)?)?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(host.applier.current().is_none());
+    assert_eq!(core.finish(&identity).unwrap_err(), Refusal::Unproven);
+    // Both producer owners fence uncertainty before the proposal await. Losing
+    // this caller cannot permit another callback against the private image.
+    core.mark_submitted(&identity)?;
+    executor.mark_submitted(staged.proposal())?;
+    let accepted = host
+        .runtime
+        .propose(&scope(), staged.context(), staged.bytes().to_vec())
+        .await?;
+    core.bind_entry(&identity, accepted.position, accepted.entry_digest)?;
+    assert_eq!(core.cancel(&identity)?, Cancellation::Submitted);
+    assert_eq!(core.discard_completed(&identity), Err(Refusal::Unproven));
+    let (ticket, entry) = host.next_apply().await?;
+    assert_eq!(ticket.entry_digest(), accepted.entry_digest);
+    let status = host.runtime.status(&scope()).await?;
+    let mut progress = core.progress().clone();
+    progress.persist(status.persisted)?;
+    progress.commit(status.committed)?;
+    core.observe_progress(progress)?;
+    let proof = |stage| {
+        OutputProof::Raft(Box::new(RaftProof {
+            command: identity.clone(),
+            entry_digest: ticket.entry_digest(),
+            position: ticket.position(),
+            stage,
+        }))
+    };
+    core.observe_proof(&proof(ProofStage::Committed))?;
+    assert_eq!(
+        core.observe_proof(&proof(ProofStage::Applied)),
+        Err(Refusal::Unproven)
+    );
+    let completion = host
+        .applier
+        .prepare(ticket.clone(), &entry, images::id(1))?;
+    assert!(host.applier.current().is_none());
+    host.runtime.complete_apply(completion).await?;
+    let published = host.applied(&ticket).await?;
+    let status = host.runtime.status(&scope()).await?;
+    core.observe_progress(ReplicaProgress::checkpoint(
+        status.replica.clone(),
+        status.applied.index,
+        LogIndex::new(0),
+    )?)?;
+    core.observe_leadership(status.leadership_observation(2)?)?;
+    core.observe_proof(&proof(ProofStage::Applied))?;
+    core.observe_proof(&proof(ProofStage::Queryable))?;
+    assert_eq!(core.finish(&identity).unwrap_err(), Refusal::Unproven);
+    let AppliedExecution::Command(receipt) = executor.finish(published.clone())? else {
+        bail!("expected command receipt")
+    };
+    core.verify_receipt(
+        &identity,
+        receipt.receipt().command(),
+        receipt.position(),
+        receipt.receipt().minimum_durability(),
+    )?;
+    let permit = core.finish(&identity)?;
+    assert_eq!(permit.command(), receipt.receipt().command());
+    assert_eq!(permit.version().position, accepted.position);
+    assert_eq!(receipt.receipt().result(), input);
+    let get = class.contract("Get").unwrap();
+    let services = || cellar_ltx::generation::ReadServices {
+        now_unix_millis: Arc::new(|| 10),
+        fill_random: Arc::new(|bytes| bytes.fill(17)),
+    };
+    let result = query_registered(
+        &published,
+        &class,
+        &get,
+        &[],
+        services(),
+        ExecutionLimits::default(),
+    )?;
+    assert_eq!(result.result, input);
+    assert_eq!(result.version, *permit.version());
+    assert_eq!(published.application_digest(), class.schema_digest());
+    let incompatible = RaftClass::new("Other", 1, [22; 32])?
+        .query("Get", [24; 32], |_, _| bail!("incompatible query code ran"))?;
+    assert!(matches!(
+        query_registered(
+            &published,
+            &incompatible,
+            &get,
+            &[],
+            services(),
+            ExecutionLimits::default()
+        ),
+        Err(ExecutionError::Registration(
+            RegistrationError::ContractMismatch
+        ))
+    ));
+    let mut wrong = get.clone();
+    wrong.kind = OperationKind::Command;
+    assert!(matches!(
+        query_registered(
+            &published,
+            &class,
+            &wrong,
+            &[],
+            services(),
+            ExecutionLimits::default()
+        ),
+        Err(ExecutionError::Registration(
+            RegistrationError::KindMismatch
+        ))
+    ));
+    wrong = get.clone();
+    wrong.digest = [25; 32];
+    assert!(matches!(
+        query_registered(
+            &published,
+            &class,
+            &wrong,
+            &[],
+            services(),
+            ExecutionLimits::default()
+        ),
+        Err(ExecutionError::Registration(
+            RegistrationError::ContractMismatch
+        ))
+    ));
+    executor.refresh_authority(host.authority().await?)?;
+    let request = registered_attempt(2)?;
+    // A matching physical image cannot be relabeled with another schema and
+    // used as this class's private base. Refusal precedes reconstruction.
+    let wrong_schema = ImageApplier::recover(
+        host.log.group(&scope())?,
+        host.images.clone(),
+        [26; 32],
+        EnvelopeLimits::default(),
+    )?;
+    assert!(matches!(
+        executor.rebuild(wrong_schema.current(), host.authority().await?),
+        Err(ExecutionError::Invalid(_))
+    ));
+    drop(wrong_schema);
+    assert_eq!(executor.status(), ExecutionStatus::Ready);
+    let retry = core.admit(
+        &authority,
+        request.request.id,
+        request.proposal,
+        request.request.durability,
+    )?;
+    let StageOutcome::Duplicate(repeated) = executor.stage_registered(request, &class, &input)?
+    else {
+        bail!("retry re-executed")
+    };
+    core.recover_receipt(
+        &retry,
+        repeated.receipt().command(),
+        CommittedVersion {
+            scope: scope(),
+            position: repeated.position(),
+        },
+        repeated.receipt().minimum_durability(),
+    )?;
+    assert_eq!(core.finish(&retry)?.version(), permit.version());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    drop(executor);
+    drop(published);
+    host.close().await?;
+
+    let mut recovered =
+        Host::open_schema(root.path(), true, 2, None, class.schema_digest()).await?;
+    recovered.elect().await?;
+    let mut executor = recovered
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let StageOutcome::Duplicate(receipt) =
+        executor.stage_registered(registered_attempt(3)?, &class, &input)?
+    else {
+        bail!("receipt lost on restart")
+    };
+    assert_eq!(receipt.receipt().result(), input);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let status = recovered.runtime.status(&scope()).await?;
+    let mut core = CommandState::new(
+        ReplicaProgress::checkpoint(
+            status.replica.clone(),
+            status.applied.index,
+            LogIndex::new(0),
+        )?,
+        Durability::Quorum,
+    )?;
+    let current = core
+        .observe_leadership(status.leadership_observation(1)?)?
+        .authority
+        .unwrap();
+    let retry = core.admit(
+        &current,
+        receipt.receipt().command(),
+        ProposalId::new([3; 16])?,
+        Durability::Quorum,
+    )?;
+    core.recover_receipt(
+        &retry,
+        receipt.receipt().command(),
+        CommittedVersion {
+            scope: scope(),
+            position: receipt.position(),
+        },
+        receipt.receipt().minimum_durability(),
+    )?;
+    let reconciled = core.finish(&retry)?;
+    assert_eq!(reconciled.version().position, receipt.position());
+    assert!(reconciled.version().position.term < current.term);
+    assert_eq!(
+        query_registered(
+            &recovered.applier.current().unwrap(),
+            &class,
+            &get,
+            &[],
+            services(),
+            ExecutionLimits::default()
+        )?
+        .result,
+        input
+    );
+    drop(executor);
+    recovered.close().await
 }
 
 fn initialize(transaction: &cellar::storage::CommandTransaction<'_>) -> Result<Vec<u8>> {

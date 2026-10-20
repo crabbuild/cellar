@@ -5,13 +5,147 @@ mod store;
 
 use anyhow::{bail, Result};
 use cellar::application::consensus::verification::*;
-use cellar::sdk::ExecutionDomain;
+use cellar::sdk::{Application, ExecutionDomain, Output, RaftClass, RegistrationError, Registry};
 use cellar_logic::consensus::*;
 use cellar_logic::NamespaceMode;
 use cellar_ltx::DirectFileSystem;
 use object_store::{path::Path as ObjectPath, ObjectStore};
 use std::path::Path;
 use std::sync::{atomic::Ordering, Arc};
+
+fn registered_counter() -> Result<RaftClass> {
+    Ok(RaftClass::new("Counter", 1, [7; 32])?
+        .command("Increment", [8; 32], |_, _| Ok(vec![]))?
+        .query("Get", [9; 32], |_, _| Ok(vec![]))?)
+}
+
+#[test]
+fn unsupported_factory_refused() -> Result<()> {
+    let called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let invoked = called.clone();
+    let registry = Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+        .cell("Mutable", move |_, _| {
+            invoked.store(true, Ordering::SeqCst);
+            bail!("a mutable factory must never be called by Raft dispatch")
+        })?
+        .raft_class(registered_counter()?)?;
+    assert!(matches!(
+        registry.resolve_raft_class("Mutable"),
+        Err(RegistrationError::UnsupportedFactory(class)) if class == "Mutable"
+    ));
+    assert!(!called.load(Ordering::SeqCst));
+    assert!(registry.supports_cell("Mutable"));
+    assert!(!registry.supports_cell("Counter"));
+    let counter = registry.resolve_raft_class("Counter")?;
+    assert_eq!(counter.schema_version(), 1);
+    assert_eq!(counter.name(), "Counter");
+    assert!(matches!(
+        registry.resolve_raft_class("Missing"),
+        Err(RegistrationError::UnknownClass(_))
+    ));
+
+    // Registration is exclusive in either order. No fallback factory can be
+    // installed to grant a second mutation authority for the class.
+    assert!(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+        .cell("Counter", |_, _| bail!("unused"))?
+        .raft_class(registered_counter()?)
+        .is_err());
+    assert!(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+        .raft_class(registered_counter()?)?
+        .cell("Counter", |_, _| bail!("unused"))
+        .is_err());
+    assert!(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+        .workflow("Counter", |_, _, _| Box::pin(async {
+            bail!("unused workflow")
+        }))?
+        .raft_class(registered_counter()?)
+        .is_err());
+    assert!(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) }))
+        .raft_class(registered_counter()?)?
+        .workflow("Counter", |_, _, _| Box::pin(async {
+            bail!("unused workflow")
+        }))
+        .is_err());
+
+    let mut options = cellar::engine_api::WorkerConfigOptions {
+        src: String::new(),
+        script_name: "test".into(),
+        do_classes: vec!["Mutable".into()],
+        bindings: vec![],
+        blob_bindings: vec![],
+        sql_bindings: vec![],
+        kv_bindings: vec![],
+        queue_bindings: vec![],
+        stream_bindings: vec![],
+        queue_consumers: vec![],
+        workflow_bindings: vec![],
+        vars: vec![],
+        node: "test".into(),
+        modules: vec![],
+        compat: Default::default(),
+    };
+    registry.validate_configuration(&options)?;
+    options.do_classes.push("Counter".into());
+    let error = registry.validate_configuration(&options).unwrap_err();
+    assert!(matches!(
+        error.downcast_ref::<RegistrationError>(),
+        Some(RegistrationError::WrongMode {
+            mode: NamespaceMode::Fleet,
+            ..
+        })
+    ));
+    Ok(())
+}
+
+#[test]
+fn operation_registration_binds_schema_kind_and_digest() -> Result<()> {
+    use cellar::sdk::OperationKind;
+    let counter = registered_counter()?;
+    let increment = counter.contract("Increment").unwrap();
+    counter.validate_operation(&increment)?;
+    let mut wrong = increment.clone();
+    wrong.kind = OperationKind::Query;
+    assert_eq!(
+        counter.validate_operation(&wrong),
+        Err(RegistrationError::KindMismatch)
+    );
+    wrong.kind = OperationKind::Command;
+    wrong.digest = [10; 32];
+    assert_eq!(
+        counter.validate_operation(&wrong),
+        Err(RegistrationError::ContractMismatch)
+    );
+    wrong.operation = "Missing".into();
+    assert!(matches!(
+        counter.validate_operation(&wrong),
+        Err(RegistrationError::UnknownOperation(_))
+    ));
+    wrong.operation = "x".repeat(129);
+    assert!(matches!(
+        counter.validate_operation(&wrong),
+        Err(RegistrationError::Invalid(_))
+    ));
+    assert!(RaftClass::new("Counter", 0, [7; 32]).is_err());
+    assert!(RaftClass::new("__SQLDatabase", 1, [7; 32]).is_err());
+    assert!(RaftClass::new("../Counter", 1, [7; 32]).is_err());
+    assert!(RaftClass::new("Counter", 1, [0; 32]).is_err());
+    assert!(RaftClass::new("Counter", 1, [7; 32])?
+        .command("Increment", [0; 32], |_, _| Ok(vec![]))
+        .is_err());
+    assert!(matches!(
+        counter.query("Increment", [8; 32], |_, _| Ok(vec![])),
+        Err(RegistrationError::Duplicate(_))
+    ));
+    assert_ne!(
+        registered_counter()?.schema_digest(),
+        RaftClass::new("Counter", 2, [7; 32])?.schema_digest()
+    );
+    assert_ne!(
+        registered_counter()?.schema_digest(),
+        RaftClass::new("Other", 1, [7; 32])?.schema_digest()
+    );
+    Ok(())
+}
 
 fn config(id: u8, mode: NamespaceMode, development: bool) -> NamespaceConfig {
     let mut config = NamespaceConfig::new(

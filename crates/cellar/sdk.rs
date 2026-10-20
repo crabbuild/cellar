@@ -183,6 +183,9 @@
 //! }
 //! ```
 pub use crate::actor::{Actor, ActorIdentity, ActorOptions, ActorServices};
+pub use crate::application::consensus::{
+    CommandContext, OperationContract, OperationKind, QueryContext, RaftClass, RegistrationError,
+};
 pub use crate::application::limits::{
     BlobLimits, CellLimits, KvLimits, SqlLimits, SqliteLimits, WorkflowLimits,
 };

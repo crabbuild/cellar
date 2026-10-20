@@ -131,6 +131,29 @@ history trimming stay bounded; orphan/public-image retention is reconciled by
 the archive/recovery controllers. SDK registration, ingress, output gating and
 node-owned command scheduling remain MR-07 work.
 
+The compiled SDK now provides `Registry::raft_class` and restricted `RaftClass`
+definitions. Mutable factories and workflows cannot share their class names;
+Fleet configuration refuses Raft definitions. Class name, explicit schema
+version and schema-definition digest form the immutable application identity.
+`stage_registered` checks that identity, operation kind/contract and normalized
+input digest before private execution or duplicate receipt lookup. The registered
+query bridge opens a verified image through the strict read-only SQLite opener,
+checks compatible schema/query code and returns that image's actual version.
+It establishes no freshness/linearizability claim by itself.
+
+`cellar_logic::raft_command::CommandState` owns one pending command's admission
+and output decisions. Sequenced runtime status cannot resurrect a revoked term;
+progress and receipts bind the full replica/history and operation. Fresh commands
+need exact ordered entry proofs plus their verified image receipt. Retries can
+return a verified stored receipt at its actual covering cut, including a prior
+term, without fabricating a new proposal. Namespace/request durability can only
+strengthen. Cancellation retains a submitted producer; unsubmitted work stays
+pinned until the callback joins and its private mutations are discarded. A new
+term and applied startup barrier are required to reconcile an unresolved
+submission. Closing records unfinished identity and refuses further output.
+The node-owned serial scheduler, live observation plumbing, public handles,
+native/Axum ingress and example still have to connect these components.
+
 Incoming snapshots similarly require a `Snapshot` effect completion before the
 Ready's snapshot metadata or dependent messages can advance. The host verifier
 must bind the image and metadata to the exact snapshot. `SnapshotInstalled` is

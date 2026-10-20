@@ -5,7 +5,10 @@ use super::apply::{marker, PublishedImage};
 use super::cache::{DurableApply, GroupLog};
 use super::completion::GroupStatus;
 use super::{receipts, working::Working};
-use crate::application::consensus::{EnvelopeLimits, ProtocolError};
+use crate::application::consensus::{
+    command_request_digest, CommittedVersion, EnvelopeLimits, OperationContract, OperationKind,
+    ProtocolError, RaftClass, RegistrationError,
+};
 use crate::storage::{CommandInputs, CommandTransaction};
 use cellar_logic::consensus::Durability;
 use cellar_logic::consensus::{
@@ -63,6 +66,7 @@ pub enum ExecutionError {
     RetentionNotExpired,
     Storage(anyhow::Error),
     Protocol(ProtocolError),
+    Registration(RegistrationError),
 }
 
 impl fmt::Display for ExecutionError {
@@ -72,6 +76,60 @@ impl fmt::Display for ExecutionError {
 }
 
 impl std::error::Error for ExecutionError {}
+
+/// A local committed-image read, with no linearizability or freshness claim.
+/// The node's query controller establishes the requested consistency before
+/// selecting the image. Never relabel this result with a newer sampled head.
+pub struct RegisteredQueryOutput {
+    pub result: Vec<u8>,
+    pub version: CommittedVersion,
+}
+
+pub fn query_registered(
+    published: &PublishedImage,
+    class: &RaftClass,
+    contract: &OperationContract,
+    input: &[u8],
+    services: ReadServices,
+    limits: ExecutionLimits,
+) -> Result<RegisteredQueryOutput, ExecutionError> {
+    limits.validate()?;
+    class
+        .validate_operation(contract)
+        .map_err(ExecutionError::Registration)?;
+    if contract.kind != OperationKind::Query {
+        return Err(ExecutionError::Registration(
+            RegistrationError::KindMismatch,
+        ));
+    }
+    if class.schema_digest() != published.application_digest() {
+        return Err(ExecutionError::Registration(
+            RegistrationError::ContractMismatch,
+        ));
+    }
+    if input.len() > limits.envelope.max_payload_bytes {
+        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+    }
+    let database = crate::storage::open_immutable_generation(
+        published.pin(),
+        crate::storage::ImmutableQueryOptions {
+            services,
+            sqlite_vec: false,
+        },
+    )
+    .map_err(storage)?;
+    let version = CommittedVersion {
+        scope: published.scope().clone(),
+        position: published.position(),
+    };
+    let result = class
+        .invoke_query(contract, &version, &database, input)
+        .map_err(storage)?;
+    if result.len() > limits.max_result_bytes {
+        return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+    }
+    Ok(RegisteredQueryOutput { result, version })
+}
 
 /// A checked observation of a caught-up leader. The host must recheck runtime
 /// authority before proposal submission; a synchronous callback cannot hold an
@@ -128,10 +186,16 @@ impl CommandAuthority {
         Ok(())
     }
 
-    fn check_base(&self, base: Option<&PublishedImage>) -> Result<(), ExecutionError> {
+    fn check_base(
+        &self,
+        base: Option<&PublishedImage>,
+        application_digest: [u8; 32],
+    ) -> Result<(), ExecutionError> {
         self.check()?;
         if base.is_some_and(|b| {
-            b.scope() != &self.replica.scope || b.position().index > self.applied.position.index
+            b.scope() != &self.replica.scope
+                || b.application_digest() != application_digest
+                || b.position().index > self.applied.position.index
         }) || base.map(|b| marker(&b.pin())) != self.applied.image
         {
             return Err(ExecutionError::Invalid("authoritative command base"));
@@ -286,13 +350,49 @@ pub struct PrivateExecutor {
 }
 
 impl PrivateExecutor {
+    /// Run a compiled command after validating registration and the input's
+    /// normalized-byte digest, including for a duplicate receipt. The normal
+    /// host selects `class` from its authorized namespace binding, not from an
+    /// unchecked client-supplied class name.
+    pub fn stage_registered(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+    ) -> Result<StageOutcome, ExecutionError> {
+        let contract = OperationContract {
+            operation: attempt.request.operation.clone(),
+            kind: OperationKind::Command,
+            digest: attempt.request.contract_digest,
+        };
+        class
+            .validate_operation(&contract)
+            .map_err(ExecutionError::Registration)?;
+        if class.schema_digest() != self.options.application_digest {
+            return Err(ExecutionError::Registration(
+                RegistrationError::ContractMismatch,
+            ));
+        }
+        if input.len() > self.options.limits.envelope.max_payload_bytes {
+            return Err(ExecutionError::Refused(CommandFailure::Overloaded));
+        }
+        if command_request_digest(input) != attempt.request.request_digest {
+            return Err(ExecutionError::Refused(CommandFailure::CommandConflict));
+        }
+        let scope = self.authority.replica.scope.clone();
+        let command = attempt.request.id;
+        self.stage(attempt, |transaction| {
+            class.invoke_command(&contract, &scope, command, transaction, input)
+        })
+    }
+
     pub fn open(
         options: PrivateOptions,
         authority: CommandAuthority,
         base: Option<PublishedImage>,
     ) -> Result<Self, ExecutionError> {
         options.limits.validate()?;
-        authority.check_base(base.as_ref())?;
+        authority.check_base(base.as_ref(), options.application_digest)?;
         let filesystem = options.host.filesystem();
         cellar_ltx::host::create_dir_all_durable(filesystem.as_ref(), &options.directory)
             .map_err(storage)?;
@@ -333,7 +433,8 @@ impl PrivateExecutor {
         if self.rebuild_required {
             return Err(ExecutionError::RebuildRequired);
         }
-        self.authority.check_base(self.base.as_ref())?;
+        self.authority
+            .check_base(self.base.as_ref(), self.options.application_digest)?;
         if let Some(pin) = self.retired_preview.take() {
             let id = pin.id();
             if let Err(error) = self.options.images.retire(id) {
@@ -363,7 +464,7 @@ impl PrivateExecutor {
         if self.pending.is_some() {
             return Err(ExecutionError::Busy);
         }
-        authority.check_base(self.base.as_ref())?;
+        authority.check_base(self.base.as_ref(), self.options.application_digest)?;
         if authority.replica.scope != self.authority.replica.scope
             || self.base.as_ref().is_none_or(|base| {
                 self.working
@@ -537,6 +638,7 @@ impl PrivateExecutor {
             .as_ref()
             .ok_or(ExecutionError::Invalid("no pending proposal"))?;
         if published.scope() != &self.authority.replica.scope
+            || published.application_digest() != self.options.application_digest
             || published.proposal() != Some(pending.proposal)
             || published.pin().state() != pending.preview.state()
             || published.position().index <= self.authority.applied.position.index
@@ -595,7 +697,7 @@ impl PrivateExecutor {
         if authority.replica.scope != self.authority.replica.scope {
             return Err(ExecutionError::Refused(CommandFailure::WrongIncarnation));
         }
-        authority.check_base(base.as_ref())?;
+        authority.check_base(base.as_ref(), self.options.application_digest)?;
         if self.pending.as_ref().is_some_and(|p| p.submitted)
             && authority.replica == self.authority.replica
             && authority.term <= self.authority.term

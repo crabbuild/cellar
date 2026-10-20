@@ -1,8 +1,10 @@
 # Cellar Raft application contract
 
-This is the proposed SDK contract implemented by MR-06 through MR-12. Names below
-are design names, not APIs already exported by `cellar::sdk`. MR-07 must ship a
-compiling example and exercise it through native and Axum ingress.
+This is the SDK contract implemented by MR-06 through MR-12. Restricted
+`RaftClass`, `CommandContext`, `QueryContext` and operation registration are now
+exported through `cellar::sdk`; public command/query handles and receipts below
+remain design contracts. MR-07 still must connect the node-owned dispatcher,
+ship a compiling example and exercise it through native and Axum ingress.
 
 ## Commands and queries
 
@@ -33,6 +35,15 @@ The internal MR-06 transaction facade supplies a captured Unix-millisecond value
 and 32 captured random bytes per attempt. Its SQL authorizer refuses ambient
 clock/random functions; use these captured values as SQL parameters. Additional
 input facilities require explicit host adapters before becoming SDK capabilities.
+
+`RaftClass::schema_digest()` binds the class name, explicit schema version and
+supplied schema-definition digest under the `cellar-raft-schema-1` SHA-256 domain.
+Use that value for the namespace root and physical update application digest.
+Commands and queries have separate operation contract digests. The shared
+`consensus::command_request_digest` helper binds the exact normalized input bytes
+under its own marker-1 domain; the registered execution bridge validates it even
+when a request would return a duplicate receipt. Ingress normalization must
+produce the same bytes for native and HTTP calls.
 
 Queries receive no general `Context`, writable `Storage`, normal cell constructor,
 alarm setter or outbound-network capability. SQLite authorizer/read-only flags
