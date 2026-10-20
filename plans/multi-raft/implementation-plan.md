@@ -406,18 +406,19 @@ prospective/durable image references, including uncertain I/O and joined close.
 Empty/configuration-only snapshots carry no image and can precede the first LTX
 command. `recovery.rs` validates coherent engine-selected references before GC.
 
-The [boundary evidence](evidence/MR-10-boundary-progress.json) pins source
-`a5619f3d522fd942372c520f02a52945fd0ec7b5`: all 152 Rust cases and 17 commands pass,
-including 19 snapshot, 17 LTX and 23 host cases, the owning regressions, affected
-public Node Raft lifecycle and both cellar-ltx backend feature modes. The exact
-64-MiB incompressible image transfers at an older retained cut and its newer
-snapshot-plus-tail archive restores after both local node directories are deleted.
-Insufficient encoded admission is refused before member storage opens. The earlier
-[runtime progress](evidence/MR-10-runtime-progress.json) and
-[physical progress](evidence/MR-10-physical-progress.json) remain historical component
-records. The [snapshot audit](snapshot-audit.md) records remaining native scheduling,
-authenticated transfer ownership, host readiness/generation admission and
-fresh-member authorization/quorum-loss refusal. MR-10 is not complete.
+The [peer-admission evidence](evidence/MR-10-inbound-progress.json) pins source
+`ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`: all 157 Rust cases and 18 commands pass,
+including 19 snapshot, 14 transport, 17 LTX and 23 host cases, the owning regressions,
+affected public Node Raft lifecycle and both cellar-ltx backend feature modes.
+Authenticated frames retain their charges without waiting for group execution;
+coalesced sender hints and reserved physical completions cannot be blocked by
+ordinary deferred admission. TLS fixtures cover group item/byte bounds, eight-group
+node saturation, bidirectional pending snapshots and joined shutdown. Full-size
+retained checkpoint/archive restoration also passes. The earlier
+[boundary progress](evidence/MR-10-boundary-progress.json) remains a historical
+component record. The [snapshot audit](snapshot-audit.md) records remaining native
+scheduling, authenticated transfer/abort ownership, host readiness/generation
+admission and fresh-member authorization/quorum-loss refusal. MR-10 is not complete.
 
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
 

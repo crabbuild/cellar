@@ -1,9 +1,9 @@
 # Physical snapshot boundary
 
-MR-10 is in progress. The [boundary progress evidence](evidence/MR-10-boundary-progress.json)
-pins source `a5619f3d522fd942372c520f02a52945fd0ec7b5`: 152 Rust cases pass across
-ten targets, including 19 snapshot, 17 LTX, 23 host and the affected public Node Raft
-lifecycle case. All 17 commands pass, with executable/log digests. Clippy and
+MR-10 is in progress. The [peer-admission progress evidence](evidence/MR-10-inbound-progress.json)
+pins source `ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`: 157 Rust cases pass across
+ten targets, including 19 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node Raft
+lifecycle case. All 18 commands pass, with executable/log digests. Clippy and
 checks cover owning targets and cellar-ltx without backend defaults and with all
 features; format checks 629 Rust files. Layout, dependency policy, docs, 17 plan
 tests and the reviewed 68-anchor preflight pass. Seven ignored process children
@@ -145,7 +145,7 @@ runtime batch settles reference handoff even when its event consumer is gone.
 The owning target now additionally exercises delayed checkpoint/newer apply/late
 retirement/restart, lost completion, failed sync with joined producers, stale engine
 material, busy-apply refusal, empty configuration installation/first LTX/restart,
-and refusal to erase committed data. The pinned boundary evidence qualifies those component and owning regressions.
+and refusal to erase committed data. The pinned peer-admission evidence qualifies those component and owning regressions.
 
 The boundary fixture adds an exact 64-MiB real SQLite image with seeded random
 overflow pages and a passing integrity check. Its encoded LTX exceeds 64 MiB.
@@ -168,6 +168,11 @@ Still required for MR-10:
   including pending commands/queries and image-capacity pressure. Minimum image
   admission must account for the independent snapshot reference and private
   command/apply generations, and transfer limits must cover configured images.
+- Exact-ticket abort before physical install authorization: persist required
+  term/vote over the old durable commit/apply prefix before rebuilding RawNode.
+  Join and settle any older in-flight apply; do not discard/reissue its effect or
+  invent committed progress. Once install submission becomes irreversible, join
+  it instead of aborting. Refuse late completions and qualify failure/restart cuts.
 - Authorized fresh-member admission and S3/peer seeding through a surviving live
   group, with explicit refusal of S3-only normal activation after quorum loss.
 - Full native lifecycle/fault qualification and pinned completion evidence.

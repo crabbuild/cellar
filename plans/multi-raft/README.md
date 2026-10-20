@@ -42,19 +42,22 @@ effects and later operations/release/scaling work remain their original packages
 All 17 original packages remain in scope; the complete delivery goal is not
 achieved. MR-10 is in progress at the recovery boundary.
 
-The [MR-10 boundary progress](evidence/MR-10-boundary-progress.json) pins source
-`a5619f3d522fd942372c520f02a52945fd0ec7b5`: 152 Rust cases pass across ten targets,
-including 19 snapshot, 17 LTX, 23 host and the affected public Node Raft lifecycle
-cases. All 17 commands pass, including owning-target Clippy, cellar-ltx without
-backend defaults/with all features, format/layout, dependency policy, docs,
-17 plan tests and reviewed preflight. Exact retained checkpoints survive newer
-applies and already captured transfers survive replacement/GC. Encoded limits
-cover the largest admitted 64-MiB image; a real incompressible SQLite fixture
-transfers the older cut and restores the newer archive after deleting both local
-node directories. Runtime checkpoint/reference and empty/configuration regressions
-also pass. The [snapshot audit](snapshot-audit.md) records remaining native
-scheduling, authenticated transfer, host readiness/generation admission and
-replacement-member authorization. MR-10 remains IN_PROGRESS.
+The [MR-10 peer-admission progress](evidence/MR-10-inbound-progress.json) pins source
+`ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`: 157 Rust cases pass across ten targets,
+including 19 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node
+Raft lifecycle cases. All 18 commands pass, including owning-target Clippy,
+cellar-ltx without backend defaults/with all features, format/layout, dependency
+policy, docs, 17 plan tests and reviewed preflight. Peer admission and coalesced
+sender hints do not await group execution. Separate physical-completion admission
+settles work after eight stalled groups fill all 256 ordinary request slots.
+TLS tests retain group/node charges through acknowledgement, enforce item/byte
+bounds, preserve shutdown prefixes and progress a healthy group during receiver
+and sender snapshot waits. The full-size physical/archive and checkpoint/reference
+regressions also pass. The [snapshot audit](snapshot-audit.md) records remaining
+native scheduling, authenticated transfer/abort, host readiness/generation admission
+and replacement-member authorization. MR-10 remains IN_PROGRESS. The earlier
+[boundary record](evidence/MR-10-boundary-progress.json) retains its separate
+152-case qualification at source `a5619f3d522fd942372c520f02a52945fd0ec7b5`.
 The [earlier physical record](evidence/MR-10-physical-progress.json) retains its
 separate 218-case/88-Node qualification at source `24410fb754b055078255ccf5d595c0893f0d1b0e`.
 
