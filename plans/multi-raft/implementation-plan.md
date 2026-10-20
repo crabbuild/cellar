@@ -322,8 +322,10 @@ unchanged consistency and deadlines. Query-code-independent forwarding and LTX
 catch-up during a waiting RPC are covered. [HTTP/context evidence](evidence/MR-08-http-progress.json)
 adds 34 owning host/read cases, live ordinary capability refusal, native/Axum
 read options and an executable restart drill with 24 remote strong reads and
-retained/cross-cell tokens. The [read audit](read-audit.md) keeps broader RPC
-faults and directory/ingress routing outside group membership open. MR-08 remains
+retained/cross-cell tokens. [Peer-fault evidence](evidence/MR-08-peer-progress.json)
+adds 36 owning cases and repeated saturation, queued expiry and delayed TCP
+reply histories. The [read audit](read-audit.md) keeps directory/ingress routing
+outside group membership and final requirements review open. MR-08 remains
 IN_PROGRESS; the case list alone does not prove the complete contract.
 
 1. Implement read-only query registration, snapshot pinning and served-version propagation.

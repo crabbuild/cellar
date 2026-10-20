@@ -1,0 +1,436 @@
+{
+  "task_id": "MR-08",
+  "source_revision": "1ac7a3e11482274b536dc2389280969e8963887c",
+  "scope": "Partial MR-08: peer byte saturation, queued expiry, write progress during a held query, and delayed TCP response isolation. General directory/ingress routing outside registered group membership and final read-contract review remain open. All 17 original packages stay in scope.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "executable_digest": "8624802c90594b9e10899a7bcbd78d917880a90cfb3a995799e3b1ac0970989d",
+  "executables": {
+    "native_raft_host": {
+      "sha256": "10f0e841e221c433a2bace7cdadb21d27ece7134960db80e6bef0e5d80d357d8",
+      "bytes": 128454144
+    },
+    "native_raft_reads": {
+      "sha256": "8624802c90594b9e10899a7bcbd78d917880a90cfb3a995799e3b1ac0970989d",
+      "bytes": 125785248
+    }
+  },
+  "environment": "macOS-26.5.2-arm64-arm-64bit-Mach-O; real SQLite/LTX/Raft Engine and authenticated TLS TCP; three embedded nodes with separate domains/directories in one OS process; bounded directed TCP proxies; no cellar_internal_tests",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "limitations": "MR-08 remains IN_PROGRESS and the 17-package objective is not complete. The implementation still requires registered-replica query origins; arbitrary-node ingress, namespace authorization independent of voting identity, dynamic directory integration and final requirements review remain open. This checkpoint changes tests and their shared TCP fixture, not production code. All host/read owning tests pass with the changed proxy, but broader library/Node/transport/HTTP-process qualification retains its preceding source-pinned evidence and is not repeated here. Native callbacks are trusted/cooperative; three same-machine embedded nodes do not establish physical power-loss, zone resilience, production capacity or full release/scaling gates. S3 archive/restore, snapshot installation, membership repair, effects and all later packages remain pending.",
+  "tests": [
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "query_token_auth_scope",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "ordinary_context::active_ordinary_context_and_storage_are_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_deadline_and_payload_limits",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_rotation_survives_restart_and_ambiguous_catalog_write",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "stale_is_committed_prefix",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_write_capability_denied",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "completed_unpolled_responses_keep_their_byte_budget",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_query_deadline_interrupts_sql_and_joins_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "remote_query_wait_cannot_block_its_ltx_catchup",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "voter_without_query_code_can_route_to_a_compatible_replica",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "read_your_writes_follower",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "minority_strong_read_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "fallback_preserves_contract",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "linearizable_read_barrier",
+      "target": "native_raft_reads",
+      "result": "passed"
+    }
+  ],
+  "commands": [
+    {
+      "name": "owning",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_reads",
+        "--locked",
+        "--",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 34.489,
+      "output": "evidence/MR-08-peer-owning.log",
+      "sha256": "29e883ee286664e14b0420eae6c51edbd0fabd74c14eafd3b59e9dd59c4d46b3"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work-0",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_reads-0be6700d9137677f",
+        "--exact",
+        "saturated_query_peer_refuses_and_expires_queued_work",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.313,
+      "output": "evidence/MR-08-peer-saturated_query_peer_refuses_and_expires_queued_work-0.log",
+      "sha256": "76017f00cdc3c975208a724c4ab6632420315ee9563ef3aa5bc1e7ffc2c8642a"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work-1",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_reads-0be6700d9137677f",
+        "--exact",
+        "saturated_query_peer_refuses_and_expires_queued_work",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.315,
+      "output": "evidence/MR-08-peer-saturated_query_peer_refuses_and_expires_queued_work-1.log",
+      "sha256": "76017f00cdc3c975208a724c4ab6632420315ee9563ef3aa5bc1e7ffc2c8642a"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work-2",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_reads-0be6700d9137677f",
+        "--exact",
+        "saturated_query_peer_refuses_and_expires_queued_work",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.356,
+      "output": "evidence/MR-08-peer-saturated_query_peer_refuses_and_expires_queued_work-2.log",
+      "sha256": "85e275017e7ee43f2e1fc09c685021443dda990ca0b50aae81b8f8b995d9ccc8"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read-0",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_reads-0be6700d9137677f",
+        "--exact",
+        "delayed_tcp_query_reply_cannot_settle_a_later_read",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.258,
+      "output": "evidence/MR-08-peer-delayed_tcp_query_reply_cannot_settle_a_later_read-0.log",
+      "sha256": "ba2420c1683058f2527ccb1bd0c4b81732c413b97b023b402fe89f815ea7d38e"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read-1",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_reads-0be6700d9137677f",
+        "--exact",
+        "delayed_tcp_query_reply_cannot_settle_a_later_read",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.172,
+      "output": "evidence/MR-08-peer-delayed_tcp_query_reply_cannot_settle_a_later_read-1.log",
+      "sha256": "4716d660badeaf2a51d284204969df7bc39f596519229afd16bf06e418576b09"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read-2",
+      "argv": [
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_reads-0be6700d9137677f",
+        "--exact",
+        "delayed_tcp_query_reply_cannot_settle_a_later_read",
+        "--nocapture"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 2.245,
+      "output": "evidence/MR-08-peer-delayed_tcp_query_reply_cannot_settle_a_later_read-2.log",
+      "sha256": "1f3c6da0c90c48d36e8746099234eb3d11c9c9b827844f9565759740eb990850"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_reads",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 1.939,
+      "output": "evidence/MR-08-peer-clippy.log",
+      "sha256": "e0a84d492745f121d50dd830a3f2fce639d8e24cf25bf1449e73edb97b13b387"
+    },
+    {
+      "name": "format-check",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 34.035,
+      "output": "evidence/MR-08-peer-format-check.log",
+      "sha256": "af14908fb9f7725d1722d678c72e29f2697f0c1cc4215551b5ca5fe91eef3d98"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.121,
+      "output": "evidence/MR-08-peer-layout.log",
+      "sha256": "54472b89130955eaa3453429a9ff510aad3c71959b424c6a2822f576fab7a957"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 0.248,
+      "output": "evidence/MR-08-peer-dependencies.log",
+      "sha256": "cd9b4bc0a4d6cceb1ceaaa504cf45ec4e72ba4c8c998b71f282445dbf2dd5f3c"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-peer-docs.log",
+      "sha256": "7bc3363f30745ca0dbd1c4d46077be8a34a32ca7374e8a188cd6834100405514"
+    },
+    {
+      "name": "plan-validate",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-peer-plan-validate.log",
+      "sha256": "e13cf500f52226bfa122ced704d05c753ef6ccafd2b5d28ed1573123f8cdea1d"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-peer-preflight.log",
+      "sha256": "149df68a12f9fad4675855e4ba9ab291c5808b9b39cb16c27288dbfa732fc328"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-08-peer-plan-tests.log",
+      "sha256": "50ee5713c23697ec882cbc7d5dc0c5592f59f1d23b6fdcb4eff3b796efd4771e"
+    }
+  ],
+  "results": {
+    "owning_passed": 36,
+    "host_passed": 20,
+    "read_passed": 16,
+    "repetitions_per_new_history": 3,
+    "repeated_histories": [
+      "saturated_query_peer_refuses_and_expires_queued_work",
+      "delayed_tcp_query_reply_cannot_settle_a_later_read"
+    ]
+  },
+  "requirements": [
+    {
+      "step": 2,
+      "status": "additional real peer-fault coverage",
+      "evidence": "A held remote query preserves its pinned older image while consensus commits a new value. Sixty-four additional requests exhibit both peer overload and queued expiry, no expired callback executes after release, and new requests reclaim capacity and cover the newer token."
+    },
+    {
+      "step": 4,
+      "status": "additional deadline/late-reply coverage; general ingress remains open",
+      "evidence": "A warmed pooled TLS connection delivers response ciphertext into a bounded proxy hold after destination work completes. The origin invocation expires; resuming the link cannot substitute that response for a subsequent read, which must cover a newer write on the authenticated target."
+    }
+  ],
+  "audit": "read-audit.md",
+  "s3_boundary": "The object-store interface supplies catalog/public-verifier metadata only at this stage. Query success is not S3 archive proof and cannot grant mutation authority or bypass a lost quorum."
+}

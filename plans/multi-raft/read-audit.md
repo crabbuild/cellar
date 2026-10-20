@@ -54,6 +54,22 @@ the query connection, drops the destination SDK waiter and joins its SQL work.
 SQL interruption observes a node-owned atomic flag. Completed responses retain
 byte admission until consumed or dropped.
 
+Two additional [peer histories](evidence/MR-08-peer-progress.json) exercise
+saturation and delayed network replies.
+One holds a real remote callback while 64 further requests compete for bounded
+peer admission: both overload refusal and queued expiry must occur, expired
+requests never execute after release, and a concurrent command still commits.
+The held query retains its older pinned image; a subsequent minimum-version
+query covers the new write after admission capacity is reclaimed.
+
+The other warms an existing TLS query connection and holds its returning
+ciphertext in a bounded proxy buffer after the destination callback completes.
+The original invocation expires while a newer command commits. Releasing the
+proxy cannot let that delayed response satisfy a later invocation; a fresh
+exchange must return the newer image and exact serving member. These component
+histories do not establish arbitrary-node routing or the full release failure
+matrix.
+
 ## Live capability and HTTP checks
 
 `ordinary_context::active_ordinary_context_and_storage_are_refused` holds an
@@ -76,9 +92,6 @@ token is refused even with fallback enabled.
 
 ## Remaining audit and delivery work
 
-- Complete the RPC boundary audit beyond the passing cancellation, independent
-  LTX progress and same-consistency fallback histories, including saturation,
-  queued deadlines and delayed replies against real TCP faults.
 - Audit directory/ingress routing outside a group's voting/read membership. The
   current RPC origin uses a registered local replica; this does not establish
   arbitrary-node routing for the complete placement/directory architecture.

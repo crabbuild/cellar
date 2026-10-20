@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "8d79426992d4177116dd86eef28aec7a61fc4737",
+  "baseline_revision": "1ac7a3e11482274b536dc2389280969e8963887c",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1074,7 +1074,8 @@
       "evidence": [
         "evidence/MR-08-local-progress.json",
         "evidence/MR-08-network-progress.json",
-        "evidence/MR-08-http-progress.json"
+        "evidence/MR-08-http-progress.json",
+        "evidence/MR-08-peer-progress.json"
       ]
     },
     {
