@@ -20,7 +20,9 @@ mod console;
 mod event_schema;
 #[cfg(test)]
 mod identity_tests;
+mod immutable;
 pub(crate) mod inbox;
+pub use immutable::{open_immutable_generation, ImmutableQuery, ImmutableQueryOptions};
 pub(crate) mod outbox;
 pub(crate) mod outbox_control;
 #[cfg(test)]

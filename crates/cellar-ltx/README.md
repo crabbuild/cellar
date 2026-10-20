@@ -23,6 +23,9 @@ see [write durability](../../docs/06-storage-transactions.md#durability-and-exte
 | Restore a database | `restore` | [Restore implementation](src/replica.rs) |
 | Read bundled L0 segments | `BundleOverlayClient` | [Bundle client](src/client/bundle.rs) |
 | Read pages on demand | `paged`, `paged_vfs` | [Page map](src/paged.rs), [SQLite virtual filesystem](src/paged_vfs.rs) |
+| Verify bounded consensus LTX | `ltx::decode_file_bounded` | [Strict decoder](src/bounded_ltx.rs) |
+| Materialize and retain immutable images | `GenerationStore` | [Apply contracts](src/apply.rs), [Generation owner](src/generation.rs) |
+| Query an immutable image | `generation::open_immutable` | [Read-only virtual filesystem](src/generation_vfs.rs) |
 | Supply host tasks and files | `LtxHost`, `FileSystem` | [Host contract](src/host.rs) |
 
 L0 segments capture commits before higher-level compaction. The paged SQLite
@@ -38,6 +41,51 @@ database ownership and the same WAL sealing and LTX staging rules; maintenance
 does not acknowledge writes. Standalone `Db::sync` retains its combined policy.
 A checkpoint captures its own sealing write before clearing maintenance state,
 so a later capture cannot re-arm idle maintenance from that control write.
+
+## Verified immutable images
+
+`GenerationStore::prepare` copies an exact pinned base into a new private file,
+then applies a contiguous LTX chain. Both the base and result require SHA-256
+digests, including when LTX rolling database checksums are disabled. The bounded
+decoder verifies file integrity, physical index coverage, page identities,
+snapshot completeness and compressed-frame bounds before retaining page data.
+Apply checks transaction ranges, declared page/byte counts, growth coverage and
+truncation against the resulting SQLite header and full image digest. Published
+images are never patched in place. This first materialized implementation uses
+a full verified copy; it does not require filesystem reflinks.
+
+File operations use the injected `FileSystem` synchronously on the host's owning
+blocking/execution domain. Publication syncs the complete image, reserves its
+unique final name with exclusive creation, renames over that owned unpublished
+placeholder, then syncs the directory. Directory creation also syncs ancestor
+entries. Unsupported operations fail. Failed creation with uncertain ownership
+or failed cleanup quarantines the store until it is closed and recovered; it
+does not refund unknown disk usage or overwrite an unexpected image.
+
+A returned pin proves physical image sealing. The Raft host must still persist
+the corresponding engine apply marker before making that pin queryable or
+settling a command. Recovery inventories retained files within configured bounds
+and `adopt` verifies the image selected by an authoritative marker. It never
+selects the newest filename. The host calls `retire` only after all durable
+marker, recovery and archive references are gone. Reader pins retain both the
+image and directory lock; bounded reclamation syncs deletion before refunding
+capacity. Default admission allows 64 generations and 512 MiB, reserving twice
+the largest intermediate image while an update is in progress.
+
+`generation::open_immutable` opens only the pin's virtual filename. Its SQLite
+VFS reads through the injected filesystem, refuses writes, sidecars and native
+path access, and receives clock/randomness callbacks through `ReadServices`.
+Descriptors use a process-lifetime pool capped at 4,096 concurrent owners; idle
+slots retain no pins, services or files and can be reused after their owner and
+all files close. Permanent descriptors avoid dangling SQLite registry pointers.
+The host's `cellar::storage::open_immutable_generation` adds its SQL limits and
+read authorizer without initializing framework tables. Query registration and
+Raft publication authority remain the host's responsibility.
+
+Run `cargo test -p cellar --test native_raft_ltx --locked -- --test-threads=1`
+for real SQLite images, checksum/chain corruption, retained readers, injected
+I/O failures and process-kill publication cuts. Those cuts use a fixture marker;
+engine marker atomicity is qualified by the later command/apply integration.
 
 ## Select backend features
 

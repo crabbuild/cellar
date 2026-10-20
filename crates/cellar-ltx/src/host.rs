@@ -200,6 +200,52 @@ pub trait FileSystem: Send + Sync {
     }
 }
 
+/// Create each missing directory and durably publish its parent entry. A child
+/// directory fsync alone does not make a newly created ancestor recoverable.
+pub fn create_dir_all_durable(filesystem: &dyn FileSystem, path: &Path) -> io::Result<()> {
+    if !path.is_absolute() || path.components().take(129).count() > 128 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "bounded absolute directory required",
+        ));
+    }
+    let mut missing = Vec::new();
+    let mut current = path;
+    loop {
+        match filesystem.metadata(current) {
+            Ok(metadata) if metadata.is_dir => break,
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotADirectory,
+                    "image ancestor is not a directory",
+                ))
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                missing.push(current.to_path_buf())
+            }
+            Err(error) => return Err(error),
+        }
+        current = current.parent().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "missing filesystem root")
+        })?;
+    }
+    for directory in missing.iter().rev() {
+        filesystem.create_dir_all(directory)?;
+        filesystem.sync_all(directory)?;
+        if let Some(parent) = directory.parent() {
+            filesystem.sync_all(parent)?;
+        }
+    }
+    // A directory may have been created by the caller just before this open.
+    // Existence alone is not evidence that any ancestor entry was synced.
+    let mut current = Some(path);
+    while let Some(directory) = current {
+        filesystem.sync_all(directory)?;
+        current = directory.parent();
+    }
+    Ok(())
+}
+
 /// The telemetry-only microsecond clock for the capture ledger
 /// (`db::SyncTiming`). Nothing branches on these values — they exist so
 /// the closed-book attribution ledger can sum — so deterministic

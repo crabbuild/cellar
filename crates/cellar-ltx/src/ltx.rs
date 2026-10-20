@@ -14,6 +14,8 @@ use crate::error::{Error, Result};
 use crate::{Checksum, Pos, CHECKSUM_FLAG, TXID};
 use std::time::SystemTime;
 
+pub use crate::bounded_ltx::{decode_file_bounded, BoundedLtx, DecodeError, DecodeLimits};
+
 // ── Constants (ltx@v0.5.2 ltx.go:18-55) ──────────────────────────────────────
 
 /// First 4 bytes of every LTX file.

@@ -196,11 +196,11 @@ shown by `plan.py show MR-04`; the manifest is authoritative for arguments.
 
 ### MR-05 Implement verified LTX apply and immutable generations
 
-Dependencies: MR-01. Phase: v1. Initial status: TODO.
+Dependencies: MR-01. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar-ltx/src/lib.rs`, `crates/cellar-ltx/src/host.rs`, `crates/cellar-ltx/src/ltx.rs`, `crates/cellar/storage/sqlite/mod.rs`.
+Modify: `crates/cellar-ltx/src/lib.rs`, `crates/cellar-ltx/src/host.rs`, `crates/cellar-ltx/src/ltx.rs`, `crates/cellar/storage/sqlite/mod.rs`, `crates/cellar-ltx/Cargo.toml`, `Cargo.lock`, `crates/cellar-ltx/README.md`.
 
-Create: `crates/cellar-ltx/src/apply.rs`, `crates/cellar-ltx/src/generation.rs`, `crates/cellar/tests/native_raft_ltx.rs`.
+Create: `crates/cellar-ltx/src/apply.rs`, `crates/cellar-ltx/src/generation.rs`, `crates/cellar/tests/native_raft_ltx.rs`, `crates/cellar-ltx/src/bounded_ltx.rs`, `crates/cellar-ltx/src/generation_vfs.rs`, `crates/cellar/storage/sqlite/immutable.rs`, `crates/cellar/tests/support/raft_ltx_fixture.rs`, `crates/cellar/tests/support/raft_ltx_fault.rs`.
 
 1. Add bounded physical LTX application against a verified base with mandatory envelope image digests, optional LTX database checksums and full file/chain validation.
 2. Implement unique generation creation, copy/reflink fallback, page growth/truncation and durable directory publication through FileSystem.

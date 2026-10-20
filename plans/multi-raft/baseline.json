@@ -61,6 +61,10 @@
       "sha256": "f4e9951503a806e86c832a154e776546f085c44f86172775c6569afd76db86ea"
     },
     {
+      "path": "crates/cellar-ltx/Cargo.toml",
+      "sha256": "9ff4d12944fbbbb273eb20246c8778c83c922d4489b204ac37b639752c8cf972"
+    },
+    {
       "path": "crates/cellar-ltx/README.md",
       "sha256": "3cfc6529e5649eb27f12b424de6347c0fedbb755df21bade6a50e55b99ce371d"
     },
