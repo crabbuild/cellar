@@ -9,6 +9,8 @@ use std::{path::Path, sync::Arc, time::Duration};
 
 #[path = "support/bindings.rs"]
 mod bindings;
+#[path = "support/delivery.rs"]
+mod delivery;
 #[path = "support/durability.rs"]
 mod durability;
 #[path = "support/fault_gates.rs"]
@@ -20,6 +22,8 @@ mod fencing;
 mod fixture;
 #[path = "support/native_writer.rs"]
 mod native_writer;
+#[path = "support/schedules.rs"]
+mod schedules;
 #[path = "support/watchdog.rs"]
 mod watchdog;
 
@@ -195,6 +199,12 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-delivery" {
+        return delivery::child();
+    }
+    if mode == "--runtime-schedules" {
+        return schedules::child();
+    }
     if mode == "--runtime-bindings" {
         return bindings::child();
     }
@@ -348,6 +358,8 @@ fn main() -> Result<()> {
         "--runtime-fenced",
         "--runtime-durability",
         "--runtime-bindings",
+        "--runtime-delivery",
+        "--runtime-schedules",
     ] {
         lifecycle_mode(mode)?;
     }
@@ -699,7 +711,13 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
         .spawn()?;
     let deadline = std::time::Instant::now()
         + Duration::from_secs(
-            if matches!(mode, "--runtime-durability" | "--runtime-bindings") {
+            if matches!(
+                mode,
+                "--runtime-durability"
+                    | "--runtime-bindings"
+                    | "--runtime-delivery"
+                    | "--runtime-schedules"
+            ) {
                 60
             } else {
                 15

@@ -49,7 +49,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | partial: public ValidationError/Overloaded/Ambiguous/OwnershipLost classes, explicit outcomes and fixed sanitized messages; native typed routing verdicts preserved; real protocol/codec/batch refusals and ambiguous constructor/absent-binding tests pass; some bindings flatten native causes internally, and live routing-verdict fault coverage remains |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | partial: task cancellation plus packaged lost-response receipt reconciliation (S09) pass; independent pending-operation/binding cancellation and ambiguity matrices remain |
-| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler failures sanitized; process-log sentinel checks cover unraisable destructor and raw-thread exceptions, with counted runtime failure; startup/import and all failure paths still need final review |
+| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler, destructor and raw-thread failures sanitized and counted; import/registration/descriptor errors expose fixed stage messages without a Python exception source; subprocess tests refuse exception/path sentinels and arbitrary exception `__str__` execution; initialization/loader and complete error-path review remain |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | partial: managed-runtime smoke now executes pinned Pydantic, NumPy, hashing and pure Python inspection; platform matrix remains open |
 
@@ -64,7 +64,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | S05 | Sync and response output proof retain native semantics | Controlled replication pause/failure, response withheld/refused | verified locally: real authenticated three-node fleet plus bucket; sync and final output remain pending while both proof paths are held; actual follower acknowledgements release success with bucket still held; both paths failing yields HTTP error and exactly one handler attempt, never a rollback claim |
 | S06 | Durable alarm mutation atomic with cell state | Crash/recovery and failed-check alarm tests | partial: real alarm executes |
 | S07 | Duplicate alarms safe by persisted occurrence | Repeat same occurrence with idempotent durable effect | verified: sample persists an occurrence receipt atomically; bridge invokes the same occurrence twice and observes one increment |
-| S08 | State persists over preserving restart | Real-node restart and packaged host restart | partial: existing harness and smoke |
+| S08 | State persists over preserving restart | Real-node restart and packaged host restart | verified locally: real Python cell restart and remote handoff recover acknowledged state; provisioned host restart and changed-source process upgrade preserve exact receipts; independent queue/cron fixtures also retain SQL effects, attempts, settled broker state and cron history |
 | S09 | Lost committed response resolved with same receipt key | Disposable host reply loss followed by receipt reconciliation | verified locally with direct wire comparison: proxy discards proof-gated success; rendered application status/body/header fields persist atomically with the effect and replay exactly before/after restart and after later writes; different-amount reuse refuses; changed-source process upgrade also compares exact application response fields |
 
 ## Failure, cleanup and combined reports (M3)
@@ -111,8 +111,8 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
 | Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | partial: real KV writes/reads across two nodes; retained live/expired handles refuse reads/writes and leave each namespace intact; cancellation, independent backpressure/replay and restart matrices remain |
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | partial: actual shared-SQL DDL/DML/query on two nodes; live/expired retained handles refuse inserts, both databases retain only their own row; cancellation, independent backpressure/replay and restart matrices remain |
-| Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | partial: retry smoke plus live/expired producer handles refuse submission across two nodes; independent consumer settlement/cancellation/replay/backpressure matrix remains |
-| Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real tick smoke |
+| Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | partial: real broker matrix verifies default/explicit ack, handler errors after ack, first conflicting ack/retry decision, same-ID redelivery, retry exhaustion, timeout/cancel expiry, retained consumer-handle authority, producer overlap backpressure, idempotent SQL effects, empty persisted backlog and zero managed work over restart; independent in-flight producer failure/cancellation reconciliation remains |
+| Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real native alarm/history matrix proves same-occurrence retry, explicit no_retry after error, refusal of live-cross/expired controllers, idempotent SQL effects and exact execution-history/active-alarm persistence over restart; native timeout/cancellation and replay after unclean interruption remain |
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 passed pinned Pydantic/NumPy/pure-library workloads; verified archive restoration and changed-source TERM/INT handoff also pass on Linux x86_64 CPython 3.14.5 at fe6d2f8; newer observation/receipt source still needs fresh Linux execution |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
@@ -672,3 +672,59 @@ runtime restoration and raw-response TERM/INT upgrades passed. Affected
 `cargo format --check`, module layout, dependency/docs guards and
 `git diff --check` passed. No existing assertion was weakened to accept reordered
 response bytes. Current-source Linux execution remains required after push.
+
+## Independent queue/cron delivery and startup privacy
+
+The adapter bridge harness now includes two disposable real-node modes:
+
+- `--runtime-delivery` exercises the actual durable queue broker with single-message
+  batches and one consumer. It checks successful default ack, error-driven retry,
+  bounded exhaustion, explicit ack followed by handler error, conflicting
+  message/batch ack/retry decisions and invalid settlement. A native handler
+  deadline cancels Python after its SQL effect; late ack is refused, the same
+  message ID returns with attempt 2, and the business receipt remains singular.
+  Retained controls cannot cross a live invocation or submit after expiry.
+  A producer burst admits one operation and refuses 31 overlapping mutations
+  with `Overloaded/not_committed`. The test waits for actual zero broker backlog,
+  then verifies identical SQL delivery/effect records and empty backlog after
+  preserving restart. Explicit acknowledgement is a dispatch decision, not an
+  independently durable acknowledgement before the handler returns.
+- `--runtime-schedules` uses the real reserved cron cell, alarm and history RPC.
+  Its injected UTC clock advances at real speed near a minute boundary in the
+  past, preserving lease time progression and the native alarm's independent
+  real-host-UTC admission check. Four matching expressions cover held success,
+  failure followed by retry, explicit `no_retry()` followed by error, and plain
+  success. Retry retains the occurrence ID; checked SQL receipts avoid another
+  effect. Live-cross/expired controller use refuses. All execution records and
+  the durable next alarm remain identical after preserving restart; only the
+  per-read observation timestamp is excluded. Native scheduled timeout and
+  unclean-interruption replay remain separate work.
+
+Both fixtures require complete native/Python outcomes and settled bridge
+operation accounting. They supplement the existing two-domain binding test and
+do not establish the remaining producer/KV/SQL in-flight fault matrices.
+
+Queue settlement outside a queue event, unknown message IDs and cron controls
+outside a scheduled event are now proven validation refusals. They yield
+`ValidationError/not_committed`; native SDK errors after admission retain their
+conservative unknown outcome.
+
+Application import, cell lookup and cold descriptor validation previously
+retained raw `PyErr` messages. They now use fixed stage failures without a Python
+exception source. A final interpreter-error boundary discards remaining direct
+Python exception values while preserving typed Rust host failures. Disposable
+startup cases capture process output and test private exception/path sentinels,
+including an exception whose `__str__` would print its secret if called. The
+supervisor is never entered for these invalid applications. Explicit application
+logging is still owned by trusted application code.
+
+Current local checks on macOS ARM64/CPython 3.14.6 passed: the full all-feature
+adapter suite, strict all-target/all-feature adapter Clippy, native-only build
+with a nonexistent interpreter, formatting, layout (598 Rust files), dependency
+guard, documentation integrity and diff whitespace. The initial dependency
+guard invocation lacked Cargo on PATH; rerunning with the selected toolchain
+passed the 415-package graph. Initial fixture failures were corrected in the
+fixture: queue metrics are floating-point values, native alarm admission uses
+real UTC, and cron history's observation time changes on every read. Delivery
+and durable-record assertions were retained. Current source still requires
+fresh Linux execution after push; 7f9c0ef workflows remain live at this checkpoint.

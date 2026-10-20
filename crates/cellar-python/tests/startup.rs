@@ -54,6 +54,8 @@ fn main() -> Result<()> {
         "async-constructor",
         "duplicate-event",
         "host-signals",
+        "private-import",
+        "private-descriptor",
     ] {
         let directory = tempfile::tempdir()?;
         let root = directory.path().canonicalize()?;
@@ -102,11 +104,20 @@ fn main() -> Result<()> {
                 .env_remove("_PYTHON_SYSCONFIGDATA_PATH")
                 .env("PYTHONNOUSERSITE", "1");
         }
+        let output = tempfile::NamedTempFile::new()?;
+        command
+            .stdout(output.as_file().try_clone()?)
+            .stderr(output.as_file().try_clone()?);
         let mut process = command.spawn()?;
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
             if let Some(status) = process.try_wait()? {
-                ensure!(status.success(), "bootstrap scenario failed: {mode}");
+                let log = std::fs::read_to_string(output.path())?;
+                ensure!(
+                    !log.contains("PRIVATE-BOOTSTRAP-SENTINEL"),
+                    "bootstrap leaked a private exception or path: {mode}"
+                );
+                ensure!(status.success(), "bootstrap scenario failed: {mode}: {log}");
                 break;
             }
             if Instant::now() >= deadline {
@@ -142,6 +153,8 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         "sync-handler" => "def fetch(request, ctx): return None",
         "async-constructor" => "class Broken:\n async def __init__(self): pass\n async def fetch(self, request, ctx): pass",
         "bad-constructor" => "class Broken:\n def __init__(self, required): pass\n async def fetch(self, request, ctx): pass",
+        "private-import" => "class PrivateError(Exception):\n def __str__(self):\n  print('PRIVATE-BOOTSTRAP-SENTINEL')\n  return 'PRIVATE-BOOTSTRAP-SENTINEL'\nraise PrivateError()",
+        "private-descriptor" => "x = 1",
         _ => APPLICATION,
     };
     match mode {
@@ -195,11 +208,17 @@ fn child(mode: &str, root: &Path) -> Result<()> {
     // SAFETY: each scenario owns a disposable process. There is no concurrent
     // Python initialization/finalization; the preinitialized case is quiescent
     // and must be rejected before Cellar uses it.
-    let mut source = Source::new(code, "startup.py");
+    let filename = if mode.starts_with("private-") {
+        "/PRIVATE-BOOTSTRAP-SENTINEL/application.py"
+    } else {
+        "startup.py"
+    };
+    let mut source = Source::new(code, filename);
     match mode {
         "missing-handler" | "sync-handler" => source = source.events([EventKind::Fetch]),
         "bad-constructor" | "async-constructor" => source = source.cell("Broken"),
         "duplicate-event" => source = source.events([EventKind::Fetch, EventKind::Fetch]),
+        "private-descriptor" => source = source.cell("PRIVATE-BOOTSTRAP-SENTINEL"),
         _ => {}
     }
     let result = unsafe {
@@ -234,10 +253,11 @@ fn child(mode: &str, root: &Path) -> Result<()> {
             ensure!(entered.load(Ordering::Acquire));
             return Ok(());
         }
-        "unlisted" => "ambient_dependency",
-        "missing-handler" | "sync-handler" => "must be async functions",
-        "bad-constructor" => "required",
-        "async-constructor" => "must be synchronous",
+        "unlisted" | "private-import" => "Python application import failed",
+        "private-descriptor" => "Python cell registration failed",
+        "missing-handler" | "sync-handler" | "bad-constructor" | "async-constructor" => {
+            "Python handler descriptor validation failed"
+        }
         "duplicate-event" => "duplicate Python event",
         "missing-home" => "CPython path is missing",
         "wrong-abi" => "SOABI mismatch",
@@ -246,6 +266,10 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         _ => anyhow::bail!("unknown startup mode"),
     };
     let error = result.expect_err("invalid bootstrap must fail");
+    ensure!(
+        !format!("{error:?}").contains("PRIVATE-BOOTSTRAP-SENTINEL"),
+        "bootstrap retained a private exception source"
+    );
     ensure!(
         error.to_string().contains(expected),
         "wrong {mode} failure: {error}"

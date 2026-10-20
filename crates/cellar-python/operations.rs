@@ -137,7 +137,8 @@ pub(crate) async fn execute(
             let event = state
                 .queue
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("no queue batch in this invocation"))?;
+                .context("no queue batch in this invocation")
+                .context(crate::failure::Validation)?;
             let retry = value["retry"]
                 .as_bool()
                 .context("queue retry must be a boolean")?;
@@ -148,7 +149,8 @@ pub(crate) async fn execute(
                     .messages()
                     .iter()
                     .find(|message| message.id == id)
-                    .ok_or_else(|| anyhow::anyhow!("unknown queue message"))?;
+                    .context("unknown queue message")
+                    .context(crate::failure::Validation)?;
                 if retry {
                     message.retry(delay)?;
                 } else {
@@ -165,7 +167,8 @@ pub(crate) async fn execute(
             state
                 .scheduled
                 .as_ref()
-                .ok_or_else(|| anyhow::anyhow!("not a scheduled invocation"))?
+                .context("not a scheduled invocation")
+                .context(crate::failure::Validation)?
                 .no_retry();
             Ok(Value::Null)
         }

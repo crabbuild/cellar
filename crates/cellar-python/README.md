@@ -84,6 +84,13 @@ Import `Request`, `Response`, `Conflict`, `SDKError`, `Snapshot` and `MISSING` f
 
 Only registered bindings are accessible. Queue delivery and cron retain their
 existing at-least-once semantics. Use idempotency keys for business effects.
+Queue acknowledgements are settlement decisions inside the current delivery;
+the broker persists them when dispatch returns. An acknowledgement followed by
+a handler exception is retained; a timeout that drops dispatch can redeliver.
+The first conflicting message/batch ack or retry decision wins. Cron retries
+retain the original occurrence timestamp. `no_retry()` declines retry when that
+scheduled handler fails. Settlement controls cannot be reused in another live
+invocation or after their original invocation expires.
 Queue text bodies become strings; bytes become `{"$bytes":"BASE64"}`; structured
 bodies must be JSON-representable. JSON integers must fit signed or unsigned
 64 bits; NaN, infinity, non-string object keys and nesting over 64 are rejected.
@@ -183,6 +190,13 @@ qualification and verified deployment closure work remain tracked in the
 [completion audit](../../plans/007-embedded-python-audit.md).
 
 Public Python APIs include type annotations. `loop.shutdown_asyncgens()` and the managed executor are closed while the loop remains alive. Background exceptions trigger a sanitized runtime failure; exception repr and traceback data are not logged by the runner. The report covers runtime-owned work and explicitly recorded native nodes; it does not certify arbitrary raw Python/native threads or the process-wide heap.
+
+Application-import, cell-registration and cold-descriptor failures expose fixed
+stage messages. Python exceptions are discarded at that boundary, without
+formatting their values or retaining traceback/path details in the error chain.
+Other interpreter failures use a fixed message; native Rust host failures retain
+their typed combined report. Application code still controls its own explicit
+logging and process side effects.
 
 `PythonApplication::bridge_report()` returns independently sampled atomic counters for a host-owned metrics exporter. Conservation checks apply after quiescence, not during concurrent updates. The example emits the combined report when `CELLAR_SHUTDOWN_REPORT_JSON=1`; its smoke asserts native drain phases and zero remaining managed work/reservations.
 

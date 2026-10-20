@@ -511,17 +511,21 @@ impl PythonRuntime {
                     &CString::new(source.code.as_str())?,
                     &CString::new(source.filename.as_str())?,
                     c"_cellar_application",
-                )?;
+                )
+                .map_err(|_| anyhow::anyhow!("Python application import failed"))?;
                 modules.set_item("_cellar_application", &app)?;
                 for class in &source.classes {
                     ensure!(
-                        app.getattr(class.as_str())?.is_callable(),
-                        "Python class {class} is not callable"
+                        app.getattr(class.as_str())
+                            .map_err(|_| anyhow::anyhow!("Python cell registration failed"))?
+                            .is_callable(),
+                        "Python cell registration must refer to a callable"
                     );
                 }
                 runner
                     .getattr("validate")?
-                    .call1((app.clone(), serde_json::to_string(&source.descriptor())?))?;
+                    .call1((app.clone(), serde_json::to_string(&source.descriptor())?))
+                    .map_err(|_| anyhow::anyhow!("Python handler descriptor validation failed"))?;
                 let inbox = Py::new(
                     py,
                     Inbox {
@@ -623,6 +627,16 @@ impl PythonRuntime {
                 };
             }
             result
+        })
+        .map_err(|error| {
+            // PyErr formatting can expose application exception values, import
+            // paths or arbitrary __str__ code. Never retain it as a source on
+            // this public boundary. Rust host failures keep their typed report.
+            if error.is::<PyErr>() {
+                anyhow::anyhow!("Python interpreter execution failed")
+            } else {
+                error
+            }
         })
     }
 }
