@@ -11,6 +11,7 @@ pub mod blob;
 pub mod cache;
 pub mod cells;
 pub(crate) mod concurrency;
+pub mod consensus;
 pub mod containers;
 pub mod cron;
 pub mod event_stream;

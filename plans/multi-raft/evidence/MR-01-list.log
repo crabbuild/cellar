@@ -1,0 +1,13 @@
+   Compiling cellar-logic v0.1.0 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar-logic)
+   Compiling cellar v0.6.2 (/Users/haipingfu/.codex/worktrees/23c7/cellar/crates/cellar)
+    Finished `test` profile [unoptimized] target(s) in 52.54s
+     Running tests/native_raft_contract.rs (/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/deps/native_raft_contract-3c864aaa11211944)
+<jemalloc>: option background_thread currently supports pthread only
+birth_retry_identity: test
+envelope_bounds: test
+incarnation_token_scope: test
+late_completion_model: test
+mode_isolation: test
+speculative_visibility_model: test
+
+6 tests, 0 benchmarks

@@ -80,11 +80,11 @@ ordering; it does not require parallel agents or overlapping edits.
 
 ### MR-01 Define identities, invariants and operation contracts
 
-Dependencies: none. Phase: v1. Initial status: TODO.
+Dependencies: none. Phase: v1. Status: IN_PROGRESS.
 
 Modify: `crates/cellar-logic/types.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/application/mod.rs`.
 
-Create: `crates/cellar-logic/consensus.rs`, `crates/cellar/tests/support/raft_model.rs`, `crates/cellar/tests/native_raft_contract.rs`.
+Create: `crates/cellar-logic/consensus.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/tests/support/raft_model.rs`, `crates/cellar/tests/native_raft_contract.rs`.
 
 1. Implement pure identity, authority, durability and version types, with explicit Fleet/Raft discrimination.
 2. Define marker-1 envelope, maximum sizes, canonical digest inputs, token scope and error taxonomy from the design.
@@ -257,9 +257,9 @@ shown by `plan.py show MR-06`; the manifest is authoritative for arguments.
 
 Dependencies: MR-04, MR-06. Phase: v1. Initial status: TODO.
 
-Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`.
+Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/consensus/mod.rs`.
 
-Create: `crates/cellar/application/consensus.rs`, `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`.
+Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`.
 
 1. Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.
 2. Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.
@@ -286,7 +286,7 @@ shown by `plan.py show MR-07`; the manifest is authoritative for arguments.
 
 Dependencies: MR-07. Phase: v1. Initial status: TODO.
 
-Modify: `crates/cellar/application/consensus.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`.
+Modify: `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`.
 
 Create: `crates/cellar/durability/raft/query.rs`, `crates/cellar/durability/raft/version.rs`, `crates/cellar/tests/native_raft_reads.rs`.
 
@@ -405,7 +405,7 @@ shown by `plan.py show MR-11`; the manifest is authoritative for arguments.
 
 Dependencies: MR-08, MR-09, MR-11. Phase: v1. Initial status: TODO.
 
-Modify: `crates/cellar/application/outbox.rs`, `crates/cellar/application/storage/outbox.rs`, `crates/cellar/fleet/wake/mod.rs`, `crates/cellar-logic/alarm.rs`, `crates/cellar/runtime/workers/native/mod.rs`, `crates/cellar/application/consensus.rs`.
+Modify: `crates/cellar/application/outbox.rs`, `crates/cellar/application/storage/outbox.rs`, `crates/cellar/fleet/wake/mod.rs`, `crates/cellar-logic/alarm.rs`, `crates/cellar/runtime/workers/native/mod.rs`, `crates/cellar/application/consensus/mod.rs`.
 
 Create: `crates/cellar/durability/raft/effects.rs`, `crates/cellar/tests/native_raft_effects.rs`.
 

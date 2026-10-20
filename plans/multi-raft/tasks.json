@@ -47,7 +47,7 @@
       "id": "MR-01",
       "title": "Define identities, invariants and operation contracts",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [],
       "modifies": [
         "crates/cellar-logic/types.rs",
@@ -57,7 +57,9 @@
       "creates": [
         "crates/cellar-logic/consensus.rs",
         "crates/cellar/tests/support/raft_model.rs",
-        "crates/cellar/tests/native_raft_contract.rs"
+        "crates/cellar/tests/native_raft_contract.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/protocol.rs"
       ],
       "steps": [
         "Implement pure identity, authority, durability and version types, with explicit Fleet/Raft discrimination.",
@@ -712,10 +714,10 @@
         "crates/cellar/application/mod.rs",
         "crates/cellar/application/cells.rs",
         "crates/cellar/sdk.rs",
-        "crates/cellar/Cargo.toml"
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/application/consensus/mod.rs"
       ],
       "creates": [
-        "crates/cellar/application/consensus.rs",
         "crates/cellar/durability/raft/catalog.rs",
         "examples/raft-counter/main.rs",
         "crates/cellar/tests/native_raft_host.rs"
@@ -817,7 +819,7 @@
         "MR-07"
       ],
       "modifies": [
-        "crates/cellar/application/consensus.rs",
+        "crates/cellar/application/consensus/mod.rs",
         "crates/cellar/application/cells.rs",
         "crates/cellar/sdk.rs",
         "crates/cellar-logic/routing.rs"
@@ -1280,7 +1282,7 @@
         "crates/cellar/fleet/wake/mod.rs",
         "crates/cellar-logic/alarm.rs",
         "crates/cellar/runtime/workers/native/mod.rs",
-        "crates/cellar/application/consensus.rs"
+        "crates/cellar/application/consensus/mod.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/effects.rs",

@@ -184,22 +184,32 @@ are inside those bytes. Normal
 Raft entries also carry term/index; configuration and no-op entries have no data
 delta. Never derive a Raft index from TXID or the existing output ticket counter.
 
-Define the Cellar envelope in MR-01 as marker 1, a bounded length-prefixed UTF-8
-JSON header followed by concatenated raw LTX files and a SHA-256 digest of header
-plus payload. A bounded file table records offsets, lengths and TXID ranges;
+The marker-1 Cellar envelope starts with ASCII `CLRF`, big-endian u32 marker 1,
+big-endian u32 header length and big-endian u64 payload length. A bounded UTF-8
+JSON header follows, then concatenated raw LTX files and a SHA-256 digest of the
+entire preceding frame, including its prefix. The required protocol digest is
+SHA-256 of UTF-8 `cellar-raft-ltx-1`. A bounded file table records offsets,
+lengths, TXID ranges, page counts and decoded page bytes;
 entries partition the payload exactly and form one contiguous ordered chain.
 Use decimal strings for 64-bit fields in the JSON header; reject duplicate keys,
 unknown required protocol digests, excessive lengths and trailing bytes. The
 transport authenticates the complete envelope. LTX CRC checks detect corruption
 but do not authenticate peers. Keep upstream LTX bytes unchanged.
 
+Initial defaults bound the header at 64 KiB, encoded payload at 16 MiB, file
+count at 64, decoded page bytes at 64 MiB and decoded page count at 131,072.
+The envelope enforces declarations; the physical LTX decoder independently
+counts actual decoded bytes/pages and verifies those declarations before apply.
+Untrusted declarations cannot authorize unbounded decompression. Limits may be
+lowered; the codec rejects zero limits and limits above its hard allocation caps.
+
 The current `Db` L0 writer sets `HEADER_FLAG_NO_CHECKSUM` and writes zero database
 pre/post checksums; `seed_continuation` also emits a zero-page local marker. Those
 values are not evidence of database equivalence. Preserve the LTX format and add
 mandatory base/result image digests to the Raft envelope. Define the digest input
-as page size and committed page count followed by ascending page-number/page-byte
-pairs, excluding SQLite's lock page and bytes beyond the committed size. Fix
-integer encoding in MR-01. The leader computes the result from the frozen SQLite
+as big-endian u32 page size and big-endian u32 committed page count followed by
+ascending big-endian u32 page-number/page-byte pairs, excluding SQLite's lock
+page and bytes beyond the committed size. The leader computes the result from the frozen SQLite
 state including its WAL overlay; each applier independently recomputes it. Verify
 LTX's own database checksums additionally when present, and always verify file
 integrity. A zero checksum must never disable envelope image verification.

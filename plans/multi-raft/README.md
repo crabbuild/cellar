@@ -1,7 +1,8 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation-ready proposal. The Raft runtime is not implemented by
-this package. Prepared 2026-10-19 against Cellar
+Status: implementation in progress. MR-01 introduces pure authority contracts
+and the bounded update codec; the Raft runtime and end-to-end serving remain
+unimplemented. See tasks.json for current work-package status. Prepared 2026-10-19 against Cellar
 `0efd8f4d871199542f97f9fe0b74086a38606d02`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders

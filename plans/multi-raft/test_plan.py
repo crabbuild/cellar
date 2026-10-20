@@ -52,10 +52,12 @@ class PackageTests(unittest.TestCase):
 
     def test_done_without_evidence_rejected(self):
         self.manifest["tasks"][0]["status"] = "DONE"
+        self.manifest["tasks"][0]["evidence"] = []
         with self.assertRaisesRegex(plan.PlanError, "no evidence"):
             self.validate()
 
     def test_done_before_dependencies_rejected(self):
+        self.manifest["tasks"][0]["status"] = "TODO"
         self.manifest["tasks"][1]["status"] = "DONE"
         with self.assertRaisesRegex(plan.PlanError, "before its dependencies"):
             self.validate()
