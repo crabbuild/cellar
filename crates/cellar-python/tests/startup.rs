@@ -45,6 +45,8 @@ fn main() -> Result<()> {
         "unlisted",
         "missing-home",
         "wrong-abi",
+        "wrong-threading-abi",
+        "concurrent-errors",
         "relative-root",
         "preinitialized",
         "wrong-thread",
@@ -159,6 +161,22 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         "private-descriptor" => "x = 1",
         "private-nul-source" => "# PRIVATE-BOOTSTRAP-SENTINEL\0",
         "private-nul-filename" => "x = 1",
+        "concurrent-errors" => r#"
+import threading
+class Broken:
+    def __del__(self):
+        raise RuntimeError("PRIVATE-BOOTSTRAP-SENTINEL")
+def worker():
+    for _ in range(200):
+        broken = Broken()
+        del broken
+    raise RuntimeError("PRIVATE-BOOTSTRAP-SENTINEL")
+threads = [threading.Thread(target=worker) for _ in range(16)]
+for thread in threads: thread.start()
+for thread in threads: thread.join()
+import gc
+gc.collect()
+"#,
         _ => APPLICATION,
     };
     match mode {
@@ -179,7 +197,20 @@ fn child(mode: &str, root: &Path) -> Result<()> {
             );
         }
         "missing-home" => options.interpreter.home = root.join("missing"),
-        "wrong-abi" => options.interpreter.soabi = "cpython-314-wrong-abi".into(),
+        "wrong-abi" => {
+            options.interpreter.soabi = if options.interpreter.soabi.starts_with("cpython-314t-") {
+                "cpython-314t-wrong-abi".into()
+            } else {
+                "cpython-314-wrong-abi".into()
+            }
+        }
+        "wrong-threading-abi" => {
+            options.interpreter.soabi = if options.interpreter.soabi.starts_with("cpython-314t-") {
+                "cpython-314-wrong-mode".into()
+            } else {
+                "cpython-314t-wrong-mode".into()
+            }
+        }
         "relative-root" => options.module_paths.push(".".into()),
         "preinitialized" => pyo3::Python::initialize(),
         "wrong-thread" => {
@@ -248,6 +279,21 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         ensure!(!still_tracing, "owned profiler leaked after {mode}");
     }
     let expected = match mode {
+        "concurrent-errors" => {
+            let failure =
+                result.expect_err("thread/destructor failures must prevent a complete report");
+            let report = &failure
+                .downcast_ref::<cellar_python::Incomplete>()
+                .expect("typed incomplete report")
+                .report;
+            ensure!(
+                report.thread_errors == 16 && report.unraisable_errors == 3200,
+                "concurrent failure accounting lost updates: threads={} destructors={}",
+                report.thread_errors,
+                report.unraisable_errors
+            );
+            return Ok(());
+        }
         "isolated" | "wrong-thread" | "host-signals" => {
             let report = result?;
             ensure!(report.complete());
@@ -270,6 +316,7 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         "duplicate-event" => "duplicate Python event",
         "missing-home" => "CPython path is missing",
         "wrong-abi" => "SOABI mismatch",
+        "wrong-threading-abi" => "threading ABI",
         "relative-root" => "must be absolute",
         "preinitialized" => "already initialized outside Cellar",
         _ => anyhow::bail!("unknown startup mode"),

@@ -62,7 +62,7 @@ logic and alarm handlers in Python, using ordinary compatible Python packages.
 Cellar continues to own ingress, placement, SQLite, transactions, output proofs,
 activation authority, recovery and shutdown.
 
-Use one process-wide, GIL-enabled CPython 3.14 interpreter and one managed
+Use one process-wide CPython 3.14 or free-threaded CPython 3.14t interpreter and one managed
 `asyncio` loop initially. Python runs inside the Cellar application process;
 Docker, a Python child process, JavaScript and WebAssembly are not required.
 This is trusted application execution, not a sandbox for tenant-supplied code.
@@ -104,7 +104,7 @@ The initial supported surface is deliberately narrower than the complete Rust SD
 | Cell-local JSON, SQL and atomic checked batches; KV and shared SQL bindings | General SQL cursors and arbitrary Python transaction callbacks |
 | Cell-local durable alarms and explicit storage sync | Background `wait_until`, facets and compiled-loader Python bindings |
 | Declared, bounded cell calls through the host | Full SDK parity and arbitrary remote Python object access |
-| A qualified set of native Python dependencies | Every PyPI package, free-threaded Python and subinterpreters |
+| A qualified set of native Python dependencies | Every PyPI package and subinterpreters |
 
 Native CPython is the compatibility target. Pure Python packages and compatible
 native extensions can be used when their interpreter ABI, operating system,
@@ -542,8 +542,9 @@ copying and recovery baselines without claiming a performance target in advance.
   embedded model cannot safely operate. It needs a separate IPC/storage bridge.
 - **Pyodide:** a different JS/Wasm execution stack with a different package ABI;
   not needed to achieve native Python library support in this proposal.
-- **Subinterpreters/free-threaded CPython:** defer until the selected PyO3,
-  extensions, interpreter isolation and lifetime contracts are qualified.
+- **Subinterpreters:** defer until extension isolation and lifetime contracts
+  are qualified. Free-threaded CPython 3.14t is supported as a distinct build ABI,
+  with explicit parallel-worker, ownership, cleanup and package qualification.
 - **One interpreter per cell:** reject for the initial design; it multiplies
   interpreter/import cost and assumes extension isolation that is not established.
 - **Arbitrary Python transaction callbacks:** defer; the batch API avoids holding
@@ -569,7 +570,8 @@ Primary external references, consulted on 2026-10-19:
 
 The original design was prepared from source inspection and primary
 documentation before implementation. The current adapter pins PyO3 and its
-build configuration to 0.30.1 and targets GIL-enabled shared CPython 3.14.
+build configuration to 0.30.1. The initial implementation targeted GIL-enabled
+shared CPython 3.14; the subsequent free-threaded amendment supports both ABIs.
 The interface and organization above describe the executable implementation.
 Qualification results below and in the audit record their exact scope.
 Performance baselines and the remaining audit gates are not implied by the

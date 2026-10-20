@@ -6,7 +6,7 @@ SQL, queues and cron. CPython runs in the native Rust process through PyO3.
 
 ## Install and run
 
-Use **GIL-enabled Python 3.14**, with development headers and a shared libpython,
+Use **CPython 3.14 or free-threaded CPython 3.14t**, with development headers and a shared libpython,
 and the repository's Rust toolchain. Build and run against the same Python
 installation. Linux installations built from source need `--enable-shared` and a
 loader path for libpython. No Docker setup is required for local development.
@@ -22,6 +22,11 @@ examples/python/.venv/bin/python -m pip install --require-hashes --only-binary :
 export CELLAR_PYTHON_SITE_PACKAGES="$(examples/python/.venv/bin/python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
 cargo run -p cellar --bin cellar --locked -- dev examples/python/project.json --no-watch
 ```
+
+For free-threaded Python, select `python3.14t` in `PYO3_PYTHON` and create a fresh
+venv with that interpreter; native wheels must match its `cp314t` ABI. The example
+health endpoint reports both `free_threaded` and `gil_enabled`. The smoke option
+`--expect-free-threaded` requires actual GIL-disabled execution after native work.
 
 Use a target directory unique to your checkout. The example host exclusively initializes CPython before starting the Rust host.
 The selected interpreter's home/stdlib roots are captured at build time; ambient

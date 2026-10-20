@@ -2,6 +2,7 @@
 import hashlib
 import asyncio
 import os
+import sys
 import numpy as np
 from typing_inspection.introspection import get_literal_values
 from typing import Literal
@@ -24,7 +25,8 @@ async def fetch(request, ctx):
         assert list(get_literal_values(Literal["durable", "python"])) == ["durable", "python"]
         return Response.json({"matrix": matrix, "sha256": checksum, "numpy": np.__version__})
     if request.path == "/health":
-        response = Response.json({"runtime": "cpython", "sha256": hashlib.sha256(b"cellar").hexdigest()})
+        response = Response.json({"runtime": "cpython", "sha256": hashlib.sha256(b"cellar").hexdigest(),
+                                  "free_threaded": "t" in sys.abiflags, "gil_enabled": sys._is_gil_enabled()})
         if instance := os.environ.get("CELLAR_SUPERVISOR_INSTANCE"):
             response.headers.append(("x-cellar-supervisor-instance", instance))
         return response

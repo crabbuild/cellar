@@ -15,13 +15,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let interpreter = pyo3_build_config::get();
     if interpreter.implementation() != PythonImplementation::CPython
         || interpreter.version().to_string() != "3.14"
-        || interpreter
-            .build_flags()
-            .0
-            .contains(&BuildFlag::Py_GIL_DISABLED)
     {
-        return Err(Error::other("cellar-python embed requires GIL-enabled CPython 3.14").into());
+        return Err(Error::other("cellar-python embed requires CPython 3.14").into());
     }
+    let gil_disabled = interpreter
+        .build_flags()
+        .0
+        .contains(&BuildFlag::Py_GIL_DISABLED);
     if !interpreter.shared() {
         return Err(Error::other("cellar-python embed requires a shared libpython runtime").into());
     }
@@ -68,9 +68,12 @@ json.dump({
     let layout: serde_json::Value = serde_json::from_slice(&bytes)?;
     if layout["version"] != serde_json::json!([3, 14])
         || layout["implementation"] != "cpython"
-        || layout["gil_disabled"] != false
+        || layout["gil_disabled"].as_bool() != Some(gil_disabled)
     {
-        return Err(Error::other("build layout must describe GIL-enabled CPython 3.14").into());
+        return Err(Error::other(
+            "build layout must match the selected CPython 3.14 threading ABI",
+        )
+        .into());
     }
     let string = |key| {
         layout[key]
@@ -80,6 +83,11 @@ json.dump({
     let home = string("home")?;
     let executable = string("executable")?;
     let soabi = string("soabi")?;
+    let abi_prefix = if gil_disabled {
+        "cpython-314t-"
+    } else {
+        "cpython-314-"
+    };
     let paths = layout["paths"]
         .as_array()
         .ok_or_else(|| Error::other("CPython layout requires paths"))?
@@ -93,7 +101,7 @@ json.dump({
         || !PathBuf::from(executable).is_absolute()
         || paths.is_empty()
         || paths.iter().any(|path| !PathBuf::from(path).is_absolute())
-        || !soabi.starts_with("cpython-314")
+        || !soabi.starts_with(abi_prefix)
     {
         return Err(Error::other(
             "CPython layout needs absolute home/executable/import roots and a cpython-314 SOABI",
@@ -139,7 +147,7 @@ json.dump({
             .collect::<Result<Vec<_>, Error>>()?
     };
     let generated = format!(
-        "pub const INVENTORY: &str = {inventory:?};\npub const MODULE_PATHS: &[&str] = &{modules:?};\npub const TARGET: &str = {target:?};\npub const HOME: &str = {home:?};\npub const EXECUTABLE: &str = {executable:?};\npub const SOABI: &str = {soabi:?};\npub const PATHS: &[&str] = &{paths:?};\n",
+        "pub const INVENTORY: &str = {inventory:?};\npub const MODULE_PATHS: &[&str] = &{modules:?};\npub const TARGET: &str = {target:?};\npub const HOME: &str = {home:?};\npub const EXECUTABLE: &str = {executable:?};\npub const SOABI: &str = {soabi:?};\npub const GIL_DISABLED: bool = {gil_disabled};\npub const PATHS: &[&str] = &{paths:?};\n",
         target = std::env::var("TARGET")?,
     );
     std::fs::write(

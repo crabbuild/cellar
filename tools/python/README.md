@@ -1,6 +1,6 @@
 # Provisioned Python environments
 
-`environment.py` inventories a provisioned GIL-enabled CPython 3.14 and explicit
+`environment.py` inventories a provisioned CPython 3.14 or free-threaded CPython 3.14t and explicit
 package roots. `CELLAR_PYTHON_INVENTORY` binds that inventory into the Rust host at
 build time. Startup compares the source, event registrations, distribution pins,
 ABI, loaded libpython and filesystem contents before initializing Python or
@@ -237,3 +237,20 @@ executes matrix multiplication and hashing concurrently through the managed
 executor and a pure Python literal-type inspection. Linux CI exercises the
 same pinned libraries; its results must be checked before claiming Linux
 qualification. No claim covers every package in the Python ecosystem.
+
+
+## Free-threaded runtime selection
+
+Use a fresh private prefix for the `314t` ABI. In the provisioning commands above,
+select `uv python install 3.14.5t` and `uv python find --managed-python 3.14.5t`,
+then use that interpreter for wheel download, offline installation, capture and
+host compilation. The same lock contains the qualified NumPy/Pydantic native
+wheel hashes for both ABIs. Never reuse a regular-CPython package directory or
+runtime archive for a free-threaded executable.
+
+The inventory SOABI, compiled layout, actual loaded libpython and source digest
+remain checked. There is no runtime ABI conversion or implicit GIL switch.
+Run the smoke with `--expect-free-threaded` to require `/health.free_threaded`
+true and `/health.gil_enabled` false after native library work. The SDK workflow
+runs the full test/package/restore/handoff/supervisor matrix independently for
+`3.14` and `3.14t`; reported qualification must name completed runs and versions.

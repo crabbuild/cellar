@@ -15,8 +15,8 @@ state cannot supply Cellar durability or safe in-process termination.
 
 ## Decision
 
-Use the optional `cellar-python` crate with pinned PyO3, one GIL-enabled CPython
-3.14 interpreter and one main-thread asyncio loop. Initialize before starting
+Use the optional `cellar-python` crate with pinned PyO3, one CPython 3.14 or free-threaded 3.14t
+interpreter and one main-thread asyncio loop. Initialize before starting
 the Rust supervisor, with explicit home/import roots, isolated configuration
 and an explicit Python environment view. Import signal before asyncio and remove
 only CPython's implicit INT handler; preserve an existing native handler. The
@@ -75,7 +75,7 @@ Direct filesystem/network/library effects remain outside Cellar's transaction
 and proof boundaries. Heap objects, globals and coroutine suspension are
 transient; compatible packages still require platform/ABI/dependency qualification.
 ASGI, streaming, arbitrary Python transaction callbacks, subinterpreters,
-free-threaded Python, untrusted-code isolation and full SDK parity remain deferred
+untrusted-code isolation and full SDK parity remain deferred
 as declared in the original plan.
 
 ## Compatibility and evidence
@@ -93,3 +93,16 @@ reports to complete. The [completion audit](../../plans/007-embedded-python-audi
 records exact scope and failures. This decision accepts the integration model;
 quorum/binding fault matrices, external dependency attestation, remaining telemetry
 and measured baselines are still release gates, not waived requirements.
+
+
+## Free-threaded support amendment (2026-10-20)
+
+The user requested removal of the GIL-enabled-only restriction. Both threading
+ABIs are accepted, selected at build time; cross-build layout and runtime/import
+inventory must match the selected ABI. One managed loop still owns SDK dispatch;
+parallel Python workers do not inherit Cellar authority through contextvars.
+Rust bridge state uses synchronization, Python allocation happens outside channel
+mutex guards, and concurrent Python error hooks use an explicit lock. Native
+extensions still require the selected interpreter ABI and their own declared
+free-threading compatibility. Tests check actual GIL-disabled execution rather
+than accepting a build which silently enables the GIL during imports.

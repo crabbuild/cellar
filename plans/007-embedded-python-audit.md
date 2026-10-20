@@ -5,7 +5,8 @@ implementation. The objective remains the complete plan, including packaging,
 failure qualification, observability and measured baselines. A runnable example
 or passing happy-path smoke is insufficient to complete it. Explicitly deferred
 features (ASGI, streaming, arbitrary transaction callbacks, untrusted-code
-isolation, subinterpreters and free-threaded CPython) remain deferred.
+isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
+subsequently requested and is an additional supported build/qualification scope.
 
 The preceding implementation turn made concrete progress: it added the adapter,
 example and integration harness. The full objective is **not achieved**. Prior
@@ -24,7 +25,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | A01 | Separate optional adapter; PyO3 outside logic/core | Dependency graph and native-only build without Python | verified locally: optional embed adapter, workspace-centralized pinned dependencies, native-only build with a nonexistent interpreter and all-feature no-JavaScript graph; logic/core contain no Python engine |
-| A02 | Pin CPython 3.14, GIL mode and compatible bridge | Build-time ABI guard plus runtime preflight, pinned Cargo graph | verified: CPython/GIL/shared-library build guards, builtin ABI preflight, invalid-ABI startup refusal and exact PyO3/build-config 0.30.1 Cargo lock |
+| A02 | Pin CPython 3.14 threading ABI and compatible bridge | Build-time ABI guard plus runtime preflight, pinned Cargo graph | verified: CPython/shared-library and selected-threading-ABI build guards, builtin ABI preflight, invalid-ABI startup refusal and exact PyO3/build-config 0.30.1 Cargo lock |
 | A03 | Initialize before node; explicit home/import roots/site/env | Isolated configuration before Python code/imports; hostile environment tests | verified: explicit PyInitConfig + `startup` hostile-environment matrix |
 | A04 | Process-owned loop and explicit joined Rust executors | Runtime source, concurrent await test and combined shutdown evidence | verified locally: process main-thread loop, explicit joined Rust supervisor, concurrent host-await progress and current combined two-/three-node stop reports |
 | A05 | One coordinated signal owner | Disposable process INT/TERM tests; no competing interpreter handlers | verified locally: startup preserves existing native handlers and removes CPython implicit INT handling; real TERM/INT handoff with two compiled Python processes yields complete joined reports |
@@ -39,6 +40,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | A14 | Native factories never call/import Python | Source/caller audit plus blocked-interpreter factory test | verified locally: proxy creation uses only immutable Rust source descriptors, atomics and owned lifetime flags; in both CPU-loop and GIL-held C-call owner drills, a Rust root submits a new real cell activation and the native factory counter advances while Python remains blocked and its handler cannot complete |
 | A15 | Activation identity includes domain, generation and epoch | Retire/recreate and simultaneous same-name/domain tests | partial: unique proxy IDs and original Context |
 | A16 | No interpreter-per-cell or hot Python replacement | Process-wide guard and attempted reload tests | verified locally and on Linux at 21f6b30: cell proxies share the process runtime, a second runtime is refused, live selector replacement is refused in process, and changed Python source executes only in the distinct replacement executable/process; trusted application mutation of Python globals is outside generation isolation |
+| A17 | Support conventional and free-threaded CPython 3.14 ABIs without borrowed authority or implicit GIL dependency | Both ABI builds, actual GIL-off workers, concurrent hooks, mixed-ABI refusal and installed-package recovery | verified locally for macOS ARM64: full adapter suites pass on CPython 3.14.6 and free-threaded 3.14.5t; foreign-loop bridge operations are refused even with inherited contextvars, concurrent hook counts are exact, cross-layout/ABI mismatches refuse startup, and both archive modes restore; 3.14t GIL-off native-library smoke, archive recovery, changed-source TERM/INT handoff and forced-stall supervisor/restart/exact-receipt/new-write/complete-drain qualification pass; fresh full Linux matrix remains Q12 |
 
 ## HTTP, codecs and failures (M1)
 
@@ -113,10 +115,10 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | verified locally: actual two-domain DDL/DML/queries refuse retained-handle writes; independent before-submit/in-flight cancellation, failed native proof, unknown failure without replay, explicit primary-key receipt reconciliation, 1-admitted/31-refused overlap pressure and restart retain singular effects with complete reports and zero managed work |
 | Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | verified locally: real consumer matrix covers default/explicit ack, handler errors after ack, first conflicting decision, same-ID retry/exhaustion, timeout/cancel expiry and retained-handle authority; independent producer before-submit/in-flight cancellation, held/failed proof, unknown-result reconciliation and overlap pressure run through the real broker; SQL business receipts remain singular and the empty broker/effects persist across restart with complete reports; this drill reproduced and now passes the native running-alarm reset regression |
 | Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real native alarm/history matrix proves same-occurrence retry, explicit no_retry after error, refusal of live-cross/expired controllers, idempotent SQL effects and exact execution-history/active-alarm persistence over restart; native timeout/cancellation and replay after unclean interruption remain |
-| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for the stated platform/version scope: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 execute pinned Pydantic/NumPy/pure-library workloads; full 21f6b30 PR CI also passes provisioned CPython 3.14.5 archive restore, changed-source TERM/INT handoff, observation and exact receipt checks; newer native reset/binding tests still require current-source Linux execution under Q12; other platforms/library versions are unqualified |
+| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for the stated platform/version scope: macOS ARM64 CPython 3.14.5/3.14.6 plus free-threaded 3.14.5t, and Linux x86_64 CPython 3.14.8 execute pinned Pydantic/NumPy/pure-library workloads; full 21f6b30 PR CI also passes provisioned CPython 3.14.5 archive restore, changed-source TERM/INT handoff, observation and exact receipt checks; newer native reset/binding tests still require current-source Linux execution under Q12; other platforms/library versions are unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: full Linux push workflow 39446982367 passed at dd0df44, including native-node and binding/proof matrices, doctests/Clippy and package recovery/handoff; final supervisor/startup/loss/alarm changes pass local full adapter tests, strict Clippy, package smoke and guards but need fresh complete Linux execution |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: full Linux push workflow 39446982367 passed at dd0df44, including native-node and binding/proof matrices, doctests/Clippy and package recovery/handoff; final supervisor/startup/loss/alarm and free-threaded changes pass local full adapter tests, strict Clippy, package smoke and guards but need fresh complete Linux execution |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -946,3 +948,65 @@ and `git diff --check` pass. Linux workflows 39458257880/39458250262 were still
 running at d5639c7 when this subsequently discovered alarm fix was prepared.
 Their pre-alarm source cannot qualify the corrected example; final-source CI
 must run again. Superseded workflow cancellations are not successful evidence.
+
+
+## Free-threaded CPython support (2026-10-20)
+
+The user requested removal of the GIL-enabled-only restriction. The adapter,
+layout capture, inventory protocol and provisioning tools now accept both
+`cpython-314-...` and `cpython-314t-...`. The selected PyO3 threading ABI must match
+the cross-build layout, runtime SOABI and bound inventory. The runtime still
+initializes one process-owned interpreter and one managed loop; ordinary Python
+workers can run in parallel, while live SDK handles retain their original loop,
+invocation, domain and native commit/output authority.
+
+A real 3.14.5t build failed before this change with the explicit GIL-only guard.
+The corrected free-threaded full adapter suite passes. A deliberately mismatched
+cross-build layout fails before admission; startup tests independently refuse
+opposite-mode SOABIs. Five archive tests pass, including round-trip restoration
+of both ABIs and refusal of other ABI strings. No format marker was incremented.
+
+Reply delivery drains owned Rust replies before allocating Python objects, so
+an attached thread cannot hold that channel mutex across Python GC/allocation.
+Error hooks use an explicit reentrant lock for increments and snapshots; the
+reentrancy permits destructor failures during collection on the same thread.
+A disposable bootstrap test verifies exactly 3,200 destructor failures and 16
+thread failures, sanitized and joined, in both interpreter modes. A real handler
+runs two threaded computations and refuses SDK calls/completions from their
+foreign loops, including when free-threaded Python inherits contextvars. It
+requires `sys._is_gil_enabled()` to remain false in the free-threaded build.
+
+The existing hash lock supplies native `cp314t` wheels for NumPy 2.3.4 and
+pydantic-core 2.41.4/Pydantic 2.12.3. A fresh inventoried 3.14.5t package passes
+`--expect-free-threaded` smoke with actual numerical work, validation, KV, SQL,
+queue/cron, repeated alarm occurrences, exact receipts, restart and complete
+joined reports. Its health reports both build ABI and actual runtime GIL state;
+Cellar does not force unsupported extensions to run without a GIL. Independent
+source/extension/package-root/libpython loss and tamper cases also pass and
+restore the exact original environment. The full 3.14t install/rolling/watchdog command also passes archive restoration
+with the original runtime absent, changed-source TERM and INT handoff, forced
+termination of a stalled interpreter, joined replacement, exact receipt replay,
+a new write and complete replacement handoff. The killed process produces no
+clean report. All owned child processes have exited after the terminal result.
+
+The regular CPython 3.14.6 full adapter suite and strict adapter Clippy also pass;
+strict host+adapter Clippy passed for the free-threaded build. CI now independently
+runs the whole workspace and package/restore/handoff/watchdog pipeline for both
+`3.14` and `3.14t`. Local evidence does not substitute for fresh completed Linux
+matrix jobs, and the broader remaining audit rows stay open.
+
+
+Final free-threaded evidence uses inventory
+`88c40a8298b4a1a27e700af59a2c751c6ea8af7712a480cf40dd49afaa6b8cba`
+and the changed-source inventory
+`75e5babf09ff50ab1367834f454ad73a70975926e2f32f2a71df16cd58cc1e22`.
+The installed runtime/library is CPython 3.14.5t on macOS ARM64. No dependency
+versions or lock hashes were relaxed. The final regular-mode suite uses Homebrew
+CPython 3.14.6; its full adapter tests and Clippy pass after the reentrant-hook
+change. The final free-threaded bootstrap repeat also passes exact concurrent
+failure accounting. Five native archive tests, strict host/adapter Clippy,
+format/layout (606 Rust files), the 415-package native dependency guard,
+documentation generation/integrity, native-only compilation with a nonexistent
+interpreter and `git diff --check` pass. The workflow parses with independent
+3.14/3.14t matrix entries. Fresh Linux execution of the final source is pending;
+pre-amendment workflows cannot qualify the new ABI support.

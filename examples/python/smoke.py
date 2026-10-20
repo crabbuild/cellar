@@ -105,6 +105,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cellar", required=True, type=Path)
     parser.add_argument("--with-cron", action="store_true")
+    parser.add_argument("--expect-free-threaded", action="store_true")
     parser.add_argument("--project", type=Path, default=Path(__file__).with_name("project.json"))
     args = parser.parse_args()
     cellar = args.cellar.resolve()
@@ -120,6 +121,9 @@ def main():
             libraries = call("/libraries")
             assert libraries["matrix"] == [[5.0, 14.0, 23.0], [14.0, 50.0, 86.0], [23.0, 86.0, 149.0]]
             assert libraries["numpy"] == "2.3.4" and len(libraries["sha256"]) == 64
+            if args.expect_free_threaded:
+                health = call("/health")
+                assert health["free_threaded"] and not health["gil_enabled"], health
             assert call("/counters/a") == {"count": 0, "alarms": 0}
             assert call("/counters/a", method="POST", data={"amount": 7})["count"] == 7
             call("/counters/a", method="POST", data={"amount": "invalid"}, status=400)

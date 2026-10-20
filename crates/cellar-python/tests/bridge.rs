@@ -428,6 +428,17 @@ fn main() -> Result<()> {
                 stop(other, &monitor).await?;
                 scoped?;
                 host_await_progress(&client, &url, &application).await?;
+                let parallel: Value = client.get(format!("{url}/parallel-python")).send().await?
+                    .error_for_status()?.json().await?;
+                let free_threaded = pyo3::Python::attach(|py| -> pyo3::PyResult<bool> {
+                    Ok(py.import("sys")?.getattr("abiflags")?.extract::<String>()?.contains('t'))
+                })?;
+                ensure!(parallel["free_threaded"] == free_threaded && parallel["gil_enabled"] == !free_threaded,
+                    "bridge import unexpectedly changed GIL mode: {parallel}");
+                for seed in 1..=2 {
+                    let expected: u64 = (0..100_000u64).map(|index|(index ^ seed) % 97).sum();
+                    ensure!(parallel["values"][(seed-1) as usize] == expected,"parallel Python result: {parallel}");
+                }
                 ensure!(client.get(format!("{url}/loop-lag")).send().await?.error_for_status()?.json::<bool>().await?);
                 tokio::time::timeout(Duration::from_secs(1), async {
                     loop {

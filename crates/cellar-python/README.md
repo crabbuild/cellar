@@ -1,7 +1,7 @@
 # Embedded Python
 
 `cellar-python` implements Cellar's native `Application` and `Cell` contracts using
-PyO3 and **GIL-enabled CPython 3.14**. Enable the optional `embed` feature. A compiled
+PyO3 and **CPython 3.14 or free-threaded CPython 3.14t**. Enable the optional `embed` feature. A compiled
 Rust executable includes the Python source and starts one interpreter and one
 asyncio loop on the process main thread. No container or Python subprocess is
 required. The default feature set does not build or link Python.
@@ -162,9 +162,8 @@ execution guarantee and lose SDK authority when their invocation ends. Cooperati
 tasks are cancelled at shutdown; the asyncio default thread executor is joined
 with a deadline. `Report` rejects remaining tasks or Python threads. Applications
 must join threads and private executors created by their libraries; cancelling
-`asyncio.to_thread` alone does not stop its underlying function. Free-threaded
-Python and multiple Python application generations are refused; subinterpreters
-are not supported.
+`asyncio.to_thread` alone does not stop its underlying function. Multiple Python
+application generations and subinterpreters are not supported.
 
 The [design](../../plans/007-embedded-python-pyo3.md) records the broader production
 qualification work beyond this implementation.
@@ -172,14 +171,31 @@ qualification work beyond this implementation.
 ### Build-time interpreter selection
 
 Set `PYO3_PYTHON` to the selected interpreter when building the `embed` feature.
-The build rejects a different Python minor, free-threaded or non-CPython ABI, and
+The build rejects a different Python minor, a non-CPython ABI, mismatched
+threading ABI/layout, and
 non-shared libpython. It records home, executable, standard-library roots and
 SOABI using that interpreter's isolated `-I -S -B` startup. Native-only builds skip
 the probe entirely. This layout is not the complete verified deployment inventory
 required by [plan 007](../../plans/007-embedded-python-pyo3.md).
 
+Select `python3.14t` through `PYO3_PYTHON` for a free-threaded build. The shared
+library, standard library, import roots and native wheels must all match that ABI;
+a compiled host cannot switch between `314` and `314t` at runtime. The asyncio
+loop still owns handler dispatch and SDK handles. `asyncio.to_thread` and ordinary
+Python threads can run computation in parallel; SDK use stays on its original
+invocation loop, including when Python inherits contextvars into new threads.
+
+Cellar does not force the GIL back on or force incompatible extensions to run
+without it. CPython may enable the GIL when an extension does not declare
+free-threaded support. The example's `/health` exposes `free_threaded` (build ABI)
+and `gil_enabled` (current runtime state); its free-threaded smoke requires the
+GIL to remain disabled after real native-library work. See [CPython's free-threading
+contract](https://docs.python.org/3.14/howto/free-threading-python.html).
+
 For a cross-build, provide `CELLAR_PYTHON_BUILD_LAYOUT` with a target-layout JSON
-file instead of executing a host interpreter for paths:
+file instead of executing a host interpreter for paths. For free-threaded targets,
+set `gil_disabled` to `true` and use the matching `cpython-314t-...` SOABI; both
+must agree with the target PyO3 build configuration:
 
 ```json
 {

@@ -43,8 +43,12 @@ impl Interpreter {
             "explicit CPython standard library roots are required"
         );
         ensure!(
-            self.soabi.starts_with("cpython-314"),
-            "expected a CPython 3.14 SOABI"
+            self.soabi.starts_with(if build_layout::GIL_DISABLED {
+                "cpython-314t-"
+            } else {
+                "cpython-314-"
+            }),
+            "CPython SOABI does not match the compiled interpreter threading ABI"
         );
         canonical(&self.home, true)?;
         canonical(&self.executable, false)?;
@@ -104,8 +108,9 @@ impl Interpreter {
         // path buffers have been copied by the setters. No Python API runs on
         // another thread, and the main-thread check above succeeded.
         config.check(unsafe { ffi::Py_InitializeFromInitConfig(config.0.as_ptr()) })?;
-        // SAFETY: successful initialization attached this main thread and holds
-        // the GIL. Release it before PyO3 attaches or the Rust host is started.
+        // SAFETY: successful initialization attached this main thread. Detach
+        // it before PyO3 attaches or the Rust host starts; this also releases
+        // the GIL when the selected interpreter uses one.
         unsafe {
             ffi::PyEval_SaveThread();
         }

@@ -125,9 +125,10 @@ impl PythonInventory {
         );
         ensure!(
             self.version.starts_with("3.14.")
-                && self.soabi.starts_with("cpython-314-")
+                && (self.soabi.starts_with("cpython-314-")
+                    || self.soabi.starts_with("cpython-314t-"))
                 && !self.soabi.contains('\0'),
-            "inventory requires GIL-enabled CPython 3.14"
+            "inventory requires CPython 3.14 or free-threaded CPython 3.14t"
         );
         ensure!(
             normal_absolute(prefix) && prefix.parent().is_some(),

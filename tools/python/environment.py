@@ -57,7 +57,6 @@ def capture(args):
     probe = r'''
 import json, os, sys
 assert sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 14)
-assert "t" not in sys.abiflags
 json.dump(dict(home=os.path.realpath(sys.base_prefix), executable=os.path.realpath(sys.executable),
  standard_library_paths=[os.path.realpath(p) for p in sys.path if os.path.exists(p)],
  soabi=f"cpython-{sys.version_info.major}{sys.version_info.minor}{sys.abiflags}-{sys.implementation._multiarch}",

@@ -335,11 +335,17 @@ impl Inbox {
     }
 
     fn replies(&self, py: Python<'_>) -> PyResult<Vec<ReplyDelivery>> {
-        Ok(self
+        // Do not allocate Python objects while holding a Rust mutex. On a
+        // free-threaded interpreter, allocation can start global GC while
+        // another attached thread is waiting for this same lock.
+        let replies: Vec<_> = self
             .replies
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("result channel poisoned"))?
             .try_iter()
+            .collect();
+        Ok(replies
+            .into_iter()
             .map(|reply| {
                 let _reservation = reply.reservation;
                 let payload = PyString::new(py, &reply.value).unbind();
@@ -464,8 +470,8 @@ impl PythonRuntime {
             let system = py.import("sys")?;
             let abi_flags: String = system.getattr("abiflags")?.extract()?;
             ensure!(
-                !abi_flags.contains('t'),
-                "free-threaded CPython is not supported"
+                abi_flags.contains('t') == initialization::build_layout::GIL_DISABLED,
+                "loaded CPython threading ABI differs from the compiled interpreter"
             );
             let multiarch: String = system
                 .getattr("implementation")?

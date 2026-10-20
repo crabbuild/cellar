@@ -3,6 +3,7 @@ import hashlib
 import json
 import time
 import weakref
+import sys
 from cellar import Ambiguous, Conflict, MISSING, Overloaded, Request, Response, SDKError, ValidationError
 
 saved = None
@@ -29,6 +30,34 @@ alarm_deliveries = []
 async def fetch(request, ctx):
     global saved, live_context, mailbox_progress, held_generator, fail_constructor
     global proof_sync_completed, proof_python_returned
+    if request.path == "/parallel-python":
+        import threading
+        barrier = threading.Barrier(2)
+        def worker(seed):
+            # Free-threaded Python inherits contextvars into new threads by
+            # default. Neither that nor a private bridge reference grants SDK
+            # authority outside the original invocation's event loop.
+            async def foreign_loop():
+                try:
+                    await ctx.var("SECRET")
+                except SDKError as error:
+                    assert error.code == "NotSubmitted"
+                else:
+                    raise AssertionError("foreign loop inherited SDK authority")
+                for call in (lambda: ctx._bridge.submit(0, "context.var", '{"name":"SECRET"}'),
+                             lambda: ctx._bridge.complete('null', False)):
+                    try:
+                        call()
+                    except RuntimeError as error:
+                        assert str(error) == "ContextMismatch"
+                    else:
+                        raise AssertionError("foreign loop used the native bridge")
+            asyncio.run(foreign_loop())
+            barrier.wait(timeout=5)
+            return sum((index ^ seed) % 97 for index in range(100_000))
+        values = await asyncio.gather(asyncio.to_thread(worker, 1), asyncio.to_thread(worker, 2))
+        return Response.json({"free_threaded": "t" in sys.abiflags,
+                              "gil_enabled": sys._is_gil_enabled(), "values": values})
     if request.path == "/proof/reset":
         proof_sync_completed = proof_python_returned = False
         return Response.json(True)
@@ -132,7 +161,8 @@ async def fetch(request, ctx):
             pass
     if request.path == "/blocked-native":
         import ctypes
-        # PyDLL intentionally retains the GIL across this native call.
+        # PyDLL blocks the managed loop without detaching this thread (and
+        # retains the GIL when the selected interpreter has one).
         ctypes.PyDLL(None).sleep(60)
         return Response.json(False)
     if request.path == "/generator":

@@ -9,6 +9,9 @@ import time
 from cellar import Batch, Context, Request, Response, Scheduled, _encode, _current_invocation
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
+# Collection while taking a snapshot can invoke another destructor on the same
+# thread. Serialize other threads without deadlocking that reentrant error hook.
+_failure_lock = threading.RLock()
 _memory_tracer = None
 
 
@@ -32,9 +35,11 @@ def install_error_hooks():
     # reprs to stderr. These hooks retain only failure counts, including during
     # application imports before the managed loop starts.
     def unraisable(details):
-        _failures["unraisable_errors"] += 1
+        with _failure_lock:
+            _failures["unraisable_errors"] += 1
     def thread_failure(details):
-        _failures["thread_errors"] += 1
+        with _failure_lock:
+            _failures["thread_errors"] += 1
     sys.unraisablehook = unraisable
     threading.excepthook = thread_failure
 
@@ -297,6 +302,8 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
         inbox.stop()
         asyncio.set_event_loop(None)
         loop.close()
-        stats.update(_failures)
-        stats["runtime_failed"] |= any(_failures.values())
+        with _failure_lock:
+            failures = _failures.copy()
+        stats.update(failures)
+        stats["runtime_failed"] |= any(failures.values())
         sample(final=True)

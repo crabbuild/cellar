@@ -146,6 +146,24 @@ impl Fixture {
 }
 
 #[test]
+fn both_threading_abis_round_trip_and_other_abis_are_refused() -> Result<()> {
+    for soabi in ["cpython-314-test", "cpython-314t-test"] {
+        let mut fixture = Fixture::new()?;
+        fixture.inventory.soabi = soabi.into();
+        let reference = fixture.write("")?;
+        reference.verify_archive(&std::fs::read(&fixture.path)?)?;
+        install(&reference, &fixture.path, &fixture.prefix)?;
+        verify_inventory_files(&fixture.inventory)?;
+    }
+    let mut fixture = Fixture::new()?;
+    for soabi in ["cpython-313t-test", "cpython-314tt-test", "pypy-314-test"] {
+        fixture.inventory.soabi = soabi.into();
+        assert!(fixture.inventory.validate(&fixture.prefix).is_err());
+    }
+    Ok(())
+}
+
+#[test]
 fn verified_restore_preserves_files_modes_links_and_reuses_without_overwrite() -> Result<()> {
     let fixture = Fixture::new()?;
     let reference = fixture.write("")?;
