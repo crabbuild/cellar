@@ -214,6 +214,9 @@ impl Cluster {
                     RuntimeEventKind::Failed { error, .. } => {
                         bail!("runtime group failed: {error}")
                     }
+                    RuntimeEventKind::SnapshotAborted { .. } => {
+                        bail!("snapshot cancelled without a fixture request")
+                    }
                     RuntimeEventKind::ReadIndex { .. } | RuntimeEventKind::Checkpointed { .. } => {}
                 }
             }
