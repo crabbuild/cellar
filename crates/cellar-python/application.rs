@@ -110,6 +110,10 @@ impl Source {
             !self.code.is_empty() && !self.filename.is_empty(),
             "Python source and filename must be supplied"
         );
+        ensure!(
+            !self.code.as_bytes().contains(&0) && !self.filename.as_bytes().contains(&0),
+            "Python source and filename must not contain NUL bytes"
+        );
         for events in std::iter::once(&self.events).chain(self.cell_events.values()) {
             let unique: HashSet<_> = events.iter().collect();
             ensure!(

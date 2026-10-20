@@ -56,6 +56,8 @@ fn main() -> Result<()> {
         "host-signals",
         "private-import",
         "private-descriptor",
+        "private-nul-source",
+        "private-nul-filename",
     ] {
         let directory = tempfile::tempdir()?;
         let root = directory.path().canonicalize()?;
@@ -155,6 +157,8 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         "bad-constructor" => "class Broken:\n def __init__(self, required): pass\n async def fetch(self, request, ctx): pass",
         "private-import" => "class PrivateError(Exception):\n def __str__(self):\n  print('PRIVATE-BOOTSTRAP-SENTINEL')\n  return 'PRIVATE-BOOTSTRAP-SENTINEL'\nraise PrivateError()",
         "private-descriptor" => "x = 1",
+        "private-nul-source" => "# PRIVATE-BOOTSTRAP-SENTINEL\0",
+        "private-nul-filename" => "x = 1",
         _ => APPLICATION,
     };
     match mode {
@@ -208,7 +212,9 @@ fn child(mode: &str, root: &Path) -> Result<()> {
     // SAFETY: each scenario owns a disposable process. There is no concurrent
     // Python initialization/finalization; the preinitialized case is quiescent
     // and must be rejected before Cellar uses it.
-    let filename = if mode.starts_with("private-") {
+    let filename = if mode == "private-nul-filename" {
+        "/PRIVATE-BOOTSTRAP-SENTINEL/invalid\0.py"
+    } else if mode.starts_with("private-") {
         "/PRIVATE-BOOTSTRAP-SENTINEL/application.py"
     } else {
         "startup.py"
@@ -255,6 +261,9 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         }
         "unlisted" | "private-import" => "Python application import failed",
         "private-descriptor" => "Python cell registration failed",
+        "private-nul-source" | "private-nul-filename" => {
+            "Python source and filename must not contain NUL bytes"
+        }
         "missing-handler" | "sync-handler" | "bad-constructor" | "async-constructor" => {
             "Python handler descriptor validation failed"
         }
@@ -266,6 +275,10 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         _ => anyhow::bail!("unknown startup mode"),
     };
     let error = result.expect_err("invalid bootstrap must fail");
+    ensure!(
+        !error.is::<std::ffi::NulError>(),
+        "startup retained original source/filename bytes in a CString error"
+    );
     ensure!(
         !format!("{error:?}").contains("PRIVATE-BOOTSTRAP-SENTINEL"),
         "bootstrap retained a private exception source"
