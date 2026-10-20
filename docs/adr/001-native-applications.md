@@ -30,6 +30,8 @@ same compiled Rust application contracts using PyO3. It preserves this native
 executable format and the JavaScript engine exclusion. It introduces trusted,
 GIL-enabled CPython 3.14 execution above the SDK boundary, with invocation-scoped
 bridges rather than direct access to Rust contexts. Source and SDK facade are
-embedded in the executable; external runtime and package assets remain separately
-provisioned. This is not an isolation mechanism for untrusted code. See the
+embedded in the executable; verified native packages can distribute and restore
+the runtime/package closure. External OS libraries remain platform prerequisites.
+The integration decision is recorded in [ADR 004](004-embedded-python.md).
+This is not an isolation mechanism for untrusted code. See the
 [design and outstanding qualification](../../plans/007-embedded-python-pyo3.md).

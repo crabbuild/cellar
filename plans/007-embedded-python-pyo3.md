@@ -115,7 +115,7 @@ async def fetch(request, ctx):
 
 class Orders:
     async def fetch(self, request, ctx):
-        order = Order.model_validate(request.json())
+        order = Order.model_validate(await request.json())
         if order.id != ctx.identity.name:
             return Response.json({"error": "order identity mismatch"}, status=400)
         await ctx.storage.apply(

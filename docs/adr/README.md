@@ -10,6 +10,7 @@ source revision and date; deployment approval belongs in the release record.
 | [001](001-native-applications.md) | Observed baseline | Compiled native application factories |
 | [002](002-cell-authority-and-proof.md) | Observed baseline | Cell authority, epochs and output proof |
 | [003](003-explicit-host-lifetimes.md) | Observed baseline | Explicit host policy and returned lifecycle outcomes |
+| [004](004-embedded-python.md) | Accepted; qualification open | Invocation-scoped CPython above the native SDK |
 
 For new decisions, assign the next number and record context, alternatives,
 decision, consequences, owner, date, compatibility and validation evidence.

@@ -23,11 +23,11 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| A01 | Separate optional adapter; PyO3 outside logic/core | Dependency graph and native-only build without Python | partial: separate crate, embed feature |
-| A02 | Pin CPython 3.14, GIL mode and compatible bridge | Build-time ABI guard plus runtime preflight, pinned Cargo graph | partial: runtime version check, PyO3 0.30.1 |
+| A01 | Separate optional adapter; PyO3 outside logic/core | Dependency graph and native-only build without Python | verified locally: optional embed adapter, workspace-centralized pinned dependencies, native-only build with a nonexistent interpreter and all-feature no-JavaScript graph; logic/core contain no Python engine |
+| A02 | Pin CPython 3.14, GIL mode and compatible bridge | Build-time ABI guard plus runtime preflight, pinned Cargo graph | verified: CPython/GIL/shared-library build guards, builtin ABI preflight, invalid-ABI startup refusal and exact PyO3/build-config 0.30.1 Cargo lock |
 | A03 | Initialize before node; explicit home/import roots/site/env | Isolated configuration before Python code/imports; hostile environment tests | verified: explicit PyInitConfig + `startup` hostile-environment matrix |
 | A04 | Process-owned loop and explicit joined Rust executors | Runtime source, concurrent await test and combined shutdown evidence | partial: separate supervisor and main loop |
-| A05 | One coordinated signal owner | Disposable process INT/TERM tests; no competing interpreter handlers | partial: PyO3 disables signal handlers, returning CLI host |
+| A05 | One coordinated signal owner | Disposable process INT/TERM tests; no competing interpreter handlers | verified locally: startup preserves existing native handlers and removes CPython implicit INT handling; real TERM/INT handoff with two compiled Python processes yields complete joined reports |
 | A06 | No hidden runtime executes SDK operations | Source audit plus instrumented original-turn/domain tests | partial: operation future runs in native invocation |
 | A07 | Owned values only across thread/await boundary | Source review and lifecycle tests; no borrowed Python/SQLite guards | partial: owned JSON/native sender |
 | A08 | Native authority checked at enqueue, execution, commit/output | Pending-operation cancellation and forced-fence tests | partial: native SDK checks retained; no Python fence test |
@@ -97,8 +97,8 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | P07 | Explicit home, roots, site behavior, no ambient user/PYTHONPATH/CWD | Hostile startup environment and .pth/customize injection tests | verified: `startup` path/site/CWD/sysconfig override tests plus explicit environment view |
 | P08 | No network install at startup or request; offline qualified environment | Network disabled/failing installer and clean-runtime deployment smoke | verified locally: hash-locked offline wheel install and archive-restored host launched with cleared environment; no runtime package installer |
 | P09 | Wrong ABI/missing library/tampered source refuses startup | Disposable startup matrix with no admitted request or app side effect | partial: startup invalid ABI/home plus bound-inventory missing/changed source, changed extension and extra files refused; package/library loss matrix remains open |
-| P10 | One immutable generation per process; ordinary native generations unchanged | In-process replacement refusal, native-only regression, rolling two binaries | partial: native regressions; Python replacement matrix missing |
-| P11 | Old/new host handoff and runtime artifact recovery | Versioned process handoff, restored artifact installation, retained state | missing |
+| P10 | One immutable generation per process; ordinary native generations unchanged | In-process replacement refusal, native-only regression, rolling two binaries | verified locally: old running process observes/refuses a new deployment while remaining live; wrong executable rejects new package; changed Python code executes only in the replacement process; native generation regressions passed previously |
+| P11 | Old/new host handoff and runtime artifact recovery | Versioned process handoff, restored artifact installation, retained state | verified locally: original runtime removed/restored from bucket, then distinct binaries, application versions and source inventories run in separate processes; TERM/INT handoff preserves state and exact receipts and executes changed Python cell code; both native/Python reports complete |
 | P12 | Runnable example from fresh installation | Documented build/install/run/recovery test from clean environment | verified for local supported package: fresh-prefix archive restore, cleared-environment HTTP/native numerical work/receipt replay and complete preserving stop; platform matrix remains separate |
 
 ## Limits, metrics, SDK growth and qualification (M5)
@@ -117,7 +117,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | partial: local no-embed and JS graph checks |
 | Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: foundation full workspace tests and complete Linux SDK CI passed; new archive/protocol/deployment-hook changes need final affected checks and fresh CI |
-| Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | partial: public facade type annotations added and immutable CellIdentity; accepted design decision records still need final consistency review |
+| Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | partial: obsolete proposal-only and API sketches remain |
 
 ## Current work
@@ -386,3 +386,87 @@ Final hardening validation passed locally:
 
 The complete workspace CI must be rerun after the failed prior archive runs.
 The full goal remains active, including every unresolved row above.
+
+
+## Source upgrade and signal ownership qualification
+
+A real process-upgrade drill now accompanies the existing archive-removal test.
+Its replacement uses different compiled application/executable/inventory identities
+and changed Python cell code. The generator creates a private Rust application,
+copies the repository lock and resolves the extra root package offline while
+refusing any new dependency versions. It captures and bundles the changed source;
+repository sources and provisioned runtime files remain unchanged.
+
+Each TERM/INT case uses a separate private development fleet. The old process
+observes the new selector, refuses in-process adoption and keeps serving; its
+executable also refuses the replacement package, while the new executable accepts
+it. New ingress replays the receipt while the old owner still holds it. After
+handoff, a header emitted by the changed Python cell handler proves replacement
+code executed. State remains at the acknowledged count, a new command advances
+it, and the old receipt still returns the exact pre-upgrade result. Both hosts
+must emit complete native/Python reports and zero managed work/reservations.
+
+The initial TERM case passed; INT produced a fully complete native handoff but a
+Python `serve_interrupt` failure. Adding a fixed, sanitized failure-stage field
+preserved the diagnosis without exception text. Inspection of CPython 3.14.5's
+`signal_get_set_handlers` showed that importing `_signal` installs the default INT
+handler even with initialization handlers disabled. asyncio imports that module
+before the Rust host starts; Tokio subsequently chains that previous handler.
+Bootstrap now imports signal first and removes only that implicit Python handler,
+preserving an already installed native host handler. Both bootstrap modes pass.
+The fixed two-version TERM/INT drill passed; the stronger changed-source variant
+also passed, including new handler execution and exact receipt replay. No shutdown
+assertion was weakened or Python failure relabelled as a complete drain.
+
+A fresh run of the final generator command and native build passed without manual
+project edits. Adapter all-feature tests passed after the signal fix. Strict
+Core/adapter all-target/all-feature Clippy passed after correcting two redundant
+borrows in the qualification helper. CI now runs the changed-source rolling path;
+its actual Linux result remains required. Current CI at commit e95bdf2 predates
+these signal/source-upgrade changes and cannot qualify them.
+
+The full objective remains active. Quorum fault injection, independent binding
+failure/replay/backpressure matrices, external native-library attestation,
+remaining error/cleanup/observability details and measured native/Python baselines
+remain open; the source-upgrade gate does not replace those requirements.
+
+
+The accepted integration decision is now [ADR 004](../docs/adr/004-embedded-python.md),
+linked from ADR 001 and the regenerated documentation catalog/explorer. It records
+actual bootstrap/bridge/packaging choices while retaining all outstanding release
+gates. Documentation integrity passed for 37 documents and 641 local references.
+The plan's handler sketch also had an incorrect synchronous `request.json()` call
+from the previous pass; it is corrected to the facade's actual awaited method.
+Formatting/layout (587 Rust files), native-only compilation with an invalid
+interpreter, the 415-package native dependency graph and whitespace checks passed.
+
+
+## Linux qualification failures and loader correction
+
+The e95bdf2 workflows completed with different failures, preserved as evidence:
+
+- Run 39400143067 passed 84/87 native-node cases. Catalog inventory handoff,
+  progressing drain-token renewal and predecessor recovery hit one-second lease
+  expiry after slow/ambiguous store operations. Nodes fenced and recovery refused
+  unproven witness state. These failures remain under investigation; assertions
+  and lease deadlines have not been relaxed. The local prior run passed all 87.
+- Run 39400137809 passed the complete test/lint step (workspace unit/integration,
+  doctests and strict Clippy), then failed the independent CPython 3.14.5 package
+  smoke: the loaded libpython was outside the verified inventory. Verification
+  correctly refused startup rather than accepting the ambient interpreter.
+
+GNU loader search places LD_LIBRARY_PATH ahead of DT_RUNPATH. Native Python
+builds now request DT_RPATH with --disable-new-dtags for GNU Linux, so the
+inventoried libpython directories precede an ambient same-SONAME installation.
+The runtime's actual loaded-library identity/hash checks remain intact. Linux
+paths containing loader separators/dynamic tokens are refused explicitly.
+
+A disposable Debian GNU-loader probe reproduced replacement under RUNPATH and
+passed under the new RPATH arguments, including spaces/commas in the library
+directory. An initial Docker probe could not see a host bind mount; the corrected
+probe transferred only its owned synthetic source via stdin and passed. A Linux
+Rust regression uses the actual argument builder with two distinct same-SONAME
+libraries; its execution remains pending fresh Linux CI. The four existing
+archive/bucket tests, affected strict Clippy and format/layout checks passed
+locally after the argument-builder change (588 Rust files). This is not yet a
+claim that the full Linux package workflow passes.
