@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "ed81efa8c3ea68d9f69996e83b9be2574c0ec435",
+  "baseline_revision": "fee29d9d9dc8c75992b0ffd652278da2421f8044",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -157,7 +157,7 @@
       "id": "MR-02",
       "title": "Persist Raft entries and metadata in the shared log engine",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-01"
       ],
@@ -166,19 +166,44 @@
         "Cargo.lock",
         "crates/cellar/Cargo.toml",
         "crates/cellar/lib.rs",
-        "crates/cellar/execution/services.rs"
+        "crates/cellar-ltx/src/host.rs",
+        "crates/cellar-ltx/src/lib.rs",
+        "tools/xtask/src/main.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "Dockerfile",
+        "NOTICE",
+        "tools/perf/Dockerfile",
+        "tools/perf/fleetcare.Dockerfile",
+        "tools/perf/fleetcare-console.Dockerfile",
+        "tools/perf/fleetcare.py",
+        "tools/perf/faults.py",
+        "tools/perf/test_fleetcare.py",
+        "tools/perf/test_build_freshness.py",
+        "crates/cellar/application/consensus/protocol.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/mod.rs",
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/options.rs",
-        "crates/cellar/tests/native_raft_storage.rs"
+        "crates/cellar/tests/native_raft_storage.rs",
+        "crates/cellar/durability/raft/filesystem.rs",
+        "vendor/raft-engine/Cargo.toml",
+        "vendor/raft-engine/UPSTREAM.json",
+        "vendor/raft-proto/Cargo.toml",
+        "vendor/raft-proto/build.rs",
+        "vendor/raft-proto/UPSTREAM.json",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/records.rs",
+        "crates/cellar/tests/support/raft_storage_fault.rs",
+        "vendor/.gitattributes",
+        "vendor/raft/Cargo.toml",
+        "vendor/raft/UPSTREAM.json"
       ],
       "steps": [
         "Pin raft 0.7.0, raft-engine 0.4.2 and required codec/logging dependencies centrally; verify the locked build and license notices.",
         "Implement Storage over one node-wide engine with durable numeric-key allocation and group/incarnation mapping.",
         "Persist suffix truncation, entries, HardState, ConfState and snapshot boundaries with explicit sync completions and strict corruption handling.",
-        "Adapt engine filesystem/runtime work through host services; expose fault hooks for torn append, lost sync, directory loss and interrupted purge."
+        "Adapt engine filesystem/runtime work through host services, including the narrowly attributed dependency patch in storage-integration.md; expose fault hooks for torn append, lost sync, directory loss and interrupted purge."
       ],
       "acceptance": [
         "The actual pinned crates compile with the repository toolchain and injected lifecycle.",
@@ -259,13 +284,15 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-02.json"
+      ]
     },
     {
       "id": "MR-03",
       "title": "Drive multiple RawNode instances with ordered Ready handling",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-02"
       ],

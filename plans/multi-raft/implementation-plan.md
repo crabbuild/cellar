@@ -5,10 +5,10 @@ The first release is MR-01 through MR-15. Each work package is a reviewable chan
 with public contract tests; split its implementation into smaller commits when
 needed, while preserving its acceptance boundary.
 
-The runtime files and test targets listed below are proposed outputs. They are
-not provided by this planning change. The executable package tool validates the
-plan and prints ready work; the actual runtime verification commands become
-available as their owning work packages are implemented.
+The runtime files and test targets below belong to their listed work packages.
+Task status and linked evidence identify the implemented outputs. The executable
+package tool validates the plan and prints ready work; runtime verification
+commands become available as their owning work packages are implemented.
 
 ## Execution rules
 
@@ -109,16 +109,16 @@ shown by `plan.py show MR-01`; the manifest is authoritative for arguments.
 
 ### MR-02 Persist Raft entries and metadata in the shared log engine
 
-Dependencies: MR-01. Phase: v1. Status: IN_PROGRESS.
+Dependencies: MR-01. Phase: v1. Status: DONE. Evidence: [MR-02](evidence/MR-02.json).
 
-Modify: `Cargo.toml`, `Cargo.lock`, `crates/cellar/Cargo.toml`, `crates/cellar/lib.rs`, `crates/cellar/execution/services.rs`.
+Modify: `Cargo.toml`, `Cargo.lock`, `crates/cellar/Cargo.toml`, `crates/cellar/lib.rs`, `crates/cellar-ltx/src/host.rs`, `crates/cellar-ltx/src/lib.rs`, `tools/xtask/src/main.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `Dockerfile`, `NOTICE`, `tools/perf/Dockerfile`, `tools/perf/fleetcare.Dockerfile`, `tools/perf/fleetcare-console.Dockerfile`, `tools/perf/fleetcare.py`, `tools/perf/faults.py`, `tools/perf/test_fleetcare.py`, `tools/perf/test_build_freshness.py`.
 
-Create: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/tests/native_raft_storage.rs`.
+Create: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/durability/raft/filesystem.rs`, `vendor/raft-engine/Cargo.toml`, `vendor/raft-engine/UPSTREAM.json`, `vendor/raft-proto/Cargo.toml`, `vendor/raft-proto/build.rs`, `vendor/raft-proto/UPSTREAM.json`, `crates/cellar/durability/raft/cache.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`, `vendor/.gitattributes`, `vendor/raft/Cargo.toml`, `vendor/raft/UPSTREAM.json`.
 
 1. Pin raft 0.7.0, raft-engine 0.4.2 and required codec/logging dependencies centrally; verify the locked build and license notices.
 2. Implement Storage over one node-wide engine with durable numeric-key allocation and group/incarnation mapping.
 3. Persist suffix truncation, entries, HardState, ConfState and snapshot boundaries with explicit sync completions and strict corruption handling.
-4. Adapt engine filesystem/runtime work through host services; expose fault hooks for torn append, lost sync, directory loss and interrupted purge.
+4. Adapt engine filesystem/runtime work through host services, including the narrowly attributed dependency patch in storage-integration.md; expose fault hooks for torn append, lost sync, directory loss and interrupted purge.
 
 Acceptance: The actual pinned crates compile with the repository toolchain and injected lifecycle. Entries and metadata survive process kill/reopen at every persistence cut.
 
@@ -138,7 +138,7 @@ shown by `plan.py show MR-02`; the manifest is authoritative for arguments.
 
 ### MR-03 Drive multiple RawNode instances with ordered Ready handling
 
-Dependencies: MR-02. Phase: v1. Initial status: TODO.
+Dependencies: MR-02. Phase: v1. Status: IN_PROGRESS.
 
 Modify: `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/storage.rs`.
 

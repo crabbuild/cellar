@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "ed81efa8c3ea68d9f69996e83b9be2574c0ec435",
+  "revision": "fee29d9d9dc8c75992b0ffd652278da2421f8044",
   "prepared_date": "2026-10-19",
   "files": [
     {
@@ -14,11 +14,19 @@
     },
     {
       "path": "Cargo.lock",
-      "sha256": "f20decca1b76e9088ffffe4ec2a7715906be5118e8cb17737b3c956faf47db93"
+      "sha256": "58577499016f9ec0acafcec08b960cec97e53734b55498c95671010376212d23"
     },
     {
       "path": "Cargo.toml",
-      "sha256": "1df241ac8be93a5718cd5bd53700b62e1b5526887273b225ff754af41c474515"
+      "sha256": "f120a62eebff6ffdccf4626b40a68d1c68ce3ca2c284baf6c5405be80bf611cd"
+    },
+    {
+      "path": "Dockerfile",
+      "sha256": "5f082500e29017c26fc9f60087903b805ddc116ee784555d04301165e109a621"
+    },
+    {
+      "path": "NOTICE",
+      "sha256": "a112d2ebba10e5c3eb43118b855590eaf0beea066e24b7e6d4725a33ba8c7db1"
     },
     {
       "path": "crates/cellar-logic/alarm.rs",
@@ -66,11 +74,11 @@
     },
     {
       "path": "crates/cellar-ltx/src/host.rs",
-      "sha256": "f075c6315f252af0de0dd141e298f0c5403abae86955987ea999b9cfc454595e"
+      "sha256": "8f4284840fbce97954d4c59b8bd814f7605f1477665f21af127998e840b9a677"
     },
     {
       "path": "crates/cellar-ltx/src/lib.rs",
-      "sha256": "4fdd49c7a219646cb09ee2bb11a861f84b0c173f79e2d40c11b764e10e21edc5"
+      "sha256": "9b4dfa803d8c188caa9551f3192a0abd185e2e159772599ed480c170b580bbae"
     },
     {
       "path": "crates/cellar-ltx/src/ltx.rs",
@@ -78,7 +86,7 @@
     },
     {
       "path": "crates/cellar/Cargo.toml",
-      "sha256": "ac0ec1d3706ae510a783a08d3c7e0c0d568f5372c05c8f5ef5c74288ee497998"
+      "sha256": "18effef5596766c74ebc48a589ef27bec9440dc3e834d65c9af5fd64161f9f88"
     },
     {
       "path": "crates/cellar/actor/effects.rs",
@@ -154,7 +162,7 @@
     },
     {
       "path": "crates/cellar/lib.rs",
-      "sha256": "5f7b1e79eae2bf40e1862dbbd0b5a9152f9470b92b01f6bb3a29fe1cf6d7e45a"
+      "sha256": "482a3aa06d6208f1e75d56c5729352c52249efb911f4c0e686113c3a9a1388a8"
     },
     {
       "path": "crates/cellar/node/embedded.rs",
@@ -205,8 +213,40 @@
       "sha256": "c3431af195ca86bf7690ab47bd11408012ce9d2e8a35074d32828cb3462cef78"
     },
     {
+      "path": "tools/perf/Dockerfile",
+      "sha256": "86d2cfa6b57101606f50e4b65fd7f4577d4341fa59a5f4f9e2e3dee88d93c14c"
+    },
+    {
       "path": "tools/perf/README.md",
       "sha256": "783245e8289b793552e8c54872aaec468f16ce87e2abf2d900a149fd99dbe404"
+    },
+    {
+      "path": "tools/perf/faults.py",
+      "sha256": "1fbf42860a7bc310ec9d7e77e705097a44ab047320e9b1bbc21214cf441c68d5"
+    },
+    {
+      "path": "tools/perf/fleetcare-console.Dockerfile",
+      "sha256": "4dbf8e1973e490b048cd924e43604a672b40fbd013ff89fd23cba34536465672"
+    },
+    {
+      "path": "tools/perf/fleetcare.Dockerfile",
+      "sha256": "411ce24d27963a81ef6404ed4ec826341e51bd72bc8981720b100d4e0bedb90c"
+    },
+    {
+      "path": "tools/perf/fleetcare.py",
+      "sha256": "97c6fd5e56296688c879023b10eb42dc604533399127a9b64a905bbb859a449c"
+    },
+    {
+      "path": "tools/perf/test_build_freshness.py",
+      "sha256": "0c415e312066a4131afedcd157987912f86c49f84ca208be23458d414ae02e8c"
+    },
+    {
+      "path": "tools/perf/test_fleetcare.py",
+      "sha256": "78a480c55b9509a18862828fa65463149db30d03911bc31a360fb3fa81b6acdc"
+    },
+    {
+      "path": "tools/xtask/src/main.rs",
+      "sha256": "d36ffef5602d2343ccb86a95248839d84a18927306ddcdb95c8737d685daec2b"
     }
   ]
 }

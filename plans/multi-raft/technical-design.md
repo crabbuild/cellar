@@ -172,10 +172,20 @@ filesystem injection, sync semantics and error behavior before proceeding.
 An incompatibility requires a documented dependency decision; `MemStorage` is
 only a test fixture and is never a production fallback.
 
+The [storage integration record](storage-integration.md) specifies the attributed
+filesystem/protobuf adaptations and direct dependency paths used for SDK source
+consumers. The upstream Raft consensus Rust source is retained unchanged.
+
 One node-wide engine stores entries and per-group metadata. The storage adapter
 implements raft-rs `Storage`, including term lookup at the compacted boundary,
 conflict truncation, snapshot availability and restart state. Entries can contain
 uncommitted suffixes; archive and apply paths cannot consume them as committed.
+
+The initial adapter owns the engine on one execution-domain blocking worker and
+publishes bounded group caches only after sync. RawNode's synchronous Storage
+lookups read those caches without filesystem I/O. Cached log bytes remain backed
+by the engine; cache exhaustion refuses additional writes until snapshot
+compaction reclaims space. Storage limits and scale qualification remain separate.
 
 `CellUpdateV1` contains cell/group/incarnation identity, application/schema digest,
 base LTX position and image digest, resulting position and image digest, proposal
@@ -407,6 +417,13 @@ required S3 recovery cut. Disk pressure never silently discards the only copy
 of an acknowledged unarchived update.
 
 ## 10 Snapshots and recovery
+
+S3 recovery is organized by cell/group history, rather than by physical node.
+A replacement node restores the cells assigned to it from verified snapshots
+and committed archive tails, then catches up with their live groups. It need
+not reproduce the failed node's placement. Process identity, old votes and
+leadership are not restored from a cell archive; a replacement with lost storage
+joins under a fresh member identity through the surviving group's protocol.
 
 A Raft snapshot contains group/incarnation, included index/term, ConfState,
 application/schema digest, LTX position and checksums, immutable database image
