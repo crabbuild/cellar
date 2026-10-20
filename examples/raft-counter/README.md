@@ -24,7 +24,10 @@ cargo run -p cellar --bin cellar-raft-counter --locked -- \
 The supplied TLS files are public test fixtures for this loopback-only example.
 All replicas share one machine; the example does not provide zone resilience.
 The development object-store adapter persists catalog roots and bootstrap claims
-in `catalog.sqlite`. Cell data and Raft logs persist in each node's directory.
+in `catalog.sqlite`, including public version-key retention metadata. The
+development version-signing key is fixed for this local drill; production
+embeddings inject managed signing/verification keys through `RaftCellsServices`.
+Cell data and Raft logs persist in each node's directory.
 Keep all of these files for a normal restart. Losing a replica's disk requires
 membership repair; this example cannot reinitialize its old voting identity.
 

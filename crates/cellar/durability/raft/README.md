@@ -157,13 +157,43 @@ submission. Closing records unfinished identity and refuses further output.
 `Node::start_raft_cells` installs registered groups in the node's execution
 domain. `host.rs` owns serial command producers and effect dispatch;
 `host_sql.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
-`RaftCells` and `RaftCellHandle` expose bounded public commands, stale queries,
+`RaftCells` and `RaftCellHandle` expose bounded public commands, explicit queries,
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
 After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.
+
+MR-08's local read controller holds each request's original deadline and byte/item
+permit while waiting for an image. `AtLeast` verifies an opaque signed token
+before comparing history positions. `Linearizable` uses fresh safe ReadIndex
+contexts, waits for actual image publication, and never treats a runtime status
+or cached commit position as a barrier. A checked role/term change can resubmit
+the invocation's dropped barrier under the same deadline. Status and submission
+generations prevent late replies from regressing an executing query.
+
+The SQL owner captures the durable applied marker with its exact immutable pin.
+Protocol-only entries can cover that pin; an unrelated newer image cannot relabel
+it. Queries retain the pin through callback completion, and their result metadata
+names that captured cut. The default Stale policy requires a recent observed
+source; `DisconnectedHistorical` explicitly permits an older verified image
+without a time bound. This policy observation is never used for strong reads.
+SQL progress hooks observe an atomic cancellation flag raised by the node's
+deadline controller, including for an unpolled waiter. Native Rust callbacks
+remain trusted/cooperative and are joined before resource release.
+Completed responses retain their byte admission until consumed or dropped;
+unpolled response channels cannot reuse capacity merely because SQL finished.
+
+`RaftCellsServices::versions` injects managed signing/verification keys. Ed25519
+tokens use bounded canonical marker-1 framing and bind full history, schema and
+log position. Namespace startup reconciles public-key retention metadata through
+conditional updates and exact reads; configuration cannot silently drop a live
+verifier on restart. The catalog supplies no new trust roots or consensus
+authority. Key rotation and token lifetime are described in the
+[application contract](../../../../plans/multi-raft/application-contract.md).
+Replica routing and leader fallback remain MR-08 work; these local read paths
+do not claim completion of that package.
 
 Fresh status checks precede staging, submission and successful output. Transient
 protocol Ready work defers preflight or duplicate-receipt settlement under the

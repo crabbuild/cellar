@@ -803,6 +803,7 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
                         tls: public_node::tls()?,
                         store: store.clone(),
                         application: definitions[i].application.clone(),
+                        versions: public_node::version_keys()?,
                     },
                 )
                 .await?,

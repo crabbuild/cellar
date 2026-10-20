@@ -90,6 +90,7 @@ pub(crate) struct Replica {
     pub ready_bytes: usize,
     pub apply_bytes: usize,
     last_sync: u64,
+    source_observed: Option<(u64, u64, u64)>,
 }
 
 impl Replica {
@@ -121,6 +122,7 @@ impl Replica {
             heartbeat_tick: 2,
             check_quorum: true,
             pre_vote: true,
+            read_only_option: ::raft::ReadOnlyOption::Safe,
             max_size_per_msg: 1024 * 1024,
             max_inflight_msgs: 8,
             max_uncommitted_size: 32 * 1024 * 1024,
@@ -143,6 +145,7 @@ impl Replica {
             ready_bytes: 0,
             apply_bytes: 0,
             last_sync: 0,
+            source_observed: None,
         })
     }
 
@@ -180,6 +183,17 @@ impl Replica {
             awaiting_ready: !self.idle(),
             awaiting_apply: self.apply_ticket.is_some(),
             election_timeout: self.node.raft.randomized_election_timeout(),
+            source_observed_ms: if is_leader
+                && cache.applied.position.term.get() == self.node.raft.term
+            {
+                Some(crate::asyncrt::mono_ms())
+            } else {
+                self.source_observed
+                    .filter(|(leader, term, _)| {
+                        *leader == self.node.raft.leader_id && *term == self.node.raft.term
+                    })
+                    .map(|(_, _, at)| at)
+            },
         })
     }
 
@@ -199,7 +213,16 @@ impl Replica {
             }
             GroupAction::Step(message) => {
                 self.validate_message(&message, options)?;
+                let (from, term, kind) = (message.from, message.term, message.get_msg_type());
                 self.node.step(message)?;
+                if matches!(
+                    kind,
+                    MessageType::MsgAppend | MessageType::MsgHeartbeat | MessageType::MsgSnapshot
+                ) && from == self.node.raft.leader_id
+                    && term == self.node.raft.term
+                {
+                    self.source_observed = Some((from, term, crate::asyncrt::mono_ms()));
+                }
                 Ok(Response::Unit)
             }
             GroupAction::Propose { context, data } => {
@@ -272,6 +295,9 @@ impl Replica {
     }
 
     fn admit_read(&self, options: &RaftRuntimeOptions) -> Result<(), RuntimeError> {
+        if self.node.raft.leader_id == 0 {
+            return Err(RuntimeError::NotReady);
+        }
         if self.node.raft.state == StateRole::Leader && !self.status()?.protocol_ready {
             return Err(RuntimeError::NotReady);
         }

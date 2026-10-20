@@ -78,6 +78,9 @@ pub(crate) enum Action {
     Query {
         contract: OperationContract,
         input: Vec<u8>,
+        minimum: super::query::Minimum,
+        control: Arc<AttemptControl>,
+        source_deadline: Option<u64>,
     },
 }
 
@@ -519,18 +522,41 @@ impl Cell {
                     receipt,
                 })
             }
-            Action::Query { contract, input } => {
+            Action::Query {
+                contract,
+                input,
+                minimum,
+                control,
+                source_deadline,
+            } => {
+                if control.cancelled()
+                    || source_deadline.is_some_and(|deadline| !control.before(deadline))
+                {
+                    return Err(ExecutionError::Refused(CommandFailure::VersionUnavailable));
+                }
                 let published = self
                     .applier
-                    .current()
+                    .queryable()
+                    .map_err(super::execution::storage)?
                     .ok_or(ExecutionError::Refused(CommandFailure::VersionUnavailable))?;
-                Ok(Value::Queried(query_registered(
+                let version = cellar_logic::consensus::CommittedVersion {
+                    scope: published.scope().clone(),
+                    position: published.position(),
+                };
+                if !minimum
+                    .satisfied(&version, published.scope())
+                    .map_err(ExecutionError::Refused)?
+                {
+                    return Err(ExecutionError::Refused(CommandFailure::VersionUnavailable));
+                }
+                Ok(Value::Queried(query_registered_controlled(
                     &published,
                     &self.class,
                     &contract,
                     &input,
                     self.options.query_services.clone(),
                     self.options.limits,
+                    Some(control),
                 )?))
             }
         }

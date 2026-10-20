@@ -3,7 +3,7 @@
 
 use super::{
     CommandFailure, CommandId, CommittedVersion, Durability, GroupScope, OperationContract,
-    OperationKind, RaftClass,
+    OperationKind, RaftClass, VersionToken,
 };
 use crate::raft::budget::{Budget, Permit};
 use cellar_logic::consensus::{LogIndex, LogPosition, MemberId, NamespaceId, Term};
@@ -43,20 +43,32 @@ pub struct CommandReceipt {
     pub id: CommandId,
     pub result: Vec<u8>,
     pub version: CommittedVersion,
+    pub version_token: VersionToken,
     pub durability: Durability,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum QueryConsistency {
     Stale,
-    AtLeast(CommittedVersion),
+    AtLeast(VersionToken),
     Linearizable,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum StaleReadPolicy {
+    /// Refuse after the configured deadline for observing a current source.
+    #[default]
+    RecentSource,
+    /// Permit a verified historical image during disconnection. This supplies
+    /// no wall-clock staleness bound and does not strengthen its consistency.
+    DisconnectedHistorical,
 }
 
 #[derive(Clone, Debug)]
 pub struct QueryOptions {
     pub consistency: QueryConsistency,
     pub timeout: Duration,
+    pub stale_policy: StaleReadPolicy,
 }
 
 impl Default for QueryOptions {
@@ -64,6 +76,7 @@ impl Default for QueryOptions {
         Self {
             consistency: QueryConsistency::Stale,
             timeout: Duration::from_secs(5),
+            stale_policy: StaleReadPolicy::RecentSource,
         }
     }
 }
@@ -72,6 +85,7 @@ impl Default for QueryOptions {
 pub struct QueryResult {
     pub result: Vec<u8>,
     pub version: CommittedVersion,
+    pub version_token: VersionToken,
 }
 
 /// Discovery/readiness observation, never a grant of mutation authority.
@@ -308,14 +322,9 @@ impl RaftCellHandle {
                     }
                 }
                 Kind::Query {
-                    contract,
-                    input,
-                    options,
+                    contract, input, ..
                 } => {
                     self.validate(contract, OperationKind::Query, input)?;
-                    if options.consistency != QueryConsistency::Stale {
-                        return Err(CommandFailure::UnsupportedConsistency);
-                    }
                 }
                 Kind::Status => (),
             }
@@ -328,11 +337,12 @@ impl RaftCellHandle {
                 .domain
                 .sleep_until(deadline)
                 .map_err(|_| CommandFailure::Unavailable)?;
-            let permit = self
-                .handle
-                .budget
-                .acquire(kind.bytes())
-                .ok_or(CommandFailure::Overloaded)?;
+            let permit = Arc::new(
+                self.handle
+                    .budget
+                    .acquire(kind.bytes())
+                    .ok_or(CommandFailure::Overloaded)?,
+            );
             let work = Arc::new(Work {
                 _guard: self.handle.work.enter(),
             });
@@ -344,20 +354,20 @@ impl RaftCellHandle {
                     kind,
                     reply: Some(reply),
                     control: control.clone(),
-                    _permit: permit,
+                    _permit: permit.clone(),
                     work,
                 })
                 .map_err(|e| match e {
                     mpsc::error::TrySendError::Full(_) => CommandFailure::Overloaded,
                     mpsc::error::TrySendError::Closed(_) => CommandFailure::Unavailable,
                 })?;
-            Ok((receiver, timer))
+            Ok((receiver, timer, permit))
         })();
         Box::pin(async move {
             let _guard = guard;
-            let (receiver, timer) = accepted?;
+            let (receiver, timer, _permit) = accepted?;
             crate::asyncrt::select! {
-                result = receiver => result.unwrap_or_else(|_| Err(failure.cancel(&control))),
+                result = receiver => result.unwrap_or_else(|_| Err(failure.cancel(&control))).map(|response| response.response),
                 _ = timer => Err(failure.cancel(&control)),
             }
         })
@@ -437,25 +447,47 @@ pub(crate) enum Response {
     Status(CellStatus),
 }
 
+/// The channel owns response bytes until its waiter consumes or drops them.
+/// Completing a producer must not release admission for an unpolled response.
+pub(crate) struct ChargedResponse {
+    pub response: Response,
+    pub _bytes: Option<Permit>,
+}
+
 pub(crate) struct Request {
     pub scope: GroupScope,
     pub kind: Kind,
-    pub reply: Option<oneshot::Sender<Result<Response, CommandFailure>>>,
+    pub reply: Option<oneshot::Sender<Result<ChargedResponse, CommandFailure>>>,
     pub control: Arc<AttemptControl>,
-    pub _permit: Permit,
+    pub _permit: Arc<Permit>,
     pub work: Arc<Work>,
 }
 
 pub(crate) struct AttemptControl {
-    state: AtomicU8,
+    state: Arc<AtomicU8>,
     deadline: AtomicU64,
     domain: crate::asyncrt::DomainToken,
 }
 
 impl AttemptControl {
+    /// SQLite's panic-contained progress hook captures only this atomic flag.
+    /// The node read controller checks the injected deadline even for an
+    /// unpolled waiter and raises it on expiry, cancellation or shutdown.
+    pub(crate) fn interrupt_check(
+        &self,
+    ) -> impl FnMut() -> bool + Send + std::panic::UnwindSafe + std::panic::RefUnwindSafe + 'static
+    {
+        let state = self.state.clone();
+        move || state.load(Ordering::Acquire) & 1 != 0
+    }
+
+    pub(crate) fn before(&self, deadline: u64) -> bool {
+        self.domain.mono_ms().is_ok_and(|now| now < deadline)
+    }
+
     fn new(domain: crate::asyncrt::DomainToken) -> Self {
         Self {
-            state: AtomicU8::new(0),
+            state: Arc::new(AtomicU8::new(0)),
             deadline: AtomicU64::new(u64::MAX),
             domain,
         }

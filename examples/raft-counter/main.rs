@@ -6,7 +6,7 @@ use anyhow::{ensure, Result};
 use cellar::engine_api::{Compat, WorkerConfigOptions};
 use cellar::fleet::LoadedDeployment;
 use cellar::sdk::{consensus::*, *};
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 fn graph(script: &str) -> DeploymentGraph {
     DeploymentGraph::single(LoadedDeployment {
@@ -226,6 +226,8 @@ async fn main() -> Result<()> {
                     tls: tls.clone(),
                     store: store.clone(),
                     application: applications[i].clone(),
+                    // Development-only key, stable across the restart drill.
+                    versions: VersionKeys::new(VersionSigningKey::new([29; 32], u64::MAX)?, vec![], Duration::from_secs(86400))?,
                 },
             )
             .await?;

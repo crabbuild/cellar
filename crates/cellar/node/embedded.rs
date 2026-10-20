@@ -706,6 +706,10 @@ impl Node {
                 let mut registrations = Vec::new();
                 for (cell, class) in config.cells.into_iter().zip(definitions) {
                     let namespace = catalog.open_namespace(cell.namespace).await?;
+                    let now_ms = u64::try_from(crate::asyncrt::wall_ms())?;
+                    namespace
+                        .require_version_keys(&services.versions, now_ms)
+                        .await?;
                     let birth = namespace.resolve_birth(cell.birth).await?;
                     registrations.push(crate::raft::host::Registration {
                         namespace,
@@ -727,6 +731,7 @@ impl Node {
                 self.info.data_dir.join("raft-cells"),
                 self.info.node.clone(),
                 config.host,
+                services.versions,
             ))
             .await?
     }

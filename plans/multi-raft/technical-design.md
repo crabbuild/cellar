@@ -370,6 +370,14 @@ meaning. A disaster-created incarnation rejects old tokens; no numeric index
 comparison crosses incarnations. Key rotation retains verification keys for the
 documented token lifetime. Authorization is checked independently of the token.
 
+Distribute new verification keys before switching signers. A bounded conditional
+namespace registry records public keys and final verification deadlines; restart
+refuses to remove or change a still-live verifier. Retain keys until all tokens
+they can issue have expired. The registry verifies configuration retention and
+cannot introduce a trust root absent from the server's explicit configuration.
+Keep private signing material outside the object store. Reconcile an ambiguous
+registry update by exact reads before serving with the changed key set.
+
 The default stale-read policy rejects a replica after its source-observation
 deadline. An explicit disconnected historical-read policy may permit a valid
 snapshot, but conveys no time bound. Time-bounded staleness is unsupported.

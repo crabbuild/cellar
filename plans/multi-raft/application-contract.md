@@ -3,10 +3,12 @@
 This is the SDK contract implemented by MR-06 through MR-12. Restricted
 `RaftClass`, `CommandContext`, `QueryContext` and operation registration are now
 exported through `cellar::sdk`. `Node::start_raft_cells`, public command/query
-handles and receipts now connect Quorum commands and stale committed-image reads
+handles and receipts connect Quorum commands and committed-image reads
 to node-owned producers. The counter example in `examples/raft-counter/README.md`
-uses both native HTTP and Axum. Stronger reads, S3 archive/restore and effect
-adapters below remain contracts for their respective work packages.
+uses both native HTTP and Axum. Local Stale, AtLeast and safe ReadIndex paths
+are implemented in MR-08 and undergoing qualification; replica routing/fallback
+remain open. S3 archive/restore and effect adapters below remain contracts for
+their respective work packages.
 
 ## Commands and queries
 
@@ -75,7 +77,7 @@ register class Counter, schema 1
     read current value from pinned snapshot
 
 receipt = counter.command(Increment(1), command_id, durability=Quorum)
-answer  = counter.query(Get, consistency=AtLeast(receipt.version))
+answer  = counter.query(Get, consistency=AtLeast(receipt.version_token))
 ```
 
 The framework wraps the command with its receipt transaction. Applications must
@@ -174,6 +176,31 @@ Perform current authentication and authorization at ingress and destination.
 Authorization derived from a stale database image is itself stale; operations
 requiring latest revocation checks must use a fresh authoritative check. Version
 tokens prove requested history, not access permission.
+
+The current SDK exposes a diagnostic `CommittedVersion` in `version` and an
+opaque authenticated observation in `version_token`. `AtLeast` accepts the
+opaque token and validates it on the destination before any index comparison.
+Tokens bind cluster, namespace, cell, group, incarnation, application digest,
+index, term, issuance and expiry. They survive ordinary leadership changes;
+cross-history comparisons fail. The returned position names the cut captured
+with the pinned image, including verified protocol-only coverage of that image.
+
+`RaftCellsServices::versions` supplies explicit managed Ed25519 signing and
+verification keys. Configured token lifetime is between one millisecond and
+seven days. At most 64 verification keys are retained. A token cannot outlive
+its signing key's verification deadline. Future-issued or expired tokens are
+refused; clock skew/rollback can affect availability and supplies no strong-read
+proof. The development counter uses a fixed test key; production callers must
+inject their own stable managed material.
+
+Rotate with a verifier-first rolling deployment: distribute the new public key
+while the old signer remains active, then switch signers while retaining all
+unexpired verification keys. The namespace catalog records bounded canonical
+public-key retention metadata under conditional updates. Startup reconciles an
+ambiguous write by exact reads and refuses a configuration that drops or changes
+an unexpired registered verifier, including after restart. Expired keys may be
+removed. Private signing material is never written to this registry, and registry
+contents cannot add a key to a server's configured trust roots.
 
 Public constructors remain centralized in the application builder. Registration
 validation rejects an ordinary mutable `Cell` factory for a Raft class. Background

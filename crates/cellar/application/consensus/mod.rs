@@ -15,6 +15,9 @@ pub use crate::raft::host::{
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{RaftTls, TransportOptions};
+pub use crate::raft::version::{
+    VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
+};
 pub use crate::storage::{CommandInputs, CommandTransaction};
 pub use class::{
     command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
@@ -22,7 +25,7 @@ pub use class::{
 };
 pub use client::{
     CellStatus, CommandOptions, CommandReceipt, QueryConsistency, QueryOptions, QueryResult,
-    RaftCellHandle, RaftCells, RaftCloseReport, UnfinishedCommand,
+    RaftCellHandle, RaftCells, RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
 };
 
 pub use cellar_logic::consensus::{

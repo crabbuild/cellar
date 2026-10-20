@@ -119,6 +119,9 @@ pub struct GroupStatus {
     pub awaiting_ready: bool,
     pub awaiting_apply: bool,
     pub election_timeout: usize,
+    /// Local monotonic observation of the current leader/source. A recent
+    /// observation is a stale-read policy input, never a strong-read proof.
+    pub source_observed_ms: Option<u64>,
 }
 
 impl GroupStatus {

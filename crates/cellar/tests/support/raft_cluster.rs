@@ -135,6 +135,21 @@ impl Cluster {
         registrations: Vec<RaftCellRegistration>,
         tick_ms: u64,
     ) -> Result<Self> {
+        Self::start_with_host(
+            definitions,
+            registrations,
+            tick_ms,
+            RaftHostOptions::default(),
+        )
+        .await
+    }
+
+    pub async fn start_with_host(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        tick_ms: u64,
+        host: RaftHostOptions,
+    ) -> Result<Self> {
         ensure!(definitions.len() == 3, "fixture requires three nodes");
         let roots = (0..3)
             .map(|_| tempfile::tempdir())
@@ -209,13 +224,14 @@ impl Cluster {
                             },
                             cells: registrations.clone(),
                             peers: routes[i].clone(),
-                            host: RaftHostOptions::default(),
+                            host: host.clone(),
                         },
                         RaftCellsServices {
                             listeners,
                             tls: public_node::tls()?,
                             store: store.clone(),
                             application: definitions[i].application.clone(),
+                            versions: public_node::version_keys()?,
                         },
                     )
                     .await?,

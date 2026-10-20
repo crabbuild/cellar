@@ -13,7 +13,7 @@ use cellar_logic::consensus::{
 };
 use cellar_logic::NamespaceMode;
 use futures_util::TryStreamExt;
-use object_store::{path::Path, ObjectStore, PutMode, PutOptions};
+use object_store::{path::Path, ObjectStore, PutMode, PutOptions, UpdateVersion};
 use std::{collections::BTreeSet, fmt, sync::Arc};
 
 #[derive(Debug)]
@@ -29,6 +29,7 @@ pub enum CatalogError {
     Storage(object_store::Error),
     Log(LogError),
     Runtime(super::completion::RuntimeError),
+    Version(super::version::VersionError),
 }
 
 impl fmt::Display for CatalogError {
@@ -262,6 +263,84 @@ impl NamespaceCatalog {
             return Err(CatalogError::WrongMode);
         }
         Ok(())
+    }
+
+    /// Persist only public verification metadata. Rolling rotation distributes
+    /// new verifiers before switching signers. Any unexpired registered key
+    /// must remain configured, including after a restart. The catalog cannot
+    /// authenticate a token by supplying an otherwise untrusted public key.
+    pub async fn require_version_keys(
+        &self,
+        keys: &super::version::VersionKeys,
+        now_ms: u64,
+    ) -> Result<(), CatalogError> {
+        use super::version::VersionVerificationKey;
+        self.require_mode(NamespaceMode::Raft)?;
+        let path = Path::from(format!("{}version-keys", self.data_prefix));
+        let record = wire::VersionKeys {
+            root_digest: self.root_digest,
+            keys: keys
+                .verification_keys()
+                .into_iter()
+                .map(|key| wire::VersionKey {
+                    public: key.public_bytes(),
+                    verify_until_ms: key.verify_until_ms(),
+                })
+                .collect(),
+        };
+        let desired = wire::encode(wire::VERSION_KEYS, &record, self.inner.limit)?;
+        for _ in 0..8 {
+            let previous = self.inner.read_versioned(&path).await?;
+            let mode = if let Some((bytes, version)) = previous {
+                let record: wire::VersionKeys =
+                    wire::decode(wire::VERSION_KEYS, &bytes, self.inner.limit)?;
+                if record.root_digest != self.root_digest
+                    || record.keys.is_empty()
+                    || record.keys.len() > 64
+                {
+                    return Err(CatalogError::Corrupt("version key registry"));
+                }
+                let registered = record
+                    .keys
+                    .into_iter()
+                    .map(|key| {
+                        VersionVerificationKey::new(key.public, key.verify_until_ms)
+                            .map_err(CatalogError::Version)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                if registered
+                    .windows(2)
+                    .any(|pair| pair[0].id() >= pair[1].id())
+                {
+                    return Err(CatalogError::Corrupt("version key ordering"));
+                }
+                keys.validate_retention(&registered, now_ms)
+                    .map_err(CatalogError::Version)?;
+                if bytes == desired {
+                    return Ok(());
+                }
+                if version.e_tag.is_none() && version.version.is_none() {
+                    return Err(CatalogError::Unconfirmed);
+                }
+                PutMode::Update(version)
+            } else {
+                keys.validate_retention(&[], now_ms)
+                    .map_err(CatalogError::Version)?;
+                PutMode::Create
+            };
+            // A lost conditional-write response never establishes completion.
+            // Confirm the exact durable record; otherwise re-read and validate
+            // retention before another bounded conditional attempt.
+            let _ = self
+                .inner
+                .store
+                .put_opts(&path, desired.clone().into(), PutOptions::from(mode))
+                .await;
+            if self.inner.read(&path).await?.as_ref() == Some(&desired) {
+                return Ok(());
+            }
+        }
+        Err(CatalogError::Unconfirmed)
     }
 
     /// Concurrent creators follow the winning birth, including its placement;
@@ -561,6 +640,13 @@ impl NamespaceCatalog {
 
 impl Inner {
     async fn read(&self, key: &Path) -> Result<Option<Vec<u8>>, CatalogError> {
+        Ok(self.read_versioned(key).await?.map(|(bytes, _)| bytes))
+    }
+
+    async fn read_versioned(
+        &self,
+        key: &Path,
+    ) -> Result<Option<(Vec<u8>, UpdateVersion)>, CatalogError> {
         let object = match self.store.get(key).await {
             Ok(object) => object,
             Err(object_store::Error::NotFound { .. }) => return Ok(None),
@@ -570,6 +656,10 @@ impl Inner {
         if length > self.limit || object.range.start != 0 || object.range.end != object.meta.size {
             return Err(CatalogError::Limit);
         }
+        let version = UpdateVersion {
+            e_tag: object.meta.e_tag.clone(),
+            version: object.meta.version.clone(),
+        };
         let mut bytes = Vec::with_capacity(length);
         let mut stream = object.into_stream();
         let mut chunks = 0;
@@ -588,7 +678,7 @@ impl Inner {
         if bytes.len() != length {
             return Err(CatalogError::Corrupt("short catalog object"));
         }
-        Ok(Some(bytes))
+        Ok(Some((bytes, version)))
     }
 
     async fn create_and_observe(&self, key: &Path, bytes: &[u8]) -> Result<Vec<u8>, CatalogError> {

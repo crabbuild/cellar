@@ -14,6 +14,21 @@ pub(super) const ROOT: u8 = 1;
 pub(super) const BIRTH: u8 = 2;
 pub(super) const CLAIM: u8 = 3;
 pub(super) const RESERVATION: u8 = 4;
+pub(super) const VERSION_KEYS: u8 = 5;
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct VersionKeys {
+    pub root_digest: [u8; 32],
+    pub keys: Vec<VersionKey>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct VersionKey {
+    pub public: [u8; 32],
+    pub verify_until_ms: u64,
+}
 
 pub(super) fn encode(
     kind: u8,

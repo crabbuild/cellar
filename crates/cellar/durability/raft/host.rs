@@ -7,6 +7,7 @@ use super::{
     completion::*,
     execution::*,
     host_sql::{self as sql, Action, ImageView, Pool, Value},
+    query::{Minimum, PendingRead, Phase as ReadPhase, ReadId},
     runtime::{RaftRuntime, RuntimeEvents},
     transport::{GroupRoute, RaftPeer, RaftTransport},
 };
@@ -35,6 +36,7 @@ pub struct RaftHostOptions {
     pub max_pending_bytes: usize,
     pub max_input_bytes: usize,
     pub poll_ms: u64,
+    pub stale_source_timeout_ms: u64,
     pub images: GenerationLimits,
     pub execution: ExecutionLimits,
 }
@@ -49,6 +51,7 @@ impl Default for RaftHostOptions {
             max_pending_bytes: 64 * 1024 * 1024,
             max_input_bytes: 1024 * 1024,
             poll_ms: 25,
+            stale_source_timeout_ms: 5000,
             images: GenerationLimits::default(),
             execution: ExecutionLimits::default(),
         }
@@ -69,6 +72,10 @@ impl RaftHostOptions {
                 && self.max_input_bytes + 4096 <= self.max_pending_bytes
                 && (1..=1000).contains(&self.poll_ms),
             "invalid Raft host limits"
+        );
+        anyhow::ensure!(
+            (1..=3_600_000).contains(&self.stale_source_timeout_ms),
+            "invalid stale-source deadline"
         );
         Ok(())
     }
@@ -105,6 +112,7 @@ pub struct RaftCellsServices {
     pub tls: super::transport_options::RaftTls,
     pub store: Arc<dyn object_store::ObjectStore>,
     pub application: Arc<dyn crate::application::Application>,
+    pub versions: super::version::VersionKeys,
 }
 
 pub(crate) struct Registration {
@@ -120,6 +128,7 @@ pub(crate) async fn start(
     directory: PathBuf,
     label: String,
     options: RaftHostOptions,
+    versions: super::version::VersionKeys,
 ) -> anyhow::Result<RaftCells> {
     options.validate()?;
     anyhow::ensure!(
@@ -237,6 +246,7 @@ pub(crate) async fn start(
                 scope.clone(),
                 Cell {
                     group,
+                    schema_digest: class.schema_digest(),
                     worker,
                     core,
                     image,
@@ -277,7 +287,7 @@ pub(crate) async fn start(
         closed: closed.clone(),
         closing: closing.clone(),
         terminal: terminal.clone(),
-        budget,
+        budget: budget.clone(),
         max_input_bytes: options.max_input_bytes,
         bindings,
         work: crate::asyncrt::services().application_work_registry(),
@@ -298,6 +308,9 @@ pub(crate) async fn start(
             }
         }
         let _closed = Closed(closed, terminal.clone());
+        let mut rng = crate::asyncrt::rng("raft-cell-commands");
+        let mut read_nonce = [0; 16];
+        rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
             log,
             runtime,
@@ -310,8 +323,13 @@ pub(crate) async fn start(
             uncertain: BTreeMap::new(),
             jobs: FuturesUnordered::new(),
             options,
-            rng: crate::asyncrt::rng("raft-cell-commands"),
+            rng,
             closing,
+            versions,
+            reads: BTreeMap::new(),
+            read_nonce,
+            read_sequence: 0,
+            budget,
         };
         driver.run(requests, closes).await;
         let result = driver.shutdown().await;
@@ -416,6 +434,7 @@ struct Pending {
 
 struct Cell {
     group: GroupLog,
+    schema_digest: [u8; 32],
     worker: usize,
     core: CommandState,
     image: Option<ImageView>,
@@ -444,10 +463,24 @@ enum SqlPurpose {
     Retire,
     Prepare,
     Publish(ApplyTicket),
-    Query(Request),
+    Query(ReadId),
 }
 
 enum Job {
+    ReadStarted {
+        id: ReadId,
+        attempt: u64,
+        result: Result<(), RuntimeError>,
+    },
+    ReadSource {
+        id: ReadId,
+        result: Result<GroupStatus, RuntimeError>,
+    },
+    ReadLeader {
+        id: ReadId,
+        check: u64,
+        result: Result<GroupStatus, RuntimeError>,
+    },
     Status {
         scope: GroupScope,
         sequence: u64,
@@ -485,11 +518,27 @@ struct Driver {
     options: RaftHostOptions,
     rng: crate::asyncrt::rng::Stream,
     closing: Arc<AtomicBool>,
+    versions: super::version::VersionKeys,
+    reads: BTreeMap<ReadId, PendingRead>,
+    read_nonce: [u8; 16],
+    read_sequence: u64,
+    budget: Arc<Budget>,
 }
 
 fn reply(request: &mut Request, result: Result<Response, CommandFailure>) {
+    reply_charged(request, result, None);
+}
+
+fn reply_charged(
+    request: &mut Request,
+    result: Result<Response, CommandFailure>,
+    bytes: Option<Permit>,
+) {
     if let Some(reply) = request.reply.take() {
-        let _ = reply.send(result);
+        let _ = reply.send(result.map(|response| client::ChargedResponse {
+            response,
+            _bytes: bytes,
+        }));
     }
 }
 
@@ -502,6 +551,227 @@ fn failure(error: ExecutionError) -> CommandFailure {
 }
 
 impl Driver {
+    fn finish_read(&mut self, id: &ReadId, result: Result<Response, CommandFailure>) {
+        if let Some(mut read) = self.reads.remove(id) {
+            if result.is_err() {
+                read.request.control.cancel();
+            }
+            reply(&mut read.request, result);
+        }
+    }
+
+    fn pump_reads(&mut self) {
+        let now = crate::asyncrt::mono_ms();
+        for id in self.reads.keys().copied().collect::<Vec<_>>() {
+            let Some(read) = self.reads.get_mut(&id) else {
+                continue;
+            };
+            let scope = read.request.scope.clone();
+            let Some(cell) = self.cells.get(&scope) else {
+                self.finish_read(&id, Err(CommandFailure::Unavailable));
+                continue;
+            };
+            if read.expired() || cell.failed {
+                self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
+                continue;
+            }
+            if now < read.retry_at {
+                continue;
+            }
+            match read.phase {
+                ReadPhase::Source => {
+                    read.phase = ReadPhase::Probing;
+                    let runtime = self.runtime.clone();
+                    self.jobs.push(Box::pin(async move {
+                        Job::ReadSource {
+                            id,
+                            result: runtime.status(&scope).await,
+                        }
+                    }));
+                }
+                ReadPhase::StartBarrier => {
+                    let Some(check) = read.leader_check.checked_add(1) else {
+                        self.finish_read(&id, Err(CommandFailure::Overloaded));
+                        continue;
+                    };
+                    read.leader_check = check;
+                    read.phase = ReadPhase::CheckingLeader;
+                    let runtime = self.runtime.clone();
+                    self.jobs.push(Box::pin(async move {
+                        Job::ReadLeader {
+                            id,
+                            check,
+                            result: runtime.status(&scope).await,
+                        }
+                    }));
+                }
+                ReadPhase::Barrier if !read.checking_leader => {
+                    let Some(check) = read.leader_check.checked_add(1) else {
+                        self.finish_read(&id, Err(CommandFailure::Overloaded));
+                        continue;
+                    };
+                    read.leader_check = check;
+                    read.checking_leader = true;
+                    let runtime = self.runtime.clone();
+                    self.jobs.push(Box::pin(async move {
+                        Job::ReadLeader {
+                            id,
+                            check,
+                            result: runtime.status(&scope).await,
+                        }
+                    }));
+                }
+                ReadPhase::Image => {
+                    if cell.sql_busy || cell.apply.is_some() || cell.publication.is_some() {
+                        continue;
+                    }
+                    let Some(image) = cell.image.as_ref() else {
+                        continue;
+                    };
+                    let candidate = cell.group.read().ok().and_then(|cache| {
+                        (cache.applied.image.as_ref() == Some(&image.image)).then(|| {
+                            CommittedVersion {
+                                scope: scope.clone(),
+                                position: cache.applied.position,
+                            }
+                        })
+                    });
+                    let Some(candidate) = candidate else {
+                        continue;
+                    };
+                    let Some(minimum) = read.minimum.clone() else {
+                        self.finish_read(&id, Err(CommandFailure::CorruptState));
+                        continue;
+                    };
+                    match minimum.satisfied(&candidate, &scope) {
+                        Ok(false) => continue,
+                        Err(error) => {
+                            self.finish_read(&id, Err(error));
+                            continue;
+                        }
+                        Ok(true) => (),
+                    }
+                    read.phase = ReadPhase::Executing;
+                    let action = Action::Query {
+                        contract: read.contract.clone(),
+                        input: read.input.clone(),
+                        minimum,
+                        control: read.request.control.clone(),
+                        source_deadline: read.source_deadline,
+                    };
+                    self.sql(&scope, SqlPurpose::Query(id), action);
+                }
+                _ => (),
+            }
+        }
+    }
+
+    fn on_read_source(&mut self, id: ReadId, result: Result<GroupStatus, RuntimeError>) {
+        let Some(read) = self.reads.get_mut(&id) else {
+            return;
+        };
+        if read.phase != ReadPhase::Probing {
+            return;
+        }
+        let now = crate::asyncrt::mono_ms();
+        match result {
+            Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
+                read.phase = ReadPhase::Source;
+                read.retry_at = now.saturating_add(self.options.poll_ms);
+            }
+            Ok(status)
+                if self
+                    .cells
+                    .get(&read.request.scope)
+                    .is_some_and(|cell| status.replica == *cell.group.identity()) =>
+            {
+                let deadline = status
+                    .source_observed_ms
+                    .filter(|at| *at <= now)
+                    .and_then(|at| at.checked_add(self.options.stale_source_timeout_ms));
+                if deadline.is_some_and(|deadline| now < deadline) {
+                    read.source_deadline = deadline;
+                    read.phase = ReadPhase::Image;
+                } else {
+                    self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
+                }
+            }
+            _ => self.finish_read(&id, Err(CommandFailure::VersionUnavailable)),
+        }
+    }
+
+    fn on_read_leader(
+        &mut self,
+        id: ReadId,
+        check: u64,
+        result: Result<GroupStatus, RuntimeError>,
+    ) {
+        let Some(read) = self.reads.get_mut(&id) else {
+            return;
+        };
+        if check != read.leader_check
+            || !matches!(read.phase, ReadPhase::CheckingLeader | ReadPhase::Barrier)
+        {
+            return;
+        }
+        read.checking_leader = false;
+        read.retry_at = crate::asyncrt::mono_ms().saturating_add(self.options.poll_ms);
+        let status = match result {
+            Ok(status)
+                if self
+                    .cells
+                    .get(&read.request.scope)
+                    .is_some_and(|cell| status.replica == *cell.group.identity()) =>
+            {
+                status
+            }
+            Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
+                if read.phase == ReadPhase::CheckingLeader {
+                    read.phase = ReadPhase::StartBarrier;
+                }
+                return;
+            }
+            _ => {
+                self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
+                return;
+            }
+        };
+        let leader = (status.term, status.leader, status.is_leader);
+        if read.phase == ReadPhase::Barrier {
+            // RawNode may drop an unknown-leader request or clear a pending
+            // ReadIndex on a role/term change. Retry that same invocation only
+            // after a new checked observation, retaining its original deadline.
+            // The observation itself never supplies a successful barrier.
+            if read.leader != Some(leader) {
+                read.phase = ReadPhase::StartBarrier;
+            }
+            return;
+        }
+        if status.leader.is_none()
+            || status.applied.term != status.term
+            || (status.is_leader && !status.protocol_ready)
+        {
+            read.phase = ReadPhase::StartBarrier;
+            return;
+        }
+        let Some(attempt) = read.barrier_attempt.checked_add(1) else {
+            self.finish_read(&id, Err(CommandFailure::Overloaded));
+            return;
+        };
+        read.barrier_attempt = attempt;
+        read.leader = Some(leader);
+        read.phase = ReadPhase::Barrier;
+        let scope = read.request.scope.clone();
+        let runtime = self.runtime.clone();
+        self.jobs.push(Box::pin(async move {
+            Job::ReadStarted {
+                id,
+                attempt,
+                result: runtime.read_index(&scope, id.to_vec()).await,
+            }
+        }));
+    }
+
     fn status(&mut self, scope: &GroupScope, purpose: StatusPurpose) {
         let Some(cell) = self.cells.get_mut(scope) else {
             return;
@@ -537,11 +807,11 @@ impl Driver {
         };
         cell.sql_busy = true;
         let work = match &purpose {
-            SqlPurpose::Query(request) => Some(request.work.clone()),
+            SqlPurpose::Query(id) => self.reads.get(id).map(|read| read.request.work.clone()),
             _ => cell.pending.as_ref().map(|p| p.request.work.clone()),
         };
         let cancel = match &purpose {
-            SqlPurpose::Query(request) => Some(request.control.clone()),
+            SqlPurpose::Query(id) => self.reads.get(id).map(|read| read.request.control.clone()),
             SqlPurpose::Stage => cell
                 .pending
                 .as_ref()
@@ -562,9 +832,18 @@ impl Driver {
     }
 
     fn finish_pending(&mut self, scope: &GroupScope, result: Result<Response, CommandFailure>) {
+        self.finish_pending_charged(scope, result, None);
+    }
+
+    fn finish_pending_charged(
+        &mut self,
+        scope: &GroupScope,
+        result: Result<Response, CommandFailure>,
+        bytes: Option<Permit>,
+    ) {
         if let Some(cell) = self.cells.get_mut(scope) {
             if let Some(mut pending) = cell.pending.take() {
-                reply(&mut pending.request, result);
+                reply_charged(&mut pending.request, result, bytes);
             }
         }
         self.active.remove(scope);
@@ -638,20 +917,44 @@ impl Driver {
                 input,
                 options,
             } => {
-                if options.consistency != client::QueryConsistency::Stale
-                    || contract.kind != OperationKind::Query
-                {
-                    reply(&mut request, Err(CommandFailure::UnsupportedConsistency));
+                if contract.kind != OperationKind::Query {
+                    reply(&mut request, Err(CommandFailure::UnsupportedCapability));
                     return;
                 }
-                if cell.sql_busy {
+                let minimum = if let client::QueryConsistency::AtLeast(token) = &options.consistency
+                {
+                    let decoded = u64::try_from(crate::asyncrt::wall_ms())
+                        .map_err(|_| super::version::VersionError::Expired)
+                        .and_then(|now| {
+                            self.versions.verify(token, &scope, cell.schema_digest, now)
+                        });
+                    match decoded {
+                        Ok(version) => Some(version),
+                        Err(error) => {
+                            let failure = if error == super::version::VersionError::WrongHistory {
+                                CommandFailure::WrongIncarnation
+                            } else {
+                                CommandFailure::VersionUnavailable
+                            };
+                            reply(&mut request, Err(failure));
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let Some(sequence) = self.read_sequence.checked_add(1) else {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
-                }
-                self.sql(
-                    &scope,
-                    SqlPurpose::Query(request),
-                    Action::Query { contract, input },
+                };
+                self.read_sequence = sequence;
+                let mut id = [0; 32];
+                id[..8].copy_from_slice(b"CLRRD001");
+                id[8..24].copy_from_slice(&self.read_nonce);
+                id[24..].copy_from_slice(&sequence.to_be_bytes());
+                self.reads.insert(
+                    id,
+                    PendingRead::new(request, contract, input, &options, minimum),
                 );
             }
             Kind::Command {
@@ -915,13 +1218,42 @@ impl Driver {
                 }
                 match cell.core.finish(identity) {
                     Ok(permit) => {
+                        let token = u64::try_from(crate::asyncrt::wall_ms())
+                            .ok()
+                            .and_then(|now| {
+                                self.versions
+                                    .issue(permit.version(), cell.schema_digest, now)
+                                    .ok()
+                            });
+                        let Some(version_token) = token else {
+                            let id = permit.command();
+                            self.finish_pending(
+                                &scope,
+                                Err(CommandFailure::Ambiguous { command: id }),
+                            );
+                            return;
+                        };
+                        let Some(bytes) = self.budget.acquire(receipt.receipt().result().len())
+                        else {
+                            let id = permit.command();
+                            self.finish_pending(
+                                &scope,
+                                Err(CommandFailure::Ambiguous { command: id }),
+                            );
+                            return;
+                        };
                         let response = client::CommandReceipt {
                             id: permit.command(),
                             version: permit.version().clone(),
                             durability: permit.durability(),
                             result: receipt.receipt().result().to_vec(),
+                            version_token,
                         };
-                        self.finish_pending(&scope, Ok(Response::Command(response)));
+                        self.finish_pending_charged(
+                            &scope,
+                            Ok(Response::Command(response)),
+                            Some(bytes),
+                        );
                     }
                     Err(_) => self.refuse(&scope, CommandFailure::Unavailable),
                 }
@@ -958,20 +1290,59 @@ impl Driver {
             return;
         };
         cell.sql_busy = false;
-        if let SqlPurpose::Query(mut request) = purpose {
+        if let SqlPurpose::Query(id) = purpose {
+            let Some(mut read) = self.reads.remove(&id) else {
+                return;
+            };
+            if read.expired() {
+                read.request.control.cancel();
+                reply(&mut read.request, Err(CommandFailure::VersionUnavailable));
+                return;
+            }
+            if matches!(
+                &result,
+                Err(ExecutionError::Refused(CommandFailure::VersionUnavailable))
+            ) && !self.closing.load(Ordering::Acquire)
+            {
+                read.phase = ReadPhase::Image;
+                read.retry_at = crate::asyncrt::mono_ms().saturating_add(self.options.poll_ms);
+                self.reads.insert(id, read);
+                return;
+            }
+            let mut bytes = None;
             let result = match result {
                 Ok(sql::Output {
                     value: Value::Queried(value),
-                    ..
-                }) => Ok(Response::Query(client::QueryResult {
-                    result: value.result,
-                    version: value.version,
-                })),
+                    _bytes,
+                }) => {
+                    bytes = _bytes;
+                    if read.minimum.as_ref().is_some_and(|minimum| {
+                        minimum.satisfied(&value.version, &scope) == Ok(true)
+                    }) {
+                        u64::try_from(crate::asyncrt::wall_ms())
+                            .ok()
+                            .and_then(|now| {
+                                self.versions
+                                    .issue(&value.version, cell.schema_digest, now)
+                                    .ok()
+                            })
+                            .map(|version_token| {
+                                Response::Query(client::QueryResult {
+                                    result: value.result,
+                                    version: value.version,
+                                    version_token,
+                                })
+                            })
+                            .ok_or(CommandFailure::VersionUnavailable)
+                    } else {
+                        Err(CommandFailure::CorruptState)
+                    }
+                }
                 Err(error) => Err(failure(error)),
                 _ => Err(CommandFailure::CorruptState),
             };
             if !self.closing.load(Ordering::Acquire) {
-                reply(&mut request, result);
+                reply_charged(&mut read.request, result, bytes);
             }
             return;
         }
@@ -1159,6 +1530,35 @@ impl Driver {
             }
             RuntimeEventKind::Failed { replica, .. } => self.fail(&replica.scope),
             RuntimeEventKind::Snapshot { ticket, .. } => self.fail(&ticket.replica().scope),
+            RuntimeEventKind::ReadIndex {
+                replica,
+                index,
+                context,
+            } => {
+                let Ok(id) = <ReadId>::try_from(context.as_slice()) else {
+                    return;
+                };
+                let Some(read) = self.reads.get_mut(&id) else {
+                    return;
+                };
+                if read.request.scope == replica.scope
+                    && self
+                        .cells
+                        .get(&replica.scope)
+                        .is_some_and(|cell| replica == cell.group.identity())
+                    && matches!(
+                        read.phase,
+                        ReadPhase::StartBarrier | ReadPhase::CheckingLeader | ReadPhase::Barrier
+                    )
+                {
+                    if index.get() == 0 {
+                        self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
+                    } else {
+                        read.minimum = Some(Minimum::ReadIndex(*index));
+                        read.phase = ReadPhase::Image;
+                    }
+                }
+            }
             _ => (),
         }
     }
@@ -1225,10 +1625,37 @@ impl Driver {
                 _ => (),
             }
         }
+        self.pump_reads();
     }
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::ReadSource { id, result } => self.on_read_source(id, result),
+            Job::ReadLeader { id, check, result } => self.on_read_leader(id, check, result),
+            Job::ReadStarted {
+                id,
+                attempt,
+                result,
+            } => {
+                if let Some(read) = self.reads.get_mut(&id) {
+                    // A barrier event can arrive before the RPC acknowledgement.
+                    // That late reply cannot regress an executing read.
+                    if read.phase == ReadPhase::Barrier && read.barrier_attempt == attempt {
+                        match result {
+                            Ok(()) => (),
+                            Err(RuntimeError::NotReady | RuntimeError::Overloaded) => {
+                                read.phase = ReadPhase::StartBarrier;
+                                read.checking_leader = false;
+                                read.retry_at =
+                                    crate::asyncrt::mono_ms().saturating_add(self.options.poll_ms);
+                            }
+                            Err(_) => {
+                                self.finish_read(&id, Err(CommandFailure::VersionUnavailable))
+                            }
+                        }
+                    }
+                }
+            }
             Job::Status {
                 scope,
                 sequence,
@@ -1323,6 +1750,10 @@ impl Driver {
 
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
+        for (_, mut read) in std::mem::take(&mut self.reads) {
+            read.request.control.cancel();
+            reply(&mut read.request, Err(CommandFailure::Unavailable));
+        }
         let mut unfinished = self
             .uncertain
             .iter()

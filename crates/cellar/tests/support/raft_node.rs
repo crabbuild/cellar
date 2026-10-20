@@ -140,9 +140,20 @@ pub async fn cells(
             tls,
             store,
             application,
+            versions: version_keys()?,
         },
     )
     .await
+}
+
+pub fn version_keys() -> Result<VersionKeys> {
+    // Fixed keys exist only in this local fixture, so restart uses the same
+    // trusted verifier. Production deployments inject managed signing keys.
+    Ok(VersionKeys::new(
+        VersionSigningKey::new([31; 32], u64::MAX)?,
+        vec![],
+        Duration::from_secs(86400),
+    )?)
 }
 
 pub async fn ready(cell: &RaftCellHandle) -> Result<()> {
@@ -187,7 +198,7 @@ impl Gate {
         )
     }
 
-    fn wait(&self) -> Result<()> {
+    pub fn wait(&self) -> Result<()> {
         self.entered.send(())?;
         let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
         while !*open {

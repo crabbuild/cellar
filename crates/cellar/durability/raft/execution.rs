@@ -93,6 +93,18 @@ pub fn query_registered(
     services: ReadServices,
     limits: ExecutionLimits,
 ) -> Result<RegisteredQueryOutput, ExecutionError> {
+    query_registered_controlled(published, class, contract, input, services, limits, None)
+}
+
+pub(crate) fn query_registered_controlled(
+    published: &PublishedImage,
+    class: &RaftClass,
+    contract: &OperationContract,
+    input: &[u8],
+    services: ReadServices,
+    limits: ExecutionLimits,
+    cancel: Option<std::sync::Arc<crate::application::consensus::client::AttemptControl>>,
+) -> Result<RegisteredQueryOutput, ExecutionError> {
     limits.validate()?;
     class
         .validate_operation(contract)
@@ -118,6 +130,11 @@ pub fn query_registered(
         },
     )
     .map_err(storage)?;
+    if let Some(cancel) = cancel {
+        database
+            .connection()
+            .progress_handler(1000, Some(cancel.interrupt_check()));
+    }
     let version = CommittedVersion {
         scope: published.scope().clone(),
         position: published.position(),
