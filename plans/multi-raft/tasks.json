@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "0efd8f4d871199542f97f9fe0b74086a38606d02",
+  "baseline_revision": "ed81efa8c3ea68d9f69996e83b9be2574c0ec435",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -47,7 +47,7 @@
       "id": "MR-01",
       "title": "Define identities, invariants and operation contracts",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [],
       "modifies": [
         "crates/cellar-logic/types.rs",
@@ -149,13 +149,15 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-01.json"
+      ]
     },
     {
       "id": "MR-02",
       "title": "Persist Raft entries and metadata in the shared log engine",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-01"
       ],

@@ -1,7 +1,7 @@
 # Implementation evidence
 
-No runtime tasks have passed yet. Store evidence records and logs here when
-implementation begins. Task evidence paths in `tasks.json` are relative to the
+MR-01 has passed its pure-contract and framing tests. Its record states the
+remaining runtime qualification limits. Store subsequent evidence and logs here. Task evidence paths in `tasks.json` are relative to the
 package directory, for example `evidence/MR-01.json`.
 
 A record has the following fields. This is a schema illustration, not a passing

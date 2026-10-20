@@ -80,7 +80,7 @@ ordering; it does not require parallel agents or overlapping edits.
 
 ### MR-01 Define identities, invariants and operation contracts
 
-Dependencies: none. Phase: v1. Status: IN_PROGRESS.
+Dependencies: none. Phase: v1. Status: DONE. Evidence: [MR-01](evidence/MR-01.json).
 
 Modify: `crates/cellar-logic/types.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/application/mod.rs`.
 
@@ -109,7 +109,7 @@ shown by `plan.py show MR-01`; the manifest is authoritative for arguments.
 
 ### MR-02 Persist Raft entries and metadata in the shared log engine
 
-Dependencies: MR-01. Phase: v1. Initial status: TODO.
+Dependencies: MR-01. Phase: v1. Status: IN_PROGRESS.
 
 Modify: `Cargo.toml`, `Cargo.lock`, `crates/cellar/Cargo.toml`, `crates/cellar/lib.rs`, `crates/cellar/execution/services.rs`.
 

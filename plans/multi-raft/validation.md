@@ -1,8 +1,10 @@
 # Package validation
 
-This record covers the design package and its executable planning checks.
+This historical record covers the initial design package and planning checks.
+Current implementation evidence is recorded per task, starting with
+[MR-01](evidence/MR-01.json).
 Runtime implementation, Raft safety and fleet performance remain work-package
-deliverables. All implementation tasks are initially TODO.
+deliverables. At this initial validation point, all tasks were TODO.
 
 Validated on 2026-10-19 against source revision
 `0efd8f4d871199542f97f9fe0b74086a38606d02`.
@@ -22,7 +24,7 @@ invariants, unsafe paths, missing evidence, empty test inventories, broken links
 source drift and capacity assumptions. They exercise planning-tool behavior,
 not a Raft implementation. The capacity output is arithmetic, not a benchmark.
 
-No Rust runtime code or dependencies changed. Rust compilation, the 104 proposed
+At that initial validation point, no Rust runtime code or dependencies changed. Rust compilation, the 104 proposed
 runtime cases, fault qualification and scale benchmarks have not been run.
-All 17 implementation work packages remain TODO; MR-01 is the next executable
-implementation assignment.
+This initial result did not establish completion of any implementation package.
+Consult tasks.json and the per-task evidence for subsequent implementation work.

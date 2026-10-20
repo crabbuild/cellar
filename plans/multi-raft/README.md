@@ -1,9 +1,9 @@
 # Cellar multi-Raft delivery package
 
-Status: implementation in progress. MR-01 introduces pure authority contracts
-and the bounded update codec; the Raft runtime and end-to-end serving remain
-unimplemented. See tasks.json for current work-package status. Prepared 2026-10-19 against Cellar
-`0efd8f4d871199542f97f9fe0b74086a38606d02`.
+Status: implementation in progress. MR-01 is complete with recorded evidence;
+MR-02 is in progress. The Raft runtime and end-to-end serving remain unimplemented.
+See [task status](tasks.json) and [MR-01 evidence](evidence/MR-01.json). The reviewed
+source baseline is `ed81efa8c3ea68d9f69996e83b9be2574c0ec435`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite
@@ -85,6 +85,9 @@ protocol and treats read copies as disposable caches. This proposal instead
 introduces consensus-backed authority and durable voting replicas. Reuse its
 query isolation ideas where useful; it is not a prerequisite branch and this
 package contains the required contracts independently.
+
+The [storage integration audit](storage-integration.md) records the host filesystem
+adaptation required by MR-02.
 
 ## Validation record
 
