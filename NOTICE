@@ -37,6 +37,14 @@ at:
 
 The exact versions are recorded in Cargo.lock.
 
+Cellar includes TiKV's Raft Rust implementation (raft 0.7.0), Raft protocol
+definitions (raft-proto 0.7.0), and Raft Engine (raft-engine 0.4.2), under the
+Apache License 2.0. Their sources retain notices for the TiKV Project Authors,
+PingCAP, Inc., and the etcd Authors. Original source versions, checksums, and
+Cellar adaptations are recorded in vendor/*/UPSTREAM.json. License texts are
+included in those directories. The Raft consensus Rust source is unchanged;
+Cellar adapts filesystem integration and protobuf generation.
+
 All other dependencies are under permissive licenses (Apache-2.0, MIT,
 BSD-3-Clause, ISC, Unicode-3.0, Zlib, BSL-1.0, CC0-1.0,
 CDLA-Permissive-2.0); Cargo.lock lists them.

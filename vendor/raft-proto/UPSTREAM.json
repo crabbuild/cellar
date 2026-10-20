@@ -1,0 +1,18 @@
+{
+  "crate": "raft-proto",
+  "version": "0.7.0",
+  "license": "Apache-2.0",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "10c6e9db6792b85c81784e44fc278f895d5f0ab0"
+    },
+    "path_in_vcs": "proto"
+  },
+  "registry_checksum": "fb6884896294f553e8d5cfbdb55080b9f5f2f43394afff59c9f077e0f4b46d6b",
+  "patch_scope": "Reproduce upstream rust-protobuf generation with the pinned pure Rust parser, retaining the strict enum-read rewrite; eliminate platform-specific protoc binaries. Generated-code compatibility lints are scoped to its generated module.",
+  "patched_files": [
+    "Cargo.toml",
+    "build.rs",
+    "src/lib.rs"
+  ]
+}

@@ -54,7 +54,7 @@ pub mod internal {
 pub use error::{new_ltx_error, Error, LTXError, Result};
 pub use host::{
     DirectFileSystem, FileSystem, HostDirEntry, HostDirIterator, HostFile, HostFileIo,
-    HostMetadata, HostTaskError, LtxHost,
+    HostFileLock, HostMetadata, HostTaskError, LtxHost,
 };
 
 /// A SQLite database managed for replication (WAL-mode checkpoint takeover plus

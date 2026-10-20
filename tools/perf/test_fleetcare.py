@@ -40,7 +40,9 @@ class SourceDigestTests(unittest.TestCase):
             root = pathlib.Path(directory)
             files = ('Cargo.toml', 'Cargo.lock', 'tools/perf/fleetcare.Dockerfile',
                      'examples/fleetcare/Cargo.toml', 'examples/fleetcare/src/lib.rs',
-                     'examples/fleetcare/tests/projection_recovery.rs')
+                     'examples/fleetcare/tests/projection_recovery.rs',
+                     'vendor/raft/src/lib.rs', 'vendor/raft-proto/Cargo.toml',
+                     'vendor/raft-proto/proto/eraftpb.proto')
             for name in files:
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)

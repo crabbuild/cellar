@@ -1,0 +1,2 @@
+# Preserve published third-party source bytes and upstream whitespace.
+* -whitespace

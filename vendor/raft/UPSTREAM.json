@@ -1,0 +1,16 @@
+{
+  "crate": "raft",
+  "version": "0.7.0",
+  "license": "Apache-2.0",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "10c6e9db6792b85c81784e44fc278f895d5f0ab0"
+    },
+    "path_in_vcs": ""
+  },
+  "registry_checksum": "f12688b23a649902762d4c11d854d73c49c9b93138f2de16403ef9f571ad5bae",
+  "patch_scope": "Manifest-only path selection of the attributed raft-proto adapter; consensus Rust source is unchanged.",
+  "patched_files": [
+    "Cargo.toml"
+  ]
+}

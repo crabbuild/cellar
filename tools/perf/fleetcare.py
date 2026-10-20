@@ -38,9 +38,10 @@ def node_resources(args, index):
 
 def source_digest():
     paths = [ROOT / "Cargo.toml", ROOT / "Cargo.lock"]
-    for directory in ("crates", "examples/fleetcare"):
+    for directory in ("crates", "examples/fleetcare", "vendor"):
         paths += sorted((ROOT / directory).rglob("*.rs"))
         paths += sorted((ROOT / directory).rglob("Cargo.toml"))
+        paths += sorted((ROOT / directory).rglob("*.proto"))
     paths += sorted((ROOT / "tools/perf").glob("*.py"))
     paths += [ROOT / "tools/perf/fleetcare.Dockerfile"]
     digest = hashlib.sha256()

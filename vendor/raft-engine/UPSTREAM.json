@@ -1,0 +1,20 @@
+{
+  "crate": "raft-engine",
+  "version": "0.4.2",
+  "license": "Apache-2.0",
+  "upstream_vcs": {
+    "git": {
+      "sha1": "084c5ca0e4f8291ab67afbfe8b9df02747838c86"
+    },
+    "path_in_vcs": ""
+  },
+  "registry_checksum": "1213c3a24e3fee8afcc74b2be08c4081adde96f092e0fc1c607abb3e16ae722e",
+  "patch_scope": "Injected directory operations and fail-closed sync-error propagation; upstream log format and Raft behavior retained.",
+  "patched_files": [
+    "src/engine.rs",
+    "src/env/mod.rs",
+    "src/file_pipe_log/log_file.rs",
+    "src/file_pipe_log/pipe.rs",
+    "src/file_pipe_log/pipe_builder.rs"
+  ]
+}

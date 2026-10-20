@@ -312,9 +312,9 @@ struct WireHeader {
     files: Vec<WireFile>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct WireScope {
+pub(crate) struct WireScope {
     cluster: String,
     namespace: String,
     cell: String,
@@ -335,7 +335,7 @@ impl From<&GroupScope> for WireScope {
 }
 
 impl WireScope {
-    fn decode(self) -> Result<GroupScope, ProtocolError> {
+    pub(crate) fn decode(self) -> Result<GroupScope, ProtocolError> {
         Ok(GroupScope {
             cluster: ClusterId::new(decode_hex(&self.cluster)?)
                 .map_err(|_| ProtocolError::Identity)?,
