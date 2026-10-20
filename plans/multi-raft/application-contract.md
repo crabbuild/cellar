@@ -2,9 +2,11 @@
 
 This is the SDK contract implemented by MR-06 through MR-12. Restricted
 `RaftClass`, `CommandContext`, `QueryContext` and operation registration are now
-exported through `cellar::sdk`; public command/query handles and receipts below
-remain design contracts. MR-07 still must connect the node-owned dispatcher,
-ship a compiling example and exercise it through native and Axum ingress.
+exported through `cellar::sdk`. `Node::start_raft_cells`, public command/query
+handles and receipts now connect Quorum commands and stale committed-image reads
+to node-owned producers. The counter example in `examples/raft-counter/README.md`
+uses both native HTTP and Axum. Stronger reads, S3 archive/restore and effect
+adapters below remain contracts for their respective work packages.
 
 ## Commands and queries
 
@@ -52,7 +54,7 @@ paths even if they arrive through raw SQL. Query functions use stateless service
 or immutable configuration; application instance fields cannot substitute for
 replicated state.
 
-Illustrative application flow, to become a compilable example in MR-07:
+Application flow (the example currently uses stale queries until MR-08):
 
 ```text
 register class Counter, schema 1
@@ -75,8 +77,8 @@ encoded result is bounded and stored with the mutation before LTX capture.
 
 For v1, use `(authenticated_client_id, sequence)` as the command ID, scoped to
 the cell and incarnation. Each client identity is non-reusable within that
-incarnation. The SDK allocates increasing per-cell sequences and persists its
-pending command before sending. Different client identities can submit concurrently;
+incarnation. The caller allocates increasing per-cell sequences and persists its
+pending command before sending; `CommandOptions` requires that explicit ID. Different client identities can submit concurrently;
 one identity submits its commands in sequence.
 
 Persist operation name, contract digest, normalized request digest, result bytes
@@ -120,6 +122,12 @@ automatic retry into the new history.
 | `UnsupportedConsistency` | No silent fallback to a weaker read contract |
 | `ArchiveUnavailable` | S3 requirement not yet proven; a submitted command remains ambiguous |
 | `CorruptState` | Stop that replica's serving/proof role and recover through the protocol |
+
+`RaftCellHandle::command`, `query` and `status` admit synchronously before
+returning a future. Dropping the future cancels its waiter. An unpolled waiter
+does not suspend its deadline: the node checks expiry before starting queued
+private work and before submission. A readiness observation is a hint; every
+command still checks live authority and can be refused if it changed.
 
 Cancellation before submission rolls back private work. Cancellation after
 submission cancels the waiter, not the consensus decision. Never convert a lost

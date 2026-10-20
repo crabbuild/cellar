@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96",
+  "baseline_revision": "67c9f003977594eb58aa2d5e7ce7d866724d02a6",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -806,7 +806,11 @@
         "crates/cellar/durability/raft/completion.rs",
         "crates/cellar/storage/sqlite/immutable.rs",
         "crates/cellar/tests/native_raft_execution.rs",
-        "crates/cellar/application/README.md"
+        "crates/cellar/application/README.md",
+        "crates/cellar-axum/application.rs",
+        "crates/cellar-axum/builder.rs",
+        "crates/cellar-axum/tests/builder.rs",
+        "crates/cellar-axum/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/catalog.rs",
@@ -816,7 +820,14 @@
         "crates/cellar/tests/support/raft_catalog_fault.rs",
         "crates/cellar-logic/raft_command.rs",
         "crates/cellar-logic/tests/raft_command.rs",
-        "crates/cellar/application/consensus/class.rs"
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "examples/raft-counter/counter.rs",
+        "examples/raft-counter/README.md",
+        "examples/raft-counter/smoke.py"
       ],
       "steps": [
         "Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.",
@@ -906,7 +917,8 @@
       ],
       "evidence": [
         "evidence/MR-07-catalog-progress.json",
-        "evidence/MR-07-registration-progress.json"
+        "evidence/MR-07-registration-progress.json",
+        "evidence/MR-07-host-progress.json"
       ]
     },
     {

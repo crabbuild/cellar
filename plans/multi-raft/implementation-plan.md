@@ -270,19 +270,23 @@ shown by `plan.py show MR-06`; the manifest is authoritative for arguments.
 
 Dependencies: MR-04, MR-06. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/node/mod.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/storage/sqlite/immutable.rs`, `crates/cellar/tests/native_raft_execution.rs`, `crates/cellar/application/README.md`.
+Modify: `crates/cellar-logic/cell.rs`, `crates/cellar-logic/output_gate.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar-logic/types.rs`, `crates/cellar/actor/effects.rs`, `crates/cellar/actor/production.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/fleet/ownership.rs`, `crates/cellar/application/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/node/mod.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/storage/sqlite/immutable.rs`, `crates/cellar/tests/native_raft_execution.rs`, `crates/cellar/application/README.md`, `crates/cellar-axum/application.rs`, `crates/cellar-axum/builder.rs`, `crates/cellar-axum/tests/builder.rs`, `crates/cellar-axum/README.md`.
 
-Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar-logic/raft_command.rs`, `crates/cellar-logic/tests/raft_command.rs`, `crates/cellar/application/consensus/class.rs`.
+Create: `crates/cellar/durability/raft/catalog.rs`, `examples/raft-counter/main.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar-logic/raft_command.rs`, `crates/cellar-logic/tests/raft_command.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/tests/support/raft_node.rs`, `examples/raft-counter/counter.rs`, `examples/raft-counter/README.md`, `examples/raft-counter/smoke.py`.
 
 Partial [catalog evidence](evidence/MR-07-catalog-progress.json) covers immutable
 namespace/birth records, permanent bootstrap claims and parked node startup.
 Partial [registration/lifecycle evidence](evidence/MR-07-registration-progress.json)
-covers the restricted SDK definitions, registered private execution/query bridge
-and pure command lifecycle/output core. The
-`namespace_mode_conflict` and `unsupported_factory_refused` cases are covered.
-The node-owned scheduler, live authority/proof plumbing, public handles, both
-ingress paths and compiling example still remain required; component tests do
-not establish that host integration.
+covers the restricted SDK definitions and pure command lifecycle/output core.
+Partial [host-serving evidence](evidence/MR-07-host-progress.json) covers the
+node-owned dispatcher, bounded public handles, fixed SQL worker pool and
+counter executable now connect Quorum commands and stale queries through native
+HTTP and Axum. All six required host cases are present, with additional real
+three-node/two-group failover, callback-join and unpolled-deadline coverage.
+Final MR-07 closure still requires reviewing mode isolation and submitted
+producer transitions against the complete host contract; the task remains
+IN_PROGRESS until that audit is recorded. Stronger reads and S3 capabilities
+remain explicitly refused pending MR-08/MR-09.
 
 1. Implement immutable namespace mode, conditional group birth, durable one-time member bootstrap claims and actor-owned lifecycle registration.
 2. Route Raft commands through restricted class definitions; reject existing mutable factory registration in that mode.

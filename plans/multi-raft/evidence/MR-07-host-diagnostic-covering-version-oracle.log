@@ -1,0 +1,9 @@
+phase 0: six HTTP endpoints agree; joined shutdown
+Traceback (most recent call last):
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-counter/smoke.py", line 106, in <module>
+    run(Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve())
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/haipingfu/.codex/worktrees/23c7/cellar/examples/raft-counter/smoke.py", line 81, in run
+    assert original == first, (original, first)
+           ^^^^^^^^^^^^^^^^^
+AssertionError: ({'group': '05050505050505050505050505050505', 'incarnation': '04040404040404040404040404040404', 'index': 4, 'term': 2, 'value': 7}, {'group': '05050505050505050505050505050505', 'incarnation': '04040404040404040404040404040404', 'index': 3, 'term': 2, 'value': 7})

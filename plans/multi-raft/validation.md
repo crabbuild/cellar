@@ -96,3 +96,26 @@ records the final schema-check refinement and owning reruns. Clippy and reposito
 checks pass. This does not qualify the missing node-owned dispatcher or public
 handles/ingress: four planned host cases remain absent and MR-07 remains
 IN_PROGRESS. S3 archive/restore and full end-to-end serving remain pending.
+
+
+Partial MR-07 node-host serving is recorded in
+[host evidence](evidence/MR-07-host-progress.json), pinned to
+`67c9f003977594eb58aa2d5e7ce7d866724d02a6`. All 44 owning cases pass: 17 host,
+16 command/apply and 11 pure lifecycle cases. All six planned host case names
+are present. Actual node-owned SDK commands and committed-image queries run
+through native HTTP and Axum; two independent groups replicate across three
+embedded nodes. Ten consecutive failover runs pass. The executable drill checks
+all six endpoints, joined process shutdown, retained receipts and new writes
+after restart. Cancellation, unpolled expiry and directory-join ownership have
+explicit tests. Readiness deferrals retain frozen work under the original
+deadline rather than rerunning business callbacks.
+
+Axum default/all-feature suites pass 27/33 cases including their compile doctest;
+21 existing Fleet/actor/runtime/storage regressions also pass. Those broader runs
+precede the last Raft host readiness and example startup fixes; final owning
+cases and Clippy were rerun afterward, as recorded in the evidence. Formatting,
+layout, dependency policy, documentation, the 17 planning-tool cases and source
+preflight pass. The baseline has 68 anchors, including the Axum integration.
+MR-07 stays IN_PROGRESS pending its complete mode-isolation and submitted-node
+transition audit. Strong query consistency, S3 archive/restore, snapshot install,
+membership repair and later delivery/scaling qualification remain pending.

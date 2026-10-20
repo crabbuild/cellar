@@ -1,8 +1,8 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96",
-  "prepared_date": "2026-10-19",
+  "revision": "67c9f003977594eb58aa2d5e7ce7d866724d02a6",
+  "prepared_date": "2026-10-20",
   "files": [
     {
       "path": ".github/workflows/native-sdk.yml",
@@ -27,6 +27,22 @@
     {
       "path": "NOTICE",
       "sha256": "1d4037fb4402efc9a42fd7b5bfbb3753550413700f7ffba259cf0d33b0d296e4"
+    },
+    {
+      "path": "crates/cellar-axum/README.md",
+      "sha256": "86be8bb183b2092a19c59eb211663a756eaf1b95720d12cbb017a61dd61a0379"
+    },
+    {
+      "path": "crates/cellar-axum/application.rs",
+      "sha256": "45726b55e316a52af5795a8143206cdc8789c117ad03cfd9bbbc5435eb0c477b"
+    },
+    {
+      "path": "crates/cellar-axum/builder.rs",
+      "sha256": "03b28af455bc100900715c9048a1b21dd8ea307a4458c2c5a238a30218f662f7"
+    },
+    {
+      "path": "crates/cellar-axum/tests/builder.rs",
+      "sha256": "0fc9e71693c743d54e7899ce4be00f29ba0af2677216f26236d1e97e1ce17942"
     },
     {
       "path": "crates/cellar-logic/alarm.rs",
@@ -90,7 +106,7 @@
     },
     {
       "path": "crates/cellar/Cargo.toml",
-      "sha256": "18effef5596766c74ebc48a589ef27bec9440dc3e834d65c9af5fd64161f9f88"
+      "sha256": "bec258efc67b6701a67a525907823c66b29b1dcf10f08217fed408166b8d44c3"
     },
     {
       "path": "crates/cellar/actor/effects.rs",
@@ -106,7 +122,7 @@
     },
     {
       "path": "crates/cellar/application/README.md",
-      "sha256": "0e32c534f6f1dbeace29d5faaa5ee6a463409f409105638b4fe7b835750cf6e0"
+      "sha256": "840bc3b2c9c485471dbcd527c8a971a545eee5c37e80888a3a4b91621e05ee06"
     },
     {
       "path": "crates/cellar/application/cells.rs",
@@ -174,7 +190,7 @@
     },
     {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "a52e69699b5074a46daf62caa42f9b25c0763d2154b4118d93ff091052d49c78"
+      "sha256": "a0ab89fd6c027d6f0ea43e3d7e2d1fe51001cde4b045a1e3965e2ff40962d0b2"
     },
     {
       "path": "crates/cellar/node/mod.rs",

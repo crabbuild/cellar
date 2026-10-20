@@ -1,0 +1,3 @@
+phase 0: six HTTP endpoints agree; joined shutdown
+phase 1: six HTTP endpoints agree; joined shutdown
+retained command receipt and subsequent writes survived a three-node restart

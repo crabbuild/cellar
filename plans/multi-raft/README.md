@@ -1,23 +1,25 @@
 # Cellar multi-Raft delivery package
 
 Status: implementation in progress. MR-01 through MR-06 are complete with
-recorded evidence; MR-07 is in progress. Shared log storage, the multi-group
-Raft driver, authenticated bounded TLS peer transport, verified immutable
-SQLite/LTX images and private command/receipt mechanics are implemented.
-SDK command/query serving, snapshot integration and S3 archive/restore remain
-pending. See [task status](tasks.json), [MR-01 evidence](evidence/MR-01.json),
-[MR-02 evidence](evidence/MR-02.json), [MR-03 evidence](evidence/MR-03.json),
-[MR-04 evidence](evidence/MR-04.json), [MR-05 evidence](evidence/MR-05.json)
-and [MR-06 evidence](evidence/MR-06.json).
-Partial [MR-07 catalog evidence](evidence/MR-07-catalog-progress.json) covers
-immutable namespace/birth records and permanent initial-member claims. Embedded
-Raft infrastructure starts parked pending verified admission; SDK/actor command
-integration and the public example remain in progress.
-Partial [MR-07 registration/lifecycle evidence](evidence/MR-07-registration-progress.json)
-covers the restricted SDK definitions, registered execution/query bridge and
-pure command core. The node-owned scheduler, public handles and ingress are
-still required.
-The reviewed source baseline is `78dd39ab2b98d19672e9cf7b2b48e9fdc810ff96`.
+recorded evidence; MR-07 remains in progress pending its final host-contract
+audit. Shared log storage, multi-group Raft, authenticated peer transport,
+verified SQLite/LTX images, restricted command definitions and node-owned
+command/query serving are implemented. All six planned MR-07 host cases are
+present and passing in the recorded runs. Public handles serve Quorum commands
+and stale queries through bounded, joined SQL workers. Native HTTP and Axum
+share the counter example's normalization and dispatcher.
+
+The counter executable runs three nodes and two groups. Its process drill
+checks both ingress paths on all replicas, joined shutdown, retained receipts
+and subsequent writes after restart. Separate host tests cover leader failover,
+callback cancellation/shutdown, exact receipt gates and unpolled deadlines.
+Stronger query consistency, S3 archive/restore, snapshot installation and
+membership controllers remain pending; unsupported SDK capabilities are refused.
+See [task status](tasks.json), [catalog evidence](evidence/MR-07-catalog-progress.json)
+and [registration/lifecycle evidence](evidence/MR-07-registration-progress.json)
+for preceding component coverage. [Host-serving evidence](evidence/MR-07-host-progress.json) accompanies this
+checkpoint; these tests do not establish production capacity or full delivery.
+The reviewed source baseline is `67c9f003977594eb58aa2d5e7ce7d866724d02a6`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite
