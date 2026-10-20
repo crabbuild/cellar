@@ -127,6 +127,16 @@ batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
 batches apply no partial writes or alarm changes.
 
+SDK results also enforce a depth of 64 on the returned value (before its transport
+envelope) and `max_value_bytes` on the complete encoded success envelope. The
+serializer stops at that byte limit. An unrepresentable native result returns a
+fixed `HostError` for known reads or `Ambiguous` for possible mutations, with
+`outcome="unknown"`; the invocation remains usable and the adapter never retries.
+Native execution can already have committed a write, so a rejected result is
+not a validation refusal or rollback. Native-operation success metrics describe
+execution, independently of whether its result can cross the bridge. The value
+budget must be at least 128 bytes to carry fixed failure envelopes.
+
 `max_value_bytes` also bounds the complete encoded response envelope, including
 JSON escaping and base64, separately from body/header limits. A response refused
 by its mailbox or aggregate byte budget fails that invocation and revokes its

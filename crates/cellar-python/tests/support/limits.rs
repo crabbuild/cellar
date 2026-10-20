@@ -2,6 +2,52 @@
 use super::*;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 
+struct WithResults(Arc<PythonApplication>);
+
+impl Application for WithResults {
+    fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        self.0.clone().invoke(context, event)
+    }
+
+    fn supports_cell(&self, class: &str) -> bool {
+        self.0.supports_cell(class)
+    }
+
+    fn create_cell(&self, context: Context, identity: &CellIdentity) -> Result<Arc<dyn Cell>> {
+        Ok(Arc::new(ResultWriter(
+            self.0.create_cell(context, identity)?,
+        )))
+    }
+}
+
+struct ResultWriter(Arc<dyn Cell>);
+
+impl Cell for ResultWriter {
+    fn invoke(self: Arc<Self>, context: Context, event: Invocation) -> HandlerFuture<Output> {
+        if matches!(&event, Invocation::Fetch(request) if request.url.ends_with("/seed-results")) {
+            return Box::pin(async move {
+                let overhead =
+                    serde_json::to_vec(&json!({"ok":true,"value":{"present":true,"value":""}}))?
+                        .len();
+                context.storage()?.transaction_sync(|tx| {
+                    tx.put_json("result-exact", &json!("x".repeat(65536 - overhead)))?;
+                    tx.put_json("result-over", &json!("x".repeat(65537 - overhead)))?;
+                    let mut depth = Value::Null;
+                    for _ in 0..63 {
+                        depth = json!([depth]);
+                    }
+                    tx.put_json("result-depth-exact", &depth)?;
+                    tx.put_json("result-depth-over", &json!([depth]))
+                })?;
+                Ok(Output::Http(
+                    http::Response::new(200, Vec::new(), Vec::new()).into_http(&context)?,
+                ))
+            });
+        }
+        self.0.clone().invoke(context, event)
+    }
+}
+
 async fn header_count(url: &str) -> Result<usize> {
     tokio::time::timeout(Duration::from_secs(10), async {
         let address = url.strip_prefix("http://").context("private HTTP origin")?;
@@ -34,11 +80,14 @@ pub(super) fn child() -> Result<()> {
                 .enable_all()
                 .build()?;
             runtime.block_on(async move {
-                let (node, url) =
-                    start_configured(directory.path(), application, "limits", None, |config| {
-                        config.runtime.handler_budget = Duration::from_secs(5)
-                    })
-                    .await?;
+                let (node, url) = start_configured(
+                    directory.path(),
+                    Arc::new(WithResults(application)),
+                    "limits",
+                    None,
+                    |config| config.runtime.handler_budget = Duration::from_secs(5),
+                )
+                .await?;
                 let client = reqwest::Client::builder()
                     .timeout(Duration::from_secs(10))
                     .build()?;
@@ -91,7 +140,7 @@ pub(super) fn child() -> Result<()> {
                         "over-limit {route} was accepted"
                     );
                 }
-                for route in ["nested-input", "batch-value"] {
+                for route in ["nested-input", "batch-value", "sdk-results"] {
                     ensure!(
                         client
                             .get(format!("{url}/{route}"))

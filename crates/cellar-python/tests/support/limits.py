@@ -1,5 +1,5 @@
 """Exact native codec and batch-byte boundaries, including refused effects."""
-from cellar import Request, Response, ValidationError, _encode
+from cellar import Ambiguous, Request, Response, SDKError, ValidationError, _encode
 
 visits = 0
 
@@ -43,6 +43,8 @@ async def fetch(request, ctx):
                 raise AssertionError("over-limit request entered a native cell")
         assert visits == before + 3
         return Response.json(True)
+    if request.path == "/sdk-results":
+        await ctx.namespace("COUNTERS").get_by_name("limits").fetch(Request("http://cell/seed-results"))
     return await ctx.namespace("COUNTERS").get_by_name("limits").fetch(request)
 
 
@@ -50,6 +52,42 @@ class Counter:
     async def fetch(self, request, ctx):
         global visits
         visits += 1
+        if request.path == "/sdk-results":
+            storage = ctx.storage
+            exact = await storage.read_json("result-exact")
+            assert len(_encode(dict(ok=True, value=dict(present=True, value=exact.value))).encode()) == 65536
+            for _ in range(2):
+                try:
+                    await storage.read_json("result-over")
+                except SDKError as error:
+                    assert type(error) is SDKError
+                    assert error.code == "HostError" and error.outcome == "unknown"
+                    assert "xxxx" not in str(error)
+                else:
+                    raise AssertionError("oversized SDK result was accepted")
+                assert (await storage.read_json("result-exact")) == exact
+            depth = (await storage.read_json("result-depth-exact")).value
+            for _ in range(63):
+                assert len(depth) == 1
+                depth = depth[0]
+            assert depth is None
+            try:
+                await storage.read_json("result-depth-over")
+            except SDKError as error:
+                assert error.code == "HostError" and error.outcome == "unknown"
+            else:
+                raise AssertionError("over-depth SDK result was accepted")
+            await storage.sql("CREATE TABLE result_effects (payload TEXT)")
+            try:
+                await storage.sql("INSERT INTO result_effects VALUES (printf('%.*c', 65536, 'x')) RETURNING payload")
+            except Ambiguous as error:
+                assert error.outcome == "unknown"
+            else:
+                raise AssertionError("oversized SQL result was accepted")
+            # The refused reply did not undo or replay the successful native write.
+            assert (await storage.sql("SELECT COUNT(*) FROM result_effects"))["rows"] == [[1]]
+            await storage.sync()
+            return Response.json(True)
         if request.path == "/batch-value":
             original_alarm = await ctx.storage.get_alarm()
             payload = dict(checks={}, puts={"byte-limit": ""}, deletes=[], alarm_at_ms=None, delete_alarm=False)

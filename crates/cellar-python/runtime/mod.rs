@@ -50,6 +50,7 @@ pub struct Options {
     pub module_paths: Vec<std::path::PathBuf>,
     pub max_invocations: usize,
     pub max_body_bytes: usize,
+    /// Encoded invocation/result limit; at least 128 bytes for fixed failures.
     pub max_value_bytes: usize,
     pub max_bridge_bytes: usize,
     pub max_operations: usize,
@@ -102,6 +103,10 @@ impl Options {
                 && self.max_value_bytes > 0
                 && self.max_bridge_bytes >= self.max_value_bytes,
             "byte budgets must be positive"
+        );
+        ensure!(
+            self.max_value_bytes >= crate::failure::MIN_RESULT_BYTES,
+            "Python value budget must be at least 128 bytes"
         );
         ensure!(
             self.max_operations > 0 && self.max_batch_operations > 0,

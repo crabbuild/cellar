@@ -8,10 +8,11 @@ features (ASGI, streaming, arbitrary transaction callbacks, untrusted-code
 isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
 subsequently requested and is an additional supported build/qualification scope.
 
-The preceding implementation turn made concrete progress: it added the adapter,
-example and integration harness. The full objective is **not achieved**. Prior
-command results are recorded in the plan; every affected gate needs current
-source and executable evidence before the final completion claim.
+Core deliverables now span M0–M5, including both CPython threading ABIs. The
+full objective is **not achieved**: authority races, typed failures, loader
+privacy, external native prerequisites, operating defaults and final-source
+qualification retain open gates. A verified row covers only its explicitly
+stated evidence and scope.
 
 Status meanings: **partial** = some implementation/evidence exists;
 **missing** = implementation or required direct evidence absent;
@@ -47,7 +48,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | H01 | Buffered bytes/JSON HTTP; ordered repeated headers | Byte and duplicate-header round trips through real ingress | verified: binary body and ordered repeated request/response header round trips through real ingress |
-| H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: real ingress/nested body and ordered header boundaries, input depth 64, atomic batch count/bytes and complete response envelopes have exact/next-unit tests; 65,536-byte completions succeed, 65,537 fail and subsequent valid work succeeds with zero leaked reservations; SDK-result envelope/depth boundaries remain |
+| H02 | Body/response/header/depth/value limits at input and output boundaries | Exact boundary and over-limit cases, released reservations | verified locally in both threading ABIs: real ingress/nested body, ordered headers, input depth, batch count/bytes and handler completions retain exact/next-unit cases; native-writer fixtures prove SDK success envelopes of 65,536 bytes pass and 65,537 refuse, result-value depths 64/65 pass/refuse, and later operations remain usable; bounded serialization returns HostError/unknown for reads or Ambiguous/unknown after a successful SQL insert without rollback or replay; complete reports retain zero leaked reservations; final Linux execution remains Q12 |
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | partial: public ValidationError/Overloaded/Ambiguous/OwnershipLost classes, explicit outcomes and fixed sanitized messages; native typed routing verdicts preserved; real protocol/codec/batch refusals and ambiguous constructor/absent-binding tests pass; some bindings flatten native causes internally, and live routing-verdict fault coverage remains |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; Q08 independently qualifies cron interruption |
@@ -107,7 +108,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth coverage and shipping-default workload qualification remain |
+| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth boundaries now pass independently through native storage/SQL; shipping-default workload qualification remains |
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | verified locally for runtime-owned queues/reservations in both threading ABIs: independent real-node invocation, task, object, exact aggregate-byte and reply-channel saturation refuses excess work, releases/reuses capacity and keeps later work usable; full/closed operation mailbox tests release every event reservation; native-future/reply drop stages, binding proof faults, cancellation, 32-way mutation pressure and retirement/shutdown conserve all admitted operations with zero leaked reservations; trusted factory replacement/raw tasks/private pools remain outside cooperative admission |
 | Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
@@ -124,36 +125,24 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Current work
 
-1. Finish the remaining queued,
-   execution and commit/output race matrices. Independent KV,
-   shared-SQL and queue matrices now pass locally, including real proof faults.
-2. Verify external native-library/OS prerequisites and complete the platform
-   matrix. Two genuinely different source packages now pass process handoff locally.
-3. Complete typed-error, loader-privacy and resource-boundary qualification. Reproducible
-   [Rust/Python measurements](007-embedded-python-baselines.md), operation
-   accounting, latency histograms and live interpreter observations now have
-   direct local evidence.
-4. Run fresh complete CI after the current supervisor/startup/probe hardening.
-   Push run 39446982367 passed completely at dd0df44, including all native-node
-   cases that failed previously in 39423723894. Those historical distinct
-   failures are preserved below; no assertion/deadline was weakened. The same
-   dd0df44 PR run exposed a transient read-only recovery probe refusal, now fixed
-   by bounded retries only for its known read-only observations.
-   The ac521f3 standard push job failed six native-node cases; its complete log
-   is retained at `/tmp/cellar-6a8d-ci-39463560483-standard.log`. Its free-threaded
-   workspace, Axum and full package/recovery/handoff/supervisor steps passed;
-   native examples and all other free-threaded steps now pass in both jobs.
-   The standard PR job separately lost hosted
-   runner communication; GitHub provides a failure annotation rather than a
-   test log, retained at `/tmp/cellar-6a8d-ci-39463568235-standard-annotation.json`.
-   At c15fdaa, the standard push job and free-threaded PR job both completed
-   every gate, including cron and baseline additions. The free-threaded push
-   job failed its initial clock-refusal consumer observation and progressing
-   drain-token lease. Investigate those native failures and qualify the final
-   lifecycle/cancellation source before claiming Q12.
-   Reconcile every remaining partial/missing row and executable documentation.
+The adapter's core deliverables exist across M0–M5. Completion means closing
+acceptance evidence, not adding another happy-path example. M2's S01–S09 rows
+are verified within their stated scopes; all phases still share final-source
+qualification. Conventional and free-threaded CPython remain equal targets.
 
-No scope reduction or production-readiness claim is implied by this ordering.
+| Order | Focus | Remaining gate and evidence |
+| --- | --- | --- |
+| 1 | Result and authority correctness | H02 result byte/depth boundaries now pass locally in both ABIs, including one retained SQL mutation after a refused reply. A08/A12: deterministically hold work at queued, execution and commit/output boundaries, cancel or fence it, and prove no stale mutation; exercise nested cycles without deadlock. H04: preserve available typed route causes without inventing rollback provenance. |
+| 2 | Failure/lifecycle qualification | Q12: diagnose the preserved native event-owner lease, initial consumer admission and drain-token failures; retain assertions and deadlines. Run the latest cancellation/retirement/resource fixes on Linux in both ABIs. A passing retry alone does not explain a failure. |
+| 3 | Deployment dependency closure | P02: distinguish bundled artifacts from OS/native prerequisites, attest the supported host requirements and resolved external dependencies, and refuse incompatible/missing prerequisites before admission; qualify offline restoration on each supported target. |
+| 4 | Privacy and operating limits | H06: finish bootstrap/loader failure review with path/secret sentinels. Q01: use reproducible workload and saturation measurements to justify shipping defaults and document their operating scope; development baselines are not production SLOs. |
+| 5 | Final release evidence | Q12/Q14: run the complete affected tests/lints, installed example, archive recovery and process replacement against the final source in both ABIs; publish exact versions/platforms and reconcile every remaining partial row. |
+
+Do not expand ASGI/streaming while these core gates remain. Those adapters are
+explicitly optional/deferred and need their own independent qualification when
+introduced. No scope reduction or production-readiness claim is implied by this
+ordering. The chronological checkpoints below preserve earlier CI failures and
+successes; they do not replace qualification of later source.
 
 ## Current evidence added after the initial audit
 
@@ -1187,3 +1176,50 @@ The complete log is retained at
 must not be blindly retried as a read-only probe. The free-threaded PR job and
 both push jobs were still live when this failure was recorded. These failures
 remain Q12; their assertions/deadlines are unchanged.
+
+
+## SDK result boundaries and milestone priorities checkpoint
+
+The milestone deliverables are implemented across the supported core surface;
+remaining acceptance gates are explicitly ordered in Current work. Optional
+ASGI/streaming remain deferred. The original milestone table now links to this
+status and distinguishes implementation from final-source qualification.
+
+A new real-node result fixture failed before the fix: a 65,537-byte SDK read
+terminated its native invocation and produced HTTP 500 instead of a catchable
+SDK error. The retained reproduction is
+`/tmp/cellar-6a8d-sdk-results-before.log`. Native output also lacked the facade's
+64-level result-value depth boundary.
+
+Result handling now validates depth before wrapping the transport envelope and
+serializes through a bounded writer. Unrepresentable results return fixed
+`HostError/unknown` for known reads or `Ambiguous/unknown` for possible mutations,
+without abandoning an otherwise usable invocation. This happens after native
+execution and must never carry the pre-effect `Validation` marker. A minimum
+128-byte value budget is validated before bootstrap so fixed errors can fit;
+aggregate bridge/reply admission remains independently bounded and fallible.
+Native-operation success metrics still measure native execution.
+
+Direct evidence includes exact/over 65,536/65,537-byte read results, depth 64/65
+values seeded by a real native writer, repeated refusal followed by valid reads,
+and SQL `INSERT ... RETURNING` whose oversized reply refuses while exactly one
+row remains. Explicit sync then succeeds. UTF-8/escaping unit boundaries and
+minimum-size typed failure envelopes pass. Combined reports complete with
+settled operation accounting and no retained reservations.
+
+Final local checks for this checkpoint:
+
+- `cargo test -p cellar-python --features embed --locked` passes with conventional
+  CPython 3.14.6 and independent free-threaded CPython 3.14.5t on macOS ARM64:
+  10 library tests, the complete real-node/disposable-process bridge harness,
+  isolated bootstrap matrix and doctests. Logs are
+  `/tmp/cellar-6a8d-sdk-results-regular.log` and
+  `/tmp/cellar-6a8d-sdk-results-ft.log`.
+- Adapter all-target/all-feature Clippy with warnings denied passes in both ABIs.
+- Native-only `cellar`/`cellar-python` check with a nonexistent interpreter passes.
+- Format/layout checks cover 615 Rust files; the all-feature dependency check
+  reports 415 packages and no JavaScript engine; documentation and diff checks pass.
+
+H02 is verified in this local scope. Q01 retains measured default-limit selection;
+A08/A12, H04/H06, P02 and Q12 remain open. Earlier Linux jobs exercise `bbb992c`,
+not these result/resource changes, and cannot close their final-source gate.

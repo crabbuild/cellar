@@ -300,21 +300,11 @@ impl PythonApplication {
                             }
                         };
                         observation.complete(result.is_ok());
-                        let envelope = match result {
-                            Ok(value) => json!({"ok":true,"value":value}),
-                            Err(error) => crate::failure::envelope(&name, &error),
-                        };
-                        let encoded = serde_json::to_string(&envelope)
-                            .and_then(|encoded| {
-                                if encoded.len() <= self.runtime.options.max_value_bytes {
-                                    Ok(encoded)
-                                } else {
-                                    Err(serde::ser::Error::custom(
-                                        "Python SDK result exceeds value limit",
-                                    ))
-                                }
-                            })
-                            .map_err(anyhow::Error::from);
+                        let encoded = crate::failure::result(
+                            &name,
+                            result,
+                            self.runtime.options.max_value_bytes,
+                        );
                         (id, encoded, observation)
                     });
                     // Initiate operations in receive order. Polling once here

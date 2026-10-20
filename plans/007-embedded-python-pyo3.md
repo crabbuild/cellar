@@ -320,6 +320,7 @@ RPC or package-loading format, and do not serialize arbitrary Python exceptions.
 | Retired event/domain or activation | `SDKError(code="ContextExpired")` / `OwnershipLost` | Refuse new SDK work; ownership loss does not establish rollback |
 | Admission or mailbox capacity | `Overloaded` | Bounded refusal; no unbounded queue growth |
 | Failed submitted mutation without a proven refusal | `Ambiguous` with `outcome="unknown"` | Do not imply rollback or blindly replay |
+| Native result exceeds the encoded-byte or depth limit | `HostError/unknown` for known reads; `Ambiguous/unknown` for possible mutations | Return a bounded fixed failure; retain prior native effects and keep the invocation usable |
 | Handler exception | Sanitized handler failure | No success output; prior committed writes are not undone |
 | Native extension crash or process abort | No catchable Python guarantee | Whole-node recovery; accepted effects follow ordinary Cellar recovery rules |
 
@@ -522,6 +523,21 @@ or let the adapter fabricate an activation context.
 | M3: failure/lifecycle | Activation object retirement, fencing, cancellation and supervised shutdown | Node kill and owner takeover preserve acknowledged state; stale Python task cannot mutate after ownership loss; deadlines and noncooperative code produce incomplete drain, never fabricated success |
 | M4: packaging | Runtime/source/dependency inventory, verified install and process replacement | Wrong ABI/missing library/tampered source refuses startup; offline deployment; old/new process handoff; runtime artifact recovery; Python example runs from a fresh installation |
 | M5: SDK growth | Additional bindings and optional ASGI/stream adapters | Independent authority, cancellation, backpressure, replay and resource tests for each surface |
+
+The deliverables in all six phases are implemented, but that does not close all
+acceptance gates. M2 has direct evidence for every storage/alarm requirement in
+the [completion audit](007-embedded-python-audit.md); final-source platform
+qualification is still shared by every phase. M0 retains authority-race and
+nested-call cycle/fencing coverage; M1 retains error/privacy qualification; M3
+retains final Linux lifecycle qualification and investigation of native test
+failures; M4 retains external OS/native-library prerequisite attestation. M5's
+KV, SQL, queue and cron bindings have independent local failure tests, while
+ASGI/streaming remain explicitly deferred optional adapters.
+
+Prioritize the audit's [current work](007-embedded-python-audit.md#current-work)
+before adding more surfaces. A gate closes only with its stated evidence on
+the relevant source, threading ABI and platform; a historical successful CI run
+does not qualify later changes.
 
 Do not weaken existing native SDK assertions to fit the Python adapter. Use the
 existing SDK, Axum host-parity and fleet recovery harnesses where applicable.
