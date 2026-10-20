@@ -1,7 +1,7 @@
 """Retain an invocation across actual native durability proof cancellation."""
 import asyncio
 import threading
-from cellar import Response, SDKError
+from cellar import Ambiguous, Response, SDKError
 
 _lock = threading.RLock()
 _owner = None
@@ -62,7 +62,18 @@ async def late(ctx, event):
 
 
 async def fetch(request, ctx):
-    return await ctx.namespace("COUNTERS").get_by_name("proof-authority").fetch(request)
+    cell = ctx.namespace("COUNTERS").get_by_name("proof-authority")
+    if request.path == "/failure":
+        try:
+            await cell.fetch(request)
+        except SDKError as error:
+            assert isinstance(error, Ambiguous)
+            assert error.outcome == "unknown"
+            # The caller remains live after its callee's proof fails.
+            assert (await ctx.var("DOMAIN_MARKER")).startswith("authority-proof-")
+            return Response.json(dict(code=error.code, outcome=error.outcome))
+        raise AssertionError("failed native proof returned success to the caller")
+    return await cell.fetch(request)
 
 
 class Counter:
@@ -78,7 +89,7 @@ class Counter:
             return Response.json(True)
         if request.path == "/state":
             return Response.json({key: await ctx.storage.get_json(key) for key in ("seed", "pending", "late", "late-raw")})
-        assert request.path in ("/sync", "/output")
+        assert request.path in ("/sync", "/output", "/failure")
         event = asyncio.Event()
         with _lock:
             _attempts += 1

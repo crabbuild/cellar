@@ -38,6 +38,8 @@ mod native_writer;
 mod proof_authority;
 #[path = "support/python_control.rs"]
 mod python_control;
+#[path = "support/routing.rs"]
+mod routing;
 #[path = "support/schedule_recovery.rs"]
 mod schedule_recovery;
 #[path = "support/schedules.rs"]
@@ -217,6 +219,12 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-proof-authority-failure" {
+        return proof_authority::child("failure", false);
+    }
+    if mode == "--runtime-routing" {
+        return routing::child();
+    }
     if let Some(mode) = mode.strip_prefix("--runtime-proof-authority-") {
         let (kind, outcome) = mode.split_once('-').context("proof authority mode")?;
         ensure!(matches!(kind, "sync" | "output") && matches!(outcome, "deadline" | "fence"));
@@ -441,6 +449,8 @@ fn main() -> Result<()> {
         "--runtime-proof-authority-sync-fence",
         "--runtime-proof-authority-output-deadline",
         "--runtime-proof-authority-output-fence",
+        "--runtime-proof-authority-failure",
+        "--runtime-routing",
         "--runtime-lifetimes",
         "--runtime-lifetimes-close",
         "--runtime-lifetimes-cancel",
@@ -827,6 +837,8 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-proof-authority-sync-fence"
                 | "--runtime-proof-authority-output-deadline"
                 | "--runtime-proof-authority-output-fence"
+                | "--runtime-proof-authority-failure"
+                | "--runtime-routing"
                 | "--runtime-bindings"
                 | "--runtime-delivery"
                 | "--runtime-schedules"

@@ -24,6 +24,11 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                 let data = Arc::new(Gate::default());
                 let _release = Release(peers.clone(), data.clone());
                 let mut nodes = Vec::new();
+                let proof_timeout = if kind == "failure" {
+                    Duration::from_secs(2)
+                } else {
+                    Duration::from_secs(30)
+                };
                 for name in [
                     "authority-proof-b",
                     "authority-proof-c",
@@ -44,10 +49,11 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                             config.maintenance.fleet_sample_period = Duration::from_millis(50);
                             let fleet = services.fleet.as_mut().expect("proof fleet");
                             fleet.fleet_durability = true;
-                            // Native invocation cancellation must precede the
-                            // independent backend proof timeouts in this fixture.
-                            fleet.replication.durability_timeout = Duration::from_secs(30);
-                            fleet.log.record_publish_timeout = Duration::from_secs(30);
+                            // Failure classification needs a live caller when
+                            // proof fails; cancellation cases use the reverse
+                            // deadline order so cancellation wins first.
+                            fleet.replication.durability_timeout = proof_timeout;
+                            fleet.log.record_publish_timeout = proof_timeout;
                             let store = Arc::new(Store {
                                 inner: fleet.bucket.store.clone(),
                                 gate: data,
@@ -127,7 +133,10 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                         .is_err(),
                     "proof-held mutation returned before cancellation/fence"
                 );
-                if fence {
+                if kind == "failure" {
+                    peers.fail();
+                    data.fail();
+                } else if fence {
                     let node = nodes[index].1.take().context("proof owner node")?;
                     let outcome = fencing::force_node_address(&bucket, node, &owner).await?;
                     ensure!(
@@ -141,7 +150,19 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                     monitor.record_node(outcome);
                 }
                 let response = held.await?;
-                if fence {
+                if kind == "failure" {
+                    let response = response?.error_for_status().with_context(|| {
+                        format!(
+                            "proof failure lost its typed reply: {:?}",
+                            control("snapshot")
+                        )
+                    })?;
+                    let value: Value = response.json().await?;
+                    ensure!(
+                        value == json!({"code":"Ambiguous","outcome":"unknown"}),
+                        "native proof classification changed: {value}"
+                    );
+                } else if fence {
                     if let Ok(response) = response {
                         ensure!(
                             response.status().is_server_error(),
@@ -155,7 +176,7 @@ pub(super) fn child(kind: &str, fence: bool) -> Result<()> {
                     );
                 }
                 observe(|view| {
-                    view["active"] == false && (kind == "output" || view["cancelled"] == true)
+                    view["active"] == false && (kind != "sync" || view["cancelled"] == true)
                 })
                 .await?;
                 // Opening real transports after revocation cannot resurrect a
