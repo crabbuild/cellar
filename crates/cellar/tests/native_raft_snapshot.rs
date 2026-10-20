@@ -117,6 +117,17 @@ impl Fixture {
         image_fs: Arc<dyn FileSystem>,
         log_fs: Arc<dyn FileSystem>,
     ) -> Result<Self> {
+        Self::open_born(root, member, mode, image_fs, log_fs, [9; 32]).await
+    }
+
+    async fn open_born(
+        root: &Path,
+        member: u8,
+        mode: LogOpenMode,
+        image_fs: Arc<dyn FileSystem>,
+        log_fs: Arc<dyn FileSystem>,
+        birth_digest: [u8; 32],
+    ) -> Result<Self> {
         let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
         let log = domain
             .run(ReplicaLog::open(
@@ -135,7 +146,7 @@ impl Fixture {
                 log.create_group(GroupBootstrap {
                     scope: scope(),
                     member: MemberId::new(u64::from(member))?,
-                    birth_digest: [9; 32],
+                    birth_digest,
                     voters: (1..=3).map(|id| MemberId::new(id).unwrap()).collect(),
                     learners: vec![],
                 })
@@ -144,8 +155,9 @@ impl Fixture {
             LogOpenMode::Resume => log.group(&scope())?,
         };
         let mut limits = GenerationLimits::default();
-        limits.apply.decode.max_encoded_bytes = 64 * 1024 * 1024;
-        limits.apply.max_total_encoded_bytes = 64 * 1024 * 1024;
+        limits.apply = cellar::sdk::consensus::RaftHostOptions::default()
+            .images
+            .apply;
         let images = GenerationStore::open(root.join("images"), image_fs, limits)?;
         Ok(Self {
             domain,
@@ -175,8 +187,11 @@ impl Fixture {
                 format!("UPDATE counter SET value={value}")
             },
         )?;
-        let cut = images::Cut::new(&self.bytes, &next, u64::from(self.txid), true, true);
         let current = self.applier()?.current();
+        let checksums = current
+            .as_ref()
+            .is_none_or(|image| image.pin().state().checksum != 0);
+        let cut = images::Cut::new(&self.bytes, &next, u64::from(self.txid), checksums, true);
         let pin = self.images.prepare(
             images::id(self.txid + 1),
             current.as_ref().map(|image| image.pin()).as_ref(),
@@ -317,6 +332,332 @@ fn runtime_options() -> RaftRuntimeOptions {
         election_seed: Some([18; 32]),
         ..Default::default()
     }
+}
+
+#[test]
+fn snapshot_limits_require_full_encoded_image_capacity() -> Result<()> {
+    let mut limits = SnapshotLimits::default();
+    let bound = cellar_ltx::ltx::full_snapshot_bound(limits.max_image_bytes, 512).unwrap();
+    ensure!(bound > limits.max_image_bytes as usize);
+    limits.max_encoded_bytes = bound - 1;
+    ensure!(limits.validate().is_err());
+    limits.max_encoded_bytes = bound;
+    limits.validate()?;
+    ensure!(cellar_ltx::ltx::full_snapshot_bound(u64::MAX, 512).is_none());
+    ensure!(cellar_ltx::ltx::full_snapshot_bound(512, 513).is_none());
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn maximum_image_retained_snapshot_and_archive_roundtrip() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let namespace = Catalog::new(
+        store,
+        CatalogOptions {
+            prefix: "maximum-image".into(),
+            ..Default::default()
+        },
+    )?
+    .open_namespace(NamespaceConfig::new(
+        scope().cluster,
+        scope().namespace,
+        cellar_logic::NamespaceMode::Raft,
+        [9; 32],
+    ))
+    .await?;
+    let birth = namespace
+        .resolve_birth(BirthProposal {
+            scope: scope(),
+            voters: (1..=3)
+                .map(|member| InitialMember {
+                    member: MemberId::new(member).unwrap(),
+                    node: NodeId::new([member as u8; 16]).unwrap(),
+                })
+                .collect(),
+            learners: vec![],
+        })
+        .await?;
+    let mut source = Fixture::open_born(
+        &root.path().join("source"),
+        1,
+        LogOpenMode::Create,
+        Arc::new(DirectFileSystem),
+        Arc::new(DirectFileSystem),
+        birth.digest(),
+    )
+    .await?;
+    let target = Fixture::open_born(
+        &root.path().join("target"),
+        2,
+        LogOpenMode::Create,
+        Arc::new(DirectFileSystem),
+        Arc::new(DirectFileSystem),
+        birth.digest(),
+    )
+    .await?;
+    let (bytes, payload_length) = images::maximum_image()?;
+    let cut = images::Cut::new(&[], &bytes, 0, false, true);
+    ensure!(
+        cut.bytes.len() > 64 * 1024 * 1024,
+        "the encoded payload must exercise the former limit"
+    );
+    assert!(
+        cut.bytes.len() <= cellar_ltx::ltx::full_snapshot_bound(bytes.len() as u64, 512).unwrap()
+    );
+    let pin = source.images.prepare(images::id(1), None, &cut.update())?;
+    drop(cut);
+    let mut write = GroupWrite::new(&source.group);
+    write.entries.push(Entry {
+        index: 2,
+        term: 2,
+        ..Default::default()
+    });
+    let mut hard = source.group.initial_state()?.hard_state;
+    hard.term = 2;
+    hard.vote = 1;
+    hard.commit = 2;
+    write.hard_state = Some(hard);
+    // This component fixture selects a real, completely verified SQLite image.
+    // The seed is not evidence of a 64-MiB SDK command/envelope admission.
+    write.applied = Some(DurableApply {
+        position: LogPosition {
+            index: LogIndex::new(2),
+            term: Term::new(2),
+        },
+        image: Some(marker(&pin)),
+    });
+    source.log.persist(OperationId::new(1), vec![write]).await?;
+    drop(pin);
+    source.bytes = bytes;
+    source.txid = 1;
+    let package = source.package()?;
+    ensure!(package.encoded_length() > source.bytes.len());
+    let expected = package.snapshot();
+    let (runtime, mut events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    runtime.checkpoint(package.checkpoint_material()).await?;
+    checkpointed(&mut events).await?;
+    runtime.close().await?;
+    drop(package);
+
+    let archive = source
+        .domain
+        .run(async {
+            namespace.cell_archive(
+                &birth,
+                cellar_ltx::LtxHost::default(),
+                ArchiveLimits::default(),
+            )
+        })
+        .await??;
+    let verifier = ArchiveVerifier::new(
+        GenerationStore::open(
+            root.path().join("verifier"),
+            Arc::new(DirectFileSystem),
+            cellar::sdk::consensus::RaftHostOptions::default().images,
+        )?,
+        images::id(91),
+    )?;
+    let published = source.applier()?.current().unwrap();
+    let cut =
+        CommittedArchiveCut::capture(&source.group, published, vec![], ArchiveLimits::default())?;
+    let set = archive.publish(cut, &verifier).await?;
+    assert_eq!(set.position().index.get(), 2);
+    drop(set);
+
+    source.commit(2).await?;
+    assert_eq!(value(source.applier()?.current().unwrap().pin())?, 2);
+    let package = SnapshotPackage::retained(
+        &source.group,
+        &source.images,
+        [9; 32],
+        &expected,
+        SnapshotLimits::default(),
+    )?;
+    assert_eq!(package.snapshot(), expected);
+    let mut download =
+        SnapshotDownload::new(&target.group, [9; 32], expected, SnapshotLimits::default())?;
+    for offset in (0..package.encoded_length()).step_by(1024 * 1024) {
+        download.append(
+            offset,
+            package.chunk(offset, (1024 * 1024).min(package.encoded_length() - offset))?,
+        )?;
+    }
+    let prepared = download.finish(&target.images)?;
+    target.install(&package).await?;
+    let mut applier = target.applier()?;
+    let image = prepared.publish(&mut applier)?;
+    assert_eq!(
+        value(image.pin())?,
+        1,
+        "retained cut must not silently become the newer image"
+    );
+    assert_eq!(image.pin().state().length, 64 * 1024 * 1024);
+    let query = images::query(image.pin())?;
+    assert_eq!(
+        query
+            .connection()
+            .query_row("SELECT length(value) FROM payloads", [], |row| row
+                .get::<_, usize>(0))?,
+        payload_length
+    );
+    drop(query);
+    drop(image);
+    drop(applier);
+    drop(package);
+
+    let cut = CommittedArchiveCut::capture(
+        &source.group,
+        source.applier()?.current().unwrap(),
+        vec![],
+        ArchiveLimits::default(),
+    )?;
+    let set = archive.publish(cut, &verifier).await?;
+    assert_eq!(set.position().index.get(), 3);
+    assert_eq!(set.tail_entries(), 1);
+    drop(set);
+    drop(verifier);
+    drop(archive);
+    source.close().await?;
+    target.close().await?;
+    std::fs::remove_dir_all(root.path().join("source"))?;
+    std::fs::remove_dir_all(root.path().join("target"))?;
+
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let archive = domain
+        .run(async {
+            namespace.cell_archive(
+                &birth,
+                cellar_ltx::LtxHost::default(),
+                ArchiveLimits::default(),
+            )
+        })
+        .await??;
+    let set = archive.recovery_set().await?.unwrap();
+    assert_eq!(set.position().index.get(), 3);
+    let restored = GenerationStore::open(
+        root.path().join("isolated-restore"),
+        Arc::new(DirectFileSystem),
+        cellar::sdk::consensus::RaftHostOptions::default().images,
+    )?;
+    let pin = set.restore(&restored, images::id(93))?;
+    assert_eq!(value(pin.clone())?, 2);
+    assert_eq!(pin.state().length, 64 * 1024 * 1024);
+    let query = images::query(pin)?;
+    assert_eq!(
+        query
+            .connection()
+            .query_row("SELECT length(value) FROM payloads", [], |row| row
+                .get::<_, usize>(0))?,
+        payload_length
+    );
+    drop(query);
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retained_checkpoint_capture_never_substitutes_newer_state() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Create).await?;
+    source.commit(1).await?;
+    let original = source.package()?;
+    let expected = original.snapshot();
+    let (runtime, mut events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    runtime.checkpoint(original.checkpoint_material()).await?;
+    checkpointed(&mut events).await?;
+    runtime.close().await?;
+    drop(original);
+    source.commit(2).await?;
+    let retained = SnapshotPackage::retained(
+        &source.group,
+        &source.images,
+        [9; 32],
+        &expected,
+        SnapshotLimits::default(),
+    )?;
+    assert_eq!(retained.snapshot(), expected);
+    ensure!(SnapshotPackage::retained(
+        &source.group,
+        &source.images,
+        [8; 32],
+        &expected,
+        SnapshotLimits::default()
+    )
+    .is_err());
+    let next = source.package()?;
+    let (runtime, mut events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    runtime.checkpoint(next.checkpoint_material()).await?;
+    checkpointed(&mut events).await?;
+    drop(source.applier()?);
+    source.images.retire(images::id(1))?;
+    source.images.reclaim(4096)?;
+    ensure!(
+        SnapshotPackage::retained(
+            &source.group,
+            &source.images,
+            [9; 32],
+            &expected,
+            SnapshotLimits::default()
+        )
+        .is_err(),
+        "a new request for the replaced cut must not return a different checkpoint"
+    );
+    let prepared = download(&retained, &target)?;
+    target.install(&retained).await?;
+    let mut applier = target.applier()?;
+    assert_eq!(
+        value(prepared.publish(&mut applier)?.pin())?,
+        1,
+        "an already captured transfer remains coherent after checkpoint replacement and GC"
+    );
+    drop(applier);
+    drop(retained);
+    drop(next);
+    runtime.close().await?;
+    source.close().await?;
+    target.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn retained_empty_checkpoint_has_no_image_or_payload() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let source = Fixture::open(root.path(), 1, LogOpenMode::Create).await?;
+    source.empty_configuration_cut().await?;
+    let original =
+        SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    let expected = original.snapshot();
+    let (runtime, mut events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    runtime.checkpoint(original.checkpoint_material()).await?;
+    checkpointed(&mut events).await?;
+    drop(original);
+    let retained = SnapshotPackage::retained(
+        &source.group,
+        &source.images,
+        [9; 32],
+        &expected,
+        SnapshotLimits::default(),
+    )?;
+    assert_eq!(retained.snapshot(), expected);
+    assert!(retained.source_pin().is_none());
+    assert_eq!(retained.encoded_length(), 0);
+    assert_eq!(source.images.usage()?.generations, 0);
+    drop(retained);
+    runtime.close().await?;
+    source.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -35,13 +35,26 @@ handoff. The mechanical `checkpoint` write remains restricted to quiesced fixtur
 Native automatic checkpoint scheduling is still unfinished.
 
 `SnapshotDownload` verifies the descriptor before buffering, accepts only ordered,
-nonempty chunks within the declared length, and admits at most 64 MiB encoded,
+nonempty chunks within the declared length, and admits at most 128 MiB encoded,
 64 MiB materialized and 1 MiB per chunk. Individual buffer growth uses fallible
 exact reservations. Physical LTX checks bind the full image state. Generation
 publication syncs bytes, renames and syncs the directory. Repeated downloads adopt
 an exactly matching existing image; a colliding name never overwrites other bytes.
 These per-transfer bounds still need node-wide admission and owned cancellation
 before use in the native host.
+
+`SnapshotPackage::retained` verifies and pins the exact current durable checkpoint,
+including when a newer committed image has become applied. Re-encoding must match
+the descriptor's length and digest. A replaced descriptor is refused rather than
+silently serving a different cut. A captured package remains usable through later
+checkpoint replacement and reclamation; an empty checkpoint has no image or bytes.
+
+The materialized image cap stays 64 MiB. `ltx::full_snapshot_bound` includes worst
+case block compression, page framing, index varints and file framing. Snapshot
+and native image-restore defaults allow 128 MiB encoded; archive defaults allow
+128 MiB per object and 256 MiB per recovery set. Configuration refuses a snapshot
+budget below that conservative bound. Native host admission checks the image
+restore and archive budgets before opening member storage.
 
 ## Publication and retention
 
@@ -99,6 +112,15 @@ retirement/restart, lost completion, failed sync with joined producers, stale en
 material, busy-apply refusal, empty configuration installation/first LTX/restart,
 and refusal to erase committed data. The pinned runtime evidence qualifies those component and owning regressions.
 
+The boundary fixture adds an exact 64-MiB real SQLite image with seeded random
+overflow pages and a passing integrity check. Its encoded LTX exceeds 64 MiB.
+It retains the older checkpoint after a newer LTX update, transfers that exact
+cut, and restores the newer snapshot-plus-tail archive after both node directories
+are deleted. This is a component test over the in-memory object store, not native
+member repair, physical S3 or evidence of a 64-MiB command envelope. The per-command
+envelope limit is unchanged. Additional cases cover replaced checkpoints, capture
+lifetime through GC, empty retained checkpoints and insufficient encoded budgets.
+
 Still required for MR-10:
 
 - Native automatic checkpoint creation/compaction and source transfer scheduling
@@ -111,11 +133,6 @@ Still required for MR-10:
   command/apply generations, and transfer limits must cover configured images.
 - Authorized fresh-member admission and S3/peer seeding through a surviving live
   group, with explicit refusal of S3-only normal activation after quorum loss.
-- Encoded budgets must cover the largest admitted image. A near-64-MiB database
-  can exceed the current 64-MiB encoded/object limit after full-LTX overhead.
-  Raise the bounded codec/restore/transfer/archive budgets consistently and
-  qualify the maximum incompressible image; do not shrink the admitted image to
-  bypass this requirement.
 - Full native lifecycle/fault qualification and pinned completion evidence.
 
 The production host still refuses unsupported incoming snapshot work. The current

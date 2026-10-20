@@ -8,6 +8,29 @@ use cellar_ltx::ltx::{self, Header};
 use cellar_ltx::{CHECKSUM_FLAG, TXID};
 use sha2::{Digest, Sha256};
 
+/// Exactly the admitted 64-MiB image, with incompressible overflow pages. The
+/// SQLite record header has six bytes and 39 local bytes; each overflow page
+/// carries 508 bytes. Three root pages plus the chain fill 131,072 pages.
+pub fn maximum_image() -> Result<(Vec<u8>, usize)> {
+    use rand::{RngCore, SeedableRng};
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("maximum.sqlite");
+    let connection = rusqlite::Connection::open(&path)?;
+    connection.execute_batch("PRAGMA page_size=512;PRAGMA journal_mode=MEMORY;PRAGMA synchronous=OFF;PRAGMA max_page_count=131072;CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(1);CREATE TABLE payloads(id INTEGER PRIMARY KEY,value BLOB);")?;
+    let length = (131_072 - 3) * 508 + 33;
+    let mut payload = vec![0; length];
+    rand::rngs::StdRng::seed_from_u64(212).fill_bytes(&mut payload);
+    connection.execute("INSERT INTO payloads VALUES(1,?1)", [payload])?;
+    assert_eq!(
+        connection.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))?,
+        "ok"
+    );
+    drop(connection);
+    let bytes = std::fs::read(path)?;
+    assert_eq!(bytes.len(), 64 * 1024 * 1024);
+    Ok((bytes, length))
+}
+
 pub fn id(value: u8) -> ImageId {
     ImageId::new([value; 16]).unwrap()
 }

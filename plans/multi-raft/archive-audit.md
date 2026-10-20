@@ -41,8 +41,8 @@ the archive format and verifier already accept explicit immutable dependencies.
 
 ## Capacity and lifetime
 
-Defaults allow one node-wide producer, 4 MiB of captured log bytes, 64 MiB per
-object, 128 MiB per recovery set, 32 tail bundles, 1,024 tail entries, 128
+Defaults allow one node-wide producer, 4 MiB of captured log bytes, 128 MiB per
+object, 256 MiB per recovery set, 32 tail bundles, 1,024 tail entries, 128
 dependencies and 256 KiB manifests. Object-store operations have a 10-second
 deadline, including the complete streamed read; failed attempts retry after
 100 ms. The timer stays bound to the originating execution domain. Shutdown

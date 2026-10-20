@@ -66,8 +66,8 @@ impl Default for ArchiveLimits {
             io_timeout_ms: 10_000,
             max_capture_bytes: 4 * 1024 * 1024,
             max_manifest_bytes: 256 * 1024,
-            max_object_bytes: 64 * 1024 * 1024,
-            max_set_bytes: 128 * 1024 * 1024,
+            max_object_bytes: 128 * 1024 * 1024,
+            max_set_bytes: 256 * 1024 * 1024,
             max_entries: 1024,
             max_tails: 32,
             max_dependencies: 128,
@@ -84,7 +84,7 @@ impl ArchiveLimits {
             || !(1..=60_000).contains(&self.io_timeout_ms)
             || !(1024..=self.max_object_bytes).contains(&self.max_capture_bytes)
             || self.max_manifest_bytes > self.max_object_bytes
-            || !(1024..=64 * 1024 * 1024).contains(&self.max_object_bytes)
+            || !(1024..=128 * 1024 * 1024).contains(&self.max_object_bytes)
             || self.max_set_bytes < self.max_object_bytes
             || self.max_set_bytes > 256 * 1024 * 1024
             || !(1..=4096).contains(&self.max_entries)
@@ -1021,10 +1021,7 @@ fn result_state(update: &CellUpdate) -> Result<ImageState, ArchiveError> {
 }
 
 pub(crate) fn apply_limits() -> ApplyLimits {
-    let mut limits = ApplyLimits::default();
-    limits.decode.max_encoded_bytes = 64 * 1024 * 1024;
-    limits.max_total_encoded_bytes = 64 * 1024 * 1024;
-    limits
+    super::snapshot::SnapshotLimits::default().apply()
 }
 
 fn verify_snapshot(bytes: &[u8], state: ImageState) -> Result<(), ArchiveError> {

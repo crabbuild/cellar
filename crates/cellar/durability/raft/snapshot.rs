@@ -63,7 +63,7 @@ impl Default for SnapshotLimits {
     fn default() -> Self {
         Self {
             max_image_bytes: 64 * 1024 * 1024,
-            max_encoded_bytes: 64 * 1024 * 1024,
+            max_encoded_bytes: 128 * 1024 * 1024,
             max_chunk_bytes: 1024 * 1024,
         }
     }
@@ -72,16 +72,18 @@ impl Default for SnapshotLimits {
 impl SnapshotLimits {
     pub fn validate(self) -> Result<(), SnapshotError> {
         if !(512..=64 * 1024 * 1024).contains(&self.max_image_bytes)
-            || !(512..=64 * 1024 * 1024).contains(&self.max_encoded_bytes)
+            || !(512..=128 * 1024 * 1024).contains(&self.max_encoded_bytes)
             || !(1..=1024 * 1024).contains(&self.max_chunk_bytes)
             || self.max_chunk_bytes > self.max_encoded_bytes
+            || ltx::full_snapshot_bound(self.max_image_bytes, 512)
+                .is_none_or(|bound| bound > self.max_encoded_bytes)
         {
             return Err(SnapshotError::Limit);
         }
         Ok(())
     }
 
-    fn apply(self) -> ApplyLimits {
+    pub(crate) fn apply(self) -> ApplyLimits {
         let mut limits = ApplyLimits::default();
         limits.decode.max_image_bytes = self.max_image_bytes;
         limits.decode.max_encoded_bytes = self.max_encoded_bytes;
@@ -192,6 +194,50 @@ pub struct SnapshotPackage {
 }
 
 impl SnapshotPackage {
+    /// Serve an exact durable checkpoint, including when newer commands have
+    /// replaced the applied image. Run on the owning blocking domain. A failed
+    /// capture never substitutes a newer checkpoint for the requested ticket.
+    pub fn retained(
+        group: &GroupLog,
+        images: &GenerationStore,
+        schema: [u8; 32],
+        expected: &Snapshot,
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        let snapshot = group.read()?.snapshot.clone();
+        if snapshot != *expected {
+            return Err(SnapshotError::Invalid("requested checkpoint replaced"));
+        }
+        let descriptor = Descriptor::decode(group, schema, &snapshot, limits)?;
+        let pin = descriptor
+            .image
+            .as_ref()
+            .map(|image| {
+                images
+                    .adopt(marker_id(image)?, marker_state(image))
+                    .map_err(SnapshotError::Images)
+            })
+            .transpose()?;
+        let bytes = match &pin {
+            Some(pin) => encode_image(pin, limits)?,
+            None => Vec::new(),
+        };
+        if bytes.len() != descriptor.encoded_length
+            || <[u8; 32]>::from(Sha256::digest(&bytes)) != descriptor.encoded_digest
+        {
+            return Err(SnapshotError::Invalid(
+                "retained checkpoint payload binding",
+            ));
+        }
+        Ok(Self {
+            group: group.clone(),
+            snapshot,
+            bytes,
+            pin,
+            limits,
+        })
+    }
+
     pub fn capture(
         group: &GroupLog,
         image: PublishedImage,

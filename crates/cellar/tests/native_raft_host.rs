@@ -138,6 +138,57 @@ fn command_manifest_binds_voting_compatibility_without_query_requirements() -> R
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn snapshot_capacity_refused_before_member_storage_opens() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    let (gate, _) = public_node::Gate::new();
+    gate.release();
+    let definition = public_node::counter(Arc::new(std::sync::atomic::AtomicUsize::new(0)), gate)?;
+    let root = tempfile::tempdir()?;
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace,
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:one", 5, 1),
+    };
+    let outcome = async {
+        for field in 0..3 {
+            let mut host = RaftHostOptions::default();
+            match field {
+                0 => host.images.apply.decode.max_encoded_bytes = 64 * 1024 * 1024,
+                1 => host.images.apply.max_total_encoded_bytes = 64 * 1024 * 1024,
+                _ => host.archive.limits.max_object_bytes = 64 * 1024 * 1024,
+            }
+            let result = public_node::cells_with_host(
+                &node,
+                definition.application.clone(),
+                store.clone(),
+                registration.clone(),
+                false,
+                host,
+            )
+            .await;
+            let error = match result {
+                Err(error) => error,
+                Ok(service) => {
+                    service.close().await?;
+                    bail!("admitted an image whose full snapshot cannot fit field {field}");
+                }
+            };
+            ensure!(error.to_string().contains("full-LTX encoding overhead"));
+            ensure!(!node.info().data_dir.join("raft").exists());
+        }
+        Ok(())
+    }
+    .await;
+    node.shutdown(ShutdownMode::Preserve).await?;
+    outcome
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn live_mode_admission_refuses_conflicts_before_mutable_execution() -> Result<()> {
     use cellar::sdk::{consensus::*, ShutdownMode};
     use futures_util::TryStreamExt;

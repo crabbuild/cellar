@@ -45,6 +45,10 @@ pub struct RaftHostOptions {
 
 impl Default for RaftHostOptions {
     fn default() -> Self {
+        let images = GenerationLimits {
+            apply: super::archive::apply_limits(),
+            ..Default::default()
+        };
         Self {
             archive: RaftArchiveOptions::default(),
             max_groups: 128,
@@ -55,7 +59,7 @@ impl Default for RaftHostOptions {
             max_input_bytes: 1024 * 1024,
             poll_ms: 25,
             stale_source_timeout_ms: 5000,
-            images: GenerationLimits::default(),
+            images,
             execution: ExecutionLimits::default(),
         }
     }
@@ -79,6 +83,15 @@ impl RaftHostOptions {
         );
         let apply = self.images.apply;
         let envelope = self.execution.envelope;
+        let snapshot_bound =
+            cellar_ltx::ltx::full_snapshot_bound(self.execution.max_image_bytes, 512)
+                .ok_or_else(|| anyhow::anyhow!("snapshot encoded bound overflow"))?;
+        anyhow::ensure!(
+            apply.decode.max_encoded_bytes >= snapshot_bound
+                && apply.max_total_encoded_bytes >= snapshot_bound
+                && self.archive.limits.max_object_bytes >= snapshot_bound,
+            "snapshot image and archive admission must cover full-LTX encoding overhead"
+        );
         anyhow::ensure!(
             apply.decode.max_image_bytes >= self.execution.max_image_bytes
                 && apply.max_files >= envelope.max_files

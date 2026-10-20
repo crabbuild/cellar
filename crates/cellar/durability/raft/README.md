@@ -363,8 +363,8 @@ membership/leadership authority. Snapshot installation and fresh-member recovery
 remain separate operations.
 
 `RaftHostOptions::archive` configures `RaftArchiveOptions` and `ArchiveLimits`.
-Defaults allow one producer, 4 MiB of captured log bytes, 64 MiB objects, a
-128-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies. New
+Defaults allow one producer, 4 MiB of captured log bytes, 128 MiB objects, a
+256-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies. New
 callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
 data-bearing entries. Protocol entries consume bytes too. Existing duplicate
 lookup remains available under backpressure. Incoming replication also has the
@@ -426,3 +426,18 @@ first committed LTX update can subsequently establish the initial image.
 Native checkpoint scheduling, authenticated snapshot transfer and authorized
 replacement-member admission are still MR-10 work; these component APIs alone do
 not enable automatic compaction in the production host.
+
+`SnapshotPackage::retained` captures the exact durable checkpoint requested by a
+transfer, even after a newer image becomes applied. It verifies the selected
+descriptor and re-encoded payload; a replaced checkpoint is refused. A captured
+package pins its bytes through subsequent checkpoint replacement and reclamation.
+Empty checkpoints retain no image or payload.
+
+The 64-MiB database limit remains unchanged. Full LTX framing, index entries and
+compression overhead can exceed that size, so snapshot, native image-restore and
+archive object budgets allow 128 MiB of encoded bytes. Configuration refuses
+budgets below a conservative full-snapshot bound before member storage opens.
+The component fixture transfers an exact 64-MiB incompressible SQLite database
+and restores its newer archived state after deleting both local node directories.
+It uses the in-memory object-store adapter; it does not qualify physical S3 or
+authorize replacement membership.
