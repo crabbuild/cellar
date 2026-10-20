@@ -463,6 +463,26 @@ impl Cluster {
     }
 
     #[allow(dead_code)]
+    pub async fn block_control(&self, source: usize, target: usize, blocked: bool) -> Result<()> {
+        let proxy = self
+            .links
+            .iter()
+            .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Control)
+            .map(|(_, _, _, proxy)| proxy)
+            .ok_or_else(|| anyhow::anyhow!("control link not found"))?;
+        proxy.block(blocked);
+        if blocked {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while proxy.active.load(Ordering::SeqCst) != 0 {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await?;
+        }
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub fn hold_data_responses(&self, source: usize, target: usize) -> Result<HeldResponses> {
         let proxy = self
             .links

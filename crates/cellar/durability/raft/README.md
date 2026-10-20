@@ -171,9 +171,11 @@ MR-08's local read controller holds each request's original deadline and byte/it
 permit while waiting for an image. `AtLeast` verifies an opaque signed token
 before comparing history positions. `Linearizable` uses fresh safe ReadIndex
 contexts, waits for actual image publication, and never treats a runtime status
-or cached commit position as a barrier. A checked role/term change can resubmit
-the invocation's dropped barrier under the same deadline. Status and submission
-generations prevent late replies from regressing an executing query.
+or cached commit position as a barrier. A checked role/term change or lost reply
+can resubmit the invocation's barrier under the same deadline. Retries wait four
+host polling intervals, clamped to 100–1000 ms, and still require a safe ReadIndex
+result. Status and submission generations prevent late replies from regressing
+an executing query.
 
 The SQL owner captures the durable applied marker with its exact immutable pin.
 Protocol-only entries can cover that pin; an unrelated newer image cannot relabel

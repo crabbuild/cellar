@@ -57,6 +57,7 @@ pub(crate) struct PendingRead {
     pub leader: Option<(Term, Option<u64>, bool)>,
     pub checking_leader: bool,
     pub barrier_attempt: u64,
+    pub barrier_retry_at: u64,
     pub leader_check: u64,
 }
 
@@ -87,6 +88,7 @@ impl PendingRead {
             leader: None,
             checking_leader: false,
             barrier_attempt: 0,
+            barrier_retry_at: 0,
             leader_check: 0,
         }
     }

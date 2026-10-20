@@ -991,11 +991,11 @@ impl Driver {
         };
         let leader = (status.term, status.leader, status.is_leader);
         if read.phase == ReadPhase::Barrier {
-            // RawNode may drop an unknown-leader request or clear a pending
-            // ReadIndex on a role/term change. Retry that same invocation only
-            // after a new checked observation, retaining its original deadline.
-            // The observation itself never supplies a successful barrier.
-            if read.leader != Some(leader) {
+            // RawNode may clear a pending read on role change, or its reply
+            // may be lost without any leadership change. Retry the same
+            // invocation after a checked observation and bounded delay. The
+            // original deadline remains fixed; status never supplies proof.
+            if read.leader != Some(leader) || crate::asyncrt::mono_ms() >= read.barrier_retry_at {
                 read.phase = ReadPhase::StartBarrier;
             }
             return;
@@ -1014,6 +1014,8 @@ impl Driver {
         read.barrier_attempt = attempt;
         read.leader = Some(leader);
         read.phase = ReadPhase::Barrier;
+        read.barrier_retry_at = crate::asyncrt::mono_ms()
+            .saturating_add(self.options.poll_ms.saturating_mul(4).clamp(100, 1000));
         let scope = read.request.scope.clone();
         let runtime = self.runtime.clone();
         self.jobs.push(Box::pin(async move {

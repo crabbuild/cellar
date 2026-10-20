@@ -774,6 +774,54 @@ async fn nonmember_router_reads_only_granted_namespaces_without_local_state() ->
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn lost_read_index_response_retries_without_leader_change() -> Result<()> {
+    let fixture = Fixture::start(Arc::new(get)).await?;
+    let primary = leader(&fixture.handles, None).await?;
+    let follower = (primary + 1) % 3;
+    fixture.handles[follower]
+        .query(
+            fixture.definition.get.clone(),
+            vec![],
+            at_least(&fixture.initial),
+        )
+        .await?;
+    let before = fixture.handles[follower].status().await?;
+    fixture
+        .cluster
+        .block_control(primary, follower, true)
+        .await?;
+    let pending = fixture.handles[follower].query(
+        fixture.definition.get.clone(),
+        vec![],
+        QueryOptions {
+            consistency: QueryConsistency::Linearizable,
+            timeout: Duration::from_secs(2),
+            ..Default::default()
+        },
+    );
+    // The request can reach the leader, and the third voter supplies its safe
+    // ReadIndex majority. Only the reply direction is unavailable. Heal before
+    // the follower's minimum election timeout, keeping the term/leader fixed.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    fixture
+        .cluster
+        .block_control(primary, follower, false)
+        .await?;
+    let result = pending.await;
+    let after = fixture.handles[follower].status().await?;
+    assert_eq!(after.term, before.term);
+    assert_eq!(after.leader, before.leader);
+    fixture.close().await?;
+    assert_eq!(
+        result
+            .context("a lost ReadIndex response must be retried under the original invocation")?
+            .result,
+        1i64.to_be_bytes()
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn linearizable_read_barrier() -> Result<()> {
     let fixture = Fixture::start(Arc::new(get)).await?;
     let old = leader(&fixture.handles, None).await?;
