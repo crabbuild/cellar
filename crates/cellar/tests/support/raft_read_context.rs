@@ -148,6 +148,7 @@ async fn active_ordinary_context_and_storage_are_refused() -> Result<()> {
         application,
         Arc::new(object_store::memory::InMemory::new()),
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace,
             class: "ReadFence".into(),
             birth: BirthProposal {

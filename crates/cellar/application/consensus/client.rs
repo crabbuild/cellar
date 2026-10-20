@@ -137,6 +137,8 @@ pub(crate) struct Binding {
     pub scope: GroupScope,
     pub class: Arc<RaftClass>,
     pub minimum: Durability,
+    pub member: Option<MemberId>,
+    pub leader_hint: Option<MemberId>,
 }
 
 pub(crate) struct Terminal {
@@ -331,6 +333,9 @@ impl RaftCellHandle {
                     input,
                     options,
                 } => {
+                    if self.binding.member.is_none() {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
                     self.validate(contract, OperationKind::Command, input)?;
                     // Archive integration is supplied by MR-09. Refuse before
                     // any private work rather than weaken a requested proof.
@@ -344,6 +349,9 @@ impl RaftCellHandle {
                     options,
                 } => {
                     if matches!(options.routing, QueryRouting::Local) {
+                        if self.binding.member.is_none() {
+                            return Err(CommandFailure::UnsupportedCapability);
+                        }
                         self.validate(contract, OperationKind::Query, input)?;
                     } else {
                         // A voter may forward a query whose implementation is
@@ -379,7 +387,11 @@ impl RaftCellHandle {
                         }
                     }
                 }
-                Kind::Status => (),
+                Kind::Status => {
+                    if self.binding.member.is_none() {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
             }
             let deadline = now
                 .checked_add(timeout.as_millis() as u64)

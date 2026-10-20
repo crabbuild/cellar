@@ -11,10 +11,11 @@ pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
 };
 pub use crate::raft::host::{
-    RaftCellRegistration, RaftCellsConfig, RaftCellsServices, RaftHostOptions, RaftPeerNode,
+    RaftCellPlacement, RaftCellRegistration, RaftCellsConfig, RaftCellsServices, RaftHostOptions,
+    RaftPeerNode,
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
-pub use crate::raft::transport_options::{RaftTls, TransportOptions};
+pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};
 pub use crate::raft::version::{
     VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
 };
@@ -63,5 +64,5 @@ pub mod verification {
     pub use crate::raft::transport::{
         Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
     };
-    pub use crate::raft::transport_options::{RaftTls, TransportOptions};
+    pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};
 }

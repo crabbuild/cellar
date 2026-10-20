@@ -220,12 +220,32 @@ separate member-bearing routes and validators. This is a marker-1 hard cutover
 for experimental query peers; incompatible headers are refused without an old
 reader or translation path.
 
-This entry point still routes from a registered local replica. The receiver
-maps the physical origin to a configured current member before admission;
-encoding a node identity alone does not grant namespace access. Independent
-namespace-origin grants, independent pool installation and routing-only handles
-remain open in the
-[read audit](../../../../plans/multi-raft/read-audit.md). The counter's native
+Each `RaftCellRegistration` selects `RaftCellPlacement::Replica` or
+`QueryRouter { leader_hint }`. A query router reads an existing namespace and
+birth record, verifies the expected history/initial placement, and installs
+discovery without creating a local member or SQLite image. It cannot reinterpret
+existing member storage as a query-only binding. Its SDK handle rejects commands,
+local reads and local status; use explicit `QueryRouting::Replicas`. The optional
+hint is discovery only and cannot supply a read proof.
+
+`RaftCellsConfig::query_origins` supplies trusted `NamespaceQueryOrigin` grants
+for exact cluster/namespace/node/disk/process endpoints. A receiving replica
+accepts a current group member or an explicitly granted origin, validates its
+own current membership and checks permission around body/execution/reply work.
+Granting read access never expands the member-bearing consensus route.
+`RaftTransport::grant_query_origin` and `revoke_query_origin` support live
+revisioned updates; revocation cancels waiting query work and preserves a
+tombstone, so an old update or regrant cannot revive an old request. Tombstones
+share the explicit `max_query_origins` bound. Different namespaces may retain
+the same physical pool without sharing permission. A physical process change
+must agree with every remaining routing/grant reference.
+
+Grant revisions fence updates during this transport's lifetime. The embedding
+supplies current trusted grants on restart; durable control-plane distribution
+belongs to the placement/operations controllers. Routing-only views and peer
+pools are bounded and never initialize a voter or learner. The
+[read audit](../../../../plans/multi-raft/read-audit.md) retains qualification
+scope and remaining delivery work. The counter's native
 and Axum HTTP paths expose consistency, tokens and bounded member options, and
 their executable restart drill includes remote strong reads and cross-cell refusal.
 These paths do not claim completion of MR-08 or the full delivery scope.

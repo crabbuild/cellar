@@ -213,14 +213,37 @@ impl Cluster {
         tick_ms: u64,
         host: RaftHostOptions,
     ) -> Result<Self> {
-        ensure!(definitions.len() == 3, "fixture requires three nodes");
-        let roots = (0..3)
+        Self::start_layout(definitions, registrations, tick_ms, host, None).await
+    }
+
+    // Some targets only use the three-voter partition fixture.
+    #[allow(dead_code)]
+    pub async fn start_with_router(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        tick_ms: u64,
+        host: RaftHostOptions,
+        namespaces: &[(ClusterId, NamespaceId)],
+    ) -> Result<Self> {
+        Self::start_layout(definitions, registrations, tick_ms, host, Some(namespaces)).await
+    }
+
+    async fn start_layout(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        tick_ms: u64,
+        host: RaftHostOptions,
+        namespaces: Option<&[(ClusterId, NamespaceId)]>,
+    ) -> Result<Self> {
+        let count = if namespaces.is_some() { 4 } else { 3 };
+        ensure!(definitions.len() == count, "incorrect fixture node count");
+        let roots = (0..count)
             .map(|_| tempfile::tempdir())
             .collect::<Result<Vec<_>, _>>()?;
         let mut nodes = Vec::new();
         let mut listeners = Vec::new();
         let mut peers = Vec::new();
-        for i in 0..3 {
+        for i in 0..count {
             let label = format!("raft-cluster-{}", i + 1);
             nodes.push(
                 public_node::node_named(
@@ -251,7 +274,7 @@ impl Cluster {
         }
         let mut links = Vec::new();
         let mut routes = Vec::new();
-        for source in 0..3 {
+        for source in 0..count {
             let mut route = peers.clone();
             for (target, peer) in route.iter_mut().enumerate() {
                 if source == target {
@@ -276,6 +299,20 @@ impl Cluster {
                 nodes[i]
                     .start_raft_cells(
                         RaftCellsConfig {
+                            query_origins: if i < 3 {
+                                namespaces
+                                    .unwrap_or(&[])
+                                    .iter()
+                                    .map(|(cluster, namespace)| NamespaceQueryOrigin {
+                                        cluster: *cluster,
+                                        namespace: *namespace,
+                                        revision: 1,
+                                        peer: routes[i][3].clone(),
+                                    })
+                                    .collect()
+                            } else {
+                                vec![]
+                            },
                             infrastructure: NodeRaftConfig {
                                 log: ReplicaLogOptions::new(
                                     nodes[i].info().data_dir.join("raft"),
@@ -294,7 +331,18 @@ impl Cluster {
                                 prefix: "partition/test".into(),
                                 ..Default::default()
                             },
-                            cells: registrations.clone(),
+                            cells: registrations
+                                .iter()
+                                .cloned()
+                                .map(|mut registration| {
+                                    if i == 3 {
+                                        registration.placement = RaftCellPlacement::QueryRouter {
+                                            leader_hint: Some(MemberId::new(1).unwrap()),
+                                        };
+                                    }
+                                    registration
+                                })
+                                .collect(),
                             peers: routes[i].clone(),
                             host: host.clone(),
                         },

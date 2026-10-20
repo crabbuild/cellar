@@ -169,6 +169,7 @@ async fn main() -> Result<()> {
         .iter()
         .enumerate()
         .map(|(i, name)| RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace: config.clone(),
             class: "Counter".into(),
             birth: BirthProposal {
@@ -201,6 +202,7 @@ async fn main() -> Result<()> {
         let service = nodes[i]
             .start_raft_cells(
                 RaftCellsConfig {
+            query_origins: vec![],
                     infrastructure: NodeRaftConfig {
                         log: ReplicaLogOptions::new(
                             log_dir,

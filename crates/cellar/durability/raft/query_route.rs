@@ -14,7 +14,8 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 pub(super) struct RouteContext {
     pub local: RaftCellHandle,
-    pub member: MemberId,
+    pub member: Option<MemberId>,
+    pub leader_hint: Option<MemberId>,
     pub runtime: RaftRuntime,
     pub transport: RaftTransport,
     pub keys: VersionKeys,
@@ -73,22 +74,24 @@ impl RouteContext {
         if leader_fallback && !self.control.cancelled() {
             // This is a routing hint only. The destination still obtains the
             // requested read proof; a stale leader hint grants no authority.
-            let status = self.runtime.status(self.local.scope());
-            let status = crate::asyncrt::select! { _ = self.control.cancellation() => return Err(CommandFailure::VersionUnavailable), value = status => value };
-            if let Ok(status) = status {
-                if let Some(member) = status
-                    .leader
+            let leader = if self.member.is_some() {
+                let status = self.runtime.status(self.local.scope());
+                let status = crate::asyncrt::select! { _ = self.control.cancellation() => return Err(CommandFailure::VersionUnavailable), value = status => value };
+                status
+                    .ok()
+                    .and_then(|status| status.leader)
                     .and_then(|id| MemberId::new(id).ok())
-                    .filter(|member| tried.insert(*member))
+            } else {
+                self.leader_hint
+            };
+            if let Some(member) = leader.filter(|member| tried.insert(*member)) {
+                match self
+                    .attempt(member, &contract, &input, &options, attempt_timeout)
+                    .await
                 {
-                    match self
-                        .attempt(member, &contract, &input, &options, attempt_timeout)
-                        .await
-                    {
-                        Attempt::Success(result) => return Ok(result),
-                        Attempt::Fatal(error) => return Err(error),
-                        Attempt::Retry(error) => last = error,
-                    }
+                    Attempt::Success(result) => return Ok(result),
+                    Attempt::Fatal(error) => return Err(error),
+                    Attempt::Retry(error) => last = error,
                 }
             }
         }
@@ -128,7 +131,7 @@ impl RouteContext {
         options.routing = QueryRouting::Local;
         options.timeout = Duration::from_millis(remaining);
         let query = async {
-            let result = if member == self.member {
+            let result = if Some(member) == self.member {
                 self.local
                     .query(contract.clone(), input.to_vec(), options)
                     .await

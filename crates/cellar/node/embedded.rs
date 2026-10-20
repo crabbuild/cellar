@@ -668,7 +668,7 @@ impl Node {
         config: crate::application::consensus::RaftCellsConfig,
         services: crate::application::consensus::RaftCellsServices,
     ) -> anyhow::Result<crate::application::consensus::RaftCells> {
-        use crate::application::consensus::RegistrationError;
+        use crate::application::consensus::{RaftCellPlacement, RegistrationError};
         config.host.validate()?;
         anyhow::ensure!(
             !config.cells.is_empty() && config.cells.len() <= config.host.max_groups,
@@ -705,13 +705,39 @@ impl Node {
                 let catalog = crate::raft::catalog::Catalog::new(services.store, config.catalog)?;
                 let mut registrations = Vec::new();
                 for (cell, class) in config.cells.into_iter().zip(definitions) {
-                    let namespace = catalog.open_namespace(cell.namespace).await?;
+                    let namespace = match cell.placement {
+                        RaftCellPlacement::Replica => {
+                            catalog.open_namespace(cell.namespace).await?
+                        }
+                        RaftCellPlacement::QueryRouter { .. } => {
+                            catalog.existing_namespace(cell.namespace).await?
+                        }
+                    };
                     let now_ms = u64::try_from(crate::asyncrt::wall_ms())?;
                     namespace
                         .require_version_keys(&services.versions, now_ms)
                         .await?;
-                    let birth = namespace.resolve_birth(cell.birth).await?;
+                    let birth = match cell.placement {
+                        RaftCellPlacement::Replica => namespace.resolve_birth(cell.birth).await?,
+                        RaftCellPlacement::QueryRouter { .. } => {
+                            let mut expected = cell.birth;
+                            expected.voters.sort_by_key(|member| member.member);
+                            expected.learners.sort_by_key(|member| member.member);
+                            let birth = namespace
+                                .birth(&expected.scope.cell)
+                                .await?
+                                .ok_or_else(|| anyhow::anyhow!("query route birth missing"))?;
+                            anyhow::ensure!(
+                                birth.scope() == &expected.scope
+                                    && birth.voters() == expected.voters.as_slice()
+                                    && birth.learners() == expected.learners.as_slice(),
+                                "query route disagrees with existing birth"
+                            );
+                            birth
+                        }
+                    };
                     registrations.push(crate::raft::host::Registration {
+                        placement: cell.placement,
                         namespace,
                         birth,
                         class,
@@ -726,8 +752,11 @@ impl Node {
         self.domain
             .run(crate::raft::host::start(
                 service,
-                registrations,
-                config.peers,
+                crate::raft::host::Registrations {
+                    cells: registrations,
+                    peers: config.peers,
+                    origins: config.query_origins,
+                },
                 self.info.data_dir.join("raft-cells"),
                 self.info.node.clone(),
                 config.host,

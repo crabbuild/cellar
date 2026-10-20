@@ -1,7 +1,7 @@
 //! Explicit wire, queue and connection bounds; control has independent capacity.
 
 use super::transport::TransportError;
-use cellar_logic::consensus::{DiskLineage, NodeId, ProcessGeneration};
+use cellar_logic::consensus::{ClusterId, DiskLineage, NamespaceId, NodeId, ProcessGeneration};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use std::sync::Arc;
 
@@ -19,10 +19,21 @@ pub struct RaftPeerNode {
     pub query_address: std::net::SocketAddr,
 }
 
+/// Trusted namespace read permission for an exact node/disk/process endpoint.
+/// Discovery does not create this grant; it never authorizes consensus messages.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamespaceQueryOrigin {
+    pub cluster: ClusterId,
+    pub namespace: NamespaceId,
+    pub revision: u64,
+    pub peer: RaftPeerNode,
+}
+
 #[derive(Clone, Debug)]
 pub struct TransportOptions {
     pub max_peers: usize,
     pub max_groups: usize,
+    pub max_query_origins: usize,
     pub max_connections_per_lane: usize,
     pub max_header_bytes: usize,
     pub max_message_bytes: usize,
@@ -45,6 +56,7 @@ impl Default for TransportOptions {
         Self {
             max_peers: 128,
             max_groups: 4096,
+            max_query_origins: 4096,
             max_connections_per_lane: 128,
             max_header_bytes: 8192,
             max_message_bytes: 20 * 1024 * 1024,
@@ -70,6 +82,8 @@ impl TransportOptions {
             || self.max_peers > 4096
             || self.max_groups == 0
             || self.max_groups > 32_768
+            || self.max_query_origins == 0
+            || self.max_query_origins > 65_536
             || self.max_connections_per_lane == 0
             || self.max_connections_per_lane > 4096
             || self.max_header_bytes < 1024

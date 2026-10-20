@@ -9,7 +9,7 @@ mod public_node;
 #[path = "support/raft_catalog_fault.rs"]
 mod store;
 
-use anyhow::{bail, Context as _, Result};
+use anyhow::{bail, ensure, Context as _, Result};
 use cellar::application::consensus::verification::*;
 use cellar::sdk::{Application, ExecutionDomain, Output, RaftClass, RegistrationError, Registry};
 use cellar_logic::consensus::*;
@@ -23,6 +23,81 @@ fn registered_counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [7; 32])?
         .command("Increment", [8; 32], |_, _| Ok(vec![]))?
         .query("Get", [9; 32], |_, _| Ok(vec![]))?)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn query_router_requires_existing_namespace_and_birth() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let definition = public_node::counter(Arc::new(std::sync::atomic::AtomicUsize::new(0)), gate)?;
+    let root = tempfile::tempdir()?;
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::QueryRouter { leader_hint: None },
+        namespace: namespace.clone(),
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:one", 5, 1),
+    };
+    let outcome = async {
+        let result = public_node::cells(
+            &node,
+            definition.application.clone(),
+            store.clone(),
+            registration.clone(),
+            false,
+        )
+        .await;
+        let succeeded = result.is_ok();
+        if let Ok(service) = result {
+            service.close().await?;
+        }
+        ensure!(!succeeded, "router created an absent namespace");
+        ensure!(
+            !node.info().data_dir.join("raft").exists(),
+            "absent namespace opened member storage"
+        );
+        let catalog = Catalog::new(
+            store.clone(),
+            CatalogOptions {
+                prefix: "host/test".into(),
+                ..Default::default()
+            },
+        )?;
+        ensure!(
+            catalog.existing_namespace(namespace.clone()).await.is_err(),
+            "failed router startup created a namespace root"
+        );
+        let selected = catalog.open_namespace(namespace).await?;
+        let result = public_node::cells(
+            &node,
+            definition.application.clone(),
+            store.clone(),
+            registration,
+            false,
+        )
+        .await;
+        let succeeded = result.is_ok();
+        if let Ok(service) = result {
+            service.close().await?;
+        }
+        ensure!(!succeeded, "router created an absent birth");
+        ensure!(
+            selected.birth("Counter:one").await?.is_none(),
+            "failed router startup created a group birth"
+        );
+        ensure!(
+            !node.info().data_dir.join("raft").exists(),
+            "absent birth opened member storage"
+        );
+        Ok(())
+    }
+    .await;
+    node.shutdown(ShutdownMode::Preserve).await?;
+    outcome
 }
 
 #[test]
@@ -93,6 +168,7 @@ async fn live_mode_admission_refuses_conflicts_before_mutable_execution() -> Res
     let mut namespace = config(2, NamespaceMode::Raft, true);
     namespace.schema_digest = registered_counter()?.schema_digest();
     let registration = RaftCellRegistration {
+        placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
         namespace,
         class: "Counter".into(),
         birth: proposal(2, "Counter:one", 5, 1),
@@ -174,6 +250,7 @@ async fn submitted_partition_retains_producer_until_follower_barrier() -> Result
         let cluster = cluster::Cluster::start(
             &definitions,
             vec![RaftCellRegistration {
+                placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
                 namespace,
                 class: "Counter".into(),
                 birth: proposal(2, "Counter:one", 5, 3),
@@ -536,6 +613,7 @@ async fn unpolled_waiter_cannot_submit_after_its_deadline() -> Result<()> {
         definition.application,
         Arc::new(object_store::memory::InMemory::new()),
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace,
             class: "Counter".into(),
             birth: proposal(2, "Counter:one", 5, 1),
@@ -612,6 +690,7 @@ async fn native_axum_command_parity() -> Result<()> {
         application,
         Arc::new(object_store::memory::InMemory::new()),
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace: namespace_config,
             class: "Counter".into(),
             birth: proposal(2, "Counter:one", 5, 1),
@@ -841,6 +920,158 @@ async fn native_axum_command_parity() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_axum_nonmember_query_router_parity() -> Result<()> {
+    use cellar::sdk::consensus::*;
+    let namespace = NamespaceId::new([2; 16])?;
+    let secret = "counter-router-authorization";
+    let class = counter_example::definition()?;
+    let api = counter_example::CounterApi::new(secret.into(), namespace, &class)?;
+    let source = public_node::Counter {
+        schema: class.schema_digest(),
+        increment: class.contract("Increment").unwrap(),
+        get: class.contract("Get").unwrap(),
+        application: counter_example::application(api.clone(), class)?,
+    };
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let mut definitions = (0..3)
+        .map(|_| {
+            public_node::counter(
+                Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+                gate.clone(),
+            )
+        })
+        .collect::<Result<Vec<_>>>()?;
+    assert_eq!(source.schema, definitions[0].schema);
+    definitions.push(source);
+    let mut namespace_config = config(2, NamespaceMode::Raft, false);
+    namespace_config.schema_digest = definitions[0].schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace: namespace_config.clone(),
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:one", 5, 3),
+    };
+    let cluster = cluster::Cluster::start_with_router(
+        &definitions,
+        vec![registration],
+        20,
+        RaftHostOptions::default(),
+        &[(namespace_config.cluster, namespace)],
+    )
+    .await?;
+    *api.cells.lock().unwrap() = Some(cluster.services[3].clone());
+    let members = cluster
+        .services
+        .iter()
+        .take(3)
+        .map(|service| service.cell(namespace, "Counter:one"))
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        'ready: loop {
+            for (index, cell) in members.iter().enumerate() {
+                if cell.status().await.is_ok_and(|status| status.command_ready) {
+                    break 'ready index;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let options = public_node::options(1)?;
+    let receipt = members[primary]
+        .command(
+            api.increment.clone(),
+            7_i64.to_be_bytes().to_vec(),
+            options.clone(),
+        )
+        .await?;
+    for cell in &members {
+        cell.query(
+            api.get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                ..Default::default()
+            },
+        )
+        .await?;
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let router = counter_example::router(api.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()?;
+    for url in [
+        format!(
+            "http://{}/counters/one",
+            cluster.nodes[3].info().public_address
+        ),
+        format!("http://{address}/counters/one"),
+    ] {
+        for consistency in ["stale", "at-least", "linearizable"] {
+            let mut request = client
+                .get(&url)
+                .bearer_auth(secret)
+                .header("x-read-consistency", consistency)
+                .header("x-query-members", "2")
+                .header("x-query-timeout-ms", "3000")
+                .header("x-query-attempt-ms", "1000")
+                .header("x-leader-fallback", "true");
+            if consistency == "at-least" {
+                request = request.header("x-min-version", receipt.version_token.as_str());
+            }
+            let response = request.send().await?;
+            assert_eq!(response.status(), 200);
+            let value: serde_json::Value = response.json().await?;
+            assert_eq!(value["value"], 7);
+            assert!(value["index"].as_u64().unwrap() >= receipt.version.position.index.get());
+            assert!(value["served_by"] == 1 || value["served_by"] == 2);
+            VersionToken::from_encoded(value["version_token"].as_str().unwrap())?;
+        }
+        let local = client.get(&url).bearer_auth(secret).send().await?;
+        assert_eq!(
+            local.status(),
+            422,
+            "query-only binding cannot execute locally"
+        );
+        let write = client
+            .post(format!("{url}?delta=99"))
+            .bearer_auth(secret)
+            .header("x-command-id", format!("{}:2", hex::encode([7; 16])))
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .send()
+            .await?;
+        assert_eq!(
+            write.status(),
+            422,
+            "query-only binding cannot admit commands"
+        );
+    }
+    assert_eq!(
+        members[primary]
+            .query(api.get.clone(), vec![], QueryOptions::default())
+            .await?
+            .result,
+        7_i64.to_be_bytes()
+    );
+    assert!(!cluster.nodes[3].info().data_dir.join("raft-cells").exists());
+    let _ = stop.send(());
+    server.await??;
+    cluster.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
     use cellar::sdk::{consensus::*, NodeRaftConfig, NodeRaftListeners, ShutdownMode};
     use std::{sync::atomic::AtomicUsize, time::Duration};
@@ -888,11 +1119,13 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
     namespace.schema_digest = definitions[0].schema;
     let registrations = vec![
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace: namespace.clone(),
             class: "Counter".into(),
             birth: proposal(2, "Counter:one", 5, 3),
         },
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace,
             class: "Counter".into(),
             birth: proposal(2, "Counter:two", 6, 3),
@@ -904,6 +1137,7 @@ async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
             nodes[i]
                 .start_raft_cells(
                     RaftCellsConfig {
+                        query_origins: vec![],
                         infrastructure: NodeRaftConfig {
                             log: ReplicaLogOptions::new(
                                 nodes[i].info().data_dir.join("raft"),
@@ -1102,6 +1336,7 @@ async fn raft_gate_exact_receipt() -> Result<()> {
     let mut namespace = config(2, NamespaceMode::Raft, true);
     namespace.schema_digest = schema;
     let registration = RaftCellRegistration {
+        placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
         namespace,
         class: "Counter".into(),
         birth: proposal(2, "Counter:one", 5, 1),
@@ -1200,6 +1435,7 @@ async fn cancelled_private_callback_is_joined_before_its_slot_is_reused() -> Res
         definition.application,
         store,
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace,
             class: "Counter".into(),
             birth: proposal(2, "Counter:one", 5, 1),
@@ -1280,6 +1516,7 @@ async fn retained_handle_fenced() -> Result<()> {
     let mut namespace = config(2, NamespaceMode::Raft, true);
     namespace.schema_digest = definition.schema;
     let registration = RaftCellRegistration {
+        placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
         namespace,
         class: "Counter".into(),
         birth: proposal(2, "Counter:one", 5, 1),
@@ -1408,6 +1645,7 @@ async fn registered_callbacks_refuse_captured_sdk_handles() -> Result<()> {
         application,
         store,
         RaftCellRegistration {
+            placement: cellar::sdk::consensus::RaftCellPlacement::Replica,
             namespace,
             class: "Counter".into(),
             birth: proposal(2, "Counter:one", 5, 1),

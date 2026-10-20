@@ -80,10 +80,20 @@ impl RaftHostOptions {
     }
 }
 
+use super::transport_options::NamespaceQueryOrigin;
 pub use super::transport_options::RaftPeerNode;
+
+/// Local participation is explicit. A router never creates or attaches a
+/// member and never initializes a SQLite cell image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RaftCellPlacement {
+    Replica,
+    QueryRouter { leader_hint: Option<MemberId> },
+}
 
 #[derive(Clone, Debug)]
 pub struct RaftCellRegistration {
+    pub placement: RaftCellPlacement,
     pub namespace: NamespaceConfig,
     pub class: String,
     pub birth: BirthProposal,
@@ -94,6 +104,7 @@ pub struct RaftCellsConfig {
     pub catalog: CatalogOptions,
     pub cells: Vec<RaftCellRegistration>,
     pub peers: Vec<RaftPeerNode>,
+    pub query_origins: Vec<NamespaceQueryOrigin>,
     pub host: RaftHostOptions,
 }
 
@@ -106,20 +117,31 @@ pub struct RaftCellsServices {
 }
 
 pub(crate) struct Registration {
+    pub placement: RaftCellPlacement,
     pub namespace: NamespaceCatalog,
     pub birth: GroupBirth,
     pub class: Arc<RaftClass>,
 }
 
+pub(crate) struct Registrations {
+    pub cells: Vec<Registration>,
+    pub peers: Vec<RaftPeerNode>,
+    pub origins: Vec<NamespaceQueryOrigin>,
+}
+
 pub(crate) async fn start(
     service: crate::daemon::NodeRaftService,
-    registrations: Vec<Registration>,
-    peers: Vec<RaftPeerNode>,
+    registrations: Registrations,
     directory: PathBuf,
     label: String,
     options: RaftHostOptions,
     versions: super::version::VersionKeys,
 ) -> anyhow::Result<RaftCells> {
+    let Registrations {
+        cells: registrations,
+        peers,
+        origins,
+    } = registrations;
     options.validate()?;
     anyhow::ensure!(
         !registrations.is_empty() && registrations.len() <= options.max_groups,
@@ -140,8 +162,17 @@ pub(crate) async fn start(
         let peer_count = peers.len();
         let peers: BTreeMap<_, _> = peers.into_iter().map(|p| (p.node, p)).collect();
         anyhow::ensure!(peer_count == peers.len(), "duplicate peer node");
+        let mut grants = BTreeSet::new();
+        for origin in origins {
+            anyhow::ensure!(
+                grants.insert((origin.cluster, origin.namespace, origin.peer.node)),
+                "duplicate namespace query origin"
+            );
+            service.transport.grant_query_origin(origin)?;
+        }
         for (index, registration) in registrations.into_iter().enumerate() {
             let Registration {
+                placement,
                 namespace,
                 birth,
                 class,
@@ -151,6 +182,77 @@ pub(crate) async fn start(
                 namespace.config().schema_digest == class.schema_digest(),
                 "registered schema disagrees with namespace"
             );
+            if let RaftCellPlacement::QueryRouter { leader_hint } = placement {
+                let scope = birth.scope().clone();
+                let local = service.log.limits().node;
+                anyhow::ensure!(
+                    !birth
+                        .voters()
+                        .iter()
+                        .chain(birth.learners())
+                        .any(|member| member.node == local),
+                    "query router is an initial group member"
+                );
+                anyhow::ensure!(
+                    matches!(
+                        service.log.group(&scope),
+                        Err(super::storage::LogError::NotFound)
+                    ),
+                    "query router has local member state"
+                );
+                anyhow::ensure!(
+                    leader_hint.is_none_or(|hint| birth
+                        .voters()
+                        .iter()
+                        .any(|member| member.member == hint)),
+                    "invalid query leader hint"
+                );
+                anyhow::ensure!(
+                    !bindings.contains_key(&(scope.namespace, scope.cell.clone())),
+                    "duplicate registered cell"
+                );
+                let routes = birth
+                    .voters()
+                    .iter()
+                    .chain(birth.learners())
+                    .map(|member| {
+                        let peer = peers
+                            .get(&member.node)
+                            .ok_or_else(|| anyhow::anyhow!("missing query peer route"))?;
+                        Ok(RaftPeer {
+                            replica: ReplicaIdentity {
+                                scope: scope.clone(),
+                                node: peer.node,
+                                member: member.member,
+                                disk: peer.disk,
+                                process: peer.process,
+                            },
+                            label: peer.label.clone(),
+                            server_name: peer.server_name.clone(),
+                            control_address: peer.control_address,
+                            data_address: peer.data_address,
+                            query_address: peer.query_address,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+                service.transport.install_query_group(GroupRoute {
+                    scope: scope.clone(),
+                    schema_digest: class.schema_digest(),
+                    revision: 1,
+                    peers: routes,
+                })?;
+                bindings.insert(
+                    (scope.namespace, scope.cell.clone()),
+                    Binding {
+                        scope,
+                        class,
+                        minimum: namespace.minimum_durability(),
+                        member: None,
+                        leader_hint,
+                    },
+                );
+                continue;
+            }
             let permit = namespace.bootstrap_member(&birth, &service.log).await?;
             let scope = birth.scope().clone();
             anyhow::ensure!(
@@ -232,6 +334,8 @@ pub(crate) async fn start(
                     scope: scope.clone(),
                     class: class.clone(),
                     minimum: namespace.minimum_durability(),
+                    member: Some(group.identity().member),
+                    leader_hint: None,
                 },
             );
             cells.insert(
@@ -903,8 +1007,89 @@ impl Driver {
         }
     }
 
+    fn on_routed_query(&mut self, mut request: Request) {
+        let scope = request.scope.clone();
+        let Some(binding) = self
+            .local
+            .bindings
+            .get(&(scope.namespace, scope.cell.clone()))
+            .cloned()
+            .filter(|binding| binding.scope == scope)
+        else {
+            reply(&mut request, Err(CommandFailure::Unavailable));
+            return;
+        };
+        let Kind::Query {
+            contract,
+            input,
+            options,
+        } = std::mem::replace(&mut request.kind, Kind::Status)
+        else {
+            reply(&mut request, Err(CommandFailure::UnsupportedCapability));
+            return;
+        };
+        if contract.kind != OperationKind::Query {
+            reply(&mut request, Err(CommandFailure::UnsupportedCapability));
+            return;
+        }
+        let minimum = if let client::QueryConsistency::AtLeast(token) = &options.consistency {
+            match u64::try_from(crate::asyncrt::wall_ms())
+                .map_err(|_| super::version::VersionError::Expired)
+                .and_then(|now| {
+                    self.versions
+                        .verify(token, &scope, binding.class.schema_digest(), now)
+                }) {
+                Ok(version) => Some(version),
+                Err(error) => {
+                    let failure = if error == super::version::VersionError::WrongHistory {
+                        CommandFailure::WrongIncarnation
+                    } else {
+                        CommandFailure::VersionUnavailable
+                    };
+                    reply(&mut request, Err(failure));
+                    return;
+                }
+            }
+        } else {
+            None
+        };
+        let context = super::query_route::RouteContext {
+            member: binding.member,
+            leader_hint: binding.leader_hint,
+            local: crate::application::consensus::RaftCellHandle {
+                handle: self.local.clone(),
+                binding,
+            },
+            runtime: self.runtime.clone(),
+            transport: self.transport.clone(),
+            keys: self.versions.clone(),
+            control: request.control.clone(),
+            minimum,
+        };
+        self.jobs.push(Box::pin(async move {
+            Job::Routed {
+                request: Box::new(request),
+                result: context.run(contract, input, options).await,
+            }
+        }));
+    }
+
     fn on_request(&mut self, mut request: Request) {
         let scope = request.scope.clone();
+        if self.closing.load(Ordering::Acquire)
+            || self.cells.get(&scope).is_some_and(|cell| cell.failed)
+        {
+            reply(&mut request, Err(CommandFailure::Unavailable));
+            return;
+        }
+        if request.control.cancelled() {
+            return;
+        }
+        if matches!(&request.kind, Kind::Query { options, .. } if !matches!(options.routing, client::QueryRouting::Local))
+        {
+            self.on_routed_query(request);
+            return;
+        }
         let Some(cell) = self.cells.get_mut(&scope) else {
             reply(&mut request, Err(CommandFailure::Unavailable));
             return;
@@ -949,37 +1134,6 @@ impl Driver {
                 } else {
                     None
                 };
-                if !matches!(options.routing, client::QueryRouting::Local) {
-                    let Some(binding) = self
-                        .local
-                        .bindings
-                        .get(&(scope.namespace, scope.cell.clone()))
-                        .cloned()
-                        .filter(|binding| binding.scope == scope)
-                    else {
-                        reply(&mut request, Err(CommandFailure::Unavailable));
-                        return;
-                    };
-                    let context = super::query_route::RouteContext {
-                        local: crate::application::consensus::RaftCellHandle {
-                            handle: self.local.clone(),
-                            binding,
-                        },
-                        member: cell.group.identity().member,
-                        runtime: self.runtime.clone(),
-                        transport: self.transport.clone(),
-                        keys: self.versions.clone(),
-                        control: request.control.clone(),
-                        minimum,
-                    };
-                    self.jobs.push(Box::pin(async move {
-                        Job::Routed {
-                            request: Box::new(request),
-                            result: context.run(contract, input, options).await,
-                        }
-                    }));
-                    return;
-                }
                 let Some(sequence) = self.read_sequence.checked_add(1) else {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;

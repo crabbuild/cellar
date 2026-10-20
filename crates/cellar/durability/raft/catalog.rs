@@ -206,6 +206,22 @@ impl Catalog {
         &self,
         config: NamespaceConfig,
     ) -> Result<NamespaceCatalog, CatalogError> {
+        self.namespace(config, true).await
+    }
+
+    /// Read the exact existing root without creating namespace metadata.
+    pub async fn existing_namespace(
+        &self,
+        config: NamespaceConfig,
+    ) -> Result<NamespaceCatalog, CatalogError> {
+        self.namespace(config, false).await
+    }
+
+    async fn namespace(
+        &self,
+        config: NamespaceConfig,
+        create: bool,
+    ) -> Result<NamespaceCatalog, CatalogError> {
         if config.schema_digest == [0; 32] {
             return Err(CatalogError::Invalid("namespace schema digest"));
         }
@@ -226,7 +242,14 @@ impl Catalog {
             hex::encode(config.namespace.bytes())
         ));
         let bytes = wire::encode(wire::ROOT, &expected, self.inner.limit)?;
-        let observed = self.inner.create_and_observe(&key, &bytes).await?;
+        let observed = if create {
+            self.inner.create_and_observe(&key, &bytes).await?
+        } else {
+            self.inner
+                .read(&key)
+                .await?
+                .ok_or(CatalogError::Conflict("namespace missing"))?
+        };
         let root: wire::Root = wire::decode(wire::ROOT, &observed, self.inner.limit)?;
         root.validate()?;
         if root != expected {

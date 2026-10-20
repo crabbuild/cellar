@@ -5,11 +5,11 @@ use super::budget::{Budget, Permit};
 use super::completion::RuntimeError;
 use super::runtime::RaftRuntime;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
-use super::transport_options::{RaftPeerNode, RaftTls, TransportOptions};
+use super::transport_options::{NamespaceQueryOrigin, RaftPeerNode, RaftTls, TransportOptions};
 use crate::asyncrt::DomainToken;
 use crate::peer_auth::PeerAuth;
 use ::raft::prelude::{Message, MessageType};
-use cellar_logic::consensus::{GroupScope, NodeId, ReplicaIdentity};
+use cellar_logic::consensus::{ClusterId, GroupScope, NamespaceId, NodeId, ReplicaIdentity};
 use protobuf::Message as _;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
@@ -210,11 +210,45 @@ struct Pool {
     stop: watch::Sender<bool>,
 }
 
+struct PoolStart {
+    pool: Arc<Pool>,
+    control: mpsc::Receiver<SendRequest>,
+    data: mpsc::Receiver<SendRequest>,
+    query: mpsc::Receiver<queries::SendQuery>,
+    guards: [TaskGuard; 3],
+}
+
 struct Registry {
     closed: bool,
     tasks: usize,
     groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
+    query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
+    origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
     pools: BTreeMap<NodeId, Arc<Pool>>,
+}
+
+impl Registry {
+    fn prune_pools(&mut self) {
+        let used: BTreeSet<_> = self
+            .groups
+            .values()
+            .chain(self.query_groups.values())
+            .flat_map(|route| route.peers.iter().map(|peer| peer.replica.node))
+            .chain(
+                self.origins
+                    .values()
+                    .filter_map(|grant| grant.peer.as_ref().map(|peer| peer.node)),
+            )
+            .collect();
+        self.pools.retain(|node, pool| {
+            if used.contains(node) {
+                true
+            } else {
+                pool.stop.send_replace(true);
+                false
+            }
+        });
+    }
 }
 
 struct State {
@@ -324,6 +358,8 @@ impl RaftTransport {
                 closed: false,
                 tasks: 0,
                 groups: BTreeMap::new(),
+                query_groups: BTreeMap::new(),
+                origins: BTreeMap::new(),
                 pools: BTreeMap::new(),
             }),
             outgoing: Banks::new(
@@ -429,6 +465,9 @@ impl RaftTransport {
         }
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
+        if registry.query_groups.contains_key(&route.scope) {
+            return Err(TransportError::Identity);
+        }
         if let Some(old) = registry.groups.get(&route.scope) {
             if **old == route {
                 return Ok(());
@@ -449,7 +488,7 @@ impl RaftTransport {
                     }
                 }
             }
-        } else if registry.groups.len() >= state.options.max_groups {
+        } else if registry.groups.len() + registry.query_groups.len() >= state.options.max_groups {
             return Err(TransportError::Overloaded);
         }
         // Existing peers' physical addresses/process must agree across groups.
@@ -465,89 +504,32 @@ impl RaftTransport {
                 return Err(TransportError::StalePeer);
             }
         }
-        let new_nodes = route
+        let physical: Vec<_> = route
             .peers
             .iter()
-            .filter(|p| {
-                p.replica.node != local.node && !registry.pools.contains_key(&p.replica.node)
-            })
-            .count();
-        if registry.pools.len() + new_nodes > state.options.max_peers {
-            return Err(TransportError::Overloaded);
-        }
-        // Reserve all worker slots before changing this registry view. Spawn
-        // reservations and close share the same lock, so close cannot miss them.
-        if registry.tasks + 3 * route.peers.len() > state.task_limit() {
-            return Err(TransportError::Overloaded);
-        }
-        let mut starts = Vec::new();
-        let mut query_starts = Vec::new();
-        for peer in route.peers.iter().filter(|p| p.replica.node != local.node) {
-            if registry
-                .pools
-                .get(&peer.replica.node)
-                .is_some_and(|p| p.peer.same_host(peer))
-            {
-                continue;
-            }
-            if let Some(old) = registry.pools.remove(&peer.replica.node) {
-                old.stop.send_replace(true);
-            }
-            let (control, crx) = mpsc::channel(state.options.queue_items);
-            let (data, drx) = mpsc::channel(state.options.queue_items);
-            let (query, qrx) = mpsc::channel(state.options.queue_items);
-            let (stop, _) = watch::channel(false);
-            let pool = Arc::new(Pool {
-                peer: RaftPeerNode::from(peer),
-                tx: [control, data],
-                query,
-                stop,
-                outgoing: Banks::new(
-                    state.options.peer_control_bytes,
-                    state.options.peer_data_bytes,
-                    state.options.peer_query_bytes,
-                    state.options.queue_items,
-                ),
-                incoming: Banks::new(
-                    state.options.peer_control_bytes,
-                    state.options.peer_data_bytes,
-                    state.options.peer_query_bytes,
-                    state.options.max_connections_per_lane,
-                ),
-            });
-            registry.tasks += 3;
-            starts.push((pool.clone(), Lane::Control, crx, TaskGuard(state.clone())));
-            starts.push((pool.clone(), Lane::Data, drx, TaskGuard(state.clone())));
-            query_starts.push((pool.clone(), qrx, TaskGuard(state.clone())));
-            registry.pools.insert(peer.replica.node, pool);
-        }
-        registry.groups.insert(route.scope.clone(), Arc::new(route));
-        let used: BTreeSet<_> = registry
-            .groups
-            .values()
-            .flat_map(|r| r.peers.iter().map(|p| p.replica.node))
+            .filter(|peer| peer.replica.node != local.node)
+            .map(RaftPeerNode::from)
             .collect();
-        registry.pools.retain(|node, pool| {
-            if used.contains(node) {
-                true
-            } else {
-                pool.stop.send_replace(true);
-                false
+        for peer in &physical {
+            if registry
+                .query_groups
+                .values()
+                .flat_map(|view| &view.peers)
+                .any(|other| other.replica.node == peer.node && !peer.same_host(other))
+                || registry
+                    .origins
+                    .values()
+                    .filter_map(|grant| grant.peer.as_ref())
+                    .any(|other| other.node == peer.node && other != peer)
+            {
+                return Err(TransportError::StalePeer);
             }
-        });
+        }
+        let starts = state.prepare_pools(&mut registry, &physical)?;
+        registry.groups.insert(route.scope.clone(), Arc::new(route));
+        registry.prune_pools();
         drop(registry);
-        for (pool, lane, rx, guard) in starts {
-            let worker = state.clone();
-            state.spawn_reserved(guard, async move {
-                worker.send_loop(pool, lane, rx).await;
-            })?;
-        }
-        for (pool, rx, guard) in query_starts {
-            let worker = state.clone();
-            state.spawn_reserved(guard, async move {
-                worker.send_queries(pool, rx).await;
-            })?;
-        }
+        state.start_pools(starts)?;
         Ok(())
     }
 
@@ -556,19 +538,7 @@ impl RaftTransport {
         let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
         state.admit(&registry)?;
         registry.groups.remove(scope);
-        let used: BTreeSet<_> = registry
-            .groups
-            .values()
-            .flat_map(|r| r.peers.iter().map(|p| p.replica.node))
-            .collect();
-        registry.pools.retain(|node, pool| {
-            if used.contains(node) {
-                true
-            } else {
-                pool.stop.send_replace(true);
-                false
-            }
-        });
+        registry.prune_pools();
         Ok(())
     }
 
@@ -732,6 +702,106 @@ fn lane_index(lane: Lane) -> usize {
 }
 
 impl State {
+    /// Reserve every worker before mutating a view. Callers perform all other
+    /// fallible validation first, release the registry lock, then start workers.
+    fn prepare_pools(
+        self: &Arc<Self>,
+        registry: &mut Registry,
+        peers: &[RaftPeerNode],
+    ) -> Result<Vec<PoolStart>, TransportError> {
+        let new_nodes = peers
+            .iter()
+            .filter(|peer| !registry.pools.contains_key(&peer.node))
+            .count();
+        let replacing = peers
+            .iter()
+            .filter(|peer| {
+                registry
+                    .pools
+                    .get(&peer.node)
+                    .is_none_or(|pool| pool.peer != **peer)
+            })
+            .count();
+        if registry.pools.len() + new_nodes > self.options.max_peers
+            || registry.tasks + 3 * replacing > self.task_limit()
+        {
+            return Err(TransportError::Overloaded);
+        }
+        let mut starts = Vec::new();
+        for peer in peers {
+            if registry
+                .pools
+                .get(&peer.node)
+                .is_some_and(|pool| pool.peer == *peer)
+            {
+                continue;
+            }
+            if let Some(old) = registry.pools.remove(&peer.node) {
+                old.stop.send_replace(true);
+            }
+            let (control, crx) = mpsc::channel(self.options.queue_items);
+            let (data, drx) = mpsc::channel(self.options.queue_items);
+            let (query, qrx) = mpsc::channel(self.options.queue_items);
+            let (stop, _) = watch::channel(false);
+            let pool = Arc::new(Pool {
+                peer: peer.clone(),
+                tx: [control, data],
+                query,
+                stop,
+                outgoing: Banks::new(
+                    self.options.peer_control_bytes,
+                    self.options.peer_data_bytes,
+                    self.options.peer_query_bytes,
+                    self.options.queue_items,
+                ),
+                incoming: Banks::new(
+                    self.options.peer_control_bytes,
+                    self.options.peer_data_bytes,
+                    self.options.peer_query_bytes,
+                    self.options.max_connections_per_lane,
+                ),
+            });
+            registry.tasks += 3;
+            starts.push(PoolStart {
+                pool: pool.clone(),
+                control: crx,
+                data: drx,
+                query: qrx,
+                guards: [
+                    TaskGuard(self.clone()),
+                    TaskGuard(self.clone()),
+                    TaskGuard(self.clone()),
+                ],
+            });
+            registry.pools.insert(peer.node, pool);
+        }
+        Ok(starts)
+    }
+
+    fn start_pools(self: &Arc<Self>, starts: Vec<PoolStart>) -> Result<(), TransportError> {
+        for start in starts {
+            let PoolStart {
+                pool,
+                control,
+                data,
+                query,
+                guards: [cg, dg, qg],
+            } = start;
+            for (lane, rx, guard) in [(Lane::Control, control, cg), (Lane::Data, data, dg)] {
+                let worker = self.clone();
+                let pool = pool.clone();
+                self.spawn_reserved(guard, async move {
+                    worker.send_loop(pool, lane, rx).await;
+                })?;
+            }
+            let worker = self.clone();
+            self.spawn_reserved(qg, async move {
+                worker.send_queries(pool, query).await;
+            })?;
+        }
+        Ok(())
+    }
+
     /// Poison closes ordinary admission. Cleanup still reads the real owner
     /// count; a poisoned lock must never stand in for successful resource join.
     fn lifecycle_registry(&self) -> std::sync::MutexGuard<'_, Registry> {

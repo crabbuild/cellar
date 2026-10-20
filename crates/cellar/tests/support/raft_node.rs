@@ -106,6 +106,7 @@ pub async fn cells(
     let tls = tls()?;
     node.start_raft_cells(
         RaftCellsConfig {
+            query_origins: vec![],
             infrastructure: NodeRaftConfig {
                 log: ReplicaLogOptions::new(
                     node.info().data_dir.join("raft"),
