@@ -16,6 +16,7 @@ use std::{
 
 mod installed_host;
 mod rolling;
+mod supervised;
 
 struct Process(Child);
 
@@ -84,19 +85,42 @@ impl Drop for Original {
 fn main() -> Result<()> {
     let mut arguments = std::env::args().skip(1);
     let package = PathBuf::from(arguments.next().context(
-        "usage: python-package-qualification PACKAGE_DIR SCRATCH_PREFIX [NEXT_PACKAGE_DIR]",
+        "usage: python-package-qualification PACKAGE_DIR SCRATCH_PREFIX [NEXT_PACKAGE_DIR] [--supervisor CELLAR_EXECUTABLE] [--supervisor-only]",
     )?)
     .canonicalize()?;
     let scratch =
         PathBuf::from(arguments.next().context("scratch prefix is required")?).canonicalize()?;
-    let replacement = arguments
-        .next()
-        .map(PathBuf::from)
-        .map(|path| path.canonicalize())
-        .transpose()?;
+    let (mut replacement, mut supervisor) = (None, None);
+    let mut supervisor_only = false;
+    while let Some(argument) = arguments.next() {
+        if argument == "--supervisor-only" {
+            ensure!(!supervisor_only, "duplicate supervisor-only argument");
+            supervisor_only = true;
+        } else if argument == "--supervisor" {
+            ensure!(supervisor.is_none(), "duplicate supervisor argument");
+            supervisor = Some(
+                PathBuf::from(
+                    arguments
+                        .next()
+                        .context("--supervisor requires the Cellar executable")?,
+                )
+                .canonicalize()?,
+            );
+        } else {
+            ensure!(
+                replacement.is_none() && !argument.starts_with('-'),
+                "unexpected qualification argument"
+            );
+            replacement = Some(PathBuf::from(argument).canonicalize()?);
+        }
+    }
     ensure!(
-        arguments.next().is_none(),
-        "unexpected qualification arguments"
+        supervisor.is_none() || replacement.is_some(),
+        "supervisor qualification requires the generated changed-source package"
+    );
+    ensure!(
+        !supervisor_only || supervisor.is_some(),
+        "supervisor-only requires --supervisor"
     );
     let package_data: Package =
         serde_json::from_slice(&std::fs::read(package.join("package.json"))?)?;
@@ -131,6 +155,17 @@ fn main() -> Result<()> {
         .worker_threads(2)
         .enable_all()
         .build()?;
+    if supervisor_only {
+        return runtime.block_on(async {
+            cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
+            supervised::qualify(
+                replacement.as_ref().context("watchdog package missing")?,
+                &scratch,
+                supervisor.as_ref().context("watchdog executable missing")?,
+            )
+            .await
+        });
+    }
     runtime.block_on(async {
         cellar::asyncrt::set_host_handle(tokio::runtime::Handle::current());
         let store = work.path().join("bucket.sqlite");
@@ -165,8 +200,15 @@ fn main() -> Result<()> {
         }
     })?;
     cellar::cli_output::Output::new(cellar::cli_output::Format::Text).line(format_args!("PASS native Python package: bucket publication, original runtime removed, closure restored, clean-environment host, native libraries, receipt replay and joined shutdown"))?;
-    if let Some(replacement) = replacement {
-        runtime.block_on(rolling::qualify(&package, &replacement, &scratch))?;
+    if let Some(replacement) = replacement.as_ref() {
+        runtime.block_on(rolling::qualify(&package, replacement, &scratch))?;
+    }
+    if let Some(supervisor) = supervisor {
+        runtime.block_on(supervised::qualify(
+            replacement.as_ref().context("watchdog package missing")?,
+            &scratch,
+            &supervisor,
+        ))?;
     }
     Ok(())
 }

@@ -152,19 +152,19 @@ pub(super) async fn qualify(old: &Path, new: &Path, scratch: &Path) -> Result<()
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct Receipt {
+pub(super) struct Receipt {
     status: u16,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
 }
 
 impl Receipt {
-    fn value(&self) -> Result<Value> {
+    pub(super) fn value(&self) -> Result<Value> {
         Ok(serde_json::from_slice(&self.body)?)
     }
 }
 
-async fn increment(
+pub(super) async fn increment(
     client: &reqwest::Client,
     origin: &str,
     key: &str,

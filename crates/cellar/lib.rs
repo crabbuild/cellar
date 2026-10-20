@@ -158,6 +158,9 @@ pub mod memory;
 pub mod native_deploy;
 #[path = "runtime/workers/native/mod.rs"]
 pub(crate) mod native_worker;
+#[path = "cli/supervise/mod.rs"]
+#[cfg(unix)]
+mod supervise;
 #[path = "runtime/workers/worker.rs"]
 pub mod worker;
 // Retain host interfaces while their remaining native frontends are ported.

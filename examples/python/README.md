@@ -82,4 +82,10 @@ matrix are tracked in the [completion audit](../../plans/007-embedded-python-aud
 See the [adapter contract and limitations](../../crates/cellar-python/README.md)
 before using it for production workloads.
 
+The example's Python-dispatched `/health` handler supports the shipped Unix
+[`cellar supervise` watchdog](../../tools/python/README.md#process-supervision).
+It echoes the per-process instance header only when the supervisor explicitly
+provides it. The deployment recipe includes finite restart policy, a systemd
+service template and a real installed-host stalled-interpreter recovery drill.
+
 Set `CELLAR_SHUTDOWN_REPORT_JSON=1` to emit the combined native/Python shutdown report. The smoke test checks that native drain phases complete, objects retire and bridge reservations/tasks/threads return to zero. `PythonApplication::bridge_report()` supplies live native bridge copy/resource counters and operation latency histograms to a Rust-owned metrics exporter. `interpreter_snapshot()` returns sampled CPU, task/object and memory-block observations without waiting for the GIL; check its sample age. Optional allocation profiling and whole-process allocator samples have explicit exclusions in the adapter guide. These observations do not provide per-cell heap limits or certify private library thread pools.

@@ -24,6 +24,7 @@ cellar build PROJECT.json --output DIRECTORY
 cellar dev PROJECT.json [--host IP] [--port PORT] [--logs] [--no-watch]
 cellar deploy DIRECTORY --bucket NAME [--endpoint URL] [--region REGION]
 cellar install DIRECTORY --bucket NAME --output EXECUTABLE [--target TRIPLE]
+cellar supervise --health-url URL [OPTIONS] -- PROGRAM [ARG...]
 ```
 
 `dev --clean` intentionally resets the selected project's local state. The
@@ -49,6 +50,17 @@ cargo run -p cellar --bin cellar --locked --
 
 Use a private `CARGO_TARGET_DIR` per repository guidance. Native package builds
 select locked dependencies and reject JavaScript-engine dependency graphs.
+
+On Unix, `supervise` owns a child process group and probes its runtime-dispatched
+health endpoint. The handler must echo `CELLAR_SUPERVISOR_INSTANCE` in the
+`x-cellar-supervisor-instance` response header. Startup deadlines, bounded probes,
+consecutive failure thresholds and a lifetime restart cap prevent endless silent
+restarts. TERM/INT requests a cooperative stop; the shutdown deadline or a second
+signal escalates to KILL. The child is joined before another starts. JSON stdout
+contains flushed lifecycle records; child output goes to stderr. Process exit
+alone does not prove application drain. See the [supervisor contract and service
+template](../tools/python/README.md#process-supervision) for policy,
+supported platforms and qualification commands.
 
 ## Operator command families
 

@@ -117,7 +117,8 @@ python3 tools/python/rolling_project.py "$CELLAR_PYTHON_PREFIX/project.json" \
   --output /absolute/private/path/python-package-v2
 cargo run -p cellar --example python-package-qualification --locked -- \
   /absolute/private/path/python-package /absolute/private/path \
-  /absolute/private/path/python-package-v2
+  /absolute/private/path/python-package-v2 \
+  --supervisor "$CARGO_TARGET_DIR/debug/cellar"
 ```
 
 The generator creates a new directory, copies the example entry point, changes
@@ -151,10 +152,83 @@ local development-fleet drills. The bridge harness also pauses both real
 follower append traffic and bucket data writes in a three-node fleet: sync and
 final output wait for proof, actual follower acknowledgements release success
 while bucket writes remain held, and failure of both paths refuses success.
-Independent binding failure/replay and the broader platform matrix remain in
-the completion audit. Production must use a process supervisor with a finite
-startup deadline, a Python-served health check, bounded graceful-stop time, hard
-termination and restart. Rust cannot safely interrupt arbitrary Python C code.
+Independent KV/shared-SQL/producer fault matrices also cover cancellation,
+unknown results without replay, explicit reconciliation and bounded overlap.
+Their evidence scope and remaining qualification are in the completion audit.
+The shipped Unix process supervisor provides finite
+startup/probe/stop deadlines and bounded restarts independently of Python.
+Rust cannot safely interrupt arbitrary Python C code inside the host process.
+
+## Process supervision
+
+After installing the verified executable/runtime, start it through the native CLI:
+
+```sh
+cellar supervise --json --health-url http://127.0.0.1:8080/health \
+  --startup-ms 30000 --probe-ms 2000 --interval-ms 1000 --failures 3 \
+  --shutdown-ms 35000 --restart-ms 1000 --max-restarts 3 -- \
+  /opt/cellar/python/current/host --listen 0.0.0.0:8080 \
+  --internal-listen YOUR_PRIVATE_PEER_ADDRESS
+```
+
+Configure the normal fleet bucket, node identity, advertise address and storage
+credentials through the host's CLI/environment. `CELLAR_WATCH` selects persistent
+local working storage. These budgets are an example deployment policy; choose
+them for the service's import time, probe latency and native shutdown budget.
+
+The supervisor supplies a new 128-bit `CELLAR_SUPERVISOR_INSTANCE` on each spawn.
+The Python example's CLI explicitly adds only that value to its Python
+`Environment`. Its Python-dispatched `/health` handler echoes it in
+`x-cellar-supervisor-instance`. A 2xx response with a missing/different value does
+not establish readiness. This correlates the probe with this process; it is not
+an authentication credential. Applications embedding the adapter should implement
+the same small handler using an explicitly configured Python environment. A
+Rust-only health endpoint cannot establish that a blocked Python loop progresses.
+
+Probes are sequential, use finite timeouts, and disable redirects and ambient
+proxies. Failed startup, consecutive failures after readiness, or child exit
+terminates/joins the child before restarting it. A healthy response resets the
+consecutive-failure counter. TERM/INT to the supervisor requests TERM of the owned
+child group; another signal or the stop deadline escalates to KILL. KILL reaping
+has its own five-second bound; failure refuses restart. `--max-restarts` counts
+all restarts during that supervisor invocation, including startup failures.
+Program arguments after `--` are passed directly without a shell.
+
+Lifecycle records stream on stdout and are flushed immediately; child stdout and
+stderr go to stderr. Records include direct child PID, attempt, stop reason,
+exit code/signal and whether it required forced termination. They never assert
+`drain_complete`: only the child's combined native/Python report proves drain.
+Kernel/host failures can prevent reaping, and private detached processes remain
+application/outer-service responsibilities. Linux additionally uses the existing
+parent-death guard to kill the direct child if its supervisor dies.
+
+[cellar-python.service](cellar-python.service) provides a systemd deployment
+template. Provision the `cellar` user/group, `/usr/local/bin/cellar`, the installed
+host at `/opt/cellar/python/current/host`, its immutable runtime prefix, and
+`/etc/cellar/python.env` with the fleet/listener configuration (port 8080 for the
+health URL). Its state lives under `/var/lib/cellar-python`; runtime files remain
+read-only. Set the native shutdown budget below the supervisor grace. The unit
+uses `KillMode=mixed` so TERM reaches the supervisor first and systemd can kill
+remaining cgroup processes if it exits or exceeds the outer stop deadline.
+These are the [documented systemd kill semantics](https://www.freedesktop.org/software/systemd/man/latest/systemd.kill.html).
+`Type=exec` confirms supervisor execution, rather than application readiness;
+the CLI's instance-matched readiness record/probe supplies the latter, consistent
+with [systemd's service types](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html).
+The outer unit's restart/rate limits are separate from the CLI's per-invocation cap.
+
+Passing `--supervisor CELLAR_EXECUTABLE` to the package qualification tool runs a
+real installed-Python drill using the generated changed-source package. A private
+qualification-only route blocks the acknowledged owner in a GIL-held C call,
+requires a forced KILL and joined replacement, replays the exact durable receipt,
+commits another write and verifies complete replacement shutdown with a real
+handoff peer. The killed process must produce no clean-shutdown report. The CLI's
+own process tests additionally cover wrong-instance probes, startup hangs,
+ignored TERM, second-signal escalation, unexpected exit/restart accounting,
+invalid policies and consecutive-failure reset. The inventory drill independently
+removes source, the native extension, the package root and actual libpython,
+then verifies refusal and restoration; run it only with exclusive private roots.
+For a shorter watchdog feedback loop, add `--supervisor-only`; that mode skips
+archive restoration and rolling qualification and does not establish those gates.
 
 Current local evidence: macOS ARM64, CPython 3.14.5 (independent managed runtime)
 and 3.14.6 (Homebrew), Pydantic 2.12.3 / pydantic-core 2.41.4, NumPy 2.3.4,

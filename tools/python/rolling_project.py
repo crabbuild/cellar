@@ -49,6 +49,20 @@ async def _updated_cell_fetch(self, request, ctx):
         response.headers.append(({REVISION_HEADER!r}, {REVISION!r}))
     return response
 Counter.fetch = _updated_cell_fetch
+
+# Private fixture only: never add a deliberately stuck route to the application.
+_previous_watchdog_fetch = fetch
+async def fetch(request, ctx):
+    if request.path == "/__cellar_qualification_stall":
+        import ctypes
+        sleep = ctypes.PyDLL(None).sleep
+        sleep.argtypes = [ctypes.c_uint]
+        sleep.restype = ctypes.c_uint
+        # A process signal can interrupt sleep. Re-enter C without yielding
+        # to asyncio so TERM cannot accidentally turn this into a clean drain.
+        while True:
+            sleep(60)
+    return await _previous_watchdog_fetch(request, ctx)
 '''
     (output / "app.py").write_text(source)
     shutil.copyfile(example / "main.rs", output / "main.rs")

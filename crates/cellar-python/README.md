@@ -147,7 +147,10 @@ external services, and native extension crashes affect the entire Cellar process
 Use async libraries for cooperative I/O. CPU-bound Python, a GIL-holding native
 extension or cancellation-suppressing code can stall the interpreter; Rust's
 handler deadline revokes SDK authority but cannot forcibly stop that Python code.
-Run a process watchdog for hard termination. Direct library side effects bypass
+Use the shipped Unix [`cellar supervise` process watchdog](../../tools/python/README.md#process-supervision)
+for bounded startup, liveness, hard termination and restart. Its health endpoint
+must execute through Python. A process exit or supervisor record alone is not a
+drain proof; inspect the combined native/Python report. Direct library side effects bypass
 Cellar's durability and idempotency mechanisms. Background tasks have no durable
 execution guarantee and lose SDK authority when their invocation ends. Cooperative
 tasks are cancelled at shutdown; the asyncio default thread executor is joined

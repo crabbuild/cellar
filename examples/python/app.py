@@ -1,6 +1,7 @@
 """Durable Python counter. Cellar owns storage, routing and recovery."""
 import hashlib
 import asyncio
+import os
 import numpy as np
 from typing_inspection.introspection import get_literal_values
 from typing import Literal
@@ -23,7 +24,10 @@ async def fetch(request, ctx):
         assert list(get_literal_values(Literal["durable", "python"])) == ["durable", "python"]
         return Response.json({"matrix": matrix, "sha256": checksum, "numpy": np.__version__})
     if request.path == "/health":
-        return Response.json({"runtime": "cpython", "sha256": hashlib.sha256(b"cellar").hexdigest()})
+        response = Response.json({"runtime": "cpython", "sha256": hashlib.sha256(b"cellar").hexdigest()})
+        if instance := os.environ.get("CELLAR_SUPERVISOR_INSTANCE"):
+            response.headers.append(("x-cellar-supervisor-instance", instance))
+        return response
     if request.path.startswith("/counters/"):
         name = request.path.split("/")[2]
         return await ctx.namespace("COUNTERS").get_by_name(name).fetch(request)

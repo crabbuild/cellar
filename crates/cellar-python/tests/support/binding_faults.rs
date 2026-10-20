@@ -33,17 +33,33 @@ async fn wait_phase(
 }
 
 async fn drained(client: &reqwest::Client, url: &str) -> Result<Value> {
-    tokio::time::timeout(Duration::from_secs(10), async {
+    let mut refused = 0;
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
-            let metrics = value(client, url, "/metrics").await?;
-            if metrics["count"].as_f64() == Some(0.0) {
-                return value(client, url, "/state").await;
+            // Reset is asynchronous after failed proof. These two fixed
+            // observations contain only metrics, KV reads and SELECTs; retry
+            // their temporary refusal, never a mutation/attempt endpoint.
+            let metrics = client.get(format!("{url}/metrics")).send().await?;
+            if matches!(metrics.status().as_u16(), 500 | 503) {
+                refused += 1;
+            } else {
+                let metrics: Value = metrics.error_for_status()?.json().await?;
+                if metrics["count"].as_f64() == Some(0.0) {
+                    let state = client.get(format!("{url}/state")).send().await?;
+                    if matches!(state.status().as_u16(), 500 | 503) {
+                        refused += 1;
+                    } else {
+                        return Ok(state.error_for_status()?.json().await?);
+                    }
+                }
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     })
-    .await
-    .context("binding queue did not drain")?
+    .await;
+    result.with_context(|| {
+        format!("binding queue did not recover/drain; {refused} read-only probes refused")
+    })?
 }
 
 pub(super) fn child() -> Result<()> {

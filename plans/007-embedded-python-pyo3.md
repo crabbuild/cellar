@@ -19,7 +19,7 @@ KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
 Remaining qualification: external native-library/OS attestation, interrupted cron
-delivery, remaining admission/retirement races, production watchdog integration,
+delivery, remaining admission/retirement races, current-source Linux watchdog qualification,
 native-versus-Python measurements and current-source CI. Independent KV, shared-SQL
 and queue matrices now cover cancellation, failed proof, explicit reconciliation,
 backpressure, resource cleanup and preserving restart. The queue producer drill
@@ -33,6 +33,13 @@ task resumed after a real ownership fence are directly tested. Local CPU-loop
 and GIL-held C-call watchdog drills kill owners, remove local disks, recover
 acknowledged state from the development fleet bucket and verify new writes.
 Native factories also progress while Python remains blocked.
+The shipped Unix `cellar supervise` now provides bounded startup/liveness,
+process-group shutdown, joined restarts and per-process health correlation.
+Its process tests and a real installed-host forced-KILL/replacement drill pass
+locally; the [deployment recipe and service template](../tools/python/README.md#process-supervision)
+describe operational policy and the distinction between process exit and drain.
+Independent loss of source, native extension, package root and libpython refuses
+startup in the disposable bound-host matrix, with the exact runtime restored.
 Cancellation-suppressing asyncio tasks, host failures/panics,
 background interpreter failure and default executor shutdown have local coverage. Native projects can now bundle and restore a verified CPython/runtime/package
 closure. The real recovery drill removes the original runtime, installs from

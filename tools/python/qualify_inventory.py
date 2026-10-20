@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tempfile
 
 
 def main():
@@ -24,14 +25,18 @@ def main():
     assert roots and all(root.is_relative_to(scratch) for root in roots)
     environment = dict(os.environ, CELLAR_PYTHON_SITE_PACKAGES=os.pathsep.join(inventory["module_paths"]))
 
-    def run(expected_success):
+    def run(expected_success, *, loader_failure=False):
         result = subprocess.run([str(args.host.resolve(strict=True)), "--help"], env=environment,
                                 capture_output=True, timeout=15)
         if expected_success:
             assert result.returncode == 0, result.stderr.decode(errors="replace")
         else:
             assert result.returncode != 0, "corrupted environment admitted host"
-            assert b"Python provisioned files differ" in result.stderr or b"No such file" in result.stderr, result.stderr
+            expected = (b"Python provisioned files differ", b"No such file", b"Python inventory layout mismatch")
+            if loader_failure:
+                expected += (b"Library not loaded", b"error while loading shared libraries",
+                             b"loaded libpython is outside the verified inventory")
+            assert any(message in result.stderr for message in expected), result.stderr
             assert b"UNAPPROVED-IMPORT-EXECUTED" not in result.stderr
 
     run(True)
@@ -51,14 +56,21 @@ def main():
         run(False)
     finally:
         extension.write_bytes(original)
-    hidden = source.with_name(".cellar-qualification-missing")
-    assert not hidden.exists()
-    try:
-        source.rename(hidden)
-        run(False)
-    finally:
-        if hidden.exists():
-            hidden.rename(source)
+    library = next(Path(path) for path, entry in inventory["files"].items()
+                   if entry["kind"] == "file" and Path(path).name.startswith("libpython3.14")
+                   and (".so" in Path(path).name or path.endswith(".dylib")))
+    # Move outside every inventoried root: test genuine absence independently
+    # from the extra-file refusal below. Never share these roots with a host.
+    with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+        hidden = Path(temporary) / "missing"
+        for missing in (source, extension, Path(inventory["module_paths"][0]), library):
+            assert not any(hidden.is_relative_to(root) for root in roots)
+            try:
+                missing.rename(hidden)
+                run(False, loader_failure=(missing == library))
+            finally:
+                if hidden.exists():
+                    hidden.rename(missing)
     added = Path(inventory["module_paths"][0]) / "unlisted_cellar_code.py"
     assert not added.exists()
     try:
@@ -67,7 +79,7 @@ def main():
     finally:
         added.unlink(missing_ok=True)
     run(True)
-    print("PASS verified inventory: valid runtime, changed source/extension, missing and unlisted files, restored runtime")
+    print("PASS verified inventory: valid runtime, changed source/extension, missing source/extension/package root/libpython, unlisted files, restored runtime")
 
 
 if __name__ == "__main__":

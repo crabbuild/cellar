@@ -1,7 +1,7 @@
 //! Compiled host: Python source participates in the native executable digest.
-use anyhow::Result;
+use anyhow::{ensure, Result};
 use cellar::sdk::Host;
-use cellar_python::{EventKind, Options, PythonRuntime, Source};
+use cellar_python::{Environment, EventKind, Options, PythonRuntime, Source};
 
 const APPLICATION_VERSION: &str = match option_env!("CELLAR_APPLICATION_VERSION") {
     Some(version) => version,
@@ -12,6 +12,19 @@ fn main() -> Result<()> {
     let mut options = Options::default();
     if let Some(paths) = std::env::var_os("CELLAR_PYTHON_SITE_PACKAGES") {
         options.module_paths = std::env::split_paths(&paths).collect();
+    }
+    if let Some(instance) = std::env::var_os("CELLAR_SUPERVISOR_INSTANCE") {
+        let instance = instance
+            .into_string()
+            .map_err(|_| anyhow::anyhow!("supervisor instance must be UTF-8"))?;
+        ensure!(
+            instance.len() == 32
+                && instance
+                    .bytes()
+                    .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)),
+            "supervisor instance must be 32 lowercase hexadecimal characters"
+        );
+        options.environment = Environment::new([("CELLAR_SUPERVISOR_INSTANCE".into(), instance)])?;
     }
     // SAFETY: main owns CPython initialization; no Python APIs or threads exist
     // before this call. The Rust host starts only after initialization succeeds.
