@@ -92,6 +92,7 @@ struct Pending {
     entry: Option<BoundEntry>,
     receipt_verified: bool,
     recovered: Option<CommittedVersion>,
+    retirement: Option<LogPosition>,
 }
 
 /// One serial actor owns this value per resident Raft cell. It cannot be cloned
@@ -260,6 +261,7 @@ impl CommandState {
             entry: None,
             receipt_verified: false,
             recovered: None,
+            retirement: None,
         });
         Ok(identity)
     }
@@ -471,6 +473,50 @@ impl CommandState {
         self.ready(replacement)?;
         self.matching(identity)?;
         if replacement.term <= identity.authority.term {
+            return Err(Refusal::Unproven);
+        }
+        self.pending = None;
+        Ok(())
+    }
+
+    /// A committed and published current-term barrier decides whether an old
+    /// term's submission can still be in the history, including on a follower.
+    /// This grants no new write authority. The host must next close/discard the
+    /// old private owner against this exact durable cut.
+    pub fn begin_retirement(&mut self, identity: &CommandIdentity) -> Result<LogPosition, Refusal> {
+        self.open()?;
+        let observation = self.observation.as_ref().ok_or(Refusal::Unproven)?;
+        let barrier = observation.barrier;
+        if observation.term <= identity.authority.term
+            || barrier.term != observation.term
+            || barrier.index.get() == 0
+            || self.progress.queryable() < barrier.index
+        {
+            return Err(Refusal::Unproven);
+        }
+        let pending = self.matching(identity)?;
+        if !pending.submitted || !pending.retired {
+            return Err(Refusal::Unproven);
+        }
+        pending.retirement = Some(barrier);
+        Ok(barrier)
+    }
+
+    pub fn retirement_completed(
+        &mut self,
+        identity: &CommandIdentity,
+        barrier: LogPosition,
+    ) -> Result<(), Refusal> {
+        let queryable = self.progress.queryable();
+        let pending = self.matching(identity)?;
+        if pending.retirement != Some(barrier)
+            || !pending.submitted
+            || !pending.retired
+            || barrier.term <= identity.authority.term
+        {
+            return Err(Refusal::StaleCompletion);
+        }
+        if queryable < barrier.index {
             return Err(Refusal::Unproven);
         }
         self.pending = None;

@@ -660,6 +660,77 @@ impl Node {
         &self.info
     }
 
+    /// Start registered Raft cells on this node's executor. Namespace roots and
+    /// permanent member claims precede voting; the node owns command producers
+    /// and joins SQLite work even when client handles or waiters survive.
+    pub async fn start_raft_cells(
+        &self,
+        config: crate::application::consensus::RaftCellsConfig,
+        services: crate::application::consensus::RaftCellsServices,
+    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
+        use crate::application::consensus::RegistrationError;
+        config.host.validate()?;
+        anyhow::ensure!(
+            !config.cells.is_empty() && config.cells.len() <= config.host.max_groups,
+            "invalid registered Raft cell count"
+        );
+        let mut definitions = Vec::new();
+        for cell in &config.cells {
+            anyhow::ensure!(
+                !services.application.supports_cell(&cell.class)
+                    && !services.application.supports_workflow(&cell.class),
+                RegistrationError::UnsupportedFactory(cell.class.clone())
+            );
+            let class = services.application.resolve_raft_class(&cell.class)?;
+            anyhow::ensure!(
+                cell.namespace.mode == cellar_logic::NamespaceMode::Raft
+                    && cell.namespace.schema_digest == class.schema_digest(),
+                "Raft namespace mode/schema disagrees with registration"
+            );
+            anyhow::ensure!(
+                cellar_logic::cell::valid_cell_scope(&cell.birth.scope.cell)
+                    && cell
+                        .birth
+                        .scope
+                        .cell
+                        .split_once(':')
+                        .is_some_and(|(name, _)| name == class.name()),
+                "Raft cell scope must name its registered class"
+            );
+            definitions.push(class);
+        }
+        let registrations = self
+            .domain
+            .run(async {
+                let catalog = crate::raft::catalog::Catalog::new(services.store, config.catalog)?;
+                let mut registrations = Vec::new();
+                for (cell, class) in config.cells.into_iter().zip(definitions) {
+                    let namespace = catalog.open_namespace(cell.namespace).await?;
+                    let birth = namespace.resolve_birth(cell.birth).await?;
+                    registrations.push(crate::raft::host::Registration {
+                        namespace,
+                        birth,
+                        class,
+                    });
+                }
+                Ok::<_, anyhow::Error>(registrations)
+            })
+            .await??;
+        let service = self
+            .start_raft_service(config.infrastructure, services.listeners, services.tls)
+            .await?;
+        self.domain
+            .run(crate::raft::host::start(
+                service,
+                registrations,
+                config.peers,
+                self.info.data_dir.join("raft-cells"),
+                self.info.node.clone(),
+                config.host,
+            ))
+            .await?
+    }
+
     /// Start opt-in Raft infrastructure on this node's existing executor and
     /// injected filesystem. It does not change Fleet routing or register Raft
     /// cell handlers. The caller owns event dispatch and listener configuration.

@@ -1,9 +1,13 @@
 //! Host integration starts with immutable catalog and initial-member admission.
 #![allow(clippy::disallowed_methods)]
+#[path = "../../../examples/raft-counter/counter.rs"]
+mod counter_example;
+#[path = "support/raft_node.rs"]
+mod public_node;
 #[path = "support/raft_catalog_fault.rs"]
 mod store;
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context as _, Result};
 use cellar::application::consensus::verification::*;
 use cellar::sdk::{Application, ExecutionDomain, Output, RaftClass, RegistrationError, Registry};
 use cellar_logic::consensus::*;
@@ -17,6 +21,942 @@ fn registered_counter() -> Result<RaftClass> {
     Ok(RaftClass::new("Counter", 1, [7; 32])?
         .command("Increment", [8; 32], |_, _| Ok(vec![]))?
         .query("Get", [9; 32], |_, _| Ok(vec![]))?)
+}
+
+#[test]
+fn fleet_gate_unchanged() {
+    use cellar_logic::{
+        on_event, CasOutcome, Channel, Config, Effect, Event, Failure, OwnerRecord,
+        OwnershipOnEvict, Phase, ProofSource, RequestError, RestoreOutcome, State,
+    };
+    for source in [ProofSource::Fleet, ProofSource::Bucket] {
+        for (proof, ownership) in [(9, true), (8, true), (9, false)] {
+            let config = Config {
+                max_resident: 8,
+                max_cached_routes: 0,
+                max_activations: 8,
+                max_evictions: 4,
+                max_releases: 4,
+                max_outbound_websockets: 8,
+                ownership_on_evict: OwnershipOnEvict::Sticky,
+                require_node_lease: false,
+                peer_protocol: 1,
+                operation_deadline_ms: Some(3000),
+                owner_log_recovery_backoff_ms: 50,
+                owner_log_recovery_attempts: 3,
+                alarm_resident_ms: 100,
+                idle_evict_ms: None,
+                pressure: Default::default(),
+            };
+            let mut state = State::new("fleet", config);
+            let cell = "Counter:one";
+            let op = on_event(
+                &mut state,
+                Event::Request {
+                    request: 1,
+                    cell: cell.into(),
+                },
+            )
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::ReadOwner { op, .. } => Some(op),
+                _ => None,
+            })
+            .unwrap();
+            on_event(
+                &mut state,
+                Event::OwnerRead {
+                    op,
+                    now_ms: 0,
+                    result: Ok(Some(OwnerRecord {
+                        lineage: None,
+                        node: Some("fleet".into()),
+                        epoch: 7,
+                        etag: "owner".into(),
+                    })),
+                },
+            );
+            for _ in 0..4 {
+                let event = match state.phase(cell).cloned().unwrap() {
+                    Phase::Acquiring { op, .. } => Event::OwnerCasCompleted {
+                        op,
+                        result: Ok(CasOutcome::Applied),
+                    },
+                    Phase::Restoring { op, .. } => Event::RestoreCompleted {
+                        op,
+                        result: Ok(RestoreOutcome {
+                            restored: true,
+                            alarm: None,
+                        }),
+                    },
+                    Phase::Starting { op, .. } => Event::RuntimeStarted {
+                        op,
+                        isolate: Some(cellar_logic::isolate::HeapId::new(1)),
+                        generation: 1,
+                        result: Ok(()),
+                    },
+                    Phase::Publishing { op, .. } => Event::Published { op, result: Ok(()) },
+                    phase => panic!("unexpected activation {phase:?}"),
+                };
+                on_event(&mut state, event);
+            }
+            let held = on_event(
+                &mut state,
+                Event::Output {
+                    request: 1,
+                    channel: Channel::Response,
+                    position: Some(9),
+                    observed: None,
+                    epoch: Some(8),
+                },
+            );
+            assert!(!held
+                .iter()
+                .any(|effect| matches!(effect, Effect::Release { .. })));
+            let op = held
+                .into_iter()
+                .find_map(|effect| match effect {
+                    Effect::AwaitDurable { op, .. } => Some(op),
+                    _ => None,
+                })
+                .unwrap();
+            let mut effects = on_event(
+                &mut state,
+                Event::DurableReached {
+                    op,
+                    result: Ok(proof),
+                    source,
+                },
+            );
+            if source == ProofSource::Bucket && proof >= 9 {
+                assert!(effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::VerifyOwnership { .. })));
+                assert!(!effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::Release { .. })));
+                effects = on_event(
+                    &mut state,
+                    Event::OwnershipVerified {
+                        op,
+                        result: if ownership {
+                            Ok(())
+                        } else {
+                            Err(Failure::Definite)
+                        },
+                    },
+                );
+            } else {
+                assert!(!effects
+                    .iter()
+                    .any(|effect| matches!(effect, Effect::VerifyOwnership { .. })));
+            }
+            let expected = if proof >= 9 && (source == ProofSource::Fleet || ownership) {
+                Ok(())
+            } else {
+                Err(RequestError::DurabilityUnproven)
+            };
+            assert!(effects.iter().any(|effect| matches!(effect, Effect::Release { request: 1, result, .. } if *result == expected)));
+            assert!(on_event(
+                &mut state,
+                Event::DurableReached {
+                    op,
+                    result: Ok(99),
+                    source
+                }
+            )
+            .is_empty());
+            state.validate().unwrap();
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unpolled_waiter_cannot_submit_after_its_deadline() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    use std::{sync::atomic::AtomicUsize, time::Duration};
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (gate, mut entered) = public_node::Gate::new();
+    let _release = public_node::Release(gate.clone());
+    let definition = public_node::counter(calls.clone(), gate.clone())?;
+    let root = tempfile::tempdir()?;
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let service = public_node::cells(
+        &node,
+        definition.application,
+        Arc::new(object_store::memory::InMemory::new()),
+        RaftCellRegistration {
+            namespace,
+            class: "Counter".into(),
+            birth: proposal(2, "Counter:one", 5, 1),
+        },
+        false,
+    )
+    .await?;
+    let cell = service.cell(NamespaceId::new([2; 16])?, "Counter:one")?;
+    public_node::ready(&cell).await?;
+    cell.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(1)?,
+    )
+    .await?;
+    let mut options = public_node::options(2)?;
+    options.timeout = Duration::from_millis(100);
+    let pending = cell.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        options,
+    );
+    tokio::time::timeout(Duration::from_secs(5), entered.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing callback"))?;
+    // Do not poll the returned future, including its timeout branch.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    gate.release();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while node.services().application_work().pending_events != 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert!(matches!(pending.await, Err(CommandFailure::Unavailable)));
+    assert_eq!(
+        cell.query(definition.get, vec![], QueryOptions::default())
+            .await?
+            .result,
+        1_i64.to_be_bytes()
+    );
+    assert_eq!(
+        cell.command(
+            definition.increment,
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?
+        )
+        .await?
+        .result,
+        2_i64.to_be_bytes()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert!(service.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn native_axum_command_parity() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    let root = tempfile::tempdir()?;
+    let class = counter_example::definition()?;
+    let schema = class.schema_digest();
+    let namespace = NamespaceId::new([2; 16])?;
+    let secret = "counter-test-authorization";
+    let api = counter_example::CounterApi::new(secret.into(), namespace, &class)?;
+    let application = counter_example::application(api.clone(), class)?;
+    let node = public_node::node(root.path(), application.clone()).await?;
+    let mut namespace_config = config(2, NamespaceMode::Raft, true);
+    namespace_config.schema_digest = schema;
+    let service = public_node::cells(
+        &node,
+        application,
+        Arc::new(object_store::memory::InMemory::new()),
+        RaftCellRegistration {
+            namespace: namespace_config,
+            class: "Counter".into(),
+            birth: proposal(2, "Counter:one", 5, 1),
+        },
+        false,
+    )
+    .await?;
+    *api.cells.lock().unwrap() = Some(service.clone());
+    let cell = service.cell(namespace, "Counter:one")?;
+    public_node::ready(&cell).await?;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    let router = counter_example::router(api.clone());
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    let urls = [
+        format!("http://{}/counters/one", node.info().public_address),
+        format!("http://{address}/counters/one"),
+    ];
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()?;
+    let options = public_node::options(1)?;
+    let original = cell
+        .command(
+            api.increment.clone(),
+            7_i64.to_be_bytes().to_vec(),
+            options.clone(),
+        )
+        .await?;
+    let command_id = format!("{}:1", hex::encode([7; 16]));
+    for url in &urls {
+        let response = client
+            .post(format!("{url}?delta=7"))
+            .bearer_auth(secret)
+            .header("x-command-id", &command_id)
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200);
+        let receipt: serde_json::Value = response.json().await?;
+        assert_eq!(receipt["value"], 7);
+        assert_eq!(receipt["index"], original.version.position.index.get());
+        // Digest and kind checking happen before a conflicting duplicate can
+        // return a stored success or call application code.
+        let bad = client
+            .post(format!("{url}?delta=7"))
+            .bearer_auth(secret)
+            .header("x-command-id", &command_id)
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .header("x-contract-digest", hex::encode([99; 32]))
+            .send()
+            .await?;
+        assert_eq!(bad.status(), 422);
+        let conflict = client
+            .post(format!("{url}?delta=8"))
+            .bearer_auth(secret)
+            .header("x-command-id", &command_id)
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .send()
+            .await?;
+        assert_eq!(conflict.status(), 409);
+        assert_eq!(client.get(url).send().await?.status(), 401);
+    }
+    for (i, url) in urls.iter().enumerate() {
+        let response = client
+            .post(format!("{url}?delta=2"))
+            .bearer_auth(secret)
+            .header(
+                "x-command-id",
+                format!("{}:{}", hex::encode([7; 16]), i + 2),
+            )
+            .header("x-retry-until-ms", options.retry_until_ms)
+            .send()
+            .await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.json::<serde_json::Value>().await?["value"],
+            9 + i as i64 * 2
+        );
+    }
+    for url in &urls {
+        let response = client.get(url).bearer_auth(secret).send().await?;
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.json::<serde_json::Value>().await?["value"], 11);
+    }
+    assert_eq!(
+        cell.query(api.get.clone(), vec![], QueryOptions::default())
+            .await?
+            .result,
+        11_i64.to_be_bytes()
+    );
+    let _ = stop.send(());
+    server.await??;
+    assert!(service.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn public_multi_group_replication_and_leader_failover() -> Result<()> {
+    use cellar::sdk::{consensus::*, NodeRaftConfig, NodeRaftListeners, ShutdownMode};
+    use std::{sync::atomic::AtomicUsize, time::Duration};
+    let roots: Vec<_> = (0..3)
+        .map(|_| tempfile::tempdir())
+        .collect::<Result<_, _>>()?;
+    let calls: Vec<_> = (0..3).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let definitions: Vec<_> = calls
+        .iter()
+        .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+        .collect::<Result<_>>()?;
+    let mut nodes = Vec::new();
+    let mut listeners = Vec::new();
+    let mut peers = Vec::new();
+    for i in 0..3 {
+        let label = format!("raft-host-{}", i + 1);
+        nodes.push(
+            public_node::node_named(roots[i].path(), definitions[i].application.clone(), &label)
+                .await?,
+        );
+        let control = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let data = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        peers.push(RaftPeerNode {
+            node: NodeId::new([i as u8 + 1; 16])?,
+            disk: DiskLineage::new([i as u8 + 10; 16])?,
+            process: ProcessGeneration::new([i as u8 + 20; 16])?,
+            label,
+            server_name: "localhost".into(),
+            control_address: control.local_addr()?,
+            data_address: data.local_addr()?,
+        });
+        listeners.push(NodeRaftListeners { control, data });
+    }
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let namespace_id = NamespaceId::new([2; 16])?;
+    let mut namespace = config(2, NamespaceMode::Raft, false);
+    namespace.schema_digest = definitions[0].schema;
+    let registrations = vec![
+        RaftCellRegistration {
+            namespace: namespace.clone(),
+            class: "Counter".into(),
+            birth: proposal(2, "Counter:one", 5, 3),
+        },
+        RaftCellRegistration {
+            namespace,
+            class: "Counter".into(),
+            birth: proposal(2, "Counter:two", 6, 3),
+        },
+    ];
+    let mut services = Vec::new();
+    for (i, listeners) in listeners.into_iter().enumerate() {
+        services.push(
+            nodes[i]
+                .start_raft_cells(
+                    RaftCellsConfig {
+                        infrastructure: NodeRaftConfig {
+                            log: ReplicaLogOptions::new(
+                                nodes[i].info().data_dir.join("raft"),
+                                peers[i].node,
+                                peers[i].disk,
+                                peers[i].process,
+                                LogOpenMode::Create,
+                            ),
+                            consensus: RaftRuntimeOptions {
+                                tick_interval_ms: Some(20),
+                                ..Default::default()
+                            },
+                            transport: TransportOptions::default(),
+                        },
+                        catalog: CatalogOptions {
+                            prefix: "multi-group/test".into(),
+                            ..Default::default()
+                        },
+                        cells: registrations.clone(),
+                        peers: peers.clone(),
+                        host: RaftHostOptions::default(),
+                    },
+                    RaftCellsServices {
+                        listeners,
+                        tls: public_node::tls()?,
+                        store: store.clone(),
+                        application: definitions[i].application.clone(),
+                    },
+                )
+                .await?,
+        );
+    }
+    let handles: Vec<_> = services
+        .iter()
+        .map(|service| {
+            ["Counter:one", "Counter:two"]
+                .iter()
+                .map(|name| service.cell(namespace_id, name))
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .collect::<Result<_, _>>()?;
+
+    async fn leader(
+        handles: &[Vec<RaftCellHandle>],
+        group: usize,
+        excluded: Option<usize>,
+    ) -> Result<usize> {
+        Ok(tokio::time::timeout(Duration::from_secs(15), async {
+            loop {
+                for (i, cells) in handles.iter().enumerate() {
+                    if excluded != Some(i)
+                        && cells[group].status().await.is_ok_and(|s| s.command_ready)
+                    {
+                        return i;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?)
+    }
+    let mut receipts = Vec::new();
+    for group in 0..2 {
+        let primary = leader(&handles, group, None).await?;
+        let value = (group + 1) as i64;
+        let receipt = handles[primary][group]
+            .command(
+                definitions[primary].increment.clone(),
+                value.to_be_bytes().to_vec(),
+                public_node::options(1)?,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "initial command in group {group}, leader {primary}, callbacks {}",
+                    calls[primary].load(Ordering::SeqCst)
+                )
+            })?;
+        assert_eq!(receipt.result, value.to_be_bytes());
+        receipts.push(receipt);
+        // The same ID is independent between groups; followers execute no
+        // business callback and eventually publish the identical committed cut.
+        for cells in &handles {
+            tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    if let Ok(read) = cells[group]
+                        .query(definitions[0].get.clone(), vec![], QueryOptions::default())
+                        .await
+                    {
+                        if read.version == receipts[group].version {
+                            assert_eq!(read.result, value.to_be_bytes());
+                            break;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await?;
+        }
+    }
+    assert_eq!(
+        calls
+            .iter()
+            .map(|c| c.load(Ordering::SeqCst))
+            .sum::<usize>(),
+        2
+    );
+    let failed = leader(&handles, 0, None).await?;
+    assert!(services[failed].close().await?.unfinished.is_empty());
+    nodes
+        .remove(failed)
+        .shutdown(ShutdownMode::Preserve)
+        .await?;
+    let replacement = leader(&handles, 0, Some(failed)).await?;
+    let retry = handles[replacement][0]
+        .command(
+            definitions[replacement].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(1)?,
+        )
+        .await
+        .context("retry after election")?;
+    assert_eq!(retry.result, receipts[0].result);
+    assert_eq!(retry.version, receipts[0].version);
+    assert_eq!(
+        calls
+            .iter()
+            .map(|c| c.load(Ordering::SeqCst))
+            .sum::<usize>(),
+        2
+    );
+    let next = handles[replacement][0]
+        .command(
+            definitions[replacement].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )
+        .await
+        .context("new command after election")?;
+    assert_eq!(next.result, 2_i64.to_be_bytes());
+    assert_eq!(
+        calls
+            .iter()
+            .map(|c| c.load(Ordering::SeqCst))
+            .sum::<usize>(),
+        3
+    );
+    assert!(handles[failed][0]
+        .command(
+            definitions[failed].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(4)?
+        )
+        .await
+        .is_err());
+    for (i, service) in services.iter().enumerate() {
+        if i != failed {
+            assert!(service.close().await?.unfinished.is_empty());
+        }
+    }
+    for node in nodes {
+        node.shutdown(ShutdownMode::Preserve).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn raft_gate_exact_receipt() -> Result<()> {
+    use cellar::sdk::consensus::{CommandReceipt, QueryOptions, RaftCellRegistration};
+    use cellar::sdk::ShutdownMode;
+    use std::sync::atomic::AtomicUsize;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let called = calls.clone();
+    let class = RaftClass::new("Counter", 1, [21;32])?
+        .command("Increment", [22;32], move |context, input| {
+            called.fetch_add(1, Ordering::SeqCst);
+            let delta = i64::from_be_bytes(input.try_into()?);
+            context.sql().execute_batch("CREATE TABLE IF NOT EXISTS counter(value INTEGER); INSERT INTO counter SELECT 0 WHERE NOT EXISTS(SELECT 1 FROM counter)")?;
+            context.sql().execute("UPDATE counter SET value=value+?1", [delta])?;
+            let value:i64=context.sql().query_row("SELECT value FROM counter",[],|row|row.get(0))?;
+            Ok(value.to_be_bytes().to_vec())
+        })?
+        .query("Get",[23;32],|context,_| {
+            let value:i64=context.query_row("SELECT value FROM counter",[],|row|row.get(0))?;
+            Ok(value.to_be_bytes().to_vec())
+        })?;
+    let schema = class.schema_digest();
+    let increment = class.contract("Increment").unwrap();
+    let get = class.contract("Get").unwrap();
+    let app =
+        Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
+    let root = tempfile::tempdir()?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let node = public_node::node(root.path(), app.clone()).await?;
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = schema;
+    let registration = RaftCellRegistration {
+        namespace,
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:one", 5, 1),
+    };
+    let service = public_node::cells(
+        &node,
+        app.clone(),
+        store.clone(),
+        registration.clone(),
+        false,
+    )
+    .await?;
+    let cell = service.cell(NamespaceId::new([2; 16])?, "Counter:one")?;
+    public_node::ready(&cell).await?;
+    let request = public_node::options(1)?;
+    let CommandReceipt {
+        result, version, ..
+    } = cell
+        .command(
+            increment.clone(),
+            7_i64.to_be_bytes().to_vec(),
+            request.clone(),
+        )
+        .await?;
+    assert_eq!(result, 7_i64.to_be_bytes());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let read = cell
+        .query(get.clone(), vec![], QueryOptions::default())
+        .await?;
+    assert_eq!(read.result, result);
+    assert_eq!(read.version, version);
+    // Lose a successful response and retry the same identity. The node-owned
+    // producer and immutable receipt remain, so business code runs once.
+    let repeated = cell
+        .command(
+            increment.clone(),
+            7_i64.to_be_bytes().to_vec(),
+            request.clone(),
+        )
+        .await?;
+    assert_eq!(repeated.result, result);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(matches!(
+        cell.command(increment.clone(), 8_i64.to_be_bytes().to_vec(), request)
+            .await,
+        Err(CommandFailure::CommandConflict)
+    ));
+    assert!(service.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    assert!(service.is_closed());
+
+    let node = public_node::node(root.path(), app.clone()).await?;
+    let resumed = public_node::cells(&node, app, store, registration, true).await?;
+    let resumed_cell = resumed.cell(NamespaceId::new([2; 16])?, "Counter:one")?;
+    public_node::ready(&resumed_cell).await?;
+    let result = resumed_cell
+        .command(
+            increment,
+            7_i64.to_be_bytes().to_vec(),
+            public_node::options(1)?,
+        )
+        .await?;
+    assert_eq!(result.result, 7_i64.to_be_bytes());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        resumed_cell
+            .query(get, vec![], QueryOptions::default())
+            .await?
+            .result,
+        result.result
+    );
+    assert!(resumed.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_private_callback_is_joined_before_its_slot_is_reused() -> Result<()> {
+    use cellar::sdk::{
+        consensus::{QueryOptions, RaftCellRegistration},
+        ShutdownMode,
+    };
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (gate, mut entered) = public_node::Gate::new();
+    let _release = public_node::Release(gate.clone());
+    let definition = public_node::counter(calls.clone(), gate.clone())?;
+    let root = tempfile::tempdir()?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let service = public_node::cells(
+        &node,
+        definition.application,
+        store,
+        RaftCellRegistration {
+            namespace,
+            class: "Counter".into(),
+            birth: proposal(2, "Counter:one", 5, 1),
+        },
+        false,
+    )
+    .await?;
+    let cell = service.cell(NamespaceId::new([2; 16])?, "Counter:one")?;
+    public_node::ready(&cell).await?;
+    cell.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(1)?,
+    )
+    .await?;
+    let mut options = public_node::options(2)?;
+    options.timeout = Duration::from_millis(100);
+    let pending = cell.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        options,
+    );
+    tokio::time::timeout(Duration::from_secs(5), entered.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("callback missing"))?;
+    assert!(node.services().application_work().pending_events >= 1);
+    assert!(matches!(pending.await, Err(CommandFailure::Unavailable)));
+    assert!(matches!(
+        cell.command(
+            definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(3)?
+        )
+        .await,
+        Err(CommandFailure::Overloaded)
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    gate.release();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while node.services().application_work().pending_events != 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let read = cell
+        .query(definition.get.clone(), vec![], QueryOptions::default())
+        .await?;
+    assert_eq!(read.result, 1_i64.to_be_bytes());
+    let result = cell
+        .command(
+            definition.increment,
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?,
+        )
+        .await?;
+    assert_eq!(result.result, 2_i64.to_be_bytes());
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert!(service.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retained_handle_fenced() -> Result<()> {
+    use cellar::sdk::{
+        consensus::{QueryOptions, RaftCellRegistration},
+        ShutdownMode,
+    };
+    use std::sync::atomic::AtomicUsize;
+    use std::time::Duration;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (gate, mut entered) = public_node::Gate::new();
+    let _release = public_node::Release(gate.clone());
+    let definition = public_node::counter(calls.clone(), gate.clone())?;
+    let root = tempfile::tempdir()?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let registration = RaftCellRegistration {
+        namespace,
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:one", 5, 1),
+    };
+    let service = public_node::cells(
+        &node,
+        definition.application.clone(),
+        store.clone(),
+        registration.clone(),
+        false,
+    )
+    .await?;
+    let old = service.cell(NamespaceId::new([2; 16])?, "Counter:one")?;
+    public_node::ready(&old).await?;
+    old.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(1)?,
+    )
+    .await?;
+    let pending = old.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(2)?,
+    );
+    tokio::time::timeout(Duration::from_secs(5), entered.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("callback missing"))?;
+    let joined = tokio::spawn(node.cancel());
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !joined.is_finished(),
+        "node cannot release a directory while its callback is running"
+    );
+    assert!(
+        public_node::node(root.path(), definition.application.clone())
+            .await
+            .is_err()
+    );
+    gate.release();
+    tokio::time::timeout(Duration::from_secs(5), joined).await???;
+    assert!(matches!(pending.await, Err(CommandFailure::Unavailable)));
+    assert!(service.is_closed());
+    assert!(matches!(
+        old.command(
+            definition.increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(3)?
+        )
+        .await,
+        Err(CommandFailure::Unavailable)
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let current =
+        public_node::cells(&node, definition.application, store, registration, true).await?;
+    let cell = current.cell(NamespaceId::new([2; 16])?, "Counter:one")?;
+    public_node::ready(&cell).await?;
+    assert_eq!(
+        cell.query(definition.get, vec![], QueryOptions::default())
+            .await?
+            .result,
+        1_i64.to_be_bytes()
+    );
+    assert_eq!(
+        cell.command(
+            definition.increment,
+            1_i64.to_be_bytes().to_vec(),
+            public_node::options(2)?
+        )
+        .await?
+        .result,
+        2_i64.to_be_bytes()
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+    assert!(current.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn registered_callbacks_refuse_captured_sdk_handles() -> Result<()> {
+    use cellar::sdk::{
+        consensus::{QueryOptions, RaftCellHandle, RaftCellRegistration},
+        ShutdownMode,
+    };
+    use futures_util::FutureExt;
+    let captured = Arc::new(std::sync::Mutex::new(
+        None::<std::sync::Weak<RaftCellHandle>>,
+    ));
+    let command = captured.clone();
+    let query = captured.clone();
+    let class = RaftClass::new("Counter", 1, [21; 32])?
+        .command("Increment", [22; 32], move |context, _| {
+            let handle = command.lock().unwrap().as_ref().unwrap().upgrade().unwrap();
+            assert!(matches!(
+                handle.status().now_or_never(),
+                Some(Err(CommandFailure::UnsupportedCapability))
+            ));
+            context.sql().execute_batch(
+                "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(1)",
+            )?;
+            Ok(vec![1])
+        })?
+        .query("Get", [23; 32], move |context, _| {
+            let handle = query.lock().unwrap().as_ref().unwrap().upgrade().unwrap();
+            assert!(matches!(
+                handle.status().now_or_never(),
+                Some(Err(CommandFailure::UnsupportedCapability))
+            ));
+            let value: u8 = context.query_row("SELECT value FROM counter", [], |row| row.get(0))?;
+            Ok(vec![value])
+        })?;
+    let schema = class.schema_digest();
+    let increment = class.contract("Increment").unwrap();
+    let get = class.contract("Get").unwrap();
+    let application =
+        Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
+    let root = tempfile::tempdir()?;
+    let store = Arc::new(object_store::memory::InMemory::new());
+    let node = public_node::node(root.path(), application.clone()).await?;
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = schema;
+    let service = public_node::cells(
+        &node,
+        application,
+        store,
+        RaftCellRegistration {
+            namespace,
+            class: "Counter".into(),
+            birth: proposal(2, "Counter:one", 5, 1),
+        },
+        false,
+    )
+    .await?;
+    let cell = Arc::new(service.cell(NamespaceId::new([2; 16])?, "Counter:one")?);
+    public_node::ready(&cell).await?;
+    *captured.lock().unwrap() = Some(Arc::downgrade(&cell));
+    assert_eq!(
+        cell.command(increment, vec![], public_node::options(1)?)
+            .await?
+            .result,
+        vec![1]
+    );
+    assert_eq!(
+        cell.query(get, vec![], QueryOptions::default())
+            .await?
+            .result,
+        vec![1]
+    );
+    assert!(cell.status().await?.command_ready);
+    assert!(service.close().await?.unfinished.is_empty());
+    node.shutdown(ShutdownMode::Preserve).await?;
+    Ok(())
 }
 
 #[test]

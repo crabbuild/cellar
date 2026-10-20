@@ -4,12 +4,25 @@
 //! Transport, storage and command registration are supplied by the host.
 
 mod class;
+pub(crate) mod client;
 pub(crate) mod protocol;
 
+pub use crate::raft::catalog::{
+    BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
+};
+pub use crate::raft::host::{
+    RaftCellRegistration, RaftCellsConfig, RaftCellsServices, RaftHostOptions, RaftPeerNode,
+};
+pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
+pub use crate::raft::transport_options::{RaftTls, TransportOptions};
 pub use crate::storage::{CommandInputs, CommandTransaction};
 pub use class::{
     command_request_digest, CommandContext, OperationContract, OperationKind, QueryContext,
     RaftClass, RegistrationError,
+};
+pub use client::{
+    CellStatus, CommandOptions, CommandReceipt, QueryConsistency, QueryOptions, QueryResult,
+    RaftCellHandle, RaftCells, RaftCloseReport, UnfinishedCommand,
 };
 
 pub use cellar_logic::consensus::{

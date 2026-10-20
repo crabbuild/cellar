@@ -1,0 +1,538 @@
+//! A fixed node-wide blocking pool owns SQLite and image directories. Domain
+//! cancellation joins a running callback before these owners release locks.
+
+use super::apply::{marker, ImageApplier, PublishedImage};
+use super::budget::{Budget, Permit};
+use super::cache::{CommittedImage, GroupLog};
+use super::completion::{
+    ApplyCompletion, ApplyTicket, GroupStatus, RuntimeEvent, RuntimeEventKind,
+};
+use super::execution::*;
+use crate::application::consensus::client::{AttemptControl, Work};
+use crate::application::consensus::{OperationContract, RaftClass};
+use cellar_logic::consensus::{CommandFailure, CommandIdentity, GroupScope};
+use cellar_ltx::generation::{GenerationLimits, GenerationStore, ImageId, ReadServices};
+use cellar_ltx::LtxHost;
+use futures_util::future::BoxFuture;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    mpsc, Arc,
+};
+use std::time::Duration;
+use tokio::sync::{oneshot, Semaphore};
+
+pub(crate) struct CellStorage {
+    pub directory: PathBuf,
+    pub host: LtxHost,
+    pub services: ReadServices,
+    pub images: GenerationLimits,
+    pub execution: ExecutionLimits,
+}
+
+#[derive(Clone)]
+pub(crate) struct ImageView {
+    pub position: cellar_logic::consensus::LogPosition,
+    pub image: CommittedImage,
+}
+
+impl ImageView {
+    fn of(image: &PublishedImage) -> Self {
+        Self {
+            position: image.position(),
+            image: marker(&image.pin()),
+        }
+    }
+}
+
+pub(crate) enum Action {
+    Initialize {
+        group: GroupLog,
+        class: Arc<RaftClass>,
+        storage: CellStorage,
+    },
+    Stage {
+        identity: CommandIdentity,
+        status: Box<GroupStatus>,
+        attempt: CommandAttempt,
+        input: Vec<u8>,
+    },
+    Submit {
+        identity: CommandIdentity,
+    },
+    Discard {
+        identity: CommandIdentity,
+    },
+    Retire {
+        identity: CommandIdentity,
+        barrier: cellar_logic::consensus::LogPosition,
+    },
+    Prepare {
+        event: RuntimeEvent,
+        image: ImageId,
+    },
+    Publish {
+        ticket: ApplyTicket,
+    },
+    Query {
+        contract: OperationContract,
+        input: Vec<u8>,
+    },
+}
+
+pub(crate) enum Value {
+    Initialized(Option<ImageView>),
+    Staged(StageOutcome),
+    Submitted,
+    Discarded,
+    Retired(cellar_logic::consensus::LogPosition),
+    Prepared(ApplyCompletion),
+    Published {
+        view: ImageView,
+        receipt: Option<(CommandIdentity, CommittedReceipt)>,
+    },
+    Queried(RegisteredQueryOutput),
+}
+
+impl Value {
+    fn bytes(&self) -> usize {
+        match self {
+            Self::Staged(StageOutcome::Prepared(p)) => p.bytes().len(),
+            Self::Staged(StageOutcome::Duplicate(r)) => r.receipt().result().len(),
+            Self::Queried(q) => q.result.len(),
+            Self::Published {
+                receipt: Some((_, r)),
+                ..
+            } => r.receipt().result().len(),
+            _ => 0,
+        }
+    }
+}
+
+pub(crate) struct Output {
+    pub value: Value,
+    pub _bytes: Option<Permit>,
+}
+
+struct Request {
+    scope: GroupScope,
+    action: Action,
+    reply: oneshot::Sender<Result<Output, ExecutionError>>,
+    _work: Option<Arc<Work>>,
+    cancel: Option<Arc<AttemptControl>>,
+    _slot: tokio::sync::OwnedSemaphorePermit,
+}
+
+pub(crate) struct Pool {
+    domain: crate::asyncrt::DomainToken,
+    senders: Vec<mpsc::SyncSender<Request>>,
+    slots: Vec<Arc<Semaphore>>,
+    workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,
+    stopped: Arc<AtomicBool>,
+}
+
+impl Pool {
+    pub fn start(
+        domain: crate::asyncrt::DomainToken,
+        count: usize,
+        queue: usize,
+        max_cells: usize,
+        budget: Arc<Budget>,
+    ) -> Result<Self, ExecutionError> {
+        let stopped = Arc::new(AtomicBool::new(false));
+        let mut pool = Self {
+            domain: domain.clone(),
+            senders: vec![],
+            slots: vec![],
+            workers: vec![],
+            stopped: stopped.clone(),
+        };
+        for _ in 0..count {
+            let (sender, receiver) = mpsc::sync_channel::<Request>(queue);
+            let owner = domain.clone();
+            let stopped = stopped.clone();
+            let budget = budget.clone();
+            let task = domain
+                .blocking(move || {
+                    let mut cells = BTreeMap::<GroupScope, Cell>::new();
+                    let result = loop {
+                        if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
+                            break Ok(());
+                        }
+                        let request = match receiver.recv_timeout(Duration::from_millis(10)) {
+                            Ok(request) => request,
+                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                            Err(mpsc::RecvTimeoutError::Disconnected) => break Ok(()),
+                        };
+                        let Request {
+                            scope,
+                            action,
+                            reply,
+                            _work,
+                            cancel,
+                            _slot,
+                        } = request;
+                        if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
+                            break Ok(());
+                        }
+                        if cancel
+                            .as_ref()
+                            .is_some_and(|control| control.cancelled() && !control.submitted())
+                        {
+                            let _ = reply
+                                .send(Err(ExecutionError::Refused(CommandFailure::Unavailable)));
+                            continue;
+                        }
+                        let result = Self::execute(&mut cells, max_cells, &scope, action).and_then(
+                            |value| {
+                                let bytes = value.bytes();
+                                let permit = if bytes == 0 {
+                                    None
+                                } else {
+                                    match budget.acquire(bytes) {
+                                        Some(permit) => Some(permit),
+                                        None => {
+                                            if matches!(
+                                                &value,
+                                                Value::Staged(StageOutcome::Prepared(_))
+                                            ) {
+                                                if let Some(cell) = cells.get_mut(&scope) {
+                                                    cell.discard(None)?;
+                                                }
+                                            }
+                                            return Err(ExecutionError::Refused(
+                                                CommandFailure::Overloaded,
+                                            ));
+                                        }
+                                    }
+                                };
+                                Ok(Output {
+                                    value,
+                                    _bytes: permit,
+                                })
+                            },
+                        );
+                        let _ = reply.send(result);
+                    };
+                    // Keep joining/closing every resource even when one reports an
+                    // error. Their locks are released on this blocking owner.
+                    let mut cleanup = Ok(());
+                    for (_, mut cell) in cells {
+                        if let Some(private) = cell.private.take() {
+                            if let Err(error) = private.close() {
+                                cleanup = Err(error);
+                            }
+                        }
+                    }
+                    result.and(cleanup)
+                })
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+            pool.senders.push(sender);
+            pool.slots.push(Arc::new(Semaphore::new(queue)));
+            pool.workers.push(task);
+        }
+        Ok(pool)
+    }
+
+    pub fn call(
+        &self,
+        worker: usize,
+        scope: GroupScope,
+        action: Action,
+        work: Option<Arc<Work>>,
+        cancel: Option<Arc<AttemptControl>>,
+    ) -> BoxFuture<'static, Result<Output, ExecutionError>> {
+        let Some(sender) = self.senders.get(worker).cloned() else {
+            return Box::pin(async { Err(ExecutionError::Invalid("SQL worker")) });
+        };
+        let slots = self.slots[worker].clone();
+        let stopped = self.stopped.clone();
+        let domain = self.domain.clone();
+        Box::pin(async move {
+            let slot = slots
+                .acquire_owned()
+                .await
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+            if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
+                return Err(ExecutionError::Refused(CommandFailure::Unavailable));
+            }
+            let (reply, result) = oneshot::channel();
+            sender
+                .try_send(Request {
+                    scope,
+                    action,
+                    reply,
+                    _work: work,
+                    cancel,
+                    _slot: slot,
+                })
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+            result
+                .await
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?
+        })
+    }
+
+    pub fn stop(&self) {
+        self.stopped.store(true, Ordering::Release);
+        for slots in &self.slots {
+            slots.close();
+        }
+    }
+
+    pub async fn join(&mut self) -> Result<(), ExecutionError> {
+        self.stop();
+        let mut result = Ok(());
+        for worker in self.workers.drain(..) {
+            match worker.await {
+                Ok(Ok(())) => (),
+                Ok(Err(error)) => result = Err(error),
+                Err(error) => result = Err(ExecutionError::Storage(anyhow::Error::new(error))),
+            }
+        }
+        result
+    }
+
+    fn execute(
+        cells: &mut BTreeMap<GroupScope, Cell>,
+        max: usize,
+        scope: &GroupScope,
+        action: Action,
+    ) -> Result<Value, ExecutionError> {
+        if let Action::Initialize {
+            group,
+            class,
+            storage,
+        } = action
+        {
+            if cells.contains_key(scope) || cells.len() >= max || group.identity().scope != *scope {
+                return Err(ExecutionError::Invalid("cell initialization"));
+            }
+            let images = GenerationStore::open(
+                storage.directory.join("images"),
+                storage.host.filesystem(),
+                storage.images,
+            )
+            .map_err(super::execution::storage)?;
+            let applier = ImageApplier::recover(
+                group.clone(),
+                images.clone(),
+                class.schema_digest(),
+                storage.execution.envelope,
+            )
+            .map_err(super::execution::storage)?;
+            let view = applier.current().as_ref().map(ImageView::of);
+            let options = PrivateOptions {
+                directory: storage.directory.join("private"),
+                host: storage.host,
+                sqlite_vfs: None,
+                images,
+                query_services: storage.services,
+                application_digest: class.schema_digest(),
+                limits: storage.execution,
+            };
+            cells.insert(
+                scope.clone(),
+                Cell {
+                    group,
+                    class,
+                    options,
+                    applier,
+                    private: None,
+                    active: None,
+                },
+            );
+            return Ok(Value::Initialized(view));
+        }
+        cells
+            .get_mut(scope)
+            .ok_or(ExecutionError::Invalid("unregistered cell"))?
+            .run(action)
+    }
+}
+
+impl Drop for Pool {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+struct Cell {
+    group: GroupLog,
+    class: Arc<RaftClass>,
+    options: PrivateOptions,
+    applier: ImageApplier,
+    private: Option<PrivateExecutor>,
+    active: Option<CommandIdentity>,
+}
+
+impl Cell {
+    fn discard(&mut self, identity: Option<&CommandIdentity>) -> Result<(), ExecutionError> {
+        if self
+            .active
+            .as_ref()
+            .zip(identity)
+            .is_some_and(|(active, expected)| active != expected)
+        {
+            return Err(ExecutionError::Invalid("stale private discard"));
+        }
+        if let Some(private) = self.private.as_mut() {
+            private.discard_unsubmitted()?;
+        }
+        if let Some(private) = self.private.take() {
+            private.close()?;
+        }
+        self.active = None;
+        Ok(())
+    }
+
+    fn run(&mut self, action: Action) -> Result<Value, ExecutionError> {
+        match action {
+            Action::Initialize { .. } => Err(ExecutionError::Invalid("duplicate initialization")),
+            Action::Stage {
+                identity,
+                status,
+                attempt,
+                input,
+            } => {
+                if self.active.is_some()
+                    || identity.authority.replica != *self.group.identity()
+                    || attempt.proposal != identity.proposal
+                {
+                    return Err(ExecutionError::Invalid("private command identity"));
+                }
+                let authority = CommandAuthority::from_status(self.group.clone(), &status)?;
+                match self.private.as_mut() {
+                    Some(private) => {
+                        if private.refresh_authority(authority.clone()).is_err() {
+                            private.rebuild(self.applier.current(), authority)?;
+                        }
+                    }
+                    None => {
+                        self.private = Some(PrivateExecutor::open(
+                            self.options.clone(),
+                            authority,
+                            self.applier.current(),
+                        )?)
+                    }
+                }
+                let result = self
+                    .private
+                    .as_mut()
+                    .ok_or(ExecutionError::RebuildRequired)?
+                    .stage_registered(attempt, &self.class, &input);
+                match result {
+                    Ok(outcome) => {
+                        if matches!(&outcome, StageOutcome::Prepared(_)) {
+                            self.active = Some(identity);
+                        }
+                        Ok(Value::Staged(outcome))
+                    }
+                    Err(error) => {
+                        self.discard(None)?;
+                        Err(error)
+                    }
+                }
+            }
+            Action::Submit { identity } => {
+                if self.active.as_ref() != Some(&identity) {
+                    return Err(ExecutionError::Invalid("private submission identity"));
+                }
+                self.private
+                    .as_mut()
+                    .ok_or(ExecutionError::RebuildRequired)?
+                    .mark_submitted(identity.proposal)?;
+                Ok(Value::Submitted)
+            }
+            Action::Discard { identity } => {
+                self.discard(Some(&identity))?;
+                Ok(Value::Discarded)
+            }
+            Action::Retire { identity, barrier } => {
+                if self
+                    .active
+                    .as_ref()
+                    .is_some_and(|active| active != &identity)
+                {
+                    return Err(ExecutionError::Invalid("private retirement identity"));
+                }
+                if let Some(private) = self.private.as_mut() {
+                    private.retire_after_barrier(self.applier.current().as_ref(), barrier)?;
+                } else {
+                    let cache = self
+                        .group
+                        .read()
+                        .map_err(|e| super::execution::storage(anyhow::Error::new(e)))?;
+                    if cache.applied.position != barrier
+                        || cache.hard_state.term != barrier.term.get()
+                        || barrier.term <= identity.authority.term
+                    {
+                        return Err(ExecutionError::Uncertain);
+                    }
+                }
+                if let Some(private) = self.private.take() {
+                    private.close()?;
+                }
+                self.active = None;
+                Ok(Value::Retired(barrier))
+            }
+            Action::Prepare { event, image } => {
+                let RuntimeEventKind::Apply { ticket, entry } = &event.kind else {
+                    return Err(ExecutionError::Invalid("apply event"));
+                };
+                Ok(Value::Prepared(
+                    self.applier
+                        .prepare(ticket.clone(), entry, image)
+                        .map_err(super::execution::storage)?,
+                ))
+            }
+            Action::Publish { ticket } => {
+                let published = self
+                    .applier
+                    .publish(&ticket)
+                    .map_err(super::execution::storage)?;
+                let receipt = if let Some(identity) = &self.active {
+                    if published.proposal() == Some(identity.proposal) {
+                        match self
+                            .private
+                            .as_mut()
+                            .ok_or(ExecutionError::RebuildRequired)?
+                            .finish(published.clone())?
+                        {
+                            AppliedExecution::Command(receipt) => Some((identity.clone(), receipt)),
+                            AppliedExecution::Pruned { .. } => {
+                                return Err(ExecutionError::Invalid("unexpected pruning command"))
+                            }
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                if receipt.is_some() {
+                    self.active = None;
+                }
+                Ok(Value::Published {
+                    view: ImageView::of(&published),
+                    receipt,
+                })
+            }
+            Action::Query { contract, input } => {
+                let published = self
+                    .applier
+                    .current()
+                    .ok_or(ExecutionError::Refused(CommandFailure::VersionUnavailable))?;
+                Ok(Value::Queried(query_registered(
+                    &published,
+                    &self.class,
+                    &contract,
+                    &input,
+                    self.options.query_services.clone(),
+                    self.options.limits,
+                )?))
+            }
+        }
+    }
+}

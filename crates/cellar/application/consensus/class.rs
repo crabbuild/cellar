@@ -6,6 +6,29 @@ use cellar_logic::NamespaceMode;
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
+thread_local! { static CALLBACK_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+
+pub(super) fn callback_active() -> bool {
+    CALLBACK_ACTIVE.with(std::cell::Cell::get)
+}
+
+struct CallbackGuard;
+
+impl CallbackGuard {
+    fn enter() -> anyhow::Result<Self> {
+        if CALLBACK_ACTIVE.with(|active| active.replace(true)) {
+            anyhow::bail!(super::CommandFailure::UnsupportedCapability);
+        }
+        Ok(Self)
+    }
+}
+
+impl Drop for CallbackGuard {
+    fn drop(&mut self) {
+        CALLBACK_ACTIVE.with(|active| active.set(false));
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum OperationKind {
     Command,
@@ -270,6 +293,7 @@ impl RaftClass {
             .get(&contract.operation)
             .ok_or(RegistrationError::KindMismatch)?
             .callback;
+        let _guard = CallbackGuard::enter()?;
         callback(
             &CommandContext {
                 scope,
@@ -298,6 +322,7 @@ impl RaftClass {
             .ok_or(RegistrationError::KindMismatch)?
             .callback;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = CallbackGuard::enter()?;
             callback(&QueryContext { version, database }, input)
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))

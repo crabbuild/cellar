@@ -128,8 +128,8 @@ receipt's minimum durability, not S3 archive proof or an SDK success gate. A fre
 caught-up authority observation permits reuse only when the frozen private state
 still exactly matches that head. Otherwise rebuild. Preview cleanup and capture
 history trimming stay bounded; orphan/public-image retention is reconciled by
-the archive/recovery controllers. SDK registration, ingress, output gating and
-node-owned command scheduling remain MR-07 work.
+the archive/recovery controllers. SDK registration and node-owned command
+scheduling connect these mechanics to the pure output gate.
 
 The compiled SDK now provides `Registry::raft_class` and restricted `RaftClass`
 definitions. Mutable factories and workflows cannot share their class names;
@@ -151,8 +151,29 @@ strengthen. Cancellation retains a submitted producer; unsubmitted work stays
 pinned until the callback joins and its private mutations are discarded. A new
 term and applied startup barrier are required to reconcile an unresolved
 submission. Closing records unfinished identity and refuses further output.
-The node-owned serial scheduler, live observation plumbing, public handles,
-native/Axum ingress and example still have to connect these components.
+`Node::start_raft_cells` installs registered groups in the node's execution
+domain. `host.rs` owns serial command producers and effect dispatch;
+`host_sql.rs` owns SQLite/image resources in a fixed node-wide blocking pool.
+`RaftCells` and `RaftCellHandle` expose bounded public commands, stale queries,
+status and joined local closure. Admission is synchronous, including when a
+returned future is not polled. Attempt deadlines are checked by the dispatcher
+and SQL owner; cancellation cannot release a slot while its callback still runs.
+After submission, the producer remains owned through consensus and publication.
+A newer committed/published term barrier can retire old uncertainty even on a
+follower, after disposing of its private shadow; that grants no write authority.
+
+Fresh status checks precede staging, submission and successful output. Transient
+protocol Ready work defers preflight or duplicate-receipt settlement under the
+original deadline, keeping the frozen private result instead of rerunning the
+callback. Exact
+applied tickets and immutable receipts settle the core, and delayed proposal
+responses cannot regress a completed/retiring producer. Node shutdown joins all
+started callbacks before releasing directory ownership. A close report records
+unfinished command IDs without proving S3 coverage or authorizing disk deletion.
+See the [counter example](../../../../examples/raft-counter/README.md) for native
+HTTP and Axum gateways over the same handles. Minimum-version/linearizable reads,
+S3 archive gates, snapshot installation and membership controllers remain later
+work packages; unsupported capabilities are explicitly refused.
 
 Incoming snapshots similarly require a `Snapshot` effect completion before the
 Ready's snapshot metadata or dependent messages can advance. The host verifier

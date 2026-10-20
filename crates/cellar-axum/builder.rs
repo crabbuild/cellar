@@ -10,7 +10,7 @@ use axum::{
 };
 use cellar::sdk::{
     workflow, Application, Cell, CellIdentity, Context, DeploymentGraph, HandlerFuture, Invocation,
-    Output, Registry,
+    Output, RaftClass, Registry,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -46,6 +46,7 @@ pub struct ApplicationBuilder {
     cells: HashMap<String, Factory>,
     routes: Vec<CellRoute>,
     workflows: HashMap<String, Workflow>,
+    raft_classes: HashMap<String, RaftClass>,
     events: Handler,
     #[cfg(feature = "openapi")]
     api: Option<utoipa::openapi::OpenApi>,
@@ -69,6 +70,7 @@ impl ApplicationBuilder {
             cells: HashMap::new(),
             routes: Vec::new(),
             workflows: HashMap::new(),
+            raft_classes: HashMap::new(),
             events: Arc::new(|_, _| {
                 Box::pin(async { Err(anyhow!("no non-HTTP application handler registered")) })
             }),
@@ -96,10 +98,26 @@ impl ApplicationBuilder {
     ) -> Result<Self> {
         let class = class.into();
         ensure!(
-            !class.is_empty() && !self.cells.contains_key(&class),
+            !class.is_empty()
+                && !self.cells.contains_key(&class)
+                && !self.raft_classes.contains_key(&class),
             "empty or duplicate cell class {class}"
         );
         self.cells.insert(class, Arc::new(factory));
+        Ok(self)
+    }
+
+    /// Register synchronous command/query definitions. HTTP routers call the
+    /// node's Raft handles; Fleet cell routes cannot instantiate these classes.
+    pub fn raft_class(mut self, class: RaftClass) -> Result<Self> {
+        ensure!(
+            !self.cells.contains_key(class.name())
+                && !self.workflows.contains_key(class.name())
+                && !self.raft_classes.contains_key(class.name()),
+            "duplicate or conflicting Raft class {}",
+            class.name()
+        );
+        self.raft_classes.insert(class.name().into(), class);
         Ok(self)
     }
 
@@ -117,7 +135,9 @@ impl ApplicationBuilder {
     ) -> Result<Self> {
         let class = class.into();
         ensure!(
-            !class.is_empty() && !self.workflows.contains_key(&class),
+            !class.is_empty()
+                && !self.workflows.contains_key(&class)
+                && !self.raft_classes.contains_key(&class),
             "empty or duplicate workflow {class}"
         );
         self.workflows.insert(class, Arc::new(handler));
@@ -248,6 +268,9 @@ impl ApplicationBuilder {
             registry = registry.workflow(class, move |context, event, steps| {
                 handler(context, event, steps)
             })?;
+        }
+        for (_, class) in self.raft_classes {
+            registry = registry.raft_class(class)?;
         }
         let bindings = self
             .routes

@@ -1027,6 +1027,61 @@ async fn lost_proposal_rebuild() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn new_term_barrier_retires_uncertain_shadow_without_reusing_it() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut host = Host::open(root.path(), false).await?;
+    host.elect().await?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let first = prepared(executor.stage(attempt(1, 1)?, initialize)?)?;
+    host.commit_private(&mut executor, first, 1).await?;
+    let pending = prepared(executor.stage(attempt(2, 2)?, increment)?)?;
+    executor.mark_submitted(pending.proposal())?;
+    let original = host.runtime.status(&scope()).await?;
+    assert!(matches!(
+        executor.discard_unsubmitted(),
+        Err(ExecutionError::Uncertain)
+    ));
+    assert!(matches!(
+        executor.retire_after_barrier(host.applier.current().as_ref(), original.applied),
+        Err(ExecutionError::Uncertain)
+    ));
+    host.runtime.close().await?;
+    let (runtime, events) = RaftRuntime::start(
+        host.log.clone(),
+        RaftRuntimeOptions {
+            tick_interval_ms: None,
+            election_seed: Some([12; 32]),
+            ..Default::default()
+        },
+    )
+    .await?;
+    host.runtime = runtime;
+    host.events = events;
+    host.elect().await?;
+    let current = host.runtime.status(&scope()).await?;
+    assert!(current.term > original.term);
+    let mut wrong = current.applied;
+    wrong.index = LogIndex::new(wrong.index.get() + 1);
+    assert!(matches!(
+        executor.retire_after_barrier(host.applier.current().as_ref(), wrong),
+        Err(ExecutionError::Uncertain)
+    ));
+    executor.retire_after_barrier(host.applier.current().as_ref(), current.applied)?;
+    assert_eq!(executor.status(), ExecutionStatus::RebuildRequired);
+    executor.close()?;
+    let mut executor = host
+        .private(root.path(), ExecutionLimits::default())
+        .await?;
+    let retry = prepared(executor.stage(attempt(2, 3)?, increment)?)?;
+    host.commit_private(&mut executor, retry, 2).await?;
+    assert_eq!(host.counter()?, 8);
+    executor.close()?;
+    host.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn oversized_delta_atomic_refusal() -> Result<()> {
     let root = tempfile::tempdir()?;
     let mut host = Host::open(root.path(), false).await?;

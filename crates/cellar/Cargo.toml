@@ -22,6 +22,10 @@ name = "cellar-native-counter"
 path = "../../examples/native-counter/main.rs"
 
 [[bin]]
+name = "cellar-raft-counter"
+path = "../../examples/raft-counter/main.rs"
+
+[[bin]]
 name = "cellar-native-websocket"
 path = "../../examples/native-websocket/main.rs"
 

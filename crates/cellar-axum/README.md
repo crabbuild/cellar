@@ -48,6 +48,17 @@ node. Construct mutable cell Router State inside a `cell` factory, so each
 activation has its own state. Fully initialized `Router<()>` values are required;
 Axum's State, Path, Query, Json and other normal extractors remain available.
 
+## Raft command/query applications
+
+`ApplicationBuilder::raft_class` registers the same restricted `RaftClass` used
+by a native SDK application. `AxumApplication::with_application` also forwards
+Raft definition lookup to its delegate. A Raft definition cannot share a name
+with a mutable factory or workflow; Fleet `cell_route` registration does not
+instantiate it. Use an authenticated HTTP handler that calls a node-owned
+`RaftCellHandle` and preserves its command ID, typed outcome and receipt.
+The [Raft counter](../../examples/raft-counter/README.md) demonstrates native
+HTTP and an outer Axum router calling the same command/query dispatcher.
+
 ## Choose the HTTP host
 
 For native HTTP, use `Node::start` or the compiled CLI's `sdk::Host`. For an

@@ -12,7 +12,7 @@ use crate::application::consensus::{
 use crate::storage::{CommandInputs, CommandTransaction};
 use cellar_logic::consensus::Durability;
 use cellar_logic::consensus::{
-    ClientId, CommandFailure, CommandId, LogPosition, ProposalId, ReplicaIdentity, Term,
+    ClientId, CommandFailure, CommandId, LogIndex, LogPosition, ProposalId, ReplicaIdentity, Term,
 };
 use cellar_ltx::generation::{GenerationPin, GenerationStore, ImageId, ReadServices};
 use cellar_ltx::{HostFileLock, LtxHost};
@@ -204,6 +204,7 @@ impl CommandAuthority {
     }
 }
 
+#[derive(Clone)]
 pub struct PrivateOptions {
     pub directory: PathBuf,
     pub host: LtxHost,
@@ -350,6 +351,78 @@ pub struct PrivateExecutor {
 }
 
 impl PrivateExecutor {
+    /// Dispose unsubmitted private changes after their synchronous callback has
+    /// joined. An uncertain submission cannot use cancellation as rejection.
+    pub fn discard_unsubmitted(&mut self) -> Result<(), ExecutionError> {
+        if self
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.submitted)
+        {
+            return Err(ExecutionError::Uncertain);
+        }
+        self.dispose_shadow()
+    }
+
+    /// Retire uncertainty on a follower after a newer term has a coherent
+    /// applied image/barrier. This closes the old private owner without ever
+    /// opening a new writable activation on that follower.
+    pub fn retire_after_barrier(
+        &mut self,
+        base: Option<&PublishedImage>,
+        barrier: LogPosition,
+    ) -> Result<(), ExecutionError> {
+        let cache = self
+            .authority
+            .group
+            .read()
+            .map_err(|e| storage(anyhow::Error::new(e)))?;
+        if barrier != cache.applied.position
+            || barrier.term.get() != cache.hard_state.term
+            || barrier.term <= self.authority.term
+            || barrier.index > LogIndex::new(cache.hard_state.commit)
+            || base.is_some_and(|base| {
+                base.scope() != &self.authority.replica.scope
+                    || base.application_digest() != self.options.application_digest
+                    || base.position().index > barrier.index
+            })
+            || base.map(|base| marker(&base.pin())) != cache.applied.image
+        {
+            return Err(ExecutionError::Uncertain);
+        }
+        drop(cache);
+        self.dispose_shadow()
+    }
+
+    fn dispose_shadow(&mut self) -> Result<(), ExecutionError> {
+        self.rebuild_required = true;
+        if let Some(working) = self.working.take() {
+            working.close().map_err(ExecutionError::Storage)?;
+        }
+        let mut previews = Vec::new();
+        if let Some(pending) = self.pending.take() {
+            previews.push(pending.preview);
+        }
+        if let Some(preview) = self.retired_preview.take() {
+            previews.push(preview);
+        }
+        for pin in previews {
+            self.options.images.retire(pin.id()).map_err(storage)?;
+            drop(pin);
+        }
+        self.options.images.reclaim(2).map_err(storage)?;
+        Ok(())
+    }
+
+    /// Join and close the private SQL/capture owner. This is no durability proof;
+    /// submitted history is recovered from the Raft engine, never this file.
+    pub fn close(mut self) -> Result<(), ExecutionError> {
+        if let Some(working) = self.working.take() {
+            working.close().map_err(ExecutionError::Storage)?;
+        }
+        Ok(())
+    }
+
     /// Run a compiled command after validating registration and the input's
     /// normalized-byte digest, including for a duplicate receipt. The normal
     /// host selects `class` from its authorized namespace binding, not from an

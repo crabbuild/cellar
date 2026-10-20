@@ -53,10 +53,14 @@ consumption, retries and their durability boundaries.
 `Registry::raft_class` registers a `RaftClass` separately from mutable `Cell`
 factories and workflows. Synchronous commands receive a borrowed transaction
 and captured inputs; queries receive only a pinned read-only image. Operation
-kind and contract digest are checked before callbacks. These definitions and
-their internal execution bridge are implemented; the node-owned dispatcher,
-public command/query handles and native/Axum ingress remain under implementation
-in [MR-07](../../../plans/multi-raft/implementation-plan.md).
+kind and contract digest are checked before callbacks. `Node::start_raft_cells` connects these definitions to node-owned producers and
+bounded `RaftCellHandle` commands, stale queries, receipts and closure. A returned
+future is admitted immediately; its deadline and cancellation cannot discard a
+submitted producer. Native HTTP and Axum can call those same handles; see the
+[Raft counter](../../../examples/raft-counter/README.md). S3 archive and stronger
+read-consistency requests are refused until their work packages are implemented.
+The full delivery status is recorded in
+[MR-07](../../../plans/multi-raft/implementation-plan.md).
 
 Within each component, private modules separate values, codecs and validation
 from runtime operations. Pass clocks and budgets explicitly to value helpers;

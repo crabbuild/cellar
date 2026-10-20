@@ -502,3 +502,40 @@ fn protocol_work_during_a_private_callback_prevents_submission() {
         state.mark_submitted(&identity).unwrap();
     }
 }
+
+#[test]
+fn follower_retires_old_uncertainty_only_after_a_verified_new_term_cut() {
+    let (mut state, authority) = core(Durability::Quorum);
+    let identity = admit(&mut state, &authority);
+    submit(&mut state, &identity);
+    assert_eq!(state.begin_retirement(&identity), Err(Refusal::Unproven));
+    let mut observation = leadership(2, 4, 10);
+    observation.leader = Some(MemberId::new(2).unwrap());
+    observation.is_leader = false;
+    state.observe_leadership(observation).unwrap();
+    assert_eq!(state.begin_retirement(&identity), Err(Refusal::Unproven));
+    state.observe_progress(progress(10, 0)).unwrap();
+    let barrier = state.begin_retirement(&identity).unwrap();
+    assert_eq!(barrier, position(10, 4));
+    assert_eq!(
+        state.retirement_completed(&identity, position(11, 4)),
+        Err(Refusal::StaleCompletion)
+    );
+    state.observe_progress(progress(11, 0)).unwrap();
+    state.retirement_completed(&identity, barrier).unwrap();
+    assert!(state.pending().is_none());
+    assert!(state.authority().is_none());
+    assert_eq!(
+        state.admit(
+            &authority,
+            client(2),
+            ProposalId::new([12; 16]).unwrap(),
+            Durability::Quorum
+        ),
+        Err(Refusal::StaleCompletion)
+    );
+    assert_eq!(
+        state.observe_proof(&proof(&identity, ProofStage::Queryable)),
+        Err(Refusal::StaleCompletion)
+    );
+}
