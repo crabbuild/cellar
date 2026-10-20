@@ -71,8 +71,8 @@ impl Actor {
                 }
                 Some(expired) = delays.next(), if !delays.is_empty() => {
                     let arm = expired.into_inner();
-                    if timer_slots.fire(&arm.slot, arm.ordinal).is_some() {
-                        self.try_step(ActorInput::TimerFired(arm.timer), &mut out)?;
+                    if let Some(timer) = effects::ready_timer(arm, &mut delays, &mut timer_slots, crate::asyncrt::mono_ms()) {
+                        self.try_step(ActorInput::TimerFired(timer), &mut out)?;
                     }
                 }
             }
