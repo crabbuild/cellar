@@ -308,11 +308,19 @@ shown by `plan.py show MR-07`; the manifest is authoritative for arguments.
 
 ### MR-08 Serve explicit follower query consistency modes
 
-Dependencies: MR-07. Phase: v1. Initial status: TODO.
+Dependencies: MR-07. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`.
+Modify: `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/cells.rs`, `crates/cellar/sdk.rs`, `crates/cellar-logic/routing.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/tests/native_raft_host.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_node.rs`, `examples/raft-counter/main.rs`, `crates/cellar/durability/raft/README.md`, `examples/raft-counter/README.md`.
 
 Create: `crates/cellar/durability/raft/query.rs`, `crates/cellar/durability/raft/version.rs`, `crates/cellar/tests/native_raft_reads.rs`.
+
+Partial [local read evidence](evidence/MR-08-local-progress.json) records 71
+owning cases, including 10 read cases. Local Stale/AtLeast/ReadIndex serving,
+authenticated tokens, durable verifier retention and deadline/response-budget
+ownership are implemented. Six required case names are present; network replica
+selection, same-consistency leader fallback and its required case remain absent.
+Captured ordinary Context/Storage paths and remote cancellation/late replies
+still require the remaining read-contract audit. MR-08 stays IN_PROGRESS.
 
 1. Implement read-only query registration, snapshot pinning and served-version propagation.
 2. Implement Stale, AtLeast and safe ReadIndex barriers with unique request correlation and original deadlines.

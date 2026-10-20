@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "b52a299656c2b565980d23c9b46675e5aaba3b72",
+  "baseline_revision": "961c006280a90517b8206d3d403ecf3559152a50",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -928,7 +928,7 @@
       "id": "MR-08",
       "title": "Serve explicit follower query consistency modes",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-07"
       ],
@@ -936,7 +936,24 @@
         "crates/cellar/application/consensus/mod.rs",
         "crates/cellar/application/cells.rs",
         "crates/cellar/sdk.rs",
-        "crates/cellar-logic/routing.rs"
+        "crates/cellar-logic/routing.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/apply.rs",
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/execution.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/tests/native_raft_host.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "examples/raft-counter/main.rs",
+        "crates/cellar/durability/raft/README.md",
+        "examples/raft-counter/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/query.rs",
@@ -1037,7 +1054,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-08-local-progress.json"
+      ]
     },
     {
       "id": "MR-09",

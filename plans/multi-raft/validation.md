@@ -137,3 +137,27 @@ executable first fails late startup with an occupied final listener, resumes
 the same disks and then verifies six endpoints, joined shutdown, retained
 receipts and new writes across restart. This remains the MR-07 boundary;
 read consistency, S3 archive/restore and the other original packages remain open.
+
+Partial MR-08 source `961c006280a90517b8206d3d403ecf3559152a50` implements local
+Stale/AtLeast/safe ReadIndex queries and authenticated opaque versions; see
+[local evidence](evidence/MR-08-local-progress.json). All 71 owning cases pass:
+10 read, 20 host, 16 command/apply, 14 runtime and 11 pure lifecycle cases.
+Three process helper entry points remain ignored and are excluded from that
+count. Axum feature suites pass 27/33 cases including their compile doctest.
+Clippy with warnings denied, formatting, layout and dependency policy pass.
+
+The initial healed-former-leader read timed out because RawNode can drop a
+ReadIndex across role/term changes. The controller now checks readiness, retries
+after a checked role change under the original deadline and correlates status
+and submission generations. Three repeated election cases and three repeated
+minority cases pass. The real counter executable passes late startup failure,
+disk reuse, six endpoints, joined shutdown, retained receipts and writes after
+restart with the new key configuration. Completed unpolled response payloads
+retain byte admission; consuming or dropping a response releases capacity.
+
+MR-08 remains IN_PROGRESS. Bounded network replica selection, explicit leader
+fallback, its required case and the remaining read-contract audit are still
+required. Counter HTTP does not yet expose stronger query options/tokens.
+S3 cell archives/restores, snapshots, membership repair, effects, operations,
+release/scaling and the remaining original packages stay in scope. These
+single-machine embedded-node fixtures establish no production capacity claim.

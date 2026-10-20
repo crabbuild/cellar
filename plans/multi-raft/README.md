@@ -7,7 +7,7 @@ command/query serving are implemented. All six planned MR-07 host cases pass;
 its [evidence](evidence/MR-07.json) records 47 owning cases and the
 [host audit](host-audit.md) covers mode and submitted-producer transitions.
 
-Public handles serve Quorum commands and stale committed-image queries through
+Public handles serve Quorum commands and committed-image queries through
 bounded, joined SQL workers. The application identity pins required command
 contracts while query compatibility stays independent of voting. Native HTTP
 and Axum share the counter's normalization and dispatcher. Its executable drill
@@ -15,12 +15,15 @@ checks six endpoints, late startup failure with disk reuse, joined shutdown,
 retained receipts and new writes after restart. Real TLS partition fixtures cover
 both a discarded proposal and a retained proposal committed by the majority.
 
-MR-08 and MR-09 are ready for implementation. Stronger query consistency,
-authenticated tokens, S3 archive/restore, snapshot installation, membership
+MR-08 is in progress: local stale/minimum-version/ReadIndex query serving and
+authenticated version tokens have [local qualification evidence](evidence/MR-08-local-progress.json)
+covering 71 owning cases, including 10 read cases.
+Replica selection and same-consistency leader fallback remain open. MR-09 is
+ready for implementation. S3 archive/restore, snapshot installation, membership
 controllers, effects and later release/scaling work remain pending. Unsupported
 SDK capabilities are refused. These tests do not establish production capacity
 or completion of the full delivery scope. The reviewed source baseline is
-`b52a299656c2b565980d23c9b46675e5aaba3b72`.
+`961c006280a90517b8206d3d403ecf3559152a50`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite
