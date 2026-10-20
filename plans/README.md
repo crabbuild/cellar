@@ -1,5 +1,13 @@
 # Cellar architecture and integration plans
 
+## Multi-Raft design and implementation
+
+The [multi-Raft delivery package](multi-raft/README.md) specifies consensus-backed
+cells with LTX replication, follower queries and S3 archival. It includes the
+technical design, 17 ordered work packages, 104 proposed test cases, scaling and
+qualification plans, source drift checks and an executable task inspector.
+The package is a proposal; the Raft runtime has not been implemented.
+
 ## Primitive designs
 
 | Design | Status | Scope |

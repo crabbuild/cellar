@@ -1,0 +1,212 @@
+{
+  "format": 1,
+  "repository": "https://github.com/crabbuild/cellar",
+  "revision": "0efd8f4d871199542f97f9fe0b74086a38606d02",
+  "prepared_date": "2026-10-19",
+  "files": [
+    {
+      "path": ".github/workflows/native-sdk.yml",
+      "sha256": "dbc7b0252f4ff0286b8147b093bc7554c792656f767392d884bc52c69cdd4974"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "7c80098163e8f771c8d73888270b33c6b82d7a5acb58c26488d052907d634240"
+    },
+    {
+      "path": "Cargo.lock",
+      "sha256": "f20decca1b76e9088ffffe4ec2a7715906be5118e8cb17737b3c956faf47db93"
+    },
+    {
+      "path": "Cargo.toml",
+      "sha256": "1df241ac8be93a5718cd5bd53700b62e1b5526887273b225ff754af41c474515"
+    },
+    {
+      "path": "crates/cellar-logic/alarm.rs",
+      "sha256": "fde227b5893c1ff6352d851a134846ef7603e89f7e8e26ff13d8f05e983206b8"
+    },
+    {
+      "path": "crates/cellar-logic/cell.rs",
+      "sha256": "bff0d090eec46064b346c53b05f644f4ed717df067a5652cc8b4a136da60085d"
+    },
+    {
+      "path": "crates/cellar-logic/lib.rs",
+      "sha256": "04b17a0e4d6117014a72e52b6c5300e93c0a5144f7da86580efcb52dc4c14bbb"
+    },
+    {
+      "path": "crates/cellar-logic/log_tier.rs",
+      "sha256": "a1be60fdc5f1ee8c86c6c99a3e4a74b5a7717f5faeec5651c723a47958491ee9"
+    },
+    {
+      "path": "crates/cellar-logic/output_gate.rs",
+      "sha256": "c5d3a6f524bfe47de933fc66fa67158a19ddb1b0fd3fc371e4f04a722ebacef1"
+    },
+    {
+      "path": "crates/cellar-logic/rebalance.rs",
+      "sha256": "f827a062eb0de5fdfbdb6955908e16012f8ea4fec8e4268a0cfc6b80b6f998fc"
+    },
+    {
+      "path": "crates/cellar-logic/routing.rs",
+      "sha256": "6a886f8dc8e70e441195ce2f0b90a9d2698c53b20503a245ad06c1340ee09a96"
+    },
+    {
+      "path": "crates/cellar-logic/types.rs",
+      "sha256": "2e98c2626ac1d9ef5d43639b2971c58eed7afbd8e693bd1f152bae77b589ecf9"
+    },
+    {
+      "path": "crates/cellar-ltx/README.md",
+      "sha256": "3cfc6529e5649eb27f12b424de6347c0fedbb755df21bade6a50e55b99ce371d"
+    },
+    {
+      "path": "crates/cellar-ltx/reference/ltx-format.md",
+      "sha256": "bc0ceb28934047788e647bd70f357476f23a66e42b956aa0378b21f7543b15e9"
+    },
+    {
+      "path": "crates/cellar-ltx/src/db.rs",
+      "sha256": "2b96d8c8b640130eefb3b8a138da035ac5e0aff8b98b7eb1ad654ecb1d203e20"
+    },
+    {
+      "path": "crates/cellar-ltx/src/host.rs",
+      "sha256": "f075c6315f252af0de0dd141e298f0c5403abae86955987ea999b9cfc454595e"
+    },
+    {
+      "path": "crates/cellar-ltx/src/lib.rs",
+      "sha256": "4fdd49c7a219646cb09ee2bb11a861f84b0c173f79e2d40c11b764e10e21edc5"
+    },
+    {
+      "path": "crates/cellar-ltx/src/ltx.rs",
+      "sha256": "ae1c56ed8a573fe007e5b206df9f2c1ad9502b4217893a6757496daeb28d1f35"
+    },
+    {
+      "path": "crates/cellar/Cargo.toml",
+      "sha256": "ac0ec1d3706ae510a783a08d3c7e0c0d568f5372c05c8f5ef5c74288ee497998"
+    },
+    {
+      "path": "crates/cellar/actor/effects.rs",
+      "sha256": "5b795971bba084ff4786d0d3a30b886bdf7d74387e6bcab7f149cd1348389f14"
+    },
+    {
+      "path": "crates/cellar/actor/output_proofs.rs",
+      "sha256": "7f9ceb3b12d83f55004e4595b3822b9f02b5ca19eb9bdfc5086a96accd5d10ab"
+    },
+    {
+      "path": "crates/cellar/actor/production.rs",
+      "sha256": "75f193960ec074bc66d74f40f89bece080af0faeafc3b1cb905b68293b765c27"
+    },
+    {
+      "path": "crates/cellar/application/cells.rs",
+      "sha256": "7c0425bd4e4e8df08e95dbd22c53f8ef0cae5c736d804baa90b7d2e1a9b2956e"
+    },
+    {
+      "path": "crates/cellar/application/mod.rs",
+      "sha256": "a5e9b0fbbdcb31198fb618cbabf2e0c0722b103ecdbc03c8421c97db0316d531"
+    },
+    {
+      "path": "crates/cellar/application/outbox.rs",
+      "sha256": "71b6ba8afb16481272eac5efaf6b0b6e6f164cdc5f73f19b8b87000c5b7fdd20"
+    },
+    {
+      "path": "crates/cellar/application/storage/outbox.rs",
+      "sha256": "a2bba7608040286f9ff81d1cdac73bccd8c988a8536af26c241436ad4cead585"
+    },
+    {
+      "path": "crates/cellar/application/storage/transaction.rs",
+      "sha256": "931b0422bacb41d90b99b325e8747c9e406470b945a2b196f6407996a77bfcd0"
+    },
+    {
+      "path": "crates/cellar/cli/cli_options.rs",
+      "sha256": "303348aeaf79d30e4ef5741cd8df16e025878596b084a45e27ab98c35334703f"
+    },
+    {
+      "path": "crates/cellar/durability/log/mod.rs",
+      "sha256": "b155347bb3631055d7b4379b2ff1bb12cc8113554f848a2046698da5ed448552"
+    },
+    {
+      "path": "crates/cellar/durability/replication/backend.rs",
+      "sha256": "0ee17b424340f24aa01f77ec3ce818e7b4de6dfcab1d72fb4ca308adfb1315a5"
+    },
+    {
+      "path": "crates/cellar/durability/replication/contracts.rs",
+      "sha256": "e2746769d4e6fdada6185b57b5f0a15f7581a149bcc31d311ef14d18eed2eae9"
+    },
+    {
+      "path": "crates/cellar/execution/services.rs",
+      "sha256": "2ef784272dfac0461fad18a83142fd97f7cf08b3e12a63decb35a87b8780e672"
+    },
+    {
+      "path": "crates/cellar/fleet/management/nodes.rs",
+      "sha256": "f4e52c9a9a79d97d4936fd76e7edacda5468193477642f5a737cb64fe8abae6c"
+    },
+    {
+      "path": "crates/cellar/fleet/management/routing.rs",
+      "sha256": "14f30d671955511ae3a70361e8fe11757b26645831982ec6993c280844761908"
+    },
+    {
+      "path": "crates/cellar/fleet/ownership.rs",
+      "sha256": "870edcb37751c95c7e82fb7a25527354e03f5737cae5d9dc2bef2879d45c55a8"
+    },
+    {
+      "path": "crates/cellar/fleet/peer/auth.rs",
+      "sha256": "bcaa9490bb42a37e58478724270cd638f8cb504836b953ec1ace49061eb7035e"
+    },
+    {
+      "path": "crates/cellar/fleet/wake/mod.rs",
+      "sha256": "da56eca725a07fb117d5ef84835af5c8328b6f5db2c319f594e73b86886037d2"
+    },
+    {
+      "path": "crates/cellar/lib.rs",
+      "sha256": "5f7b1e79eae2bf40e1862dbbd0b5a9152f9470b92b01f6bb3a29fe1cf6d7e45a"
+    },
+    {
+      "path": "crates/cellar/node/embedded.rs",
+      "sha256": "88a48b40e8fa54edb2de9c195d77efb29621ffdda77fe2717e1cab31251a1e47"
+    },
+    {
+      "path": "crates/cellar/node/mod.rs",
+      "sha256": "5f2d6d7d611d9a18a5828fd714a00e827037f1d7cf2beb706d1a93086d75eacd"
+    },
+    {
+      "path": "crates/cellar/runtime/workers/native/mod.rs",
+      "sha256": "fe24abc039b87daebcc0a47cf0ba97370bbd04f2065916d272a972b111620a24"
+    },
+    {
+      "path": "crates/cellar/sdk.rs",
+      "sha256": "5724e111e2c6060ed18c98b2e29aabf7d40bc1a1eecd348dc4ea3318a63c4cb5"
+    },
+    {
+      "path": "crates/cellar/storage/object/bucket.rs",
+      "sha256": "ddae1860c1019c2be01c5e0be9ac2c79f9e6f9093969c50523af14217a0b4be8"
+    },
+    {
+      "path": "crates/cellar/storage/sqlite/mod.rs",
+      "sha256": "a1ba3837b5915663230fcb72faa96526ee1efe203df226cb8e3f01d56415bd02"
+    },
+    {
+      "path": "docs/03-architecture.md",
+      "sha256": "cc8a6be7d56f3286c45b96f83edc082c7c86a7d1c1e183376d9a90f9af250b4a"
+    },
+    {
+      "path": "docs/06-storage-transactions.md",
+      "sha256": "f48ab6f0af1308ec442703e479ed0f275d318078b061d9fbd8bd83a855cc8c0d"
+    },
+    {
+      "path": "docs/13-fleet-topology.md",
+      "sha256": "2c1bbb32b29827e39a0600bbe71a9d8c26f58165da01632ba290187c70c90a62"
+    },
+    {
+      "path": "docs/18-recovery-backup.md",
+      "sha256": "45578969eba6bcc905650be128510a2f85de085da3736f4e96b7aa3d065614c6"
+    },
+    {
+      "path": "docs/19-testing-qualification.md",
+      "sha256": "8898eb9b532bb23c3ae25983868f8f04f39ff96c6adaca88129b0060a9d82da4"
+    },
+    {
+      "path": "docs/21-production-readiness.md",
+      "sha256": "c3431af195ca86bf7690ab47bd11408012ce9d2e8a35074d32828cb3462cef78"
+    },
+    {
+      "path": "tools/perf/README.md",
+      "sha256": "783245e8289b793552e8c54872aaec468f16ce87e2abf2d900a149fd99dbe404"
+    }
+  ]
+}

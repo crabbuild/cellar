@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "profiles": [
+    {
+      "name": "million-cells",
+      "nodes": 1000,
+      "groups": 1000000,
+      "voters": 3,
+      "learners": 0,
+      "active_fraction": 0.01,
+      "heartbeat_interval_seconds": 1,
+      "note": "Illustrative arithmetic only; no Raft hibernation or measured capacity is assumed."
+    },
+    {
+      "name": "ten-million-cells",
+      "nodes": 1000,
+      "groups": 10000000,
+      "voters": 3,
+      "learners": 0,
+      "active_fraction": 0.01,
+      "heartbeat_interval_seconds": 1,
+      "note": "Illustrative density stress target; not a supported configuration."
+    },
+    {
+      "name": "read-learners",
+      "nodes": 1000,
+      "groups": 1000000,
+      "voters": 3,
+      "learners": 2,
+      "active_fraction": 0.1,
+      "heartbeat_interval_seconds": 1,
+      "note": "Learners increase replication and apply cost without enlarging the voting quorum."
+    }
+  ]
+}
