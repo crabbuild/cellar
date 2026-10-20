@@ -15,6 +15,17 @@ async def fetch(request, ctx):
     if request.path.startswith("/header-bytes/"):
         count = 32767 if request.path.endswith("exact") else 32768
         return Response(headers=[("x", "y" * count)])
+    if request.path.startswith("/completion/"):
+        response = Response(b"x" * 4096, headers=[("x", "")])
+        remaining = 65536 - len(_encode(response._wire()).encode())
+        # Quotes occupy one HTTP header byte but two encoded envelope bytes.
+        # Both individual HTTP limits fit while the envelope reaches its bound.
+        response.headers[0] = ("x", '"' * (remaining // 2) + "a" * (remaining % 2))
+        assert len(response.headers[0][1]) + 1 <= 32768
+        if request.path.endswith("over"):
+            response.headers[0] = ("x", response.headers[0][1] + "a")
+        assert len(_encode(response._wire()).encode()) == (65537 if request.path.endswith("over") else 65536)
+        return response
     if request.path == "/nested-input":
         cell = ctx.namespace("COUNTERS").get_by_name("limits")
         before = visits

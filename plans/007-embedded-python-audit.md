@@ -47,7 +47,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | H01 | Buffered bytes/JSON HTTP; ordered repeated headers | Byte and duplicate-header round trips through real ingress | verified: binary body and ordered repeated request/response header round trips through real ingress |
-| H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: depth 64 and real-node nested input limits pass; dedicated real ingress/output tests accept exactly 4,096 body bytes, 128 repeated headers and 32,768 header-name/value bytes and reject the next byte/header; a 65,536-byte whole batch commits, the next byte is refused without mutation, and joined reports show no reservations; completion-envelope and full admission/saturation boundaries remain |
+| H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: real ingress/nested body and ordered header boundaries, input depth 64, atomic batch count/bytes and complete response envelopes have exact/next-unit tests; 65,536-byte completions succeed, 65,537 fail and subsequent valid work succeeds with zero leaked reservations; SDK-result envelope/depth boundaries remain |
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | partial: public ValidationError/Overloaded/Ambiguous/OwnershipLost classes, explicit outcomes and fixed sanitized messages; native typed routing verdicts preserved; real protocol/codec/batch refusals and ambiguous constructor/absent-binding tests pass; some bindings flatten native causes internally, and live routing-verdict fault coverage remains |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; Q08 independently qualifies cron interruption |
@@ -107,8 +107,8 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: aggregate bridge bytes, managed tasks, objects and header count/bytes added; shipped startup watchdog and body/header/batch boundaries now have direct tests; complete reservation and remaining exact-boundary coverage remain |
-| Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | partial: RAII aggregate reservations cover starts, requests, results and completions; unit saturation/drop and joined zero-reservation reports pass; full stress matrix remains |
+| Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: configured invocation/task/object/byte admission, operation mailbox capacity, response envelope and existing body/header/depth/batch/startup/drain limits have direct boundary tests; empty/oversized mailboxes refuse before bootstrap and task admission also covers empty-context callbacks; SDK-result envelope/depth coverage and shipping-default workload qualification remain |
+| Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | verified locally for runtime-owned queues/reservations in both threading ABIs: independent real-node invocation, task, object, exact aggregate-byte and reply-channel saturation refuses excess work, releases/reuses capacity and keeps later work usable; full/closed operation mailbox tests release every event reservation; native-future/reply drop stages, binding proof faults, cancellation, 32-way mutation pressure and retirement/shutdown conserve all admitted operations with zero leaked reservations; trusted factory replacement/raw tasks/private pools remain outside cooperative admission |
 | Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
 | Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | verified locally: real two-domain reads/writes refuse live-cross/expired handles; independent before-submit/in-flight cancellation, held/failed native data proof, conservative unknown failure without adapter replay, explicit idempotent-set reconciliation, 1-admitted/31-refused overlap pressure and preserving restart retain exact effects with complete reports and zero pending operations/reservations |
@@ -1122,3 +1122,56 @@ pass. Native clock-refusal diagnostics now identify the initial response and
 specific capture/release/cancellation stage without changing an assertion,
 deadline or retry policy; the exact affected recovery test and strict native
 test-target Clippy pass locally. Linux evidence for these changes remains Q12.
+
+## Resource saturation and failed cleanup (2026-10-20)
+
+The new capacity subprocesses independently fill invocation admission, managed
+tasks, resident objects, aggregate byte reservations and native reply capacity.
+They use real nodes and retain complete operation/reservation accounting. The
+operation mailbox now has an explicit `Options::max_pending_operations` limit;
+zero and capacities unsupported by Tokio are refused before initialization.
+An owning-boundary test fills a two-entry mailbox, refuses the next event,
+reuses released capacity and closes the receiver; every accepted and refused
+event releases its owned byte reservation.
+
+Three production defects have direct failing-before/passing-after regressions:
+
+- At a four-task cap, an ordinary callback scheduled with an empty Context
+  created a fifth task because the factory checked the budget only when an
+  invocation ContextVar was present. Factory admission is now independent of
+  that variable. Separate bounded supervisor tasks can still join existing
+  work while the application budget is full; they do not exempt application
+  callbacks from the factory's limit.
+- A queued invocation filled all 4,096 bridge bytes. Another handler's normal
+  completion and fixed failure envelope were both refused, and the uncaught
+  transport error stopped the entire runtime. That failure now expires the
+  invocation and wakes its native driver through the existing cancellation
+  signal. The queued invocation and a later healthy request both succeed; the
+  refused response cannot fabricate success. Byte calibration reaches exactly
+  4,096 without changing the configured budget or bypassing ordinary admission.
+- Background tasks raised exceptions from their cancellation cleanup. Their
+  exceptions were retrieved but discarded, yielding `Report::complete()` with
+  `runtime_failed=false` and all pending counts zero. Such failures now set
+  `runtime_failed` and fixed stage `task_cleanup`; the combined report remains
+  incomplete without copying private exception text. A separate full-budget
+  case retains three genuinely unjoined tasks and records the bounded extra
+  supervisor work rather than claiming complete drain.
+
+Additional cases admit exactly two root invocations, refuse the third before
+Python entry and then reuse the released permit. Exactly two resident cell
+objects admit constructors; the third is refused, signed native eviction
+collects one object and the third can then be created. A blocked Python loop
+lets exactly two native replies accumulate; the third reply fails, accounting
+settles and a later request succeeds. The completion-envelope test independently
+accepts exactly 65,536 encoded bytes, rejects 65,537 and accepts a subsequent
+valid completion while both body and header limits fit.
+
+The complete final adapter suites, all seven capacity cases, nine unit tests,
+bootstrap and doctests pass on standard CPython 3.14.6 and free-threaded
+CPython 3.14.5t/macOS ARM64. Strict adapter Clippy passes in both modes.
+CI now gives the adapter its own early step in each mode; the subsequent native
+workspace test step excludes that already tested package while workspace
+doctests and Clippy still cover all packages/features. Both matrix entries
+and separate test coverage are checked from the parsed workflow.
+SDK-result envelope/depth boundaries, broader typed-error/routing races,
+external native prerequisites and final Linux execution remain open.

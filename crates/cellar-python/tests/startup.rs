@@ -44,6 +44,8 @@ fn main() -> Result<()> {
         "isolated",
         "unlisted",
         "missing-home",
+        "empty-mailbox",
+        "oversized-mailbox",
         "wrong-abi",
         "wrong-threading-abi",
         "concurrent-errors",
@@ -197,6 +199,8 @@ gc.collect()
             );
         }
         "missing-home" => options.interpreter.home = root.join("missing"),
+        "empty-mailbox" => options.max_pending_operations = 0,
+        "oversized-mailbox" => options.max_pending_operations = usize::MAX,
         "wrong-abi" => {
             options.interpreter.soabi = if options.interpreter.soabi.starts_with("cpython-314t-") {
                 "cpython-314t-wrong-abi".into()
@@ -315,6 +319,7 @@ gc.collect()
         }
         "duplicate-event" => "duplicate Python event",
         "missing-home" => "CPython path is missing",
+        "empty-mailbox" | "oversized-mailbox" => "mailbox capacity is outside its supported range",
         "wrong-abi" => "SOABI mismatch",
         "wrong-threading-abi" => "threading ABI",
         "relative-root" => "must be absolute",

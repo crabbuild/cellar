@@ -30,7 +30,7 @@ async fn observed(
     .with_context(|| format!("activation observation deadline: {last}"))?
 }
 
-async fn evict(client: &reqwest::Client, node: &Node, identity: &Value) -> Result<()> {
+pub(super) async fn evict(client: &reqwest::Client, node: &Node, identity: &Value) -> Result<()> {
     let path = "/peer/management";
     let body = serde_json::to_vec(&json!({"generation":node.info().lease_generation,
         "action":{"evict":{"scope":identity["scope"],"epoch":identity["epoch"]}}}))?;

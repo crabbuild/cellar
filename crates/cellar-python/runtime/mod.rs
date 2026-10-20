@@ -53,6 +53,8 @@ pub struct Options {
     pub max_value_bytes: usize,
     pub max_bridge_bytes: usize,
     pub max_operations: usize,
+    /// Capacity of each invocation's native operation/completion mailbox.
+    pub max_pending_operations: usize,
     pub max_batch_operations: usize,
     pub max_tasks: usize,
     pub max_objects: usize,
@@ -76,6 +78,7 @@ impl Default for Options {
             max_value_bytes: 2 * 1024 * 1024,
             max_bridge_bytes: 32 * 1024 * 1024,
             max_operations: 1024,
+            max_pending_operations: 32,
             max_batch_operations: 128,
             max_tasks: 1024,
             max_objects: 4096,
@@ -103,6 +106,10 @@ impl Options {
         ensure!(
             self.max_operations > 0 && self.max_batch_operations > 0,
             "operation budgets must be positive"
+        );
+        ensure!(
+            (1..=Semaphore::MAX_PERMITS).contains(&self.max_pending_operations),
+            "Python operation mailbox capacity is outside its supported range"
         );
         ensure!(
             self.max_tasks > self.max_invocations && self.max_objects > 0,
@@ -648,6 +655,9 @@ impl PythonRuntime {
     }
 }
 
-pub(crate) fn channel() -> (async_mpsc::Sender<Event>, async_mpsc::Receiver<Event>) {
-    async_mpsc::channel(32)
+pub(crate) fn channel(capacity: usize) -> (async_mpsc::Sender<Event>, async_mpsc::Receiver<Event>) {
+    async_mpsc::channel(capacity)
 }
+
+#[cfg(test)]
+mod channel_tests;

@@ -118,11 +118,23 @@ separate operations.
 
 `Options` bounds concurrent invocations, request/response bytes, bridge value
 bytes, aggregate native bridge bytes, operations per invocation, operations per atomic batch, live asyncio tasks and resident Python objects. Admission
-fails immediately when full. Each invocation's operation channel is bounded.
+fails immediately when full. `max_pending_operations` bounds each invocation's
+operation/completion mailbox (32 entries by default); zero and unsupported
+capacities are refused before bootstrap. The result mailbox holds at most twice
+`max_invocations` replies. Refused sends release their byte reservations.
 `max_value_bytes` limits the serialized UTF-8 JSON envelope of an entire atomic
 batch, rather than each row separately. `max_batch_operations` counts checks,
 puts, deletes and an optional alarm decision together. Rejected oversized
 batches apply no partial writes or alarm changes.
+
+`max_value_bytes` also bounds the complete encoded response envelope, including
+JSON escaping and base64, separately from body/header limits. A response refused
+by its mailbox or aggregate byte budget fails that invocation and revokes its
+sender; even refusal of the fixed failure envelope leaves the runtime available
+for later work. Previously committed writes are not rolled back.
+Exceptions raised by managed tasks while shutdown cancels them also make the
+combined report incomplete, even when no tasks remain. The fixed failure stage
+is `task_cleanup`; arbitrary exception text and traceback paths are omitted.
 
 For alarms, persist a business occurrence ID in the same `apply` batch as
 `alarm_at_ms`. Native retry backoff can change the handler's `scheduled_ms`;
@@ -131,7 +143,13 @@ business effect. The example uses a checked durable sequence and retains its
 current intent so a retry with a different delivery deadline still deduplicates.
 The single interpreter polls bridge messages every millisecond by default;
 `poll_interval` controls this latency/idle-CPU tradeoff. This is a first adapter,
-not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies. Task limits cover managed-loop work, not raw application threads or external native pools.
+not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies.
+The managed task factory enforces `max_tasks` even for callbacks with an empty
+context. Shutdown can create up to two explicit supervisor tasks to join existing
+work; the reported peak includes them. These are cooperative resource limits,
+not isolation from trusted code that constructs raw `asyncio.Task` objects or
+replaces the task factory. Raw application threads and external native pools
+remain application-owned.
 
 `Options::interpreter` supplies the Python home, executable, standard-library
 roots and SOABI. Its default is captured from the selected build-time CPython;

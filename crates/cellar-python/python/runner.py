@@ -107,7 +107,14 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
         # Exception messages, class names and tracebacks can contain request data
         # or credentials. The public failure carries no application-supplied text.
         if bridge.active():
-            bridge.complete('"Python handler failed"', True)
+            try:
+                bridge.complete('"Python handler failed"', True)
+            except (RuntimeError, ValueError, BlockingIOError):
+                # A full mailbox/byte budget or concurrent native retirement
+                # can refuse even this fixed failure envelope. Closing below
+                # wakes the native driver without needing another queue slot;
+                # one refused response must not terminate the entire runtime.
+                pass
     finally:
         elapsed = time.perf_counter_ns() - started
         metrics["handler_wall_ns_sum"] += elapsed
@@ -207,8 +214,9 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
         if remaining:
             finished, pending = await asyncio.wait(remaining, timeout=shutdown)
             for task in finished:
-                if not task.cancelled():
-                    task.exception()
+                if not task.cancelled() and task.exception() is not None:
+                    stats["runtime_failed"] = True
+                    stats["runtime_failure_stage"] = stats["runtime_failure_stage"] or "task_cleanup"
         publish_work(len(objects))
         stats["objects_retired"] += len(objects)
         objects.clear()
@@ -256,12 +264,19 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
 
     def task_factory(loop, coroutine, **kwargs):
         count = len(asyncio.all_tasks(loop))
-        if _current_invocation.get() is not None and count >= max_tasks:
+        if count >= max_tasks:
             stats["budget_exhaustions"] += 1
             coroutine.close()
             raise RuntimeError("Cellar Python task capacity exhausted")
         stats["peak_tasks"] = max(stats["peak_tasks"], count + 1)
         return asyncio.Task(coroutine, loop=loop, **kwargs)
+
+    def cleanup_task(coroutine):
+        # Bounded supervisor tasks can exceed the application budget while
+        # joining existing work. Ordinary callbacks, including empty-context
+        # callbacks during shutdown, still use the bounded factory above.
+        stats["peak_tasks"] = max(stats["peak_tasks"], len(asyncio.all_tasks(loop)) + 1)
+        return asyncio.Task(coroutine, loop=loop)
 
     loop.set_exception_handler(exception_handler)
     loop.set_task_factory(task_factory)
@@ -278,7 +293,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
             inbox.stop()
             serving.cancel()
             try:
-                loop.run_until_complete(asyncio.wait({serving}, timeout=shutdown + interval))
+                loop.run_until_complete(cleanup_task(asyncio.wait({serving}, timeout=shutdown + interval)))
                 if serving.done() and not serving.cancelled():
                     serving.exception()
             except BaseException:
@@ -287,14 +302,14 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
         # Generators can own resources even after their creating task completed.
         # Keep the loop alive while finally blocks run and bound noncooperation.
         cleanup_stage = "generators"
-        generators = loop.create_task(loop.shutdown_asyncgens())
-        _, remaining = loop.run_until_complete(asyncio.wait({generators}, timeout=shutdown))
+        generators = cleanup_task(loop.shutdown_asyncgens())
+        _, remaining = loop.run_until_complete(cleanup_task(asyncio.wait({generators}, timeout=shutdown)))
         if not remaining:
             generators.result()
         else:
             generators.cancel()
         cleanup_stage = "executor"
-        loop.run_until_complete(loop.shutdown_default_executor(timeout=shutdown))
+        loop.run_until_complete(cleanup_task(loop.shutdown_default_executor(timeout=shutdown)))
         stats["pending_tasks"] = max(stats["pending_tasks"], len(asyncio.all_tasks(loop)))
         stats["work"]["active_tasks"] = len(asyncio.all_tasks(loop))
         stats["pending_threads"] = sum(thread is not threading.main_thread() for thread in threading.enumerate())

@@ -59,11 +59,13 @@ jobs:
         run: |
           npm ci --ignore-scripts --prefix tools/perf/cloudflare
           npm test --prefix tools/perf/cloudflare
+      - name: Test embedded Python adapter
+        run: cargo test -p cellar-python --features embed --locked -- --test-threads=1
       - name: Test and lint
         run: |
           # Fleet fixtures own concurrent runtimes and short authority leases.
           # Run independent cases serially to keep their resource envelope stable.
-          cargo test --workspace --all-features --lib --tests --locked -- --test-threads=1
+          cargo test --workspace --exclude cellar-python --all-features --lib --tests --locked -- --test-threads=1
           cargo test --workspace --all-features --doc --locked
           cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - name: Test Axum feature modes and generated contract

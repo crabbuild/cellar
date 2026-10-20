@@ -11,6 +11,8 @@ use std::{path::Path, sync::Arc, time::Duration};
 mod binding_faults;
 #[path = "support/bindings.rs"]
 mod bindings;
+#[path = "support/capacity.rs"]
+mod capacity;
 #[path = "support/delivery.rs"]
 mod delivery;
 #[path = "support/durability.rs"]
@@ -207,6 +209,9 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if let Some(mode) = mode.strip_prefix("--runtime-capacity-") {
+        return capacity::child(mode);
+    }
     if mode == "--runtime-lifetimes" {
         return lifetimes::child();
     }
@@ -412,6 +417,13 @@ fn main() -> Result<()> {
         "--runtime-lifetimes",
         "--runtime-lifetimes-close",
         "--runtime-lifetimes-cancel",
+        "--runtime-capacity-invocations",
+        "--runtime-capacity-tasks",
+        "--runtime-capacity-objects",
+        "--runtime-capacity-bytes",
+        "--runtime-capacity-replies",
+        "--runtime-capacity-cleanup-error",
+        "--runtime-capacity-cleanup-full",
     ] {
         lifecycle_mode(mode)?;
     }
@@ -786,6 +798,13 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-lifetimes"
                 | "--runtime-lifetimes-close"
                 | "--runtime-lifetimes-cancel"
+                | "--runtime-capacity-invocations"
+                | "--runtime-capacity-tasks"
+                | "--runtime-capacity-objects"
+                | "--runtime-capacity-bytes"
+                | "--runtime-capacity-replies"
+                | "--runtime-capacity-cleanup-error"
+                | "--runtime-capacity-cleanup-full"
         ) {
             60
         } else {

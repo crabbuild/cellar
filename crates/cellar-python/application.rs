@@ -212,7 +212,7 @@ impl PythonApplication {
         );
         let active = Arc::new(AtomicBool::new(true));
         let _lifetime = Lifetime(active.clone());
-        let (sender, mut receive) = runtime::channel();
+        let (sender, mut receive) = runtime::channel(self.runtime.options.max_pending_operations);
         let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
         let invocation = self.runtime.id()?;
         let payload = serde_json::to_string(

@@ -103,6 +103,30 @@ pub(super) fn child() -> Result<()> {
                             .await?
                     );
                 }
+                for suffix in ["exact", "over", "exact"] {
+                    let response = client
+                        .get(format!("{url}/completion/{suffix}"))
+                        .send()
+                        .await?;
+                    if suffix == "over" {
+                        ensure!(
+                            response.status().is_server_error(),
+                            "over-limit completion was accepted"
+                        );
+                    } else {
+                        let response = response.error_for_status()?;
+                        ensure!(
+                            response
+                                .headers()
+                                .get("x")
+                                .context("completion header missing")?
+                                .as_bytes()
+                                .len()
+                                > 30_000
+                        );
+                        ensure!(response.bytes().await?.as_ref() == vec![b'x'; 4096]);
+                    }
+                }
                 stop(node, &monitor).await
             })
         },
