@@ -15,15 +15,20 @@ checks six endpoints, late startup failure with disk reuse, joined shutdown,
 retained receipts and new writes after restart. Real TLS partition fixtures cover
 both a discarded proposal and a retained proposal committed by the majority.
 
-MR-08 is in progress: local stale/minimum-version/ReadIndex query serving and
-authenticated version tokens have [local qualification evidence](evidence/MR-08-local-progress.json)
-covering 71 owning cases, including 10 read cases.
-Replica selection and same-consistency leader fallback remain open. MR-09 is
+MR-08 is in progress. Local Stale/AtLeast/ReadIndex queries and opaque tokens
+retain [local evidence](evidence/MR-08-local-progress.json). Separately owned TLS
+query RPCs now support bounded member selection, explicit leader fallback and
+forwarding from voters without query code; [network evidence](evidence/MR-08-network-progress.json)
+records 83 owning cases, 12 Raft unit cases and repeated network histories.
+The [read audit](read-audit.md) retains active ordinary-context capture, counter
+HTTP integration, broader RPC faults and directory/ingress routing outside
+registered group membership. All seven named cases exist; MR-08 is not closed.
+MR-09 is
 ready for implementation. S3 archive/restore, snapshot installation, membership
 controllers, effects and later release/scaling work remain pending. Unsupported
 SDK capabilities are refused. These tests do not establish production capacity
 or completion of the full delivery scope. The reviewed source baseline is
-`961c006280a90517b8206d3d403ecf3559152a50`.
+`4c0916dc5fec5259213ed19de0f91a3c30abb39f`.
 
 Build a storage mode in which each cell has a three-voter Raft group, leaders
 execute commands, replicas serve explicit queries, LTX carries physical SQLite

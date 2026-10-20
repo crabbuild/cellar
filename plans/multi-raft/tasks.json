@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "961c006280a90517b8206d3d403ecf3559152a50",
+  "baseline_revision": "4c0916dc5fec5259213ed19de0f91a3c30abb39f",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -953,12 +953,26 @@
         "crates/cellar/tests/support/raft_node.rs",
         "examples/raft-counter/main.rs",
         "crates/cellar/durability/raft/README.md",
-        "examples/raft-counter/README.md"
+        "examples/raft-counter/README.md",
+        "crates/cellar/durability/raft/transport.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/durability/raft/transport_options.rs",
+        "crates/cellar/durability/raft/transport_tests.rs",
+        "crates/cellar/node/mod.rs",
+        "crates/cellar/tests/native_node.rs",
+        "crates/cellar/tests/native_raft_transport.rs",
+        "crates/cellar/tests/support/raft_network.rs",
+        "crates/cellar/application/consensus/class.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/query.rs",
         "crates/cellar/durability/raft/version.rs",
-        "crates/cellar/tests/native_raft_reads.rs"
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/durability/raft/query_route.rs",
+        "crates/cellar/durability/raft/query_wire.rs",
+        "crates/cellar/durability/raft/query_wire_tests.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "plans/multi-raft/read-audit.md"
       ],
       "steps": [
         "Implement read-only query registration, snapshot pinning and served-version propagation.",
@@ -1055,7 +1069,8 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-08-local-progress.json"
+        "evidence/MR-08-local-progress.json",
+        "evidence/MR-08-network-progress.json"
       ]
     },
     {

@@ -3,7 +3,8 @@
 Status: IN_PROGRESS. The [local-read evidence](evidence/MR-08-local-progress.json)
 qualifies the preceding local implementation. Network member routing, fallback,
 independent LTX catch-up and query-code-independent forwarding have passing
-component tests; final source-pinned qualification is being recorded. They do
+component tests; [network evidence](evidence/MR-08-network-progress.json) pins
+source, executable digests, commands and qualification limits. They do
 not close MR-08 or the complete delivery goal.
 
 ## Read proof and image ownership

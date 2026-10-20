@@ -161,3 +161,27 @@ required. Counter HTTP does not yet expose stronger query options/tokens.
 S3 cell archives/restores, snapshots, membership repair, effects, operations,
 release/scaling and the remaining original packages stay in scope. These
 single-machine embedded-node fixtures establish no production capacity claim.
+
+Partial MR-08 source `4c0916dc5fec5259213ed19de0f91a3c30abb39f` adds a separately
+owned authenticated TLS query plane, bounded member attempts and explicit
+leader fallback; see [network evidence](evidence/MR-08-network-progress.json)
+and the [read audit](read-audit.md). Current-source checks pass 83 owning cases
+(13 read, 20 host, 16 execution, 14 runtime, 9 transport, 11 core), 12 Raft unit
+cases and the focused Node query-listener join/rebind case. Four ignored owning
+helper entry points are excluded. Axum feature suites pass 27/33 cases including
+their compile doctest. Clippy, formatting, layout and dependency checks pass.
+
+Three repetitions each pass same-consistency/deadline fallback, independent LTX
+catch-up during a waiting RPC and forwarding from a voter without query code.
+The real counter process drill passes late startup failure, disk reuse, six
+endpoints, joined shutdown and retained receipts/new writes after restart with
+the added query listener. A preliminary 88-case Node run passed before the final
+RPC forwarding/gateway guards and test refinements; it is retained separately
+and is not claimed as full Node qualification at this source revision.
+
+All seven named MR-08 cases are now present, but MR-08 remains IN_PROGRESS.
+Active captured ordinary Context/Storage, counter HTTP query/token options,
+broader RPC fault cases and directory/ingress routing outside registered group
+membership still require implementation/audit. All later original packages,
+including S3 archive/restore and complete scaling/release qualification, remain
+open. These fixtures make no production-capacity claim.
