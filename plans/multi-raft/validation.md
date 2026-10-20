@@ -276,3 +276,26 @@ limits and must be addressed consistently before enabling native scheduling.
 The prior full 88-case Node run remains pinned separately in the physical progress
 record; only the affected Raft lifecycle case is rerun here. Physical S3, power
 loss, zones, production capacity and the original complete goal remain unqualified.
+
+
+## MR-10 cancellation progress
+
+The [cancellation record](evidence/MR-10-abort-progress.json) pins source
+`c6aaca08153d039717a07195d05a8b0248ac6fe5`: 160 Rust cases across ten targets and all
+18 commands pass. Its 22 snapshot cases include exact-ticket cancellation,
+same/higher-term voting, joined older physical apply, duplicate/late completion
+refusal, retry installation, irreversible install refusal and failed sync/restart
+recovery. The final source also handles the new cancellation event explicitly in
+the existing runtime fixture. Seven ignored process children are invoked by owning
+parents; seven snapshot install process-kill cuts remain covered. Owning Clippy,
+cellar-ltx feature builds/Clippy, format/layout, dependency policy, docs, 17 plan
+tests and reviewed preflight pass.
+
+This remains component progress. Native snapshot RPC/source scheduling,
+publication/readiness and generation admission, authorized fresh-member S3/peer
+recovery and quorum-loss normal-activation refusal remain unfinished. The
+[feature milestone order](implementation-plan.md#feature-priorities-and-delivery-milestones)
+keeps recovery through public Node first, followed by automatic repair, durable
+business features, operations, release qualification and larger scale/federation.
+MR-10 and the overall 17-package goal remain open. No physical S3, power-loss,
+zones, production capacity or release qualification is established by this record.

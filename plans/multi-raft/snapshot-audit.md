@@ -1,13 +1,15 @@
 # Physical snapshot boundary
 
-MR-10 is in progress. The [peer-admission progress evidence](evidence/MR-10-inbound-progress.json)
-pins source `ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`: 157 Rust cases pass across
-ten targets, including 19 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node Raft
-lifecycle case. All 18 commands pass, with executable/log digests. Clippy and
-checks cover owning targets and cellar-ltx without backend defaults and with all
-features; format checks 629 Rust files. Layout, dependency policy, docs, 17 plan
-tests and the reviewed 68-anchor preflight pass. Seven ignored process children
-are invoked by owning parents and excluded from counts.
+MR-10 is in progress. The [cancellation progress evidence](evidence/MR-10-abort-progress.json)
+pins source `c6aaca08153d039717a07195d05a8b0248ac6fe5`: 160 Rust cases pass across
+ten targets, including 22 snapshot, 14 transport, 17 LTX, 23 host and the affected
+public Node Raft lifecycle case. All 18 commands pass, with executable/log digests.
+Clippy and checks cover owning targets and cellar-ltx without backend defaults and
+with all features; format checks 629 Rust files. Layout, dependency policy, docs,
+17 plan tests and the reviewed 68-anchor preflight pass. Seven ignored process
+children are invoked by owning parents and excluded from counts. The earlier
+[peer-admission record](evidence/MR-10-inbound-progress.json) pins its separate
+157-case qualification at `ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`.
 
 The [earlier physical progress](evidence/MR-10-physical-progress.json) retains its
 separate 218-case/88-Node qualification at source
@@ -82,6 +84,36 @@ refreshes the snapshot reference before retiring the previous head. A newer sync
 checkpoint replaces the old snapshot reference while old reader/transfer pins
 continue to protect physical bytes. Retained references survive process-local pin
 release and restart.
+
+## Cancellation before install authorization
+
+`RaftRuntime::abort_snapshot` accepts only the exact pending local ticket before
+install authorization. It uses reserved physical-completion admission. Admission
+revokes late install completion immediately; repeated cancellation remains
+idempotent while pending. It proves no durable progress by itself. If an older
+physical apply already owns a ticket, cancellation waits for that same owner and
+persists its completion rather than discarding or reissuing the effect. Consuming
+that completion into the abort write also prevents duplicate completion during sync.
+
+The serialized abort write preserves the old durable commit, snapshot and applied
+configuration, while persisting RawNode's required current term/vote and the joined
+older apply marker. RawNode's unstable snapshot commit must never be copied into
+this write. Only after sync does the runtime emit the older `Applied`, then
+`SnapshotAborted`, and rebuild RawNode from the coherent stable state. It drops
+snapshot-dependent messages and unstable state; durable committed entries can
+replay normally. Operation capabilities remain monotonically allocated, so the
+same snapshot bytes need a fresh ticket on retry. Once `complete_snapshot` is
+accepted, cancellation is refused and the caller must join the install outcome.
+A stale-completion error does not establish that an install failed.
+
+Three real SQLite/engine tests cover same/higher-term voting across cancellation,
+old checkpoint/image retention and restart, late completion refusal, joining a
+held older physical apply, duplicate completion refusal during held abort sync,
+retry installation and refusal to cancel an authorized install. Failed abort sync
+releases neither completion nor dependent acknowledgement; after joined shutdown,
+recovery retains the old committed prefix and a coherent old/new HardState. These
+are component checks. Native transfer cancellation and its complete crash/lifecycle
+matrix remain required before enabling native snapshot recovery.
 
 ## Peer admission during pending image work
 
@@ -168,11 +200,9 @@ Still required for MR-10:
   including pending commands/queries and image-capacity pressure. Minimum image
   admission must account for the independent snapshot reference and private
   command/apply generations, and transfer limits must cover configured images.
-- Exact-ticket abort before physical install authorization: persist required
-  term/vote over the old durable commit/apply prefix before rebuilding RawNode.
-  Join and settle any older in-flight apply; do not discard/reissue its effect or
-  invent committed progress. Once install submission becomes irreversible, join
-  it instead of aborting. Refuse late completions and qualify failure/restart cuts.
+- Integrate exact-ticket cancellation with native transfer ownership and host
+  readiness. Join older apply and irreversible install work; extend component
+  cancellation checks to native failure/restart and shutdown cuts.
 - Authorized fresh-member admission and S3/peer seeding through a surviving live
   group, with explicit refusal of S3-only normal activation after quorum loss.
 - Full native lifecycle/fault qualification and pinned completion evidence.

@@ -47,22 +47,26 @@ define the remaining delivery order: recovery, automatic repair, durable busines
 features, node operations, release qualification, then larger scale/federation.
 Recovery through the public Node path is the current priority.
 
-The [MR-10 peer-admission progress](evidence/MR-10-inbound-progress.json) pins source
-`ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`: 157 Rust cases pass across ten targets,
-including 19 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node
-Raft lifecycle cases. All 18 commands pass, including owning-target Clippy,
-cellar-ltx without backend defaults/with all features, format/layout, dependency
-policy, docs, 17 plan tests and reviewed preflight. Peer admission and coalesced
-sender hints do not await group execution. Separate physical-completion admission
-settles work after eight stalled groups fill all 256 ordinary request slots.
-TLS tests retain group/node charges through acknowledgement, enforce item/byte
-bounds, preserve shutdown prefixes and progress a healthy group during receiver
-and sender snapshot waits. The full-size physical/archive and checkpoint/reference
-regressions also pass. The [snapshot audit](snapshot-audit.md) records remaining
-native scheduling, authenticated transfer/abort, host readiness/generation admission
-and replacement-member authorization. MR-10 remains IN_PROGRESS. The earlier
-[boundary record](evidence/MR-10-boundary-progress.json) retains its separate
-152-case qualification at source `a5619f3d522fd942372c520f02a52945fd0ec7b5`.
+The [MR-10 cancellation progress](evidence/MR-10-abort-progress.json) pins source
+`c6aaca08153d039717a07195d05a8b0248ac6fe5`: 160 Rust cases pass across ten targets,
+including 22 snapshot, 14 transport, 17 LTX, 23 host and the affected public Node
+Raft lifecycle case. All 18 commands pass, including owning-target Clippy,
+cellar-ltx backend feature modes, format/layout, dependency policy, docs, 17 plan
+tests and the reviewed 68-anchor preflight. Exact-ticket cancellation joins older
+physical apply work, syncs required term/vote over the old committed prefix and
+refuses late install completions. A retry uses a fresh capability. Failed sync
+releases no progress; restart recovers the coherent old image. These are component
+gates; native transfer and recovery through Node remain unfinished.
+
+The [snapshot audit](snapshot-audit.md) records remaining native checkpoint/source
+scheduling, authenticated transfer/cancellation ownership, host readiness and
+generation admission, and replacement-member authorization with quorum-loss refusal.
+MR-10 remains IN_PROGRESS. The earlier
+[peer-admission record](evidence/MR-10-inbound-progress.json) pins 157 cases at
+`ca6f59aa37f5f6ecef6c1a7f97136fb3ee9a8a29`; it qualifies held-snapshot TLS
+admission, sender hints, independent completion reservations and joined shutdown.
+The [boundary record](evidence/MR-10-boundary-progress.json) pins its separate
+152-case qualification at `a5619f3d522fd942372c520f02a52945fd0ec7b5`.
 The [earlier physical record](evidence/MR-10-physical-progress.json) retains its
 separate 218-case/88-Node qualification at source `24410fb754b055078255ccf5d595c0893f0d1b0e`.
 

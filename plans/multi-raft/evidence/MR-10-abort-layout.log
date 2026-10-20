@@ -1,0 +1,4 @@
+Source revision: c6aaca08153d039717a07195d05a8b0248ac6fe5
+Command: ["cargo", "check-layout"]
+
+Checked module layout for 629 Rust files
