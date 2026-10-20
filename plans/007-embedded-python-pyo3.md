@@ -18,7 +18,7 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: full external native-library/OS attestation, forced-fence and quorum durability fault injection, binding-specific failure matrices, multi-platform qualification and throughput measurements. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
+Remaining qualification: full external native-library/OS attestation, quorum durability fault injection, binding-specific failure matrices, multi-platform qualification and throughput measurements. Native-writer conflicts and a stale Python task resumed after a real ownership fence are now directly tested. Local CPU-loop and GIL-held C-call watchdog drills now kill owners, remove local disks, recover acknowledged state from the development fleet bucket and verify new writes. Cancellation-suppressing asyncio tasks, host failures/panics,
 background interpreter failure and default executor shutdown have local coverage. Native projects can now bundle and restore a verified CPython/runtime/package
 closure. The real recovery drill removes the original runtime, installs from
 a private bucket and starts the installed host with a cleared environment,
@@ -64,10 +64,8 @@ not publish a Python example before that path runs end to end.
 | [Native packaging](../crates/cellar/cli/native_deploy/mod.rs) | Verified native executable and application configuration | Add an explicit Python runtime/source artifact inventory |
 | [Native application ADR](../docs/adr/001-native-applications.md) | Compiled factories; no JavaScript engine | Keep compiled registration and define interpreter support as a new opt-in adapter |
 
-The old [Pyodide bundler](../crates/cellar/cli/deploy/python.rs) creates a
-JavaScript/Wasm bundle. The [current loader](../crates/cellar/runtime/workers/worker.rs)
-requires a registered compiled Rust application. Those old files are not a
-working Python runtime and are not the implementation base for this adapter.
+The native loader requires a registered compiled application. This adapter
+implements that contract directly; it requires no JavaScript/Wasm bundler.
 
 ## Scope and compatibility contract
 
@@ -97,12 +95,14 @@ cell mutation. External receivers still need idempotency and reconciliation.
 
 ## Python application interface
 
-The following sketches describe the proposed interface, not an importable SDK.
-The bundled `cellar` facade wraps a private PyO3 module, `_cellar_native`.
+The bundled `cellar` facade wraps private invocation-bound PyO3 bridge objects.
+The following handler uses the executable facade API. Its Rust source descriptor
+must register `fetch` and the `Orders` class's `fetch`/`alarm` events, and the
+deployment must bind `ORDERS` to that class.
 
 ```python
 from pydantic import BaseModel
-from cellar import Response
+from cellar import MISSING, Response
 
 class Order(BaseModel):
     id: str
@@ -115,13 +115,13 @@ async def fetch(request, ctx):
 
 class Orders:
     async def fetch(self, request, ctx):
-        order = Order.model_validate(await request.json())
-        if order.id != ctx.cell.name:
+        order = Order.model_validate(request.json())
+        if order.id != ctx.identity.name:
             return Response.json({"error": "order identity mismatch"}, status=400)
         await ctx.storage.apply(
-            checks={"order": ctx.storage.MISSING},
+            checks={"order": MISSING},
             puts={"order": order.model_dump(mode="json")},
-            alarm_at_ms=ctx.now_ms() + 60_000,
+            alarm_at_ms=await ctx.now_ms() + 60_000,
         )
         return Response.json({"id": order.id}, status=201)
 
@@ -140,8 +140,8 @@ exceptions are not automatically classified as SDK validation failures.
 Require `async def` handlers initially. A cell's Python instance is transient
 and is created lazily on its first admitted invocation. Its identity includes
 the owning domain, application generation and activation identity/epoch, never
-the business name alone. Constructors accept immutable identity/configuration
-only; they cannot use an invocation context or perform host calls. Async initialization, if added,
+the business name alone. Constructors take no arguments; immutable identity is
+available through the handler's `ctx.identity`. Constructors cannot perform host calls. Async initialization, if added,
 needs an explicit gate rather than an implicit constructor convention.
 
 The host descriptor registers the module entry point, declared cell classes and
@@ -158,12 +158,11 @@ Rust runtimes drive the existing Cellar node and invocation futures on their
 own threads. The bootstrap owns the loop, threads and join sequence; no hidden
 global Tokio runtime or per-request interpreter is introduced.
 
-Choose one coordinated process signal owner. Initialize CPython with automatic
-signal-handler installation disabled, then let the Python-host bootstrap
-register the supported shutdown handlers and notify the Rust supervisor. Do not
-run a second independent `Host::run` signal supervisor. This bootstrap uses the
-explicit embedded-node APIs and must preserve both execution domains through
-node shutdown and join.
+Use one coordinated process signal owner. CPython's automatic signal handlers
+are disabled. The CLI host owns INT/TERM and returns joined outcomes through
+`Host::run_until_observed`; embedded hosts supply their own stop future to
+`Node::run_until`. The Python bootstrap keeps the loop alive until the Rust
+supervisor returns and then joins it. It installs no competing signal supervisor.
 
 A conceptual invocation has two directions:
 
@@ -174,8 +173,8 @@ A conceptual invocation has two directions:
    Python future. It does not call the storage implementation on that thread.
 4. The original Rust `HandlerFuture` polls its mailbox and the requested SDK
    operation under the event/domain context installed by the native worker.
-5. An owned result is scheduled onto the Python loop with its thread-safe
-   scheduling API. The Python task resumes without blocking a Rust worker.
+5. An owned result enters the bounded reply channel. The managed loop polls it
+   at the configured interval and resumes Python without blocking a Rust worker.
 6. The handler's final value becomes a native `Output`; the existing host proves
    required writes and releases the output.
 
@@ -185,11 +184,10 @@ SQLite guard or a synchronous mutex across an await, queue wait or cross-thread
 notification. Convert to owned values while attached to Python and detach before
 waiting on Rust work.
 
-Evaluate a compatible, pinned `pyo3-async-runtimes` release for awaitable and
-future conversion. Its conversions do not propagate Cellar's execution-domain
-or installed-turn authority. Any internal runtime it uses must not execute host
-SDK operations. Do not adopt PyO3's experimental async-function support as an
-unexamined substitute for the invocation mailbox.
+The initial implementation pins PyO3 and uses owned mailboxes rather than
+`pyo3-async-runtimes` or experimental async PyO3 functions. This keeps SDK futures
+inside their original invocation and avoids a hidden executor with different
+execution-domain authority.
 
 All Python handler tasks share the interpreter and loop. Async I/O can overlap;
 Python bytecode is constrained by the GIL. A synchronous computation inside an
@@ -394,9 +392,10 @@ Do not discover an interpreter or install packages inside library code. Ambient
 change the deployed application. Link libpython for embedding; do not accidentally
 use PyO3's extension-module linking mode for the host executable.
 
-The existing native package format does not inventory a Python runtime closure.
-Design and implement the additional artifact/metadata validation before claiming
-that `build`, `deploy` and `install` verify a Python-enabled deployment. Keep
+The native package now records a typed Python inventory/archive reference for
+each supported executable and gates admission with `embedded-python-v1`.
+Build, publication and installation verify those artifacts; startup rechecks
+the restored files before importing the application. Keep
 Cellar-owned format markers at 1 and use the repository's hard-cutover policy
 when introducing internal metadata; do not imply old packages gain support.
 

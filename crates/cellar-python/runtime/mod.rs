@@ -99,6 +99,24 @@ impl Options {
     }
 }
 
+/// Measurements from the managed interpreter loop. CPU excludes executor/native
+/// worker threads; RSS covers the whole process, not an isolated Python heap.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct InterpreterReport {
+    pub thread_cpu_ns: u64,
+    pub wall_ns: u64,
+    pub process_peak_rss_bytes: u64,
+    pub allocated_blocks_initial: usize,
+    pub allocated_blocks_final: usize,
+    pub handlers_started: usize,
+    pub handlers_completed: usize,
+    pub handlers_failed: usize,
+    pub handlers_cancelled: usize,
+    /// Sum and maximum include host-await time; concurrent handlers overlap.
+    pub handler_wall_ns_sum: u64,
+    pub handler_wall_ns_max: u64,
+}
+
 /// Python work remaining after the Rust host has stopped.
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Report {
@@ -110,6 +128,12 @@ pub struct Report {
     pub peak_tasks: usize,
     pub budget_exhaustions: usize,
     pub runtime_failed: bool,
+    #[serde(default)]
+    pub unraisable_errors: usize,
+    #[serde(default)]
+    pub thread_errors: usize,
+    #[serde(default)]
+    pub interpreter: InterpreterReport,
     #[serde(default)]
     pub host_failed: bool,
     #[serde(default)]
@@ -125,6 +149,8 @@ impl Report {
             && self.pending_threads == 0
             && self.objects_created == self.objects_retired
             && !self.runtime_failed
+            && self.unraisable_errors == 0
+            && self.thread_errors == 0
             && !self.host_failed
             && self.bridge.queued_bytes == 0
             && self.bridge.pending_reservations == 0
@@ -390,6 +416,13 @@ impl PythonRuntime {
             let modules = py.import("sys")?.getattr("modules")?;
             let facade = PyModule::from_code(py, &CString::new(FACADE)?, c"cellar.py", c"cellar")?;
             modules.set_item("cellar", &facade)?;
+            let runner = PyModule::from_code(
+                py,
+                &CString::new(RUNNER)?,
+                c"cellar_runner.py",
+                c"_cellar_runner",
+            )?;
+            runner.getattr("install_error_hooks")?.call0()?;
             let app = PyModule::from_code(
                 py,
                 &CString::new(source.code.as_str())?,
@@ -403,12 +436,6 @@ impl PythonRuntime {
                     "Python class {class} is not callable"
                 );
             }
-            let runner = PyModule::from_code(
-                py,
-                &CString::new(RUNNER)?,
-                c"cellar_runner.py",
-                c"_cellar_runner",
-            )?;
             runner
                 .getattr("validate")?
                 .call1((app.clone(), serde_json::to_string(&source.descriptor())?))?;

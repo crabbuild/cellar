@@ -2,8 +2,25 @@
 import asyncio
 import inspect
 import json
+import resource
+import sys
 import threading
+import time
 from cellar import Batch, Context, Request, Response, Scheduled, _encode, _current_invocation
+
+_failures = dict(unraisable_errors=0, thread_errors=0)
+
+
+def install_error_hooks():
+    # Default hooks print arbitrary exception text, traceback paths and object
+    # reprs to stderr. These hooks retain only failure counts, including during
+    # application imports before the managed loop starts.
+    def unraisable(details):
+        _failures["unraisable_errors"] += 1
+    def thread_failure(details):
+        _failures["thread_errors"] += 1
+    sys.unraisablehook = unraisable
+    threading.excepthook = thread_failure
 
 
 def validate(module, descriptor):
@@ -29,8 +46,12 @@ def validate(module, descriptor):
 
 async def _invoke(module, objects, payload, bridge, context, stats, maximum):
     token = _current_invocation.set(bridge)
+    started = time.perf_counter_ns()
+    metrics = stats["interpreter"]
+    metrics["handlers_started"] += 1
     try:
         if not bridge.active():
+            metrics["handlers_cancelled"] += 1
             return
         target = module
         if payload["object"] is not None:
@@ -56,14 +77,20 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
             raise TypeError("fetch must return cellar.Response")
         encoded = _encode(result._wire() if kind == "fetch" else None)
         bridge.complete(encoded, False)
+        metrics["handlers_completed"] += 1
     except asyncio.CancelledError:
+        metrics["handlers_cancelled"] += 1
         raise
     except BaseException:
+        metrics["handlers_failed"] += 1
         # Exception messages, class names and tracebacks can contain request data
         # or credentials. The public failure carries no application-supplied text.
         if bridge.active():
             bridge.complete('"Python handler failed"', True)
     finally:
+        elapsed = time.perf_counter_ns() - started
+        metrics["handler_wall_ns_sum"] += elapsed
+        metrics["handler_wall_ns_max"] = max(metrics["handler_wall_ns_max"], elapsed)
         context._close()
         _current_invocation.reset(token)
 
@@ -72,6 +99,10 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks):
     invocations, objects = {}, {}
     try:
         while not inbox.done():
+            if any(_failures.values()):
+                stats["runtime_failed"] = True
+                inbox.stop()
+                break
             for invocation, operation, result in inbox.replies():
                 entry = invocations.get(invocation)
                 if entry:
@@ -126,11 +157,16 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks):
 
 
 def run(module, inbox, interval, shutdown, max_tasks, max_objects):
+    wall_started, cpu_started = time.perf_counter_ns(), time.thread_time_ns()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     stats = dict(pending_tasks=0, pending_objects=0, pending_threads=0,
                  objects_created=0, objects_retired=0, peak_tasks=0,
                  budget_exhaustions=0, runtime_failed=False)
+    stats["interpreter"] = dict(thread_cpu_ns=0, wall_ns=0, process_peak_rss_bytes=0,
+        allocated_blocks_initial=sys.getallocatedblocks(), allocated_blocks_final=0,
+        handlers_started=0, handlers_completed=0, handlers_failed=0,
+        handlers_cancelled=0, handler_wall_ns_sum=0, handler_wall_ns_max=0)
 
     def exception_handler(loop, details):
         # Never log application exception repr, task locals or traceback paths.
@@ -186,3 +222,10 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
         inbox.stop()
         asyncio.set_event_loop(None)
         loop.close()
+        stats.update(_failures)
+        stats["runtime_failed"] |= any(_failures.values())
+        stats["interpreter"].update(
+            thread_cpu_ns=time.thread_time_ns() - cpu_started,
+            wall_ns=time.perf_counter_ns() - wall_started,
+            process_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024),
+            allocated_blocks_final=sys.getallocatedblocks())

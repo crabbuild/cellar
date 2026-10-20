@@ -1,14 +1,18 @@
 //! Real-node adapter contract, on the process main thread (one interpreter).
 #![allow(clippy::disallowed_methods)]
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
 use cellar_python::{EventKind, Options, PythonApplication, PythonRuntime, Source};
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc, time::Duration};
 
+#[path = "support/fencing.rs"]
+mod fencing;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod fixture;
+#[path = "support/native_writer.rs"]
+mod native_writer;
 #[path = "support/watchdog.rs"]
 mod watchdog;
 
@@ -18,9 +22,19 @@ async fn start(path: &Path, application: Arc<PythonApplication>) -> Result<(Node
 
 async fn start_with(
     path: &Path,
-    application: Arc<PythonApplication>,
+    application: Arc<dyn Application>,
     name: &str,
     bucket: Option<cellar::bucket::Bucket>,
+) -> Result<(Node, String)> {
+    start_configured(path, application, name, bucket, |_| {}).await
+}
+
+async fn start_configured(
+    path: &Path,
+    application: Arc<dyn Application>,
+    name: &str,
+    bucket: Option<cellar::bucket::Bucket>,
+    configure: impl FnOnce(&mut NodeConfig),
 ) -> Result<(Node, String)> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -61,6 +75,7 @@ async fn start_with(
     );
     config.maintenance.rebalance = false;
     config.runtime.handler_budget = Duration::from_millis(250);
+    configure(&mut config);
     let executor = tokio::runtime::Handle::current();
     let peer_http = reqwest::Client::new();
     let peer_auth = Arc::new(PeerAuth::new([31; 32], name)?);
@@ -143,13 +158,24 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-fenced" {
+        return fencing::child();
+    }
     if mode.starts_with("--owner-") {
         return watchdog::child(
             &mode,
             Path::new(&std::env::args().nth(2).expect("private owner directory")),
         );
     }
-    if mode == "--runtime-fatal" {
+    if matches!(
+        mode.as_str(),
+        "--runtime-fatal" | "--runtime-unraisable" | "--runtime-thread-error"
+    ) {
+        let endpoint = match mode.as_str() {
+            "--runtime-unraisable" => "/unraisable",
+            "--runtime-thread-error" => "/thread-error",
+            _ => "/fatal",
+        };
         let directory = tempfile::tempdir()?;
         let error = run(
             Options::default(),
@@ -172,7 +198,7 @@ fn main() -> Result<()> {
                             stop.cancelled().await;
                             ShutdownMode::Preserve
                         }),
-                        client.get(format!("{url}/fatal")).send(),
+                        client.get(format!("{url}{endpoint}")).send(),
                     )
                     .await;
                     let outcome = outcome?;
@@ -193,6 +219,12 @@ fn main() -> Result<()> {
                 && !error.to_string().contains("controlled background exit"),
             "unexpected fatal error: {error}"
         );
+        let failure = error.downcast_ref::<cellar_python::Incomplete>().unwrap();
+        if endpoint == "/unraisable" {
+            ensure!(failure.report.unraisable_errors == 1);
+        } else if endpoint == "/thread-error" {
+            ensure!(failure.report.thread_errors == 1);
+        }
         return Ok(());
     }
     if mode == "--runtime-stubborn" {
@@ -249,6 +281,9 @@ fn main() -> Result<()> {
         "--runtime-panic",
         "--runtime-stubborn",
         "--runtime-fatal",
+        "--runtime-unraisable",
+        "--runtime-thread-error",
+        "--runtime-fenced",
     ] {
         lifecycle_mode(mode)?;
     }
@@ -259,6 +294,7 @@ fn main() -> Result<()> {
             max_body_bytes: 4096,
             max_value_bytes: 16384,
             max_operations: 64,
+            max_batch_operations: 4,
             max_tasks: 129,
             ..Default::default()
         },
@@ -299,6 +335,14 @@ fn main() -> Result<()> {
                 stop(other, &monitor).await?;
                 scoped?;
                 host_await_progress(&client, &url).await?;
+                let (writer_node, writer_url) = start_with(
+                    &directory.path().join("native-writer"),
+                    Arc::new(native_writer::ApplicationWithWriter(application.clone())),
+                    "native-writer", None,
+                ).await?;
+                let conflict = native_writer::qualify(&client, &writer_url).await;
+                stop(writer_node, &monitor).await?;
+                conflict?;
                 let call = |path: &str| client.get(format!("{url}{path}"));
                 ensure!(
                     call("/threadpool")
@@ -338,7 +382,8 @@ fn main() -> Result<()> {
                     .is_server_error());
                 ensure!(call("/duplicate-alarm").send().await?.json::<u32>().await? == 1);
                 ensure!(call("/generator").send().await?.json::<bool>().await?);
-                ensure!(call("/atomic").send().await?.json::<bool>().await?);
+                ensure!(call("/atomic").send().await?.error_for_status().context("atomic storage")?.json::<bool>().await?);
+                ensure!(call("/batch-validation").send().await?.error_for_status().context("batch validation")?.json::<bool>().await?);
                 ensure!(call("/unawaited").send().await?.json::<bool>().await?);
                 ensure!(call("/late").send().await?.json::<Value>().await?.is_null());
                 ensure!(call("/budget").send().await?.json::<bool>().await?);
@@ -455,15 +500,40 @@ fn main() -> Result<()> {
             && report.bridge.transferred_bytes > 0
     );
     ensure!(
-        report.native_outcomes.len() == 5,
+        report.native_outcomes.len() == 6,
         "missing native report: {:?}",
         report.native_outcomes
     );
     let roundtrip: cellar_python::Report = serde_json::from_slice(&serde_json::to_vec(&report)?)?;
     ensure!(roundtrip.complete());
     ensure!(report.objects_created > 0 && report.objects_created == report.objects_retired);
+    ensure!(
+        report.interpreter.thread_cpu_ns > 0
+            && report.interpreter.wall_ns > 0
+            && report.interpreter.process_peak_rss_bytes > 0
+            && report.interpreter.allocated_blocks_initial > 0
+            && report.interpreter.allocated_blocks_final > 0
+            && report.interpreter.handlers_started > 0
+            && report.interpreter.handlers_started
+                == report.interpreter.handlers_completed
+                    + report.interpreter.handlers_failed
+                    + report.interpreter.handlers_cancelled
+            && report.interpreter.handler_wall_ns_sum >= report.interpreter.handler_wall_ns_max
+            && report.interpreter.handler_wall_ns_max > 0,
+        "incomplete interpreter measurements: {:?}",
+        report.interpreter
+    );
     pyo3::Python::attach(|py| -> Result<()> {
         use pyo3::prelude::*;
+        py.import("gc")?.call_method0("collect")?;
+        let app = py
+            .import("sys")?
+            .getattr("modules")?
+            .get_item("_cellar_application")?;
+        ensure!(
+            app.getattr("instances")?.len()? == 0,
+            "retired Python cell objects remain live"
+        );
         ensure!(
             py.import("sys")?
                 .getattr("modules")?
@@ -486,13 +556,21 @@ fn main() -> Result<()> {
 }
 
 fn lifecycle_mode(mode: &str) -> Result<()> {
+    let output = tempfile::NamedTempFile::new()?;
     let mut child = std::process::Command::new(std::env::current_exe()?)
         .arg(mode)
+        .stdout(output.as_file().try_clone()?)
+        .stderr(output.as_file().try_clone()?)
         .spawn()?;
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     loop {
         if let Some(status) = child.try_wait()? {
-            ensure!(status.success(), "lifecycle test failed: {mode}");
+            let log = std::fs::read_to_string(output.path())?;
+            ensure!(
+                !log.contains("PRIVATE-UNMANAGED-EXCEPTION-SENTINEL"),
+                "unmanaged Python exception reached process logs: {mode}"
+            );
+            ensure!(status.success(), "lifecycle test failed: {mode}: {log}");
             return Ok(());
         }
         if std::time::Instant::now() >= deadline {

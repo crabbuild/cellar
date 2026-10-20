@@ -172,4 +172,19 @@ Public Python APIs include type annotations. `loop.shutdown_asyncgens()` and the
 
 `PythonApplication::bridge_report()` returns an atomic live snapshot for a host-owned metrics exporter. The example emits the combined report when `CELLAR_SHUTDOWN_REPORT_JSON=1`; its smoke asserts native drain phases and zero remaining managed work/reservations.
 
+`Report::interpreter` records managed-loop wall time and that thread's CPU time
+separately from Rust turn accounting. Thread CPU includes Python and native code
+running on the interpreter thread; it excludes executor threads and native
+library pools. Handler timing includes host awaits and can overlap across
+concurrent handlers, so its sum is not process elapsed time. The report also
+records whole-process peak RSS and initial/final CPython allocated-block counts.
+These are measurements, not per-cell limits, allocation byte totals or Python-only
+memory attribution. Bridge/SDK latency histograms and measured native/Python
+baselines remain in the completion audit.
+
+Unraisable exceptions (including destructor failures) and unhandled Python thread
+exceptions produce failure counts and an incomplete runtime report. Default
+exception printing is replaced before application imports, so arbitrary exception
+text and object representations do not reach the process logs through those hooks.
+
 Python deployment validation rejects queue consumers or cron schedules whose root event handlers were not declared, and classes absent from the source descriptor, before generation activation. Cell constructors must be synchronous; construction failures do not fabricate successful object creation/retirement counts.

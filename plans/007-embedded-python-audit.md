@@ -21,7 +21,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Architecture, bootstrap and authority (M0)
 
-| ID | Requirement | Authoritative evidence required | Initial audit |
+| ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | A01 | Separate optional adapter; PyO3 outside logic/core | Dependency graph and native-only build without Python | partial: separate crate, embed feature |
 | A02 | Pin CPython 3.14, GIL mode and compatible bridge | Build-time ABI guard plus runtime preflight, pinned Cargo graph | partial: runtime version check, PyO3 0.30.1 |
@@ -42,25 +42,25 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## HTTP, codecs and failures (M1)
 
-| ID | Requirement | Authoritative evidence required | Initial audit |
+| ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | H01 | Buffered bytes/JSON HTTP; ordered repeated headers | Byte and duplicate-header round trips through real ingress | verified: binary body and ordered repeated request/response header round trips through real ingress |
 | H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: body/value guards; header/input-depth coverage incomplete |
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | partial: Conflict/SDKError only; distinctions collapsed |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | partial: task cancellation test; reconciliation missing |
-| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler messages now fixed/sanitized; HTTP sentinel test passes; unmanaged task/log matrix still open |
+| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler failures sanitized; process-log sentinel checks cover unraisable destructor and raw-thread exceptions, with counted runtime failure; startup/import and all failure paths still need final review |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | partial: managed-runtime smoke now executes pinned Pydantic, NumPy, hashing and pure Python inspection; platform matrix remains open |
 
 ## Atomic storage, alarms and durability (M2)
 
-| ID | Requirement | Authoritative evidence required | Initial audit |
+| ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | S01 | Bounded declarative atomic batch, no Python/await under transaction | Source audit, malformed batches, aggregate byte/count boundaries | partial: batch uses transaction_sync; budgets incomplete |
 | S02 | Presence-aware null/missing checks and full rollback | Conflict/rollback tests asserting all mutations and alarm unchanged | verified: failed check retains all JSON state and previous alarm; presence/null/missing tests pass |
-| S03 | No duplicate/conflicting keys or malformed alarms | Negative batch corpus at owning boundary | partial: guards implemented; corpus missing |
-| S04 | Conflicts with native Rust writers | Concurrent Python snapshot/native mutation/check refusal test | missing |
+| S03 | No duplicate/conflicting keys or malformed alarms | Negative batch corpus at owning boundary | verified: real bridge corpus refuses duplicate deletes, put/delete overlap, invalid/reserved/oversized keys, malformed snapshots, unknown fields, invalid/conflicting alarms and over-budget batches; no partial writes/alarm changes; exact operation boundary commits |
+| S04 | Conflicts with native Rust writers | Concurrent Python snapshot/native mutation/check refusal test | verified: same-cell Rust transaction commits while Python holds a snapshot; Python checked batch refuses and leaves the native value/other write intact with no partial Python mutation |
 | S05 | Sync and response output proof retain native semantics | Controlled replication pause/failure, response withheld/refused | missing for Python adapter |
 | S06 | Durable alarm mutation atomic with cell state | Crash/recovery and failed-check alarm tests | partial: real alarm executes |
 | S07 | Duplicate alarms safe by persisted occurrence | Repeat same occurrence with idempotent durable effect | verified: sample persists an occurrence receipt atomically; bridge invokes the same occurrence twice and observes one increment |
@@ -69,24 +69,24 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Failure, cleanup and combined reports (M3)
 
-| ID | Requirement | Authoritative evidence required | Initial audit |
+| ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | L01 | Root cancellation revokes SDK admission immediately | Queued/late writes refused before execution and after fence | partial: expiry/abandoned-operation tests |
 | L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | partial: polling registry; no explicit cleanup lane/report |
-| L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | partial: object dictionary sweep; termination not observed |
+| L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | partial: weak-reference probe observes actual cell object collection after managed shutdown; independent eviction/redeploy cases remain |
 | L04 | Close async generators and managed executor work | Async-generator finally + thread/executor join tests | verified for managed loop: async-generator finally observed; default-executor work joined; raw/native private pools remain application-owned |
 | L05 | Combined report includes native report and all bridge/task/cleanup/budget work | Serialized combined report, incomplete cases, queued/running counts | partial: combined native outcomes, host failure source, Python cleanup counts and byte reservations serialize; complete operation/cleanup/metrics accounting remains |
 | L06 | Correct shutdown phases with both runtimes alive | Ingress closure/drain/cancel/object cleanup and final-join assertions | partial: basic clean stop and errors |
 | L07 | Noncooperative code cannot fabricate complete drain | Disposable asyncio-stubborn, CPU-loop and blocked-C-extension hosts | verified: stubborn asyncio reports incomplete; disposable infinite-Python and GIL-held native-call owners require external termination and cannot produce clean-drain reports |
 | L08 | External watchdog supports hard termination/restart | Bounded child-host watchdog drill and recovered acknowledged state | partial: bounded external hard-stop/recovery drill implemented; deployment still must configure a production process supervisor and startup/health deadlines |
 | L09 | Unclean owner death/takeover retains acknowledged state | Kill owner, remove local disk, recover from fleet, new write | verified in local development fleet: acknowledged write, hard owner death, complete owner disk deletion, bucket recovery and new write; quorum proof faults remain S05 |
-| L10 | Stale Python task cannot mutate after ownership loss | Pause old handler, force fence/takeover, resume old handler, inspect state | missing |
+| L10 | Stale Python task cannot mutate after ownership loss | Pause old handler, force fence/takeover, resume old handler, inspect state | verified: real node lease mismatch fences old domain; after lease expiry successor recovers acknowledged state; cancellation-suppressing old Python task resumes and gets ContextExpired, with no late mutation |
 | L11 | Initialize once; never finalize while threads enter | Source audit, duplicate runtime refusal and error-path join tests | partial: initial guard and subprocess tests |
 | L12 | Raw Python effects/heap/coroutines not claimed durable or isolated | API/docs audit and recovery examples with explicit persisted state | partial: limitations documented |
 
 ## Verified deployment and replacement (M4)
 
-| ID | Requirement | Authoritative evidence required | Initial audit |
+| ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
 | P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: hash-locked platform wheels install offline; inventory covers bundled files; full OS/native dependency closure and artifact recovery remain open |
@@ -103,12 +103,12 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Limits, metrics, SDK growth and qualification (M5)
 
-| ID | Requirement | Authoritative evidence required | Initial audit |
+| ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: aggregate bridge bytes, managed tasks, objects and header count/bytes added; startup watchdog/complete reservation and exact-boundary coverage remain |
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | partial: RAII aggregate reservations cover starts, requests, results and completions; unit saturation/drop and joined zero-reservation reports pass; full stress matrix remains |
-| Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | partial: queued/peak/transferred bridge bytes, reservation count, object create/retire, task peak and budget counters recorded; durations/allocations/RSS remain missing |
-| Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | missing beyond general limits documentation |
+| Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | partial: queued/peak/transferred bridge bytes, reservation count, object create/retire, task peak and budget counters recorded; interpreter-thread CPU, handler duration and process peak RSS/allocated-block snapshots added; queue/SDK histograms, allocation byte totals and live interpreter snapshots remain missing |
+| Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
 | Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | partial: happy-path smoke |
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | partial: happy-path smoke |
 | Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | partial: retry smoke |
@@ -122,14 +122,14 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 ## Current work
 
-1. Replace ambient CPython bootstrap with explicit isolated initialization;
-   capture the selected build-time interpreter layout and validate the ABI.
-2. Refuse live cross-invocation/domain use of retained Python contexts while
-   preserving original native turn checks.
-3. Run and record direct startup contamination and two-domain authority tests.
-4. Finish M0 operation-order/nested-mailbox and registration descriptor gates.
-5. Implement verified runtime inventory and package integration, complete
-   lifecycle reports/cleanup, fault drills, metrics and measured qualification.
+1. Finish native durability pause/failure qualification through the Python
+   adapter, independent KV/SQL/queue/cron failure and backpressure matrices.
+2. Qualify two different packaged application versions through process handoff
+   and verify external native-library/OS prerequisites.
+3. Complete typed errors, cleanup/resource accounting, bridge/SDK timing and
+   reproducible Rust/Python latency/throughput/memory/recovery measurements.
+4. Run fresh complete CI after the current hardening changes, then reconcile
+   every remaining partial/missing audit row and executable documentation.
 
 No scope reduction or production-readiness claim is implied by this ordering.
 
@@ -333,3 +333,56 @@ Final archive checkpoint corrections and checks:
   same real-package qualification drill; that follow-up CI has not run yet.
 
 Final prepared-project package smoke passed after the reserved-class correction, including real cron, preserving restart, lost-response reconciliation and strict combined native/Python report assertions. The fresh removal/restoration package drill also passed against that same validation path.
+
+
+## Ownership, validation and reporting hardening
+
+- Added a native/Python same-cell conflict harness. Rust commits a transaction
+  after Python's snapshot read; Python's stale checked transaction fails, with
+  the native value and native-only key retained and no Python-only key written.
+- Added a disposable real ownership-loss drill. A live Python task pauses after
+  reading acknowledged state and deliberately suppresses cancellation. Replacing
+  the published node-lease generation produces `NodeLeaseMismatch`; after its
+  live lease expires, a successor recovers the state. Resuming the old task
+  refuses its write with `ContextExpired`. Native fencing remains an incomplete
+  outcome; managed tasks, objects and reservations still drain to zero.
+- The negative batch corpus and exact four-operation boundary exposed a real
+  actor panic for a valid far-future alarm. Production timers now use bounded
+  checkpoints without firing before their original deadlines; timer identity
+  and displaced-arm refusal remain intact. A focused maximum-deadline regression
+  and the real Python alarm batch both pass.
+- Linux CI runs 39396001527 and 39395996175 failed before package qualification:
+  the new archive unit fixture called the one-time process initializer, colliding
+  with the native-worker fixture. It now owns and joins a separate execution
+  domain. The full local Core library suite passed all 364 tests after correction;
+  the CI failures are not relabelled as passing runs.
+- Installed sanitized unraisable/thread exception hooks before importing app
+  code. Disposable destructor and raw-thread failures check a private sentinel
+  against captured process output, assert counted failure and retain incomplete
+  reports. These checks pass in the adapter harness.
+- Added managed-interpreter thread CPU/wall time, handler counts/durations,
+  process peak RSS and CPython allocated-block snapshots. Thread CPU includes
+  native code on that thread and excludes executor/native pools; RSS covers the
+  whole process, and allocated blocks are neither byte totals nor native heap.
+  Concurrent handler durations include awaits and cannot be summed as elapsed
+  process time. These distinctions are documented; complete telemetry and
+  measured native/Python comparison remain open.
+
+Final hardening validation passed locally:
+
+- All 364 Core library tests, then all 87 native-node integration cases serially
+  (657.32 seconds), including lease/fence, proof, owner recovery and drain cases.
+- Adapter all-feature unit/bridge/bootstrap/doctest targets, including fresh
+  CPU/duration/RSS/count assertions and weak-reference cell collection probe.
+- Core and adapter all-target/all-feature Clippy with warnings denied.
+- A freshly built provisioned package, real original-runtime removal/archive
+  restoration, cleared-environment native numerical/receipt work and complete
+  preserving stop. Packaged smoke passed with actual cron, all supported
+  bindings, preserving restart and lost-response reconciliation.
+- Native-only adapter compilation with a deliberately nonexistent interpreter
+  passed after the reporting changes. Formatting and layout (585 Rust files),
+  documentation integrity, the 415-package no-JavaScript dependency graph and
+  diff whitespace check also passed.
+
+The complete workspace CI must be rerun after the failed prior archive runs.
+The full goal remains active, including every unresolved row above.

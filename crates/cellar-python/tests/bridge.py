@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import weakref
 from cellar import Conflict, MISSING, Request, Response, SDKError
 
 saved = None
@@ -13,9 +14,42 @@ mailbox_progress = False
 generator_closed = False
 held_generator = None
 fail_constructor = False
+instances = weakref.WeakSet()
+native_snapshot_ready = asyncio.Event()
+native_snapshot_release = asyncio.Event()
+fence_waiting = asyncio.Event()
+fence_release = asyncio.Event()
+fence_result = None
 
 async def fetch(request, ctx):
     global saved, live_context, mailbox_progress, held_generator, fail_constructor
+    if request.path == "/unraisable":
+        class Resource:
+            def __del__(self):
+                raise ValueError("PRIVATE-UNMANAGED-EXCEPTION-SENTINEL")
+        del_resource = Resource()
+        del del_resource
+        return Response.json(True)
+    if request.path == "/thread-error":
+        import threading
+        def worker():
+            raise ValueError("PRIVATE-UNMANAGED-EXCEPTION-SENTINEL")
+        thread = threading.Thread(target=worker)
+        thread.start()
+        await asyncio.to_thread(thread.join)
+        return Response.json(True)
+    if request.path == "/fence-waiting":
+        return Response.json(fence_waiting.is_set())
+    if request.path == "/fence-release":
+        fence_release.set()
+        return Response.json(True)
+    if request.path == "/fence-result":
+        return Response.json(fence_result)
+    if request.path == "/native-snapshot-ready":
+        return Response.json(native_snapshot_ready.is_set())
+    if request.path == "/native-snapshot-release":
+        native_snapshot_release.set()
+        return Response.json(True)
     if request.path == "/duplicate-alarm":
         return await ctx.namespace("COUNTERS").get_by_name("duplicates").fetch(request)
     if request.path == "/constructor-failure":
@@ -186,9 +220,81 @@ class Counter:
     def __init__(self):
         if fail_constructor:
             raise ValueError("controlled construction failure")
+        instances.add(self)
 
     async def fetch(self, request, ctx):
+        global fence_result
         storage = ctx.storage
+        if request.path == "/fence-write":
+            assert await storage.get_json("count") == 1
+            fence_waiting.set()
+            cancellations = 0
+            # Deliberately noncooperative application code retains its old
+            # context even when the native owner closes and cancels its task.
+            while not fence_release.is_set():
+                try:
+                    await fence_release.wait()
+                except asyncio.CancelledError:
+                    cancellations += 1
+            assert cancellations > 0
+            try:
+                await storage.put_json("fenced-write", True)
+                fence_result = "accepted"
+            except SDKError as error:
+                fence_result = error.code
+            return Response.json(True)
+        if request.path == "/fence-state":
+            return Response.json({"count": await storage.get_json("count"),
+                                  "late": (await storage.read_json("fenced-write")).present})
+        if request.path == "/batch-validation":
+            original_alarm = await storage.get_alarm()
+            invalid = [
+                {"deletes": ["same", "same"]},
+                {"puts": {"same": 1}, "deletes": ["same"]},
+                {"puts": {"": 1}},
+                {"puts": {"x" * 2049: 1}},
+                {"puts": {"__sys_private": 1}},
+                {"checks": {"key": {"present": "yes"}}},
+                {"checks": {"key": {"present": False, "extra": 1}}},
+                {"alarm_at_ms": -1},
+                {"alarm_at_ms": True},
+                {"alarm_at_ms": 2**50, "delete_alarm": True},
+                {"unexpected": True},
+                {"puts": {str(i): i for i in range(5)}},
+                {"checks": {str(i): {"present": False} for i in range(4)},
+                 "alarm_at_ms": 2**50},
+            ]
+            for batch in invalid:
+                # Exercise native validation too, bypassing facade conveniences.
+                batch.setdefault("puts", {})["batch-invalid"] = True
+                try:
+                    await ctx._call("storage.apply", **batch)
+                    raise AssertionError("invalid batch reached its transaction")
+                except SDKError:
+                    pass
+                assert not (await storage.read_json("batch-invalid")).present
+                assert await storage.get_alarm() == original_alarm
+            # Exactly four operations: one check, one put, one delete, one alarm.
+            await storage.apply(checks={"batch-exact": MISSING},
+                                puts={"batch-exact": 7}, deletes=["unused"],
+                                alarm_at_ms=2**50)
+            assert await storage.get_json("batch-exact") == 7
+            assert await storage.get_alarm() == 2**50
+            await storage.delete_alarm()
+            return Response.json(True)
+        if request.path == "/native-conflict":
+            snapshot = await storage.read_json("native-conflict")
+            native_snapshot_ready.set()
+            await native_snapshot_release.wait()
+            try:
+                await storage.apply(checks={"native-conflict": snapshot},
+                                    puts={"native-conflict": 99, "python-only": True})
+                raise AssertionError("Python accepted a stale native snapshot")
+            except Conflict:
+                return Response.json({"conflict": True,
+                                      "value": await storage.get_json("native-conflict"),
+                                      "native": await storage.get_json("native-only", False),
+                                      "python": (await storage.read_json("python-only")).present})
         if request.path == "/codec":
             cycle = []
             cycle.append(cycle)
