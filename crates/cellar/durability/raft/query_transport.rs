@@ -398,11 +398,13 @@ impl State {
         let member_peer = route.peers.iter().find(|peer| {
             peer.replica.node_identity() == source && peer.label == wire.source_label()
         });
-        let conf = group
+        let cache = group
             .read()
-            .map_err(|error| TransportError::Runtime(error.into()))?
-            .conf_state
-            .clone();
+            .map_err(|error| TransportError::Runtime(error.into()))?;
+        if !cache.membership.permits(&target) {
+            return Err(TransportError::StalePeer);
+        }
+        let conf = &cache.conf_state;
         let present = |member| {
             conf.voters
                 .iter()
@@ -414,7 +416,9 @@ impl State {
         if !present(target.member.get()) {
             return Err(TransportError::StalePeer);
         }
-        let implicit = member_peer.filter(|peer| present(peer.replica.member.get()));
+        let implicit = member_peer.filter(|peer| {
+            present(peer.replica.member.get()) && cache.membership.permits(&peer.replica)
+        });
         let grant = registry
             .origins
             .get(&(target.scope.cluster, target.scope.namespace, source.node))

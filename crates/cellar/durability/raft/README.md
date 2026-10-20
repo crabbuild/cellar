@@ -39,6 +39,29 @@ disks cannot both acquire the member. The returned `BootstrapPermit` binds the
 selected catalog and exact engine owner; an old permit cannot attach a reopened
 engine. Committed configuration remains membership authority after bootstrap.
 
+Committed configuration also selects `GroupMembership`: the immutable birth ID
+set, last configuration index, monotonic member-ID high-water and active joined
+member/node/disk bindings. `JoiningMember` enters only through an AddLearnerNode
+entry with canonical revision-bound intent. New voters, missing/rebound identities
+and stale intents are refused before append; promotion requires replicated
+progress through the current commit. Joint outgoing bindings remain until leave.
+Retirement prunes bindings while preserving the high-water, so compaction and
+restart cannot make an old ID available again.
+
+The engine stores this state atomically with ConfState/applied progress. Physical
+snapshot references carry it into the same install batch; snapshots and S3
+manifests preserve it at their exact cut. Recovery refuses inconsistent same-cut
+snapshot/binding markers. S3 validation checks the immutable birth ID set, and
+transport checks joined members against their committed node/disk even when
+routing supplies a matching numeric ID. Process generations remain separately
+fenced discovery values. A binding observation alone is not live-quorum join
+authorization; native fresh-member seeding is still unfinished.
+
+This is an internal marker-1 hard cutover. The namespace protocol identity is
+`cellar-raft-ltx-1/members-1`; a root selected by a binary without member bindings
+is refused before attachment. Use a fresh experimental namespace/storage prefix
+and local Raft state. There is no old-format reader or migration path.
+
 `Node::start_raft_service` starts its runtime parked, including recovered groups.
 No RawNode exists or votes until verified attachment. `RaftRuntime::start` retains
 its direct trusted-embedding/verification behavior; normal node integration uses
@@ -339,7 +362,7 @@ Hints execute before deferred bodies once the group is ready. Native immediate
 send refusals also retain snapshot-failure hints. Hints never become durable Raft
 responses or install acknowledgements.
 
-Eight extra runtime queue slots and 32 KiB admit physical apply/snapshot completion
+Eight extra runtime queue slots and 128 KiB admit physical apply/snapshot completion
 markers independently of ordinary request saturation. They carry no encoded image.
 This lets already owned work settle and release deferred requests even when eight
 stalled groups fill all 256 ordinary slots. Ordinary public `step` still waits for

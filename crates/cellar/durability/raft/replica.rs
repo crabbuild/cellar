@@ -4,7 +4,10 @@ use super::cache::{ConsensusStorage, DurableApply, GroupLog, GroupWrite, Snapsho
 use super::completion::*;
 use super::options::RaftRuntimeOptions;
 use super::runtime::{GroupAction, Outbox, Response};
-use ::raft::prelude::{ConfChange, ConfChangeV2, Entry, EntryType, Message, MessageType};
+use ::raft::prelude::{
+    ConfChange, ConfChangeSingle, ConfChangeType, ConfChangeV2, Entry, EntryType, Message,
+    MessageType,
+};
 use ::raft::{Config, LightReady, RawNode, Ready, StateRole, Storage};
 use cellar_logic::consensus::{LogIndex, LogPosition, OperationId, ReplicaIdentity, Term};
 use protobuf::Message as _;
@@ -115,6 +118,11 @@ impl Replica {
         seed: [u8; 32],
     ) -> Result<Self, RuntimeError> {
         let conf = log.initial_state()?.conf_state;
+        if !log.membership()?.permits(log.identity()) {
+            return Err(RuntimeError::Invalid(
+                "local member node/disk binding".into(),
+            ));
+        }
         let members = conf
             .voters
             .iter()
@@ -270,6 +278,34 @@ impl Replica {
             }
             GroupAction::Configure { context, change } => {
                 self.admit_proposal()?;
+                if change.context.is_empty() {
+                    return Err(RuntimeError::Invalid(
+                        "configuration intent is required".into(),
+                    ));
+                }
+                let cache = self.log.read()?;
+                cache
+                    .membership
+                    .admit(&change, &cache.conf_state)
+                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                // A new voter must already be a caught-up member. A freshly
+                // bound identity can enter this history only as a learner.
+                for item in &change.changes {
+                    if item.get_change_type() == ConfChangeType::AddNode
+                        && !cache.conf_state.voters.contains(&item.node_id)
+                        && self
+                            .node
+                            .raft
+                            .prs()
+                            .get(item.node_id)
+                            .is_none_or(|progress| {
+                                progress.matched < self.node.raft.raft_log.committed
+                            })
+                    {
+                        return Err(RuntimeError::NotReady);
+                    }
+                }
+                drop(cache);
                 if self.node.raft.pending_conf_index > self.node.raft.raft_log.applied {
                     return Err(RuntimeError::NotReady);
                 }
@@ -693,6 +729,10 @@ impl Replica {
                         snapshot: ready.snapshot().clone(),
                         applied,
                     });
+                    write.membership = self
+                        .snapshot_reference
+                        .as_ref()
+                        .map(|reference| reference.membership());
                     self.write = Some((key.clone(), write));
                     return Ok(true);
                 }
@@ -947,12 +987,38 @@ impl Replica {
                     EntryType::EntryConfChange => {
                         let change = ConfChange::parse_from_bytes(&entry.data)
                             .map_err(|e| RuntimeError::Protocol(e.to_string()))?;
-                        write.conf_state = Some(self.node.apply_conf_change(&change)?);
+                        let before = self.log.initial_state()?.conf_state;
+                        let conf = self.node.apply_conf_change(&change)?;
+                        let v2 = ConfChangeV2 {
+                            changes: vec![ConfChangeSingle {
+                                node_id: change.node_id,
+                                change_type: change.get_change_type(),
+                                ..Default::default()
+                            }]
+                            .into(),
+                            context: change.context.clone(),
+                            ..Default::default()
+                        };
+                        write.membership = Some(self.log.membership()?.applied(
+                            &v2,
+                            &before,
+                            &conf,
+                            position.index,
+                        )?);
+                        write.conf_state = Some(conf);
                     }
                     EntryType::EntryConfChangeV2 => {
                         let change = ConfChangeV2::parse_from_bytes(&entry.data)
                             .map_err(|e| RuntimeError::Protocol(e.to_string()))?;
-                        write.conf_state = Some(self.node.apply_conf_change(&change)?);
+                        let before = self.log.initial_state()?.conf_state;
+                        let conf = self.node.apply_conf_change(&change)?;
+                        write.membership = Some(self.log.membership()?.applied(
+                            &change,
+                            &before,
+                            &conf,
+                            position.index,
+                        )?);
+                        write.conf_state = Some(conf);
                     }
                 }
                 if write.conf_state.as_ref().is_some_and(|c| {

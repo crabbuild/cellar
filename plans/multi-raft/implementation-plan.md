@@ -456,9 +456,16 @@ a different disk and an unassigned node; every failed attempt leaves no local
 group/voting state. Explicit disconnected historical reads remain coherent.
 
 
+Configuration-owned member/node/disk bindings now accompany the durable applied
+configuration, peer snapshots and S3 manifests. Canonical revision-bound intent,
+learner-first admission, caught-up promotion and a retained ID high-water preserve
+identity across joint transitions, compaction and restart. This does not authorize
+seeding by itself. The next feature is live-quorum fresh-member authorization and
+peer/S3 seed installation with permanent claim reconciliation.
+
 Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`.
 
-Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/tests/native_raft_snapshot.rs`.
+Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/durability/raft/member_state_tests.rs`, `crates/cellar/tests/native_raft_snapshot.rs`.
 
 1. Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.
 2. Atomically publish engine install markers only after the image is durable; retain old reader pins.
@@ -488,6 +495,9 @@ Stop conditions: Stop if restart repairs applied/commit mismatch by inventing pr
 | `native_snapshot_interrupted_transfer_retries_without_blocking_other_groups` | A partial transfer supplies no read result; retry restores the follower while a second group keeps writing |
 | `native_snapshot_shutdown_joins_partial_transfer` | Native close joins the transfer, sockets, blocking owners and reservations while responses remain held |
 | `native_snapshot_admission_refuses_insufficient_restore_capacity` | Startup rejects encoded/image-slot/copy budgets before creating namespace objects or permanent member storage |
+| `snapshot_member_binding_and_retirement_survive_restart` | Joined member/node/disk bindings and retired-ID high-water survive compaction, transfer and restart |
+| `snapshot_refuses_rebound_binding_and_lost_id_watermark` | Canonical higher snapshots cannot rebind an existing member or regress its retired-ID watermark |
+| `snapshot_same_cut_requires_member_binding_marker` | Recovery refuses a snapshot whose same-cut member marker was not atomically installed |
 
 Verification target: `native_raft_snapshot`. Run the exact list/test commands
 shown by `plan.py show MR-10`; the manifest is authoritative for arguments.

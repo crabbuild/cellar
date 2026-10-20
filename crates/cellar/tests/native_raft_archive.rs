@@ -14,7 +14,7 @@ mod images;
 #[allow(dead_code)]
 mod public_node;
 
-use anyhow::{ensure, Result};
+use anyhow::{ensure, Context as _, Result};
 use cellar::application::consensus::verification::*;
 use cellar::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate};
 use cellar::sdk::consensus::*;
@@ -298,9 +298,21 @@ impl Fixture {
                 ..Default::default()
             });
             entry.set_entry_type(EntryType::EntryConfChangeV2);
-            entry.data = change.write_to_bytes()?.into();
             let mut conf = self.group.initial_state()?.conf_state;
+            let before = conf.clone();
             conf.learners.push(2);
+            let membership = self.group.membership()?;
+            membership.bind_change(
+                &mut change,
+                &[JoiningMember {
+                    member: MemberId::new(2)?,
+                    node: NodeId::new([2; 16])?,
+                    disk: DiskLineage::new([12; 16])?,
+                }],
+            )?;
+            entry.data = change.write_to_bytes()?.into();
+            write.membership =
+                Some(membership.applied(&change, &before, &conf, LogIndex::new(index))?);
             write.conf_state = Some(conf);
         }
         write.entries.push(entry);
@@ -563,6 +575,102 @@ async fn archive_refuses_foreign_birth_and_noncanonical_head() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_refuses_member_binding_birth_mismatch() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(7, vec![]).await?;
+    fixture.publish(first).await?;
+    let alternate = fixture
+        .domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                fixture._root.path().join("alternate"),
+                NodeId::new([5; 16])?,
+                DiskLineage::new([6; 16])?,
+                ProcessGeneration::new([99; 16])?,
+                LogOpenMode::Create,
+            ),
+            Arc::new(DirectFileSystem),
+        ))
+        .await??;
+    // Deliberately use the trusted mechanical API to supply an inconsistent
+    // birth ID set with the same history digest. Ordinary catalog bootstrap
+    // cannot create this state; the archive must still validate its producer.
+    let group = alternate
+        .create_group(GroupBootstrap {
+            scope: fixture.birth.scope().clone(),
+            member: MemberId::new(1)?,
+            birth_digest: fixture.birth.digest(),
+            voters: vec![MemberId::new(1)?],
+            learners: vec![MemberId::new(2)?],
+        })
+        .await?;
+    let mut write = GroupWrite::new(&group);
+    write.entries = fixture
+        .group
+        .entries(2, 3, None, raft::GetEntriesContext::empty(false))?;
+    write.applied = Some(fixture.group.applied()?);
+    let mut hard = group.initial_state()?.hard_state;
+    hard.commit = 2;
+    write.hard_state = Some(hard);
+    alternate.persist(OperationId::new(1), vec![write]).await?;
+    let before = group.initial_state()?.conf_state;
+    let mut after = before.clone();
+    after.learners.clear();
+    let state = group.membership()?;
+    let mut change = ConfChangeV2::default();
+    change.mut_changes().push(ConfChangeSingle {
+        node_id: 2,
+        change_type: ConfChangeType::RemoveNode,
+        ..Default::default()
+    });
+    state.bind_change(&mut change, &[])?;
+    let mut write = GroupWrite::new(&group);
+    write.entries.push(Entry {
+        index: 3,
+        term: 1,
+        entry_type: EntryType::EntryConfChangeV2,
+        data: change.write_to_bytes()?.into(),
+        ..Default::default()
+    });
+    write.membership = Some(state.applied(&change, &before, &after, LogIndex::new(3))?);
+    write.conf_state = Some(after.clone());
+    let mut applied = group.applied()?;
+    applied.position.index = LogIndex::new(3);
+    write.applied = Some(applied);
+    let mut hard = group.initial_state()?.hard_state;
+    hard.commit = 3;
+    write.hard_state = Some(hard);
+    alternate.persist(OperationId::new(2), vec![write]).await?;
+    assert_eq!(
+        after,
+        fixture.group.initial_state()?.conf_state,
+        "numeric configuration alone cannot detect the mismatched birth"
+    );
+    let image = ImageApplier::recover(
+        fixture.group.clone(),
+        fixture.images.clone(),
+        [9; 32],
+        EnvelopeLimits::default(),
+    )?
+    .current()
+    .context("missing image")?;
+    let cut = CommittedArchiveCut::capture(&group, image, vec![], ArchiveLimits::default())?;
+    assert!(
+        matches!(fixture.publish(cut).await, Err(ArchiveError::Invalid(_))),
+        "archive advertised bindings from another birth ID set"
+    );
+    let set = fixture
+        .archive
+        .recovery_set()
+        .await?
+        .context("original archive disappeared")?;
+    assert_eq!(set.position().index, LogIndex::new(2));
+    restored(&set, 7)?;
+    alternate.close().await?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn archive_noop_tail_and_exact_configuration_checkpoint() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     let first = fixture.commit(7, vec![]).await?;
@@ -575,6 +683,11 @@ async fn archive_noop_tail_and_exact_configuration_checkpoint() -> Result<()> {
     let set = fixture.publish(changed).await?;
     ensure!(set.tail_entries() == 0 && set.position().index == LogIndex::new(4));
     ensure!(set.configuration()?.learners == vec![2]);
+    assert_eq!(set.membership(), fixture.group.membership()?);
+    let joined = set.membership().joined(MemberId::new(2)?)?.unwrap();
+    assert_eq!(joined.0.node, NodeId::new([2; 16])?);
+    assert_eq!(joined.0.disk, DiskLineage::new([12; 16])?);
+    assert_eq!(joined.1, LogIndex::new(4));
     restored(&set, 7)?;
     fixture.close().await
 }

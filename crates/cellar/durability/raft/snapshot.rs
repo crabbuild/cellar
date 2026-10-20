@@ -102,6 +102,7 @@ struct Descriptor {
     index: u64,
     term: u64,
     conf: Vec<u8>,
+    membership: super::member_state::GroupMembership,
     image: Option<CommittedImage>,
     encoded_length: usize,
     encoded_digest: [u8; 32],
@@ -123,6 +124,12 @@ impl Descriptor {
         let metadata = snapshot.get_metadata();
         let conf = manifest::encode_conf(metadata.get_conf_state())
             .map_err(|_| SnapshotError::Invalid("configuration"))?;
+        descriptor
+            .membership
+            .validate(metadata.get_conf_state(), metadata.index)?;
+        if !descriptor.membership.same_birth(&group.membership()?) {
+            return Err(SnapshotError::Invalid("snapshot birth members"));
+        }
         // Compare the complete protobuf as well as canonical JSON: unknown
         // fields, alternate encodings and a different ConfState cannot hide
         // outside the digest bound to a runtime ticket.
@@ -191,6 +198,7 @@ pub struct SnapshotPackage {
     bytes: Vec<u8>,
     pin: Option<GenerationPin>,
     limits: SnapshotLimits,
+    membership: super::member_state::GroupMembership,
 }
 
 impl SnapshotPackage {
@@ -235,6 +243,7 @@ impl SnapshotPackage {
             bytes,
             pin,
             limits,
+            membership: descriptor.membership,
         })
     }
 
@@ -263,7 +272,7 @@ impl SnapshotPackage {
     ) -> Result<Self, SnapshotError> {
         limits.validate()?;
         let pin = image.as_ref().map(PublishedImage::pin);
-        let (position, conf) = {
+        let (position, conf, membership) = {
             let cache = group.read()?;
             if cache.applied.image != pin.as_ref().map(marker)
                 || image.as_ref().is_some_and(|image| {
@@ -280,6 +289,7 @@ impl SnapshotPackage {
                 cache.applied.position,
                 manifest::encode_conf(&cache.conf_state)
                     .map_err(|_| SnapshotError::Invalid("source configuration"))?,
+                cache.membership.clone(),
             )
         };
         let bytes = match &pin {
@@ -294,6 +304,7 @@ impl SnapshotPackage {
             index: position.index.get(),
             term: position.term.get(),
             conf,
+            membership,
             image: pin.as_ref().map(marker),
             encoded_length: bytes.len(),
             encoded_digest: Sha256::digest(&bytes).into(),
@@ -306,11 +317,16 @@ impl SnapshotPackage {
             bytes,
             pin,
             limits,
+            membership: descriptor.membership,
         })
     }
 
     pub fn snapshot(&self) -> Snapshot {
         self.snapshot.clone()
+    }
+
+    pub fn membership(&self) -> super::member_state::GroupMembership {
+        self.membership.clone()
     }
 
     pub fn encoded_length(&self) -> usize {
@@ -447,6 +463,7 @@ impl SnapshotDownload {
     ) -> Result<Self, SnapshotError> {
         drop(group.read()?);
         let descriptor = Descriptor::decode(group, schema, &snapshot, limits)?;
+        descriptor.membership.succeeds(&group.membership()?)?;
         Ok(Self {
             group: group.clone(),
             snapshot,
@@ -486,6 +503,7 @@ impl SnapshotDownload {
                 group: self.group,
                 snapshot: self.snapshot,
                 pin: None,
+                membership: self.descriptor.membership,
             });
         };
         let state = marker_state(image);
@@ -524,6 +542,7 @@ impl SnapshotDownload {
             group: self.group,
             snapshot: self.snapshot,
             pin: Some(pin),
+            membership: self.descriptor.membership,
         })
     }
 }
@@ -532,6 +551,7 @@ pub struct PreparedSnapshot {
     group: GroupLog,
     snapshot: Snapshot,
     pin: Option<GenerationPin>,
+    membership: super::member_state::GroupMembership,
 }
 
 /// An exclusively verified image's no-I/O retention capability. Only physical
@@ -542,6 +562,7 @@ pub struct SnapshotReference {
     pin: Option<GenerationPin>,
     position: LogPosition,
     digest: [u8; 32],
+    membership: super::member_state::GroupMembership,
 }
 
 impl std::fmt::Debug for SnapshotReference {
@@ -554,6 +575,10 @@ impl std::fmt::Debug for SnapshotReference {
 }
 
 impl SnapshotReference {
+    pub(crate) fn membership(&self) -> super::member_state::GroupMembership {
+        self.membership.clone()
+    }
+
     pub(crate) fn matches(
         &self,
         ticket: &ApplyTicket,
@@ -612,6 +637,7 @@ impl PreparedSnapshot {
                 pin: self.pin.clone(),
                 position: ticket.position(),
                 digest,
+                membership: self.membership.clone(),
             }),
         })
     }
@@ -640,7 +666,16 @@ pub(crate) fn snapshot_image(
     snapshot: &Snapshot,
     limits: SnapshotLimits,
 ) -> Result<Option<CommittedImage>, SnapshotError> {
-    Ok(Descriptor::decode(group, schema, snapshot, limits)?.image)
+    let descriptor = Descriptor::decode(group, schema, snapshot, limits)?;
+    let cache = group.read()?;
+    if cache.applied.position.index.get() == snapshot.get_metadata().index
+        && cache.membership != descriptor.membership
+    {
+        return Err(SnapshotError::Invalid(
+            "snapshot/applied member bindings at the same cut",
+        ));
+    }
+    Ok(descriptor.image)
 }
 
 fn encode_image(pin: &GenerationPin, limits: SnapshotLimits) -> Result<Vec<u8>, SnapshotError> {

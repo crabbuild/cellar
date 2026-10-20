@@ -187,6 +187,7 @@ pub struct CommittedArchiveCut {
     birth_digest: [u8; 32],
     position: LogPosition,
     conf_state: Vec<u8>,
+    membership: super::member_state::GroupMembership,
     entries: Vec<Entry>,
     dependencies: Vec<ArchiveDependency>,
 }
@@ -249,6 +250,7 @@ impl CommittedArchiveCut {
             birth_digest: group.birth_digest,
             position,
             conf_state,
+            membership: cache.membership.clone(),
             entries,
             dependencies,
         })
@@ -259,10 +261,12 @@ impl CommittedArchiveCut {
     }
 
     pub(crate) fn memory_bytes(&self) -> usize {
-        self.entries
-            .iter()
-            .map(|entry| entry.compute_size() as usize + 128)
-            .sum::<usize>()
+        self.membership.reserved_bytes()
+            + self
+                .entries
+                .iter()
+                .map(|entry| entry.compute_size() as usize + 128)
+                .sum::<usize>()
             + self
                 .dependencies
                 .iter()
@@ -323,6 +327,7 @@ pub struct CellArchive {
     scope: GroupScope,
     root: [u8; 32],
     birth: [u8; 32],
+    initial_membership: super::member_state::GroupMembership,
     schema: [u8; 32],
     limits: ArchiveLimits,
     host: LtxHost,
@@ -360,12 +365,26 @@ impl CellArchive {
         limits: ArchiveLimits,
         host: LtxHost,
     ) -> Self {
+        let initial = ConfState {
+            voters: birth
+                .voters()
+                .iter()
+                .map(|member| member.member.get())
+                .collect(),
+            learners: birth
+                .learners()
+                .iter()
+                .map(|member| member.member.get())
+                .collect(),
+            ..Default::default()
+        };
         Self {
             store,
             prefix,
             scope: birth.scope().clone(),
             root,
             birth: birth.digest(),
+            initial_membership: super::member_state::GroupMembership::initial(&initial),
             schema,
             limits,
             host,
@@ -439,6 +458,7 @@ impl CellArchive {
         if cut.image.scope() != &self.scope
             || cut.image.application_digest() != self.schema
             || cut.birth_digest != self.birth
+            || !cut.membership.same_birth(&self.initial_membership)
         {
             return Err(ArchiveError::Invalid("archive producer history/schema"));
         }
@@ -451,7 +471,8 @@ impl CellArchive {
                         || old.index == cut.position.index.get()
                             && (old.term != cut.position.term.get()
                                 || set.manifest.image != Image::from(cut.image.pin().state())
-                                || set.manifest.snapshot.conf_state != cut.conf_state)
+                                || set.manifest.snapshot.conf_state != cut.conf_state
+                                || set.manifest.snapshot.membership != cut.membership)
                     {
                         return Err(ArchiveError::Conflict);
                     }
@@ -498,6 +519,7 @@ impl CellArchive {
                         .iter()
                         .all(|e| e.get_entry_type() == EntryType::EntryNormal)
                     && set.manifest.snapshot.conf_state == cut.conf_state
+                    && set.manifest.snapshot.membership == cut.membership
                     && set.manifest.tails.len() < self.limits.max_tails
                     && bytes <= self.limits.max_set_bytes as u64
                     && count <= self.limits.max_entries)
@@ -566,6 +588,7 @@ impl CellArchive {
                         position: cut.position.into(),
                         image: cut.image.pin().state().into(),
                         conf_state: cut.conf_state.clone(),
+                        membership: cut.membership.clone(),
                         object,
                     },
                     tails: Vec::new(),
@@ -592,7 +615,14 @@ impl CellArchive {
                 }
             }
             manifest.dependencies = dependencies.into_values().collect();
-            manifest.validate(&self.scope, self.root, self.birth, self.schema, self.limits)?;
+            manifest.validate(
+                &self.scope,
+                self.root,
+                self.birth,
+                self.schema,
+                self.limits,
+                &self.initial_membership,
+            )?;
             let bytes = manifest::encode(1, &manifest, self.limits.max_manifest_bytes)?;
             let object = self
                 .put_object(
@@ -690,7 +720,14 @@ impl CellArchive {
         }
         let bytes = self.get_object(object).await?;
         let manifest: Manifest = manifest::decode(1, &bytes, self.limits.max_manifest_bytes)?;
-        manifest.validate(&self.scope, self.root, self.birth, self.schema, self.limits)?;
+        manifest.validate(
+            &self.scope,
+            self.root,
+            self.birth,
+            self.schema,
+            self.limits,
+            &self.initial_membership,
+        )?;
         if object.range
             != Some(PositionRange {
                 first: manifest.snapshot.position,
@@ -864,6 +901,10 @@ impl ArchiveRecoverySet {
 
     pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
         manifest::decode_conf(&self.manifest.snapshot.conf_state)
+    }
+
+    pub fn membership(&self) -> super::member_state::GroupMembership {
+        self.manifest.snapshot.membership.clone()
     }
 
     pub fn schema_digest(&self) -> [u8; 32] {

@@ -147,7 +147,7 @@ for a group's image work. Hints run before deferred bodies when the group become
 ready. Native immediate send refusals also retain snapshot-failure hints. Neither
 hint admission nor execution invents a Raft response or install acknowledgement.
 
-Physical apply/snapshot completions have eight reserved queue slots and 32 KiB
+Physical apply/snapshot completions have eight reserved queue slots and 128 KiB
 independent of ordinary requests. Full ordinary admission cannot prevent owned
 physical work from completing and refunding deferred-message reservations.
 Frame admission still proves neither execution nor snapshot installation.
@@ -198,6 +198,34 @@ are deleted. This is a component test over the in-memory object store, not nativ
 member repair, physical S3 or evidence of a 64-MiB command envelope. The per-command
 envelope limit is unchanged. Additional cases cover replaced checkpoints, capture
 lifetime through GC, empty retained checkpoints and insufficient encoded budgets.
+
+## Committed member bindings
+
+`member_state.rs` binds fresh IDs to node/disk identities at committed learner
+admission. Configuration intent is canonical, bounded and tied to the last applied
+configuration index. Stale requests, unbound new IDs, direct new voters, rebinding
+and empty-learner promotion are refused before append. Member IDs increase beyond
+a retained high-water; retiring a binding never makes its ID reusable. Joint
+outgoing bindings survive until the group leaves the joint configuration.
+
+The group journal, peer descriptor and S3 manifest all retain this state. Image
+completion carries the exact ledger into the runtime's install batch; recovery
+refuses mismatched snapshot/member markers at an equal cut. Retained older
+checkpoints still describe their own configuration while newer applied bindings
+remain independent. Archive reads and publication compare the immutable birth ID
+set, and data/query/snapshot transport validate joined node/disk identity.
+
+Physical completion capacity is now eight slots/128 KiB; each snapshot completion
+reserves 16 KiB for the bounded ledger and existing references. Group/capture
+accounting includes spare binding allocation retained during retirement. Format
+markers remain 1. The protocol identity changes to
+`cellar-raft-ltx-1/members-1`, and a checksum-valid root from the earlier protocol
+is refused. This requires a fresh experimental namespace/prefix and local state;
+no compatibility reader or migration is supplied.
+
+This record is an admission/recovery foundation. The ledger itself supplies no
+live-quorum seeding capability. Native fresh-member authorization, peer/S3 seeding,
+claim reconciliation and the complete native recovery fault matrix remain.
 
 ## Native recovery path
 

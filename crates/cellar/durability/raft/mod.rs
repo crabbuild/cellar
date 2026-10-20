@@ -13,6 +13,7 @@ pub(crate) mod host;
 mod host_archive;
 mod host_sql;
 mod manifest;
+pub(crate) mod member_state;
 pub(crate) mod options;
 mod query;
 mod query_identity;

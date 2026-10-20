@@ -148,6 +148,7 @@ pub(crate) struct Snapshot {
     pub position: Position,
     pub image: Image,
     pub conf_state: Vec<u8>,
+    pub membership: super::member_state::GroupMembership,
     pub object: ObjectRef,
 }
 
@@ -182,6 +183,7 @@ impl Manifest {
         birth: [u8; 32],
         schema: [u8; 32],
         limits: ArchiveLimits,
+        initial: &super::member_state::GroupMembership,
     ) -> Result<(), ArchiveError> {
         if self
             .scope
@@ -192,6 +194,7 @@ impl Manifest {
             || self.root_digest != root
             || self.birth_digest != birth
             || self.schema_digest != schema
+            || !self.snapshot.membership.same_birth(initial)
         {
             return Err(ArchiveError::Corrupt("archive history/schema binding"));
         }
@@ -199,7 +202,11 @@ impl Manifest {
         self.position.decode()?;
         self.snapshot.image.decode()?;
         self.image.decode()?;
-        decode_conf(&self.snapshot.conf_state)?;
+        let conf = decode_conf(&self.snapshot.conf_state)?;
+        self.snapshot
+            .membership
+            .validate(&conf, self.snapshot.position.index)
+            .map_err(|_| ArchiveError::Corrupt("archive member bindings"))?;
         if self.tails.len() > limits.max_tails
             || self.dependencies.len() > limits.max_dependencies
             || self.snapshot.object.kind != ObjectKind::Snapshot

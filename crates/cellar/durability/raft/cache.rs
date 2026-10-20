@@ -1,5 +1,6 @@
 //! Durable storage views. Raft reads these bounded caches without disk I/O.
 
+use super::member_state::GroupMembership;
 use super::storage::LogError;
 use ::raft::prelude::{ConfState, Entry, EntryType, HardState, Snapshot};
 use ::raft::{GetEntriesContext, RaftState, Storage, StorageError};
@@ -66,6 +67,7 @@ pub struct GroupWrite {
     pub entries: Vec<Entry>,
     pub hard_state: Option<HardState>,
     pub conf_state: Option<ConfState>,
+    pub membership: Option<GroupMembership>,
     pub applied: Option<DurableApply>,
     pub snapshot: Option<SnapshotChange>,
 }
@@ -77,6 +79,7 @@ impl GroupWrite {
             entries: Vec::new(),
             hard_state: None,
             conf_state: None,
+            membership: None,
             applied: None,
             snapshot: None,
         }
@@ -106,6 +109,11 @@ impl GroupWrite {
             }
             bytes = bytes
                 .checked_add(conf.compute_size() as usize)
+                .ok_or(LogError::Overloaded)?;
+        }
+        if let Some(membership) = &self.membership {
+            bytes = bytes
+                .checked_add(membership.reserved_bytes())
                 .ok_or(LogError::Overloaded)?;
         }
         Ok(bytes)
@@ -143,6 +151,12 @@ impl GroupLog {
 
     pub fn applied(&self) -> Result<DurableApply, LogError> {
         Ok(self.read()?.applied.clone())
+    }
+
+    /// Last synced bindings for this group history. This observation alone is
+    /// neither a fresh-member seeding capability nor proof of live quorum.
+    pub fn membership(&self) -> Result<GroupMembership, LogError> {
+        Ok(self.read()?.membership.clone())
     }
 
     pub(crate) fn read(&self) -> Result<RwLockReadGuard<'_, CachedGroup>, LogError> {
@@ -292,6 +306,7 @@ impl Storage for ConsensusStorage {
 pub(crate) struct CachedGroup {
     pub hard_state: HardState,
     pub conf_state: ConfState,
+    pub membership: GroupMembership,
     pub snapshot: Snapshot,
     pub entries: BTreeMap<u64, Entry>,
     pub applied: DurableApply,
@@ -316,7 +331,8 @@ impl CachedGroup {
     }
 
     pub fn bytes(&self) -> usize {
-        1024 + self.snapshot.compute_size() as usize
+        1024 + self.membership.reserved_bytes()
+            + self.snapshot.compute_size() as usize
             + self.conf_state.compute_size() as usize
             + self
                 .entries
@@ -327,6 +343,9 @@ impl CachedGroup {
 
     pub fn validate(&self, max_entries: usize) -> Result<(), LogError> {
         validate_conf(&self.conf_state)?;
+        self.membership
+            .validate(&self.conf_state, self.applied.position.index.get())
+            .map_err(|error| LogError::Corrupt(error.to_string()))?;
         validate_conf(self.snapshot.get_metadata().get_conf_state())?;
         let metadata = self.snapshot.get_metadata();
         if metadata.index == 0
@@ -474,6 +493,26 @@ impl CachedGroup {
             }
             next.conf_state = conf.clone();
         }
+        if let Some(membership) = &write.membership {
+            if write.conf_state.is_none()
+                && !matches!(&write.snapshot, Some(SnapshotChange::Install { .. }))
+            {
+                return Err(LogError::Invalid(
+                    "member binding lacks configuration or install".into(),
+                ));
+            }
+            membership.succeeds(&self.membership)?;
+            next.membership = membership.clone();
+        }
+        if (next.conf_state != self.conf_state && write.membership.is_none())
+            || (write.conf_state.is_some()
+                && (write.membership.is_none()
+                    || next.membership.revision() != next.applied.position.index))
+        {
+            return Err(LogError::Invalid(
+                "configuration lacks exact member binding marker".into(),
+            ));
+        }
         if next.applied.position.index > self.applied.position.index
             && write.conf_state.is_none()
             && next
@@ -538,6 +577,7 @@ pub(crate) fn genesis(conf_state: ConfState) -> CachedGroup {
     };
     CachedGroup {
         hard_state,
+        membership: GroupMembership::initial(&conf_state),
         conf_state,
         snapshot,
         entries: BTreeMap::new(),

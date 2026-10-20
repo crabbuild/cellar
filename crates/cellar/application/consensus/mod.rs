@@ -63,6 +63,7 @@ pub mod verification {
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
     };
+    pub use crate::raft::member_state::{GroupMembership, JoiningMember};
     pub use crate::raft::options::RaftRuntimeOptions;
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};
     pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};

@@ -78,6 +78,9 @@ impl GroupBootstrap {
         conf.set_voters(self.voters.iter().map(|id| id.get()).collect());
         conf.set_learners(self.learners.iter().map(|id| id.get()).collect());
         validate_conf(&conf).map_err(|error| LogError::Invalid(error.to_string()))?;
+        super::member_state::GroupMembership::initial(&conf)
+            .validate(&conf, 1)
+            .map_err(|error| LogError::Invalid(error.to_string()))?;
         if !conf.voters.contains(&self.member.get()) && !conf.learners.contains(&self.member.get())
         {
             return Err(LogError::WrongIdentity);
@@ -628,6 +631,20 @@ impl Worker {
     }
 
     fn handle(&self, mapping: &MappingRecord, cache: CachedGroup) -> Result<GroupLog, LogError> {
+        let initial =
+            ConfState::parse_from_bytes(&mapping.initial_conf).map_err(records::corrupt)?;
+        validate_conf(&initial)?;
+        if initial.get_unknown_fields().iter().next().is_some() {
+            return Err(LogError::Corrupt(
+                "unknown initial configuration fields".into(),
+            ));
+        }
+        if !cache
+            .membership
+            .same_birth(&super::member_state::GroupMembership::initial(&initial))
+        {
+            return Err(LogError::Corrupt("member binding birth mismatch".into()));
+        }
         let scope = mapping.scope.clone().decode().map_err(records::corrupt)?;
         scope.validate().map_err(records::corrupt)?;
         Ok(GroupLog {
@@ -701,6 +718,7 @@ impl Worker {
         let next_key = key.checked_add(1).ok_or(LogError::Overloaded)?;
         let mapping = MappingRecord::new(key, &bootstrap, &conf)?;
         let cache = genesis(conf);
+        cache.validate(self.options.max_entries_per_group)?;
         let bytes = cache.bytes();
         if self
             .cache_bytes

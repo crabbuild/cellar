@@ -1257,7 +1257,14 @@
         "crates/cellar/tests/native_raft_archive.rs",
         "crates/cellar/durability/raft/README.md",
         "crates/cellar/durability/raft/query.rs",
-        "crates/cellar/tests/native_raft_reads.rs"
+        "crates/cellar/tests/native_raft_reads.rs",
+        "crates/cellar/durability/raft/cache.rs",
+        "crates/cellar/durability/raft/records.rs",
+        "crates/cellar/durability/raft/manifest.rs",
+        "crates/cellar/durability/raft/query_transport.rs",
+        "crates/cellar/durability/raft/catalog_wire.rs",
+        "crates/cellar/application/consensus/protocol.rs",
+        "crates/cellar/tests/native_raft_storage.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
@@ -1265,7 +1272,9 @@
         "crates/cellar/tests/native_raft_snapshot.rs",
         "plans/multi-raft/snapshot-audit.md",
         "crates/cellar/durability/raft/snapshot_transport.rs",
-        "crates/cellar/durability/raft/host_snapshot.rs"
+        "crates/cellar/durability/raft/host_snapshot.rs",
+        "crates/cellar/durability/raft/member_state.rs",
+        "crates/cellar/durability/raft/member_state_tests.rs"
       ],
       "steps": [
         "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",
@@ -1427,6 +1436,33 @@
           "invariants": [
             "I04",
             "I13"
+          ]
+        },
+        {
+          "name": "snapshot_member_binding_and_retirement_survive_restart",
+          "oracle": "Joined member/node/disk bindings and retired-ID high-water survive compaction, transfer and restart",
+          "invariants": [
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "snapshot_refuses_rebound_binding_and_lost_id_watermark",
+          "oracle": "Canonical higher snapshots cannot rebind an existing member or regress its retired-ID watermark",
+          "invariants": [
+            "I05",
+            "I06",
+            "I15"
+          ]
+        },
+        {
+          "name": "snapshot_same_cut_requires_member_binding_marker",
+          "oracle": "Recovery refuses a snapshot whose same-cut member marker was not atomically installed",
+          "invariants": [
+            "I04",
+            "I06",
+            "I11"
           ]
         }
       ],

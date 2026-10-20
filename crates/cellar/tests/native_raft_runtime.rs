@@ -435,6 +435,16 @@ async fn noop_configuration_progress() -> Result<()> {
     };
     let mut change = ConfChangeV2::default();
     change.set_changes(vec![single].into());
+    let joining = JoiningMember {
+        member: cellar_logic::consensus::MemberId::new(2)?,
+        node: cellar_logic::consensus::NodeId::new([2; 16])?,
+        disk: cellar_logic::consensus::DiskLineage::new([12; 16])?,
+    };
+    let group = cluster.hosts[0].log.group(&scope(10))?;
+    group
+        .membership()?
+        .bind_change(&mut change, std::slice::from_ref(&joining))?;
+    let stale_change = change.clone();
     let accepted = cluster.hosts[0]
         .runtime
         .configure(&scope(10), vec![], change)
@@ -444,6 +454,86 @@ async fn noop_configuration_progress() -> Result<()> {
         .await?;
     let group = cluster.hosts[0].log.group(&scope(10))?;
     assert_eq!(group.initial_state()?.conf_state.learners, vec![2]);
+    assert_eq!(
+        group.membership()?.joined(joining.member)?,
+        Some((joining.clone(), accepted.position.index))
+    );
+    let membership = group.membership()?;
+    let index = group.last_index()?;
+    assert!(matches!(
+        cluster.hosts[0]
+            .runtime
+            .configure(&scope(10), vec![], stale_change)
+            .await,
+        Err(RuntimeError::Invalid(_))
+    ));
+    let mut promote = ConfChangeV2::default();
+    promote.mut_changes().push(ConfChangeSingle {
+        node_id: 2,
+        change_type: ConfChangeType::AddNode,
+        ..Default::default()
+    });
+    membership.bind_change(&mut promote, &[])?;
+    assert!(
+        matches!(
+            cluster.hosts[0]
+                .runtime
+                .configure(&scope(10), vec![], promote)
+                .await,
+            Err(RuntimeError::NotReady)
+        ),
+        "an empty learner cannot be promoted"
+    );
+    let mut voter = ConfChangeV2::default();
+    voter.mut_changes().push(ConfChangeSingle {
+        node_id: 3,
+        change_type: ConfChangeType::AddNode,
+        ..Default::default()
+    });
+    membership.bind_change(
+        &mut voter,
+        &[JoiningMember {
+            member: cellar_logic::consensus::MemberId::new(3)?,
+            node: cellar_logic::consensus::NodeId::new([3; 16])?,
+            disk: cellar_logic::consensus::DiskLineage::new([13; 16])?,
+        }],
+    )?;
+    assert!(
+        matches!(
+            cluster.hosts[0]
+                .runtime
+                .configure(&scope(10), vec![], voter)
+                .await,
+            Err(RuntimeError::Invalid(_))
+        ),
+        "fresh voters must first enter as learners"
+    );
+    let mut rebound = ConfChangeV2::default();
+    rebound.mut_changes().push(ConfChangeSingle {
+        node_id: 2,
+        change_type: ConfChangeType::AddLearnerNode,
+        ..Default::default()
+    });
+    membership.bind_change(
+        &mut rebound,
+        &[JoiningMember {
+            disk: cellar_logic::consensus::DiskLineage::new([99; 16])?,
+            ..joining.clone()
+        }],
+    )?;
+    assert!(matches!(
+        cluster.hosts[0]
+            .runtime
+            .configure(&scope(10), vec![], rebound)
+            .await,
+        Err(RuntimeError::Invalid(_))
+    ));
+    assert_eq!(
+        group.last_index()?,
+        index,
+        "refused changes must append no entry"
+    );
+    assert_eq!(group.membership()?, membership);
     assert_eq!(
         group.applied()?.image,
         before,
@@ -462,6 +552,7 @@ async fn noop_configuration_progress() -> Result<()> {
         log.group(&scope(10))?.initial_state()?.conf_state.learners,
         vec![2]
     );
+    assert_eq!(log.group(&scope(10))?.membership()?, membership);
     log.close().await?;
     cluster.hosts[0].domain.shutdown().await;
     Ok(())

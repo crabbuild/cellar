@@ -7,8 +7,8 @@ use ::raft::prelude::{Entry, HardState, Snapshot};
 use ::raft::{GetEntriesContext, Storage};
 use anyhow::{bail, ensure, Result};
 use cellar::application::consensus::verification::{
-    DurableApply, GroupBootstrap, GroupLog, GroupWrite, LogError, LogOpenMode, ReplicaLog,
-    ReplicaLogOptions, SnapshotChange,
+    DurableApply, GroupBootstrap, GroupLog, GroupWrite, JoiningMember, LogError, LogOpenMode,
+    ReplicaLog, ReplicaLogOptions, SnapshotChange,
 };
 use cellar::sdk::ExecutionDomain;
 use cellar_logic::consensus::*;
@@ -728,7 +728,27 @@ async fn storage_process_fixture() -> Result<()> {
             snapshot.mut_metadata().index = 8;
             snapshot.mut_metadata().term = 7;
             let mut conf = group.initial_state()?.conf_state;
+            let before = conf.clone();
             conf.learners.push(4);
+            let membership = group.membership()?;
+            let mut change = ::raft::prelude::ConfChangeV2::default();
+            change
+                .mut_changes()
+                .push(::raft::prelude::ConfChangeSingle {
+                    node_id: 4,
+                    change_type: ::raft::prelude::ConfChangeType::AddLearnerNode,
+                    ..Default::default()
+                });
+            membership.bind_change(
+                &mut change,
+                &[JoiningMember {
+                    member: MemberId::new(4)?,
+                    node: NodeId::new([4; 16])?,
+                    disk: DiskLineage::new([14; 16])?,
+                }],
+            )?;
+            write.membership =
+                Some(membership.applied(&change, &before, &conf, LogIndex::new(8))?);
             snapshot.mut_metadata().set_conf_state(conf);
             write.snapshot = Some(SnapshotChange::Install {
                 snapshot,

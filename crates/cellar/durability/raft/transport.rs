@@ -437,11 +437,12 @@ impl RaftTransport {
         if route.revision == 0 || route.peers.is_empty() || route.peers.len() > 128 {
             return Err(TransportError::Invalid("invalid group route".into()));
         }
-        let conf = group
+        let cache = group
             .read()
-            .map_err(|e| TransportError::Runtime(e.into()))?
-            .conf_state
-            .clone();
+            .map_err(|e| TransportError::Runtime(e.into()))?;
+        let conf = cache.conf_state.clone();
+        let membership = cache.membership.clone();
+        drop(cache);
         let members: BTreeSet<_> = conf
             .voters
             .iter()
@@ -455,6 +456,7 @@ impl RaftTransport {
         for peer in &route.peers {
             if peer.replica.scope != route.scope
                 || !members.contains(&peer.replica.member.get())
+                || !membership.permits(&peer.replica)
                 || !ids.insert(peer.replica.member)
                 || !nodes.insert(peer.replica.node)
                 || crate::machine::validate_node_name(&peer.label).is_err()
@@ -926,6 +928,11 @@ impl State {
                 && self.runtime.log().group(scope).is_ok_and(|group| {
                     group.read().is_ok_and(|g| {
                         let conf = &g.conf_state;
+                        if !g.membership.permits(group.identity())
+                            || !g.membership.permits(&peer.replica)
+                        {
+                            return false;
+                        }
                         [group.identity().member.get(), peer.replica.member.get()]
                             .into_iter()
                             .all(|member| {
@@ -969,11 +976,13 @@ impl State {
             .iter()
             .find(|p| p.replica == source && p.label == wire.source_label())
             .ok_or(TransportError::StalePeer)?;
-        let conf = group
+        let cache = group
             .read()
-            .map_err(|e| TransportError::Runtime(e.into()))?
-            .conf_state
-            .clone();
+            .map_err(|e| TransportError::Runtime(e.into()))?;
+        if !cache.membership.permits(&source) || !cache.membership.permits(&target) {
+            return Err(TransportError::StalePeer);
+        }
+        let conf = &cache.conf_state;
         for member in [source.member.get(), target.member.get()] {
             if !conf
                 .voters

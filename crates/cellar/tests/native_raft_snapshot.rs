@@ -625,6 +625,217 @@ async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<(
     cluster.close().await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_member_binding_and_retirement_survive_restart() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Create).await?;
+    source.empty_configuration_cut().await?;
+    let joined = SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    target.install(&joined).await?;
+    let state = target.group.membership()?;
+    let binding = state
+        .joined(MemberId::new(4)?)?
+        .context("missing committed binding")?;
+    assert_eq!(binding.0.node, NodeId::new([4; 16])?);
+    assert_eq!(binding.0.disk, DiskLineage::new([14; 16])?);
+    assert_eq!(binding.1, LogIndex::new(3));
+    target.close().await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Resume).await?;
+    assert_eq!(target.group.membership()?, state);
+    source.retire_learner().await?;
+    let retired =
+        SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    source
+        .log
+        .persist(OperationId::new(91), vec![retired.checkpoint()])
+        .await?;
+    assert_eq!(
+        source.group.first_index()?,
+        5,
+        "configuration entries must be compacted away"
+    );
+    target.install(&retired).await?;
+    assert_eq!(target.group.membership()?.high_water(), 4);
+    assert!(target
+        .group
+        .membership()?
+        .joined(MemberId::new(4)?)?
+        .is_none());
+    drop(joined);
+    drop(retired);
+    target.close().await?;
+    source.close().await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Resume).await?;
+    let state = target.group.membership()?;
+    assert_eq!(state.high_water(), 4);
+    let before = target.group.initial_state()?.conf_state;
+    let mut after = before.clone();
+    after.learners.push(4);
+    let mut reuse = raft::prelude::ConfChangeV2::default();
+    reuse.mut_changes().push(raft::prelude::ConfChangeSingle {
+        node_id: 4,
+        change_type: raft::prelude::ConfChangeType::AddLearnerNode,
+        ..Default::default()
+    });
+    state.bind_change(
+        &mut reuse,
+        &[JoiningMember {
+            member: MemberId::new(4)?,
+            node: NodeId::new([8; 16])?,
+            disk: DiskLineage::new([88; 16])?,
+        }],
+    )?;
+    ensure!(
+        state
+            .applied(&reuse, &before, &after, LogIndex::new(5))
+            .is_err(),
+        "compaction/restart allowed a retired ID to be reused"
+    );
+    target.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_refuses_rebound_binding_and_lost_id_watermark() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Create).await?;
+    source.empty_configuration_cut().await?;
+    let joined = SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    target.install(&joined).await?;
+    let mut rebound = joined.snapshot();
+    let bytes = String::from_utf8(rebound.data.to_vec())?;
+    let old = format!("\"disk\":{}", serde_json::to_string(&[14u8; 16])?);
+    let new = format!("\"disk\":{}", serde_json::to_string(&[99u8; 16])?);
+    ensure!(bytes.matches(&old).count() == 1);
+    rebound.data = bytes
+        .replace(&old, &new)
+        .replace("\"index\":3,", "\"index\":4,")
+        .replace("\"revision\":3,", "\"revision\":4,")
+        .into_bytes()
+        .into();
+    rebound.mut_metadata().index = 4;
+    assert!(
+        matches!(
+            SnapshotDownload::new(&target.group, [9; 32], rebound, SnapshotLimits::default()),
+            Err(SnapshotError::Log(LogError::Invalid(_)))
+        ),
+        "a canonical higher snapshot rebound an existing identity"
+    );
+    source.retire_learner().await?;
+    let retired =
+        SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    target.install(&retired).await?;
+    let mut lost = retired.snapshot();
+    let bytes = String::from_utf8(lost.data.to_vec())?;
+    ensure!(bytes.matches("\"high_water\":4,").count() == 1);
+    lost.data = bytes
+        .replace("\"high_water\":4,", "\"high_water\":3,")
+        .replace("\"index\":4,", "\"index\":5,")
+        .replace("\"revision\":4,", "\"revision\":5,")
+        .into_bytes()
+        .into();
+    lost.mut_metadata().index = 5;
+    assert!(
+        matches!(
+            SnapshotDownload::new(&target.group, [9; 32], lost, SnapshotLimits::default()),
+            Err(SnapshotError::Log(LogError::Invalid(_)))
+        ),
+        "a canonical higher snapshot lost the retired-ID watermark"
+    );
+    ensure!(
+        target.images.usage()?.generations == 0,
+        "binding refusal allocated image state"
+    );
+    drop(joined);
+    drop(retired);
+    source.close().await?;
+    target.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_same_cut_requires_member_binding_marker() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Create).await?;
+    source.empty_configuration_cut().await?;
+    source.retire_learner().await?;
+    let package =
+        SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    let snapshot = package.snapshot();
+    let position = LogPosition {
+        index: LogIndex::new(4),
+        term: Term::new(2),
+    };
+    let mut write = GroupWrite::new(&target.group);
+    write.snapshot = Some(SnapshotChange::Install {
+        snapshot,
+        applied: DurableApply {
+            position,
+            image: None,
+        },
+    });
+    let mut hard = target.group.initial_state()?.hard_state;
+    hard.term = 2;
+    hard.commit = 4;
+    write.hard_state = Some(hard);
+    // Mechanical storage accepts opaque metadata. Normal image recovery must
+    // independently refuse a snapshot whose binding marker was not installed.
+    target
+        .log
+        .persist(OperationId::new(91), vec![write])
+        .await?;
+    ensure!(target.applier().is_err());
+    drop(package);
+    target.close().await?;
+    let target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Resume).await?;
+    ensure!(
+        target.applier().is_err(),
+        "restart admitted a mixed snapshot/member marker"
+    );
+    source.close().await?;
+    target.close().await
+}
+
+impl Fixture {
+    async fn retire_learner(&self) -> Result<()> {
+        let before = self.group.initial_state()?.conf_state;
+        let mut after = before.clone();
+        after.learners.retain(|id| *id != 4);
+        let mut change = raft::prelude::ConfChangeV2::default();
+        change.mut_changes().push(raft::prelude::ConfChangeSingle {
+            node_id: 4,
+            change_type: raft::prelude::ConfChangeType::RemoveNode,
+            ..Default::default()
+        });
+        let state = self.group.membership()?;
+        state.bind_change(&mut change, &[])?;
+        let index = self.group.applied()?.position.index.get() + 1;
+        let mut write = GroupWrite::new(&self.group);
+        write.membership = Some(state.applied(&change, &before, &after, LogIndex::new(index))?);
+        write.entries.push(Entry {
+            index,
+            term: 2,
+            entry_type: raft::prelude::EntryType::EntryConfChangeV2,
+            data: change.write_to_bytes()?.into(),
+            ..Default::default()
+        });
+        write.conf_state = Some(after);
+        write.applied = Some(DurableApply {
+            position: LogPosition {
+                index: LogIndex::new(index),
+                term: Term::new(2),
+            },
+            image: None,
+        });
+        let mut hard = self.group.initial_state()?.hard_state;
+        hard.commit = index;
+        write.hard_state = Some(hard);
+        self.log.persist(OperationId::new(90), vec![write]).await?;
+        Ok(())
+    }
+}
+
 fn marker(pin: &GenerationPin) -> CommittedImage {
     let state = pin.state();
     CommittedImage {
@@ -651,7 +862,7 @@ impl Fixture {
     async fn empty_configuration_cut(&self) -> Result<()> {
         let mut conf = self.group.initial_state()?.conf_state;
         conf.learners = vec![4];
-        let change = raft::prelude::ConfChangeV2 {
+        let mut change = raft::prelude::ConfChangeV2 {
             changes: vec![raft::prelude::ConfChangeSingle {
                 node_id: 4,
                 change_type: raft::prelude::ConfChangeType::AddLearnerNode,
@@ -660,7 +871,18 @@ impl Fixture {
             .into(),
             ..Default::default()
         };
+        let before = self.group.initial_state()?.conf_state;
+        let membership = self.group.membership()?;
+        membership.bind_change(
+            &mut change,
+            &[JoiningMember {
+                member: MemberId::new(4)?,
+                node: NodeId::new([4; 16])?,
+                disk: DiskLineage::new([14; 16])?,
+            }],
+        )?;
         let mut write = GroupWrite::new(&self.group);
+        write.membership = Some(membership.applied(&change, &before, &conf, LogIndex::new(3))?);
         write.entries = vec![
             Entry {
                 index: 2,
@@ -849,6 +1071,7 @@ impl Fixture {
     async fn install(&self, package: &SnapshotPackage) -> Result<()> {
         let snapshot = package.snapshot();
         let mut write = GroupWrite::new(&self.group);
+        write.membership = Some(package.membership());
         let position = LogPosition {
             index: LogIndex::new(snapshot.get_metadata().index),
             term: Term::new(snapshot.get_metadata().term),

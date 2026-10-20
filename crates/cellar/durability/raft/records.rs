@@ -76,6 +76,7 @@ pub(crate) struct GroupRecord {
     pub mapping: MappingRecord,
     pub hard_state: Vec<u8>,
     pub conf_state: Vec<u8>,
+    pub membership: super::member_state::GroupMembership,
     pub snapshot: Vec<u8>,
     pub last_index: u64,
     pub applied_index: u64,
@@ -89,6 +90,7 @@ impl GroupRecord {
             mapping,
             hard_state: cache.hard_state.write_to_bytes().map_err(corrupt)?,
             conf_state: cache.conf_state.write_to_bytes().map_err(corrupt)?,
+            membership: cache.membership.clone(),
             snapshot: cache.snapshot.write_to_bytes().map_err(corrupt)?,
             last_index: cache.last_index(),
             applied_index: cache.applied.position.index.get(),
@@ -104,6 +106,7 @@ impl GroupRecord {
         Ok(CachedGroup {
             hard_state: HardState::parse_from_bytes(&self.hard_state).map_err(corrupt)?,
             conf_state: ConfState::parse_from_bytes(&self.conf_state).map_err(corrupt)?,
+            membership: self.membership.clone(),
             snapshot: Snapshot::parse_from_bytes(&self.snapshot).map_err(corrupt)?,
             entries: Default::default(),
             applied: DurableApply {

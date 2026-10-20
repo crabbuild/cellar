@@ -49,7 +49,11 @@ type Reply = oneshot::Sender<Result<Response, RuntimeError>>;
 // Physical work must be able to settle even when deferred peer/client requests
 // fill ordinary admission. These small completions contain markers, not images.
 const COMPLETION_SLOTS: usize = 8;
-const COMPLETION_BYTES: usize = COMPLETION_SLOTS * 4096;
+
+// Snapshot references now carry a bounded committed member ledger in addition
+// to their image/ticket metadata. Reserve every physical completion slot for it.
+const SNAPSHOT_COMPLETION_BYTES: usize = 16 * 1024;
+const COMPLETION_BYTES: usize = COMPLETION_SLOTS * SNAPSHOT_COMPLETION_BYTES;
 const HINT_SLOTS: usize = 256;
 const HINT_BYTES: usize = HINT_SLOTS * 4096;
 
@@ -416,6 +420,8 @@ impl RaftRuntime {
         }
     }
 
+    /// Bind `change.context` with the group's observed membership before this
+    /// call. The separate `context` argument remains proposal correlation data.
     pub async fn configure(
         &self,
         scope: &GroupScope,
@@ -481,9 +487,12 @@ impl RaftRuntime {
         &self,
         completed: SnapshotCompletion,
     ) -> Result<(), RuntimeError> {
-        self.call(4096, Command::Snapshot(Box::new(completed)))
-            .await
-            .map(|_| ())
+        self.call(
+            SNAPSHOT_COMPLETION_BYTES,
+            Command::Snapshot(Box::new(completed)),
+        )
+        .await
+        .map(|_| ())
     }
 
     /// Cancel before install authorization. Admission does not prove completion:

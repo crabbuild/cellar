@@ -141,6 +141,30 @@ impl Root {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_refuses_protocol_without_member_bindings() {
+        let config = NamespaceConfig::new(
+            ClusterId::new([1; 16]).unwrap(),
+            NamespaceId::new([2; 16]).unwrap(),
+            cellar_logic::NamespaceMode::Raft,
+            [3; 32],
+        );
+        let mut root = Root::new(&config, "test".into());
+        root.validate().unwrap();
+        root.protocol_digest = Sha256::digest(b"cellar-raft-ltx-1").into();
+        let encoded = encode(ROOT, &root, 64 * 1024).unwrap();
+        let decoded: Root = decode(ROOT, &encoded, 64 * 1024).unwrap();
+        assert!(matches!(
+            decoded.validate(),
+            Err(CatalogError::Corrupt("namespace schema/protocol"))
+        ));
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Member {
