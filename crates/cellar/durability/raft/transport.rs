@@ -1,0 +1,1167 @@
+//! Node-owned TLS connections multiplex groups. Separate control/data listeners,
+//! workers and byte budgets keep bulk work out of reserved control capacity.
+
+use super::budget::{Budget, Permit};
+use super::completion::RuntimeError;
+use super::runtime::RaftRuntime;
+use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
+use super::transport_options::{RaftTls, TransportOptions};
+use crate::asyncrt::DomainToken;
+use crate::peer_auth::PeerAuth;
+use ::raft::prelude::{Message, MessageType};
+use cellar_logic::consensus::{GroupScope, NodeId, ReplicaIdentity};
+use protobuf::Message as _;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::future::Future;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Lane {
+    Control,
+    Data,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TransportError {
+    Invalid(String),
+    Io(String),
+    Tls(String),
+    Runtime(RuntimeError),
+    Authentication,
+    Protocol,
+    Identity,
+    Replay,
+    UnknownGroup,
+    StalePeer,
+    Refused,
+    Limit,
+    Overloaded,
+    Timeout,
+    Closed,
+}
+
+impl std::fmt::Display for TransportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Raft transport: {self:?}")
+    }
+}
+
+impl std::error::Error for TransportError {}
+
+impl From<std::io::Error> for TransportError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e.to_string())
+    }
+}
+
+impl From<RuntimeError> for TransportError {
+    fn from(e: RuntimeError) -> Self {
+        Self::Runtime(e)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RaftPeer {
+    pub replica: ReplicaIdentity,
+    pub label: String,
+    pub server_name: String,
+    pub control_address: SocketAddr,
+    pub data_address: SocketAddr,
+}
+
+impl RaftPeer {
+    fn address(&self, lane: Lane) -> SocketAddr {
+        match lane {
+            Lane::Control => self.control_address,
+            Lane::Data => self.data_address,
+        }
+    }
+
+    fn same_host(&self, other: &Self) -> bool {
+        self.replica.node == other.replica.node
+            && self.replica.disk == other.replica.disk
+            && self.replica.process == other.replica.process
+            && self.label == other.label
+            && self.server_name == other.server_name
+            && self.control_address == other.control_address
+            && self.data_address == other.data_address
+    }
+}
+
+/// An already authorized routing view, installed by the membership controller.
+/// Installing it never creates storage or changes Raft's configuration.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupRoute {
+    pub scope: GroupScope,
+    pub schema_digest: [u8; 32],
+    pub revision: u64,
+    pub peers: Vec<RaftPeer>,
+}
+
+/// Message admission only. No durability, commit or applied position is implied.
+pub struct Delivery {
+    result: oneshot::Receiver<Result<(), TransportError>>,
+}
+
+impl Delivery {
+    pub async fn accepted(self) -> Result<(), TransportError> {
+        self.result.await.map_err(|_| TransportError::Closed)?
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TransportUsage {
+    pub control_bytes: usize,
+    pub data_bytes: usize,
+    pub control_items: usize,
+    pub data_items: usize,
+    pub tasks: usize,
+    pub peers: usize,
+    pub groups: usize,
+    pub accepted: u64,
+    pub refused: u64,
+    pub failed: u64,
+}
+
+struct Banks {
+    control: Arc<Budget>,
+    data: Arc<Budget>,
+}
+
+impl Banks {
+    fn new(control: usize, data: usize, items: usize) -> Self {
+        Self {
+            control: Budget::new(control, items),
+            data: Budget::new(data, items),
+        }
+    }
+
+    fn lane(&self, lane: Lane) -> &Arc<Budget> {
+        match lane {
+            Lane::Control => &self.control,
+            Lane::Data => &self.data,
+        }
+    }
+}
+
+struct SendRequest {
+    scope: GroupScope,
+    route: Arc<GroupRoute>,
+    peer: RaftPeer,
+    header: RequestHeader,
+    body: Vec<u8>,
+    snapshot: bool,
+    result: Option<oneshot::Sender<Result<(), TransportError>>>,
+    _node: Permit,
+    _peer: Permit,
+}
+
+struct Pool {
+    peer: RaftPeer,
+    tx: [mpsc::Sender<SendRequest>; 2],
+    outgoing: Banks,
+    incoming: Banks,
+    stop: watch::Sender<bool>,
+}
+
+struct Registry {
+    closed: bool,
+    tasks: usize,
+    groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
+    pools: BTreeMap<NodeId, Arc<Pool>>,
+}
+
+struct State {
+    domain: DomainToken,
+    runtime: RaftRuntime,
+    auth: Arc<PeerAuth>,
+    tls: RaftTls,
+    options: TransportOptions,
+    local_control: SocketAddr,
+    local_data: SocketAddr,
+    registry: Mutex<Registry>,
+    outgoing: Banks,
+    incoming: Banks,
+    stop: watch::Sender<bool>,
+    done: Notify,
+    sequence: AtomicU64,
+    accepted: AtomicU64,
+    refused: AtomicU64,
+    failed: AtomicU64,
+    claim: Mutex<Option<super::runtime::TransportClaim>>,
+}
+
+struct Handle(Arc<State>);
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.0.stop();
+    }
+}
+
+#[derive(Clone)]
+pub struct RaftTransport {
+    handle: Arc<Handle>,
+}
+
+struct TaskGuard(Arc<State>);
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        let finished = {
+            let mut registry = self.0.lifecycle_registry();
+            registry.tasks -= 1;
+            registry.closed && registry.tasks == 0
+        };
+        if finished {
+            if let Ok(mut claim) = self.0.claim.lock() {
+                claim.take();
+            }
+        }
+        self.0.done.notify_waiters();
+    }
+}
+
+// Field drop order releases sockets/queued permits before decrementing the task
+// count, including cancellation before the task's first poll.
+struct OwnedTask {
+    future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    _guard: TaskGuard,
+}
+
+impl Future for OwnedTask {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.future.as_mut().poll(cx)
+    }
+}
+
+impl RaftTransport {
+    /// Both listeners must be caller-bound. All accepted sockets, deadlines and
+    /// workers belong to the runtime's execution domain and join on its shutdown.
+    pub async fn start(
+        runtime: RaftRuntime,
+        auth: Arc<PeerAuth>,
+        tls: RaftTls,
+        control: TcpListener,
+        data: TcpListener,
+        options: TransportOptions,
+    ) -> Result<Self, TransportError> {
+        options.validate()?;
+        let local_control = control.local_addr()?;
+        let local_data = data.local_addr()?;
+        if local_control == local_data {
+            return Err(TransportError::Invalid(
+                "separate control/data listeners required".into(),
+            ));
+        }
+        let domain = runtime.log().domain();
+        domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        let claim = runtime.claim_transport()?;
+        let (stop, _) = watch::channel(false);
+        let state = Arc::new(State {
+            domain,
+            runtime,
+            auth,
+            tls,
+            local_control,
+            local_data,
+            registry: Mutex::new(Registry {
+                closed: false,
+                tasks: 0,
+                groups: BTreeMap::new(),
+                pools: BTreeMap::new(),
+            }),
+            outgoing: Banks::new(
+                options.node_control_bytes,
+                options.node_data_bytes,
+                options.queue_items * options.max_peers,
+            ),
+            incoming: Banks::new(
+                options.node_control_bytes,
+                options.node_data_bytes,
+                options.max_connections_per_lane,
+            ),
+            stop,
+            done: Notify::new(),
+            sequence: AtomicU64::new(0),
+            accepted: AtomicU64::new(0),
+            refused: AtomicU64::new(0),
+            failed: AtomicU64::new(0),
+            options,
+            claim: Mutex::new(Some(claim)),
+        });
+        let service = Self {
+            handle: Arc::new(Handle(state.clone())),
+        };
+        for (listener, lane) in [(control, Lane::Control), (data, Lane::Data)] {
+            let worker = state.clone();
+            state.spawn(async move {
+                worker.listen(listener, lane).await;
+            })?;
+        }
+        Ok(service)
+    }
+
+    pub fn control_address(&self) -> SocketAddr {
+        self.handle.0.local_control
+    }
+
+    pub fn data_address(&self) -> SocketAddr {
+        self.handle.0.local_data
+    }
+
+    pub fn install_group(&self, route: GroupRoute) -> Result<(), TransportError> {
+        let state = &self.handle.0;
+        route
+            .scope
+            .validate()
+            .map_err(|_| TransportError::Identity)?;
+        let group = state
+            .runtime
+            .log()
+            .group(&route.scope)
+            .map_err(|_| TransportError::UnknownGroup)?;
+        let local = group.identity();
+        if route.revision == 0 || route.peers.is_empty() || route.peers.len() > 128 {
+            return Err(TransportError::Invalid("invalid group route".into()));
+        }
+        let conf = group
+            .read()
+            .map_err(|e| TransportError::Runtime(e.into()))?
+            .conf_state
+            .clone();
+        let members: BTreeSet<_> = conf
+            .voters
+            .iter()
+            .chain(&conf.voters_outgoing)
+            .chain(&conf.learners)
+            .chain(&conf.learners_next)
+            .copied()
+            .collect();
+        let mut ids = BTreeSet::new();
+        let mut nodes = BTreeSet::new();
+        for peer in &route.peers {
+            if peer.replica.scope != route.scope
+                || !members.contains(&peer.replica.member.get())
+                || !ids.insert(peer.replica.member)
+                || !nodes.insert(peer.replica.node)
+                || crate::machine::validate_node_name(&peer.label).is_err()
+                || rustls::pki_types::ServerName::try_from(peer.server_name.clone()).is_err()
+                || peer.control_address == peer.data_address
+            {
+                return Err(TransportError::Identity);
+            }
+        }
+        let own = route
+            .peers
+            .iter()
+            .find(|p| p.replica.member == local.member)
+            .ok_or(TransportError::Identity)?;
+        if own.replica != *local || own.label != state.auth.source() {
+            return Err(TransportError::Identity);
+        }
+        let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        if let Some(old) = registry.groups.get(&route.scope) {
+            if **old == route {
+                return Ok(());
+            }
+            if old.revision >= route.revision || old.schema_digest != route.schema_digest {
+                return Err(TransportError::StalePeer);
+            }
+            for peer in &route.peers {
+                if let Some(previous) = old
+                    .peers
+                    .iter()
+                    .find(|p| p.replica.member == peer.replica.member)
+                {
+                    if previous.replica.node != peer.replica.node
+                        || previous.replica.disk != peer.replica.disk
+                    {
+                        return Err(TransportError::Identity);
+                    }
+                }
+            }
+        } else if registry.groups.len() >= state.options.max_groups {
+            return Err(TransportError::Overloaded);
+        }
+        // Existing peers' physical addresses/process must agree across groups.
+        // A controller removes conflicting old routing views before replacement.
+        for peer in route.peers.iter().filter(|p| p.replica.node != local.node) {
+            if registry
+                .groups
+                .values()
+                .filter(|g| g.scope != route.scope)
+                .flat_map(|g| &g.peers)
+                .any(|p| p.replica.node == peer.replica.node && !p.same_host(peer))
+            {
+                return Err(TransportError::StalePeer);
+            }
+        }
+        let new_nodes = route
+            .peers
+            .iter()
+            .filter(|p| {
+                p.replica.node != local.node && !registry.pools.contains_key(&p.replica.node)
+            })
+            .count();
+        if registry.pools.len() + new_nodes > state.options.max_peers {
+            return Err(TransportError::Overloaded);
+        }
+        // Reserve all worker slots before changing this registry view. Spawn
+        // reservations and close share the same lock, so close cannot miss them.
+        if registry.tasks + 2 * route.peers.len() > state.task_limit() {
+            return Err(TransportError::Overloaded);
+        }
+        let mut starts = Vec::new();
+        for peer in route.peers.iter().filter(|p| p.replica.node != local.node) {
+            if registry
+                .pools
+                .get(&peer.replica.node)
+                .is_some_and(|p| p.peer.same_host(peer))
+            {
+                continue;
+            }
+            if let Some(old) = registry.pools.remove(&peer.replica.node) {
+                old.stop.send_replace(true);
+            }
+            let (control, crx) = mpsc::channel(state.options.queue_items);
+            let (data, drx) = mpsc::channel(state.options.queue_items);
+            let (stop, _) = watch::channel(false);
+            let pool = Arc::new(Pool {
+                peer: peer.clone(),
+                tx: [control, data],
+                stop,
+                outgoing: Banks::new(
+                    state.options.peer_control_bytes,
+                    state.options.peer_data_bytes,
+                    state.options.queue_items,
+                ),
+                incoming: Banks::new(
+                    state.options.peer_control_bytes,
+                    state.options.peer_data_bytes,
+                    state.options.max_connections_per_lane,
+                ),
+            });
+            registry.tasks += 2;
+            starts.push((pool.clone(), Lane::Control, crx, TaskGuard(state.clone())));
+            starts.push((pool.clone(), Lane::Data, drx, TaskGuard(state.clone())));
+            registry.pools.insert(peer.replica.node, pool);
+        }
+        registry.groups.insert(route.scope.clone(), Arc::new(route));
+        let used: BTreeSet<_> = registry
+            .groups
+            .values()
+            .flat_map(|r| r.peers.iter().map(|p| p.replica.node))
+            .collect();
+        registry.pools.retain(|node, pool| {
+            if used.contains(node) {
+                true
+            } else {
+                pool.stop.send_replace(true);
+                false
+            }
+        });
+        drop(registry);
+        for (pool, lane, rx, guard) in starts {
+            let worker = state.clone();
+            state.spawn_reserved(guard, async move {
+                worker.send_loop(pool, lane, rx).await;
+            })?;
+        }
+        Ok(())
+    }
+
+    pub fn remove_group(&self, scope: &GroupScope) -> Result<(), TransportError> {
+        let state = &self.handle.0;
+        let mut registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        registry.groups.remove(scope);
+        let used: BTreeSet<_> = registry
+            .groups
+            .values()
+            .flat_map(|r| r.peers.iter().map(|p| p.replica.node))
+            .collect();
+        registry.pools.retain(|node, pool| {
+            if used.contains(node) {
+                true
+            } else {
+                pool.stop.send_replace(true);
+                false
+            }
+        });
+        Ok(())
+    }
+
+    /// Queue without waiting on a slow peer. The returned delivery owns the
+    /// completion only; queued/in-flight bytes remain charged if it is dropped.
+    /// Immediate refusal has not delivered a message; the dispatcher must retain
+    /// or report it as unreachable. Accepted queue failures are reported here.
+    pub fn submit(&self, scope: &GroupScope, message: Message) -> Result<Delivery, TransportError> {
+        let state = &self.handle.0;
+        let lane = frame::classify(&message)?;
+        let size = message.compute_size() as usize;
+        if size > frame::payload_limit(lane, &state.options) {
+            return Err(TransportError::Limit);
+        }
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        let route = registry
+            .groups
+            .get(scope)
+            .ok_or(TransportError::UnknownGroup)?
+            .clone();
+        let local = state
+            .runtime
+            .log()
+            .group(scope)
+            .map_err(|_| TransportError::UnknownGroup)?
+            .identity()
+            .clone();
+        if message.from != local.member.get() {
+            return Err(TransportError::Identity);
+        }
+        let peer = route
+            .peers
+            .iter()
+            .find(|p| p.replica.member.get() == message.to)
+            .ok_or(TransportError::Identity)?
+            .clone();
+        if peer.replica.node == local.node {
+            return Err(TransportError::Identity);
+        }
+        let pool = registry
+            .pools
+            .get(&peer.replica.node)
+            .ok_or(TransportError::StalePeer)?
+            .clone();
+        drop(registry);
+        let charge = size + state.options.max_header_bytes + frame::PREFIX + frame::TAG;
+        let node_permit = state
+            .outgoing
+            .lane(lane)
+            .acquire(charge)
+            .ok_or(TransportError::Overloaded)?;
+        let peer_permit = pool
+            .outgoing
+            .lane(lane)
+            .acquire(charge)
+            .ok_or(TransportError::Overloaded)?;
+        // Encoding and hashing bulk data must not hold the shared registry
+        // mutex or allocate decoded Entry copies on the sender.
+        let body = message
+            .write_to_bytes()
+            .map_err(|_| TransportError::Protocol)?;
+        let wire_route = Route::new(
+            &local,
+            state.auth.source(),
+            &peer.replica,
+            &peer.label,
+            route.schema_digest,
+        )?;
+        frame::scan_message(&body, state.options.max_entries)?;
+        let mut header = RequestHeader::new(wire_route, 1, lane, &body);
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        state.admit(&registry)?;
+        if !registry
+            .groups
+            .get(scope)
+            .is_some_and(|r| Arc::ptr_eq(r, &route))
+            || !registry
+                .pools
+                .get(&peer.replica.node)
+                .is_some_and(|p| Arc::ptr_eq(p, &pool))
+        {
+            return Err(TransportError::StalePeer);
+        }
+        // Assign and enqueue under one short lock so concurrent senders cannot
+        // invert the authenticated sequence on a shared connection.
+        let sequence = state
+            .sequence
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| n.checked_add(1))
+            .map_err(|_| TransportError::Closed)?
+            + 1;
+        header.set_sequence(sequence);
+        let (result, wait) = oneshot::channel();
+        let request = SendRequest {
+            scope: scope.clone(),
+            route,
+            peer,
+            header,
+            body,
+            snapshot: message.get_msg_type() == MessageType::MsgSnapshot,
+            result: Some(result),
+            _node: node_permit,
+            _peer: peer_permit,
+        };
+        pool.tx[lane_index(lane)]
+            .try_send(request)
+            .map_err(|e| match e {
+                mpsc::error::TrySendError::Full(_) => TransportError::Overloaded,
+                mpsc::error::TrySendError::Closed(_) => TransportError::Closed,
+            })?;
+        Ok(Delivery { result: wait })
+    }
+
+    pub fn usage(&self) -> TransportUsage {
+        self.handle.0.usage()
+    }
+
+    pub fn peer_usage(&self, node: NodeId) -> Result<TransportUsage, TransportError> {
+        let state = &self.handle.0;
+        let registry = state.registry.lock().map_err(|_| TransportError::Closed)?;
+        let pool = registry.pools.get(&node).ok_or(TransportError::StalePeer)?;
+        let (cb, ci) = pool.outgoing.control.usage();
+        let (db, di) = pool.outgoing.data.usage();
+        let (rcb, rci) = pool.incoming.control.usage();
+        let (rdb, rdi) = pool.incoming.data.usage();
+        Ok(TransportUsage {
+            control_bytes: cb + rcb,
+            data_bytes: db + rdb,
+            control_items: ci + rci,
+            data_items: di + rdi,
+            ..Default::default()
+        })
+    }
+
+    /// Release sockets, queued permits and worker resources. Domain shutdown
+    /// additionally joins the owning execution-domain task registry.
+    pub async fn close(&self) {
+        let state = &self.handle.0;
+        state.stop();
+        loop {
+            let done = state.done.notified();
+            tokio::pin!(done);
+            done.as_mut().enable();
+            if state.lifecycle_registry().tasks == 0 {
+                return;
+            }
+            done.await;
+        }
+    }
+}
+
+fn lane_index(lane: Lane) -> usize {
+    match lane {
+        Lane::Control => 0,
+        Lane::Data => 1,
+    }
+}
+
+impl State {
+    /// Poison closes ordinary admission. Cleanup still reads the real owner
+    /// count; a poisoned lock must never stand in for successful resource join.
+    fn lifecycle_registry(&self) -> std::sync::MutexGuard<'_, Registry> {
+        match self.registry.lock() {
+            Ok(registry) => registry,
+            Err(poisoned) => {
+                let mut registry = poisoned.into_inner();
+                registry.closed = true;
+                self.stop.send_replace(true);
+                registry
+            }
+        }
+    }
+
+    fn admit(&self, registry: &Registry) -> Result<(), TransportError> {
+        if registry.closed || self.domain.mono_ms().is_err() || self.runtime.admit().is_err() {
+            Err(TransportError::Closed)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn task_limit(&self) -> usize {
+        2 + 4 * self.options.max_peers + 2 * self.options.max_connections_per_lane
+    }
+
+    fn stop(&self) {
+        let finished = {
+            let mut registry = self.lifecycle_registry();
+            registry.closed = true;
+            registry.tasks == 0
+        };
+        self.stop.send_replace(true);
+        if finished {
+            if let Ok(mut claim) = self.claim.lock() {
+                claim.take();
+            }
+        }
+    }
+
+    fn spawn(
+        self: &Arc<Self>,
+        future: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), TransportError> {
+        let mut registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+        self.admit(&registry)?;
+        if registry.tasks >= self.task_limit() {
+            return Err(TransportError::Overloaded);
+        }
+        registry.tasks += 1;
+        drop(registry);
+        self.spawn_reserved(TaskGuard(self.clone()), future)
+    }
+
+    fn spawn_reserved(
+        self: &Arc<Self>,
+        guard: TaskGuard,
+        future: impl Future<Output = ()> + Send + 'static,
+    ) -> Result<(), TransportError> {
+        self.domain
+            .spawn_detached(
+                "raft-transport",
+                OwnedTask {
+                    future: Box::pin(future),
+                    _guard: guard,
+                },
+            )
+            .map_err(|_| TransportError::Closed)?
+            .detach();
+        Ok(())
+    }
+
+    fn usage(&self) -> TransportUsage {
+        let (cb, ci) = self.outgoing.control.usage();
+        let (db, di) = self.outgoing.data.usage();
+        let (rcb, rci) = self.incoming.control.usage();
+        let (rdb, rdi) = self.incoming.data.usage();
+        let registry = self.lifecycle_registry();
+        TransportUsage {
+            control_bytes: cb + rcb,
+            data_bytes: db + rdb,
+            control_items: ci + rci,
+            data_items: di + rdi,
+            tasks: registry.tasks,
+            peers: registry.pools.len(),
+            groups: registry.groups.len(),
+            accepted: self.accepted.load(Ordering::Acquire),
+            refused: self.refused.load(Ordering::Acquire),
+            failed: self.failed.load(Ordering::Acquire),
+        }
+    }
+
+    fn current(&self, request: &SendRequest) -> bool {
+        self.registry.lock().is_ok_and(|r| {
+            self.admit(&r).is_ok()
+                && r.groups
+                    .get(&request.scope)
+                    .is_some_and(|g| Arc::ptr_eq(g, &request.route))
+                && r.pools
+                    .get(&request.peer.replica.node)
+                    .is_some_and(|p| p.peer.same_host(&request.peer))
+                && self.runtime.log().group(&request.scope).is_ok_and(|group| {
+                    group.read().is_ok_and(|g| {
+                        let conf = &g.conf_state;
+                        [
+                            group.identity().member.get(),
+                            request.peer.replica.member.get(),
+                        ]
+                        .into_iter()
+                        .all(|member| {
+                            conf.voters
+                                .iter()
+                                .chain(&conf.voters_outgoing)
+                                .chain(&conf.learners)
+                                .chain(&conf.learners_next)
+                                .any(|id| *id == member)
+                        })
+                    })
+                })
+        })
+    }
+
+    fn authorize(&self, header: &RequestHeader) -> Result<Arc<Pool>, TransportError> {
+        let (source, target) = header.route.decode()?;
+        let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+        self.admit(&registry)?;
+        let route = registry
+            .groups
+            .get(&target.scope)
+            .ok_or(TransportError::UnknownGroup)?;
+        let group = self
+            .runtime
+            .log()
+            .group(&target.scope)
+            .map_err(|_| TransportError::UnknownGroup)?;
+        if *group.identity() != target
+            || header.route.target_label() != self.auth.source()
+            || header.route.schema() != route.schema_digest
+        {
+            return Err(TransportError::StalePeer);
+        }
+        let peer = route
+            .peers
+            .iter()
+            .find(|p| p.replica == source && p.label == header.route.source_label())
+            .ok_or(TransportError::StalePeer)?;
+        let conf = group
+            .read()
+            .map_err(|e| TransportError::Runtime(e.into()))?
+            .conf_state
+            .clone();
+        for member in [source.member.get(), target.member.get()] {
+            if !conf
+                .voters
+                .iter()
+                .chain(&conf.voters_outgoing)
+                .chain(&conf.learners)
+                .chain(&conf.learners_next)
+                .any(|id| *id == member)
+            {
+                return Err(TransportError::StalePeer);
+            }
+        }
+        registry
+            .pools
+            .get(&source.node)
+            .filter(|p| p.peer.same_host(peer))
+            .cloned()
+            .ok_or(TransportError::StalePeer)
+    }
+
+    async fn bounded<T>(
+        &self,
+        pool: Option<&Pool>,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        let mut stop = self.stop.subscribe();
+        let mut peer_stop = pool.map(|p| p.stop.subscribe());
+        if *stop.borrow() || peer_stop.as_ref().is_some_and(|s| *s.borrow()) {
+            return Err(TransportError::Closed);
+        }
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        let mut deadline = self
+            .domain
+            .sleep_until(now.saturating_add(self.options.io_timeout_ms))
+            .map_err(|_| TransportError::Closed)?;
+        crate::asyncrt::select! {
+            _ = stop.changed() => Err(TransportError::Closed),
+            _ = async { match peer_stop.as_mut() { Some(s) => { let _ = s.changed().await; }, None => std::future::pending::<()>().await } } => Err(TransportError::StalePeer),
+            _ = &mut deadline => Err(TransportError::Timeout),
+            result = future => result,
+        }
+    }
+
+    async fn listen(self: Arc<Self>, listener: TcpListener, lane: Lane) {
+        let slots = Arc::new(Semaphore::new(self.options.max_connections_per_lane));
+        let mut stop = self.stop.subscribe();
+        loop {
+            if *stop.borrow() {
+                return;
+            }
+            let accepted = crate::asyncrt::select! {
+                _ = stop.changed() => return,
+                accepted = listener.accept() => accepted,
+            };
+            let Ok((stream, _)) = accepted else {
+                return;
+            };
+            let Ok(slot) = slots.clone().try_acquire_owned() else {
+                drop(stream);
+                continue;
+            };
+            let state = self.clone();
+            match self.spawn(async move {
+                let _slot = slot;
+                let _ = state.clone().receive_connection(stream, lane).await;
+            }) {
+                Ok(()) | Err(TransportError::Overloaded) => (),
+                Err(_) => return,
+            }
+        }
+    }
+
+    async fn receive_connection(
+        self: Arc<Self>,
+        stream: TcpStream,
+        lane: Lane,
+    ) -> Result<(), TransportError> {
+        stream.set_nodelay(true)?;
+        let acceptor = tokio_rustls::TlsAcceptor::from(self.tls.server.clone());
+        let mut stream = self
+            .bounded(None, async {
+                acceptor
+                    .accept(stream)
+                    .await
+                    .map_err(|e| TransportError::Tls(e.to_string()))
+            })
+            .await?;
+        let exporter = stream
+            .get_ref()
+            .1
+            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
+            .map_err(|e| TransportError::Tls(e.to_string()))?;
+        let mut sequence = 0;
+        let mut source_host = None;
+        loop {
+            let head = self
+                .bounded(None, read_head(&mut stream, &self.options, lane, false))
+                .await?;
+            let header = head.request(&self.auth, &exporter)?;
+            if header.lane != lane || header.sequence()? <= sequence {
+                return Err(TransportError::Replay);
+            }
+            let (source, _) = header.route.decode()?;
+            let host = (
+                source.node,
+                source.disk,
+                source.process,
+                header.route.source_label().to_owned(),
+            );
+            if source_host.as_ref().is_some_and(|h| *h != host) {
+                return Err(TransportError::StalePeer);
+            }
+            source_host = Some(host);
+            sequence = header.sequence()?;
+            let pool = match self.authorize(&header) {
+                Ok(pool) => pool,
+                Err(error) => {
+                    self.refused.fetch_add(1, Ordering::Relaxed);
+                    let reply = frame::response_head(
+                        &self.auth,
+                        &exporter,
+                        &header,
+                        &head.tag,
+                        disposition(&error),
+                        &self.options,
+                    )?;
+                    let _ = self.bounded(None, write_head(&mut stream, &reply)).await;
+                    // The body remains unread. Close rather than resynchronizing
+                    // on attacker-chosen bytes or creating an unknown group.
+                    return Err(error);
+                }
+            };
+            let charge = head.payload_len + head.header.len() + frame::PREFIX + frame::TAG;
+            let _node = self
+                .incoming
+                .lane(lane)
+                .acquire(charge)
+                .ok_or(TransportError::Overloaded)?;
+            let _peer = pool
+                .incoming
+                .lane(lane)
+                .acquire(charge)
+                .ok_or(TransportError::Overloaded)?;
+            let mut body = vec![0; head.payload_len];
+            self.bounded(Some(&pool), async {
+                stream.read_exact(&mut body).await?;
+                Ok(())
+            })
+            .await?;
+            let message = header.verify_body(&body, &self.options)?;
+            // Routing/configuration may have changed while reading the body.
+            self.authorize(&header)?;
+            let scope = source.scope.clone();
+            let result = self
+                .bounded(Some(&pool), async {
+                    self.runtime
+                        .step(&scope, message)
+                        .await
+                        .map_err(TransportError::from)
+                })
+                .await;
+            let accepted = result.is_ok();
+            let status = result
+                .as_ref()
+                .err()
+                .map_or(Disposition::Accepted, disposition);
+            let reply = frame::response_head(
+                &self.auth,
+                &exporter,
+                &header,
+                &head.tag,
+                status,
+                &self.options,
+            )?;
+            self.bounded(Some(&pool), write_head(&mut stream, &reply))
+                .await?;
+            if accepted {
+                self.accepted.fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.refused.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    async fn send_loop(
+        self: Arc<Self>,
+        pool: Arc<Pool>,
+        lane: Lane,
+        mut requests: mpsc::Receiver<SendRequest>,
+    ) {
+        let mut stop = self.stop.subscribe();
+        let mut peer_stop = pool.stop.subscribe();
+        let mut connection = None;
+        loop {
+            if *stop.borrow() || *peer_stop.borrow() {
+                return;
+            }
+            let mut request = crate::asyncrt::select! {
+                _ = stop.changed() => return,
+                _ = peer_stop.changed() => return,
+                request = requests.recv() => match request { Some(request) => request, None => return },
+            };
+            let result = self
+                .bounded(Some(&pool), async {
+                    if !self.current(&request) {
+                        return Err(TransportError::StalePeer);
+                    }
+                    if connection.is_none() {
+                        let tcp = TcpStream::connect(pool.peer.address(lane)).await?;
+                        tcp.set_nodelay(true)?;
+                        let name =
+                            rustls::pki_types::ServerName::try_from(pool.peer.server_name.clone())
+                                .map_err(|_| TransportError::Identity)?;
+                        let tls = tokio_rustls::TlsConnector::from(self.tls.client.clone())
+                            .connect(name, tcp)
+                            .await
+                            .map_err(|e| TransportError::Tls(e.to_string()))?;
+                        let exporter = tls
+                            .get_ref()
+                            .1
+                            .export_keying_material([0; 32], frame::EXPORT_LABEL, None)
+                            .map_err(|e| TransportError::Tls(e.to_string()))?;
+                        connection = Some((tls, exporter));
+                    }
+                    let (stream, exporter) = connection.as_mut().ok_or(TransportError::Closed)?;
+                    let head = frame::request_head(
+                        &self.auth,
+                        exporter,
+                        &request.header,
+                        request.body.len(),
+                        &self.options,
+                    )?;
+                    write_head(stream, &head).await?;
+                    stream.write_all(&request.body).await?;
+                    stream.flush().await?;
+                    let response = read_head(stream, &self.options, lane, true).await?;
+                    match response.response(&self.auth, exporter, &request.header, &head.tag)? {
+                        Disposition::Accepted => (),
+                        Disposition::UnknownGroup => return Err(TransportError::UnknownGroup),
+                        Disposition::StalePeer => return Err(TransportError::StalePeer),
+                        Disposition::Overloaded => return Err(TransportError::Overloaded),
+                        Disposition::Refused => return Err(TransportError::Refused),
+                    }
+                    if !self.current(&request) {
+                        return Err(TransportError::StalePeer);
+                    }
+                    Ok(())
+                })
+                .await;
+            if result.is_err() {
+                connection = None;
+                self.failed.fetch_add(1, Ordering::Relaxed);
+                if self.current(&request) {
+                    // These are failure hints only. A timeout never constructs
+                    // MsgAppendResponse or advances a durable/committed index.
+                    let _ = self
+                        .bounded(Some(&pool), async {
+                            self.runtime
+                                .report_unreachable(
+                                    &request.scope,
+                                    request.peer.replica.member.get(),
+                                )
+                                .await?;
+                            if request.snapshot {
+                                self.runtime
+                                    .report_snapshot(
+                                        &request.scope,
+                                        request.peer.replica.member.get(),
+                                        false,
+                                    )
+                                    .await?;
+                            }
+                            Ok(())
+                        })
+                        .await;
+                }
+            }
+            if result.is_ok() && request.snapshot && self.current(&request) {
+                // raft-rs defines Finish as the transport status of the sent
+                // snapshot. Actual installation still needs the receiver's
+                // persisted Raft response; this hint never proves installation.
+                let _ = self
+                    .bounded(Some(&pool), async {
+                        self.runtime
+                            .report_snapshot(
+                                &request.scope,
+                                request.peer.replica.member.get(),
+                                true,
+                            )
+                            .await?;
+                        Ok(())
+                    })
+                    .await;
+            }
+            // Completion observers may immediately admit another frame. Drop
+            // the body and both permits before waking that observer.
+            let reply = request.result.take();
+            drop(request);
+            if let Some(reply) = reply {
+                let _ = reply.send(result);
+            }
+        }
+    }
+}
+
+fn disposition(error: &TransportError) -> Disposition {
+    match error {
+        TransportError::UnknownGroup | TransportError::Runtime(RuntimeError::NotFound) => {
+            Disposition::UnknownGroup
+        }
+        TransportError::StalePeer | TransportError::Identity => Disposition::StalePeer,
+        TransportError::Overloaded | TransportError::Runtime(RuntimeError::Overloaded) => {
+            Disposition::Overloaded
+        }
+        _ => Disposition::Refused,
+    }
+}
+
+// Header memory is bounded by the independently limited connection slots. Body
+// memory is acquired separately only after header authentication/authorization.
+async fn read_head<S: AsyncRead + Unpin>(
+    stream: &mut S,
+    options: &TransportOptions,
+    lane: Lane,
+    response: bool,
+) -> Result<FrameHead, TransportError> {
+    let mut prefix = [0; frame::PREFIX];
+    stream.read_exact(&mut prefix).await?;
+    let (header_len, payload_len) = frame::parse_prefix(&prefix, options, lane, response)?;
+    let mut header = vec![0; header_len];
+    stream.read_exact(&mut header).await?;
+    let mut tag = [0; frame::TAG];
+    stream.read_exact(&mut tag).await?;
+    Ok(FrameHead {
+        prefix,
+        header,
+        tag,
+        payload_len,
+    })
+}
+
+async fn write_head<S: AsyncWrite + Unpin>(
+    stream: &mut S,
+    head: &FrameHead,
+) -> Result<(), TransportError> {
+    stream.write_all(&head.prefix).await?;
+    stream.write_all(&head.header).await?;
+    stream.write_all(&head.tag).await?;
+    stream.flush().await?;
+    Ok(())
+}
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "transport_tests.rs"]
+mod tests;

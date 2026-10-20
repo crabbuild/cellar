@@ -25,4 +25,8 @@ pub mod verification {
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};
     pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};
     pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
+    pub use crate::raft::transport::{
+        Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
+    };
+    pub use crate::raft::transport_options::{RaftTls, TransportOptions};
 }

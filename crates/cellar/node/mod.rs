@@ -73,6 +73,33 @@ mod native;
 use native::Backend;
 pub use native::{CompiledApplications, NativeDaemon};
 
+/// Explicit configuration for the node's shared Raft infrastructure. Cell
+/// registration and namespace routing remain separate application contracts.
+#[doc(hidden)]
+pub struct NodeRaftConfig {
+    pub log: crate::application::consensus::verification::ReplicaLogOptions,
+    pub consensus: crate::application::consensus::verification::RaftRuntimeOptions,
+    pub transport: crate::application::consensus::verification::TransportOptions,
+}
+
+/// Caller-bound peer endpoints with independent control and data capacity.
+#[doc(hidden)]
+pub struct NodeRaftListeners {
+    pub control: tokio::net::TcpListener,
+    pub data: tokio::net::TcpListener,
+}
+
+/// Infrastructure handles owned by the embedded node's execution domain. The
+/// host dispatcher consumes events, routes messages and supplies verified image
+/// completions. Transport admission itself is never a write acknowledgement.
+#[doc(hidden)]
+pub struct NodeRaftService {
+    pub log: crate::application::consensus::verification::ReplicaLog,
+    pub runtime: crate::application::consensus::verification::RaftRuntime,
+    pub events: crate::application::consensus::verification::RuntimeEvents,
+    pub transport: crate::application::consensus::verification::RaftTransport,
+}
+
 /// Let an admitted HTTP request finish, then close the transport even when a
 /// response stream or a client keep-alive does not settle. The semantic drain
 /// continues after this bound, so durability and resident activity still use

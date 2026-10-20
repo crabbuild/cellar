@@ -69,17 +69,27 @@ pub struct RaftRuntime {
 }
 
 struct RuntimeHandle {
+    log: ReplicaLog,
     sender: mpsc::Sender<Request>,
     domain: crate::asyncrt::DomainToken,
     budget: Arc<Budget>,
     options: RaftRuntimeOptions,
     closed: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
+    transport_claimed: AtomicBool,
     terminal: Arc<Mutex<Option<Result<(), RuntimeError>>>>,
 }
 
 pub struct RuntimeEvents {
     receiver: mpsc::Receiver<RuntimeEvent>,
+}
+
+pub(crate) struct TransportClaim(Arc<RuntimeHandle>);
+
+impl Drop for TransportClaim {
+    fn drop(&mut self) {
+        self.0.transport_claimed.store(false, Ordering::Release);
+    }
 }
 
 impl RuntimeEvents {
@@ -93,6 +103,19 @@ impl RuntimeEvents {
 }
 
 impl RaftRuntime {
+    pub(crate) fn claim_transport(&self) -> Result<TransportClaim, RuntimeError> {
+        self.admit()?;
+        self.inner
+            .transport_claimed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| RuntimeError::AlreadyAttached)?;
+        Ok(TransportClaim(self.inner.clone()))
+    }
+
+    pub(crate) fn log(&self) -> &ReplicaLog {
+        &self.inner.log
+    }
+
     pub async fn start(
         log: ReplicaLog,
         options: RaftRuntimeOptions,
@@ -108,12 +131,14 @@ impl RaftRuntime {
         let terminal = Arc::new(Mutex::new(None));
         let handle = Self {
             inner: Arc::new(RuntimeHandle {
+                log: log.clone(),
                 sender,
                 domain: domain.clone(),
                 budget: Budget::new(options.max_request_bytes, options.max_requests),
                 options: options.clone(),
                 closed: closed.clone(),
                 closing: closing.clone(),
+                transport_claimed: AtomicBool::new(false),
                 terminal: terminal.clone(),
             }),
         };
@@ -161,7 +186,7 @@ impl RaftRuntime {
         Ok((handle, RuntimeEvents { receiver }))
     }
 
-    fn admit(&self) -> Result<(), RuntimeError> {
+    pub(crate) fn admit(&self) -> Result<(), RuntimeError> {
         if self.inner.closed.load(Ordering::Acquire)
             || self.inner.closing.load(Ordering::Acquire)
             || self.inner.domain.mono_ms().is_err()

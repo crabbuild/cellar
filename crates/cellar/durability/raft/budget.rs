@@ -12,6 +12,13 @@ pub(crate) struct Budget {
 }
 
 impl Budget {
+    pub(crate) fn usage(&self) -> (usize, usize) {
+        (
+            self.bytes.load(Ordering::Acquire),
+            self.items.load(Ordering::Acquire),
+        )
+    }
+
     pub fn new(max_bytes: usize, max_items: usize) -> Arc<Self> {
         Arc::new(Self {
             wake: tokio::sync::Notify::new(),

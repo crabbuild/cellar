@@ -197,7 +197,8 @@ pub use crate::daemon::NativeDaemon as Host;
 #[cfg(not(cellar_internal_tests))]
 pub use crate::daemon::{
     ExternalNodeServices, IngressBody, IngressHandle, IngressResponse, Node, NodeConfig, NodeFleet,
-    NodeInfo, NodeMaintenancePolicy, NodeServices, NodeStartupPolicy,
+    NodeInfo, NodeMaintenancePolicy, NodeRaftConfig, NodeRaftListeners, NodeRaftService,
+    NodeServices, NodeStartupPolicy,
 };
 pub use crate::event_metrics::{EventBucket, EventCounter, EventHistogram, EventMetricsSnapshot};
 pub use crate::generation::DeploymentGraph;

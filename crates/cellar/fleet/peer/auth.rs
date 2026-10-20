@@ -116,6 +116,27 @@ impl PeerAuth {
         &self.source
     }
 
+    /// Raft's distinct wire domains never reuse Fleet's textual signature input.
+    /// Length framing prevents ambiguous concatenation; callers also bind the
+    /// TLS exporter so a captured frame cannot move to another connection.
+    pub(crate) fn raft_tag(&self, domain: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+        self.raft_mac(domain, parts).finalize().into_bytes().into()
+    }
+
+    pub(crate) fn verify_raft_tag(&self, domain: &[u8], parts: &[&[u8]], tag: &[u8; 32]) -> bool {
+        self.raft_mac(domain, parts).verify_slice(tag).is_ok()
+    }
+
+    fn raft_mac(&self, domain: &[u8], parts: &[&[u8]]) -> Hmac<Sha256> {
+        let mut mac =
+            Hmac::<Sha256>::new_from_slice(&self.key).expect("HMAC-SHA256 accepts a 32-byte key");
+        for part in std::iter::once(domain).chain(parts.iter().copied()) {
+            mac.update(&(part.len() as u64).to_be_bytes());
+            mac.update(part);
+        }
+        mac
+    }
+
     pub fn sign(
         &self,
         request: reqwest::RequestBuilder,

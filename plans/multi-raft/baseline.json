@@ -189,6 +189,10 @@
       "sha256": "a1ba3837b5915663230fcb72faa96526ee1efe203df226cb8e3f01d56415bd02"
     },
     {
+      "path": "crates/cellar/tests/native_node.rs",
+      "sha256": "e4f68b472aebc55d9350cda1e4258757d7d17dfccd65f01db5365813a444ec21"
+    },
+    {
       "path": "docs/03-architecture.md",
       "sha256": "cc8a6be7d56f3286c45b96f83edc082c7c86a7d1c1e183376d9a90f9af250b4a"
     },

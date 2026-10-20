@@ -382,6 +382,7 @@ pub struct NodeInfo {
 /// supervisor keeps joining on the supplied executor. Keep that executor alive.
 pub struct Node {
     domain: Arc<ExecutionDomain>,
+    raft_auth: Arc<PeerAuth>,
     app: AppHandle,
     info: NodeInfo,
     command: mpsc::UnboundedSender<ShutdownMode>,
@@ -528,6 +529,7 @@ impl Node {
         applications: CompiledApplications,
     ) -> anyhow::Result<Self> {
         config.validate(&services)?;
+        let raft_auth = services.peer_auth.clone();
         let (directory, data_dir) = NodeDirectory::acquire(&config.data_dir)?;
         config.data_dir = data_dir;
         let generation_max_age = config.generation_max_age;
@@ -644,6 +646,7 @@ impl Node {
         startup_guard.0 = None;
         Ok(Self {
             domain,
+            raft_auth,
             app,
             info,
             command,
@@ -655,6 +658,59 @@ impl Node {
 
     pub fn info(&self) -> &NodeInfo {
         &self.info
+    }
+
+    /// Start opt-in Raft infrastructure on this node's existing executor and
+    /// injected filesystem. It does not change Fleet routing or register Raft
+    /// cell handlers. The caller owns event dispatch and listener configuration.
+    #[doc(hidden)]
+    pub async fn start_raft_service(
+        &self,
+        config: super::NodeRaftConfig,
+        listeners: super::NodeRaftListeners,
+        tls: crate::application::consensus::verification::RaftTls,
+    ) -> anyhow::Result<super::NodeRaftService> {
+        use crate::application::consensus::verification::{RaftRuntime, RaftTransport, ReplicaLog};
+        anyhow::ensure!(
+            config.log.directory == self.info.data_dir.join("raft"),
+            "Raft log must use this node's raft directory"
+        );
+        self.domain
+            .run(async {
+                let log = ReplicaLog::open(config.log, crate::asyncrt::fs()).await?;
+                let (runtime, events) =
+                    match RaftRuntime::start(log.clone(), config.consensus).await {
+                        Ok(runtime) => runtime,
+                        Err(error) => {
+                            let _ = log.close().await;
+                            return Err(anyhow::Error::new(error));
+                        }
+                    };
+                let transport = match RaftTransport::start(
+                    runtime.clone(),
+                    self.raft_auth.clone(),
+                    tls,
+                    listeners.control,
+                    listeners.data,
+                    config.transport,
+                )
+                .await
+                {
+                    Ok(transport) => transport,
+                    Err(error) => {
+                        let _ = runtime.close().await;
+                        let _ = log.close().await;
+                        return Err(anyhow::Error::new(error));
+                    }
+                };
+                Ok(super::NodeRaftService {
+                    log,
+                    runtime,
+                    events,
+                    transport,
+                })
+            })
+            .await?
     }
 
     pub fn services(&self) -> Arc<HostServices> {

@@ -1116,6 +1116,67 @@ async fn start(
         .with_context(|| format!("start node {name} in {}", directory.display()))
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn embedded_node_joins_raft_service_with_retained_handles() -> Result<()> {
+    use cellar::application::consensus::verification::*;
+    use cellar_logic::consensus::{DiskLineage, NodeId, ProcessGeneration};
+    let directory = tempfile::tempdir()?;
+    let core = Executor::new("raft-embedded-core")?;
+    let node = start(
+        "raft-embedded",
+        "raft-embedded",
+        &directory.path().join("node"),
+        &core,
+        None,
+        None,
+        0,
+    )
+    .await?;
+    let tls = RaftTls::new(
+        vec![include_bytes!("../transport/tcp/fixtures/ca.der")
+            .to_vec()
+            .into()],
+        vec![include_bytes!("../transport/tcp/fixtures/server.der")
+            .to_vec()
+            .into()],
+        rustls::pki_types::PrivatePkcs8KeyDer::from(
+            include_bytes!("../transport/tcp/fixtures/key.der").to_vec(),
+        )
+        .into(),
+    )?;
+    let service = node
+        .start_raft_service(
+            NodeRaftConfig {
+                log: ReplicaLogOptions::new(
+                    node.info().data_dir.join("raft"),
+                    NodeId::new([1; 16])?,
+                    DiskLineage::new([2; 16])?,
+                    ProcessGeneration::new([3; 16])?,
+                    LogOpenMode::Create,
+                ),
+                consensus: RaftRuntimeOptions::default(),
+                transport: TransportOptions::default(),
+            },
+            NodeRaftListeners {
+                control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+                data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+            },
+            tls,
+        )
+        .await?;
+    let control = service.transport.control_address();
+    let data = service.transport.data_address();
+    // The node's existing domain must join the service even while its public
+    // storage/runtime/transport handles remain in the application's possession.
+    node.shutdown(ShutdownMode::Preserve).await?;
+    assert!(matches!(service.log.groups(), Err(LogError::Closed)));
+    tokio::time::timeout(Duration::from_secs(2), service.transport.close()).await?;
+    assert_eq!(service.transport.usage().tasks, 0);
+    let _control = tokio::net::TcpListener::bind(control).await?;
+    let _data = tokio::net::TcpListener::bind(data).await?;
+    Ok(())
+}
+
 fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
         .timeout(Duration::from_secs(15))

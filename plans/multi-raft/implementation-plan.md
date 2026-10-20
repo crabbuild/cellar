@@ -169,9 +169,9 @@ shown by `plan.py show MR-03`; the manifest is authoritative for arguments.
 
 Dependencies: MR-03. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/fleet/peer/auth.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/node/mod.rs`.
+Modify: `crates/cellar/fleet/peer/auth.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/node/mod.rs`, `crates/cellar/sdk.rs`, `crates/cellar/tests/native_node.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar/durability/raft/budget.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/README.md`.
 
-Create: `crates/cellar/durability/raft/transport.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/tests/native_raft_transport.rs`.
+Create: `crates/cellar/durability/raft/transport.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/durability/raft/transport_options.rs`, `crates/cellar/durability/raft/transport_frame_tests.rs`, `crates/cellar/durability/raft/transport_tests.rs`, `crates/cellar/tests/support/raft_network.rs`, `crates/cellar/tests/native_raft_transport.rs`.
 
 1. Define separate Raft peer routes/frames with source/target process, group/incarnation, protocol digest and bounded lengths.
 2. Authenticate responses as well as requests, use protected transport and verify membership before dispatch.
