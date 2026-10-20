@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::watch,
     task::{JoinHandle, JoinSet},
@@ -22,6 +23,7 @@ use tokio::{
 struct Fault {
     blocked: bool,
     stopped: bool,
+    hold_response: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -36,7 +38,51 @@ struct Proxy {
     state: watch::Sender<Fault>,
     active: Arc<AtomicUsize>,
     attempts: Arc<AtomicUsize>,
+    held_response_bytes: Arc<AtomicUsize>,
     task: Option<JoinHandle<Result<()>>>,
+}
+
+// This shared fixture is also compiled by targets which only cut connections.
+#[allow(dead_code)]
+pub struct HeldResponses(watch::Sender<Fault>);
+
+impl Drop for HeldResponses {
+    fn drop(&mut self) {
+        self.0.send_modify(|fault| fault.hold_response = false);
+    }
+}
+
+async fn connection_cut(mut faults: watch::Receiver<Fault>) {
+    loop {
+        let fault = *faults.borrow_and_update();
+        if fault.blocked || fault.stopped || faults.changed().await.is_err() {
+            return;
+        }
+    }
+}
+
+async fn forward_responses(
+    mut reader: impl AsyncRead + Unpin,
+    mut writer: impl AsyncWrite + Unpin,
+    mut faults: watch::Receiver<Fault>,
+    held: Arc<AtomicUsize>,
+) -> std::io::Result<()> {
+    let mut buffer = [0; 16 * 1024];
+    loop {
+        let count = reader.read(&mut buffer).await?;
+        if count == 0 {
+            return Ok(());
+        }
+        if faults.borrow().hold_response {
+            held.fetch_add(count, Ordering::SeqCst);
+        }
+        while faults.borrow_and_update().hold_response {
+            if faults.changed().await.is_err() {
+                return Ok(());
+            }
+        }
+        writer.write_all(&buffer[..count]).await?;
+    }
 }
 
 struct Active(Arc<AtomicUsize>);
@@ -54,6 +100,8 @@ impl Proxy {
         let (state, mut changes) = watch::channel(Fault::default());
         let active = Arc::new(AtomicUsize::new(0));
         let attempts = Arc::new(AtomicUsize::new(0));
+        let held_response_bytes = Arc::new(AtomicUsize::new(0));
+        let held = held_response_bytes.clone();
         let counted = active.clone();
         let attempted = attempts.clone();
         let task = tokio::spawn(async move {
@@ -68,20 +116,27 @@ impl Proxy {
                         let (mut source, _) = accepted?;
                         attempted.fetch_add(1, Ordering::SeqCst);
                         if changes.borrow().blocked { continue; }
-                        let mut cut = changes.clone();
+                        let cut = changes.clone();
+                        let held = held.clone();
                         let active = counted.clone(); active.fetch_add(1, Ordering::SeqCst);
                         let guard = Active(active);
                         connections.spawn(async move {
                             let _guard = guard;
-                            let fault = *cut.borrow_and_update();
+                            let fault = *cut.borrow();
                             if fault.blocked || fault.stopped { return; }
-                            // Dropping both sockets on any fault transition cuts
-                            // established keep-alives as well as future connects.
+                            // A cut drops both sockets. A response hold instead
+                            // retains one bounded ciphertext chunk until release
+                            // or either connection direction closes.
                             cellar::asyncrt::select_biased! { "test fault transitions close sockets before more bytes are forwarded";
-                                _ = cut.changed() => (),
+                                _ = connection_cut(cut.clone()) => (),
                                 _ = async {
-                                    if let Ok(mut target) = TcpStream::connect(destination).await {
-                                        let _ = tokio::io::copy_bidirectional(&mut source, &mut target).await;
+                                    if let Ok(target) = TcpStream::connect(destination).await {
+                                        let (mut from_source, to_source) = source.split();
+                                        let (from_target, mut to_target) = target.into_split();
+                                        cellar::asyncrt::select! {
+                                            _ = tokio::io::copy(&mut from_source, &mut to_target) => (),
+                                            _ = forward_responses(from_target, to_source, cut, held) => (),
+                                        }
                                     }
                                 } => (),
                             }
@@ -102,6 +157,7 @@ impl Proxy {
             state,
             active,
             attempts,
+            held_response_bytes,
             task: Some(task),
         })
     }
@@ -309,6 +365,28 @@ impl Cluster {
             .iter()
             .filter(|(source, _, lane, _)| *source == node && *lane == Link::Data)
             .map(|(_, _, _, proxy)| proxy.attempts.load(Ordering::SeqCst))
+            .sum()
+    }
+
+    // Other targets using the shared cluster fixture do not delay replies.
+    #[allow(dead_code)]
+    pub fn hold_query_responses(&self, source: usize, target: usize) -> Result<HeldResponses> {
+        let proxy = self
+            .links
+            .iter()
+            .find(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Query)
+            .map(|(_, _, _, proxy)| proxy)
+            .ok_or_else(|| anyhow::anyhow!("query link not found"))?;
+        proxy.state.send_modify(|fault| fault.hold_response = true);
+        Ok(HeldResponses(proxy.state.clone()))
+    }
+
+    #[allow(dead_code)]
+    pub fn held_query_response_bytes(&self, source: usize, target: usize) -> usize {
+        self.links
+            .iter()
+            .filter(|(s, t, lane, _)| *s == source && *t == target && *lane == Link::Query)
+            .map(|(_, _, _, proxy)| proxy.held_response_bytes.load(Ordering::SeqCst))
             .sum()
     }
 

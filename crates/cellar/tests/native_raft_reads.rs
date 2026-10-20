@@ -357,6 +357,195 @@ async fn remote_query_wait_cannot_block_its_ltx_catchup() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
+    use std::sync::atomic::AtomicUsize;
+    let (gate, mut entered) = public_node::Gate::new();
+    let release = public_node::Release(gate.clone());
+    let unexpected = Arc::new(AtomicUsize::new(0));
+    let executed = unexpected.clone();
+    let fixture = Fixture::start(Arc::new(move |context, input| {
+        if input == b"queued" {
+            executed.fetch_add(1, Ordering::SeqCst);
+        }
+        if input == b"hold" {
+            gate.wait()?;
+        }
+        get(context, input)
+    }))
+    .await?;
+    let primary = leader(&fixture.handles, None).await?;
+    let source = (primary + 1) % 3;
+    let target = (primary + 2) % 3;
+    let options = |timeout| QueryOptions {
+        timeout,
+        routing: QueryRouting::Replicas {
+            members: vec![MemberId::new(target as u64 + 1).unwrap()],
+            attempt_timeout: timeout,
+            leader_fallback: false,
+        },
+        ..at_least(&fixture.initial)
+    };
+    // Hold the real peer connection in its destination callback. Later calls
+    // must consume finite peer bytes while queued behind this invocation.
+    let first = fixture.handles[source].query(
+        fixture.definition.get.clone(),
+        b"hold".to_vec(),
+        options(Duration::from_secs(5)),
+    );
+    tokio::time::timeout(Duration::from_secs(2), entered.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("remote callback did not enter"))?;
+    let queued: Vec<_> = (0..64)
+        .map(|_| {
+            fixture.handles[source].query(
+                fixture.definition.get.clone(),
+                b"queued".to_vec(),
+                options(Duration::from_secs(1)),
+            )
+        })
+        .collect();
+    let mut overloaded = 0;
+    let mut expired = 0;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        for response in queued {
+            match response.await {
+                Err(CommandFailure::Overloaded) => overloaded += 1,
+                Err(CommandFailure::VersionUnavailable) => expired += 1,
+                result => anyhow::bail!("unexpected queued response: {result:?}"),
+            }
+        }
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
+    assert!(overloaded > 0, "peer saturation was not observed");
+    assert!(
+        expired > 0,
+        "no admitted request expired behind the held RPC"
+    );
+    assert_eq!(unexpected.load(Ordering::SeqCst), 0);
+    // Consensus and LTX use separate connections/capacity. They must publish a
+    // new command while the first query and expired peer queue are still held.
+    let newer = fixture.write(primary, 2, 4).await?;
+    assert_eq!(newer.result, 5_i64.to_be_bytes());
+    release.0.release();
+    let first = first.await?;
+    assert_eq!(first.result, 1_i64.to_be_bytes());
+    assert_eq!(first.served_by, MemberId::new(target as u64 + 1)?);
+    assert!(first.version.position.index < newer.version.position.index);
+    let mut fresh = options(Duration::from_secs(2));
+    fresh.consistency = QueryConsistency::AtLeast(newer.version_token.clone());
+    let read = fixture.handles[source]
+        .query(fixture.definition.get.clone(), vec![], fresh)
+        .await?;
+    assert_eq!(read.result, 5_i64.to_be_bytes());
+    assert!(read.version.covers(&newer.version)?);
+    assert_eq!(
+        unexpected.load(Ordering::SeqCst),
+        0,
+        "expired queued request executed after the peer resumed"
+    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while fixture
+            .cluster
+            .nodes
+            .iter()
+            .any(|node| node.services().application_work().pending_events != 0)
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn delayed_tcp_query_reply_cannot_settle_a_later_read() -> Result<()> {
+    let (gate, mut entered) = public_node::Gate::new();
+    let release = public_node::Release(gate.clone());
+    let fixture = Fixture::start(Arc::new(move |context, input| {
+        if input == b"hold" {
+            gate.wait()?;
+        }
+        get(context, input)
+    }))
+    .await?;
+    let primary = leader(&fixture.handles, None).await?;
+    let source = (primary + 1) % 3;
+    let target = (primary + 2) % 3;
+    let options = QueryOptions {
+        timeout: Duration::from_secs(1),
+        routing: QueryRouting::Replicas {
+            members: vec![MemberId::new(target as u64 + 1)?],
+            attempt_timeout: Duration::from_secs(1),
+            leader_fallback: false,
+        },
+        ..at_least(&fixture.initial)
+    };
+    // Warm the pooled TLS connection before holding server-to-client bytes,
+    // so this history delays a query response rather than its handshake.
+    let warm = fixture.handles[source]
+        .query(fixture.definition.get.clone(), vec![], options.clone())
+        .await?;
+    assert_eq!(warm.served_by, MemberId::new(target as u64 + 1)?);
+    let delayed = fixture.handles[source].query(
+        fixture.definition.get.clone(),
+        b"hold".to_vec(),
+        options.clone(),
+    );
+    tokio::time::timeout(Duration::from_secs(2), entered.recv())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("remote query missing"))?;
+    let held = fixture.cluster.hold_query_responses(source, target)?;
+    release.0.release();
+    tokio::time::timeout(Duration::from_millis(750), async {
+        while fixture.cluster.held_query_response_bytes(source, target) == 0
+            || fixture.cluster.nodes[target]
+                .services()
+                .application_work()
+                .pending_events
+                != 0
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    let newer = fixture.write(primary, 2, 4).await?;
+    assert_eq!(newer.result, 5_i64.to_be_bytes());
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), delayed).await?,
+        Err(CommandFailure::VersionUnavailable)
+    ));
+    // Dropping the timed-out connection discards its delayed ciphertext. A
+    // later attempt must perform its own exchange and cover the newer token.
+    drop(held);
+    let read = fixture.handles[source]
+        .query(
+            fixture.definition.get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(newer.version_token.clone()),
+                ..options
+            },
+        )
+        .await?;
+    assert_eq!(read.result, 5_i64.to_be_bytes());
+    assert_eq!(read.served_by, MemberId::new(target as u64 + 1)?);
+    assert!(read.version.covers(&newer.version)?);
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while fixture
+            .cluster
+            .nodes
+            .iter()
+            .any(|node| node.services().application_work().pending_events != 0)
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn voter_without_query_code_can_route_to_a_compatible_replica() -> Result<()> {
     let definitions = vec![
         counter_query(None)?,
