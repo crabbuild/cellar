@@ -149,6 +149,9 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                 entry = invocations.get(invocation)
                 if entry:
                     entry[1]._reply(operation, result)
+                # A cancelled task can retain its cell through its traceback.
+                # An idle pump may receive no later reply to overwrite entry.
+                del entry, result
             while (start := inbox.take()) is not None:
                 invocation, payload, bridge = start
                 context = Context(bridge, json.loads(payload)["identity"])
@@ -160,9 +163,11 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                     finally:
                         context._close()
                         _current_invocation.reset(token)
+                    del context, bridge, payload
                     continue
                 task = asyncio.create_task(_invoke(module, objects, json.loads(payload), bridge, context, stats, maximum))
                 invocations[invocation] = (task, context, bridge)
+                del task, context, bridge, payload
             for invocation, (task, context, bridge) in tuple(invocations.items()):
                 if not bridge.active() and not task.done():
                     task.cancel()
@@ -173,6 +178,9 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, t
                         if error:
                             raise error
                     invocations.pop(invocation)
+                # Registry removal must also release this iteration's strong
+                # references; an empty next iteration cannot overwrite them.
+                del task, context, bridge
             retiring = [key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
             if retiring:
                 # Publish before destructors can block. Rust can observe a stale

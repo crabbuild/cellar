@@ -213,7 +213,8 @@ impl PythonApplication {
         let active = Arc::new(AtomicBool::new(true));
         let _lifetime = Lifetime(active.clone());
         let (sender, mut receive) = runtime::channel();
-        let invocation = self.runtime.id();
+        let (cancelled, mut cancellation) = tokio::sync::watch::channel(false);
+        let invocation = self.runtime.id()?;
         let payload = serde_json::to_string(
             &json!({"kind":kind,"event":payload,"object":object,"class":class,"identity":identity}),
         )?;
@@ -228,6 +229,10 @@ impl PythonApplication {
             bridge: InvocationBridge {
                 sender,
                 active: active.clone(),
+                // Keep a sender here so ordinary bridge collection cannot
+                // close the cancellation channel ahead of queued completion.
+                cancelled: cancelled.clone(),
+                completion_enqueued: AtomicBool::new(false),
                 owner,
                 operations: AtomicUsize::new(0),
                 mutation: Arc::new(AtomicBool::new(false)),
@@ -246,6 +251,7 @@ impl PythonApplication {
             // authority. Poll the mailbox while a nested SDK call awaits I/O.
             let event = cellar::asyncrt::select_biased! { "runtime shutdown revokes authority before queued operations";
                 _ = stopped.changed() => anyhow::bail!("Python runtime stopped"),
+                _ = cancellation.changed() => anyhow::bail!("Python invocation cancelled"),
                 result = pending.next(), if !pending.is_empty() => {
                     let (id, encoded, observation) = result.expect("nonempty native operation set");
                     self.runtime.reply(invocation, id, encoded?, observation)?;
@@ -433,7 +439,7 @@ impl Application for PythonApplication {
                 runtime: self.runtime.clone(),
                 source: self.source.clone(),
             }),
-            object: self.runtime.id(),
+            object: self.runtime.id()?,
             class: identity.class.clone(),
             life: Arc::new(AtomicBool::new(true)),
         }))

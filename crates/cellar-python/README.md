@@ -61,6 +61,10 @@ preserved where available; the adapter never infers rollback by parsing backend
 error text. Backend messages are replaced with fixed codes before returning to
 Python. Import `ValidationError`, `Overloaded`, `Ambiguous` and `OwnershipLost`
 to catch those errors by class. Cancellation remains `asyncio.CancelledError`.
+A handler that cancels itself immediately wakes its native driver, even when
+application code retains the expired context. Cancellation does not roll back
+an acknowledged write. Retired activation objects are released while the loop
+is idle, as well as during later requests.
 
 ## Python API
 

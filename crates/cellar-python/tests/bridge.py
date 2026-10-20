@@ -123,6 +123,10 @@ async def fetch(request, ctx):
         return Response.json(True)
     if request.path == "/fence-result":
         return Response.json(fence_result)
+    if request.path == "/instance-count":
+        import gc
+        gc.collect()
+        return Response.json(len(instances))
     if request.path == "/native-snapshot-ready":
         return Response.json(native_snapshot_ready.is_set())
     if request.path == "/native-snapshot-release":

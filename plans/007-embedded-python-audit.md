@@ -33,14 +33,14 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | A07 | Owned values only across thread/await boundary | Source review and lifecycle tests; no borrowed Python/SQLite guards | verified locally: owned strings, JSON, revocation flags, reservations and supported owned Py handles cross the bridge; native operations retain no Python token/borrow or SQLite guard across awaits; current lifecycle suite passes |
 | A08 | Native authority checked at enqueue, execution, commit/output | Pending-operation cancellation and forced-fence tests | partial: native SDK checks retained; actual lease-fence/resumed-Python refusal is verified in L10; full queued/execution/commit race matrix remains |
 | A09 | Two embedded domains cannot exchange live contexts | Simultaneously live contexts in two nodes: cross-use refused | verified: reproduced live cross-domain read, then blocked API and native sender in `bridge` |
-| A10 | Opaque invocation identity; metadata cannot choose authority | Cross-event/domain/generation/activation negative tests | partial: each native sender is tied to its driver |
+| A10 | Opaque invocation identity; metadata cannot choose authority | Cross-event/domain/generation/activation negative tests | verified locally in both threading ABIs: simultaneous live same-name domains refuse cross-use through both facade and native sender even with copied identity metadata; retained event, generation and retired-activation contexts refuse mutations; native authority remains the original Rust Context |
 | A11 | FIFO operations, one outstanding mutation per invocation | Concurrent mutation/read/cancel tests; explicit state machine | verified: native admission reservation rejects overlap; same-invocation read progresses during nested mutation; reservations release on drop |
 | A12 | Mailbox pollable during nested calls; existing cycle behavior | Nested-call progress, cycle and cancellation tests | partial: driver now polls pending SDK futures and mailbox together; direct same-invocation progress proven; explicit cycle/fence matrix remains |
 | A13 | Descriptor declares supported classes/events before admission | Cold validation and invalid registration tests | verified: cold descriptor async/constructor checks plus deployment hook rejecting absent classes, undeclared queue consumers and cron handlers before activation |
 | A14 | Native factories never call/import Python | Source/caller audit plus blocked-interpreter factory test | verified locally: proxy creation uses only immutable Rust source descriptors, atomics and owned lifetime flags; in both CPU-loop and GIL-held C-call owner drills, a Rust root submits a new real cell activation and the native factory counter advances while Python remains blocked and its handler cannot complete |
-| A15 | Activation identity includes domain, generation and epoch | Retire/recreate and simultaneous same-name/domain tests | partial: unique proxy IDs and original Context |
+| A15 | Activation identity includes domain, generation and epoch | Retire/recreate and simultaneous same-name/domain tests | verified locally in both threading ABIs: distinct simultaneous same-name domains, actual pressure/operator eviction with fresh instances and exact next epochs, same-epoch native generation swap with a fresh instance, state recovery and forced-fence successor collection; exhausted IDs refuse without wrapping and concurrent allocations remain unique |
 | A16 | No interpreter-per-cell or hot Python replacement | Process-wide guard and attempted reload tests | verified locally and on Linux at 21f6b30: cell proxies share the process runtime, a second runtime is refused, live selector replacement is refused in process, and changed Python source executes only in the distinct replacement executable/process; trusted application mutation of Python globals is outside generation isolation |
-| A17 | Support conventional and free-threaded CPython 3.14 ABIs without borrowed authority or implicit GIL dependency | Both ABI builds, actual GIL-off workers, concurrent hooks, mixed-ABI refusal and installed-package recovery | verified for macOS ARM64 and Linux x86_64: both local adapter suites pass; foreign-loop authority refusal, exact concurrent hook counts, mixed-layout/ABI refusal and archive restoration pass; both ac521f3 Linux free-threaded jobs completed successfully with CPython 3.14.8t adapter/native suites and installed 3.14.5t GIL-off libraries, archive recovery, changed-source TERM/INT handoff, forced-KILL supervisor/restart, receipts/new writes and complete drain; final cron/baseline source still requires Q12 |
+| A17 | Support conventional and free-threaded CPython 3.14 ABIs without borrowed authority or implicit GIL dependency | Both ABI builds, actual GIL-off workers, concurrent hooks, mixed-ABI refusal and installed-package recovery | verified for macOS ARM64 and Linux x86_64: both local adapter suites pass; foreign-loop authority refusal, exact concurrent hook counts, mixed-layout/ABI refusal and archive restoration pass; both ac521f3 Linux free-threaded jobs completed successfully with CPython 3.14.8t adapter/native suites and installed 3.14.5t GIL-off libraries, archive recovery, changed-source TERM/INT handoff, forced-KILL supervisor/restart, receipts/new writes and complete drain; final lifecycle/cancellation source still requires Q12 |
 
 ## HTTP, codecs and failures (M1)
 
@@ -73,12 +73,12 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
-| L01 | Root cancellation revokes SDK admission immediately | Queued/late writes refused before execution and after fence | partial: expiry/abandoned-operation tests |
-| L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | partial: Rust retirement only revokes owned flags; the loop polls registry retirement independently of SDK admission, publishes object/retirement gauges before destructor cleanup and reports incomplete blocking cleanup; complete retirement/closure race coverage remains |
-| L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | partial: weak-reference probe observes actual cell object collection after managed shutdown; independent eviction/redeploy cases remain |
+| L01 | Root cancellation revokes SDK admission immediately | Queued/late writes refused before execution and after fence | verified locally for managed cancellation in both threading ABIs: handler return/abandoned work, native timeout and lease fence expire SDK authority; self-cancelled root/cell handlers wake the original native driver despite retained senders and refuse late mutations, including after a committed write; full execution/commit race coverage remains A08 |
+| L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | verified locally for runtime-owned cleanup in both threading ABIs: atomic-only Rust retirement, actual weak collection during otherwise idle Python after native drain, and two resident nodes joining after process-global admission closure; cleanup remains independent of SDK admission, and blocked destructors/noncooperative work retain incomplete reports |
+| L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | verified locally in both threading ABIs: actual weak references clear after resident pressure eviction, signed management eviction, native generation swap, idle forced drain, global admission closure and fence-task completion before successor invocation; a cancellation-suppressing task correctly keeps its object alive until it exits |
 | L04 | Close async generators and managed executor work | Async-generator finally + thread/executor join tests | verified for managed loop: async-generator finally observed; default-executor work joined; raw/native private pools remain application-owned |
 | L05 | Combined report includes native report and all bridge/task/cleanup/budget work | Serialized combined report, incomplete cases, queued/running counts | verified locally for runtime-owned work and explicitly recorded native nodes: combined outcomes and host failure source, task/invocation/object/retirement gauges, bridge reservations and admitted/terminal operation conservation; live pending SDK work, all native-future/reply drop stages and incomplete lifecycle cases are directly tested; private application/library pools remain application-owned |
-| L06 | Correct shutdown phases with both runtimes alive | Ingress closure/drain/cancel/object cleanup and final-join assertions | partial: basic clean stop and errors |
+| L06 | Correct shutdown phases with both runtimes alive | Ingress closure/drain/cancel/object cleanup and final-join assertions | verified locally in both threading ABIs: ingress refusal before final native join, honest pending/timed-out native drain, cancellation and late-call refusal with both runtimes alive, idle object collection, exact state recovery and subsequent clean stops; global interpreter failure joins both native nodes and retains its failed combined report |
 | L07 | Noncooperative code cannot fabricate complete drain | Disposable asyncio-stubborn, CPU-loop and blocked-C-extension hosts | verified: stubborn asyncio reports incomplete; disposable infinite-Python and GIL-held native-call owners require external termination and cannot produce clean-drain reports |
 | L08 | External watchdog supports hard termination/restart | Bounded child-host watchdog drill and recovered acknowledged state | verified locally on Unix/macOS ARM64: shipped `cellar supervise` has bounded startup/probe/stop/reap policy, instance-correlated Python health, a global restart cap and a systemd template; six direct process tests pass, and the full installed CPython 3.14.5 archive-restore, changed-source TERM/INT handoff and forced-KILL/joined-restart/exact-receipt/new-write/complete-replacement-drain run passes; Linux execution of the new supervisor remains Q12 |
 | L09 | Unclean owner death/takeover retains acknowledged state | Kill owner, remove local disk, recover from fleet, new write | verified in local development fleet: acknowledged write, hard owner death, complete owner disk deletion, bucket recovery and new write; independent quorum proof faults are recorded in S05 |
@@ -115,21 +115,21 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | verified locally: actual two-domain DDL/DML/queries refuse retained-handle writes; independent before-submit/in-flight cancellation, failed native proof, unknown failure without replay, explicit primary-key receipt reconciliation, 1-admitted/31-refused overlap pressure and restart retain singular effects with complete reports and zero managed work |
 | Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | verified locally: real consumer matrix covers default/explicit ack, handler errors after ack, first conflicting decision, same-ID retry/exhaustion, timeout/cancel expiry and retained-handle authority; independent producer before-submit/in-flight cancellation, held/failed proof, unknown-result reconciliation and overlap pressure run through the real broker; SQL business receipts remain singular and the empty broker/effects persist across restart with complete reports; this drill reproduced and now passes the native running-alarm reset regression |
 | Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | verified locally on standard and free-threaded CPython: real native alarm/history matrix proves same-occurrence retry, explicit no_retry after error, refusal of live-cross/expired controllers, idempotent SQL effects and exact history/alarm persistence over restart; independent timeout and killed-owner/local-disk deletion tests preserve the original occurrence and interrupted history, reject late SQL/no_retry, recover one SQL effect across two attempts and completely join the replacement; current-source Linux qualification remains Q12 |
-| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both ac521f3 free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final cron/baseline source remains Q12 and other platforms/library versions remain unqualified |
+| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both ac521f3 free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: full Linux push workflow 39446982367 passed at dd0df44; both ac521f3 free-threaded jobs completed successfully, including 87/87 native-node tests and all package/example gates; standard push job 118769035097 failed six native-node cases (81/87 pass: three clock-refusal recovery cases, lost-ack proof boundary, retirement operator and progressing drain-token lease); one clock-refusal case and the 74-second drain-token case pass locally unchanged, without explaining/fixing the Linux failures; standard PR job 118769072245 lost runner communication and has no available test log; final cron/baseline source needs fresh complete Linux execution |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: current macOS regular/free-threaded adapter suites, strict adapter/native test-target Clippy, exact clock-refusal recovery, format/layout/dependency/docs guards pass; at c15fdaa, standard Linux push job 118804218808 and free-threaded PR job 118804285570 each passed every gate, including native 87/87, cron, baseline harness, installed libraries/archive/rolling/supervisor and native examples; c15fdaa free-threaded push failed two native-node cases (clock-refusal initial consumer observation and progressing drain-token lease); earlier failures remain preserved below; final lifecycle/cancellation changes still require fresh Linux execution |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
 ## Current work
 
 1. Finish the remaining queued,
-   execution, commit/output and retirement race matrices. Independent KV,
+   execution and commit/output race matrices. Independent KV,
    shared-SQL and queue matrices now pass locally, including real proof faults.
 2. Verify external native-library/OS prerequisites and complete the platform
    matrix. Two genuinely different source packages now pass process handoff locally.
-3. Complete remaining typed-error/cleanup race qualification. Reproducible
+3. Complete typed-error, loader-privacy and resource-boundary qualification. Reproducible
    [Rust/Python measurements](007-embedded-python-baselines.md), operation
    accounting, latency histograms and live interpreter observations now have
    direct local evidence.
@@ -146,8 +146,11 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
    The standard PR job separately lost hosted
    runner communication; GitHub provides a failure annotation rather than a
    test log, retained at `/tmp/cellar-6a8d-ci-39463568235-standard-annotation.json`.
-   Investigate the native assertions and qualify final cron/baseline source
-   before claiming Q12.
+   At c15fdaa, the standard push job and free-threaded PR job both completed
+   every gate, including cron and baseline additions. The free-threaded push
+   job failed its initial clock-refusal consumer observation and progressing
+   drain-token lease. Investigate those native failures and qualify the final
+   lifecycle/cancellation source before claiming Q12.
    Reconcile every remaining partial/missing row and executable documentation.
 
 No scope reduction or production-readiness claim is implied by this ordering.
@@ -1061,3 +1064,61 @@ that native alarm claims use real UTC; its retry deadline was outside the
 shifted clock's observation window. The final fixture uses real UTC without
 changing the production deadline/backoff policy or weakening occurrence,
 history, authority or receipt assertions.
+
+## Invocation cancellation and activation retirement (2026-10-20)
+
+The independent `--runtime-lifetimes`, `--runtime-lifetimes-close` and
+`--runtime-lifetimes-cancel` bridge subprocesses exercise real native nodes.
+Two reproduced production defects are corrected:
+
+- The idle pump retained its last reply registry entry and task iteration
+  references. A cancelled task's traceback consequently retained a retired
+  cell even after native ownership ended and explicit collection ran. The
+  pump now releases those references. The regression observes weak references
+  directly from the caller-owned Rust supervisor, without another Python
+  handler that could overwrite the stale local and hide the leak.
+- A self-cancelled Python handler closed its context but left the native
+  driver asleep when an application or resident cell retained the bridge's
+  sender. The root cancellation regression timed out against the original
+  15-second native handler budget. A separate watch signal now wakes that
+  driver immediately, independently of bounded mailbox capacity. Successfully
+  enqueued completions retain their ordered mailbox path; ordinary bridge
+  collection cannot close the driver's cancellation channel prematurely.
+
+The lifecycle fixture forces resident pressure eviction and signed management
+eviction, then checks actual collection, fresh instance identity, the next
+ownership epoch and recovered acknowledged state. A native generation swap
+preserves its existing handle/epoch while receiving a fresh Python object.
+Independent simultaneously live fleets use the same application, scope and
+cell name; copying identity metadata cannot transfer their live SDK handles or
+native senders. Retained contexts are also refused after event completion,
+generation replacement, forced native drain and process-global admission
+closure. Identity allocation now refuses exhaustion instead of wrapping;
+concurrent factory/invocation reservations are distinct.
+
+During native shutdown, ingress closes before the final join. A held handler
+produces the real incomplete native drain report, receives cancellation and
+cannot submit late storage or namespace work. With both runtimes still alive,
+its weak reference clears while Python is otherwise idle. Reopening the fleet
+recovers the exact acknowledged value and permits new work. A separate global
+raw-thread failure closes admission with two resident cells and an outstanding
+handler; both native nodes join, actual objects collect and the combined report
+preserves the runtime failure. The lease-fence fixture separately proves that
+a task suppressing cancellation keeps its object alive until it exits, then
+collects that object before the successor cell is invoked.
+
+Self-cancellation is tested in a root handler, a cell handler and after an
+acknowledged cell write. All finish before the unchanged native deadline,
+refuse retained-context mutations and retain that write; cancellation does not
+establish rollback. All fixtures check managed cleanup and settled operation
+accounting. Unknown runtime test modes are now refused rather than silently
+running the generic supervisor-failure fixture.
+
+The complete standard CPython 3.14.6 and free-threaded 3.14.5t adapter suites
+and strict adapter Clippy pass. The negative misspelled-fixture check also
+refuses the unknown mode with a failing exit status.
+Formatting/layout (613 Rust files), native dependency and documentation guards
+pass. Native clock-refusal diagnostics now identify the initial response and
+specific capture/release/cancellation stage without changing an assertion,
+deadline or retry policy; the exact affected recovery test and strict native
+test-target Clippy pass locally. Linux evidence for these changes remains Q12.

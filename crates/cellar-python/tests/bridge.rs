@@ -22,6 +22,8 @@ mod fencing;
 #[path = "../../cellar/tests/support/html.rs"]
 #[allow(dead_code)]
 mod fixture;
+#[path = "support/lifetimes.rs"]
+mod lifetimes;
 #[path = "support/limits.rs"]
 mod limits;
 #[path = "support/native_writer.rs"]
@@ -205,6 +207,15 @@ async fn stop_mode(node: Node, mode: ShutdownMode, monitor: &cellar_python::Stop
 
 fn main() -> Result<()> {
     let mode = std::env::args().nth(1).unwrap_or_default();
+    if mode == "--runtime-lifetimes" {
+        return lifetimes::child();
+    }
+    if mode == "--runtime-lifetimes-close" {
+        return lifetimes::closing_child();
+    }
+    if mode == "--runtime-lifetimes-cancel" {
+        return lifetimes::cancelling_child();
+    }
     if mode == "--runtime-schedule-recovery" {
         return schedule_recovery::qualify();
     }
@@ -342,6 +353,13 @@ fn main() -> Result<()> {
         return Ok(());
     }
     if mode.starts_with("--runtime-") {
+        ensure!(
+            matches!(
+                mode.as_str(),
+                "--runtime-dependency" | "--runtime-failure" | "--runtime-panic"
+            ),
+            "unknown runtime test mode: {mode}"
+        );
         let mut source = Source::new("x=1", "lifecycle.py");
         if mode == "--runtime-dependency" {
             source = source.require_distribution("cellar-missing-test-package", "0");
@@ -391,6 +409,9 @@ fn main() -> Result<()> {
         "--runtime-schedule-recovery",
         "--runtime-binding-faults",
         "--runtime-limits",
+        "--runtime-lifetimes",
+        "--runtime-lifetimes-close",
+        "--runtime-lifetimes-cancel",
     ] {
         lifecycle_mode(mode)?;
     }
@@ -762,6 +783,9 @@ fn lifecycle_mode(mode: &str) -> Result<()> {
                 | "--runtime-bindings"
                 | "--runtime-delivery"
                 | "--runtime-schedules"
+                | "--runtime-lifetimes"
+                | "--runtime-lifetimes-close"
+                | "--runtime-lifetimes-cancel"
         ) {
             60
         } else {

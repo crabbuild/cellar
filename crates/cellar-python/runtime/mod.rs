@@ -21,6 +21,7 @@ use tokio::sync::{mpsc as async_mpsc, watch, Semaphore};
 
 mod bridge;
 mod budget;
+mod identity;
 pub use budget::BridgeReport;
 pub(crate) use budget::{Budget, Reservation};
 mod environment;
@@ -240,8 +241,8 @@ pub(crate) struct Runtime {
 }
 
 impl Runtime {
-    pub fn id(&self) -> u64 {
-        self.next.fetch_add(1, Ordering::Relaxed)
+    pub fn id(&self) -> Result<u64> {
+        identity::reserve(&self.next)
     }
 
     pub fn start(&self, start: Start) -> Result<()> {

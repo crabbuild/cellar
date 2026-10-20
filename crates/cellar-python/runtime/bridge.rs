@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     Arc,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 pub(crate) type Life = Arc<AtomicBool>;
 
@@ -45,6 +45,8 @@ pub(crate) struct Start {
 pub(crate) struct InvocationBridge {
     pub sender: mpsc::Sender<Event>,
     pub active: Life,
+    pub cancelled: watch::Sender<bool>,
+    pub completion_enqueued: AtomicBool,
     pub owner: Life,
     pub operations: AtomicUsize,
     pub mutation: Arc<AtomicBool>,
@@ -64,7 +66,7 @@ impl InvocationBridge {
     }
 
     fn __clear__(&mut self) {
-        self.active.store(false, Ordering::Release);
+        self.expire();
         self.event_loop = None;
     }
 
@@ -74,6 +76,12 @@ impl InvocationBridge {
 
     fn expire(&self) {
         self.active.store(false, Ordering::Release);
+        // Completion remains in the ordered mailbox. Cancellation needs a
+        // separate wakeup: application code can retain this sender after the
+        // task ends, and a full mailbox must not delay revocation.
+        if !self.completion_enqueued.load(Ordering::Acquire) {
+            self.cancelled.send_replace(true);
+        }
     }
 
     fn owner_active(&self) -> bool {
@@ -162,6 +170,7 @@ impl InvocationBridge {
             payload: payload.to_owned(),
             failed,
         });
+        self.completion_enqueued.store(true, Ordering::Release);
         self.budget.copied_input(payload.len());
         Ok(())
     }

@@ -94,6 +94,10 @@ pub(super) fn child() -> Result<()> {
                     },
                 )
                 .await?;
+                // The old cancellation-suppressing frame still owns its
+                // instance. Retirement must revoke authority without freeing
+                // an object that live Python code is still using.
+                wait_value(&client, &successor_url, "/instance-count", json!(1)).await?;
                 client
                     .get(format!("{successor_url}/fence-release"))
                     .send()
@@ -106,6 +110,9 @@ pub(super) fn child() -> Result<()> {
                     json!("ContextExpired"),
                 )
                 .await?;
+                // No successor cell has been invoked yet. Observe real weak
+                // collection of the fenced object before creating its replacement.
+                wait_value(&client, &successor_url, "/instance-count", json!(0)).await?;
                 let recovered = client
                     .get(format!("{successor_url}/fence-state"))
                     .send()
