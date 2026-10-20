@@ -3,6 +3,7 @@
 use anyhow::{ensure, Context as _, Result};
 use cellar::sdk::*;
 use cellar_python::{EventKind, Options, PythonApplication, PythonRuntime, Source};
+use pyo3::types::PyAnyMethods;
 use serde_json::{json, Value};
 use std::{path::Path, sync::Arc, time::Duration};
 
@@ -307,13 +308,32 @@ fn main() -> Result<()> {
         if mode == "--runtime-dependency" {
             source = source.require_distribution("cellar-missing-test-package", "0");
         }
-        let error = run(Options::default(), source, move |_, _| {
-            if mode == "--runtime-panic" {
-                panic!("controlled supervisor panic");
-            }
-            anyhow::bail!("controlled supervisor failure")
-        })
+        let trace_allocations = matches!(mode.as_str(), "--runtime-failure" | "--runtime-panic");
+        let error = run(
+            Options {
+                trace_allocations,
+                ..Options::default()
+            },
+            source,
+            move |_, _| {
+                if mode == "--runtime-panic" {
+                    panic!("controlled supervisor panic");
+                }
+                anyhow::bail!("controlled supervisor failure")
+            },
+        )
         .expect_err("lifecycle failure must propagate");
+        if trace_allocations {
+            let tracing = pyo3::Python::attach(|py| -> pyo3::PyResult<bool> {
+                py.import("tracemalloc")?
+                    .call_method0("is_tracing")?
+                    .extract()
+            })?;
+            ensure!(
+                !tracing,
+                "owned allocation profiler survived a supervisor failure"
+            );
+        }
         ensure!(!error.to_string().is_empty());
         return Ok(());
     }
@@ -340,6 +360,8 @@ fn main() -> Result<()> {
             max_operations: 64,
             max_batch_operations: 4,
             max_tasks: 129,
+            telemetry_interval: Duration::from_millis(10),
+            trace_allocations: true,
             ..Default::default()
         },
         Source::new(include_str!("bridge.py"), "bridge.py")
@@ -378,7 +400,20 @@ fn main() -> Result<()> {
                 let scoped = context_isolation(&client, &url, &other_url).await;
                 stop(other, &monitor).await?;
                 scoped?;
-                host_await_progress(&client, &url).await?;
+                host_await_progress(&client, &url, &application).await?;
+                ensure!(client.get(format!("{url}/loop-lag")).send().await?.error_for_status()?.json::<bool>().await?);
+                tokio::time::timeout(Duration::from_secs(1), async {
+                    loop {
+                        if let Some(sample) = application.interpreter_snapshot() {
+                            if sample.interpreter.loop_delay.maximum_ns >= 40_000_000 {
+                                ensure!(sample.interpreter.thread_cpu_ns > 0 && sample.interpreter.allocated_blocks_current > 0);
+                                break;
+                            }
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    Ok::<_, anyhow::Error>(())
+                }).await??;
                 let (writer_node, writer_url) = start_with(
                     &directory.path().join("native-writer"),
                     Arc::new(native_writer::ApplicationWithWriter(application.clone())),
@@ -539,10 +574,65 @@ fn main() -> Result<()> {
         },
     )?;
     ensure!(report.complete());
+    ensure!(report
+        .interpreter
+        .traced_current_bytes
+        .is_some_and(|value| value > 0));
+    ensure!(report.interpreter.traced_peak_bytes >= report.interpreter.traced_current_bytes);
+    ensure!(report
+        .interpreter
+        .trace_bookkeeping_bytes
+        .is_some_and(|value| value > 0));
+    ensure!(
+        report.memory.before_interpreter.process_rss_bytes.is_some()
+            && report.memory.after_join.process_rss_bytes.is_some()
+    );
+    ensure!(
+        report
+            .memory
+            .before_interpreter
+            .jemalloc_allocated_bytes
+            .is_some()
+            && report.memory.after_join.jemalloc_allocated_bytes.is_some()
+    );
+    ensure!(report.interpreter.loop_delay.maximum_ns >= 40_000_000);
+    ensure!(
+        report.interpreter.loop_delay.samples
+            == report
+                .interpreter
+                .loop_delay
+                .bucket_counts
+                .iter()
+                .sum::<u64>()
+    );
+    let operations = &report.bridge.operations;
+    ensure!(operations.settled() && operations.admitted > 0 && operations.failed > 0);
+    ensure!(
+        operations.abandoned_running > 0,
+        "dropped native futures were not accounted for"
+    );
+    ensure!(
+        operations.queue_wait.samples == operations.started
+            && operations.sdk_duration.samples == operations.started
+    );
+    ensure!(
+        operations.reply_wait.samples == operations.delivered
+            && operations.round_trip.samples == operations.delivered
+    );
+    for histogram in [
+        &operations.queue_wait,
+        &operations.sdk_duration,
+        &operations.reply_wait,
+        &operations.round_trip,
+    ] {
+        ensure!(histogram.samples == histogram.bucket_counts.iter().sum::<u64>());
+    }
     ensure!(
         report.budget_exhaustions > 0
             && report.bridge.peak_queued_bytes > 0
-            && report.bridge.transferred_bytes > 0
+            && report.bridge.reserved_bytes_total > 0
+            && report.bridge.input_copied_bytes > 0
+            && report.bridge.output_copied_bytes > 0
     );
     ensure!(
         report.native_outcomes.len() == 6,
@@ -693,7 +783,11 @@ async fn context_isolation(client: &reqwest::Client, holder: &str, other: &str) 
     crossed
 }
 
-async fn host_await_progress(client: &reqwest::Client, url: &str) -> Result<()> {
+async fn host_await_progress(
+    client: &reqwest::Client,
+    url: &str,
+    application: &PythonApplication,
+) -> Result<()> {
     let waiting = client.get(format!("{url}/host-await")).send();
     let progress = async {
         let mut started = false;
@@ -712,6 +806,27 @@ async fn host_await_progress(client: &reqwest::Client, url: &str) -> Result<()> 
         }
         ensure!(started, "Python handler did not enter its host SDK await");
         let response = client.get(format!("{url}/host-progress")).send().await?;
+        let live = application.bridge_report().operations;
+        ensure!(
+            live.running > 0 && live.pending > 0 && !live.settled(),
+            "live pending SDK work disappeared from telemetry: {live:?}"
+        );
+        tokio::time::timeout(Duration::from_millis(100), async {
+            loop {
+                if let Some(sample) = application.interpreter_snapshot() {
+                    if sample.work.active_invocations > 0 {
+                        ensure!(
+                            sample.work.active_tasks > 0
+                                && sample.interpreter.allocated_blocks_current > 0
+                        );
+                        break;
+                    }
+                }
+                tokio::time::sleep(Duration::from_millis(2)).await;
+            }
+            Ok::<_, anyhow::Error>(())
+        })
+        .await??;
         client
             .get(format!("{url}/host-release"))
             .send()

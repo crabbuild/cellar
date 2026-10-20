@@ -28,7 +28,19 @@ def check_report(log):
     assert report["pending_tasks"] == report["pending_threads"] == report["pending_objects"] == 0
     assert report["objects_created"] == report["objects_retired"]
     assert report["bridge"]["pending_reservations"] == report["bridge"]["queued_bytes"] == 0
-    assert report["bridge"]["transferred_bytes"] > 0
+    assert report["bridge"]["reserved_bytes_total"] > 0
+    assert report["bridge"]["input_copied_bytes"] > 0
+    assert report["bridge"]["output_copied_bytes"] > 0
+    operations = report["bridge"]["operations"]
+    assert operations["pending"] == operations["queued"] == operations["running"] == operations["replies_pending"] == 0
+    assert operations["admitted"] == sum(operations[key] for key in ("delivered", "abandoned_queued", "abandoned_running", "undelivered"))
+    assert operations["started"] == sum(operations[key] for key in ("succeeded", "failed", "abandoned_running"))
+    assert operations["queue_wait"]["samples"] == operations["sdk_duration"]["samples"] == operations["started"]
+    assert operations["reply_wait"]["samples"] == operations["round_trip"]["samples"] == operations["delivered"]
+    assert all(value == 0 for value in report["work"].values())
+    assert report["interpreter"]["traced_current_bytes"] is None
+    assert report["memory"]["before_interpreter"]["process_rss_bytes"] > 0
+    assert report["memory"]["after_join"]["process_rss_bytes"] > 0
     assert report["native_outcomes"] and all(outcome["complete"] for outcome in report["native_outcomes"])
 
 

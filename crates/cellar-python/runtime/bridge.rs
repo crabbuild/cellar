@@ -15,6 +15,7 @@ pub(crate) enum Event {
         payload: String,
         mutation: Option<Mutation>,
         reservation: super::Reservation,
+        observation: super::telemetry::Operation,
     },
     Complete {
         payload: String,
@@ -51,6 +52,7 @@ pub(crate) struct InvocationBridge {
     pub max_bytes: usize,
     pub budget: Arc<super::Budget>,
     pub event_loop: Option<Py<PyAny>>,
+    pub clock_origin: std::time::Instant,
 }
 
 #[pymethods]
@@ -78,11 +80,16 @@ impl InvocationBridge {
         self.owner.load(Ordering::Acquire)
     }
 
-    fn submit(&self, py: Python<'_>, id: u64, name: String, payload: String) -> PyResult<()> {
+    fn submit(&self, py: Python<'_>, id: u64, name: &str, payload: &str) -> PyResult<()> {
         if !self.active() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
         }
         self.ensure_scope(py)?;
+        if name.is_empty() || name.len() > 64 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Python SDK operation name must be 1..64 bytes",
+            ));
+        }
         if payload.len() > self.max_bytes {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "Python SDK value budget exceeded",
@@ -98,7 +105,7 @@ impl InvocationBridge {
                 "Python aggregate bridge byte budget exhausted",
             )
         })?;
-        let mutation = if crate::operations::is_read(&name) {
+        let mutation = if crate::operations::is_read(name) {
             None
         } else {
             self.mutation
@@ -110,25 +117,29 @@ impl InvocationBridge {
                 })?;
             Some(Mutation(self.mutation.clone()))
         };
-        self.sender
-            .try_send(Event::Operation {
-                id,
-                name,
-                payload,
-                mutation,
-                reservation,
-            })
-            .map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => pyo3::exceptions::PyBlockingIOError::new_err(
-                    "Python SDK operation queue is full",
-                ),
-                mpsc::error::TrySendError::Closed(_) => pyo3::exceptions::PyRuntimeError::new_err(
-                    "Python SDK operation queue is closed",
-                ),
-            })
+        // Reserve mailbox capacity before counting admission. The observation
+        // then follows every accepted event even if the receiver retires.
+        let permit = self.sender.try_reserve().map_err(|error| match error {
+            mpsc::error::TrySendError::Full(_) => {
+                pyo3::exceptions::PyBlockingIOError::new_err("Python SDK operation queue is full")
+            }
+            mpsc::error::TrySendError::Closed(_) => {
+                pyo3::exceptions::PyRuntimeError::new_err("Python SDK operation queue is closed")
+            }
+        })?;
+        permit.send(Event::Operation {
+            id,
+            name: name.to_owned(),
+            payload: payload.to_owned(),
+            mutation,
+            reservation,
+            observation: self.budget.metrics.admit(self.clock_origin),
+        });
+        self.budget.copied_input(name.len() + payload.len());
+        Ok(())
     }
 
-    fn complete(&self, py: Python<'_>, payload: String, failed: bool) -> PyResult<()> {
+    fn complete(&self, py: Python<'_>, payload: &str, failed: bool) -> PyResult<()> {
         if !self.active() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err("ContextExpired"));
         }
@@ -138,21 +149,21 @@ impl InvocationBridge {
                 "Python response exceeds value budget",
             ));
         }
-        self.sender
-            .try_send(Event::Complete {
-                reservation: self.budget.reserve(payload.len()).map_err(|_| {
-                    pyo3::exceptions::PyRuntimeError::new_err(
-                        "Python aggregate bridge byte budget exhausted",
-                    )
-                })?,
-                payload,
-                failed,
-            })
-            .map_err(|_| {
-                pyo3::exceptions::PyRuntimeError::new_err(
-                    "Python completion queue is full or closed",
-                )
-            })
+        let reservation = self.budget.reserve(payload.len()).map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err(
+                "Python aggregate bridge byte budget exhausted",
+            )
+        })?;
+        let permit = self.sender.try_reserve().map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err("Python completion queue is full or closed")
+        })?;
+        permit.send(Event::Complete {
+            reservation,
+            payload: payload.to_owned(),
+            failed,
+        });
+        self.budget.copied_input(payload.len());
+        Ok(())
     }
 }
 

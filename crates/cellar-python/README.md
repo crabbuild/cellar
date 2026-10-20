@@ -103,7 +103,7 @@ bytes, aggregate native bridge bytes, operations per invocation, operations per 
 fails immediately when full. Each invocation's operation channel is bounded.
 The single interpreter polls bridge messages every millisecond by default;
 `poll_interval` controls this latency/idle-CPU tradeoff. This is a first adapter,
-not a throughput-qualified Python service. The bridge report counts queued/peak native bridge bytes and bytes transferred across that boundary; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies. Task limits cover managed-loop work, not raw application threads or external native pools.
+not a throughput-qualified Python service. The bridge report distinguishes queued/peak native bridge bytes, reservation totals and explicit UTF-8 copy bytes; it excludes Python heap, JSON/base64 intermediate allocations and native transport copies. Task limits cover managed-loop work, not raw application threads or external native pools.
 
 `Options::interpreter` supplies the Python home, executable, standard-library
 roots and SOABI. Its default is captured from the selected build-time CPython;
@@ -184,7 +184,7 @@ qualification and verified deployment closure work remain tracked in the
 
 Public Python APIs include type annotations. `loop.shutdown_asyncgens()` and the managed executor are closed while the loop remains alive. Background exceptions trigger a sanitized runtime failure; exception repr and traceback data are not logged by the runner. The report covers runtime-owned work and explicitly recorded native nodes; it does not certify arbitrary raw Python/native threads or the process-wide heap.
 
-`PythonApplication::bridge_report()` returns an atomic live snapshot for a host-owned metrics exporter. The example emits the combined report when `CELLAR_SHUTDOWN_REPORT_JSON=1`; its smoke asserts native drain phases and zero remaining managed work/reservations.
+`PythonApplication::bridge_report()` returns independently sampled atomic counters for a host-owned metrics exporter. Conservation checks apply after quiescence, not during concurrent updates. The example emits the combined report when `CELLAR_SHUTDOWN_REPORT_JSON=1`; its smoke asserts native drain phases and zero remaining managed work/reservations.
 
 `Report::interpreter` records managed-loop wall time and that thread's CPU time
 separately from Rust turn accounting. Thread CPU includes Python and native code
@@ -192,9 +192,58 @@ running on the interpreter thread; it excludes executor threads and native
 library pools. Handler timing includes host awaits and can overlap across
 concurrent handlers, so its sum is not process elapsed time. The report also
 records whole-process peak RSS and initial/final CPython allocated-block counts.
-These are measurements, not per-cell limits, allocation byte totals or Python-only
-memory attribution. Bridge/SDK latency histograms and measured native/Python
-baselines remain in the completion audit.
+These are measurements, not per-cell limits or Python-only memory attribution.
+`loop_delay` measures lateness after the managed pump's scheduled wake, including
+blocking Python, GIL contention and OS scheduling; it cannot isolate one cause.
+The exact bounded histogram layout is available through
+`LatencyReport::upper_bounds_ns()`: inclusive bounds of 1 µs, 10 µs, 100 µs,
+1 ms, 10 ms, 100 ms, 1 s and 10 s, followed by an unbounded bucket. Counts are
+noncumulative; totals saturate rather than overflow.
+
+`bridge.operations` follows every admitted SDK operation from mailbox reservation
+through native execution and managed-loop reply dequeue. It reports queued,
+running and pending-reply work, success/failure, delivered replies and separate
+queued/running/undelivered abandonment. Queue wait, native SDK duration, completion
+to reply dequeue and admission to reply dequeue have bounded histograms. Native
+SDK duration includes parsing, validation and host await time; it is not Rust CPU
+time. Reply timing includes encoding and loop polling, and excludes subsequent
+Python future consumption. Dropped native futures retain their duration and
+terminal accounting without calling Python. `Report::complete()` requires zero
+pending work and matching admitted/terminal and started/completed counts; this
+does not infer rollback of abandoned mutations.
+
+`reserved_bytes_total` counts successful payload reservations, including later
+abandonment. `input_copied_bytes` and `output_copied_bytes` count explicit owned
+UTF-8 copies across the adapter boundary. Admission checks precede Rust-owned
+input copies; SDK operation names are bounded to 64 bytes. These counters exclude
+codec temporaries, Python UTF-8 caches and native transport/library copies. They
+are distinct from allocation bytes.
+
+`PythonApplication::interpreter_snapshot()` reads the latest owned interpreter
+observation without acquiring the GIL or waiting for a lock. `None` means no
+initial observation or a busy publisher. Check `generation` and `age_ns`: a blocked
+interpreter cannot refresh its snapshot. `Options::telemetry_interval` defaults
+to 250 ms. Samples include interpreter CPU/wall/allocated blocks, handler and loop
+timing, active tasks/invocations, resident registry objects and pending retirements.
+Retirement observations publish before destructors run, including during closed
+SDK admission. Removing an object from the registry does not certify collection
+of aliases retained by application code.
+
+`Options::trace_allocations` optionally starts one-frame CPython allocation
+tracing before application imports. It defaults to false. Traced current/peak
+bytes and tracer bookkeeping bytes are `None` when disabled or unavailable.
+Tracing adds CPU/memory overhead and measures registered allocation domains;
+it does not account for every native extension's private allocator. The bootstrap
+stops its owned tracer on normal return, host failure, import failure and cold
+validation failure. It does not stop application-owned tracing when disabled.
+
+`Report::memory` samples process RSS and available jemalloc/libc heap counters
+before interpreter initialization and after joined cleanup. Probes run outside
+node execution and interpreter ticks. Unavailable probes are `None`. Growth
+includes the host, interpreter, imports and caches. CPython remains initialized;
+libc/jemalloc counters exclude private allocators and are not Python heap limits.
+Measured Rust/Python performance baselines and remaining qualification still
+belong to the [completion audit](../../plans/007-embedded-python-audit.md).
 
 Unraisable exceptions (including destructor failures) and unhandled Python thread
 exceptions produce failure counts and an incomplete runtime report. Default

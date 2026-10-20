@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import time
 import weakref
 from cellar import Ambiguous, Conflict, MISSING, Overloaded, Request, Response, SDKError, ValidationError
 
@@ -34,8 +35,13 @@ async def fetch(request, ctx):
         return Response.json({"sync": proof_sync_completed, "returned": proof_python_returned})
     if request.path == "/proof/attempts":
         return Response.json(proof_attempts)
+    if request.path == "/loop-lag":
+        until = time.perf_counter_ns() + 60_000_000
+        while time.perf_counter_ns() < until:
+            pass
+        return Response.json(True)
     if request.path == "/protocol-validation":
-        invalid = [("unknown", {}), ("kv.put", {"binding": 42, "key": "x", "value": True}),
+        invalid = [("", {}), ("x" * 64, {}), ("x" * 65, {}), ("unknown", {}), ("kv.put", {"binding": 42, "key": "x", "value": True}),
                    ("sql.query", {"binding": "DB", "sql": "INSERT", "params": {}}),
                    ("queue.send", {"binding": "JOBS", "body": {}, "delay_seconds": -1}),
                    ("queue.settle", {"retry": True, "delay_seconds": -1}),

@@ -3,6 +3,7 @@
 
 use anyhow::{ensure, Result};
 use cellar_python::{Environment, EventKind, Options, PythonRuntime, Source};
+use pyo3::types::PyAnyMethods;
 use std::{
     path::Path,
     sync::{
@@ -126,6 +127,11 @@ fn main() -> Result<()> {
 
 fn child(mode: &str, root: &Path) -> Result<()> {
     let mut options = Options::default();
+    let trace_allocations = matches!(
+        mode,
+        "isolated" | "unlisted" | "sync-handler" | "bad-constructor"
+    );
+    options.trace_allocations = trace_allocations;
     options.module_paths.push(root.join("explicit"));
     options.environment =
         Environment::new([("APPLICATION_SETTING".into(), "configured-value".into())])?;
@@ -208,9 +214,23 @@ fn child(mode: &str, root: &Path) -> Result<()> {
             Ok(())
         })
     };
+    if trace_allocations {
+        let still_tracing = pyo3::Python::attach(|py| -> pyo3::PyResult<bool> {
+            py.import("tracemalloc")?
+                .call_method0("is_tracing")?
+                .extract()
+        })?;
+        ensure!(!still_tracing, "owned profiler leaked after {mode}");
+    }
     let expected = match mode {
         "isolated" | "wrong-thread" | "host-signals" => {
-            ensure!(result?.complete());
+            let report = result?;
+            ensure!(report.complete());
+            if trace_allocations {
+                ensure!(report.interpreter.traced_current_bytes.is_some());
+            } else {
+                ensure!(report.interpreter.traced_current_bytes.is_none());
+            }
             ensure!(entered.load(Ordering::Acquire));
             return Ok(());
         }

@@ -75,7 +75,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | L02 | Owned cleanup survives admission closure; no destructor waits on GIL | Retirement/closure race tests and cleanup counters | partial: polling registry; no explicit cleanup lane/report |
 | L03 | Retired activation object cleanup is observed | Destruction counters/weakrefs under eviction, fence and redeploy | partial: weak-reference probe observes actual cell object collection after managed shutdown; independent eviction/redeploy cases remain |
 | L04 | Close async generators and managed executor work | Async-generator finally + thread/executor join tests | verified for managed loop: async-generator finally observed; default-executor work joined; raw/native private pools remain application-owned |
-| L05 | Combined report includes native report and all bridge/task/cleanup/budget work | Serialized combined report, incomplete cases, queued/running counts | partial: combined native outcomes, host failure source, Python cleanup counts and byte reservations serialize; complete operation/cleanup/metrics accounting remains |
+| L05 | Combined report includes native report and all bridge/task/cleanup/budget work | Serialized combined report, incomplete cases, queued/running counts | verified locally for runtime-owned work and explicitly recorded native nodes: combined outcomes and host failure source, task/invocation/object/retirement gauges, bridge reservations and admitted/terminal operation conservation; live pending SDK work, all native-future/reply drop stages and incomplete lifecycle cases are directly tested; private application/library pools remain application-owned |
 | L06 | Correct shutdown phases with both runtimes alive | Ingress closure/drain/cancel/object cleanup and final-join assertions | partial: basic clean stop and errors |
 | L07 | Noncooperative code cannot fabricate complete drain | Disposable asyncio-stubborn, CPU-loop and blocked-C-extension hosts | verified: stubborn asyncio reports incomplete; disposable infinite-Python and GIL-held native-call owners require external termination and cannot produce clean-drain reports |
 | L08 | External watchdog supports hard termination/restart | Bounded child-host watchdog drill and recovered acknowledged state | partial: bounded external hard-stop/recovery drill implemented; deployment still must configure a production process supervisor and startup/health deadlines |
@@ -107,7 +107,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | --- | --- | --- | --- |
 | Q01 | Finite startup/request/body/value/depth/batch/mailbox/task/object/drain limits | Named limits, boundary tests, reservations released on every exit | partial: aggregate bridge bytes, managed tasks, objects and header count/bytes added; startup watchdog/complete reservation and exact-boundary coverage remain |
 | Q02 | Bounded backpressure both ways and cleanup accounting | Saturation/cancellation/failure tests with zero leaked reservations | partial: RAII aggregate reservations cover starts, requests, results and completions; unit saturation/drop and joined zero-reservation reports pass; full stress matrix remains |
-| Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | partial: queued/peak/transferred bridge bytes, reservation count, object create/retire, task peak and budget counters recorded; interpreter-thread CPU, handler duration and process peak RSS/allocated-block snapshots added; queue/SDK histograms, allocation byte totals and live interpreter snapshots remain missing |
+| Q03 | Queue, bridge, Python/Rust duration, copied bytes, allocations/RSS and cleanup metrics | Instrumented counters/histograms and live snapshot tests | verified locally: bounded queue/SDK/reply/round-trip histograms, explicit UTF-8 boundary-copy counters distinct from reservations, lifecycle conservation/gauges, live age-stamped interpreter/work snapshots, loop scheduling delay, optional traced allocation bytes and pre-interpreter/post-join RSS/jemalloc/libc samples; scope/exclusions documented; adapter matrix and pinned package smoke pass; cross-platform and performance baselines remain Q09/Q10/Q12 |
 | Q04 | Python CPU attributed separately; native accounting gaps disclosed | Separate measurements and documented coverage | verified locally: managed-loop thread CPU measured separately from Rust; handler duration/count and memory-snapshot assertions pass; exclusions for native/executor pools documented; cross-platform qualification remains Q09/Q12 |
 | Q05 | KV authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python, not only native SDK tests | partial: real KV writes/reads across two nodes; retained live/expired handles refuse reads/writes and leave each namespace intact; cancellation, independent backpressure/replay and restart matrices remain |
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | partial: actual shared-SQL DDL/DML/query on two nodes; live/expired retained handles refuse inserts, both databases retain only their own row; cancellation, independent backpressure/replay and restart matrices remain |
@@ -115,7 +115,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real tick smoke |
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 passed pinned Pydantic/NumPy/pure-library workloads; new archive path Linux CI still pending |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
-| Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | partial: local no-embed and JS graph checks |
+| Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
 | Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: foundation full workspace tests and complete Linux SDK CI passed; new archive/protocol/deployment-hook changes need final affected checks and fresh CI |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
@@ -126,8 +126,10 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
    Native durability pause/failure tests now pass locally through Python.
 2. Verify external native-library/OS prerequisites and complete the platform
    matrix. Two genuinely different source packages now pass process handoff locally.
-3. Complete typed errors, cleanup/resource accounting, bridge/SDK timing and
-   reproducible Rust/Python latency/throughput/memory/recovery measurements.
+3. Complete remaining typed-error/cleanup race qualification and reproducible
+   Rust/Python latency/throughput/memory/recovery measurements. Runtime-owned
+   operation accounting, latency histograms and live interpreter observations
+   now have direct local evidence.
 4. Run fresh complete CI after the current hardening changes, then reconcile
    every remaining partial/missing audit row and executable documentation.
 
@@ -556,3 +558,73 @@ Final local checks after the native-depth and propagated-failure changes:
 `cargo format --check`, `cargo check-layout`, both repository dependency/docs
 guards and `git diff --check` passed. These do not execute Linux-only code on
 macOS or establish the remaining production matrix.
+
+## Owned operation accounting and sampled observations (2026-10-20)
+
+The adapter now counts admitted, queued, running, completed, delivered and
+abandoned operations independently of byte reservations. An owned observation
+follows each event through the original native future and reply; drop records
+queued/running/reply abandonment without entering Python. `Report::complete()`
+requires zero pending stage gauges and matching terminal/admission and
+completed/start totals. Failed/abandoned mutations remain uncertain; accounting
+is not rollback evidence. Fixed histograms measure queue wait, native
+parse/validation/SDK await, completion-to-loop-dequeue and admission-to-dequeue.
+A unit corpus covers all terminal stages, inclusive bucket boundaries and
+saturating elapsed totals. Real host-await tests observe pending work live;
+joined reports verify histogram counts and cancellation accounting.
+
+The old `transferred_bytes` field counted reservations rather than actual
+transfers. It is replaced by accurately named `reserved_bytes_total`, with
+separate input/output UTF-8 copy counters. Python strings are borrowed only
+within synchronous PyO3 calls; payload/name copies occur after scope, size and
+mailbox admission. Operation names are limited to 64 bytes. Explicit owned
+Python output strings are metered at creation. Codec temporaries, UTF-8 caches
+and native library/transport copies are outside these counters. No legacy
+report reader or alternate format marker is introduced.
+
+`interpreter_snapshot()` uses a nonwaiting Rust cache reader: no initial sample
+or a busy publisher returns `None`. Generation and age expose staleness when
+Python blocks. The managed pump publishes every configured interval (250 ms
+default) and before retiring objects, including after SDK admission closes.
+Snapshots include CPU/wall/allocated blocks, handler/loop timing and active
+task/invocation/object/retirement work. Tests observe a live SDK wait, verify
+cache age/busy behavior and detect a controlled 60 ms interpreter blockage.
+Loop delay includes Python blocking, GIL contention and OS scheduling; it does
+not claim exclusive attribution to one cause. Registry retirement does not
+certify collection of application-retained aliases.
+
+Optional one-frame CPython allocation tracing starts before application imports
+and reports current/peak traced bytes plus instrumentation memory. It defaults
+to disabled; unavailable values are `None`. Bootstrap stops its owned tracer
+after success, import/cold-validation failure and Rust supervisor error/panic.
+It does not stop application-owned profiling when disabled. Tracing overhead
+and private/native allocation-domain exclusions are documented. Host probes
+also record RSS and available jemalloc/libc bytes before initialization and
+after joined cleanup, outside node execution or interpreter ticks. These are
+whole-process snapshots, not per-cell memory bounds; CPython remains initialized.
+
+The full adapter suite passes on host CPython 3.14.6. The independently
+provisioned CPython 3.14.5 package smoke passes Pydantic/NumPy/native work, bindings,
+cron, preserving restart, lost-response reconciliation and joined shutdown with
+operation conservation, copy counters and memory probes checked. The default
+package has allocation tracing disabled; the bridge corpus exercises tracing
+enabled and verifies failure-path cleanup. Final lint/layout/docs/dependency
+checks and fresh Linux qualification for these source changes are recorded
+separately when complete. The active fe6d2f8 CI runs do not cover these newer
+observability changes.
+
+Local observability checkpoint checks:
+
+- `cargo test -p cellar-python --all-features --locked` passed after the complete
+  operation/copy/snapshot/tracing changes, including traced supervisor failures
+  and startup import/cold-validation cleanup.
+- `cargo clippy -p cellar-python --all-targets --all-features --locked -- -D warnings` passed.
+- `PYO3_PYTHON=/nonexistent/cellar-native-only cargo check -p cellar-python --no-default-features --lib --locked` passed.
+- Provisioned CPython 3.14.5 package smoke with `--with-cron` passed the stronger
+  combined-report checks. Host CPython 3.14.6 covers the traced adapter corpus.
+- `cargo format`, `cargo check-layout`, the no-JavaScript dependency guard,
+  documentation integrity and `git diff --check` passed.
+
+Linux runs 39410295139 and 39410287131 on fe6d2f8 remain live at this checkpoint.
+Their exact handles are retained rather than restarting them; neither covers
+the unpushed observability source above. Full completion remains unproven.

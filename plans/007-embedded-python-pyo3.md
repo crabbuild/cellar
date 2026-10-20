@@ -434,7 +434,13 @@ accounting is not total process memory, particularly with NumPy/native libraries
 Do not advertise per-cell hard memory or CPU isolation in a shared interpreter.
 Existing native CPU accounting measures Rust turn execution; it must not be
 reported as a measured or enforced Python CPU budget when work runs on the
-Python loop. Attribute Python work separately and disclose accounting gaps for
+Python loop. The adapter now provides bounded bridge/SDK latency histograms,
+operation lifecycle conservation, explicit boundary-copy counters and age-stamped
+live interpreter/work snapshots. Optional CPython tracing reports allocation
+bytes; separate host allocator probes expose scoped native memory growth. Loop
+scheduling delay is composite, rather than an exclusive GIL measurement. See
+the [adapter observation contract](../crates/cellar-python/README.md) for exact
+measurement boundaries and defaults. Attribute Python work separately and disclose accounting gaps for
 native extensions and application threads.
 
 Trusted Python has ordinary process capabilities and can bypass wrapper APIs.
@@ -456,7 +462,10 @@ crates/cellar-python/
   runtime/bridge.rs       Bounded invocation messages and awaitable completion
   runtime/initialization.rs Isolated CPython initialization and host signals
   runtime/inventory.rs     Verification before interpreter initialization
-  runtime/budget.rs        Native bridge resource reservations
+  runtime/budget.rs        Native bridge resource reservations and copy counters
+  runtime/telemetry.rs     Bounded operation lifecycle and latency observations
+  runtime/snapshot.rs      Nonwaiting cache for sampled interpreter observations
+  runtime/memory.rs        Pre-initialization/post-join host memory probes
   operations.rs           SDK dispatch within the original native invocation
   failure.rs              Proven refusals and conservative mutation ambiguity
   storage.rs              JSON snapshots and checked atomic batch conversion

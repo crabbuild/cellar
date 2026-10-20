@@ -155,6 +155,13 @@ impl PythonApplication {
         self.runtime.budget.report()
     }
 
+    /// Last sampled interpreter state, without acquiring the GIL or blocking.
+    /// `None` means startup has not sampled yet or the publisher is busy. Check
+    /// the returned age; a blocked Python loop cannot refresh this observation.
+    pub fn interpreter_snapshot(&self) -> Option<crate::InterpreterSnapshot> {
+        self.runtime.samples.read()
+    }
+
     async fn run(
         &self,
         context: Context,
@@ -224,6 +231,7 @@ impl PythonApplication {
                 max_bytes: self.runtime.options.max_value_bytes,
                 budget: self.runtime.budget.clone(),
                 event_loop: None,
+                clock_origin: cellar::asyncrt::instant(),
             },
         })?;
         let mut stopped = self.runtime.stopped.subscribe();
@@ -235,8 +243,8 @@ impl PythonApplication {
             let event = cellar::asyncrt::select_biased! { "runtime shutdown revokes authority before queued operations";
                 _ = stopped.changed() => anyhow::bail!("Python runtime stopped"),
                 result = pending.next(), if !pending.is_empty() => {
-                    let (id, encoded) = result.expect("nonempty native operation set");
-                    self.runtime.reply(invocation, id, encoded?)?;
+                    let (id, encoded, observation) = result.expect("nonempty native operation set");
+                    self.runtime.reply(invocation, id, encoded?, observation)?;
                     continue;
                 },
                 event = receive.recv() => event,
@@ -253,6 +261,7 @@ impl PythonApplication {
                     payload,
                     mutation,
                     reservation,
+                    mut observation,
                 } => {
                     if !active.load(Ordering::Acquire) {
                         continue;
@@ -260,6 +269,7 @@ impl PythonApplication {
                     let context = &context;
                     let state = &state;
                     let mut operation = Box::pin(async move {
+                        observation.begin();
                         // The reservation is retained by the native future even
                         // if the awaiting Python task has already been cancelled.
                         let _mutation = mutation;
@@ -279,6 +289,7 @@ impl PythonApplication {
                                 Err(anyhow::Error::from(error).context(crate::failure::Validation))
                             }
                         };
+                        observation.complete(result.is_ok());
                         let envelope = match result {
                             Ok(value) => json!({"ok":true,"value":value}),
                             Err(error) => crate::failure::envelope(&name, &error),
@@ -294,7 +305,7 @@ impl PythonApplication {
                                 }
                             })
                             .map_err(anyhow::Error::from);
-                        (id, encoded)
+                        (id, encoded, observation)
                     });
                     // Initiate operations in receive order. Polling once here
                     // establishes FIFO start even for futures awaiting nested
@@ -304,8 +315,8 @@ impl PythonApplication {
                     })
                     .await
                     {
-                        std::task::Poll::Ready((id, encoded)) => {
-                            self.runtime.reply(invocation, id, encoded?)?
+                        std::task::Poll::Ready((id, encoded, observation)) => {
+                            self.runtime.reply(invocation, id, encoded?, observation)?
                         }
                         std::task::Poll::Pending => pending.push(operation),
                     }

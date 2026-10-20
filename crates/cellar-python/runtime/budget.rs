@@ -8,18 +8,26 @@ use std::sync::{
 pub struct BridgeReport {
     pub queued_bytes: usize,
     pub peak_queued_bytes: usize,
-    /// Bytes reserved on each native bridge transfer; excludes Python heap,
-    /// base64/JSON intermediate allocations and native transport copies.
-    pub transferred_bytes: usize,
+    /// Sum of successful byte reservations, including later-abandoned work.
+    pub reserved_bytes_total: usize,
+    /// Explicit owned UTF-8 copies from Python: SDK name/payload and completion.
+    /// Excludes Python's own codec/UTF-8 caches and native transport copies.
+    pub input_copied_bytes: usize,
+    /// Explicit owned UTF-8 copies into Python: invocation and SDK reply payloads.
+    pub output_copied_bytes: usize,
     pub budget_exhaustions: usize,
     pub pending_reservations: usize,
+    pub operations: super::OperationReport,
 }
 
 pub(crate) struct Budget {
+    pub metrics: Arc<super::telemetry::Metrics>,
     maximum: usize,
     used: AtomicUsize,
     peak: AtomicUsize,
-    transferred: AtomicUsize,
+    reserved_total: AtomicUsize,
+    input_copied: AtomicUsize,
+    output_copied: AtomicUsize,
     denied: AtomicUsize,
     pending: AtomicUsize,
 }
@@ -27,10 +35,13 @@ pub(crate) struct Budget {
 impl Budget {
     pub fn new(maximum: usize) -> Arc<Self> {
         Arc::new(Self {
+            metrics: Arc::default(),
             maximum,
             used: AtomicUsize::new(0),
             peak: AtomicUsize::new(0),
-            transferred: AtomicUsize::new(0),
+            reserved_total: AtomicUsize::new(0),
+            input_copied: AtomicUsize::new(0),
+            output_copied: AtomicUsize::new(0),
             denied: AtomicUsize::new(0),
             pending: AtomicUsize::new(0),
         })
@@ -51,7 +62,7 @@ impl Budget {
         );
         self.peak
             .fetch_max(admitted.unwrap() + bytes, Ordering::Relaxed);
-        self.transferred.fetch_add(bytes, Ordering::Relaxed);
+        self.reserved_total.fetch_add(bytes, Ordering::Relaxed);
         self.pending.fetch_add(1, Ordering::Relaxed);
         Ok(Reservation {
             budget: self.clone(),
@@ -63,10 +74,21 @@ impl Budget {
         BridgeReport {
             queued_bytes: self.used.load(Ordering::Acquire),
             peak_queued_bytes: self.peak.load(Ordering::Relaxed),
-            transferred_bytes: self.transferred.load(Ordering::Relaxed),
+            reserved_bytes_total: self.reserved_total.load(Ordering::Relaxed),
+            input_copied_bytes: self.input_copied.load(Ordering::Relaxed),
+            output_copied_bytes: self.output_copied.load(Ordering::Relaxed),
             budget_exhaustions: self.denied.load(Ordering::Relaxed),
             pending_reservations: self.pending.load(Ordering::Acquire),
+            operations: self.metrics.report(),
         }
+    }
+
+    pub fn copied_input(&self, bytes: usize) {
+        self.input_copied.fetch_add(bytes, Ordering::Relaxed);
+    }
+
+    pub fn copied_output(&self, bytes: usize) {
+        self.output_copied.fetch_add(bytes, Ordering::Relaxed);
     }
 }
 

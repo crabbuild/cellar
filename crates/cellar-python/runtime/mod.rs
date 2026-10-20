@@ -4,7 +4,10 @@
 
 use crate::application::{PythonApplication, Source};
 use anyhow::{ensure, Context as _, Result};
-use pyo3::{prelude::*, types::PyModule};
+use pyo3::{
+    prelude::*,
+    types::{PyModule, PyString},
+};
 use std::{
     ffi::CString,
     sync::{
@@ -23,10 +26,16 @@ pub(crate) use budget::{Budget, Reservation};
 mod environment;
 mod initialization;
 mod inventory;
+mod telemetry;
+pub use telemetry::{LatencyReport, OperationReport};
+mod snapshot;
+pub use snapshot::InterpreterSnapshot;
+mod memory;
 pub(crate) use bridge::{Event, InvocationBridge, Life, Start};
 pub use environment::Environment;
 pub use initialization::Interpreter;
 pub use inventory::{is_verified_build, verified_inventory_sha256};
+pub use memory::{MemoryReport, MemorySample};
 
 static INITIALIZED: AtomicBool = AtomicBool::new(false);
 const FACADE: &str = include_str!("../python/cellar.py");
@@ -48,6 +57,11 @@ pub struct Options {
     pub max_objects: usize,
     pub shutdown_timeout: Duration,
     pub poll_interval: Duration,
+    /// Periodic interpreter observations, published without executing SDK work.
+    pub telemetry_interval: Duration,
+    /// Opt-in CPython allocation tracing. Adds runtime/memory overhead; traces
+    /// registered Python allocation domains, not all native-library heaps.
+    pub trace_allocations: bool,
 }
 
 impl Default for Options {
@@ -66,6 +80,8 @@ impl Default for Options {
             max_objects: 4096,
             shutdown_timeout: Duration::from_secs(5),
             poll_interval: Duration::from_millis(1),
+            telemetry_interval: Duration::from_millis(250),
+            trace_allocations: false,
         }
     }
 }
@@ -92,7 +108,9 @@ impl Options {
             "Python task/object budgets are too small"
         );
         ensure!(
-            !self.shutdown_timeout.is_zero() && !self.poll_interval.is_zero(),
+            !self.shutdown_timeout.is_zero()
+                && !self.poll_interval.is_zero()
+                && !self.telemetry_interval.is_zero(),
             "runtime durations must be positive"
         );
         Ok(())
@@ -108,6 +126,13 @@ pub struct InterpreterReport {
     pub process_peak_rss_bytes: u64,
     pub allocated_blocks_initial: usize,
     pub allocated_blocks_final: usize,
+    pub allocated_blocks_current: usize,
+    pub traced_current_bytes: Option<u64>,
+    pub traced_peak_bytes: Option<u64>,
+    pub trace_bookkeeping_bytes: Option<u64>,
+    /// Loop scheduling lateness, including Python blocking, GIL contention and
+    /// OS scheduling. It cannot attribute time exclusively to any one cause.
+    pub loop_delay: LatencyReport,
     pub handlers_started: usize,
     pub handlers_completed: usize,
     pub handlers_failed: usize,
@@ -115,6 +140,15 @@ pub struct InterpreterReport {
     /// Sum and maximum include host-await time; concurrent handlers overlap.
     pub handler_wall_ns_sum: u64,
     pub handler_wall_ns_max: u64,
+}
+
+/// Managed-loop registries at one observation, excluding the serving pump task.
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct InterpreterWork {
+    pub active_tasks: usize,
+    pub active_invocations: usize,
+    pub resident_objects: usize,
+    pub pending_retirements: usize,
 }
 
 /// Python work remaining after the Rust host has stopped.
@@ -138,6 +172,10 @@ pub struct Report {
     #[serde(default)]
     pub interpreter: InterpreterReport,
     #[serde(default)]
+    pub work: InterpreterWork,
+    #[serde(default)]
+    pub memory: MemoryReport,
+    #[serde(default)]
     pub host_failed: bool,
     #[serde(default)]
     pub native_outcomes: Vec<serde_json::Value>,
@@ -151,12 +189,17 @@ impl Report {
             && self.pending_objects == 0
             && self.pending_threads == 0
             && self.objects_created == self.objects_retired
+            && self.work.active_tasks == 0
+            && self.work.active_invocations == 0
+            && self.work.resident_objects == 0
+            && self.work.pending_retirements == 0
             && !self.runtime_failed
             && self.unraisable_errors == 0
             && self.thread_errors == 0
             && !self.host_failed
             && self.bridge.queued_bytes == 0
             && self.bridge.pending_reservations == 0
+            && self.bridge.operations.settled()
             && self
                 .native_outcomes
                 .iter()
@@ -173,8 +216,8 @@ pub struct Incomplete {
 
 impl std::fmt::Display for Incomplete {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, queued_bridge_bytes={}, bridge_reservations={}",
-            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.queued_bytes, self.report.bridge.pending_reservations)
+        write!(f, "Python shutdown incomplete: {} tasks, {} objects, {} threads; runtime_failed={}, host_failed={}, incomplete_native_outcomes={}, queued_bridge_bytes={}, bridge_reservations={}, pending_operations={}, pending_retirements={}",
+            self.report.pending_tasks, self.report.pending_objects, self.report.pending_threads, self.report.runtime_failed, self.report.host_failed, self.report.native_outcomes.iter().filter(|outcome| outcome["complete"] != true).count(), self.report.bridge.queued_bytes, self.report.bridge.pending_reservations, self.report.bridge.operations.pending, self.report.work.pending_retirements)
     }
 }
 
@@ -193,6 +236,7 @@ pub(crate) struct Runtime {
     next: AtomicU64,
     pub closed: AtomicBool,
     pub stopped: watch::Sender<bool>,
+    pub samples: snapshot::Samples,
 }
 
 impl Runtime {
@@ -210,13 +254,20 @@ impl Runtime {
             .context("Python invocation admission is full or closed")
     }
 
-    pub fn reply(&self, invocation: u64, operation: u64, value: String) -> Result<()> {
+    pub fn reply(
+        &self,
+        invocation: u64,
+        operation: u64,
+        value: String,
+        observation: telemetry::Operation,
+    ) -> Result<()> {
         self.replies
             .try_send(Reply {
                 invocation,
                 operation,
                 reservation: self.budget.reserve(value.len())?,
                 value,
+                observation,
             })
             .context("Python result channel is full or closed")
     }
@@ -227,6 +278,7 @@ struct Reply {
     operation: u64,
     value: String,
     reservation: Reservation,
+    observation: telemetry::Operation,
 }
 
 #[pyclass]
@@ -237,15 +289,30 @@ struct Inbox {
     runtime: Arc<Runtime>,
 }
 
+type StartDelivery = (u64, Py<PyString>, Py<InvocationBridge>);
+type ReplyDelivery = (u64, u64, Py<PyString>);
+
 #[pymethods]
 impl Inbox {
+    fn sample(&self, encoded: &str) -> PyResult<()> {
+        if encoded.len() > 16 * 1024 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "Python telemetry exceeds its bound",
+            ));
+        }
+        let sample = serde_json::from_str(encoded)
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid Python telemetry"))?;
+        self.runtime.samples.publish(sample);
+        Ok(())
+    }
+
     fn stop(&self) {
         self.runtime.closed.store(true, Ordering::Release);
         self.runtime.stopped.send_replace(true);
         self.runtime.permits.close();
     }
 
-    fn take(&self, py: Python<'_>) -> PyResult<Option<(u64, String, Py<InvocationBridge>)>> {
+    fn take(&self, py: Python<'_>) -> PyResult<Option<StartDelivery>> {
         let next = self
             .starts
             .lock()
@@ -259,12 +326,15 @@ impl Inbox {
                     .call_method0("get_running_loop")?
                     .unbind(),
             );
-            Ok((start.id, start.payload, Py::new(py, start.bridge)?))
+            let bridge = Py::new(py, start.bridge)?;
+            let payload = PyString::new(py, &start.payload).unbind();
+            self.runtime.budget.copied_output(start.payload.len());
+            Ok((start.id, payload, bridge))
         })
         .transpose()
     }
 
-    fn replies(&self) -> PyResult<Vec<(u64, u64, String)>> {
+    fn replies(&self, py: Python<'_>) -> PyResult<Vec<ReplyDelivery>> {
         Ok(self
             .replies
             .lock()
@@ -272,7 +342,10 @@ impl Inbox {
             .try_iter()
             .map(|reply| {
                 let _reservation = reply.reservation;
-                (reply.invocation, reply.operation, reply.value)
+                let payload = PyString::new(py, &reply.value).unbind();
+                self.runtime.budget.copied_output(reply.value.len());
+                reply.observation.delivered();
+                (reply.invocation, reply.operation, payload)
             })
             .collect())
     }
@@ -354,6 +427,7 @@ impl PythonRuntime {
             !INITIALIZED.swap(true, Ordering::AcqRel),
             "embedded Python may be started only once per process"
         );
+        let memory_initial = MemorySample::capture();
         // SAFETY: exclusive process bootstrap is required by this function's
         // public contract; initialization validates the actual main thread.
         unsafe {
@@ -371,6 +445,7 @@ impl PythonRuntime {
             permits: Arc::new(Semaphore::new(options.max_invocations)),
             stopped: stopped_tx,
             budget: Budget::new(options.max_bridge_bytes),
+            samples: snapshot::Samples::new(),
             options: options.clone(),
             next: AtomicU64::new(1),
             closed: AtomicBool::new(false),
@@ -427,102 +502,127 @@ impl PythonRuntime {
                 c"_cellar_runner",
             )?;
             runner.getattr("install_error_hooks")?.call0()?;
-            let app = PyModule::from_code(
-                py,
-                &CString::new(source.code.as_str())?,
-                &CString::new(source.filename.as_str())?,
-                c"_cellar_application",
-            )?;
-            modules.set_item("_cellar_application", &app)?;
-            for class in &source.classes {
-                ensure!(
-                    app.getattr(class.as_str())?.is_callable(),
-                    "Python class {class} is not callable"
-                );
-            }
             runner
-                .getattr("validate")?
-                .call1((app.clone(), serde_json::to_string(&source.descriptor())?))?;
-            let inbox = Py::new(
-                py,
-                Inbox {
-                    starts: Mutex::new(starts_rx),
-                    replies: Mutex::new(replies_rx),
-                    done: done.clone(),
-                    runtime: runtime.clone(),
-                },
-            )?;
-            let application = Arc::new(PythonApplication::new(runtime.clone(), source));
-            let run = runner.getattr("run")?;
-            let finished = done.clone();
-            let worker = thread::Builder::new()
-                .name("cellar-python-host".into())
-                .spawn(move || {
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        host(
-                            application,
-                            Stop {
-                                receiver: stopped_rx,
-                                reports,
-                            },
-                        )
-                    }))
-                    .unwrap_or_else(|_| {
-                        Err(anyhow::anyhow!("Rust Python host supervisor panicked"))
-                    });
-                    finished.store(true, Ordering::Release);
-                    result
-                })?;
-            let outcome = run.call1((
-                app,
-                inbox.clone_ref(py),
-                options.poll_interval.as_secs_f64(),
-                options.shutdown_timeout.as_secs_f64(),
-                options.max_tasks,
-                options.max_objects,
-            ));
-            runtime.closed.store(true, Ordering::Release);
-            runtime.stopped.send_replace(true);
-            runtime.permits.close();
-            // The Python runner has stopped accepting work. Never join while
-            // attached: a final Rust cleanup path could otherwise wait for the GIL.
-            let host_result = py
-                .detach(move || worker.join())
-                .map_err(|_| anyhow::anyhow!("Python host thread join failed"))?;
-            let encoded: String = py
-                .import("json")?
-                .call_method1("dumps", (outcome?,))?
-                .extract()?;
-            let mut report: Report = serde_json::from_str(&encoded)?;
-            // The host is joined; no sender can authorize more work. Drain
-            // unused channel entries and their reservations before observing.
-            let bound = inbox.borrow(py);
-            bound
-                .starts
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .try_iter()
-                .for_each(drop);
-            bound
-                .replies
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .try_iter()
-                .for_each(drop);
-            report.bridge = runtime.budget.report();
-            report.host_failed = host_result.is_err();
-            report.native_outcomes = native_reports
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone();
-            if !report.complete() {
-                return Err(Incomplete {
-                    report,
-                    host_error: host_result.err(),
+                .getattr("configure_measurement")?
+                .call1((options.trace_allocations,))?;
+            let result = (|| -> Result<Report> {
+                let app = PyModule::from_code(
+                    py,
+                    &CString::new(source.code.as_str())?,
+                    &CString::new(source.filename.as_str())?,
+                    c"_cellar_application",
+                )?;
+                modules.set_item("_cellar_application", &app)?;
+                for class in &source.classes {
+                    ensure!(
+                        app.getattr(class.as_str())?.is_callable(),
+                        "Python class {class} is not callable"
+                    );
                 }
-                .into());
+                runner
+                    .getattr("validate")?
+                    .call1((app.clone(), serde_json::to_string(&source.descriptor())?))?;
+                let inbox = Py::new(
+                    py,
+                    Inbox {
+                        starts: Mutex::new(starts_rx),
+                        replies: Mutex::new(replies_rx),
+                        done: done.clone(),
+                        runtime: runtime.clone(),
+                    },
+                )?;
+                let application = Arc::new(PythonApplication::new(runtime.clone(), source));
+                let run = runner.getattr("run")?;
+                let finished = done.clone();
+                let worker = thread::Builder::new()
+                    .name("cellar-python-host".into())
+                    .spawn(move || {
+                        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            host(
+                                application,
+                                Stop {
+                                    receiver: stopped_rx,
+                                    reports,
+                                },
+                            )
+                        }))
+                        .unwrap_or_else(|_| {
+                            Err(anyhow::anyhow!("Rust Python host supervisor panicked"))
+                        });
+                        finished.store(true, Ordering::Release);
+                        result
+                    })?;
+                let outcome = run.call1((
+                    app,
+                    inbox.clone_ref(py),
+                    options.poll_interval.as_secs_f64(),
+                    options.shutdown_timeout.as_secs_f64(),
+                    options.max_tasks,
+                    options.max_objects,
+                    options.telemetry_interval.as_secs_f64(),
+                ));
+                runtime.closed.store(true, Ordering::Release);
+                runtime.stopped.send_replace(true);
+                runtime.permits.close();
+                // The Python runner has stopped accepting work. Never join while
+                // attached: a final Rust cleanup path could otherwise wait for the GIL.
+                let host_result = py
+                    .detach(move || worker.join())
+                    .map_err(|_| anyhow::anyhow!("Python host thread join failed"))?;
+                let encoded: String = py
+                    .import("json")?
+                    .call_method1("dumps", (outcome?,))?
+                    .extract()?;
+                let mut report: Report = serde_json::from_str(&encoded)?;
+                // The host is joined; no sender can authorize more work. Drain
+                // unused channel entries and their reservations before observing.
+                let bound = inbox.borrow(py);
+                bound
+                    .starts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .try_iter()
+                    .for_each(drop);
+                bound
+                    .replies
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .try_iter()
+                    .for_each(drop);
+                report.bridge = runtime.budget.report();
+                report.memory = MemoryReport {
+                    before_interpreter: memory_initial,
+                    after_join: MemorySample::capture(),
+                };
+                report.host_failed = host_result.is_err();
+                report.native_outcomes = native_reports
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if !report.complete() {
+                    return Err(Incomplete {
+                        report,
+                        host_error: host_result.err(),
+                    }
+                    .into());
+                }
+                Ok(report)
+            })();
+            let stopped = runner
+                .getattr("stop_measurement")
+                .and_then(|stop| stop.call0())
+                .is_ok();
+            if !stopped {
+                return match result {
+                    Err(error) => {
+                        Err(error.context("Python allocation measurement cleanup failed"))
+                    }
+                    Ok(_) => Err(anyhow::anyhow!(
+                        "Python allocation measurement cleanup failed"
+                    )),
+                };
             }
-            Ok(report)
+            result
         })
     }
 }

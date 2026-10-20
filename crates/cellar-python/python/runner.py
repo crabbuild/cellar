@@ -9,6 +9,22 @@ import time
 from cellar import Batch, Context, Request, Response, Scheduled, _encode, _current_invocation
 
 _failures = dict(unraisable_errors=0, thread_errors=0)
+_memory_tracer = None
+
+
+def configure_measurement(trace_allocations):
+    global _memory_tracer
+    if trace_allocations:
+        import tracemalloc
+        tracemalloc.start(1)
+        _memory_tracer = tracemalloc
+
+
+def stop_measurement():
+    global _memory_tracer
+    if _memory_tracer is not None:
+        _memory_tracer.stop()
+        _memory_tracer = None
 
 
 def install_error_hooks():
@@ -95,10 +111,31 @@ async def _invoke(module, objects, payload, bridge, context, stats, maximum):
         _current_invocation.reset(token)
 
 
-async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks):
+def _observe_delay(histogram, ns):
+    bounds = (1_000, 10_000, 100_000, 1_000_000, 10_000_000, 100_000_000, 1_000_000_000, 10_000_000_000)
+    index = next((index for index, bound in enumerate(bounds) if ns <= bound), 8)
+    histogram["samples"] += 1
+    histogram["total_ns"] = min(2**64 - 1, histogram["total_ns"] + ns)
+    histogram["maximum_ns"] = max(histogram["maximum_ns"], ns)
+    histogram["bucket_counts"][index] += 1
+
+
+async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks, telemetry, sample):
     invocations, objects = {}, {}
+    expected_wake = None
+    next_sample = 0
+
+    def publish_work(retiring=0):
+        stats["work"].update(
+            active_tasks=len(asyncio.all_tasks() - {asyncio.current_task()}),
+            active_invocations=sum(not entry[0].done() for entry in invocations.values()),
+            resident_objects=len(objects), pending_retirements=retiring)
+        sample()
     try:
         while not inbox.done():
+            now = time.perf_counter_ns()
+            if expected_wake is not None:
+                _observe_delay(stats["interpreter"]["loop_delay"], max(0, now - expected_wake))
             if any(_failures.values()):
                 stats["runtime_failed"] = True
                 inbox.stop()
@@ -131,10 +168,18 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks):
                         if error:
                             raise error
                     invocations.pop(invocation)
-            for key, (_, bridge) in tuple(objects.items()):
-                if not bridge.owner_active():
-                    del objects[key]
-                    stats["objects_retired"] += 1
+            retiring = [key for key, (_, bridge) in objects.items() if not bridge.owner_active()]
+            if retiring:
+                # Publish before destructors can block. Rust can observe a stale
+                # snapshot with pending cleanup without acquiring the GIL.
+                publish_work(len(retiring))
+            for key in retiring:
+                del objects[key]
+                stats["objects_retired"] += 1
+            if now >= next_sample:
+                publish_work()
+                next_sample = now + int(telemetry * 1_000_000_000)
+            expected_wake = time.perf_counter_ns() + int(interval * 1_000_000_000)
             await asyncio.sleep(interval)
     finally:
         # Includes child tasks created directly by application code. Awaiting is
@@ -151,12 +196,14 @@ async def _serve(module, inbox, interval, shutdown, stats, maximum, max_tasks):
             for task in finished:
                 if not task.cancelled():
                     task.exception()
+        publish_work(len(objects))
         stats["objects_retired"] += len(objects)
         objects.clear()
+        publish_work()
     return len(pending), len(objects)
 
 
-def run(module, inbox, interval, shutdown, max_tasks, max_objects):
+def run(module, inbox, interval, shutdown, max_tasks, max_objects, telemetry):
     wall_started, cpu_started = time.perf_counter_ns(), time.thread_time_ns()
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -165,8 +212,28 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
                  budget_exhaustions=0, runtime_failed=False, runtime_failure_stage=None)
     stats["interpreter"] = dict(thread_cpu_ns=0, wall_ns=0, process_peak_rss_bytes=0,
         allocated_blocks_initial=sys.getallocatedblocks(), allocated_blocks_final=0,
+        allocated_blocks_current=0,
+        traced_current_bytes=None, traced_peak_bytes=None, trace_bookkeeping_bytes=None,
+        loop_delay=dict(samples=0, total_ns=0, maximum_ns=0, bucket_counts=[0] * 9),
         handlers_started=0, handlers_completed=0, handlers_failed=0,
         handlers_cancelled=0, handler_wall_ns_sum=0, handler_wall_ns_max=0)
+
+    stats["work"] = dict(active_tasks=0, active_invocations=0, resident_objects=0, pending_retirements=0)
+
+    def sample(final=False):
+        metrics = stats["interpreter"]
+        metrics.update(thread_cpu_ns=time.thread_time_ns() - cpu_started,
+            wall_ns=time.perf_counter_ns() - wall_started,
+            process_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024),
+            allocated_blocks_current=sys.getallocatedblocks())
+        if final:
+            metrics["allocated_blocks_final"] = metrics["allocated_blocks_current"]
+        if _memory_tracer is not None and _memory_tracer.is_tracing():
+            metrics["traced_current_bytes"], metrics["traced_peak_bytes"] = _memory_tracer.get_traced_memory()
+            metrics["trace_bookkeeping_bytes"] = _memory_tracer.get_tracemalloc_memory()
+        else:
+            metrics.update(traced_current_bytes=None, traced_peak_bytes=None, trace_bookkeeping_bytes=None)
+        inbox.sample(json.dumps({"interpreter": metrics, "work": stats["work"]}))
 
     def exception_handler(loop, details):
         # Never log application exception repr, task locals or traceback paths.
@@ -185,7 +252,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
 
     loop.set_exception_handler(exception_handler)
     loop.set_task_factory(task_factory)
-    serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, max_tasks))
+    serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, max_tasks, telemetry, sample))
     cleanup_stage = "serve"
     try:
         try:
@@ -216,12 +283,14 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
         cleanup_stage = "executor"
         loop.run_until_complete(loop.shutdown_default_executor(timeout=shutdown))
         stats["pending_tasks"] = max(stats["pending_tasks"], len(asyncio.all_tasks(loop)))
+        stats["work"]["active_tasks"] = len(asyncio.all_tasks(loop))
         stats["pending_threads"] = sum(thread is not threading.main_thread() for thread in threading.enumerate())
         return stats
     except BaseException as error:
         stats["runtime_failed"] = True
         stats["runtime_failure_stage"] = cleanup_stage + ("_interrupt" if isinstance(error, KeyboardInterrupt) else "_failure")
         stats["pending_tasks"] = max(stats["pending_tasks"], len(asyncio.all_tasks(loop)))
+        stats["work"]["active_tasks"] = len(asyncio.all_tasks(loop))
         stats["pending_threads"] = sum(thread is not threading.main_thread() for thread in threading.enumerate())
         return stats
     finally:
@@ -230,8 +299,4 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
         loop.close()
         stats.update(_failures)
         stats["runtime_failed"] |= any(_failures.values())
-        stats["interpreter"].update(
-            thread_cpu_ns=time.thread_time_ns() - cpu_started,
-            wall_ns=time.perf_counter_ns() - wall_started,
-            process_peak_rss_bytes=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * (1 if sys.platform == "darwin" else 1024),
-            allocated_blocks_final=sys.getallocatedblocks())
+        sample(final=True)
