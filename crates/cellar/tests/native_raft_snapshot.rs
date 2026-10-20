@@ -135,6 +135,236 @@ async fn native_snapshot_admission_refuses_insufficient_restore_capacity() -> Re
     Ok(())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn missing_quorum_restore_refused() -> Result<()> {
+    use cellar::sdk::consensus::*;
+    use std::{sync::atomic::AtomicUsize, time::Duration};
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let definitions = (0..3)
+        .map(|_| public_node::counter(Arc::new(AtomicUsize::new(0)), gate.clone()))
+        .collect::<Result<Vec<_>>>()?;
+    let mut namespace = native_snapshot_config();
+    namespace.schema_digest = definitions[0].schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace: namespace.clone(),
+        class: "Counter".into(),
+        birth: native_snapshot_birth("Counter:quorum-restore", 19),
+    };
+    let cluster = cluster::Cluster::start(&definitions, vec![registration.clone()], 20).await?;
+    let handles = cluster
+        .services
+        .iter()
+        .map(|service| service.cell(namespace.namespace, &registration.birth.scope.cell))
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            for (index, handle) in handles.iter().enumerate() {
+                if handle
+                    .status()
+                    .await
+                    .is_ok_and(|status| status.command_ready)
+                {
+                    return index;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    let receipt = handles[primary]
+        .command(
+            definitions[primary].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+    let selected = Catalog::new(
+        cluster.store.clone(),
+        CatalogOptions {
+            prefix: "partition/test".into(),
+            ..Default::default()
+        },
+    )?
+    .existing_namespace(namespace.clone())
+    .await?;
+    let birth = selected
+        .birth(&registration.birth.scope.cell)
+        .await?
+        .context("missing birth")?;
+    let archive = selected.cell_archive(
+        &birth,
+        cellar_ltx::LtxHost::default(),
+        ArchiveLimits::default(),
+    )?;
+    let set = archive
+        .recovery_set()
+        .await?
+        .context("S3 acknowledgement has no archive")?;
+    ensure!(set.position().index >= receipt.version.position.index);
+    let archived = set.position();
+    // Retain a real voter and available archive bytes, but remove both other
+    // consensus owners. No bucket record may replace their missing votes.
+    for (index, service) in cluster.services.iter().enumerate() {
+        if index != primary {
+            ensure!(service.close().await?.unfinished.is_empty());
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let read = handles[primary]
+        .query(
+            definitions[primary].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                timeout: Duration::from_millis(400),
+                ..Default::default()
+            },
+        )
+        .await;
+    ensure!(
+        matches!(read, Err(CommandFailure::VersionUnavailable)),
+        "S3 bytes established a strong-read barrier without quorum"
+    );
+    let historical = handles[primary]
+        .query(
+            definitions[primary].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Stale,
+                stale_policy: StaleReadPolicy::DisconnectedHistorical,
+                ..Default::default()
+            },
+        )
+        .await?;
+    assert_eq!(historical.result, 1_i64.to_be_bytes());
+    let mut options = public_node::options(2)?;
+    options.durability = Durability::S3;
+    options.timeout = Duration::from_millis(400);
+    ensure!(
+        handles[primary]
+            .command(
+                definitions[primary].increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                options
+            )
+            .await
+            .is_err(),
+        "S3 availability acknowledged a command without quorum"
+    );
+    assert_eq!(
+        archive
+            .recovery_set()
+            .await?
+            .context("archive disappeared")?
+            .position(),
+        archived
+    );
+
+    // Physically restore the archived cell image into blank replacement node
+    // directories. Neither the old disk identity, a different disk identity,
+    // nor an unassigned node can turn those bytes into normal membership.
+    for (node_id, disk, expected) in [(1u8, 10u8, "lost"), (1, 91, "claim"), (4, 94, "member")] {
+        let root = tempfile::tempdir()?;
+        let image_dir = root
+            .path()
+            .join("raft-cells")
+            .join(hex::encode(namespace.namespace.bytes()))
+            .join(hex::encode(registration.birth.scope.group.bytes()))
+            .join(hex::encode(registration.birth.scope.incarnation.bytes()));
+        let images =
+            GenerationStore::open(image_dir, Arc::new(DirectFileSystem), Default::default())?;
+        let restored = set.restore(&images, images::id(91))?;
+        assert_eq!(value(restored)?, 1);
+        drop(images);
+        let node = public_node::node_named(
+            root.path(),
+            definitions[0].application.clone(),
+            &format!("raft-node-{node_id}"),
+        )
+        .await?;
+        let result = node
+            .start_raft_cells(
+                RaftCellsConfig {
+                    infrastructure: cellar::sdk::NodeRaftConfig {
+                        log: ReplicaLogOptions::new(
+                            node.info().data_dir.join("raft"),
+                            NodeId::new([node_id; 16])?,
+                            DiskLineage::new([disk; 16])?,
+                            ProcessGeneration::new([99; 16])?,
+                            LogOpenMode::Create,
+                        ),
+                        consensus: RaftRuntimeOptions {
+                            tick_interval_ms: Some(20),
+                            ..Default::default()
+                        },
+                        transport: TransportOptions::default(),
+                    },
+                    catalog: CatalogOptions {
+                        prefix: "partition/test".into(),
+                        ..Default::default()
+                    },
+                    cells: vec![registration.clone()],
+                    peers: vec![],
+                    query_origins: vec![],
+                    host: Default::default(),
+                },
+                RaftCellsServices {
+                    listeners: cellar::sdk::NodeRaftListeners {
+                        control: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+                        data: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+                        query: tokio::net::TcpListener::bind("127.0.0.1:0").await?,
+                    },
+                    tls: public_node::tls()?,
+                    store: cluster.store.clone(),
+                    application: definitions[0].application.clone(),
+                    versions: public_node::version_keys()?,
+                },
+            )
+            .await;
+        let error = match result {
+            Ok(service) => {
+                service.close().await?;
+                anyhow::bail!("restored bytes admitted unauthorized member");
+            }
+            Err(error) => error,
+        };
+        ensure!(
+            error.chain().any(|cause| matches!(
+                (expected, cause.downcast_ref::<CatalogError>()),
+                ("lost", Some(CatalogError::LostStableState))
+                    | ("claim", Some(CatalogError::Conflict(_)))
+                    | ("member", Some(CatalogError::NotInitialMember))
+            )),
+            "unexpected replacement refusal: {error:#}"
+        );
+        let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+        let log = domain
+            .run(ReplicaLog::open(
+                ReplicaLogOptions::new(
+                    node.info().data_dir.join("raft"),
+                    NodeId::new([node_id; 16])?,
+                    DiskLineage::new([disk; 16])?,
+                    ProcessGeneration::new([100; 16])?,
+                    LogOpenMode::Resume,
+                ),
+                Arc::new(DirectFileSystem),
+            ))
+            .await??;
+        ensure!(
+            log.groups()?.is_empty(),
+            "failed restore manufactured a group or voting state"
+        );
+        log.close().await?;
+        domain.shutdown().await;
+        node.shutdown(cellar::sdk::ShutdownMode::Preserve).await?;
+    }
+    cluster.close().await
+}
+
 async fn native_snapshot_drill(interrupt: bool, close_pending: bool) -> Result<()> {
     use cellar::sdk::consensus::*;
     use std::{
