@@ -409,3 +409,20 @@ MR-10. Automatic fresh-member recovery, quorum-loss refusal and full native-host
 lifecycle qualification remain unfinished. The component process-kill matrix
 covers image sync/rename/directory sync, engine sync/reply and publication. The owning verification
 target is `native_raft_snapshot`; this component does not complete MR-10.
+
+
+`RaftRuntime::checkpoint` admits metadata and a verified pin into a dedicated
+storage phase; encoded image bytes stay outside consensus queues. Busy Ready/apply
+state is refused promptly. `Checkpointed` follows sync and the monotonic retained
+reference handoff, including while closing. Prospective references preserve image
+bytes across uncertain I/O while the previous durable reference remains protected.
+Stale retirement cannot revoke either reference. Physical incoming completions
+carry the same no-I/O handoff capability bound to their exact ticket and digest.
+
+Empty/configuration-only snapshot descriptors carry no image or encoded payload.
+They preserve configuration/index/term without allocating a SQLite database; the
+first committed LTX update can subsequently establish the initial image.
+`recovery.rs` validates coherent engine-selected reference sets before startup GC.
+Native checkpoint scheduling, authenticated snapshot transfer and authorized
+replacement-member admission are still MR-10 work; these component APIs alone do
+not enable automatic compaction in the production host.

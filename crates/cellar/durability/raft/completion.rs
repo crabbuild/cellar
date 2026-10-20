@@ -96,6 +96,9 @@ pub struct ApplyCompletion {
 pub struct SnapshotCompletion {
     pub ticket: ApplyTicket,
     pub applied: DurableApply,
+    /// Physical producers supply this capability for the post-sync retention
+    /// handoff. None is reserved for trusted mechanical engine fixtures.
+    pub reference: Option<super::snapshot::SnapshotReference>,
 }
 
 /// Proposal admission is provisional; it proves neither commit nor command success.
@@ -178,6 +181,9 @@ pub enum RuntimeEventKind {
         ticket: ApplyTicket,
         applied: DurableApply,
     },
+    Checkpointed {
+        ticket: ApplyTicket,
+    },
     Failed {
         replica: ReplicaIdentity,
         error: RuntimeError,
@@ -220,6 +226,7 @@ impl RuntimeEventKind {
             Self::Snapshot { snapshot, .. } => snapshot.compute_size() as usize,
             Self::ReadIndex { context, .. } => context.len(),
             Self::Applied { .. }
+            | Self::Checkpointed { .. }
             | Self::SnapshotInstalled { .. }
             | Self::Failed { .. }
             | Self::Persisted { .. } => 1024,

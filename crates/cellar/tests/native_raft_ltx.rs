@@ -19,6 +19,109 @@ fn checksum(pages: &[(u32, Vec<u8>)]) -> u64 {
     })
 }
 
+#[test]
+fn monotonic_generation_reference_survives_retirement_without_io() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let faults = fault::Faults::new(root.path().join("images"), None);
+    let store = GenerationStore::open(
+        root.path().join("images"),
+        Arc::new(fault::FaultFileSystem {
+            faults: faults.clone(),
+        }),
+        GenerationLimits::default(),
+    )?;
+    let bytes = fixture::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(1)",
+    )?;
+    let first_cut = fixture::Cut::new(&[], &bytes, 0, true, true);
+    let first = store.prepare(fixture::id(1), None, &first_cut.update())?;
+    let next = fixture::image(Some(&bytes), "UPDATE counter SET value=2")?;
+    let second_cut = fixture::Cut::new(&bytes, &next, 1, true, true);
+    let second = store.prepare(fixture::id(2), Some(&first), &second_cut.update())?;
+    let second_state = second.state();
+    faults
+        .fail_reads
+        .store(true, std::sync::atomic::Ordering::Release);
+    let before = faults.events.lock().unwrap().clone();
+    assert!(first.retain_reference(7, 2)?);
+    assert!(first.retain_reference(7, 2)?);
+    assert!(!second.retain_reference(7, 1)?);
+    assert!(matches!(
+        second.retain_reference(7, 2),
+        Err(GenerationError::Identity)
+    ));
+    assert!(matches!(
+        first.retain_reference(0, 2),
+        Err(GenerationError::Identity)
+    ));
+    assert!(matches!(
+        first.retain_reference(7, 0),
+        Err(GenerationError::Identity)
+    ));
+    assert_eq!(
+        *faults.events.lock().unwrap(),
+        before,
+        "reference handoff must not perform file I/O"
+    );
+    store.retire(first.id())?;
+    store.retire(second.id())?;
+    let delayed = first.clone();
+    drop(first);
+    assert_eq!(
+        store.reclaim(8)?.files,
+        0,
+        "named reference and second live pin both protect bytes"
+    );
+    assert!(second.retain_reference(7, 3)?);
+    assert!(!delayed.release_reference(7, 2)?);
+    drop(delayed);
+    drop(second);
+    assert_eq!(
+        store.reclaim(8)?.files,
+        1,
+        "a replacement releases only the older reference"
+    );
+    assert_eq!(store.usage()?.retained, 1);
+    assert_eq!(store.usage()?.generations, 1);
+    let pin = store.adopt(fixture::id(2), second_state)?;
+    for reference in 1..=64 {
+        assert!(pin.retain_reference(reference, 3)?);
+    }
+    assert!(matches!(
+        pin.retain_reference(65, 3),
+        Err(GenerationError::Limit)
+    ));
+    for reference in 1..=64 {
+        assert!(pin.release_reference(reference, 3)?);
+    }
+    store.retire(pin.id())?;
+    drop(pin);
+    assert_eq!(store.reclaim(8)?.files, 1);
+    faults
+        .fail_reads
+        .store(false, std::sync::atomic::Ordering::Release);
+    let different = fixture::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(99)",
+    )?;
+    let cut = fixture::Cut::new(&[], &different, 0, true, true);
+    let replacement = store.prepare(fixture::id(2), None, &cut.update())?;
+    assert!(
+        matches!(
+            replacement.retain_reference(7, 3),
+            Err(GenerationError::Identity)
+        ),
+        "a reused name cannot reinterpret an equal revision's image state"
+    );
+    assert!(matches!(
+        replacement.release_reference(7, 3),
+        Err(GenerationError::Identity)
+    ));
+    assert!(replacement.retain_reference(7, 4)?);
+    Ok(())
+}
+
 fn encode(pages: &[(u32, Vec<u8>)], commit: u32, no_checksum: bool, block: bool) -> Vec<u8> {
     let header = Header {
         version: ltx::VERSION,

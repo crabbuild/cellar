@@ -214,7 +214,7 @@ impl Cluster {
                     RuntimeEventKind::Failed { error, .. } => {
                         bail!("runtime group failed: {error}")
                     }
-                    RuntimeEventKind::ReadIndex { .. } => (),
+                    RuntimeEventKind::ReadIndex { .. } | RuntimeEventKind::Checkpointed { .. } => {}
                 }
             }
         }

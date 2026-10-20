@@ -102,8 +102,16 @@ struct Entry {
     charged: u64,
 }
 
+struct RetainedReference {
+    revision: u64,
+    image: ImageId,
+    state: ImageState,
+    active: bool,
+}
+
 struct State {
     entries: BTreeMap<ImageId, Entry>,
+    references: BTreeMap<u64, RetainedReference>,
     bytes: u64,
     quarantined: bool,
 }
@@ -136,6 +144,89 @@ impl GenerationPin {
 
     pub fn state(&self) -> ImageState {
         self.image.state
+    }
+
+    /// Select this verified image for an authoritative, monotonically revised
+    /// reference. This performs no I/O. At most 64 distinct nonzero reference
+    /// keys are admitted per store. A stale revision returns false; an equal
+    /// revision naming different bytes is refused. Retirement cannot revoke a
+    /// selected reference, even after all pins are dropped. The host reconstructs
+    /// these references from durable markers before recovery reclamation.
+    pub fn retain_reference(&self, reference: u64, revision: u64) -> Result<bool, GenerationError> {
+        if reference == 0 || revision == 0 {
+            return Err(GenerationError::Identity);
+        }
+        let store = GenerationStore {
+            inner: self.inner.clone(),
+        };
+        let mut state = store.lock()?;
+        let entry = state
+            .entries
+            .get(&self.id())
+            .ok_or(GenerationError::Missing)?;
+        if entry.busy {
+            return Err(GenerationError::Busy);
+        }
+        if !entry
+            .image
+            .as_ref()
+            .is_some_and(|image| Arc::ptr_eq(image, &self.image))
+        {
+            return Err(GenerationError::Identity);
+        }
+        if let Some(current) = state.references.get(&reference) {
+            if current.revision > revision {
+                return Ok(false);
+            }
+            if current.revision == revision
+                && (current.image != self.id() || current.state != self.state())
+            {
+                return Err(GenerationError::Identity);
+            }
+        } else if state.references.len() >= 64 {
+            return Err(GenerationError::Limit);
+        }
+        state.references.insert(
+            reference,
+            RetainedReference {
+                revision,
+                image: self.id(),
+                state: self.state(),
+                active: true,
+            },
+        );
+        Ok(true)
+    }
+
+    /// Release only this exact reference revision. Its tombstone prevents a
+    /// delayed release from revoking a newer selection. No I/O is performed.
+    pub fn release_reference(
+        &self,
+        reference: u64,
+        revision: u64,
+    ) -> Result<bool, GenerationError> {
+        if reference == 0 || revision == 0 {
+            return Err(GenerationError::Identity);
+        }
+        let store = GenerationStore {
+            inner: self.inner.clone(),
+        };
+        let mut state = store.lock()?;
+        let current = state
+            .references
+            .get_mut(&reference)
+            .ok_or(GenerationError::Identity)?;
+        if current.revision > revision {
+            return Ok(false);
+        }
+        if current.revision != revision
+            || current.image != self.id()
+            || current.state != self.state()
+        {
+            return Err(GenerationError::Identity);
+        }
+        current.active = false;
+        Ok(true)
     }
 
     pub fn open_reader(&self) -> Result<GenerationReader, GenerationError> {
@@ -269,6 +360,7 @@ impl GenerationStore {
                 limits,
                 state: Mutex::new(State {
                     entries,
+                    references: BTreeMap::new(),
                     bytes,
                     quarantined: false,
                 }),
@@ -494,7 +586,7 @@ impl GenerationStore {
     /// After recovery has adopted every authoritative durable reference, retire
     /// the remaining inventory. This never selects a reference from filenames.
     /// Call only with the complete marker/archive reference set and no pending
-    /// publication. Live reader/worker pins still prevent physical reclamation.
+    /// publication. Live pins and monotonic references still prevent reclamation.
     pub fn retain_only(&self, references: &[ImageId]) -> Result<(), GenerationError> {
         let mut state = self.lock()?;
         if references.len() > self.inner.limits.max_generations {
@@ -531,9 +623,13 @@ impl GenerationStore {
                 let selected = state
                     .entries
                     .iter()
-                    .find(|(_, e)| {
+                    .find(|(id, e)| {
                         !e.retained
                             && !e.busy
+                            && state
+                                .references
+                                .values()
+                                .all(|reference| !reference.active || reference.image != **id)
                             && e.image.as_ref().is_none_or(|p| Arc::strong_count(p) == 1)
                     })
                     .map(|(id, _)| *id);
@@ -592,7 +688,17 @@ impl GenerationStore {
         Ok(GenerationUsage {
             generations: state.entries.len(),
             bytes: state.bytes,
-            retained: state.entries.values().filter(|e| e.retained).count(),
+            retained: state
+                .entries
+                .iter()
+                .filter(|(id, entry)| {
+                    entry.retained
+                        || state
+                            .references
+                            .values()
+                            .any(|reference| reference.active && reference.image == **id)
+                })
+                .count(),
             busy: state.entries.values().filter(|e| e.busy).count(),
         })
     }

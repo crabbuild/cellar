@@ -1232,7 +1232,14 @@
         "crates/cellar/node/embedded.rs",
         "crates/cellar/durability/raft/host_sql.rs",
         "crates/cellar/durability/raft/mod.rs",
-        "crates/cellar/application/consensus/mod.rs"
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/tests/support/raft_runtime_fixture.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",

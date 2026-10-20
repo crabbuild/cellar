@@ -18,6 +18,7 @@ use cellar::sdk::ExecutionDomain;
 use cellar_logic::consensus::*;
 use cellar_ltx::generation::{GenerationLimits, GenerationPin, GenerationStore};
 use cellar_ltx::{DirectFileSystem, FileSystem};
+use protobuf::Message as _;
 use raft::{prelude::Entry, Storage};
 use std::{path::Path, sync::Arc};
 
@@ -54,6 +55,50 @@ struct Fixture {
 }
 
 impl Fixture {
+    async fn empty_configuration_cut(&self) -> Result<()> {
+        let mut conf = self.group.initial_state()?.conf_state;
+        conf.learners = vec![4];
+        let change = raft::prelude::ConfChangeV2 {
+            changes: vec![raft::prelude::ConfChangeSingle {
+                node_id: 4,
+                change_type: raft::prelude::ConfChangeType::AddLearnerNode,
+                ..Default::default()
+            }]
+            .into(),
+            ..Default::default()
+        };
+        let mut write = GroupWrite::new(&self.group);
+        write.entries = vec![
+            Entry {
+                index: 2,
+                term: 2,
+                ..Default::default()
+            },
+            Entry {
+                index: 3,
+                term: 2,
+                entry_type: raft::prelude::EntryType::EntryConfChangeV2,
+                data: change.write_to_bytes()?.into(),
+                ..Default::default()
+            },
+        ];
+        let mut hard = self.group.initial_state()?.hard_state;
+        hard.term = 2;
+        hard.vote = 1;
+        hard.commit = 3;
+        write.hard_state = Some(hard);
+        write.conf_state = Some(conf);
+        write.applied = Some(DurableApply {
+            position: LogPosition {
+                index: LogIndex::new(3),
+                term: Term::new(2),
+            },
+            image: None,
+        });
+        self.log.persist(OperationId::new(8), vec![write]).await?;
+        Ok(())
+    }
+
     async fn open(root: &Path, member: u8, mode: LogOpenMode) -> Result<Self> {
         Self::with_filesystems(
             root,
@@ -207,7 +252,7 @@ impl Fixture {
             snapshot,
             applied: DurableApply {
                 position,
-                image: Some(marker(&package.source_pin())),
+                image: package.source_pin().as_ref().map(marker),
             },
         });
         let mut hard = self.group.initial_state()?.hard_state;
@@ -244,6 +289,398 @@ fn value(pin: GenerationPin) -> Result<i64> {
     Ok(query
         .connection()
         .query_row("SELECT value FROM counter", [], |row| row.get(0))?)
+}
+
+async fn checkpointed(events: &mut RuntimeEvents) -> Result<ApplyTicket> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            match events.recv().await {
+                Some(RuntimeEvent {
+                    kind: RuntimeEventKind::Checkpointed { ticket },
+                    ..
+                }) => return Ok(ticket),
+                Some(RuntimeEvent {
+                    kind: RuntimeEventKind::Failed { error, .. },
+                    ..
+                }) => anyhow::bail!("checkpoint failed: {error}"),
+                Some(_) => (),
+                None => anyhow::bail!("checkpoint event stream closed"),
+            }
+        }
+    })
+    .await?
+}
+
+fn runtime_options() -> RaftRuntimeOptions {
+    RaftRuntimeOptions {
+        tick_interval_ms: None,
+        election_seed: Some([18; 32]),
+        ..Default::default()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn empty_configuration_snapshot_installs_then_applies_first_ltx() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let target = Fixture::open(&root.path().join("target"), 3, LogOpenMode::Create).await?;
+    source.empty_configuration_cut().await?;
+    let package =
+        SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    assert!(package.source_pin().is_none());
+    assert_eq!(package.encoded_length(), 0);
+    let (source_runtime, mut source_events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    source_runtime
+        .checkpoint(package.checkpoint_material())
+        .await?;
+    assert_eq!(
+        checkpointed(&mut source_events)
+            .await?
+            .position()
+            .index
+            .get(),
+        3
+    );
+    assert_eq!(source.images.usage()?.generations, 0);
+    let (runtime, mut events) = target
+        .domain
+        .run(RaftRuntime::start(target.log.clone(), runtime_options()))
+        .await??;
+    let mut applier = target.applier()?;
+    let mut message = raft::prelude::Message {
+        from: 1,
+        to: 3,
+        term: 2,
+        ..Default::default()
+    };
+    message.set_msg_type(raft::prelude::MessageType::MsgSnapshot);
+    message.set_snapshot(package.snapshot());
+    runtime.step(&scope(), message).await?;
+    let mut prepared = None;
+    let mut installed = false;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !installed && tokio::time::Instant::now() < deadline {
+        if let Ok(event) = events.try_recv() {
+            match event.kind {
+                RuntimeEventKind::Snapshot { ticket, snapshot } => {
+                    let image = SnapshotDownload::new(
+                        &target.group,
+                        [9; 32],
+                        snapshot,
+                        SnapshotLimits::default(),
+                    )?
+                    .finish(&target.images)?;
+                    let completion = image.completion(&ticket)?;
+                    assert!(completion.applied.image.is_none());
+                    runtime.complete_snapshot(completion).await?;
+                    prepared = Some(image);
+                }
+                RuntimeEventKind::SnapshotInstalled { .. } => {
+                    prepared.take().unwrap().publish_empty(&mut applier)?;
+                    installed = true;
+                }
+                RuntimeEventKind::Failed { error, .. } => {
+                    anyhow::bail!("empty snapshot failed: {error}")
+                }
+                _ => (),
+            }
+        }
+        tokio::task::yield_now().await;
+    }
+    ensure!(installed, "empty snapshot must install");
+    assert!(applier.current().is_none());
+    assert_eq!(target.images.usage()?.generations, 0);
+    assert_eq!(target.group.initial_state()?.conf_state.learners, vec![4]);
+    assert_eq!(target.group.applied()?.position.index.get(), 3);
+
+    let bytes = images::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(1)",
+    )?;
+    let cut = images::Cut::new(&[], &bytes, 0, true, true);
+    let mut message = raft::prelude::Message {
+        from: 1,
+        to: 3,
+        term: 2,
+        index: 3,
+        log_term: 2,
+        commit: 4,
+        entries: vec![Entry {
+            index: 4,
+            term: 2,
+            data: source.payload(&cut)?.into(),
+            ..Default::default()
+        }]
+        .into(),
+        ..Default::default()
+    };
+    message.set_msg_type(raft::prelude::MessageType::MsgAppend);
+    runtime.step(&scope(), message).await?;
+    let mut applied = false;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !applied && tokio::time::Instant::now() < deadline {
+        if let Ok(event) = events.try_recv() {
+            match event.kind {
+                RuntimeEventKind::Apply { ticket, entry } => {
+                    runtime
+                        .complete_apply(applier.prepare(ticket, &entry, images::id(1))?)
+                        .await?;
+                }
+                RuntimeEventKind::Applied { ticket, .. } => {
+                    assert_eq!(value(applier.publish(&ticket)?.pin())?, 1);
+                    applied = true;
+                }
+                RuntimeEventKind::Failed { error, .. } => {
+                    anyhow::bail!("first image failed: {error}")
+                }
+                _ => (),
+            }
+        }
+        tokio::task::yield_now().await;
+    }
+    ensure!(applied, "first LTX command after empty install must apply");
+    runtime.close().await?;
+    source_runtime.close().await?;
+    drop(applier);
+    drop(prepared);
+    drop(package);
+    source.close().await?;
+    target.close().await?;
+    let target = Fixture::open(&root.path().join("target"), 3, LogOpenMode::Resume).await?;
+    assert_eq!(value(target.applier()?.current().unwrap().pin())?, 1);
+    assert_eq!(target.group.snapshot(0, 1)?.get_metadata().index, 3);
+    assert_eq!(target.images.usage()?.generations, 1);
+    target.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn empty_snapshot_refuses_data_and_cannot_erase_committed_image() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let source = Fixture::open(&root.path().join("source"), 1, LogOpenMode::Create).await?;
+    let mut target = Fixture::open(&root.path().join("target"), 2, LogOpenMode::Create).await?;
+    source.empty_configuration_cut().await?;
+    target.commit(9).await?;
+    ensure!(
+        SnapshotPackage::capture_empty(&target.group, [9; 32], SnapshotLimits::default()).is_err()
+    );
+    let package =
+        SnapshotPackage::capture_empty(&source.group, [9; 32], SnapshotLimits::default())?;
+    let mut download = SnapshotDownload::new(
+        &target.group,
+        [9; 32],
+        package.snapshot(),
+        SnapshotLimits::default(),
+    )?;
+    ensure!(download.append(0, &[1]).is_err());
+    let prepared = download.finish(&target.images)?;
+    let mut applier = target.applier()?;
+    ensure!(prepared.publish_empty(&mut applier).is_err());
+    ensure!(target.install(&package).await.is_err());
+    assert_eq!(value(applier.current().unwrap().pin())?, 9);
+    assert_eq!(target.group.applied()?.position.index.get(), 2);
+    drop(applier);
+    drop(package);
+    source.close().await?;
+    target.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn checkpoint_handoff_survives_newer_apply_late_retirement_and_restart() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let gate = log_fault::Gate::new(None);
+    let mut source = Fixture::with_filesystems(
+        root.path(),
+        1,
+        LogOpenMode::Create,
+        Arc::new(DirectFileSystem),
+        Arc::new(log_fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    source.commit(1).await?;
+    let package = source.package()?;
+    let checkpoint = package.checkpoint_material();
+    let old_state = package.source_pin().unwrap().state();
+    source.commit(2).await?;
+    assert_eq!(value(source.applier()?.current().unwrap().pin())?, 2);
+    drop(package);
+    source.images.retire(images::id(1))?;
+    let (runtime, mut events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    let release = gate.arm(log_fault::HOLD_SYNC);
+    runtime.checkpoint(checkpoint).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(10), gate.entered.notified()).await?;
+    assert_eq!(source.group.snapshot(0, 1)?.get_metadata().index, 1);
+    assert!(
+        events.try_recv().is_err(),
+        "unsynced checkpoint must not report completion"
+    );
+    assert_eq!(source.images.reclaim(4096)?.files, 0);
+    drop(release);
+    let ticket = checkpointed(&mut events).await?;
+    assert_eq!(ticket.position().index.get(), 2);
+    assert_eq!(source.group.snapshot(0, 1)?.get_metadata().index, 2);
+    assert_eq!(source.group.applied()?.position.index.get(), 3);
+    // A publisher that captured older metadata can retire after checkpoint sync.
+    // The independent reference, not a retained process-local pin, must win.
+    source.images.retire(images::id(1))?;
+    assert_eq!(source.images.reclaim(4096)?.files, 0);
+    let old = source.images.adopt(images::id(1), old_state)?;
+    assert_eq!(value(old.clone())?, 1);
+    drop(old);
+    assert!(
+        !runtime.status(&scope()).await?.protocol_ready,
+        "a local checkpoint is not leader authority"
+    );
+    runtime.close().await?;
+    source.close().await?;
+
+    let source = Fixture::open(root.path(), 1, LogOpenMode::Resume).await?;
+    let mut applier = source.applier()?;
+    assert_eq!(value(applier.current().unwrap().pin())?, 2);
+    assert_eq!(source.images.usage()?.generations, 2);
+    let package = source.package()?;
+    let (runtime, mut events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    runtime.checkpoint(package.checkpoint_material()).await?;
+    assert_eq!(checkpointed(&mut events).await?.position().index.get(), 3);
+    applier.refresh_snapshot()?;
+    source.images.retire(images::id(1))?;
+    assert_eq!(source.images.reclaim(4096)?.files, 1);
+    assert_eq!(source.images.usage()?.generations, 1);
+    runtime.close().await?;
+    drop(package);
+    drop(applier);
+    source.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn checkpoint_completion_loss_still_retains_durable_image() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut source = Fixture::open(root.path(), 1, LogOpenMode::Create).await?;
+    source.commit(1).await?;
+    let package = source.package()?;
+    let checkpoint = package.checkpoint_material();
+    source.commit(2).await?;
+    drop(source.applier()?);
+    drop(package);
+    let (runtime, events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    // The runtime must settle retention at storage completion, independently of
+    // whether its consumer polls or retains the eventual notification.
+    runtime.checkpoint(checkpoint).await?;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while source.group.snapshot(0, 1)?.get_metadata().index != 2 {
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "checkpoint did not sync"
+        );
+        tokio::task::yield_now().await;
+    }
+    runtime.close().await?;
+    drop(events);
+    source.images.retire(images::id(1))?;
+    source.images.reclaim(4096)?;
+    assert_eq!(source.images.usage()?.generations, 2);
+    source.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn checkpoint_refuses_material_from_reopened_engine() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let mut source = Fixture::open(root.path(), 1, LogOpenMode::Create).await?;
+    source.commit(1).await?;
+    let package = source.package()?;
+    let checkpoint = package.checkpoint_material();
+    source.log.close().await?;
+    source.log = source
+        .domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                root.path().join("raft"),
+                NodeId::new([1; 16])?,
+                DiskLineage::new([41; 16])?,
+                ProcessGeneration::new([99; 16])?,
+                LogOpenMode::Resume,
+            ),
+            Arc::new(DirectFileSystem),
+        ))
+        .await??;
+    source.group = source.log.group(&scope())?;
+    let (runtime, _events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    ensure!(matches!(
+        runtime.checkpoint(checkpoint).await,
+        Err(RuntimeError::Invalid(_))
+    ));
+    assert_eq!(source.group.snapshot(0, 1)?.get_metadata().index, 1);
+    assert_eq!(value(source.applier()?.current().unwrap().pin())?, 1);
+    runtime.close().await?;
+    drop(package);
+    source.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn checkpoint_failed_sync_preserves_prospective_recovery_image() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let gate = log_fault::Gate::new(None);
+    let mut source = Fixture::with_filesystems(
+        root.path(),
+        1,
+        LogOpenMode::Create,
+        Arc::new(DirectFileSystem),
+        Arc::new(log_fault::FaultFileSystem { gate: gate.clone() }),
+    )
+    .await?;
+    source.commit(1).await?;
+    let package = source.package()?;
+    let checkpoint = package.checkpoint_material();
+    source.commit(2).await?;
+    drop(source.applier()?);
+    drop(package);
+    source.images.retire(images::id(1))?;
+    let (runtime, _events) = source
+        .domain
+        .run(RaftRuntime::start(source.log.clone(), runtime_options()))
+        .await??;
+    let _release = gate.arm(log_fault::FAIL_SYNC);
+    runtime.checkpoint(checkpoint).await?;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    while runtime.status(&scope()).await.is_ok() {
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "failed checkpoint must close consensus"
+        );
+        tokio::task::yield_now().await;
+    }
+    ensure!(runtime.close().await.is_err());
+    ensure!(source.log.close().await.is_err());
+    source.domain.shutdown().await;
+    // The write may have reached the engine despite its failed sync response.
+    // Joining and losing the producer must not make those image bytes reclaimable.
+    source.images.retire(images::id(1))?;
+    assert_eq!(source.images.reclaim(4096)?.files, 0);
+    assert_eq!(source.images.usage()?.generations, 2);
+    drop(source);
+    let source = Fixture::open(root.path(), 1, LogOpenMode::Resume).await?;
+    assert_eq!(value(source.applier()?.current().unwrap().pin())?, 2);
+    let index = source.group.snapshot(0, 1)?.get_metadata().index;
+    ensure!(index == 1 || index == 2);
+    assert_eq!(
+        source.images.usage()?.generations,
+        if index == 1 { 1 } else { 2 }
+    );
+    source.close().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -533,7 +970,11 @@ async fn snapshot_runtime_installs_physical_image_with_exact_ticket() -> Result<
                     RuntimeEventKind::SnapshotInstalled { ticket, applied } => {
                         assert_eq!(node, 2);
                         assert_eq!(ticket.position(), applied.position);
-                        let image = prepared.take().unwrap().publish(&mut applier)?;
+                        target.images.retire(images::id(2))?;
+                        drop(prepared.take().unwrap());
+                        assert_eq!(target.images.reclaim(4096)?.files, 0,
+                            "durable retention must outlive the transfer owner and delayed retirement");
+                        let image = download(&package, &target)?.publish(&mut applier)?;
                         assert_eq!(value(image.pin())?, 2);
                         installed = true;
                     }
@@ -618,6 +1059,16 @@ async fn restart_committed_replay() -> Result<()> {
             match event.kind {
                 RuntimeEventKind::Apply { ticket, entry } => {
                     assert_eq!(entry.index, 3, "the uncommitted suffix must never execute");
+                    let package = source.package()?;
+                    assert_eq!(
+                        tokio::time::timeout(
+                            std::time::Duration::from_secs(5),
+                            runtime.checkpoint(package.checkpoint_material())
+                        )
+                        .await?,
+                        Err(RuntimeError::NotReady),
+                        "checkpoint admission must not wait behind the apply it would block"
+                    );
                     let completion = applier.prepare(ticket, &entry, images::id(2))?;
                     runtime.complete_apply(completion).await?;
                 }

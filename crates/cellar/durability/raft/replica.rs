@@ -57,6 +57,11 @@ pub(crate) struct WriteTicket {
 
 enum Phase {
     Idle,
+    Checkpoint {
+        checkpoint: Box<super::snapshot::SnapshotCheckpoint>,
+        key: WriteTicket,
+        synced: bool,
+    },
     Ready {
         ready: Box<Ready>,
         key: WriteTicket,
@@ -87,6 +92,8 @@ pub(crate) struct Replica {
     apply_ticket: Option<ApplyTicket>,
     finished_apply: Option<ApplyCompletion>,
     snapshot_applied: Option<DurableApply>,
+    snapshot_reference: Option<super::snapshot::SnapshotReference>,
+    checkpoint: Option<Box<super::snapshot::SnapshotCheckpoint>>,
     pub ready_bytes: usize,
     pub apply_bytes: usize,
     last_sync: u64,
@@ -142,6 +149,8 @@ impl Replica {
             apply_ticket: None,
             finished_apply: None,
             snapshot_applied: None,
+            snapshot_reference: None,
+            checkpoint: None,
             ready_bytes: 0,
             apply_bytes: 0,
             last_sync: 0,
@@ -154,7 +163,7 @@ impl Replica {
     }
 
     pub fn idle(&self) -> bool {
-        matches!(self.phase, Phase::Idle) && self.outbound.is_empty()
+        matches!(self.phase, Phase::Idle) && self.outbound.is_empty() && self.checkpoint.is_none()
     }
 
     pub fn has_ready(&self) -> bool {
@@ -206,6 +215,20 @@ impl Replica {
             return Err(RuntimeError::NotReady);
         }
         match action {
+            GroupAction::Checkpoint(checkpoint) => {
+                if self.node.has_ready() || self.apply_ticket.is_some() || !self.apply.is_empty() {
+                    return Err(RuntimeError::NotReady);
+                }
+                checkpoint
+                    .validate(&self.log)
+                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                checkpoint
+                    .retain_pending()
+                    .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+                self.ready_bytes = checkpoint.bytes() + 4096;
+                self.checkpoint = Some(checkpoint);
+                Ok(Response::Unit)
+            }
             GroupAction::Campaign => {
                 self.check_counters()?;
                 self.node.campaign()?;
@@ -464,6 +487,19 @@ impl Replica {
         if let Some(image) = &completed.applied.image {
             image.validate()?;
         }
+        if completed
+            .reference
+            .as_ref()
+            .is_some_and(|reference| !reference.matches(&completed.ticket, &completed.applied))
+        {
+            return Err(RuntimeError::StaleCompletion);
+        }
+        if let Some(reference) = &completed.reference {
+            reference
+                .retain_pending()
+                .map_err(|error| RuntimeError::Invalid(error.to_string()))?;
+        }
+        self.snapshot_reference = completed.reference;
         self.snapshot_applied = Some(completed.applied);
         Ok(())
     }
@@ -478,6 +514,16 @@ impl Replica {
             {
                 *synced = true
             }
+            Phase::Checkpoint {
+                checkpoint,
+                key,
+                synced,
+            } if key == ticket => {
+                checkpoint.retain().map_err(|error| {
+                    RuntimeError::Storage(super::storage::LogError::Corrupt(error.to_string()))
+                })?;
+                *synced = true;
+            }
             Phase::Light {
                 key: Some(key),
                 synced,
@@ -485,6 +531,12 @@ impl Replica {
             } if key == ticket => *synced = true,
             _ => return Err(RuntimeError::StaleCompletion),
         }
+        if let Some(reference) = &self.snapshot_reference {
+            reference.retain().map_err(|error| {
+                RuntimeError::Storage(super::storage::LogError::Corrupt(error.to_string()))
+            })?;
+        }
+        self.snapshot_reference = None;
         self.last_sync = sequence;
         self.outbound.push_back(RuntimeEventKind::Persisted {
             replica: self.log.identity().clone(),
@@ -560,6 +612,7 @@ impl Replica {
             }
             Phase::Ready { synced: false, .. }
             | Phase::Light { synced: false, .. }
+            | Phase::Checkpoint { synced: false, .. }
             | Phase::Apply { synced: false, .. } => Ok(false),
             Phase::Ready {
                 ready,
@@ -598,6 +651,18 @@ impl Replica {
                 }
                 self.advance_ready(operations)
             }
+            Phase::Checkpoint { key, .. } => {
+                if outbox
+                    .push(RuntimeEventKind::Checkpointed {
+                        ticket: key.key.clone(),
+                    })
+                    .is_some()
+                {
+                    return Ok(false);
+                }
+                self.phase = Phase::Idle;
+                Ok(true)
+            }
             Phase::Light { .. } => {
                 let Phase::Light { mut light, .. } =
                     std::mem::replace(&mut self.phase, Phase::Idle)
@@ -634,6 +699,26 @@ impl Replica {
                 Ok(true)
             }
             Phase::Idle => {
+                if let Some(checkpoint) = self.checkpoint.take() {
+                    let ticket = operations.ticket(
+                        self.log.identity(),
+                        checkpoint.position(),
+                        checkpoint
+                            .digest()
+                            .map_err(|error| RuntimeError::Invalid(error.to_string()))?,
+                    )?;
+                    let key = WriteTicket {
+                        key: ticket,
+                        ready: 0,
+                    };
+                    self.write = Some((key.clone(), checkpoint.write()));
+                    self.phase = Phase::Checkpoint {
+                        checkpoint,
+                        key,
+                        synced: false,
+                    };
+                    return Ok(true);
+                }
                 if self.ready_bytes != 0 {
                     self.ready_bytes = 0;
                     return Ok(true);

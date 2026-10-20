@@ -5,6 +5,7 @@ use super::cache::GroupWrite;
 use super::completion::*;
 use super::options::RaftRuntimeOptions;
 use super::replica::{Operations, Replica, WriteTicket};
+use super::snapshot::SnapshotCheckpoint;
 use super::storage::{LogError, ReplicaLog, SyncReceipt};
 use ::raft::prelude::{ConfChangeV2, Message};
 use cellar_logic::consensus::GroupScope;
@@ -19,6 +20,7 @@ use tokio::sync::{mpsc, oneshot};
 
 pub(crate) enum GroupAction {
     Campaign,
+    Checkpoint(Box<SnapshotCheckpoint>),
     Step(Message),
     Propose {
         context: Vec<u8>,
@@ -52,7 +54,8 @@ enum Command {
     Status(GroupScope),
     Attach(GroupScope),
     Apply(ApplyCompletion),
-    Snapshot(SnapshotCompletion),
+    Snapshot(Box<SnapshotCompletion>),
+    Checkpoint(Box<SnapshotCheckpoint>),
     Tick,
     Close,
 }
@@ -369,7 +372,23 @@ impl RaftRuntime {
         &self,
         completed: SnapshotCompletion,
     ) -> Result<(), RuntimeError> {
-        self.call(4096, Command::Snapshot(completed))
+        self.call(4096, Command::Snapshot(Box::new(completed)))
+            .await
+            .map(|_| ())
+    }
+
+    /// Admit a verified local checkpoint into the serialized persistence path.
+    /// Success is admission only; `Checkpointed` proves that sync and retained
+    /// reference handoff have completed. No encoded image enters this queue.
+    pub async fn checkpoint(&self, checkpoint: SnapshotCheckpoint) -> Result<(), RuntimeError> {
+        let bytes = checkpoint
+            .bytes()
+            .checked_add(4096)
+            .ok_or(RuntimeError::Overloaded)?;
+        if bytes > 68 * 1024 {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.call(bytes, Command::Checkpoint(Box::new(checkpoint)))
             .await
             .map(|_| ())
     }
@@ -597,6 +616,28 @@ impl Worker {
             return None;
         }
         let result = match request.command {
+            Command::Checkpoint(checkpoint) => {
+                let ready_bytes: usize = self
+                    .groups
+                    .values()
+                    .map(|group| group.replica.ready_bytes)
+                    .sum();
+                if checkpoint.bytes() + 4096
+                    > self.options.max_ready_bytes.saturating_sub(ready_bytes)
+                {
+                    Err(RuntimeError::Overloaded)
+                } else {
+                    self.groups
+                        .get_mut(checkpoint.scope())
+                        .ok_or(RuntimeError::NotFound)
+                        .and_then(|group| match &group.failed {
+                            Some(error) => Err(error.clone()),
+                            None => group
+                                .replica
+                                .execute(GroupAction::Checkpoint(checkpoint), &self.options),
+                        })
+                }
+            }
             Command::Status(scope) => self
                 .groups
                 .get(&scope)
@@ -621,7 +662,7 @@ impl Worker {
                 .ok_or(RuntimeError::NotFound)
                 .and_then(|g| match &g.failed {
                     Some(error) => Err(error.clone()),
-                    None => g.replica.complete_snapshot(completed),
+                    None => g.replica.complete_snapshot(*completed),
                 })
                 .map(|()| Response::Unit),
             Command::Tick => {
@@ -879,8 +920,11 @@ impl Worker {
 
     async fn finish(&mut self) -> Result<(), RuntimeError> {
         if let Some(io) = self.inflight.take() {
-            let (_, result, _) = io.await;
-            result?;
+            let completed = io.await;
+            completed.1.as_ref().map_err(Clone::clone)?;
+            // Closing must settle verified image references just as the normal
+            // completion path does, even when no event consumer remains.
+            self.finish_batch(completed)?;
         }
         let operation = self.operations.next()?;
         self.log.persist(operation, Vec::new()).await?;

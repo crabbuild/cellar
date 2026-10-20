@@ -20,11 +20,14 @@ payload length/digest. Canonical JSON and complete protobuf comparison refuse
 unknown fields, alternate encodings and mismatched metadata. Source reads verify
 the full image SHA-256 before encoding.
 
-A package retains its source generation until transfer/checkpoint work is joined.
-Its checkpoint write must remain serialized with the runtime's storage protocol;
-current fixtures persist source checkpoints before starting RawNodes. Node-owned
-checkpoint scheduling remains to be implemented, rather than permitting a direct
-log write to race an outstanding Ready.
+A package pins its source generation through transfer/checkpoint work. Its
+`checkpoint_material` carries only bounded metadata and the verified retention
+capability into `RaftRuntime::checkpoint`. The runtime refuses busy Ready/apply
+state immediately rather than queueing behind an apply the caller might block.
+A dedicated phase persists compaction through the same batched node log owner as
+Ready writes. Admission is not durability; `Checkpointed` follows sync and reference
+handoff. The mechanical `checkpoint` write remains restricted to quiesced fixtures.
+Native automatic checkpoint scheduling is still unfinished.
 
 `SnapshotDownload` verifies the descriptor before buffering, accepts only ordered,
 nonempty chunks within the declared length, and admits at most 64 MiB encoded,
@@ -37,10 +40,19 @@ before use in the native host.
 
 ## Publication and retention
 
+`recovery.rs` reads coherent engine snapshot/applied references and refuses mixed
+images at the same cut before reclamation. A strict empty descriptor carries no
+image or payload and preserves the exact configuration/index/term. It installs
+without inventing a SQLite file; the first committed LTX command can create the
+initial image afterward. Empty capture refuses an existing committed image, and
+installation cannot erase committed data.
+
 A prepared image produces `SnapshotCompletion` only for the exact local runtime
 ticket, snapshot protobuf digest and included index/term. The existing runtime
 persists the snapshot, applied marker, configuration and required HardState before
-emitting `SnapshotInstalled` or releasing dependent messages. `PreparedSnapshot`
+emitting `SnapshotInstalled` or releasing dependent messages. Physical completion also
+supplies an opaque verified reference bound to the exact ticket/digest/image;
+mechanical fixtures explicitly use no such capability. `PreparedSnapshot`
 checks the durable engine snapshot and exact applied image before publication;
 sealing bytes or merely submitting a completion does not make state queryable.
 
@@ -69,12 +81,23 @@ installed state and reclaim interrupted unreferenced images. The before-engine-
 sync case permits either coherent state because process kill does not simulate
 power loss; a completed sync requires the installed state.
 
+The generation owner's bounded monotonic references are independent of ordinary
+retirement. Before storage submission, a prospective reference protects the
+candidate while the old durable reference remains selected. Sync establishes the
+durable reference and releases the prospective one before completion or dependent
+messages. Failed/uncertain I/O preserves the candidate through producer shutdown;
+recovery selects the engine's coherent old or new checkpoint. Closing an in-flight
+runtime batch settles reference handoff even when its event consumer is gone.
+
+The owning target now additionally exercises delayed checkpoint/newer apply/late
+retirement/restart, lost completion, failed sync with joined producers, stale engine
+material, busy-apply refusal, empty configuration installation/first LTX/restart,
+and refusal to erase committed data. Broader qualification is in progress.
+
 Still required for MR-10:
 
-- Node-owned checkpoint creation/compaction serialized with Ready persistence,
-  including empty state and configuration-only snapshots before the first image.
-  The retained reference must be established before dropping the last capture
-  pin if newer applies retired that generation while the checkpoint waited.
+- Native automatic checkpoint creation/compaction and source transfer scheduling
+  using the runtime API and the SQL owner's serialized state.
 - Authenticated bounded peer snapshot RPCs with reserved control capacity, source
   pins, transfer admission, deadlines, cancellation and joined shutdown.
 - Native host handling of incoming snapshots and atomic readiness transitions,

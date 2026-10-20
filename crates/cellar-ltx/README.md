@@ -77,10 +77,20 @@ retires the other inventory without selecting files by age or name. Every
 supplied reference must already be adopted; validation finishes before any
 retention flag changes. Live reader/archive pins still prevent reclamation.
 The Raft host uses this at startup for both the applied image and the durable
-Raft snapshot image, and its
-archive verifier uses an empty set for disposable verification copies. A newer
+Raft snapshot image, and its archive verifier uses an empty set for disposable verification copies. A newer
 durable committed image can replace the older image's future full-archive path;
 retiring that older image does not revoke an existing reader or archive pin.
+
+`GenerationPin::retain_reference` establishes a no-I/O reference to an already
+verified image under a nonzero key and monotonic revision. At most 64 keys,
+including released tombstones, are admitted per store. Equal revisions must bind
+the same image ID and complete state; a reused name cannot reinterpret a revision.
+Stale retains/releases cannot revoke a newer selection. An exact release preserves
+its tombstone. Active references protect bytes independently of ordinary retirement
+and live pins. They are reconstructed from authoritative markers after opening a
+store; they are not separate on-disk consensus state. The Raft adapter uses distinct
+prospective and durable snapshot references so uncertain storage completion cannot
+erase its candidate image or replace the old durable recovery boundary prematurely.
 
 `generation::open_immutable` opens only the pin's virtual filename. Its SQLite
 VFS reads through the injected filesystem, refuses writes, sidecars and native

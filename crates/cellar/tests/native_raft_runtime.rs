@@ -586,7 +586,8 @@ async fn snapshot_requires_verified_install() -> Result<()> {
                 .runtime
                 .complete_snapshot(SnapshotCompletion {
                     ticket: ticket.clone(),
-                    applied: applied.clone()
+                    applied: applied.clone(),
+                    reference: None,
                 })
                 .await,
             Err(RuntimeError::StaleCompletion)
@@ -594,7 +595,11 @@ async fn snapshot_requires_verified_install() -> Result<()> {
         applied.position = ticket.position();
         cluster.hosts[node]
             .runtime
-            .complete_snapshot(SnapshotCompletion { ticket, applied })
+            .complete_snapshot(SnapshotCompletion {
+                ticket,
+                applied,
+                reference: None,
+            })
             .await?;
     }
     cluster.ready(10, 0).await?;

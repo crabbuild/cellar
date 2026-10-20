@@ -20,6 +20,7 @@ mod query_route;
 mod query_wire;
 mod receipts;
 mod records;
+mod recovery;
 mod replica;
 pub(crate) mod runtime;
 pub(crate) mod snapshot;

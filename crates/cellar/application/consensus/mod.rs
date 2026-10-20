@@ -67,7 +67,8 @@ pub mod verification {
     pub use crate::raft::options::{LogOpenMode, ReplicaLogOptions};
     pub use crate::raft::runtime::{RaftRuntime, RuntimeEvents};
     pub use crate::raft::snapshot::{
-        PreparedSnapshot, SnapshotDownload, SnapshotError, SnapshotLimits, SnapshotPackage,
+        PreparedSnapshot, SnapshotCheckpoint, SnapshotDownload, SnapshotError, SnapshotLimits,
+        SnapshotPackage, SnapshotReference,
     };
     pub use crate::raft::storage::{GroupBootstrap, LogError, ReplicaLog, SyncReceipt};
     pub use crate::raft::transport::{

@@ -5,9 +5,11 @@ use super::apply::{marker, marker_id, marker_state, ImageApplier, PublishedImage
 use super::cache::{CommittedImage, GroupLog, GroupWrite, SnapshotChange};
 use super::completion::{ApplyTicket, SnapshotCompletion};
 use super::manifest;
+use super::recovery::{PENDING_SNAPSHOT_REFERENCE, SNAPSHOT_REFERENCE};
 use super::storage::LogError;
 use crate::application::consensus::protocol::WireScope;
 use ::raft::prelude::Snapshot;
+use cellar_logic::consensus::{GroupScope, LogIndex, LogPosition, Term};
 use cellar_ltx::apply::{ApplyLimits, ImageState, ImageUpdate, LtxSegment};
 use cellar_ltx::generation::{GenerationError, GenerationPin, GenerationStore};
 use cellar_ltx::{ltx, TXID};
@@ -98,7 +100,7 @@ struct Descriptor {
     index: u64,
     term: u64,
     conf: Vec<u8>,
-    image: CommittedImage,
+    image: Option<CommittedImage>,
     encoded_length: usize,
     encoded_digest: [u8; 32],
 }
@@ -135,17 +137,22 @@ impl Descriptor {
             || descriptor.term != metadata.term
             || descriptor.conf != conf
             || canonical != *snapshot
-            || descriptor.encoded_length == 0
         {
             return Err(SnapshotError::Invalid("history/schema/position binding"));
         }
-        descriptor.image.validate()?;
-        marker_id(&descriptor.image)?;
-        marker_state(&descriptor.image)
-            .validate(&limits.apply())
-            .map_err(|_| SnapshotError::Invalid("image state"))?;
-        if descriptor.image.length == 0 || descriptor.image.txid == 0 {
-            return Err(SnapshotError::Invalid("empty image"));
+        if let Some(image) = &descriptor.image {
+            image.validate()?;
+            marker_id(image)?;
+            marker_state(image)
+                .validate(&limits.apply())
+                .map_err(|_| SnapshotError::Invalid("image state"))?;
+            if image.length == 0 || image.txid == 0 || descriptor.encoded_length == 0 {
+                return Err(SnapshotError::Invalid("empty image"));
+            }
+        } else if descriptor.encoded_length != 0
+            || descriptor.encoded_digest != <[u8; 32]>::from(Sha256::digest([]))
+        {
+            return Err(SnapshotError::Invalid("nonempty payload for empty state"));
         }
         if descriptor.encoded_length > limits.max_encoded_bytes {
             return Err(SnapshotError::Limit);
@@ -180,7 +187,7 @@ pub struct SnapshotPackage {
     group: GroupLog,
     snapshot: Snapshot,
     bytes: Vec<u8>,
-    pin: GenerationPin,
+    pin: Option<GenerationPin>,
     limits: SnapshotLimits,
 }
 
@@ -190,14 +197,35 @@ impl SnapshotPackage {
         image: PublishedImage,
         limits: SnapshotLimits,
     ) -> Result<Self, SnapshotError> {
+        let schema = image.application_digest();
+        Self::capture_at(group, Some(image), schema, limits)
+    }
+
+    pub fn capture_empty(
+        group: &GroupLog,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
+        Self::capture_at(group, None, schema, limits)
+    }
+
+    fn capture_at(
+        group: &GroupLog,
+        image: Option<PublishedImage>,
+        schema: [u8; 32],
+        limits: SnapshotLimits,
+    ) -> Result<Self, SnapshotError> {
         limits.validate()?;
-        let pin = image.pin();
+        let pin = image.as_ref().map(PublishedImage::pin);
         let (position, conf) = {
             let cache = group.read()?;
-            if image.scope() != &group.identity().scope
-                || cache.applied.image.as_ref() != Some(&marker(&pin))
-                || image.position().index > cache.applied.position.index
-                || cache.term(image.position().index.get()) != Some(image.position().term.get())
+            if cache.applied.image != pin.as_ref().map(marker)
+                || image.as_ref().is_some_and(|image| {
+                    image.scope() != &group.identity().scope
+                        || image.position().index > cache.applied.position.index
+                        || cache.term(image.position().index.get())
+                            != Some(image.position().term.get())
+                })
                 || cache.applied.position.index.get() > cache.hard_state.commit
             {
                 return Err(SnapshotError::Invalid("source durable cut"));
@@ -208,21 +236,24 @@ impl SnapshotPackage {
                     .map_err(|_| SnapshotError::Invalid("source configuration"))?,
             )
         };
-        let bytes = encode_image(&pin, limits)?;
+        let bytes = match &pin {
+            Some(pin) => encode_image(pin, limits)?,
+            None => Vec::new(),
+        };
         let descriptor = Descriptor {
             format: 1,
             scope: WireScope::from(&group.identity().scope),
             birth: group.birth_digest,
-            schema: image.application_digest(),
+            schema,
             index: position.index.get(),
             term: position.term.get(),
             conf,
-            image: marker(&pin),
+            image: pin.as_ref().map(marker),
             encoded_length: bytes.len(),
             encoded_digest: Sha256::digest(&bytes).into(),
         };
         let snapshot = descriptor.snapshot()?;
-        Descriptor::decode(group, image.application_digest(), &snapshot, limits)?;
+        Descriptor::decode(group, schema, &snapshot, limits)?;
         Ok(Self {
             group: group.clone(),
             snapshot,
@@ -248,16 +279,102 @@ impl SnapshotPackage {
         self.bytes.get(offset..end).ok_or(SnapshotError::Limit)
     }
 
-    /// Persist through the node log owner before advertising this checkpoint.
-    /// Keep this package (or another pin) alive until the sync has completed.
+    /// Mechanical fixture write with data publication quiesced. A live runtime
+    /// must use `checkpoint_material` and its serialized checkpoint operation.
     pub fn checkpoint(&self) -> GroupWrite {
         let mut write = GroupWrite::new(&self.group);
         write.snapshot = Some(SnapshotChange::Checkpoint(self.snapshot.clone()));
         write
     }
 
-    pub fn source_pin(&self) -> GenerationPin {
+    /// Only metadata and its verified pin enter consensus queues. Encoded image
+    /// bytes remain with the separately admitted transfer owner.
+    pub fn checkpoint_material(&self) -> SnapshotCheckpoint {
+        SnapshotCheckpoint {
+            group: self.group.clone(),
+            snapshot: self.snapshot.clone(),
+            pin: self.pin.clone(),
+        }
+    }
+
+    pub fn source_pin(&self) -> Option<GenerationPin> {
         self.pin.clone()
+    }
+}
+
+/// A verified local cut, not a proposal or proof of checkpoint persistence.
+pub struct SnapshotCheckpoint {
+    group: GroupLog,
+    snapshot: Snapshot,
+    pin: Option<GenerationPin>,
+}
+
+impl SnapshotCheckpoint {
+    pub fn scope(&self) -> &GroupScope {
+        &self.group.identity().scope
+    }
+
+    pub fn position(&self) -> LogPosition {
+        LogPosition {
+            index: LogIndex::new(self.snapshot.get_metadata().index),
+            term: Term::new(self.snapshot.get_metadata().term),
+        }
+    }
+
+    pub(crate) fn bytes(&self) -> usize {
+        self.snapshot.compute_size() as usize
+    }
+
+    pub(crate) fn validate(&self, group: &GroupLog) -> Result<(), SnapshotError> {
+        if self.group.identity() != group.identity()
+            || !std::sync::Arc::ptr_eq(&self.group.owner, &group.owner)
+        {
+            return Err(SnapshotError::Invalid("checkpoint engine owner"));
+        }
+        let cache = group.read()?;
+        let position = self.position();
+        if position.index > cache.applied.position.index
+            || cache.term(position.index.get()) != Some(position.term.get())
+            || position.index.get() < cache.snapshot.get_metadata().index
+            || (position.index.get() == cache.snapshot.get_metadata().index
+                && self.snapshot != cache.snapshot)
+        {
+            return Err(SnapshotError::Invalid("stale/conflicting checkpoint"));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn digest(&self) -> Result<[u8; 32], SnapshotError> {
+        Ok(Sha256::digest(
+            self.snapshot
+                .write_to_bytes()
+                .map_err(|_| SnapshotError::Invalid("checkpoint protobuf"))?,
+        )
+        .into())
+    }
+
+    pub(crate) fn write(&self) -> GroupWrite {
+        let mut write = GroupWrite::new(&self.group);
+        write.snapshot = Some(SnapshotChange::Checkpoint(self.snapshot.clone()));
+        write
+    }
+
+    pub(crate) fn retain(&self) -> Result<(), SnapshotError> {
+        if let Some(pin) = &self.pin {
+            pin.retain_reference(SNAPSHOT_REFERENCE, self.position().index.get())?;
+            pin.release_reference(PENDING_SNAPSHOT_REFERENCE, self.position().index.get())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn retain_pending(&self) -> Result<(), SnapshotError> {
+        let Some(pin) = &self.pin else {
+            return Ok(());
+        };
+        if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, self.position().index.get())? {
+            return Err(SnapshotError::Invalid("stale prospective checkpoint"));
+        }
+        Ok(())
     }
 }
 
@@ -314,7 +431,14 @@ impl SnapshotDownload {
         {
             return Err(SnapshotError::Invalid("transfer length/digest"));
         }
-        let state = marker_state(&self.descriptor.image);
+        let Some(image) = self.descriptor.image.as_ref() else {
+            return Ok(PreparedSnapshot {
+                group: self.group,
+                snapshot: self.snapshot,
+                pin: None,
+            });
+        };
+        let state = marker_state(image);
         let decoded = ltx::decode_file_bounded(&self.bytes, self.limits.apply().decode)
             .map_err(|_| SnapshotError::Invalid("physical LTX"))?;
         if !decoded.header().is_snapshot()
@@ -325,7 +449,7 @@ impl SnapshotDownload {
         {
             return Err(SnapshotError::Invalid("physical image binding"));
         }
-        let id = marker_id(&self.descriptor.image)?;
+        let id = marker_id(image)?;
         let pin = match images.adopt(id, state) {
             Ok(pin) => pin,
             Err(GenerationError::Missing) => images.prepare(
@@ -349,7 +473,7 @@ impl SnapshotDownload {
         Ok(PreparedSnapshot {
             group: self.group,
             snapshot: self.snapshot,
-            pin,
+            pin: Some(pin),
         })
     }
 }
@@ -357,7 +481,58 @@ impl SnapshotDownload {
 pub struct PreparedSnapshot {
     group: GroupLog,
     snapshot: Snapshot,
-    pin: GenerationPin,
+    pin: Option<GenerationPin>,
+}
+
+/// An exclusively verified image's no-I/O retention capability. Only physical
+/// preparation constructs it; it carries no leader or membership authority.
+#[derive(Clone)]
+pub struct SnapshotReference {
+    group: GroupLog,
+    pin: Option<GenerationPin>,
+    position: LogPosition,
+    digest: [u8; 32],
+}
+
+impl std::fmt::Debug for SnapshotReference {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SnapshotReference")
+            .field("replica", self.group.identity())
+            .field("position", &self.position)
+            .finish_non_exhaustive()
+    }
+}
+
+impl SnapshotReference {
+    pub(crate) fn matches(
+        &self,
+        ticket: &ApplyTicket,
+        applied: &super::cache::DurableApply,
+    ) -> bool {
+        ticket.replica() == self.group.identity()
+            && ticket.position() == self.position
+            && ticket.entry_digest() == self.digest
+            && applied.position == self.position
+            && applied.image == self.pin.as_ref().map(marker)
+    }
+
+    pub(crate) fn retain(&self) -> Result<(), SnapshotError> {
+        if let Some(pin) = &self.pin {
+            pin.retain_reference(SNAPSHOT_REFERENCE, self.position.index.get())?;
+            pin.release_reference(PENDING_SNAPSHOT_REFERENCE, self.position.index.get())?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn retain_pending(&self) -> Result<(), SnapshotError> {
+        let Some(pin) = &self.pin else {
+            return Ok(());
+        };
+        if !pin.retain_reference(PENDING_SNAPSHOT_REFERENCE, self.position.index.get())? {
+            return Err(SnapshotError::Invalid("stale prospective install"));
+        }
+        Ok(())
+    }
 }
 
 impl PreparedSnapshot {
@@ -380,42 +555,42 @@ impl PreparedSnapshot {
             ticket: ticket.clone(),
             applied: super::cache::DurableApply {
                 position: ticket.position(),
-                image: Some(marker(&self.pin)),
+                image: self.pin.as_ref().map(marker),
             },
+            reference: Some(SnapshotReference {
+                group: self.group.clone(),
+                pin: self.pin.clone(),
+                position: ticket.position(),
+                digest,
+            }),
         })
     }
 
     /// This observes the durable engine marker. An accepted completion alone
     /// does not make the image queryable or acknowledge installation.
     pub fn publish(self, applier: &mut ImageApplier) -> Result<PublishedImage, SnapshotError> {
-        Ok(applier.publish_snapshot(&self.group, &self.snapshot, self.pin)?)
+        let pin = self.pin.ok_or(SnapshotError::Invalid(
+            "empty snapshot has no queryable image",
+        ))?;
+        Ok(applier.publish_snapshot(&self.group, &self.snapshot, pin)?)
+    }
+
+    pub fn publish_empty(self, applier: &mut ImageApplier) -> Result<(), SnapshotError> {
+        if self.pin.is_some() {
+            return Err(SnapshotError::Invalid("snapshot has a data image"));
+        }
+        applier.publish_empty_snapshot(&self.group, &self.snapshot)?;
+        Ok(())
     }
 }
 
-pub(crate) fn recover_pin(
+pub(crate) fn snapshot_image(
     group: &GroupLog,
-    images: &GenerationStore,
     schema: [u8; 32],
-) -> Result<Option<GenerationPin>, SnapshotError> {
-    let (snapshot, applied) = {
-        let cache = group.read()?;
-        (cache.snapshot.clone(), cache.applied.clone())
-    };
-    if snapshot.get_metadata().index == 1 && snapshot.data.is_empty() {
-        return Ok(None);
-    }
-    let descriptor = Descriptor::decode(group, schema, &snapshot, SnapshotLimits::default())?;
-    if applied.position.index.get() == snapshot.get_metadata().index
-        && applied.image.as_ref() != Some(&descriptor.image)
-    {
-        return Err(SnapshotError::Invalid(
-            "snapshot/applied image at the same cut",
-        ));
-    }
-    Ok(Some(images.adopt(
-        marker_id(&descriptor.image)?,
-        marker_state(&descriptor.image),
-    )?))
+    snapshot: &Snapshot,
+    limits: SnapshotLimits,
+) -> Result<Option<CommittedImage>, SnapshotError> {
+    Ok(Descriptor::decode(group, schema, snapshot, limits)?.image)
 }
 
 fn encode_image(pin: &GenerationPin, limits: SnapshotLimits) -> Result<Vec<u8>, SnapshotError> {

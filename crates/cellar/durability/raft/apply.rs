@@ -94,7 +94,7 @@ impl ImageApplier {
         limits: EnvelopeLimits,
     ) -> Result<Self, ImageApplyError> {
         limits.validate().map_err(ImageApplyError::Envelope)?;
-        let snapshot_pin = super::snapshot::recover_pin(&group, &images, application_digest)
+        let snapshot_pin = super::recovery::snapshot_pin(&group, &images, application_digest)
             .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
         let applied = group.applied().map_err(ImageApplyError::Log)?;
         let current = applied
@@ -151,8 +151,9 @@ impl ImageApplier {
     /// Reconcile only an already durable checkpoint. Keep its separate image
     /// reference even after newer applied images replace the public head.
     pub fn refresh_snapshot(&mut self) -> Result<(), ImageApplyError> {
-        let next = super::snapshot::recover_pin(&self.group, &self.images, self.application_digest)
-            .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
+        let next =
+            super::recovery::snapshot_pin(&self.group, &self.images, self.application_digest)
+                .map_err(|error| ImageApplyError::Snapshot(Box::new(error)))?;
         let old = std::mem::replace(&mut self.snapshot_pin, next);
         if let Some(old) = old {
             let id = old.id();
@@ -220,6 +221,27 @@ impl ImageApplier {
         }
         self.images.reclaim(8).map_err(ImageApplyError::Images)?;
         Ok(head)
+    }
+
+    pub(crate) fn publish_empty_snapshot(
+        &mut self,
+        group: &GroupLog,
+        snapshot: &::raft::prelude::Snapshot,
+    ) -> Result<(), ImageApplyError> {
+        if self.pending.is_some() || self.current.is_some() {
+            return Err(ImageApplyError::Busy);
+        }
+        {
+            let cache = self.group.read().map_err(ImageApplyError::Log)?;
+            if group.identity() != self.group.identity()
+                || cache.snapshot != *snapshot
+                || cache.applied.image.is_some()
+                || cache.applied.position.index.get() < snapshot.get_metadata().index
+            {
+                return Err(ImageApplyError::Unpublished);
+            }
+        }
+        self.refresh_snapshot()
     }
 
     /// Capture the exact durable cut covered by this pin. Protocol-only entries
