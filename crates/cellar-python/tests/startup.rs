@@ -13,7 +13,8 @@ use std::{
 };
 
 const APPLICATION: &str = r#"
-import sys, os, sysconfig
+import sys, os, sysconfig, signal
+assert signal.getsignal(signal.SIGINT) == signal.SIG_DFL
 assert os.environ.get('APPLICATION_SETTING') == 'configured-value'
 assert 'PYTHONHOME' not in os.environ
 assert 'PYTHONPATH' not in os.environ
@@ -51,6 +52,7 @@ fn main() -> Result<()> {
         "bad-constructor",
         "async-constructor",
         "duplicate-event",
+        "host-signals",
     ] {
         let directory = tempfile::tempdir()?;
         let root = directory.path().canonicalize()?;
@@ -129,6 +131,7 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         Environment::new([("APPLICATION_SETTING".into(), "configured-value".into())])?;
     let entered = Arc::new(AtomicBool::new(false));
     let code = match mode {
+        "host-signals" => "import signal; assert signal.getsignal(signal.SIGINT) is None",
         "unlisted" => "import ambient_dependency",
         "sync-handler" => "def fetch(request, ctx): return None",
         "async-constructor" => "class Broken:\n async def __init__(self): pass\n async def fetch(self, request, ctx): pass",
@@ -136,6 +139,22 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         _ => APPLICATION,
     };
     match mode {
+        "host-signals" => {
+            extern "C" fn host_handler(_: libc::c_int) {}
+            // SAFETY: this disposable child owns main-thread bootstrap before
+            // creating any Python or host threads. The callback is a valid C
+            // handler and performs no operations in a signal context.
+            let previous = unsafe {
+                libc::signal(
+                    libc::SIGINT,
+                    host_handler as *const () as libc::sighandler_t,
+                )
+            };
+            ensure!(
+                previous != libc::SIG_ERR,
+                "install native test signal handler"
+            );
+        }
         "missing-home" => options.interpreter.home = root.join("missing"),
         "wrong-abi" => options.interpreter.soabi = "cpython-314-wrong-abi".into(),
         "relative-root" => options.module_paths.push(".".into()),
@@ -190,7 +209,7 @@ fn child(mode: &str, root: &Path) -> Result<()> {
         })
     };
     let expected = match mode {
-        "isolated" | "wrong-thread" => {
+        "isolated" | "wrong-thread" | "host-signals" => {
             ensure!(result?.complete());
             ensure!(entered.load(Ordering::Acquire));
             return Ok(());

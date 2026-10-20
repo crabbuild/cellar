@@ -128,6 +128,9 @@ pub struct Report {
     pub peak_tasks: usize,
     pub budget_exhaustions: usize,
     pub runtime_failed: bool,
+    /// Fixed diagnostic category; never application exception text or paths.
+    #[serde(default)]
+    pub runtime_failure_stage: Option<String>,
     #[serde(default)]
     pub unraisable_errors: usize,
     #[serde(default)]
@@ -403,6 +406,7 @@ impl PythonRuntime {
                 options.interpreter.soabi
             );
             options.environment.install(py)?;
+            initialization::preserve_host_signals(py)?;
             for (name, expected) in &source.distributions {
                 let actual: String = py
                     .import("importlib.metadata")?

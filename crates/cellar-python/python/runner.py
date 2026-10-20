@@ -162,7 +162,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
     asyncio.set_event_loop(loop)
     stats = dict(pending_tasks=0, pending_objects=0, pending_threads=0,
                  objects_created=0, objects_retired=0, peak_tasks=0,
-                 budget_exhaustions=0, runtime_failed=False)
+                 budget_exhaustions=0, runtime_failed=False, runtime_failure_stage=None)
     stats["interpreter"] = dict(thread_cpu_ns=0, wall_ns=0, process_peak_rss_bytes=0,
         allocated_blocks_initial=sys.getallocatedblocks(), allocated_blocks_final=0,
         handlers_started=0, handlers_completed=0, handlers_failed=0,
@@ -171,6 +171,7 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
     def exception_handler(loop, details):
         # Never log application exception repr, task locals or traceback paths.
         stats["runtime_failed"] = True
+        stats["runtime_failure_stage"] = "background_callback"
         inbox.stop()
 
     def task_factory(loop, coroutine, **kwargs):
@@ -185,13 +186,15 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
     loop.set_exception_handler(exception_handler)
     loop.set_task_factory(task_factory)
     serving = loop.create_task(_serve(module, inbox, interval, shutdown, stats, max_objects, max_tasks))
+    cleanup_stage = "serve"
     try:
         try:
             stats["pending_tasks"], stats["pending_objects"] = loop.run_until_complete(serving)
-        except BaseException:
+        except BaseException as error:
             # Unmanaged SystemExit/KeyboardInterrupt can escape Task dispatch.
             # Preserve failure as a flag, never application-provided error text.
             stats["runtime_failed"] = True
+            stats["runtime_failure_stage"] = "serve_interrupt" if isinstance(error, KeyboardInterrupt) else "serve_failure"
             inbox.stop()
             serving.cancel()
             try:
@@ -203,18 +206,21 @@ def run(module, inbox, interval, shutdown, max_tasks, max_objects):
 
         # Generators can own resources even after their creating task completed.
         # Keep the loop alive while finally blocks run and bound noncooperation.
+        cleanup_stage = "generators"
         generators = loop.create_task(loop.shutdown_asyncgens())
         _, remaining = loop.run_until_complete(asyncio.wait({generators}, timeout=shutdown))
         if not remaining:
             generators.result()
         else:
             generators.cancel()
+        cleanup_stage = "executor"
         loop.run_until_complete(loop.shutdown_default_executor(timeout=shutdown))
         stats["pending_tasks"] = max(stats["pending_tasks"], len(asyncio.all_tasks(loop)))
         stats["pending_threads"] = sum(thread is not threading.main_thread() for thread in threading.enumerate())
         return stats
-    except BaseException:
+    except BaseException as error:
         stats["runtime_failed"] = True
+        stats["runtime_failure_stage"] = cleanup_stage + ("_interrupt" if isinstance(error, KeyboardInterrupt) else "_failure")
         stats["pending_tasks"] = max(stats["pending_tasks"], len(asyncio.all_tasks(loop)))
         stats["pending_threads"] = sum(thread is not threading.main_thread() for thread in threading.enumerate())
         return stats

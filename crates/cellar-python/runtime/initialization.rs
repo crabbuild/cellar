@@ -4,6 +4,7 @@
 
 use anyhow::{bail, ensure, Context as _, Result};
 use pyo3::ffi;
+use pyo3::prelude::*;
 use std::{
     ffi::{CStr, CString},
     path::{Path, PathBuf},
@@ -154,6 +155,22 @@ pub(super) fn ensure_main_thread() -> Result<()> {
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     bail!("embedded Python main-thread ownership is not implemented for this platform");
+    Ok(())
+}
+
+pub(super) fn preserve_host_signals(py: Python<'_>) -> Result<()> {
+    // Importing _signal installs default_int_handler when SIGINT is SIG_DFL,
+    // even with PyConfig.install_signal_handlers=0. asyncio imports signal
+    // before the Rust supervisor starts, and Tokio chains the prior handler.
+    // Undo only CPython's implicit interrupt handler; preserve any native host
+    // handler which existed before initialization (reported as None by Python).
+    // CPython 3.14: Modules/signalmodule.c, signal_get_set_handlers().
+    let signal = py.import("signal")?;
+    let interrupt = signal.getattr("SIGINT")?;
+    let current = signal.call_method1("getsignal", (&interrupt,))?;
+    if current.is(&signal.getattr("default_int_handler")?) {
+        signal.call_method1("signal", (interrupt, signal.getattr("SIG_DFL")?))?;
+    }
     Ok(())
 }
 

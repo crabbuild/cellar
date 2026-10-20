@@ -103,6 +103,11 @@ uses CPython's [isolated configuration](https://docs.python.org/3.14/c-api/init_
 no ambient Python paths, user site, `.pth`/customize hooks, argv parsing, automatic
 signal handlers or bytecode writes. Import roots must be absolute and are canonicalized before initialization.
 
+Bootstrap imports `signal` before asyncio and removes CPython's implicitly
+installed default INT handler. Disabling initialization signal handlers alone
+does not prevent that later import from installing it. Existing native host
+handlers are preserved, so the Rust host retains sole INT/TERM shutdown ownership.
+
 `Options::environment` is an explicit `Environment` value (empty by default).
 It sets Python's initial `os.environ`/`os.environb` view without removing or
 changing the Rust host's process configuration. Supply application values at
