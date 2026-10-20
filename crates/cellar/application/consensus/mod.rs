@@ -31,7 +31,7 @@ pub use client::{
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
     GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId, NamespaceId, NodeId,
-    ProcessGeneration, Term,
+    NodeIdentity, ProcessGeneration, Term,
 };
 pub use cellar_logic::NamespaceMode;
 pub use protocol::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate, ProtocolError};

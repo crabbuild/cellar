@@ -210,9 +210,21 @@ handshake time before sending a remaining timeout, while the origin separately
 enforces its deadline. Closing the connection cancels the destination waiter.
 Request/response representations remain charged through delivery.
 
-This entry point currently routes from a registered local replica. General
-directory/ingress routing, counter HTTP options and the remaining capability
-audit remain open in the [read audit](../../../../plans/multi-raft/read-audit.md).
+Query headers use a distinct route representation: the caller carries its
+node/disk/process identity and label, with no Raft member ID. The target carries
+its complete replica/history identity. The response reverses that exact route;
+its orientation cannot be reused as a request. Consensus headers retain their
+separate member-bearing routes and validators. This is a marker-1 hard cutover
+for experimental query peers; incompatible headers are refused without an old
+reader or translation path.
+
+This entry point still routes from a registered local replica. The receiver
+maps the physical origin to a configured current member before admission;
+encoding a node identity alone does not grant namespace access. Independent
+namespace-origin grants and routing-only handles remain open in the
+[read audit](../../../../plans/multi-raft/read-audit.md). The counter's native
+and Axum HTTP paths expose consistency, tokens and bounded member options, and
+their executable restart drill includes remote strong reads and cross-cell refusal.
 These paths do not claim completion of MR-08 or the full delivery scope.
 
 Fresh status checks precede staging, submission and successful output. Transient

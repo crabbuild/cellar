@@ -19,7 +19,14 @@ fn identity(member: u64) -> ReplicaIdentity {
 }
 
 fn route() -> Route {
-    Route::new(&identity(1), "node-1", &identity(2), "node-2", [9; 32]).unwrap()
+    Route::new(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(2),
+        "node-2",
+        [9; 32],
+    )
+    .unwrap()
 }
 
 fn keys() -> VersionKeys {
@@ -123,7 +130,14 @@ fn query_wire_binds_channel_request_route_and_payload() {
         &options
     )
     .is_err());
-    let other_route = Route::new(&identity(1), "node-1", &identity(3), "node-3", [9; 32]).unwrap();
+    let other_route = Route::new(
+        identity(1).node_identity(),
+        "node-1",
+        &identity(3),
+        "node-3",
+        [9; 32],
+    )
+    .unwrap();
     assert!(read_response(
         &response,
         &auth,
@@ -169,6 +183,82 @@ fn query_wire_binds_channel_request_route_and_payload() {
         MemberId::new(2).unwrap()
     )
     .is_err());
+}
+
+#[test]
+fn query_origin_binds_node_process_without_voting_identity() {
+    let origin = NodeIdentity {
+        node: NodeId::new([91; 16]).unwrap(),
+        disk: DiskLineage::new([92; 16]).unwrap(),
+        process: ProcessGeneration::new([93; 16]).unwrap(),
+    };
+    let target = identity(2);
+    let route = Route::new(origin, "ingress", &target, "node-2", [9; 32]).unwrap();
+    assert_eq!(route.decode().unwrap(), (origin, target.clone()));
+    assert!(route.reversed().decode().is_err());
+    let encoded = serde_json::to_value(&route).unwrap();
+    assert!(encoded["source"]["member"].is_null());
+    assert_eq!(encoded["target"]["member"], "2");
+    // Even an authenticated query origin cannot reuse its route as the
+    // member-bearing route required for a consensus message.
+    assert!(
+        serde_json::from_value::<crate::raft::transport_frame::Route>(encoded.clone()).is_err()
+    );
+    for member in [
+        serde_json::Value::Null,
+        serde_json::json!("0"),
+        serde_json::json!("02"),
+        serde_json::json!("+2"),
+    ] {
+        let mut modified = encoded.clone();
+        modified["target"]["member"] = member;
+        assert!(serde_json::from_value::<Route>(modified)
+            .unwrap()
+            .decode()
+            .is_err());
+    }
+    let mut voting_origin = encoded.clone();
+    voting_origin["source"]["member"] = serde_json::json!("1");
+    assert!(serde_json::from_value::<Route>(voting_origin)
+        .unwrap()
+        .decode()
+        .is_err());
+    for endpoint in ["source", "target"] {
+        for field in ["node", "disk", "process"] {
+            let mut modified = encoded.clone();
+            modified[endpoint][field] = serde_json::to_value([0_u8; 16]).unwrap();
+            assert!(serde_json::from_value::<Route>(modified)
+                .unwrap()
+                .decode()
+                .is_err());
+        }
+    }
+    let auth = PeerAuth::new([17; 32], "ingress").unwrap();
+    let options = TransportOptions::default();
+    let body = call(QueryConsistency::Linearizable).encode(4096).unwrap();
+    let request = RequestHead::new(route, 7, &body);
+    let head = request_head(&auth, &[3; 32], &request, &body, &options).unwrap();
+    let reply = encode_result(&Ok(result()), 4096).unwrap();
+    let response = response_head(&auth, &[3; 32], &request, &head.tag, &reply, &options).unwrap();
+    let mut changed_origins = Vec::new();
+    for field in 0..3 {
+        let mut changed = origin;
+        match field {
+            0 => changed.node = NodeId::new([94; 16]).unwrap(),
+            1 => changed.disk = DiskLineage::new([94; 16]).unwrap(),
+            _ => changed.process = ProcessGeneration::new([94; 16]).unwrap(),
+        }
+        changed_origins.push((changed, "ingress"));
+    }
+    changed_origins.push((origin, "other-ingress"));
+    for (changed, label) in changed_origins {
+        let other = RequestHead::new(
+            Route::new(changed, label, &target, "node-2", [9; 32]).unwrap(),
+            7,
+            &body,
+        );
+        assert!(read_response(&response, &auth, &[3; 32], &other, &head.tag, &options).is_err());
+    }
 }
 
 #[test]

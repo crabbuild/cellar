@@ -95,6 +95,15 @@ impl GroupScope {
     }
 }
 
+/// A physical node's disk/process identity, independent of any Raft member.
+/// Identifying a node supplies no cell membership or mutation authority.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct NodeIdentity {
+    pub node: NodeId,
+    pub disk: DiskLineage,
+    pub process: ProcessGeneration,
+}
+
 /// A process operating a particular durable member disk.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplicaIdentity {
@@ -103,6 +112,16 @@ pub struct ReplicaIdentity {
     pub member: MemberId,
     pub disk: DiskLineage,
     pub process: ProcessGeneration,
+}
+
+impl ReplicaIdentity {
+    pub fn node_identity(&self) -> NodeIdentity {
+        NodeIdentity {
+            node: self.node,
+            disk: self.disk,
+            process: self.process,
+        }
+    }
 }
 
 /// Authority is bound to a term and an in-process activation, independently.

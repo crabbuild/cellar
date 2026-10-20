@@ -3,8 +3,9 @@
 
 use super::*;
 use crate::application::consensus::{client, CommandFailure, QueryResult, RaftCells, VersionKeys};
+use crate::raft::query_identity::QueryRoute;
 use crate::raft::query_wire::{self as wire, QueryCall};
-use cellar_logic::consensus::MemberId;
+use cellar_logic::consensus::{MemberId, NodeIdentity};
 use sha2::{Digest, Sha256};
 
 pub(crate) struct QueryResponse {
@@ -89,17 +90,11 @@ impl RaftTransport {
             .get(scope)
             .ok_or(TransportError::UnknownGroup)?
             .clone();
-        let local = state
-            .runtime
-            .log()
-            .group(scope)
-            .map_err(|_| TransportError::UnknownGroup)?
-            .identity()
-            .clone();
+        let local_node = state.runtime.log().limits().node;
         let peer = route
             .peers
             .iter()
-            .find(|p| p.replica.member == member && p.replica.node != local.node)
+            .find(|p| p.replica.member == member && p.replica.node != local_node)
             .ok_or(TransportError::Identity)?
             .clone();
         let pool = registry
@@ -186,6 +181,61 @@ fn reservation(request: usize, options: &TransportOptions) -> Result<usize, Tran
 }
 
 impl State {
+    /// A node identity is independent of voting. Until the namespace-origin
+    /// grant registry is installed, accept only origins whose complete physical
+    /// identity maps to a member in the current configuration. Consensus
+    /// messages continue to use the separate member-bearing Route validator.
+    fn authorize_query_route(&self, wire: &QueryRoute) -> Result<Arc<Pool>, TransportError> {
+        let (source, target) = wire.decode()?;
+        let registry = self.registry.lock().map_err(|_| TransportError::Closed)?;
+        self.admit(&registry)?;
+        let route = registry
+            .groups
+            .get(&target.scope)
+            .ok_or(TransportError::UnknownGroup)?;
+        let group = self
+            .runtime
+            .log()
+            .group(&target.scope)
+            .map_err(|_| TransportError::UnknownGroup)?;
+        if *group.identity() != target
+            || wire.target_label() != self.auth.source()
+            || wire.schema() != route.schema_digest
+        {
+            return Err(TransportError::StalePeer);
+        }
+        let peer = route
+            .peers
+            .iter()
+            .find(|peer| {
+                peer.replica.node_identity() == source && peer.label == wire.source_label()
+            })
+            .ok_or(TransportError::StalePeer)?;
+        let conf = group
+            .read()
+            .map_err(|error| TransportError::Runtime(error.into()))?
+            .conf_state
+            .clone();
+        for member in [peer.replica.member.get(), target.member.get()] {
+            if !conf
+                .voters
+                .iter()
+                .chain(&conf.voters_outgoing)
+                .chain(&conf.learners)
+                .chain(&conf.learners_next)
+                .any(|id| *id == member)
+            {
+                return Err(TransportError::StalePeer);
+            }
+        }
+        registry
+            .pools
+            .get(&source.node)
+            .filter(|pool| pool.peer.same_host(peer))
+            .cloned()
+            .ok_or(TransportError::StalePeer)
+    }
+
     async fn query_until<T>(
         &self,
         pool: &Pool,
@@ -281,7 +331,7 @@ impl State {
             }
             source_host = Some(host);
             last_sequence = header.sequence()?;
-            let pool = self.authorize_route(&header.route)?;
+            let pool = self.authorize_query_route(&header.route)?;
             let charge = reservation(head.payload_len, &self.options)?;
             let _node = self
                 .incoming
@@ -302,7 +352,7 @@ impl State {
             header.verify_body(&body)?;
             let call = QueryCall::decode(&body, self.options.max_query_request_bytes)?;
             drop(body);
-            self.authorize_route(&header.route)?;
+            self.authorize_query_route(&header.route)?;
             let handle = self
                 .query_gateway
                 .lock()
@@ -343,7 +393,7 @@ impl State {
             {
                 return Err(TransportError::Identity);
             }
-            self.authorize_route(&header.route)?;
+            self.authorize_query_route(&header.route)?;
             let body = wire::encode_result(&result, self.options.max_query_response_bytes)?;
             let response = wire::response_head(
                 &self.auth,
@@ -412,15 +462,13 @@ impl State {
                         .timeout
                         .min(std::time::Duration::from_millis(remaining));
                     let body = request.call.encode(self.options.max_query_request_bytes)?;
-                    let local = self
-                        .runtime
-                        .log()
-                        .group(&request.scope)
-                        .map_err(|_| TransportError::UnknownGroup)?
-                        .identity()
-                        .clone();
-                    let route = Route::new(
-                        &local,
+                    let local = self.runtime.log().limits();
+                    let route = QueryRoute::new(
+                        NodeIdentity {
+                            node: local.node,
+                            disk: local.disk,
+                            process: local.process,
+                        },
                         self.auth.source(),
                         &request.peer.replica,
                         &request.peer.label,

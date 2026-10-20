@@ -1,8 +1,9 @@
 //! Bounded query RPC frames. Their MAC domains, exporter and framing are
 //! separate from Raft messages; a read RPC can never become a consensus step.
 
+use super::query_identity::QueryRoute as Route;
 use super::transport::TransportError;
-use super::transport_frame::{FrameHead, Route, PREFIX};
+use super::transport_frame::{FrameHead, PREFIX};
 use super::transport_options::TransportOptions;
 use crate::application::consensus::{
     CommandFailure, OperationContract, OperationKind, QueryConsistency, QueryOptions, QueryResult,
