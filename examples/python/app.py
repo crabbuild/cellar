@@ -82,21 +82,26 @@ class Counter:
             if receipt and receipt.present:
                 if receipt.value["amount"] != change.amount:
                     return Response.json({"error": "idempotency-key already used for a different increment"}, 409)
-                return Response.json(receipt.value["response"])
+                sealed = receipt.value["response"]
+                return Response(sealed["body"], sealed["status"], sealed["headers"])
             snapshot = await storage.read_json("count")
             count = (snapshot.value if snapshot.present else 0) + change.amount
-            response = {"count": count, "alarms": await storage.get_json("alarms", 0)}
+            response = Response.json({"count": count, "alarms": await storage.get_json("alarms", 0)})
             checks, puts = {"count": snapshot}, {"count": count}
             if receipt_key:
                 checks[receipt_key] = receipt
-                puts[receipt_key] = {"amount": change.amount, "response": response}
+                # Persist the rendered application response, not an object
+                # whose JSON key order/encoding can change on replay.
+                puts[receipt_key] = {"amount": change.amount, "response": {
+                    "status": response.status, "headers": response.headers,
+                    "body": response.body.decode("ascii")}}
             # The receipt and its effect commit in one checked transaction. A
             # lost response can be resolved by retrying the same key and amount.
             try:
                 await storage.apply(checks=checks, puts=puts)
             except Conflict:
                 return Response.json({"error": "conflicting update; reconcile using the same idempotency-key"}, 409)
-            return Response.json(response)
+            return response
         return Response.json({"count": await storage.get_json("count", 0),
                               "alarms": await storage.get_json("alarms", 0)})
 

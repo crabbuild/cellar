@@ -44,7 +44,13 @@ def check_report(log):
     assert report["native_outcomes"] and all(outcome["complete"] for outcome in report["native_outcomes"])
 
 
-def receipt_request(origin, amount, key, status=200):
+def receipt_headers(response):
+    # Transport-generated fields such as Date are not application receipt data.
+    return [(name.lower(), value) for name, value in response.headers.items()
+            if name.lower() in ("content-type", "x-cellar-code-revision")]
+
+
+def receipt_request(origin, amount, key, status=200, *, wire=False):
     operation = urllib.request.Request(origin + "/counters/receipt", method="POST",
         data=json.dumps({"amount": amount}).encode(),
         headers={"content-type": "application/json", "idempotency-key": key})
@@ -55,7 +61,7 @@ def receipt_request(origin, amount, key, status=200):
     with response:
         body = response.read()
         assert response.status == status, (response.status, body)
-        return json.loads(body)
+        return (response.status, body, receipt_headers(response)) if wire else json.loads(body)
 
 
 def lose_committed_response(origin):
@@ -73,7 +79,7 @@ def lose_committed_response(origin):
             operation = urllib.request.Request(origin + self.path, method="POST", data=body,
                 headers={"content-type": "application/json", "idempotency-key": self.headers["idempotency-key"]})
             with urllib.request.urlopen(operation, timeout=10) as response:
-                observed.append((response.status, json.loads(response.read())))
+                observed.append((response.status, response.read(), receipt_headers(response)))
             self.close_connection = True
             self.connection.shutdown(socket.SHUT_RDWR)
 
@@ -91,7 +97,8 @@ def lose_committed_response(origin):
         worker.join(timeout=15)
         server.server_close()
     assert not worker.is_alive(), "fault proxy did not join"
-    assert observed == [(200, {"count": 9, "alarms": 0})], observed
+    assert len(observed) == 1 and observed[0][0] == 200 and json.loads(observed[0][1]) == {"count": 9, "alarms": 0}, observed
+    return observed[0]
 
 
 def main():
@@ -117,7 +124,8 @@ def main():
             assert call("/counters/a", method="POST", data={"amount": 7})["count"] == 7
             call("/counters/a", method="POST", data={"amount": "invalid"}, status=400)
             assert call("/counters/a")["count"] == 7
-            lose_committed_response(origin)
+            lost_receipt = lose_committed_response(origin)
+            assert receipt_request(origin, 9, "lost-response", wire=True) == lost_receipt
             assert call("/counters/b")["count"] == 0
             call("/counters/a/alarm", method="POST")
             eventually(lambda: call("/counters/a"), lambda value: value["alarms"] == 1)
@@ -140,9 +148,11 @@ def main():
             assert request(origin, "/counters/a") == {"count": 7, "alarms": 1}
             assert request(origin, "/counters/receipt") == {"count": 9, "alarms": 0}
             assert receipt_request(origin, 9, "lost-response") == {"count": 9, "alarms": 0}
+            assert receipt_request(origin, 9, "lost-response", wire=True) == lost_receipt
             assert receipt_request(origin, 1, "different-request") == {"count": 10, "alarms": 0}
             # Replay returns the original sealed result even after a later write.
             assert receipt_request(origin, 9, "lost-response") == {"count": 9, "alarms": 0}
+            assert receipt_request(origin, 9, "lost-response", wire=True) == lost_receipt
             receipt_request(origin, 8, "lost-response", status=409)
             assert request(origin, "/counters/receipt") == {"count": 10, "alarms": 0}
             assert request(origin, "/kv") == {"message": "Python KV", "nullable": None}

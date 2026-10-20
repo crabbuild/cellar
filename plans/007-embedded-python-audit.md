@@ -48,7 +48,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | H02 | Body/response/header/depth/value limits before admission/effects | Exact boundary and over-limit cases, released reservations | partial: native and facade depth guards agree at 64; exact native request body/header-count/header-byte limits and real-node exact/over-depth refusal pass; complete response/value/admission and reservation boundary coverage remains |
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | partial: public ValidationError/Overloaded/Ambiguous/OwnershipLost classes, explicit outcomes and fixed sanitized messages; native typed routing verdicts preserved; real protocol/codec/batch refusals and ambiguous constructor/absent-binding tests pass; some bindings flatten native causes internally, and live routing-verdict fault coverage remains |
-| H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | partial: task cancellation test; reconciliation missing |
+| H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | partial: task cancellation plus packaged lost-response receipt reconciliation (S09) pass; independent pending-operation/binding cancellation and ambiguity matrices remain |
 | H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: managed handler failures sanitized; process-log sentinel checks cover unraisable destructor and raw-thread exceptions, with counted runtime failure; startup/import and all failure paths still need final review |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | partial: managed-runtime smoke now executes pinned Pydantic, NumPy, hashing and pure Python inspection; platform matrix remains open |
@@ -65,7 +65,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | S06 | Durable alarm mutation atomic with cell state | Crash/recovery and failed-check alarm tests | partial: real alarm executes |
 | S07 | Duplicate alarms safe by persisted occurrence | Repeat same occurrence with idempotent durable effect | verified: sample persists an occurrence receipt atomically; bridge invokes the same occurrence twice and observes one increment |
 | S08 | State persists over preserving restart | Real-node restart and packaged host restart | partial: existing harness and smoke |
-| S09 | Lost committed response resolved with same receipt key | Disposable host reply loss followed by receipt reconciliation | verified in packaged local dev host: proxy discards proof-gated success, host restarts, same-key retry replays sealed result; later writes and key mismatch also checked |
+| S09 | Lost committed response resolved with same receipt key | Disposable host reply loss followed by receipt reconciliation | verified locally with direct wire comparison: proxy discards proof-gated success; rendered application status/body/header fields persist atomically with the effect and replay exactly before/after restart and after later writes; different-amount reuse refuses; changed-source process upgrade also compares exact application response fields |
 
 ## Failure, cleanup and combined reports (M3)
 
@@ -113,10 +113,10 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q06 | Shared SQL authority/cancel/backpressure/replay/resource qualification | Binding-specific tests through Python | partial: actual shared-SQL DDL/DML/query on two nodes; live/expired retained handles refuse inserts, both databases retain only their own row; cancellation, independent backpressure/replay and restart matrices remain |
 | Q07 | Queue producer/consumer settlement, retry, cancel, replay and resource qualification | Adapter-specific independent failure matrix | partial: retry smoke plus live/expired producer handles refuse submission across two nodes; independent consumer settlement/cancellation/replay/backpressure matrix remains |
 | Q08 | Cron retry/no_retry, authority, cancellation and occurrence replay | Adapter-specific independent failure matrix | partial: real tick smoke |
-| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 passed pinned Pydantic/NumPy/pure-library workloads; new archive path Linux CI still pending |
+| Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | partial: macOS ARM64 CPython 3.14.5/3.14.6 and Linux x86_64 CPython 3.14.8 passed pinned Pydantic/NumPy/pure-library workloads; verified archive restoration and changed-source TERM/INT handoff also pass on Linux x86_64 CPython 3.14.5 at fe6d2f8; newer observation/receipt source still needs fresh Linux execution |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | missing |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: foundation full workspace tests and complete Linux SDK CI passed; new archive/protocol/deployment-hook changes need final affected checks and fresh CI |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: both complete Linux SDK workflows on fe6d2f8 passed tests, doctests, Clippy, package restoration/rolling and native examples; current observation/receipt follow-ups have local checks but require fresh complete CI |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -628,3 +628,47 @@ Local observability checkpoint checks:
 Linux runs 39410295139 and 39410287131 on fe6d2f8 remain live at this checkpoint.
 Their exact handles are retained rather than restarting them; neither covers
 the unpushed observability source above. Full completion remains unproven.
+
+## Exact application receipt replay and Linux checkpoint
+
+A direct raw-body probe found a gap hidden by earlier JSON-only assertions:
+first response `{"count":9,"alarms":0}` replayed as
+`{"alarms":0,"count":9}`. The effect was not duplicated, but the supposedly
+sealed response was re-rendered after object-key ordering changed in storage.
+The previous test scope proved retained values, not identical response bytes.
+
+The example now renders its response before the checked batch, stores status,
+ordered application headers and the rendered ASCII JSON body in the receipt,
+and reconstructs those fields directly on replay. No legacy response reader or
+state migration was added. The fault proxy retains the actual original bytes;
+matching requests compare status/body/application headers before stop, after
+preserving restart and after subsequent writes. Transport-generated metadata
+is excluded. A different amount still refuses without another increment.
+
+The changed-source fixture adds its revision header only to GET, so it proves
+new code executed without altering retained POST receipt headers. The rolling
+qualifier now compares owned response bytes/status/application headers rather
+than only decoding the returned count. With CPython 3.14.5, fresh bucket install,
+original runtime removal/restoration, then both TERM and INT handoff passed with
+new writes, exact old receipt replay and complete joined reports. The stricter
+packaged smoke also passed with cron and native numerical work.
+
+Fresh private artifacts for this qualification: base inventory
+`66fade4ee72b4d6ecb9fe8ca035412549d5c8be0c796363508ef9efb816a081f`,
+base archive `83bb350ed6c0f418d9bdef1cbced5e580e8e97ded89ec2f1b9b130cd7ee4d5c3`,
+changed-source inventory `d1d10166f32af96c381c1e5e056c1d149a95a5bf0d1572a68530319bcd66a285`
+and changed-source archive `f83a3451d54ed2bdb62dd441dfd711438d77cb41441691906b1f50477bba7b7d`.
+
+Linux workflows 39410295139 and 39410287131 on fe6d2f8 both completed
+**successfully**, including full workspace tests/doctests/Clippy, the independent
+CPython 3.14.5 package, GNU loader binding, runtime archive restore and changed
+source TERM/INT process upgrades, plus native examples. These are exact-revision
+results. They did not contain the newer metrics or raw-body receipt checks and
+do not qualify those changes until another current-source run completes.
+
+Receipt follow-up checks: stronger provisioned `--with-cron` smoke, fresh
+runtime restoration and raw-response TERM/INT upgrades passed. Affected
+`cargo clippy -p cellar -p cellar-python --all-targets --all-features --locked -- -D warnings`,
+`cargo format --check`, module layout, dependency/docs guards and
+`git diff --check` passed. No existing assertion was weakened to accept reordered
+response bytes. Current-source Linux execution remains required after push.

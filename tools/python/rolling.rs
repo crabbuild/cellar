@@ -90,7 +90,8 @@ pub(super) async fn qualify(old: &Path, new: &Path, scratch: &Path) -> Result<()
             .await?;
         let mut owner =
             InstalledHost::start(&old_host, &store, work.path(), "python-before").await?;
-        ensure!(increment(&client, &owner.origin, "before-upgrade", 3).await?["count"] == 3);
+        let sealed = increment(&client, &owner.origin, "before-upgrade", 3).await?;
+        ensure!(sealed.value()?["count"] == 3);
         new_data.publish_staged(&bucket, new).await?;
         new_data
             .install_with_python(
@@ -110,8 +111,8 @@ pub(super) async fn qualify(old: &Path, new: &Path, scratch: &Path) -> Result<()
             InstalledHost::start(&new_host, &store, work.path(), "python-after").await?;
         owner.ensure_live()?;
         ensure!(
-            increment(&client, &replacement.origin, "before-upgrade", 3).await?["count"] == 3,
-            "new ingress duplicated a proven receipt held by the old owner"
+            increment(&client, &replacement.origin, "before-upgrade", 3).await? == sealed,
+            "new ingress changed a proven receipt held by the old owner"
         );
         owner.signal(signal).await?;
         replacement.ensure_live()?;
@@ -133,11 +134,14 @@ pub(super) async fn qualify(old: &Path, new: &Path, scratch: &Path) -> Result<()
             "handoff lost acknowledged state: {state}"
         );
         ensure!(
-            increment(&client, &replacement.origin, "after-upgrade", 2).await?["count"] == 5,
+            increment(&client, &replacement.origin, "after-upgrade", 2)
+                .await?
+                .value()?["count"]
+                == 5,
             "replacement could not mutate recovered state"
         );
         ensure!(
-            increment(&client, &replacement.origin, "before-upgrade", 3).await?["count"] == 3,
+            increment(&client, &replacement.origin, "before-upgrade", 3).await? == sealed,
             "replacement failed to replay the exact pre-upgrade response"
         );
         replacement.stop(&client, true).await?;
@@ -147,21 +151,46 @@ pub(super) async fn qualify(old: &Path, new: &Path, scratch: &Path) -> Result<()
     Ok(())
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct Receipt {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+}
+
+impl Receipt {
+    fn value(&self) -> Result<Value> {
+        Ok(serde_json::from_slice(&self.body)?)
+    }
+}
+
 async fn increment(
     client: &reqwest::Client,
     origin: &str,
     key: &str,
     amount: u64,
-) -> Result<Value> {
-    Ok(client
+) -> Result<Receipt> {
+    let response = client
         .post(format!("{origin}/counters/rolling"))
         .header("idempotency-key", key)
         .json(&json!({"amount":amount}))
         .send()
         .await?
-        .error_for_status()?
-        .json()
-        .await?)
+        .error_for_status()?;
+    // Only these application fields exist in the base/changed-source fixture.
+    // Exclude generated transport metadata, but catch a revision header added
+    // to a replay rather than returned from the retained response.
+    let headers = response
+        .headers()
+        .iter()
+        .filter(|(name, _)| matches!(name.as_str(), "content-type" | "x-cellar-code-revision"))
+        .map(|(name, value)| Ok((name.to_string(), value.to_str()?.to_string())))
+        .collect::<Result<Vec<_>>>()?;
+    Ok(Receipt {
+        status: response.status().as_u16(),
+        headers,
+        body: response.bytes().await?.to_vec(),
+    })
 }
 
 async fn check_package(host: &Path, package: &Path, accepted: bool) -> Result<()> {

@@ -45,7 +45,8 @@ def main():
 _previous_cell_fetch = Counter.fetch
 async def _updated_cell_fetch(self, request, ctx):
     response = await _previous_cell_fetch(self, request, ctx)
-    response.headers.append(({REVISION_HEADER!r}, {REVISION!r}))
+    if request.method == "GET":
+        response.headers.append(({REVISION_HEADER!r}, {REVISION!r}))
     return response
 Counter.fetch = _updated_cell_fetch
 '''

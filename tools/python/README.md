@@ -127,9 +127,10 @@ versions. Repository sources and provisioned runtime files are unchanged.
 The qualification checks different executable, application-version and inventory
 identities; observes the old process refusing in-process adoption; verifies that
 the old executable refuses the new package; and exercises real TERM and INT
-handoff in separate development fleets. A header from the changed Python cell
-handler proves the replacement code ran after takeover. Acknowledged state and
-the exact retained response receipt must survive, and both combined shutdown
+handoff in separate development fleets. A GET-only header from the changed Python cell
+handler proves replacement code ran after takeover without changing POST receipt
+headers. Acknowledged state and the exact retained application status, body bytes
+and headers must survive; the test compares those fields directly. Both combined shutdown
 reports must be complete. This covers source changes with the same pinned
 CPython/package environment; upgrading OS/native dependencies needs its own
 qualification.

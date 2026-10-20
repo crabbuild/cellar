@@ -51,7 +51,7 @@ curl http://127.0.0.1:9876/cron
 The named counter survives preserving restarts. Its alarm increments `alarms` once per persisted occurrence receipt.
 `/jobs` shows queue effects in KV; `/cron` shows the latest real minute occurrence.
 Queue and cron deliveries can repeat; production business effects need
-idempotency keys. Counter POST requests accept an `idempotency-key` header (1..128 ASCII letters, digits, `-`, `_`, `.`). The receipt and increment commit atomically; retries with the same key and amount return the original sealed response, including after a restart or later writes. Reusing a key for a different amount returns 409. Retain receipt keys for the application's complete retry/reconciliation window.
+idempotency keys. Counter POST requests accept an `idempotency-key` header (1..128 ASCII letters, digits, `-`, `_`, `.`). The rendered response status, body bytes and ordered application headers commit atomically with the receipt and increment; matching retries return those retained fields, including after restart or later writes. Transport-generated metadata such as Date is outside this application receipt. Reusing a key for a different amount returns 409. Retain receipt keys for the application's complete retry/reconciliation window.
 
 ## Validate and package
 
