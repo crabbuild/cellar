@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
             .map_err(|error| anyhow::anyhow!(error))?,
     )?;
     let secret = std::fs::read_to_string(&args[4])?.trim().to_owned();
-    let store = cellar::bucket::Bucket::open_dev(&root.join("catalog.sqlite"))?.store;
+    let store = cellar::bucket::Bucket::open_dev(&root.join("catalog.sqlite"))?.raft_store();
     let namespace = NamespaceId::new([2; 16])?;
     let cluster = ClusterId::new([1; 16])?;
     let mut nodes = Vec::new();

@@ -192,7 +192,24 @@ pub enum RuntimeEventKind {
 /// Admission remains charged while this event is in either runtime queue.
 pub struct RuntimeEvent {
     pub kind: RuntimeEventKind,
-    pub(crate) _permit: Permit,
+    pub(crate) _permit: std::sync::Arc<Permit>,
+}
+
+impl RuntimeEvent {
+    /// A deferred apply retains the same admission until both the blocking
+    /// effect and its retry owner release the immutable entry bytes.
+    pub(crate) fn clone_apply(&self) -> Option<Self> {
+        let RuntimeEventKind::Apply { ticket, entry } = &self.kind else {
+            return None;
+        };
+        Some(Self {
+            kind: RuntimeEventKind::Apply {
+                ticket: ticket.clone(),
+                entry: entry.clone(),
+            },
+            _permit: self._permit.clone(),
+        })
+    }
 }
 
 impl RuntimeEventKind {

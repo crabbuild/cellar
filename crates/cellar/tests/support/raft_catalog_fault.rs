@@ -15,6 +15,10 @@ pub struct Store {
     pub fail_confirmation: AtomicBool,
     pub fail_head_after: AtomicBool,
     pub fail_head_confirmation: AtomicBool,
+    pub archive_unavailable: AtomicBool,
+    pub archive_hang: AtomicBool,
+    pub archive_resume: tokio::sync::Notify,
+    pub archive_attempts: AtomicUsize,
     pub non_create: AtomicUsize,
 }
 
@@ -31,6 +35,27 @@ fn failure() -> object_store::Error {
     }
 }
 
+impl Store {
+    async fn archive_fault(&self, path: &Path) -> object_store::Result<()> {
+        if path.as_ref().contains("/archives/") {
+            self.archive_attempts.fetch_add(1, Ordering::AcqRel);
+            loop {
+                let resumed = self.archive_resume.notified();
+                tokio::pin!(resumed);
+                resumed.as_mut().enable();
+                if !self.archive_hang.load(Ordering::Acquire) {
+                    break;
+                }
+                resumed.await;
+            }
+            if self.archive_unavailable.load(Ordering::Acquire) {
+                return Err(failure());
+            }
+        }
+        Ok(())
+    }
+}
+
 #[async_trait::async_trait]
 impl ObjectStore for Store {
     async fn put_opts(
@@ -40,6 +65,7 @@ impl ObjectStore for Store {
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
         tokio::task::yield_now().await;
+        self.archive_fault(path).await?;
         if !matches!(options.mode, PutMode::Create) {
             self.non_create.fetch_add(1, Ordering::AcqRel);
         }
@@ -73,6 +99,7 @@ impl ObjectStore for Store {
 
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
+        self.archive_fault(path).await?;
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }

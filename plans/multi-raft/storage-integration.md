@@ -135,14 +135,16 @@ MR-12 supplies committed effect/dependency enumeration, unsupported Blob/effect
 operations remain refused. Orphaned immutable objects are retained; archive GC
 must later honor the complete manifest reference graph.
 
-The component tests use real SQLite/LTX and Raft Engine with directly persisted
+The original component tests use real SQLite/LTX and Raft Engine with directly persisted
 durable-marker fixtures. They include restore after deleting the producer's
 directory, physical tails, configuration checkpoints, concurrent/delayed heads,
 lost object/head responses, absent/corrupt objects, pinned retired images and
-failed replay before publication. These tests do not qualify native SDK S3
-acknowledgements, node-wide backlog admission or automatic member repair. S3
-commands remain refused before private execution until those boundaries are
-implemented and qualified; the original 17-package goal remains open.
+failed replay before publication. Those fixtures alone do not qualify native
+SDK S3 acknowledgements, node-wide backlog admission or automatic member repair.
+The subsequent host integration now connects S3 output gates, stronger retries,
+backlog admission, bounded I/O and joined workspace ownership; its final
+qualification is pending in the [archive audit](archive-audit.md). Atomic member
+repair remains MR-10/MR-11 and the original 17-package goal remains open.
 
 The [storage progress evidence](evidence/MR-09-storage-progress.json) records
 13 archive cases, 62 existing host/storage/execution/runtime cases and 16 Raft

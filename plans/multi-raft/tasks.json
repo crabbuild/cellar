@@ -1093,12 +1093,27 @@
         "crates/cellar/durability/raft/storage.rs",
         "crates/cellar/durability/raft/mod.rs",
         "crates/cellar/application/consensus/mod.rs",
-        "crates/cellar/tests/support/raft_catalog_fault.rs"
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar-ltx/src/generation.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/durability/raft/execution.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/tests/native_raft_ltx.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/runtime.rs",
+        "crates/cellar-ltx/README.md",
+        "examples/raft-counter/main.rs",
+        "examples/raft-counter/README.md",
+        "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/archive.rs",
         "crates/cellar/durability/raft/manifest.rs",
-        "crates/cellar/tests/native_raft_archive.rs"
+        "crates/cellar/tests/native_raft_archive.rs",
+        "crates/cellar/durability/raft/host_archive.rs"
       ],
       "steps": [
         "Build immutable committed-prefix archive bundles and manifests including entry metadata and external object dependencies.",

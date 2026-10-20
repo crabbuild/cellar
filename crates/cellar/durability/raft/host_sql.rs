@@ -2,6 +2,7 @@
 //! cancellation joins a running callback before these owners release locks.
 
 use super::apply::{marker, ImageApplier, PublishedImage};
+use super::archive::{ArchiveLimits, CommittedArchiveCut};
 use super::budget::{Budget, Permit};
 use super::cache::{CommittedImage, GroupLog};
 use super::completion::{
@@ -57,6 +58,7 @@ pub(crate) enum Action {
         status: Box<GroupStatus>,
         attempt: CommandAttempt,
         input: Vec<u8>,
+        allow_new: bool,
     },
     Submit {
         identity: CommandIdentity,
@@ -75,6 +77,9 @@ pub(crate) enum Action {
     Publish {
         ticket: ApplyTicket,
     },
+    CaptureArchive {
+        limits: ArchiveLimits,
+    },
     Query {
         contract: OperationContract,
         input: Vec<u8>,
@@ -91,6 +96,7 @@ pub(crate) enum Value {
     Discarded,
     Retired(cellar_logic::consensus::LogPosition),
     Prepared(ApplyCompletion),
+    ArchiveCut(Option<Box<CommittedArchiveCut>>),
     Published {
         view: ImageView,
         receipt: Option<(CommandIdentity, CommittedReceipt)>,
@@ -104,6 +110,7 @@ impl Value {
             Self::Staged(StageOutcome::Prepared(p)) => p.bytes().len(),
             Self::Staged(StageOutcome::Duplicate(r)) => r.receipt().result().len(),
             Self::Queried(q) => q.result.len(),
+            Self::ArchiveCut(Some(cut)) => cut.memory_bytes(),
             Self::Published {
                 receipt: Some((_, r)),
                 ..
@@ -142,6 +149,7 @@ impl Pool {
         queue: usize,
         max_cells: usize,
         budget: Arc<Budget>,
+        archive_budget: Arc<Budget>,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
         let mut pool = Self {
@@ -156,6 +164,7 @@ impl Pool {
             let owner = domain.clone();
             let stopped = stopped.clone();
             let budget = budget.clone();
+            let archive_budget = archive_budget.clone();
             let task = domain
                 .blocking(move || {
                     let mut cells = BTreeMap::<GroupScope, Cell>::new();
@@ -190,6 +199,11 @@ impl Pool {
                         let result = Self::execute(&mut cells, max_cells, &scope, action).and_then(
                             |value| {
                                 let bytes = value.bytes();
+                                let budget = if matches!(&value, Value::ArchiveCut(_)) {
+                                    &archive_budget
+                                } else {
+                                    &budget
+                                };
                                 let permit = if bytes == 0 {
                                     None
                                 } else {
@@ -326,6 +340,15 @@ impl Pool {
             )
             .map_err(super::execution::storage)?;
             let view = applier.current().as_ref().map(ImageView::of);
+            let retained = applier
+                .current()
+                .map(|image| image.pin().id())
+                .into_iter()
+                .collect::<Vec<_>>();
+            images
+                .retain_only(&retained)
+                .map_err(super::execution::storage)?;
+            images.reclaim(4096).map_err(super::execution::storage)?;
             let options = PrivateOptions {
                 directory: storage.directory.join("private"),
                 host: storage.host,
@@ -398,6 +421,7 @@ impl Cell {
                 status,
                 attempt,
                 input,
+                allow_new,
             } => {
                 if self.active.is_some()
                     || identity.authority.replica != *self.group.identity()
@@ -424,7 +448,7 @@ impl Cell {
                     .private
                     .as_mut()
                     .ok_or(ExecutionError::RebuildRequired)?
-                    .stage_registered(attempt, &self.class, &input);
+                    .stage_registered_admitted(attempt, &self.class, &input, allow_new);
                 match result {
                     Ok(outcome) => {
                         if matches!(&outcome, StageOutcome::Prepared(_)) {
@@ -485,9 +509,14 @@ impl Cell {
                     return Err(ExecutionError::Invalid("apply event"));
                 };
                 Ok(Value::Prepared(
-                    self.applier
-                        .prepare(ticket.clone(), entry, image)
-                        .map_err(super::execution::storage)?,
+                    self.applier.prepare(ticket.clone(), entry, image).map_err(
+                        |error| match error {
+                            super::apply::ImageApplyError::Images(
+                                cellar_ltx::generation::GenerationError::Limit,
+                            ) => ExecutionError::Refused(CommandFailure::Overloaded),
+                            error => super::execution::storage(error),
+                        },
+                    )?,
                 ))
             }
             Action::Publish { ticket } => {
@@ -521,6 +550,16 @@ impl Cell {
                     view: ImageView::of(&published),
                     receipt,
                 })
+            }
+            Action::CaptureArchive { limits } => {
+                let cut = self
+                    .applier
+                    .queryable()
+                    .map_err(super::execution::storage)?
+                    .map(|image| CommittedArchiveCut::capture(&self.group, image, vec![], limits))
+                    .transpose()
+                    .map_err(super::execution::storage)?;
+                Ok(Value::ArchiveCut(cut.map(Box::new)))
             }
             Action::Query {
                 contract,

@@ -233,6 +233,7 @@ impl ImageApplier {
                 })
             })
             .collect::<Result<Vec<_>, ImageApplyError>>()?;
+        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
         let pin = self
             .images
             .prepare(
@@ -278,8 +279,19 @@ impl ImageApplier {
             scope: self.group.identity().scope.clone(),
             proposal: Some(pending.proposal),
         };
-        self.current = Some(head.clone());
+        let previous = self.current.replace(head.clone());
         self.pending = None;
+        // The new engine marker is already durable. The latest complete image
+        // can establish a full archive cut; old reader/archive pins protect any
+        // older bytes still in use while retirement permits bounded reclamation.
+        if let Some(previous) = previous {
+            if previous.pin.id() != head.pin.id() {
+                self.images
+                    .retire(previous.pin.id())
+                    .map_err(ImageApplyError::Images)?;
+            }
+        }
+        self.images.reclaim(8).map_err(ImageApplyError::Images)?;
         Ok(head)
     }
 }

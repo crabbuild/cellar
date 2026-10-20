@@ -72,6 +72,15 @@ image and directory lock; bounded reclamation syncs deletion before refunding
 capacity. Default admission allows 64 generations and 512 MiB, reserving twice
 the largest intermediate image while an update is in progress.
 
+After recovery adopts the complete authoritative reference set, `retain_only`
+retires the other inventory without selecting files by age or name. Every
+supplied reference must already be adopted; validation finishes before any
+retention flag changes. Live reader/archive pins still prevent reclamation.
+The Raft host uses this at startup for the exact engine image marker, and its
+archive verifier uses an empty set for disposable verification copies. A newer
+durable committed image can replace the older image's future full-archive path;
+retiring that older image does not revoke an existing reader or archive pin.
+
 `generation::open_immutable` opens only the pin's virtual filename. Its SQLite
 VFS reads through the injected filesystem, refuses writes, sidecars and native
 path access, and receives clock/randomness callbacks through `ReadServices`.

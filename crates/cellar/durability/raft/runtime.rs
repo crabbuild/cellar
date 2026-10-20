@@ -447,7 +447,7 @@ impl Outbox {
         };
         self.events.push_back(RuntimeEvent {
             kind,
-            _permit: permit,
+            _permit: std::sync::Arc::new(permit),
         });
         None
     }

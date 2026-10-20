@@ -355,14 +355,16 @@ pins their immutable generations, and publishes bounded snapshot/tail/dependency
 sets through conditional heads. Each proposed head is downloaded, checked and
 physically replayed in a separate generation store before publication. Membership
 changes establish a new full snapshot with the configuration from that exact cut.
-These interfaces provide recovery material only. Node-owned archive scheduling,
-SDK S3 output gates, stronger retries and outage/disk admission remain unfinished;
-S3 commands remain refused before private execution. See the
+The node-owned dispatcher now settles S3 output from these proofs, preserves
+minimum durability and stronger retries, and bounds backlog admission and image
+retention. Final qualification is pending. Atomic Raft snapshot installation and
+authorized member recovery remain MR-10. See the
+[archive boundary audit](archive-audit.md) and
 [storage integration notes](storage-integration.md#committed-archive-storage-component).
 The [storage progress evidence](evidence/MR-09-storage-progress.json) records
 91 passing Rust cases and the exact checks at source
-`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. This does not satisfy the five
-remaining host durability/admission requirements below or complete MR-09.
+`122a1c7b9a50af74bf9a8c6ab1efa781986661e3`. It predates the host integration
+and does not qualify the newer SDK durability/admission boundary.
 
 Modify: `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/storage/object/bucket.rs`.
 

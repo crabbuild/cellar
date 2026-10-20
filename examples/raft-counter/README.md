@@ -82,10 +82,12 @@ duplicate recognized header returns 400; a valid token from another cell/history
 returns 409. Signature/expiry failures return 503 without weakening consistency.
 POST rejects read-specific headers rather than silently ignoring them.
 
-The example uses Quorum command durability. S3 command durability and archive
-restore remain pending; unsupported SDK requests are refused. Ctrl-C closes
-the HTTP servers and joins the services and nodes. Retain replica disks when
-shutdown reports unfinished work.
+The example uses Quorum command durability and the bucket's scoped conditional
+client for background archives. Programmatic SDK callers can request S3, which
+waits for a verified complete archive recovery set. Atomic Raft member recovery
+and disaster-restore admission remain later work; an archive image alone cannot
+activate a member. Ctrl-C closes the HTTP servers and joins the services and
+nodes. Retain replica disks while archive coverage or submitted work is unfinished.
 
 The `native_axum_command_parity` integration case exercises real native and Axum
 listeners, direct SDK commands, duplicate receipts, conflicting inputs,

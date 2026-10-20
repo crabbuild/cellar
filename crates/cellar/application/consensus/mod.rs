@@ -7,12 +7,14 @@ mod class;
 pub(crate) mod client;
 pub(crate) mod protocol;
 
+pub use crate::raft::archive::ArchiveLimits;
+
 pub use crate::raft::catalog::{
     BirthProposal, CatalogOptions, InitialMember, NamespaceConfig, VoterPolicy,
 };
 pub use crate::raft::host::{
-    RaftCellPlacement, RaftCellRegistration, RaftCellsConfig, RaftCellsServices, RaftHostOptions,
-    RaftPeerNode,
+    RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
+    RaftCellsServices, RaftHostOptions, RaftPeerNode,
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};

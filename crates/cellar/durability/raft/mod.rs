@@ -10,6 +10,7 @@ pub(crate) mod completion;
 pub(crate) mod execution;
 mod filesystem;
 pub(crate) mod host;
+mod host_archive;
 mod host_sql;
 mod manifest;
 pub(crate) mod options;

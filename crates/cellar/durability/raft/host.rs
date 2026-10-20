@@ -1,6 +1,8 @@
 //! Node-owned command producers and Raft/SQL effect dispatch. Waiters never own
 //! a submitted producer, its private image or its progress through publication.
+pub use super::host_archive::RaftArchiveOptions;
 use super::{
+    archive::{ArchiveError, CellArchive},
     budget::{Budget, Permit},
     cache::GroupLog,
     catalog::*,
@@ -28,6 +30,7 @@ use tokio::sync::{mpsc, Notify};
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    pub archive: RaftArchiveOptions,
     pub max_groups: usize,
     pub blocking_workers: usize,
     pub worker_queue: usize,
@@ -43,6 +46,7 @@ pub struct RaftHostOptions {
 impl Default for RaftHostOptions {
     fn default() -> Self {
         Self {
+            archive: RaftArchiveOptions::default(),
             max_groups: 128,
             blocking_workers: 2,
             worker_queue: 32,
@@ -59,6 +63,33 @@ impl Default for RaftHostOptions {
 
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        self.archive.validate()?;
+        self.execution.validate()?;
+        anyhow::ensure!(
+            self.archive.limits.envelope == self.execution.envelope,
+            "archive and execution envelope limits must agree"
+        );
+        // The current base, private preview and next committed image coexist;
+        // preparing the latter reserves two copies of its peak. Extra archive
+        // pins may backpressure apply until those owned jobs release them.
+        anyhow::ensure!(
+            self.images.max_generations >= 3
+                && self.images.max_bytes >= self.execution.max_image_bytes.saturating_mul(4),
+            "image admission must cover three generations and four maximum image copies"
+        );
+        let apply = self.images.apply;
+        let envelope = self.execution.envelope;
+        anyhow::ensure!(
+            apply.decode.max_image_bytes >= self.execution.max_image_bytes
+                && apply.max_files >= envelope.max_files
+                && apply.max_total_encoded_bytes >= envelope.max_payload_bytes
+                && apply.decode.max_encoded_bytes >= envelope.max_payload_bytes
+                && apply.max_total_decoded_bytes >= envelope.max_decoded_bytes
+                && apply.decode.max_decoded_bytes >= envelope.max_decoded_bytes
+                && apply.max_total_pages as u64 >= envelope.max_pages
+                && apply.decode.max_pages as u64 >= envelope.max_pages,
+            "image application limits cannot cover admitted execution envelopes"
+        );
         anyhow::ensure!(
             self.max_groups > 0
                 && self.max_groups <= 4096
@@ -155,9 +186,11 @@ pub(crate) async fn start(
         options.worker_queue,
         options.max_groups,
         budget.clone(),
+        Budget::new(options.archive.limits.max_capture_bytes, 1),
     )?;
     let mut cells = BTreeMap::new();
     let mut bindings = BTreeMap::new();
+    let mut archive_owner = None;
     let initialized = async {
         let peer_count = peers.len();
         let peers: BTreeMap<_, _> = peers.into_iter().map(|p| (p.node, p)).collect();
@@ -288,7 +321,7 @@ pub(crate) async fn start(
             let Value::Initialized(image) = output.value else {
                 anyhow::bail!("SQL initialization response")
             };
-            let progress = progress(&group, image.as_ref())?
+            let progress = progress(&group, image.as_ref(), LogIndex::new(0))?
                 .ok_or_else(|| anyhow::anyhow!("unverified recovered image"))?;
             let core = CommandState::new(progress, namespace.minimum_durability())?;
             let mut routes = Vec::new();
@@ -341,6 +374,9 @@ pub(crate) async fn start(
             cells.insert(
                 scope.clone(),
                 Cell {
+                    archive: namespace.cell_archive(&birth, ltx_host(), options.archive.limits)?,
+                    archived: LogIndex::new(0),
+                    archive_retry_at: 0,
                     group,
                     schema_digest: class.schema_digest(),
                     worker,
@@ -353,10 +389,29 @@ pub(crate) async fn start(
                     apply: None,
                     publication: None,
                     apply_ticket: None,
+                    apply_retry_at: 0,
                     failed: false,
                 },
             );
             permit.attach(&service.runtime).await?;
+        }
+        if !cells.is_empty() {
+            let mut nonce = [0; 16];
+            crate::asyncrt::rng("raft-archive-verifier").fill_bytes(&mut nonce);
+            let owner = super::host_archive::Owner::open(
+                directory.join("archive-verifier"),
+                ltx_host(),
+                ImageId::new(nonce)?,
+                options.images.apply,
+            )
+            .await?;
+            for cell in cells.values_mut() {
+                cell.archive = cell
+                    .archive
+                    .clone()
+                    .with_cancellation(owner.cancellation.subscribe());
+            }
+            archive_owner = Some(owner);
         }
         Ok::<_, anyhow::Error>(())
     }
@@ -416,6 +471,7 @@ pub(crate) async fn start(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            archive_owner,
             log,
             runtime,
             events,
@@ -488,6 +544,7 @@ fn read_services() -> ReadServices {
 fn progress(
     group: &GroupLog,
     image: Option<&ImageView>,
+    archived: LogIndex,
 ) -> Result<Option<ReplicaProgress>, RuntimeError> {
     let cache = group.read()?;
     if cache.applied.image.as_ref() != image.map(|image| &image.image) {
@@ -496,7 +553,7 @@ fn progress(
     let mut progress = ReplicaProgress::checkpoint(
         group.identity().clone(),
         cache.applied.position.index,
-        LogIndex::new(0),
+        archived,
     )
     .map_err(|e| RuntimeError::Invalid(e.to_string()))?;
     progress
@@ -525,6 +582,8 @@ enum Phase {
 }
 
 struct Pending {
+    allow_new: bool,
+    proof: Option<(LogPosition, [u8; 32])>,
     request: Request,
     options: client::CommandOptions,
     contract: crate::application::consensus::OperationContract,
@@ -538,6 +597,9 @@ struct Pending {
 }
 
 struct Cell {
+    archive: CellArchive,
+    archived: LogIndex,
+    archive_retry_at: u64,
     group: GroupLog,
     schema_digest: [u8; 32],
     worker: usize,
@@ -550,6 +612,7 @@ struct Cell {
     apply: Option<RuntimeEvent>,
     publication: Option<ApplyTicket>,
     apply_ticket: Option<ApplyTicket>,
+    apply_retry_at: u64,
     failed: bool,
 }
 
@@ -562,16 +625,22 @@ enum StatusPurpose {
 }
 
 enum SqlPurpose {
+    CaptureArchive,
     Stage,
     Mark,
     Discard,
     Retire,
-    Prepare,
+    Prepare(RuntimeEvent),
     Publish(ApplyTicket),
     Query(ReadId),
 }
 
 enum Job {
+    Archived {
+        scope: GroupScope,
+        position: LogPosition,
+        result: Result<(), ArchiveError>,
+    },
     Routed {
         request: Box<Request>,
         result: Result<super::query_route::RoutedOutput, CommandFailure>,
@@ -614,6 +683,7 @@ enum Job {
 }
 
 struct Driver {
+    archive_owner: Option<super::host_archive::Owner>,
     local: Arc<client::Handle>,
     log: super::storage::ReplicaLog,
     runtime: RaftRuntime,
@@ -953,6 +1023,22 @@ impl Driver {
     ) {
         if let Some(cell) = self.cells.get_mut(scope) {
             if let Some(mut pending) = cell.pending.take() {
+                let result = if pending.request.control.cancelled()
+                    && (result.is_ok()
+                        || pending.duplicate && matches!(result, Err(CommandFailure::Unavailable)))
+                {
+                    Err(
+                        if pending.request.control.submitted() || pending.duplicate {
+                            CommandFailure::Ambiguous {
+                                command: pending.options.id,
+                            }
+                        } else {
+                            CommandFailure::Unavailable
+                        },
+                    )
+                } else {
+                    result
+                };
                 reply_charged(&mut pending.request, result, bytes);
             }
         }
@@ -1076,6 +1162,7 @@ impl Driver {
 
     fn on_request(&mut self, mut request: Request) {
         let scope = request.scope.clone();
+        let allow_new = matches!(&request.kind, Kind::Command { .. }) && self.archive_admission();
         if self.closing.load(Ordering::Acquire)
             || self.cells.get(&scope).is_some_and(|cell| cell.failed)
         {
@@ -1157,11 +1244,9 @@ impl Driver {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
                 }
-                if options.durability == Durability::S3 {
-                    reply(&mut request, Err(CommandFailure::UnsupportedCapability));
-                    return;
-                }
                 cell.pending = Some(Pending {
+                    allow_new,
+                    proof: None,
                     request,
                     options,
                     contract,
@@ -1196,7 +1281,7 @@ impl Driver {
             {
                 return Err(RuntimeError::NotReady);
             }
-            if let Some(progress) = progress(&cell.group, cell.image.as_ref())? {
+            if let Some(progress) = progress(&cell.group, cell.image.as_ref(), cell.archived)? {
                 cell.core
                     .observe_progress(progress)
                     .map_err(|_| RuntimeError::StaleCompletion)?;
@@ -1240,6 +1325,7 @@ impl Driver {
                     persisted: status.persisted,
                     committed: status.committed,
                     applied: status.applied,
+                    archived: cell.archived,
                 })
             });
             reply(
@@ -1338,6 +1424,7 @@ impl Driver {
                     },
                 };
                 pending.phase = Phase::Staging;
+                let allow_new = pending.allow_new;
                 self.sql(
                     &scope,
                     SqlPurpose::Stage,
@@ -1346,6 +1433,7 @@ impl Driver {
                         status: Box::new(status),
                         attempt,
                         input,
+                        allow_new,
                     },
                 );
             }
@@ -1407,6 +1495,23 @@ impl Driver {
                     self.refuse(&scope, CommandFailure::Unavailable);
                     return;
                 }
+                if cell.archived >= receipt.position().index {
+                    if let Some((position, entry_digest)) = pending.proof {
+                        if cell
+                            .core
+                            .observe_proof(&OutputProof::Raft(Box::new(RaftProof {
+                                command: identity.clone(),
+                                position,
+                                entry_digest,
+                                stage: ProofStage::Archived,
+                            })))
+                            .is_err()
+                        {
+                            self.fail(&scope);
+                            return;
+                        }
+                    }
+                }
                 match cell.core.finish(identity) {
                     Ok(permit) => {
                         let token = u64::try_from(crate::asyncrt::wall_ms())
@@ -1446,6 +1551,7 @@ impl Driver {
                             Some(bytes),
                         );
                     }
+                    Err(Refusal::Unproven) => pending.phase = Phase::AwaitFinish,
                     Err(_) => self.refuse(&scope, CommandFailure::Unavailable),
                 }
             }
@@ -1481,6 +1587,45 @@ impl Driver {
             return;
         };
         cell.sql_busy = false;
+        if let SqlPurpose::CaptureArchive = purpose {
+            let Some(owner) = self.archive_owner.as_mut() else {
+                return;
+            };
+            match result {
+                Ok(sql::Output {
+                    value: Value::ArchiveCut(Some(cut)),
+                    _bytes,
+                }) => {
+                    let position = cut.position();
+                    let archive = cell.archive.clone();
+                    let verifier = owner.verifier.clone();
+                    self.jobs.push(Box::pin(async move {
+                        let _bytes = _bytes;
+                        let result = archive.publish(*cut, &verifier).await.and_then(|set| {
+                            if set.scope() != &scope
+                                || set.position().index < position.index
+                                || set.position().index == position.index
+                                    && set.position().term != position.term
+                            {
+                                return Err(ArchiveError::Corrupt("archive output coverage"));
+                            }
+                            Ok(())
+                        });
+                        Job::Archived {
+                            scope,
+                            position,
+                            result,
+                        }
+                    }));
+                }
+                _ => {
+                    owner.busy = false;
+                    cell.archive_retry_at =
+                        crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
+                }
+            }
+            return;
+        }
         if let SqlPurpose::Query(id) = purpose {
             let Some(mut read) = self.reads.remove(&id) else {
                 return;
@@ -1541,9 +1686,24 @@ impl Driver {
         let sql::Output { value, _bytes } = match result {
             Ok(result) => result,
             Err(error) => {
+                if let (
+                    SqlPurpose::Prepare(event),
+                    ExecutionError::Refused(CommandFailure::Overloaded),
+                ) = (&purpose, &error)
+                {
+                    let Some(retry) = event.clone_apply() else {
+                        self.fail(&scope);
+                        return;
+                    };
+                    cell.apply = Some(retry);
+                    cell.apply_retry_at =
+                        crate::asyncrt::mono_ms().saturating_add(self.options.poll_ms);
+                    self.applying.insert(scope);
+                    return;
+                }
                 if matches!(
                     purpose,
-                    SqlPurpose::Discard | SqlPurpose::Prepare | SqlPurpose::Publish(_)
+                    SqlPurpose::Discard | SqlPurpose::Prepare(_) | SqlPurpose::Publish(_)
                 ) {
                     self.fail(&scope);
                 } else {
@@ -1562,6 +1722,7 @@ impl Driver {
                             pending.phase = Phase::BeforeSubmit;
                         }
                         StageOutcome::Duplicate(receipt) => {
+                            pending.request.control.observe_committed();
                             pending.result = Some(receipt);
                             pending.duplicate = true;
                             pending.phase = Phase::Finish;
@@ -1614,7 +1775,7 @@ impl Driver {
                 }
                 self.finish_pending(&scope, Err(CommandFailure::Unavailable));
             }
-            (SqlPurpose::Prepare, Value::Prepared(completion)) => {
+            (SqlPurpose::Prepare(_), Value::Prepared(completion)) => {
                 cell.apply_ticket = Some(completion.ticket.clone());
                 let runtime = self.runtime.clone();
                 self.jobs.push(Box::pin(async move {
@@ -1627,7 +1788,9 @@ impl Driver {
             (SqlPurpose::Publish(ticket), Value::Published { view, receipt }) => {
                 cell.image = Some(view);
                 cell.apply_ticket = None;
-                if let Ok(Some(progress)) = progress(&cell.group, cell.image.as_ref()) {
+                if let Ok(Some(progress)) =
+                    progress(&cell.group, cell.image.as_ref(), cell.archived)
+                {
                     let _ = cell.core.observe_progress(progress);
                 }
                 if let Some((identity, receipt)) = receipt {
@@ -1654,6 +1817,8 @@ impl Driver {
                             });
                         if proven.is_ok() {
                             if let Some(pending) = cell.pending.as_mut() {
+                                pending.request.control.observe_committed();
+                                pending.proof = Some((ticket.position(), ticket.entry_digest()));
                                 pending.result = Some(receipt);
                                 pending.phase = Phase::Finish;
                             }
@@ -1764,7 +1929,7 @@ impl Driver {
                 self.applying.remove(&scope);
                 continue;
             }
-            if cell.sql_busy {
+            if cell.sql_busy || cell.apply_retry_at > crate::asyncrt::mono_ms() {
                 continue;
             }
             if let Some(ticket) = cell.publication.take() {
@@ -1781,9 +1946,13 @@ impl Driver {
                     self.fail(&scope);
                     continue;
                 };
+                let Some(retry) = event.clone_apply() else {
+                    self.fail(&scope);
+                    continue;
+                };
                 self.sql(
                     &scope,
-                    SqlPurpose::Prepare,
+                    SqlPurpose::Prepare(retry),
                     Action::Prepare { event, image },
                 );
                 self.applying.remove(&scope);
@@ -1817,11 +1986,123 @@ impl Driver {
                 _ => (),
             }
         }
+        self.pump_archive();
         self.pump_reads();
+    }
+
+    fn archive_admission(&self) -> bool {
+        let reservation = self
+            .options
+            .execution
+            .max_image_bytes
+            .saturating_add(self.options.execution.envelope.max_payload_bytes as u64)
+            .saturating_add(self.options.execution.envelope.max_header_bytes as u64)
+            .saturating_add(1024);
+        let mut bytes = reservation;
+        let mut entries = 1u64;
+        for cell in self.cells.values() {
+            let Ok(cache) = cell.group.read() else {
+                return false;
+            };
+            let after = cell.archived.get().max(1);
+            if cache.applied.position.index > cell.archived {
+                if let Some(image) = &cache.applied.image {
+                    bytes = bytes.saturating_add(image.length);
+                }
+            }
+            for (_, entry) in cache.entries.range(after.saturating_add(1)..) {
+                bytes =
+                    bytes.saturating_add(u64::from(protobuf::Message::compute_size(entry)) + 128);
+                if entry.get_entry_type() == ::raft::prelude::EntryType::EntryNormal
+                    && !entry.data.is_empty()
+                {
+                    entries = entries.saturating_add(1);
+                }
+            }
+            if cell
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.allow_new)
+            {
+                bytes = bytes.saturating_add(reservation);
+                entries = entries.saturating_add(1);
+            }
+            if bytes > self.options.archive.max_unarchived_bytes
+                || entries > self.options.archive.max_unarchived_entries as u64
+            {
+                return false;
+            }
+        }
+        bytes <= self.options.archive.max_unarchived_bytes
+            && entries <= self.options.archive.max_unarchived_entries as u64
+    }
+
+    fn pump_archive(&mut self) {
+        let Some(owner) = self.archive_owner.as_mut() else {
+            return;
+        };
+        if owner.busy || self.closing.load(Ordering::Acquire) {
+            return;
+        }
+        let now = crate::asyncrt::mono_ms();
+        let eligible = |cell: &&Cell| {
+            !cell.failed
+                && !cell.sql_busy
+                && cell.image.is_some()
+                && cell.archive_retry_at <= now
+                && cell
+                    .group
+                    .applied()
+                    .is_ok_and(|applied| applied.position.index > cell.archived)
+        };
+        let next = self
+            .cells
+            .iter()
+            .filter(|(_, cell)| eligible(cell))
+            .find(|(scope, _)| owner.cursor.as_ref().is_none_or(|cursor| *scope > cursor))
+            .or_else(|| self.cells.iter().find(|(_, cell)| eligible(cell)))
+            .map(|(scope, _)| scope.clone());
+        let Some(scope) = next else {
+            return;
+        };
+        owner.busy = true;
+        owner.cursor = Some(scope.clone());
+        let limits = self.options.archive.limits;
+        self.sql(
+            &scope,
+            SqlPurpose::CaptureArchive,
+            Action::CaptureArchive { limits },
+        );
     }
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Archived {
+                scope,
+                position,
+                result,
+            } => {
+                if let Some(owner) = self.archive_owner.as_mut() {
+                    owner.busy = false;
+                }
+                let Some(cell) = self.cells.get_mut(&scope) else {
+                    return;
+                };
+                cell.archive_retry_at =
+                    crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
+                if result.is_ok() && position.index > cell.archived {
+                    // The proof names the captured local cut, even if another
+                    // replica has already archived a later cut of this history.
+                    // Never import that replica's later applied progress.
+                    if let Ok(Some(progress)) =
+                        progress(&cell.group, cell.image.as_ref(), position.index)
+                    {
+                        if cell.core.observe_progress(progress).is_ok() {
+                            cell.archived = position.index;
+                        }
+                    }
+                }
+            }
             Job::Routed {
                 mut request,
                 result,
@@ -1959,6 +2240,9 @@ impl Driver {
 
     async fn shutdown(&mut self) -> Result<client::RaftCloseReport, CommandFailure> {
         self.closing.store(true, Ordering::Release);
+        if let Some(owner) = &self.archive_owner {
+            let _ = owner.cancellation.send(true);
+        }
         for (_, mut read) in std::mem::take(&mut self.reads) {
             read.request.control.cancel();
             reply(&mut read.request, Err(CommandFailure::Unavailable));
@@ -1996,6 +2280,7 @@ impl Driver {
         self.transport.close().await;
         while self.jobs.next().await.is_some() {}
         let sql = self.pool.join().await;
+        self.archive_owner.take();
         self.cells.clear();
         let log = self.log.close().await;
         if runtime.is_err() || sql.is_err() || log.is_err() {

@@ -1,15 +1,23 @@
 //! Archive storage/restore qualification through real engines and physical LTX.
-//! Direct durable-marker fixtures do not qualify host acknowledgement gates.
+//! Direct durable-marker fixtures qualify archive storage; the Native fixture
+//! separately exercises actual Node/SDK acknowledgement and outage boundaries.
 #![allow(clippy::disallowed_methods)]
+#[path = "support/raft_cluster.rs"]
+#[allow(dead_code)]
+mod cluster;
 #[path = "support/raft_catalog_fault.rs"]
 mod faults;
 #[allow(dead_code)]
 #[path = "support/raft_ltx_fixture.rs"]
 mod images;
+#[path = "support/raft_node.rs"]
+#[allow(dead_code)]
+mod public_node;
 
 use anyhow::{ensure, Result};
 use cellar::application::consensus::verification::*;
 use cellar::application::consensus::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate};
+use cellar::sdk::consensus::*;
 use cellar::sdk::ExecutionDomain;
 use cellar_logic::consensus::*;
 use cellar_logic::NamespaceMode;
@@ -689,4 +697,810 @@ async fn archive_refuses_different_engine_birth() -> Result<()> {
     ensure!(fixture.archive.recovery_set().await?.is_none());
     log.close().await?;
     fixture.close().await
+}
+
+struct Native {
+    _entered: tokio::sync::mpsc::UnboundedReceiver<()>,
+    root: tempfile::TempDir,
+    node: cellar::sdk::Node,
+    service: RaftCells,
+    definition: public_node::Counter,
+    calls: Arc<std::sync::atomic::AtomicUsize>,
+    store: Arc<faults::Store>,
+    registration: RaftCellRegistration,
+    options: RaftHostOptions,
+}
+
+impl Native {
+    async fn start(
+        store: Arc<faults::Store>,
+        options: RaftHostOptions,
+        minimum: Durability,
+    ) -> Result<Self> {
+        let root = tempfile::tempdir()?;
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (gate, entered) = public_node::Gate::new();
+        gate.release();
+        let definition = public_node::counter(calls.clone(), gate)?;
+        let mut namespace = NamespaceConfig::new(
+            ClusterId::new([1; 16])?,
+            NamespaceId::new([2; 16])?,
+            NamespaceMode::Raft,
+            definition.schema,
+        );
+        namespace.voters = VoterPolicy::SingleVoterDevelopment;
+        namespace.minimum_durability = minimum;
+        let registration = RaftCellRegistration {
+            placement: RaftCellPlacement::Replica,
+            namespace,
+            class: "Counter".into(),
+            birth: BirthProposal {
+                scope: GroupScope {
+                    cluster: ClusterId::new([1; 16])?,
+                    namespace: NamespaceId::new([2; 16])?,
+                    cell: "Counter:one".into(),
+                    group: GroupId::new([5; 16])?,
+                    incarnation: IncarnationId::new([6; 16])?,
+                },
+                voters: vec![InitialMember {
+                    member: MemberId::new(1)?,
+                    node: NodeId::new([1; 16])?,
+                }],
+                learners: vec![],
+            },
+        };
+        let node = public_node::node(root.path(), definition.application.clone()).await?;
+        let service = public_node::cells_with_host(
+            &node,
+            definition.application.clone(),
+            store.clone(),
+            registration.clone(),
+            false,
+            options.clone(),
+        )
+        .await?;
+        let native = Self {
+            _entered: entered,
+            root,
+            node,
+            service,
+            definition,
+            calls,
+            store,
+            registration,
+            options,
+        };
+        public_node::ready(&native.cell()?).await?;
+        Ok(native)
+    }
+
+    fn cell(&self) -> Result<RaftCellHandle> {
+        Ok(self.service.cell(
+            self.registration.namespace.namespace,
+            &self.registration.birth.scope.cell,
+        )?)
+    }
+
+    async fn write(
+        &self,
+        sequence: u64,
+        durability: Durability,
+        timeout: std::time::Duration,
+    ) -> Result<CommandReceipt, CommandFailure> {
+        let mut options =
+            public_node::options(sequence).map_err(|_| CommandFailure::Unavailable)?;
+        options.durability = durability;
+        options.timeout = timeout;
+        self.cell()
+            .map_err(|_| CommandFailure::Unavailable)?
+            .command(
+                self.definition.increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                options,
+            )
+            .await
+    }
+
+    async fn archive(&self) -> Result<CellArchive> {
+        let namespace = Catalog::new(
+            self.store.clone(),
+            CatalogOptions {
+                prefix: "host/test".into(),
+                ..Default::default()
+            },
+        )?
+        .existing_namespace(self.registration.namespace.clone())
+        .await?;
+        let birth = namespace
+            .birth(&self.registration.birth.scope.cell)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("missing birth"))?;
+        Ok(namespace.cell_archive(&birth, LtxHost::default(), self.options.archive.limits)?)
+    }
+
+    async fn retry(&self, sequence: u64, durability: Durability) -> Result<CommandReceipt> {
+        Ok(
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    match self
+                        .write(sequence, durability, std::time::Duration::from_secs(5))
+                        .await
+                    {
+                        Err(CommandFailure::Overloaded) => {
+                            tokio::time::sleep(std::time::Duration::from_millis(10)).await
+                        }
+                        result => return result,
+                    }
+                }
+            })
+            .await??,
+        )
+    }
+
+    async fn restart(mut self) -> Result<Self> {
+        self.service.close().await?;
+        self.node
+            .shutdown(cellar::sdk::ShutdownMode::Preserve)
+            .await?;
+        self.node =
+            public_node::node(self.root.path(), self.definition.application.clone()).await?;
+        self.service = public_node::cells_with_host(
+            &self.node,
+            self.definition.application.clone(),
+            self.store.clone(),
+            self.registration.clone(),
+            true,
+            self.options.clone(),
+        )
+        .await?;
+        public_node::ready(&self.cell()?).await?;
+        Ok(self)
+    }
+
+    async fn close(self) -> Result<()> {
+        self.service.close().await?;
+        self.node
+            .shutdown(cellar::sdk::ShutdownMode::Preserve)
+            .await?;
+        Ok(())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_ack_complete_restore_set() -> Result<()> {
+    let native = Native::start(
+        Arc::new(faults::Store::default()),
+        RaftHostOptions::default(),
+        Durability::S3,
+    )
+    .await?;
+    let first = native.retry(1, Durability::Quorum).await?;
+    ensure!(
+        first.durability == Durability::S3,
+        "namespace minimum was weakened"
+    );
+    let second = native.retry(2, Durability::S3).await?;
+    ensure!(second.result == 2_i64.to_be_bytes() && second.durability == Durability::S3);
+    let archive = native.archive().await?;
+    native.close().await?;
+    let set = archive
+        .recovery_set()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("S3 success has no recovery set"))?;
+    ensure!(set.position().index >= second.version.position.index);
+    ensure!(
+        set.tail_entries() > 0,
+        "second command did not exercise physical tail replay"
+    );
+    let bytes = restored(&set, 2)?;
+    let restored_root = tempfile::tempdir()?;
+    let path = restored_root.path().join("receipts.sqlite");
+    std::fs::write(&path, bytes)?;
+    let database =
+        rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut statement = database.prepare(
+        "SELECT sequence,result,minimum_durability FROM __sys_raft_receipts ORDER BY sequence",
+    )?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    ensure!(
+        rows == vec![
+            (first.id.sequence().to_be_bytes().to_vec(), first.result, 1),
+            (
+                second.id.sequence().to_be_bytes().to_vec(),
+                second.result,
+                1
+            )
+        ],
+        "S3 recovery lost an acknowledged command receipt"
+    );
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn quorum_s3_outage() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_entries = 2;
+    let native = Native::start(store.clone(), options, Durability::Quorum).await?;
+    native.retry(1, Durability::Quorum).await?;
+    native.retry(2, Durability::Quorum).await?;
+    ensure!(matches!(
+        native
+            .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
+            .await,
+        Err(CommandFailure::Overloaded)
+    ));
+    ensure!(
+        native.calls.load(Ordering::SeqCst) == 2,
+        "backpressure ran business callback"
+    );
+    let repeated = native.retry(1, Durability::Quorum).await?;
+    ensure!(repeated.result == 1_i64.to_be_bytes());
+    ensure!(
+        native.calls.load(Ordering::SeqCst) == 2,
+        "full backlog blocked duplicate lookup or reran work"
+    );
+    store.archive_unavailable.store(false, Ordering::Release);
+    let third = native.retry(3, Durability::S3).await?;
+    ensure!(third.result == 3_i64.to_be_bytes());
+    native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn s3_timeout_ambiguous() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    let options = public_node::options(1)?;
+    let result = native
+        .write(1, Durability::S3, std::time::Duration::from_millis(500))
+        .await;
+    ensure!(
+        matches!(result, Err(CommandFailure::Ambiguous { command }) if command == options.id),
+        "post-commit timeout was reported as rollback: {result:?}"
+    );
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    let value = native
+        .cell()?
+        .query(
+            native.definition.get.clone(),
+            vec![],
+            QueryOptions::default(),
+        )
+        .await?;
+    ensure!(
+        value.result == 1_i64.to_be_bytes(),
+        "timed-out command was not committed"
+    );
+    store.archive_unavailable.store(false, Ordering::Release);
+    let result = native.retry(1, Durability::S3).await?;
+    ensure!(result.durability == Durability::S3 && result.result == 1_i64.to_be_bytes());
+    let weaker = native.retry(1, Durability::Quorum).await?;
+    ensure!(
+        weaker.durability == Durability::S3,
+        "stored S3 minimum was weakened"
+    );
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retry_strengthens_durability() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    let original = native.retry(1, Durability::Quorum).await?;
+    let cell = native.cell()?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    let mut stronger = Box::pin(cell.command(
+        native.definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        options,
+    ));
+    ensure!(
+        tokio::time::timeout(std::time::Duration::from_millis(200), &mut stronger)
+            .await
+            .is_err(),
+        "stronger retry used only a Quorum proof"
+    );
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    store.archive_unavailable.store(false, Ordering::Release);
+    let repeated = tokio::time::timeout(std::time::Duration::from_secs(10), stronger).await??;
+    ensure!(
+        repeated.version == original.version
+            && repeated.result == original.result
+            && repeated.durability == Durability::S3
+    );
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    let native = native.restart().await?;
+    let repeated = native.retry(1, Durability::S3).await?;
+    ensure!(repeated.version == original.version && repeated.durability == Durability::S3);
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn retention_preserves_only_copy() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let mut options = RaftHostOptions::default();
+    options.archive.max_unarchived_entries = 2;
+    let native = Native::start(store.clone(), options, Durability::Quorum).await?;
+    native.retry(1, Durability::Quorum).await?;
+    native.retry(2, Durability::Quorum).await?;
+    ensure!(matches!(
+        native
+            .write(3, Durability::Quorum, std::time::Duration::from_secs(2))
+            .await,
+        Err(CommandFailure::Overloaded)
+    ));
+    let native = native.restart().await?;
+    ensure!(
+        native
+            .cell()?
+            .query(
+                native.definition.get.clone(),
+                vec![],
+                QueryOptions::default()
+            )
+            .await?
+            .result
+            == 2_i64.to_be_bytes()
+    );
+    store.archive_unavailable.store(false, Ordering::Release);
+    let repeated = native.retry(2, Durability::S3).await?;
+    let archive = native.archive().await?;
+    native.close().await?;
+    let set = archive
+        .recovery_set()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing retained history"))?;
+    ensure!(set.position().index >= repeated.version.position.index);
+    restored(&set, 2)?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_shutdown_joins_hung_store_without_acknowledging() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_hang.store(true, Ordering::Release);
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    let cell = native.cell()?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    let pending = cell.command(
+        native.definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        options,
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.archive_attempts.load(Ordering::Acquire) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), native.close()).await??;
+    ensure!(matches!(
+        pending.await,
+        Err(CommandFailure::Ambiguous { .. })
+    ));
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_commands_reclaim_generations_with_small_disk_admission() -> Result<()> {
+    let mut options = RaftHostOptions::default();
+    options.images.max_generations = 3;
+    let native = Native::start(Arc::new(faults::Store::default()), options, Durability::S3).await?;
+    for sequence in 1..=40 {
+        let receipt = native.retry(sequence, Durability::S3).await?;
+        ensure!(receipt.result == (sequence as i64).to_be_bytes());
+    }
+    ensure!(native.calls.load(Ordering::SeqCst) == 40);
+    let native = native.restart().await?;
+    ensure!(
+        native
+            .cell()?
+            .query(
+                native.definition.get.clone(),
+                vec![],
+                QueryOptions::default()
+            )
+            .await?
+            .result
+            == 40_i64.to_be_bytes()
+    );
+    native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 6)]
+async fn s3_three_voter_failover_restores_only_committed_commands() -> Result<()> {
+    let mut definitions = Vec::new();
+    let mut entered = Vec::new();
+    for _ in 0..3 {
+        let (gate, receiver) = public_node::Gate::new();
+        gate.release();
+        entered.push(receiver);
+        definitions.push(public_node::counter(
+            Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            gate,
+        )?);
+    }
+    let scope = GroupScope {
+        cluster: ClusterId::new([1; 16])?,
+        namespace: NamespaceId::new([2; 16])?,
+        cell: "Counter:rf3".into(),
+        group: GroupId::new([17; 16])?,
+        incarnation: IncarnationId::new([18; 16])?,
+    };
+    let namespace = NamespaceConfig::new(
+        scope.cluster,
+        scope.namespace,
+        NamespaceMode::Raft,
+        definitions[0].schema,
+    );
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace: namespace.clone(),
+        class: "Counter".into(),
+        birth: BirthProposal {
+            scope: scope.clone(),
+            voters: (1..=3)
+                .map(|n| {
+                    Ok(InitialMember {
+                        member: MemberId::new(n)?,
+                        node: NodeId::new([n as u8; 16])?,
+                    })
+                })
+                .collect::<Result<Vec<_>>>()?,
+            learners: vec![],
+        },
+    };
+    let mut host = RaftHostOptions::default();
+    host.images.max_generations = 3;
+    let cluster =
+        cluster::Cluster::start_with_host(&definitions, vec![registration], 20, host).await?;
+    let handles = cluster
+        .services
+        .iter()
+        .map(|s| s.cell(scope.namespace, &scope.cell))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    async fn leader(handles: &[RaftCellHandle], excluded: Option<usize>) -> Result<usize> {
+        Ok(
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                loop {
+                    for (i, cell) in handles.iter().enumerate() {
+                        if excluded == Some(i) {
+                            continue;
+                        }
+                        if cell.status().await.is_ok_and(|status| {
+                            status.command_ready
+                                && status.leader.is_some_and(|id| id.get() == i as u64 + 1)
+                        }) {
+                            return i;
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await?,
+        )
+    }
+    let original = leader(&handles, None).await?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    handles[original]
+        .command(
+            definitions[0].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+    let selected = Catalog::new(
+        cluster.store.clone(),
+        CatalogOptions {
+            prefix: "partition/test".into(),
+            ..Default::default()
+        },
+    )?
+    .existing_namespace(namespace)
+    .await?;
+    let birth = selected
+        .birth(&scope.cell)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing birth"))?;
+    let archive = selected.cell_archive(&birth, LtxHost::default(), ArchiveLimits::default())?;
+    cluster.isolate(original, false).await?;
+    let mut options = public_node::options(2)?;
+    options.durability = Durability::S3;
+    options.timeout = std::time::Duration::from_millis(500);
+    ensure!(
+        handles[original]
+            .command(
+                definitions[0].increment.clone(),
+                1_i64.to_be_bytes().to_vec(),
+                options
+            )
+            .await
+            .is_err(),
+        "isolated replica used S3 in place of Raft quorum"
+    );
+    let set = archive
+        .recovery_set()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing first archive"))?;
+    restored(&set, 1)?;
+    let replacement = leader(&handles, Some(original)).await?;
+    let mut options = public_node::options(2)?;
+    options.durability = Durability::S3;
+    let result = handles[replacement]
+        .command(
+            definitions[0].increment.clone(),
+            1_i64.to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+    ensure!(result.result == 2_i64.to_be_bytes() && result.durability == Durability::S3);
+    cluster.heal();
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            let mut caught_up = true;
+            for (i, cell) in handles.iter().enumerate() {
+                caught_up &= cell
+                    .status()
+                    .await
+                    .is_ok_and(|status| status.applied.index >= result.version.position.index)
+                    && cluster.nodes[i]
+                        .services()
+                        .application_work()
+                        .pending_events
+                        == 0;
+            }
+            if caught_up {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    cluster.close().await?;
+    let set = archive
+        .recovery_set()
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("missing final archive"))?;
+    ensure!(set.position().index >= result.version.position.index);
+    restored(&set, 2)?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_io_deadline_retries_without_reexecuting() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_hang.store(true, Ordering::Release);
+    let mut options = RaftHostOptions::default();
+    options.archive.limits.io_timeout_ms = 50;
+    options.archive.retry_ms = 10;
+    let native = Native::start(store.clone(), options, Durability::Quorum).await?;
+    ensure!(matches!(
+        native
+            .write(1, Durability::S3, std::time::Duration::from_millis(500))
+            .await,
+        Err(CommandFailure::Ambiguous { .. })
+    ));
+    ensure!(
+        store.archive_attempts.load(Ordering::Acquire) >= 2,
+        "hung I/O did not release its bounded attempt"
+    );
+    store.archive_hang.store(false, Ordering::Release);
+    ensure!(native.retry(1, Durability::S3).await?.durability == Durability::S3);
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_hang.store(true, Ordering::Release);
+    let mut options = RaftHostOptions::default();
+    options.images.max_generations = 3;
+    options.archive.limits.io_timeout_ms = 60_000;
+    let native = Native::start(store.clone(), options, Durability::Quorum).await?;
+    native.retry(1, Durability::Quorum).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.archive_attempts.load(Ordering::Acquire) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    native.retry(2, Durability::Quorum).await?;
+    let cell = native.cell()?;
+    let mut third = Box::pin(cell.command(
+        native.definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(3)?,
+    ));
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if cell
+                .status()
+                .await
+                .is_ok_and(|status| status.committed > status.applied.index)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    ensure!(
+        tokio::time::timeout(std::time::Duration::from_millis(200), &mut third)
+            .await
+            .is_err(),
+        "image capacity was treated as corruption or acknowledged before apply"
+    );
+    store.archive_hang.store(false, Ordering::Release);
+    store.archive_resume.notify_waiters();
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), third).await??;
+    ensure!(result.result == 3_i64.to_be_bytes());
+    ensure!(native.calls.load(Ordering::SeqCst) == 3);
+    native.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn bucket_archive_store_preserves_prefix_and_conditional_writes() -> Result<()> {
+    let fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let result = domain
+        .run(async move {
+            let mut fixture = fixture;
+            let target = tempfile::tempdir()?;
+            let mut bucket =
+                cellar::bucket::Bucket::open_dev(&target.path().join("bucket.sqlite"))?;
+            bucket.prefix = "tenant/archive/".into();
+            let raw = bucket.cas_store.clone();
+            let catalog = Catalog::new(
+                bucket.raft_store(),
+                CatalogOptions {
+                    prefix: "archive-test".into(),
+                    ..Default::default()
+                },
+            )?;
+            let namespace = catalog
+                .open_namespace(fixture.namespace.config().clone())
+                .await?;
+            let birth = namespace
+                .resolve_birth(BirthProposal {
+                    scope: fixture.birth.scope().clone(),
+                    voters: fixture.birth.voters().to_vec(),
+                    learners: fixture.birth.learners().to_vec(),
+                })
+                .await?;
+            ensure!(birth.digest() == fixture.birth.digest());
+            let archive =
+                namespace.cell_archive(&birth, LtxHost::default(), ArchiveLimits::default())?;
+            let first = fixture.commit(7, vec![]).await?;
+            archive.publish(first, &fixture.verifier).await?;
+            let second = fixture.commit(9, vec![]).await?;
+            let set = archive.publish(second, &fixture.verifier).await?;
+            ensure!(set.tail_entries() == 1);
+            restored(&set, 9)?;
+            let objects = raw.list(None).try_collect::<Vec<_>>().await?;
+            ensure!(
+                !objects.is_empty()
+                    && objects
+                        .iter()
+                        .all(|object| object.location.as_ref().starts_with("tenant/archive/"))
+            );
+            ensure!(objects
+                .iter()
+                .any(|object| object.location.filename() == Some("head")));
+            fixture.close().await
+        })
+        .await;
+    domain.shutdown().await;
+    result?
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn archive_close_releases_workspace_before_returning() -> Result<()> {
+    let native = Native::start(
+        Arc::new(faults::Store::default()),
+        RaftHostOptions::default(),
+        Durability::S3,
+    )
+    .await?;
+    native.retry(1, Durability::S3).await?;
+    let workspace = native
+        .node
+        .info()
+        .data_dir
+        .join("raft-cells")
+        .join("archive-verifier");
+    native.service.close().await?;
+    let reopened = GenerationStore::open(
+        workspace,
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )?;
+    ensure!(reopened.usage()?.generations == 0);
+    drop(reopened);
+    native
+        .node
+        .shutdown(cellar::sdk::ShutdownMode::Preserve)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn unpolled_s3_waiter_cannot_receive_success_after_deadline() -> Result<()> {
+    let store = Arc::new(faults::Store::default());
+    store.archive_unavailable.store(true, Ordering::Release);
+    let native = Native::start(
+        store.clone(),
+        RaftHostOptions::default(),
+        Durability::Quorum,
+    )
+    .await?;
+    let cell = native.cell()?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    options.timeout = std::time::Duration::from_millis(300);
+    let id = options.id;
+    let pending = cell.command(
+        native.definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        options,
+    );
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while store.archive_attempts.load(Ordering::Acquire) == 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+    store.archive_unavailable.store(false, Ordering::Release);
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if cell
+                .status()
+                .await
+                .is_ok_and(|status| status.archived >= status.committed)
+                && native.node.services().application_work().pending_events == 0
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    ensure!(matches!(pending.await, Err(CommandFailure::Ambiguous { command }) if command == id));
+    ensure!(native.retry(1, Durability::S3).await?.durability == Durability::S3);
+    ensure!(native.calls.load(Ordering::SeqCst) == 1);
+    native.close().await
 }

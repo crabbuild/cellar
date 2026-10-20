@@ -188,6 +188,9 @@ impl Drop for Proxy {
 pub struct Cluster {
     pub nodes: Vec<Node>,
     pub services: Vec<RaftCells>,
+    // Some targets inspect recovery material after closing all replica nodes.
+    #[allow(dead_code)]
+    pub store: Arc<dyn object_store::ObjectStore>,
     links: Vec<(usize, usize, Link, Proxy)>,
     _roots: Vec<tempfile::TempDir>,
 }
@@ -360,6 +363,7 @@ impl Cluster {
         Ok(Self {
             nodes,
             services,
+            store,
             links,
             _roots: roots,
         })

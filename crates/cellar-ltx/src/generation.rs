@@ -491,6 +491,33 @@ impl GenerationStore {
         Ok(())
     }
 
+    /// After recovery has adopted every authoritative durable reference, retire
+    /// the remaining inventory. This never selects a reference from filenames.
+    /// Call only with the complete marker/archive reference set and no pending
+    /// publication. Live reader/worker pins still prevent physical reclamation.
+    pub fn retain_only(&self, references: &[ImageId]) -> Result<(), GenerationError> {
+        let mut state = self.lock()?;
+        if references.len() > self.inner.limits.max_generations {
+            return Err(GenerationError::Limit);
+        }
+        if state.entries.values().any(|entry| entry.busy) {
+            return Err(GenerationError::Busy);
+        }
+        for id in references {
+            if state
+                .entries
+                .get(id)
+                .is_none_or(|entry| entry.image.is_none())
+            {
+                return Err(GenerationError::Missing);
+            }
+        }
+        for (id, entry) in &mut state.entries {
+            entry.retained = references.contains(id);
+        }
+        Ok(())
+    }
+
     /// Delete at most `max_files` unreferenced names. Deletion and its directory
     /// sync finish before capacity is refunded. A failure quarantines admission.
     pub fn reclaim(&self, max_files: usize) -> Result<ReclaimReport, GenerationError> {

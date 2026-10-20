@@ -28,7 +28,8 @@ not physical power-loss, zone, production capacity or full release qualification
 MR-09 is in progress. Its archive storage component captures committed image
 cuts and verifies snapshot/LTX-tail/dependency sets through isolated physical
 replay before conditional head publication. Host archive scheduling, S3 output
-gates, stronger retries and outage admission remain pending. Snapshot installation,
+gates, stronger retries and outage admission are implemented and undergoing final
+qualification; see the [archive audit](archive-audit.md). Snapshot installation,
 membership controllers, effects and later operations/release/scaling work remain pending. Unsupported
 SDK capabilities are refused. All 17 original packages remain in scope; the
 complete delivery goal is not achieved. The completed read-contract baseline is

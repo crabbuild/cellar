@@ -341,3 +341,46 @@ with the production engine/runtime/transport. Their dispatcher supplies opaque
 fixture images and controlled peer loss, duplication, reordering and delay. This
 does not qualify SQLite, LTX, S3, the complete SDK, workload capacity or production
 failure domains.
+
+## Committed archives and S3 output
+
+`host_archive.rs` owns one archive producer and an exclusive verification
+workspace per node. SQL workers capture immutable published image/engine cuts;
+`archive.rs` performs bounded object I/O and physical verification, and
+`manifest.rs` describes complete snapshot/tail/dependency sets. A conditional
+head advances only after referenced bytes are read back, validated and replayed.
+Lost object/head responses are reconciled by exact reads. The supplied
+`Bucket::raft_store` binds the bucket prefix and its conditional-write client.
+
+Quorum commands settle after commit and durable image publication. S3 commands
+also need an archive proof covering that exact command. The namespace minimum is
+persisted in the receipt; stronger retries wait without executing or proposing
+the business command again. Archive completion advances only its captured local
+history prefix. It does not import another member's applied progress or create
+membership/leadership authority. Snapshot installation and fresh-member recovery
+remain separate operations.
+
+`RaftHostOptions::archive` configures `RaftArchiveOptions` and `ArchiveLimits`.
+Defaults allow one producer, 4 MiB of captured log bytes, 64 MiB objects, a
+128-MiB recovery set, 32 tails, 1,024 tail entries and 128 dependencies. New
+callbacks reserve against 256 MiB of unarchived log/image admission and 4,096
+data-bearing entries. Protocol entries consume bytes too. Existing duplicate
+lookup remains available under backpressure. Incoming replication also has the
+transport/log/per-image hard bounds; this cap is not total process or disk usage.
+
+Archive captures have an independent budget from command/query output. Reads
+have one 10-second deadline including their stream; failed archive attempts retry
+after 100 ms. Shutdown cancels I/O and joins blocking work, then releases the
+workspace before returning. Startup reclaims verification copies under their
+exclusive owner and preserves the authoritative engine image before retiring
+unreferenced application generations. Live pins survive retirement. Capacity
+pressure can defer an already committed apply while retaining its original
+runtime admission; it cannot acknowledge before publication or discard its only
+recovery path. Host configuration requires compatible execution/apply/archive
+limits, at least three generations and four maximum-image copies of capacity.
+
+The [archive audit](../../../../plans/multi-raft/archive-audit.md) records the
+proof boundary, resource contracts and qualification scope. Run the owning
+`native_raft_archive` target for native SDK durability, store faults, isolated
+restore, retention and three-voter failover. It does not qualify physical S3,
+power loss, production scale or automatic member restoration.

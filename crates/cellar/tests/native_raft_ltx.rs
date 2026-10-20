@@ -920,3 +920,58 @@ fn unexpected_final_name_is_never_overwritten() -> Result<()> {
     }
     Ok(())
 }
+
+#[test]
+fn recovered_inventory_retires_only_after_complete_reference_validation() -> Result<()> {
+    let root = tempfile::tempdir()?;
+    let first = fixture::image(
+        None,
+        "CREATE TABLE counter(value INTEGER);INSERT INTO counter VALUES(7)",
+    )?;
+    let second = fixture::image(Some(&first), "UPDATE counter SET value=8")?;
+    let a = fixture::Cut::new(&[], &first, 0, true, true);
+    let b = fixture::Cut::new(&first, &second, 1, true, true);
+    let images = GenerationStore::open(
+        root.path().join("images"),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )?;
+    let first_pin = images.prepare(fixture::id(1), None, &a.update())?;
+    let second_pin = images.prepare(fixture::id(2), Some(&first_pin), &b.update())?;
+    drop(second_pin);
+    drop(first_pin);
+    drop(images);
+    let images = GenerationStore::open(
+        root.path().join("images"),
+        Arc::new(DirectFileSystem),
+        GenerationLimits::default(),
+    )?;
+    assert_eq!(images.usage()?.retained, 2);
+    assert!(
+        matches!(
+            images.retain_only(&[fixture::id(1)]),
+            Err(GenerationError::Missing)
+        ),
+        "an unverified filename became a durable reference"
+    );
+    assert_eq!(
+        images.usage()?.retained,
+        2,
+        "failed reference validation partly retired inventory"
+    );
+    let first_pin = images.adopt(fixture::id(1), a.result)?;
+    let second_pin = images.adopt(fixture::id(2), b.result)?;
+    images.retain_only(&[fixture::id(2)])?;
+    images.reclaim(8)?;
+    assert_eq!(
+        fixture::read(&first_pin)?,
+        first,
+        "retirement reclaimed a live reader"
+    );
+    assert_eq!(images.usage()?.generations, 2);
+    drop(first_pin);
+    images.reclaim(8)?;
+    assert_eq!(images.usage()?.generations, 1);
+    assert_eq!(fixture::read(&second_pin)?, second);
+    Ok(())
+}

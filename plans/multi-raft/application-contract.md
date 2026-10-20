@@ -3,13 +3,14 @@
 This is the SDK contract implemented by MR-06 through MR-12. Restricted
 `RaftClass`, `CommandContext`, `QueryContext` and operation registration are now
 exported through `cellar::sdk`. `Node::start_raft_cells`, public command/query
-handles and receipts connect Quorum commands and committed-image reads
+handles and receipts connect Quorum/S3 commands and committed-image reads
 to node-owned producers. The counter example in `examples/raft-counter/README.md`
 uses both native HTTP and Axum. Local Stale, AtLeast and safe ReadIndex paths
-are implemented in MR-08. Routing from registered replicas and explicit leader
-fallback are undergoing qualification; the remaining read audit stays open.
-S3 archive/restore and effect adapters below remain contracts for
-their respective work packages.
+are implemented and qualified in MR-08, including bounded replica routing and
+explicit same-consistency leader fallback. MR-09 connects S3 output gates,
+stronger receipt retries and archive image restoration; final qualification is
+pending in the [archive audit](archive-audit.md). Atomic member snapshot install
+and effect adapters remain their respective later work packages.
 
 ## Commands and queries
 
@@ -66,7 +67,7 @@ paths even if they arrive through raw SQL. Query functions use stateless service
 or immutable configuration; application instance fields cannot substitute for
 replicated state.
 
-Application flow (the example currently uses stale queries until MR-08):
+Application flow with an explicit read consistency:
 
 ```text
 register class Counter, schema 1

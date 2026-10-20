@@ -117,6 +117,7 @@ pub struct CellStatus {
     pub persisted: LogIndex,
     pub committed: LogIndex,
     pub applied: LogPosition,
+    pub archived: LogIndex,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -243,8 +244,9 @@ impl RaftCellHandle {
         &self,
         contract: OperationContract,
         input: Vec<u8>,
-        options: CommandOptions,
+        mut options: CommandOptions,
     ) -> impl Future<Output = Result<CommandReceipt, CommandFailure>> + Send + 'static {
+        options.durability = options.durability.max(self.binding.minimum);
         let timeout = options.timeout;
         let id = options.id;
         let call = self.call(
@@ -329,19 +331,12 @@ impl RaftCellHandle {
             }
             match &kind {
                 Kind::Command {
-                    contract,
-                    input,
-                    options,
+                    contract, input, ..
                 } => {
                     if self.binding.member.is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                     self.validate(contract, OperationKind::Command, input)?;
-                    // Archive integration is supplied by MR-09. Refuse before
-                    // any private work rather than weaken a requested proof.
-                    if options.durability.max(self.binding.minimum) == Durability::S3 {
-                        return Err(CommandFailure::UnsupportedCapability);
-                    }
                 }
                 Kind::Query {
                     contract,
@@ -584,7 +579,7 @@ impl AttemptControl {
         if old & 1 == 0 {
             self.changed.notify_waiters();
         }
-        old & 2 != 0
+        old & 6 != 0
     }
 
     pub fn cancelled(&self) -> bool {
@@ -604,6 +599,12 @@ impl AttemptControl {
 
     pub fn submitted(&self) -> bool {
         self.state.load(Ordering::Acquire) & 2 != 0
+    }
+
+    /// A verified duplicate receipt is already committed even though this
+    /// attempt proposed nothing. Its cancellation cannot imply rollback.
+    pub fn observe_committed(&self) {
+        self.state.fetch_or(4, Ordering::AcqRel);
     }
 
     pub fn begin_submission(&self) -> bool {

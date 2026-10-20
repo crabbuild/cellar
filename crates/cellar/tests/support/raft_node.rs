@@ -103,6 +103,25 @@ pub async fn cells(
     registration: RaftCellRegistration,
     recover: bool,
 ) -> Result<RaftCells> {
+    cells_with_host(
+        node,
+        application,
+        store,
+        registration,
+        recover,
+        RaftHostOptions::default(),
+    )
+    .await
+}
+
+pub async fn cells_with_host(
+    node: &Node,
+    application: Arc<dyn Application>,
+    store: Arc<dyn ObjectStore>,
+    registration: RaftCellRegistration,
+    recover: bool,
+    host: RaftHostOptions,
+) -> Result<RaftCells> {
     let tls = tls()?;
     node.start_raft_cells(
         RaftCellsConfig {
@@ -131,7 +150,7 @@ pub async fn cells(
             },
             cells: vec![registration],
             peers: vec![],
-            host: RaftHostOptions::default(),
+            host,
         },
         RaftCellsServices {
             listeners: NodeRaftListeners {

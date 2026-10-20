@@ -42,7 +42,7 @@ impl Default for ExecutionLimits {
 }
 
 impl ExecutionLimits {
-    fn validate(&self) -> Result<(), ExecutionError> {
+    pub(crate) fn validate(&self) -> Result<(), ExecutionError> {
         self.envelope.validate().map_err(ExecutionError::Protocol)?;
         if !(4096..=64 * 1024 * 1024).contains(&self.max_image_bytes)
             || !(1..=1024 * 1024).contains(&self.max_result_bytes)
@@ -450,6 +450,16 @@ impl PrivateExecutor {
         class: &RaftClass,
         input: &[u8],
     ) -> Result<StageOutcome, ExecutionError> {
+        self.stage_registered_admitted(attempt, class, input, true)
+    }
+
+    pub(crate) fn stage_registered_admitted(
+        &mut self,
+        attempt: CommandAttempt,
+        class: &RaftClass,
+        input: &[u8],
+        allow_new: bool,
+    ) -> Result<StageOutcome, ExecutionError> {
         let contract = OperationContract {
             operation: attempt.request.operation.clone(),
             kind: OperationKind::Command,
@@ -472,6 +482,11 @@ impl PrivateExecutor {
         let scope = self.authority.replica.scope.clone();
         let command = attempt.request.id;
         self.stage(attempt, |transaction| {
+            // Receipt lookup precedes this closure. A retry may recover its
+            // stored result while backlog admission refuses new business work.
+            if !allow_new {
+                return Err(anyhow::Error::new(CommandFailure::Overloaded));
+            }
             class.invoke_command(&contract, &scope, command, transaction, input)
         })
     }
@@ -812,7 +827,15 @@ impl PrivateExecutor {
 }
 
 pub(super) fn storage(error: impl Into<anyhow::Error>) -> ExecutionError {
-    ExecutionError::Storage(error.into())
+    let error = error.into();
+    if matches!(
+        error.downcast_ref::<cellar_ltx::generation::GenerationError>(),
+        Some(cellar_ltx::generation::GenerationError::Limit)
+    ) {
+        ExecutionError::Refused(CommandFailure::Overloaded)
+    } else {
+        ExecutionError::Storage(error)
+    }
 }
 
 fn transaction_failure(error: anyhow::Error) -> ExecutionError {

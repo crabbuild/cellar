@@ -30,6 +30,8 @@ pub enum ArchiveError {
     Conflict,
     Limit,
     Unconfirmed,
+    Stopped,
+    Timeout,
     Log(super::storage::LogError),
     Images(GenerationError),
     Storage(object_store::Error),
@@ -46,6 +48,9 @@ impl std::error::Error for ArchiveError {}
 
 #[derive(Clone, Copy, Debug)]
 pub struct ArchiveLimits {
+    pub envelope: EnvelopeLimits,
+    pub io_timeout_ms: u64,
+    pub max_capture_bytes: usize,
     pub max_manifest_bytes: usize,
     pub max_object_bytes: usize,
     pub max_set_bytes: usize,
@@ -57,6 +62,9 @@ pub struct ArchiveLimits {
 impl Default for ArchiveLimits {
     fn default() -> Self {
         Self {
+            envelope: EnvelopeLimits::default(),
+            io_timeout_ms: 10_000,
+            max_capture_bytes: 4 * 1024 * 1024,
             max_manifest_bytes: 256 * 1024,
             max_object_bytes: 64 * 1024 * 1024,
             max_set_bytes: 128 * 1024 * 1024,
@@ -69,7 +77,12 @@ impl Default for ArchiveLimits {
 
 impl ArchiveLimits {
     pub fn validate(self) -> Result<(), ArchiveError> {
+        self.envelope
+            .validate()
+            .map_err(|_| ArchiveError::Invalid("archive envelope limits"))?;
         if !(1024..=1024 * 1024).contains(&self.max_manifest_bytes)
+            || !(1..=60_000).contains(&self.io_timeout_ms)
+            || !(1024..=self.max_object_bytes).contains(&self.max_capture_bytes)
             || self.max_manifest_bytes > self.max_object_bytes
             || !(1024..=64 * 1024 * 1024).contains(&self.max_object_bytes)
             || self.max_set_bytes < self.max_object_bytes
@@ -222,9 +235,9 @@ impl CommittedArchiveCut {
             .take(limits.max_entries)
         {
             let next = bytes
-                .checked_add(entry.compute_size() as usize + 4)
+                .checked_add(entry.compute_size() as usize + 128)
                 .ok_or(ArchiveError::Limit)?;
-            if next > limits.max_object_bytes.saturating_sub(48) {
+            if next > limits.max_capture_bytes {
                 break;
             }
             bytes = next;
@@ -243,6 +256,18 @@ impl CommittedArchiveCut {
 
     pub fn position(&self) -> LogPosition {
         self.position
+    }
+
+    pub(crate) fn memory_bytes(&self) -> usize {
+        self.entries
+            .iter()
+            .map(|entry| entry.compute_size() as usize + 128)
+            .sum::<usize>()
+            + self
+                .dependencies
+                .iter()
+                .map(|dependency| dependency.0.len())
+                .sum::<usize>()
     }
 
     fn snapshot(&self, limits: ArchiveLimits) -> Result<Vec<u8>, ArchiveError> {
@@ -301,6 +326,8 @@ pub struct CellArchive {
     schema: [u8; 32],
     limits: ArchiveLimits,
     host: LtxHost,
+    cancellation: Option<tokio::sync::watch::Receiver<bool>>,
+    io_domain: Option<crate::asyncrt::DomainToken>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -320,6 +347,7 @@ pub struct ArchiveRecoverySet {
     snapshot: Vec<u8>,
     entries: Vec<Entry>,
     dependencies: Vec<(ObjectRef, Vec<u8>)>,
+    envelope: EnvelopeLimits,
 }
 
 impl CellArchive {
@@ -341,7 +369,59 @@ impl CellArchive {
             schema,
             limits,
             host,
+            cancellation: None,
+            io_domain: crate::asyncrt::runtime_services().domain_token(),
         }
+    }
+
+    pub(crate) fn with_cancellation(
+        mut self,
+        cancellation: tokio::sync::watch::Receiver<bool>,
+    ) -> Self {
+        self.cancellation = Some(cancellation);
+        self
+    }
+
+    async fn io<T>(
+        &self,
+        deadline: u64,
+        future: impl std::future::Future<Output = object_store::Result<T>>,
+    ) -> Result<T, ArchiveError> {
+        let timer = self
+            .io_domain
+            .as_ref()
+            .ok_or(ArchiveError::Stopped)?
+            .sleep_until(deadline)
+            .map_err(|_| ArchiveError::Stopped)?;
+        let cancelled = async {
+            if let Some(mut cancellation) = self.cancellation.clone() {
+                loop {
+                    if *cancellation.borrow_and_update() {
+                        break;
+                    }
+                    if cancellation.changed().await.is_err() {
+                        break;
+                    }
+                }
+            } else {
+                std::future::pending::<()>().await;
+            }
+        };
+        crate::asyncrt::select_biased! { "archive shutdown refuses further object-store work before the owned producer is joined";
+            _ = cancelled => Err(ArchiveError::Stopped),
+            result = future => result.map_err(ArchiveError::Storage),
+            _ = timer => Err(ArchiveError::Timeout),
+        }
+    }
+
+    fn deadline(&self) -> Result<u64, ArchiveError> {
+        Ok(self
+            .io_domain
+            .as_ref()
+            .ok_or(ArchiveError::Stopped)?
+            .mono_ms()
+            .map_err(|_| ArchiveError::Stopped)?
+            .saturating_add(self.limits.io_timeout_ms))
     }
 
     fn key(&self, name: &str) -> Path {
@@ -543,11 +623,13 @@ impl CellArchive {
                     PutMode::Update(version.clone())
                 });
             let outcome = self
-                .store
-                .put_opts(
-                    &self.key("head"),
-                    desired.clone().into(),
-                    PutOptions::from(mode),
+                .io(
+                    self.deadline()?,
+                    self.store.put_opts(
+                        &self.key("head"),
+                        desired.clone().into(),
+                        PutOptions::from(mode),
+                    ),
                 )
                 .await;
             match self.read(&self.key("head"), 4096).await? {
@@ -555,7 +637,7 @@ impl CellArchive {
                 Some(_) => continue,
                 None => {
                     return match outcome {
-                        Err(error) => Err(ArchiveError::Storage(error)),
+                        Err(error) => Err(error),
                         Ok(_) => Err(ArchiveError::Unconfirmed),
                     }
                 }
@@ -652,6 +734,7 @@ impl CellArchive {
                     snapshot,
                     entries,
                     dependencies,
+                    envelope: limits.envelope,
                 };
                 set.validate_payloads()?;
                 Ok(set)
@@ -677,11 +760,13 @@ impl CellArchive {
             .map_err(ArchiveError::Worker)?;
         let path = self.key(&object.name());
         let result = self
-            .store
-            .put_opts(
-                &path,
-                bytes.to_vec().into(),
-                PutOptions::from(PutMode::Create),
+            .io(
+                self.deadline()?,
+                self.store.put_opts(
+                    &path,
+                    bytes.to_vec().into(),
+                    PutOptions::from(PutMode::Create),
+                ),
             )
             .await;
         match self.read(&path, self.limits.max_object_bytes).await? {
@@ -694,7 +779,7 @@ impl CellArchive {
                 .await
                 .map_err(ArchiveError::Worker)?,
             None => match result {
-                Err(error) => Err(ArchiveError::Storage(error)),
+                Err(error) => Err(error),
                 Ok(_) => Err(ArchiveError::Unconfirmed),
             },
         }
@@ -729,10 +814,11 @@ impl CellArchive {
         path: &Path,
         limit: usize,
     ) -> Result<Option<(Vec<u8>, UpdateVersion)>, ArchiveError> {
-        let result = match self.store.get(path).await {
+        let deadline = self.deadline()?;
+        let result = match self.io(deadline, self.store.get(path)).await {
             Ok(result) => result,
-            Err(object_store::Error::NotFound { .. }) => return Ok(None),
-            Err(error) => return Err(ArchiveError::Storage(error)),
+            Err(ArchiveError::Storage(object_store::Error::NotFound { .. })) => return Ok(None),
+            Err(error) => return Err(error),
         };
         if result.meta.size > limit as u64
             || result.range.start != 0
@@ -748,7 +834,7 @@ impl CellArchive {
         let mut bytes = Vec::with_capacity(length);
         let mut stream = result.into_stream();
         let mut chunks = 0usize;
-        while let Some(chunk) = stream.try_next().await.map_err(ArchiveError::Storage)? {
+        while let Some(chunk) = self.io(deadline, stream.try_next()).await? {
             chunks += 1;
             if chunks > 16384
                 || bytes
@@ -821,7 +907,7 @@ impl ArchiveRecoverySet {
     }
 
     fn update(&self, entry: &Entry, state: ImageState) -> Result<CellUpdate, ArchiveError> {
-        let update = CellUpdate::decode(&entry.data, EnvelopeLimits::default())
+        let update = CellUpdate::decode(&entry.data, self.envelope)
             .map_err(|_| ArchiveError::Corrupt("archive LTX envelope"))?;
         if update.scope != self.scope
             || update.application_digest != self.manifest.schema_digest
