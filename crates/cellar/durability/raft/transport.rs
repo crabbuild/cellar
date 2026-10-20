@@ -1119,7 +1119,7 @@ impl State {
             let result = self
                 .bounded(Some(&pool), async {
                     self.runtime
-                        .step(&scope, message)
+                        .admit_step(&scope, message)
                         .await
                         .map_err(TransportError::from)
                 })
@@ -1221,14 +1221,14 @@ impl State {
                     let _ = self
                         .bounded(Some(&pool), async {
                             self.runtime
-                                .report_unreachable(
+                                .admit_unreachable(
                                     &request.scope,
                                     request.peer.replica.member.get(),
                                 )
                                 .await?;
                             if request.snapshot {
                                 self.runtime
-                                    .report_snapshot(
+                                    .admit_snapshot_status(
                                         &request.scope,
                                         request.peer.replica.member.get(),
                                         false,
@@ -1247,7 +1247,7 @@ impl State {
                 let _ = self
                     .bounded(Some(&pool), async {
                         self.runtime
-                            .report_snapshot(
+                            .admit_snapshot_status(
                                 &request.scope,
                                 request.peer.replica.member.get(),
                                 true,

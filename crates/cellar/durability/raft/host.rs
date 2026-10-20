@@ -1856,8 +1856,13 @@ impl Driver {
                     let runtime = self.runtime.clone();
                     let scope = replica.scope.clone();
                     let member = message.to;
+                    let snapshot =
+                        message.get_msg_type() == ::raft::prelude::MessageType::MsgSnapshot;
                     self.jobs.push(Box::pin(async move {
-                        let _ = runtime.report_unreachable(&scope, member).await;
+                        let _ = runtime.admit_unreachable(&scope, member).await;
+                        if snapshot {
+                            let _ = runtime.admit_snapshot_status(&scope, member, false).await;
+                        }
                         Job::Hint
                     }));
                 }

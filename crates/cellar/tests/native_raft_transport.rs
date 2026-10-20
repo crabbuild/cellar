@@ -3,7 +3,7 @@
 #[path = "support/raft_network.rs"]
 mod network;
 
-use anyhow::{ensure, Result};
+use anyhow::{bail, ensure, Result};
 use cellar::application::consensus::verification::*;
 use cellar_logic::consensus::{GroupId, IncarnationId, ProcessGeneration};
 use network::*;
@@ -57,6 +57,341 @@ fn addresses(
             "127.0.0.1:3".parse().unwrap(),
         ),
     ]
+}
+
+/// This deliberately withholds a mechanical snapshot completion. It tests
+/// transport scheduling and engine ordering, not physical SQLite installation.
+async fn hold_snapshot(source: &Host, target: &mut Host, group: u8) -> Result<ApplyTicket> {
+    let mut message = heartbeat();
+    message.from = source.log.group(&scope(group))?.identity().member.get();
+    message.to = target.log.group(&scope(group))?.identity().member.get();
+    message.term = 2;
+    message.set_msg_type(MessageType::MsgSnapshot);
+    let snapshot = message.mut_snapshot();
+    snapshot.mut_metadata().index = 5;
+    snapshot.mut_metadata().term = 2;
+    snapshot.mut_metadata().mut_conf_state().voters = vec![1, 2, 3];
+    snapshot.data = b"held mechanical snapshot".to_vec().into();
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        source.transport.submit(&scope(group), message)?.accepted(),
+    )
+    .await??;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(event) = target.events.as_mut().unwrap().recv().await {
+            match event.kind {
+                RuntimeEventKind::Snapshot { ticket, .. } => return Ok(ticket),
+                RuntimeEventKind::Message { .. } | RuntimeEventKind::SnapshotInstalled { .. } => {
+                    bail!("dependent response preceded the withheld snapshot install")
+                }
+                RuntimeEventKind::Failed { error, .. } => bail!("snapshot failed: {error}"),
+                _ => (),
+            }
+        }
+        bail!("snapshot event stream closed")
+    })
+    .await?
+}
+
+async fn wait_durable_term(target: &Host, group: u8, term: u64) -> Result<()> {
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if target
+                .log
+                .group(&scope(group))?
+                .initial_state()?
+                .hard_state
+                .term
+                == term
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?
+}
+
+async fn snapshot_hosts(root: &std::path::Path) -> Result<(Host, Host)> {
+    let groups = [scope(10), scope(11)];
+    let a = Host::new(&root.join("a"), 1, &groups, TransportOptions::default()).await?;
+    let b = Host::new(&root.join("b"), 2, &groups, TransportOptions::default()).await?;
+    let peers = addresses(&a, &b);
+    for group in &groups {
+        a.transport.install_group(route(group, &peers))?;
+        b.transport.install_group(route(group, &peers))?;
+    }
+    Ok((a, b))
+}
+
+async fn pending_snapshot_isolation(payload_bytes: Option<usize>) -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (a, mut b) = snapshot_hosts(dir.path()).await?;
+    let ticket = hold_snapshot(&a, &mut b, 10).await?;
+    let mut accepted = 0;
+    for _ in 0..40 {
+        let mut message = payload_bytes.map_or_else(heartbeat, append);
+        message.term = 2;
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            a.transport.submit(&scope(10), message)?.accepted(),
+        )
+        .await?
+        {
+            Ok(()) => accepted += 1,
+            Err(TransportError::Overloaded) => break,
+            Err(error) => return Err(error.into()),
+        }
+    }
+    assert_eq!(accepted, if payload_bytes.is_some() { 9 } else { 32 });
+    // This uses the same pooled control lane after a stalled group's heartbeat
+    // (or after its bounded data queue fills). Frame acceptance must not await
+    // that group's physical producer, even when its per-group budget is full.
+    let mut message = heartbeat();
+    message.term = 3;
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        a.transport.submit(&scope(11), message)?.accepted(),
+    )
+    .await??;
+    wait_durable_term(&b, 11, 3).await?;
+    let waiting = b.log.group(&scope(10))?;
+    assert_eq!(waiting.snapshot(0, 2)?.get_metadata().index, 1);
+    assert_eq!(waiting.initial_state()?.hard_state.commit, 1);
+    assert_eq!(waiting.applied()?.position.index.get(), 1);
+    while let Ok(event) = b.events.as_mut().unwrap().try_recv() {
+        match event.kind {
+            RuntimeEventKind::Message { replica, .. } if replica.scope == scope(10) => {
+                bail!("frame admission released a snapshot-dependent response")
+            }
+            RuntimeEventKind::SnapshotInstalled { .. } => bail!("snapshot installed without bytes"),
+            RuntimeEventKind::Failed { error, .. } => bail!("runtime failed: {error}"),
+            _ => (),
+        }
+    }
+    b.runtime
+        .complete_snapshot(SnapshotCompletion {
+            ticket: ticket.clone(),
+            applied: DurableApply {
+                position: ticket.position(),
+                image: None,
+            },
+            reference: None,
+        })
+        .await?;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(event) = b.events.as_mut().unwrap().recv().await {
+            match event.kind {
+                RuntimeEventKind::SnapshotInstalled {
+                    ticket: installed, ..
+                } => {
+                    ensure!(installed == ticket);
+                    return Ok(());
+                }
+                RuntimeEventKind::Failed { error, .. } => bail!("runtime failed: {error}"),
+                _ => (),
+            }
+        }
+        bail!("snapshot installation stream closed")
+    })
+    .await??;
+    // Running the queued messages must refund both reservations. A higher-term
+    // heartbeat is eventually admitted and its Raft persistence completes.
+    let mut message = heartbeat();
+    message.term = 4;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match a
+                .transport
+                .submit(&scope(10), message.clone())?
+                .accepted()
+                .await
+            {
+                Ok(()) => return Ok::<_, anyhow::Error>(()),
+                Err(TransportError::Overloaded) => tokio::task::yield_now().await,
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await??;
+    wait_durable_term(&b, 10, 4).await?;
+    assert_eq!(waiting.snapshot(0, 2)?.get_metadata().index, 5);
+    a.close().await?;
+    b.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn control_progress_while_snapshot_pending() -> Result<()> {
+    pending_snapshot_isolation(None).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inbound_byte_budget_survives_frame_acknowledgement() -> Result<()> {
+    pending_snapshot_isolation(Some(2 * 1024 * 1024)).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn inbound_snapshot_shutdown_preserves_durable_prefix() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (a, mut b) = snapshot_hosts(dir.path()).await?;
+    let before = b.log.group(&scope(10))?.initial_state()?.hard_state;
+    let ticket = hold_snapshot(&a, &mut b, 10).await?;
+    for _ in 0..32 {
+        let mut message = heartbeat();
+        message.term = 2;
+        a.transport.submit(&scope(10), message)?.accepted().await?;
+    }
+    tokio::time::timeout(Duration::from_secs(2), a.close()).await??;
+    tokio::time::timeout(Duration::from_secs(2), b.close()).await??;
+    drop(ticket);
+    let domain = cellar::sdk::ExecutionDomain::new(tokio::runtime::Handle::current());
+    let replica = identity(&scope(10), 2);
+    let log = domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                dir.path().join("b/log"),
+                replica.node,
+                replica.disk,
+                ProcessGeneration::new([10; 16])?,
+                LogOpenMode::Resume,
+            ),
+            std::sync::Arc::new(cellar_ltx::DirectFileSystem),
+        ))
+        .await??;
+    let group = log.group(&scope(10))?;
+    assert_eq!(group.initial_state()?.hard_state, before);
+    assert_eq!(group.applied()?.position.index.get(), 1);
+    assert_eq!(group.snapshot(0, 2)?.get_metadata().index, 1);
+    drop(group);
+    log.close().await?;
+    domain.shutdown().await;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn snapshot_completion_has_reserved_admission() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let groups = (10..18).map(scope).collect::<Vec<_>>();
+    let a = Host::new(
+        &dir.path().join("a"),
+        1,
+        &groups,
+        TransportOptions::default(),
+    )
+    .await?;
+    let mut b = Host::new(
+        &dir.path().join("b"),
+        2,
+        &groups,
+        TransportOptions::default(),
+    )
+    .await?;
+    let peers = addresses(&a, &b);
+    for group in &groups {
+        a.transport.install_group(route(group, &peers))?;
+        b.transport.install_group(route(group, &peers))?;
+    }
+    let mut tickets = Vec::new();
+    for group in 10..18 {
+        tickets.push(hold_snapshot(&a, &mut b, group).await?);
+        for _ in 0..32 {
+            let mut message = heartbeat();
+            message.term = 2;
+            a.transport
+                .submit(&scope(group), message)?
+                .accepted()
+                .await?;
+        }
+    }
+    assert_eq!(
+        b.runtime.status(&scope(10)).await,
+        Err(RuntimeError::Overloaded),
+        "the ordinary node request budget must actually be full"
+    );
+    let ticket = tickets.remove(0);
+    b.runtime
+        .complete_snapshot(SnapshotCompletion {
+            ticket: ticket.clone(),
+            applied: DurableApply {
+                position: ticket.position(),
+                image: None,
+            },
+            reference: None,
+        })
+        .await?;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while let Some(event) = b.events.as_mut().unwrap().recv().await {
+            match event.kind {
+                RuntimeEventKind::SnapshotInstalled {
+                    ticket: installed, ..
+                } => {
+                    ensure!(installed == ticket);
+                    return Ok(());
+                }
+                RuntimeEventKind::Failed { error, .. } => bail!("runtime failed: {error}"),
+                _ => (),
+            }
+        }
+        bail!("snapshot installation stream closed")
+    })
+    .await??;
+    let mut message = heartbeat();
+    message.term = 3;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            match a
+                .transport
+                .submit(&scope(10), message.clone())?
+                .accepted()
+                .await
+            {
+                Ok(()) => return Ok::<_, anyhow::Error>(()),
+                Err(TransportError::Overloaded) => tokio::task::yield_now().await,
+                Err(error) => return Err(error.into()),
+            }
+        }
+    })
+    .await??;
+    wait_durable_term(&b, 10, 3).await?;
+    tokio::time::timeout(Duration::from_secs(2), a.close()).await??;
+    tokio::time::timeout(Duration::from_secs(2), b.close()).await??;
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sender_hints_do_not_block_other_groups() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let (mut a, mut b) = snapshot_hosts(dir.path()).await?;
+    let _left = hold_snapshot(&b, &mut a, 10).await?;
+    // A is itself waiting for installation. Its outbound snapshot must report
+    // Finish by bounded admission, not hold the data worker until A executes it.
+    let _right = hold_snapshot(&a, &mut b, 10).await?;
+    b.transport.remove_group(&scope(10))?;
+    let mut message = heartbeat();
+    message.term = 2;
+    assert_eq!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            a.transport.submit(&scope(10), message)?.accepted(),
+        )
+        .await?,
+        Err(TransportError::UnknownGroup)
+    );
+    // The failed delivery also reports Unreachable against A's held group.
+    // That hint must not stall the shared control worker's next group.
+    let mut message = heartbeat();
+    message.term = 3;
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        a.transport.submit(&scope(11), message)?.accepted(),
+    )
+    .await??;
+    wait_durable_term(&b, 11, 3).await?;
+    assert_eq!(a.log.group(&scope(10))?.applied()?.position.index.get(), 1);
+    assert_eq!(b.log.group(&scope(10))?.applied()?.position.index.get(), 1);
+    tokio::time::timeout(Duration::from_secs(2), a.close()).await??;
+    tokio::time::timeout(Duration::from_secs(2), b.close()).await??;
+    Ok(())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

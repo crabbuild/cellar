@@ -46,10 +46,26 @@ pub(crate) enum Response {
 
 type Reply = oneshot::Sender<Result<Response, RuntimeError>>;
 
+// Physical work must be able to settle even when deferred peer/client requests
+// fill ordinary admission. These small completions contain markers, not images.
+const COMPLETION_SLOTS: usize = 8;
+const COMPLETION_BYTES: usize = COMPLETION_SLOTS * 4096;
+const HINT_SLOTS: usize = 256;
+const HINT_BYTES: usize = HINT_SLOTS * 4096;
+
 enum Command {
     Group {
         scope: GroupScope,
         action: GroupAction,
+    },
+    AdmitStep {
+        scope: GroupScope,
+        message: Message,
+    },
+    Hint {
+        scope: GroupScope,
+        member: u64,
+        snapshot: Option<bool>,
     },
     Status(GroupScope),
     Attach(GroupScope),
@@ -64,6 +80,7 @@ struct Request {
     command: Command,
     reply: Reply,
     _permit: Option<Permit>,
+    _inbound: Option<Permit>,
 }
 
 #[derive(Clone)]
@@ -76,6 +93,8 @@ struct RuntimeHandle {
     sender: mpsc::Sender<Request>,
     domain: crate::asyncrt::DomainToken,
     budget: Arc<Budget>,
+    completions: Arc<Budget>,
+    hints: Arc<Budget>,
     options: RaftRuntimeOptions,
     closed: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
@@ -143,7 +162,8 @@ impl RaftRuntime {
         options.validate(log.limits())?;
         let lease = log.claim_runtime()?;
         let domain = log.domain();
-        let (sender, requests) = mpsc::channel(options.max_requests);
+        let (sender, requests) =
+            mpsc::channel(options.max_requests + COMPLETION_SLOTS + HINT_SLOTS);
         let (events, receiver) = mpsc::channel(options.max_events);
         let (ready, wait) = oneshot::channel();
         let closed = Arc::new(AtomicBool::new(false));
@@ -155,6 +175,8 @@ impl RaftRuntime {
                 sender,
                 domain: domain.clone(),
                 budget: Budget::new(options.max_request_bytes, options.max_requests),
+                completions: Budget::new(COMPLETION_BYTES, COMPLETION_SLOTS),
+                hints: Budget::new(HINT_BYTES, HINT_SLOTS),
                 options: options.clone(),
                 closed: closed.clone(),
                 closing: closing.clone(),
@@ -220,16 +242,23 @@ impl RaftRuntime {
     async fn call(&self, bytes: usize, command: Command) -> Result<Response, RuntimeError> {
         self.admit()?;
         match &command {
-            Command::Group { scope, .. } | Command::Status(scope) | Command::Attach(scope) => scope
+            Command::Group { scope, .. }
+            | Command::AdmitStep { scope, .. }
+            | Command::Hint { scope, .. }
+            | Command::Status(scope)
+            | Command::Attach(scope) => scope
                 .validate()
                 .map_err(|e| RuntimeError::Invalid(e.to_string()))?,
             _ => (),
         }
-        let permit = self
-            .inner
-            .budget
-            .acquire(bytes)
-            .ok_or(RuntimeError::Overloaded)?;
+        let budget = if matches!(&command, Command::Apply(_) | Command::Snapshot(_)) {
+            &self.inner.completions
+        } else if matches!(&command, Command::Hint { .. }) {
+            &self.inner.hints
+        } else {
+            &self.inner.budget
+        };
+        let permit = budget.acquire(bytes).ok_or(RuntimeError::Overloaded)?;
         let (reply, wait) = oneshot::channel();
         self.inner
             .sender
@@ -237,6 +266,7 @@ impl RaftRuntime {
                 command,
                 reply,
                 _permit: Some(permit),
+                _inbound: None,
             })
             .map_err(|e| match e {
                 mpsc::error::TrySendError::Full(_) => RuntimeError::Overloaded,
@@ -283,6 +313,81 @@ impl RaftRuntime {
         self.group(scope, GroupAction::Step(message), bytes)
             .await
             .map(|_| ())
+    }
+
+    /// Admit authenticated peer traffic without waiting behind this group's
+    /// Ready/install work. Both node and group reservations remain charged until
+    /// execution or discard. This is no protocol, persistence or install proof.
+    pub(crate) async fn admit_step(
+        &self,
+        scope: &GroupScope,
+        message: Message,
+    ) -> Result<(), RuntimeError> {
+        let bytes = message.compute_size() as usize;
+        if bytes > self.inner.options.max_message_bytes {
+            return Err(RuntimeError::Overloaded);
+        }
+        self.call(
+            bytes + 4096,
+            Command::AdmitStep {
+                scope: scope.clone(),
+                message,
+            },
+        )
+        .await
+        .map(|_| ())
+    }
+
+    pub(crate) async fn admit_unreachable(
+        &self,
+        scope: &GroupScope,
+        member: u64,
+    ) -> Result<(), RuntimeError> {
+        self.admit_hint(scope, member, None).await
+    }
+
+    pub(crate) async fn admit_snapshot_status(
+        &self,
+        scope: &GroupScope,
+        member: u64,
+        success: bool,
+    ) -> Result<(), RuntimeError> {
+        self.admit_hint(scope, member, Some(success)).await
+    }
+
+    async fn admit_hint(
+        &self,
+        scope: &GroupScope,
+        member: u64,
+        snapshot: Option<bool>,
+    ) -> Result<(), RuntimeError> {
+        loop {
+            let result = self
+                .call(
+                    4096,
+                    Command::Hint {
+                        scope: scope.clone(),
+                        member,
+                        snapshot,
+                    },
+                )
+                .await;
+            if !matches!(result, Err(RuntimeError::Overloaded)) {
+                return result.map(|_| ());
+            }
+            // The transport owns cancellation/deadline. Retry queue contention,
+            // never a group's Ready/install work, on its execution-domain clock.
+            let now = self
+                .inner
+                .domain
+                .mono_ms()
+                .map_err(|_| RuntimeError::Closed)?;
+            self.inner
+                .domain
+                .sleep_until(now.saturating_add(1))
+                .map_err(|_| RuntimeError::Closed)?
+                .await;
+        }
     }
 
     pub async fn propose(
@@ -429,6 +534,7 @@ impl RaftRuntime {
             command: Command::Close,
             reply,
             _permit: None,
+            _inbound: None,
         };
         loop {
             match self.inner.sender.try_send(request) {
@@ -489,9 +595,17 @@ impl Outbox {
 struct Group {
     replica: Replica,
     deferred: VecDeque<Request>,
+    inbound: Arc<Budget>,
+    hints: BTreeMap<u64, PeerHint>,
     tick: bool,
     failed: Option<RuntimeError>,
     report_failure: bool,
+}
+
+#[derive(Default)]
+struct PeerHint {
+    unreachable: bool,
+    snapshot: Option<bool>,
 }
 
 struct Job {
@@ -580,6 +694,11 @@ impl Worker {
             Group {
                 replica,
                 deferred: VecDeque::new(),
+                inbound: Budget::new(
+                    (self.options.max_request_bytes / 4).max(self.options.max_message_bytes + 4096),
+                    (self.options.max_requests / 8).clamp(1, 32),
+                ),
+                hints: BTreeMap::new(),
                 tick: false,
                 failed: None,
                 report_failure: false,
@@ -592,6 +711,7 @@ impl Worker {
     fn fail(group: &mut Group, error: RuntimeError) {
         group.failed = Some(error.clone());
         group.report_failure = true;
+        group.hints.clear();
         for request in group.deferred.drain(..) {
             let _ = request.reply.send(Err(error.clone()));
         }
@@ -616,6 +736,64 @@ impl Worker {
             return None;
         }
         let result = match request.command {
+            Command::Hint {
+                scope,
+                member,
+                snapshot,
+            } => self
+                .groups
+                .get_mut(&scope)
+                .ok_or(RuntimeError::NotFound)
+                .and_then(|group| {
+                    if let Some(error) = &group.failed {
+                        return Err(error.clone());
+                    }
+                    if !group.replica.accepts_peer(member) {
+                        return Err(RuntimeError::Invalid("unknown transport peer".into()));
+                    }
+                    let replica = &group.replica;
+                    group
+                        .hints
+                        .retain(|member, _| replica.accepts_peer(*member));
+                    // One coalesced record per current member, independent of
+                    // deferred body capacity. Preserve failure until execution;
+                    // the latest ordered snapshot result replaces an older one.
+                    let hint = group.hints.entry(member).or_default();
+                    if let Some(success) = snapshot {
+                        hint.snapshot = Some(success);
+                    } else {
+                        hint.unreachable = true;
+                    }
+                    Ok(Response::Unit)
+                }),
+            Command::AdmitStep { scope, message } => self
+                .groups
+                .get_mut(&scope)
+                .ok_or(RuntimeError::NotFound)
+                .and_then(|group| {
+                    if let Some(error) = &group.failed {
+                        return Err(error.clone());
+                    }
+                    group.replica.validate_message(&message, &self.options)?;
+                    let bytes = message.compute_size() as usize;
+                    let inbound = group
+                        .inbound
+                        .acquire(bytes + 4096)
+                        .ok_or(RuntimeError::Overloaded)?;
+                    // Execution revalidates against the then-current Raft
+                    // membership. Its result is not a frame admission reply.
+                    let (reply, _wait) = oneshot::channel();
+                    group.deferred.push_back(Request {
+                        command: Command::Group {
+                            scope,
+                            action: GroupAction::Step(message),
+                        },
+                        reply,
+                        _permit: request._permit,
+                        _inbound: Some(inbound),
+                    });
+                    Ok(Response::Unit)
+                }),
             Command::Checkpoint(checkpoint) => {
                 let ready_bytes: usize = self
                     .groups
@@ -733,6 +911,19 @@ impl Worker {
                         Self::fail(group, error);
                     }
                     group.tick = false;
+                    made = true;
+                } else if let Some((member, hint)) = group.hints.pop_first() {
+                    if hint.unreachable {
+                        let _ = group
+                            .replica
+                            .execute(GroupAction::Unreachable(member), &self.options);
+                    }
+                    if let Some(success) = hint.snapshot {
+                        let _ = group.replica.execute(
+                            GroupAction::SnapshotStatus { member, success },
+                            &self.options,
+                        );
+                    }
                     made = true;
                 } else if let Some(request) = group.deferred.pop_front() {
                     let Command::Group { action, .. } = request.command else {

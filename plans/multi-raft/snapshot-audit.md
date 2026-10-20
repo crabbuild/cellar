@@ -83,6 +83,41 @@ checkpoint replaces the old snapshot reference while old reader/transfer pins
 continue to protect physical bytes. Retained references survive process-local pin
 release and restart.
 
+## Peer admission during pending image work
+
+The transport now separates authenticated frame admission from group execution.
+The serialized worker checks membership/message bounds before queueing and again
+at execution. Each queued body retains its original node charge plus a group
+reservation. Per-group defaults allow 32 requests and 20 MiB plus 4 KiB; the
+runtime options document their relationship to node/message limits. A stalled
+group's frame can be admitted or refused promptly while other groups continue on
+the same pooled control connection. Public embedding `step` retains its original
+execution-waiting semantics.
+
+Sender unreachable and snapshot-status hints have separate admission of 256 slots
+and 1 MiB, independent of ordinary work and physical completions. The worker
+coalesces hints to one small record per current member, preserves failure until
+execution, retains the latest ordered snapshot result and prunes retired peers.
+Member validation occurs before coalescing and at execution. Queue contention
+retries on the owning clock within transport cancellation/deadline; it never waits
+for a group's image work. Hints run before deferred bodies when the group becomes
+ready. Native immediate send refusals also retain snapshot-failure hints. Neither
+hint admission nor execution invents a Raft response or install acknowledgement.
+
+Physical apply/snapshot completions have eight reserved queue slots and 32 KiB
+independent of ordinary requests. Full ordinary admission cannot prevent owned
+physical work from completing and refunding deferred-message reservations.
+Frame admission still proves neither execution nor snapshot installation.
+
+The transport fixtures hold a mechanical snapshot completion while another group
+advances over actual TLS. They cover group item and byte saturation, execution
+refunds, joined shutdown preserving the old durable prefix, and reserved snapshot
+completion after eight groups fill all 256 ordinary request slots. A bidirectional
+pending-snapshot fixture also checks sender Finish/Unreachable hints and healthy
+second-group progress. These fixtures
+qualify scheduling/engine barriers; physical SQLite installation is covered by
+the separate snapshot target. They do not implement native snapshot RPCs.
+
 ## Verification and remaining work
 
 The owning target is `native_raft_snapshot`. Its tests cover actual runtime-ticket
@@ -127,13 +162,8 @@ Still required for MR-10:
   using the runtime API and the SQL owner's serialized state.
 - Authenticated bounded peer snapshot RPCs with reserved control capacity, source
   pins, transfer admission, deadlines, cancellation and joined shutdown.
-  The current inbound peer loop awaits group execution before acknowledging frame
-  admission. A group waiting for a snapshot can therefore block the pooled control
-  connection for other groups. Native transfer must separate bounded message
-  admission from execution while retaining its request charge, validate again at
-  execution, and qualify a held snapshot plus healthy second-group control traffic
-  over the same authenticated connection. Frame admission is never an install or
-  commit acknowledgement.
+  Peer frame admission no longer awaits group execution; native bulk snapshot
+  scheduling must preserve this property and join its own transfer reservations.
 - Native host handling of incoming snapshots and atomic readiness transitions,
   including pending commands/queries and image-capacity pressure. Minimum image
   admission must account for the independent snapshot reference and private

@@ -288,10 +288,16 @@ impl Replica {
                 Ok(Response::Unit)
             }
             GroupAction::Unreachable(member) => {
+                if !self.accepts_peer(member) {
+                    return Err(RuntimeError::Invalid("unknown transport peer".into()));
+                }
                 self.node.report_unreachable(member);
                 Ok(Response::Unit)
             }
             GroupAction::SnapshotStatus { member, success } => {
+                if !self.accepts_peer(member) {
+                    return Err(RuntimeError::Invalid("unknown transport peer".into()));
+                }
                 self.node.report_snapshot(
                     member,
                     if success {
@@ -365,16 +371,20 @@ impl Replica {
         Ok(())
     }
 
-    fn validate_message(
+    pub(crate) fn accepts_peer(&self, member: u64) -> bool {
+        member != 0
+            && member != self.identity().member.get()
+            && self.node.raft.prs().get(member).is_some()
+    }
+
+    pub(crate) fn validate_message(
         &self,
         message: &Message,
         options: &RaftRuntimeOptions,
     ) -> Result<(), RuntimeError> {
         let invalid = || RuntimeError::Invalid("malformed Raft peer message".into());
         if message.to != self.identity().member.get()
-            || message.from == 0
-            || message.from == message.to
-            || self.node.raft.prs().get(message.from).is_none()
+            || !self.accepts_peer(message.from)
             || ::raft::raw_node::is_local_msg(message.get_msg_type())
             || message.get_msg_type() == MessageType::MsgPropose
             || [

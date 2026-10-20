@@ -83,7 +83,15 @@ pub struct RaftRuntimeOptions {
     pub tick_interval_ms: Option<u64>,
     pub election_seed: Option<[u8; 32]>,
     pub max_groups: usize,
+    /// Ordinary requests. Eight additional queue slots and 32 KiB are reserved
+    /// for physical apply/snapshot completions so saturated work can settle.
+    /// Transport hint admission has a separate 256 slots/1 MiB; the worker
+    /// coalesces retained hints to one small record per current group member.
     pub max_requests: usize,
+    /// Inbound peer queues retain this node-wide charge through execution. Each
+    /// group additionally admits at most (max_requests / 8).clamp(1, 32) items
+    /// and max(max_request_bytes / 4, max_message_bytes + 4096) bytes, including
+    /// per-request overhead. A single stalled group cannot fill default bounds.
     pub max_request_bytes: usize,
     pub max_events: usize,
     pub max_event_bytes: usize,

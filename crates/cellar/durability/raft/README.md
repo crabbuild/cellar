@@ -319,6 +319,31 @@ must retain or report immediate queue refusals. Dropping a delivery does not
 refund queued/in-flight work. Peer and node usage counters expose held bytes and
 items; permits release on completion, refusal, close and domain cancellation.
 
+Receiver frame admission validates the current member and bounded message before
+queueing it, without waiting for that group's Ready or image installation. Raft
+execution validates again against its then-current membership. Queued messages
+retain the node request charge and an independent group reservation. With default
+runtime options, a group holds at most 32 peer requests and 20 MiB plus 4 KiB of
+charged bytes; options document the derived bounds. One held snapshot therefore
+cannot fill the default node queue or block another group on the pooled control
+connection. Exhausted group/node capacity returns an explicit overload refusal.
+Sender unreachable/snapshot-status hints have reserved admission of 256 slots
+and 1 MiB. The worker coalesces them to one small record per current member,
+preserving failure until execution and keeping the latest ordered snapshot result.
+Delivery workers never wait behind local snapshot work. Both hint admission and
+execution validate the current member; retired peers are pruned. Queue contention
+retries on the owning clock within the transport's existing cancellation/deadline.
+Hints execute before deferred bodies once the group is ready. Native immediate
+send refusals also retain snapshot-failure hints. Hints never become durable Raft
+responses or install acknowledgements.
+
+Eight extra runtime queue slots and 32 KiB admit physical apply/snapshot completion
+markers independently of ordinary request saturation. They carry no encoded image.
+This lets already owned work settle and release deferred requests even when eight
+stalled groups fill all 256 ordinary slots. Ordinary public `step` still waits for
+execution; this admission path is private to the authenticated transport. Snapshot
+installation and persistence-dependent responses retain their durability barriers.
+
 Group route installation is a trusted membership-controller operation. It must
 refer to existing local storage and current ConfState, never initializes a group
 and cannot change the persisted membership. Views have monotonic revisions and
