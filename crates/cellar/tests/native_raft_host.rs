@@ -2339,6 +2339,13 @@ async fn control_capacity_survives_unpolled_business_waiters() -> Result<()> {
         &registration.birth.scope.cell,
     )?;
     public_node::ready(&cell).await?;
+    cell.command(
+        definition.increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(1)?,
+    )
+    .await
+    .context("initial command under business byte budget")?;
     // The SDK deliberately retains admission until an unpolled waiter is
     // consumed/dropped, including when the producer has already responded.
     let held = cell.query(
@@ -2354,31 +2361,60 @@ async fn control_capacity_survives_unpolled_business_waiters() -> Result<()> {
     let status = cell.status().await;
     let repair = cell.repair_status().await;
     let replication = cell.replication_status().await;
-    drop(held);
+    let first_read = held.await;
     // Retained control waiters are bounded without consuming business slots.
     let controls = (0..16).map(|_| cell.status()).collect::<Vec<_>>();
     let extra_control = cell.status().await;
-    let business = cell
-        .query(definition.get, vec![], QueryOptions::default())
-        .await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    let business = loop {
+        let now = tokio::time::Instant::now();
+        ensure!(
+            now < deadline,
+            "business producer did not release admission"
+        );
+        let options = QueryOptions {
+            timeout: deadline - now,
+            ..Default::default()
+        };
+        match cell.query(definition.get.clone(), vec![], options).await {
+            Err(CommandFailure::Overloaded) => tokio::task::yield_now().await,
+            result => break result,
+        }
+    };
     drop(controls);
     let closed = service.close().await;
     node.shutdown(ShutdownMode::Preserve).await?;
     ensure!(closed?.unfinished.is_empty());
     ensure!(
-        status?.command_ready,
+        status.context("reserved status")?.command_ready,
         "control status must survive a saturated business byte budget"
     );
-    ensure!(repair?.is_none());
-    assert_eq!(replication?.members.len(), 1);
+    ensure!(repair.context("reserved repair status")?.is_none());
+    assert_eq!(
+        replication
+            .context("reserved replication status")?
+            .members
+            .len(),
+        1
+    );
     ensure!(
         matches!(extra_control, Err(CommandFailure::Overloaded)),
         "control admission must remain bounded"
     );
-    ensure!(
-        matches!(business, Err(CommandFailure::VersionUnavailable)),
+    match first_read {
+        Ok(result) => assert_eq!(result.result, 1_i64.to_be_bytes()),
+        // The held input occupies the full business byte budget, so its
+        // separate output reservation may correctly apply backpressure.
+        Err(CommandFailure::Overloaded) => (),
+        Err(error) => return Err(error.into()),
+    }
+    assert_eq!(
+        business
+            .context("business read under control pressure")?
+            .result,
+        1_i64.to_be_bytes(),
         "control waiters must leave business admission available"
     );
-    assert_eq!(calls.load(Ordering::Acquire), 0);
+    assert_eq!(calls.load(Ordering::Acquire), 1);
     Ok(())
 }

@@ -247,6 +247,15 @@ domain. `host.rs` owns serial command producers and effect dispatch;
 status and joined local closure. Admission is synchronous, including when a
 returned future is not polled. Attempt deadlines are checked by the dispatcher
 and SQL owner; cancellation cannot release a slot while its callback still runs.
+
+Business commands/queries and administrative operations have independent host
+admission. `max_control_requests` defaults to 16 and `max_control_bytes` to 16 MiB;
+status, repair, seed activation and leadership requests use that reservation.
+Both byte and item charges survive unpolled waiters. Each host turn continues
+admitted producers before servicing at most four queued control requests, then
+services normal business, consensus and completion work. A command can wait for
+an in-flight status check; execution and submission still require fresh checks.
+Saturating either admission budget leaves the other available.
 After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.
@@ -438,8 +447,9 @@ Group route installation is a trusted membership-controller operation. It must
 refer to existing local storage and current ConfState, never initializes a group
 and cannot change the persisted membership. Views have monotonic revisions and
 immutable schema digests. A process/address replacement shared by several groups
-requires retiring their conflicting routing views before installing the new
-physical-peer view. Pending callbacks from retired views cannot credit the new
+uses the trusted process-view acceptance boundary to replace affected routes,
+read grants and pools atomically. A plain group-route update cannot bypass that
+physical identity check. Pending callbacks from retired views cannot credit the new
 peer or report failures against it. The membership controller and durable remote
 identity registry are delivered separately in MR-07/MR-11.
 

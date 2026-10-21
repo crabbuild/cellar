@@ -1545,15 +1545,24 @@ async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Res
     options.images.max_generations = 3;
     options.enable_snapshots = false;
     options.archive.limits.io_timeout_ms = 60_000;
-    let native = Native::start(store.clone(), options, Durability::Quorum).await?;
-    native.retry(1, Durability::Quorum).await?;
+    let native = Native::start(store.clone(), options, Durability::Quorum)
+        .await
+        .context("start archive pressure fixture")?;
+    native
+        .retry(1, Durability::Quorum)
+        .await
+        .context("commit first pressure image")?;
     tokio::time::timeout(std::time::Duration::from_secs(5), async {
         while store.archive_attempts.load(Ordering::Acquire) == 0 {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
-    .await?;
-    native.retry(2, Durability::Quorum).await?;
+    .await
+    .context("archive I/O did not start")?;
+    native
+        .retry(2, Durability::Quorum)
+        .await
+        .context("commit second pressure image")?;
     let cell = native.cell()?;
     let mut third = Box::pin(cell.command(
         native.definition.increment.clone(),
@@ -1572,7 +1581,8 @@ async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Res
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
-    .await?;
+    .await
+    .context("third command did not reach commit ahead of apply")?;
     ensure!(
         tokio::time::timeout(std::time::Duration::from_millis(200), &mut third)
             .await
@@ -1581,7 +1591,9 @@ async fn archive_pin_pressure_defers_committed_apply_without_corruption() -> Res
     );
     store.archive_hang.store(false, Ordering::Release);
     store.archive_resume.notify_waiters();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), third).await??;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), third)
+        .await
+        .context("third command did not publish after archive release")??;
     ensure!(result.result == 3_i64.to_be_bytes());
     ensure!(native.calls.load(Ordering::SeqCst) == 3);
     native.close().await

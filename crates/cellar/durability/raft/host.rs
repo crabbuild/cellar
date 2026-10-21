@@ -1747,7 +1747,7 @@ impl Driver {
                 input,
                 options,
             } => {
-                if cell.pending.is_some() || cell.sql_busy || cell.status_busy {
+                if cell.pending.is_some() || cell.sql_busy {
                     reply(&mut request, Err(CommandFailure::Overloaded));
                     return;
                 }
@@ -2805,6 +2805,9 @@ impl Driver {
             if self.closing.load(Ordering::Acquire) {
                 return;
             }
+            // Continue an admitted command before another administrative
+            // observer can occupy its serialized authority-status check.
+            self.pump();
             // Give admitted control work a bounded turn even while business
             // traffic is continuously ready. The main select still services
             // business, completions and consensus between these small batches.
