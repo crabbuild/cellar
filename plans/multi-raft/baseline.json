@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "9fac03a5b3771d51bb081bbc52b97645454174ec",
+  "revision": "879d13e2608e94cf3ef5c92d4f3e05029f2a678d",
   "prepared_date": "2026-10-20",
   "files": [
     {
@@ -161,6 +161,10 @@
       "sha256": "e2746769d4e6fdada6185b57b5f0a15f7581a149bcc31d311ef14d18eed2eae9"
     },
     {
+      "path": "crates/cellar/execution/domain.rs",
+      "sha256": "8d79020d1ed24fbd7cf5d72f84cc6ada830fe930de4a2b44c2a8764bda7162ae"
+    },
+    {
       "path": "crates/cellar/execution/services.rs",
       "sha256": "2ef784272dfac0461fad18a83142fd97f7cf08b3e12a63decb35a87b8780e672"
     },
@@ -190,7 +194,7 @@
     },
     {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "be61bfa18ecb7d98746c8193a73b1e35a443b6313ddf5ecaa6be22ff4c753329"
+      "sha256": "22b6342e7824dd157c0f0d99c92fba54a710c665d546b3ea99d87f141fabb403"
     },
     {
       "path": "crates/cellar/node/mod.rs",
@@ -213,6 +217,10 @@
       "sha256": "21a417df09910a471515fa16a5cb6ee0500a9b0f1fd0351c3f56cb4bd53c2f0c"
     },
     {
+      "path": "crates/cellar/tests/native_domains.rs",
+      "sha256": "e85987ed5a533b267cc9700396a1e28080c54af6828cc19e2797616cd71857d4"
+    },
+    {
       "path": "crates/cellar/tests/native_node.rs",
       "sha256": "637b00f037342c66c1370bc5f75c3e99ab754f1221e3083c82af429530658ae2"
     },
@@ -223,6 +231,10 @@
     {
       "path": "docs/06-storage-transactions.md",
       "sha256": "f48ab6f0af1308ec442703e479ed0f275d318078b061d9fbd8bd83a855cc8c0d"
+    },
+    {
+      "path": "docs/10-embedding.md",
+      "sha256": "25472ddf476e16880abb80a41e6ca986314197129c441c6dda549314aff931df"
     },
     {
       "path": "docs/13-fleet-topology.md",

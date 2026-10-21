@@ -3,7 +3,9 @@
 This component owns the log engine and the raft-rs adapter. Business activation,
 command output, query publication and archive proof belong to the actor and
 `cellar-logic`; `GroupStatus::protocol_ready` is only a protocol observation.
-The application-facing Raft SDK integration is still under implementation.
+Native command/query serving, committed archives and replica recovery are
+implemented; automatic placement, effects and later operating/release work
+remain under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
 
@@ -55,10 +57,11 @@ snapshot/binding markers. S3 validation checks the immutable birth ID set, and
 transport checks joined members against their committed node/disk even when
 routing supplies a matching numeric ID. Process generations remain separately
 fenced discovery values. A binding observation alone is not live-quorum join
-authorization; native fresh-member seeding is still unfinished.
+authorization; native fresh-member seeding requires the separate fresh safe
+ReadIndex grant described below.
 
 This is an internal marker-1 hard cutover. The namespace protocol identity is
-`cellar-raft-ltx-1/members-1`; a root selected by a binary without member bindings
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1`; a root selected by an earlier binary
 is refused before attachment. Use a fresh experimental namespace/storage prefix
 and local Raft state. There is no old-format reader or migration path.
 
@@ -441,7 +444,7 @@ restore, retention and three-voter failover. It does not qualify physical S3,
 power loss, production scale or automatic member restoration.
 
 
-## Native snapshots and remaining member recovery
+## Native snapshots and member recovery
 
 `snapshot.rs` supplies bounded source capture, full LTX encoding, ordered chunk
 assembly and destination generation sealing. Marker-1 descriptors bind the full
@@ -459,10 +462,12 @@ protect retired bytes. Snapshot encode/download operations belong on the owning
 blocking domain. `host_snapshot.rs` schedules native checkpoints, source captures,
 downloads and publication; `snapshot_transport.rs` supplies member-only bounded
 pulls over separate TLS data connections. Explicit fresh-learner peer seeding is
-implemented below. S3 seeding, automatic placement/repair and the remaining native
-crash matrix are unfinished. The component process-kill matrix covers image
-sync/rename/directory sync, engine sync/reply and publication. The owning
-verification target is `native_raft_snapshot`; this does not complete MR-10.
+implemented below. Exact-reference S3 seeding and public joined-node restart are
+also implemented. Seven installed-replica snapshot cuts and eight fresh-learner
+cuts for each of peer and S3 recovery cover process-kill boundaries. Automatic
+placement and repair remain MR-11. The owning verification target is
+`native_raft_snapshot`; source-pinned qualification lives in the
+[snapshot audit](../../../../plans/multi-raft/snapshot-audit.md).
 
 
 `RaftRuntime::checkpoint` admits metadata and a verified pin into a dedicated
@@ -504,7 +509,8 @@ Other drills interrupt ciphertext after the handshake and initial chunks, requir
 retry without blocking a second group's writes, and join shutdown while a partial
 transfer remains held. Followers execute no business callbacks. Startup refuses
 inadequate restore admission before creating catalog objects or member storage.
-These drills do not yet authorize a replacement identity after disk loss.
+Replacement identities after disk loss require the separate committed learner
+binding and fresh-quorum seeding path below.
 
 `SnapshotPackage::retained` captures the exact durable checkpoint requested by a
 transfer, even after a newer image becomes applied. It verifies the selected
@@ -561,5 +567,38 @@ lost claim response without resetting its log or votes. Normal follower proofs
 still govern queries after attachment.
 
 The internal namespace protocol identity is
-`cellar-raft-ltx-1/members-1/seeds-1`; format markers remain 1. Use a fresh
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1`; format markers remain 1. Use a fresh
 experimental namespace/prefix and local state after this hard cutover.
+
+
+## Exact-reference S3 learner seeding and restart
+
+`RaftCellPlacement::JoiningFromS3` obtains an authenticated grant from a live peer
+under a fresh safe ReadIndex. The source selects bounded archive metadata for an
+exact immutable `ArchiveReference`, covering the barrier and the target learner
+binding. Metadata selection does not download image/tail/Blob payloads or wait
+for a private business callback. The target downloads only that selected set;
+missing or corrupt bytes refuse startup even if a newer complete head exists.
+
+`seed_archive.rs` retains receiver reservations through object hash/decode work
+and physical replay on the SQL owner. `snapshot_seed.rs` verifies birth, schema,
+cut and exact learner binding, replays snapshot/tails, seals a local generation
+and constructs its actual snapshot descriptor. The shared atomic seed/claim path
+then attaches with vote zero. S3 supplies cell state and committed history; it
+supplies no old votes, process identity, leadership or replacement quorum.
+
+The receiver shares one body slot with peer snapshots, charged for configured
+snapshot working memory plus `max_set_bytes` (at most 256 MiB). Default capacity
+is 640 MiB. Seed metadata holds one 4-MiB reservation per node, sufficient for a
+configured 1-MiB manifest and verification copies. Reservations are accounting
+bounds and are not eager allocations.
+
+Public Node restart resumes verified local joined state and reconciles an exact
+permanent claim without reseeding or resetting votes. Tests start the learner
+before voters, permit retained causal reads and refuse strong reads until quorum
+returns. Three claim cuts cover failure before PUT, a lost successful response
+and a lost confirmation. Fresh-learner process-kill matrices cover image fsync,
+rename, directory fsync, atomic engine sync, engine reply, claim and attachment,
+then verify recovered reads and subsequent replication without callback replay.
+The process fixtures preserve successful conditional in-memory object mutations
+across child exit; they qualify no physical S3 or power-loss behavior.

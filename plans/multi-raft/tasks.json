@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "9fac03a5b3771d51bb081bbc52b97645454174ec",
+  "baseline_revision": "879d13e2608e94cf3ef5c92d4f3e05029f2a678d",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1219,7 +1219,7 @@
       "id": "MR-10",
       "title": "Install snapshots and recover durable group state",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-09",
         "MR-05",
@@ -1266,7 +1266,10 @@
         "crates/cellar/application/consensus/protocol.rs",
         "crates/cellar/tests/native_raft_storage.rs",
         "crates/cellar/durability/raft/catalog.rs",
-        "crates/cellar/tests/support/raft_catalog_fault.rs"
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/execution/domain.rs",
+        "crates/cellar/tests/native_domains.rs",
+        "docs/10-embedding.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
@@ -1281,7 +1284,9 @@
         "crates/cellar/durability/raft/host_seed.rs",
         "crates/cellar/durability/raft/seed_transport.rs",
         "crates/cellar/durability/raft/snapshot_seed.rs",
-        "crates/cellar/durability/raft/seed_archive.rs"
+        "crates/cellar/durability/raft/seed_archive.rs",
+        "crates/cellar/tests/support/raft_seed_fault.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs"
       ],
       "steps": [
         "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",
@@ -1567,6 +1572,29 @@
             "I06",
             "I11"
           ]
+        },
+        {
+          "name": "native_peer_seed_crash_matrix",
+          "oracle": "Eight process kills at image fsync, rename, directory fsync, atomic engine sync, engine reply, permanent claim and public attachment preserve an all-or-absent fresh learner checkpoint; public Node restart resumes state and later follower replication without rerunning callbacks",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04",
+            "I06",
+            "I15"
+          ]
+        },
+        {
+          "name": "native_s3_seed_crash_matrix",
+          "oracle": "The same eight public Node seed crash cuts for exact-reference S3 recovery preserve vote zero and claim ordering; incomplete unclaimed seeds need fresh live quorum, while synced joined state resumes without blank reset",
+          "invariants": [
+            "I01",
+            "I03",
+            "I04",
+            "I06",
+            "I09",
+            "I15"
+          ]
         }
       ],
       "verification": [
@@ -1594,6 +1622,7 @@
         ]
       ],
       "evidence": [
+        "evidence/MR-10.json",
         "evidence/MR-10-s3-progress.json",
         "evidence/MR-10-seed-progress.json",
         "evidence/MR-10-bindings-progress.json",
@@ -1619,7 +1648,8 @@
       "creates": [
         "crates/cellar/durability/raft/membership.rs",
         "crates/cellar/durability/raft/placement.rs",
-        "crates/cellar/tests/native_raft_membership.rs"
+        "crates/cellar/tests/native_raft_membership.rs",
+        "plans/multi-raft/membership-design.md"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",

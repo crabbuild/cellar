@@ -301,33 +301,43 @@ MR-10 and the overall 17-package goal remain open. No physical S3, power-loss,
 zones, production capacity or release qualification is established by this record.
 
 
-## MR-10 native peer-seed progress
+## MR-10 native recovery completion
 
-The [native S3-seed qualification](evidence/MR-10-s3-progress.json) pins source
-`9fac03a5b3771d51bb081bbc52b97645454174ec`: 210 Rust cases across 12 binaries and all 21 commands pass.
-This includes 40 snapshot cases, 29 archive, 18 read, six protocol contract,
-22 library cases, owning Raft regressions and the affected public Node lifecycle.
-Clippy, both cellar-ltx backend modes, format (638 Rust files), layout, dependency
-policy, docs, 17 plan tests, all 30 required snapshot names and 68-anchor preflight
-pass. Seven ignored child entry points run through owning parents and are excluded.
+The [MR-10 completion evidence](evidence/MR-10.json) pins source
+`879d13e2608e94cf3ef5c92d4f3e05029f2a678d`: 317 Rust cases across 14 binaries and all 22 commands pass.
+Runtime tests pin `1cd373cf7bc994e8ae1890f3934d977ea8b7c7af`; the final source
+adds only three shared-test-helper lint annotations. The exact delta, initial
+failed lint output and per-command source revisions are retained; production
+code is unchanged. Clippy and remaining repository checks pass at the final
+source. This includes 42 snapshot cases, 29 archive, all 88 Node cases, all 16 domain
+cases, both executor lifecycle cases, six protocol contract and 22 library cases,
+plus the owning Raft regressions. Clippy, both cellar-ltx backend modes, format
+(640 Rust files), layout, dependency policy, docs, 17 planning tests, all 32 required
+snapshot names and the reviewed 71-anchor preflight pass. Eight ignored child
+entry points run through owning parents and are excluded from pass totals.
 
-A fresh safe ReadIndex authorizes an exact immutable S3 manifest. Metadata
-selection avoids payload downloads and proceeds while a private writer is busy.
-The target verifies and physically replays the full image and committed LTX tails,
-seals a local image, syncs group/configuration/bindings/applied state with vote zero,
-then reconciles its permanent claim. A missing selected payload refuses startup
-even when a newer complete head exists. S3 bytes alone cannot authorize a seed.
+Native peer and exact-reference S3 learner seeding require a fresh safe ReadIndex.
+Images seal before atomic group/configuration/binding/applied initialization and
+permanent-claim reconciliation. S3 restores cell images and committed LTX tails;
+it restores no old votes, process identity, leadership or quorum. Missing selected
+payloads refuse initialization even when a newer complete head exists. A busy
+private writer does not block S3 metadata selection or expose speculative state.
 
-Public Node restart now starts the joined learner before voters. Verified causal
-reads remain available; strong reads refuse until quorum returns. Three claim
-failure cuts cover a lost successful response, failure before the PUT, and a lost
-confirmation after a successful PUT. Restart reconciles exact synced state and
-claims without resetting votes, reseeding or rerunning command callbacks; later
-replication resumes.
+Public joined-node restart preserves verified state and vote zero, serves retained
+causal reads before voters start, and refuses strong reads until quorum returns.
+Three claim faults reconcile exact synced state without a blank reset. Sixteen
+fresh-learner process kills cover eight cuts each for peer and S3 seeding: image
+fsync, rename, directory fsync, engine sync before/after, engine reply, permanent
+claim and public attachment. Seven existing-replica snapshot cuts remain covered.
+Every fresh-seed restart verifies all-or-absent group state and claim ordering,
+then resumes follower reads and subsequent replication without callback replay.
 
-The internal identity is `cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric
-format markers still 1. Earlier checksum-valid roots are refused; use a fresh
-experimental namespace/prefix and local state. MR-10 remains IN_PROGRESS for the
-remaining fresh-seed image/engine process-kill matrix. MR-11 through MR-17 remain
-open. Object storage in these fixtures is in-memory; no physical S3, power-loss,
-production-scale, federation or complete release qualification is claimed.
+MR-10 is complete at the native recovery boundary. MR-11 through MR-17 and the
+full delivery goal remain open. The internal protocol identity remains
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric markers 1; use a fresh
+experimental namespace/prefix and local state. Ordinary stores are in-memory;
+process-kill fixtures checkpoint successful conditional mutations and rehydrate
+them after child exit, then copy exact node file bytes into exclusively owned
+restart directories. These checks establish process-crash recovery, without
+physical S3, power-loss, zones, production capacity, larger-scale, federation or
+complete release qualification.
