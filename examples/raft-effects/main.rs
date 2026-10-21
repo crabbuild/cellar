@@ -252,8 +252,14 @@ async fn main() -> Result<()> {
         // Await the S3 settlement output before final graceful cleanup. This
         // does not authorize deleting retained replica disks.
         tokio::time::timeout(Duration::from_secs(10),async{loop{
-            let status=cell(&services,replacement,false)?.status().await?;
-            if status.command_ready && status.archived>=source.version.position.index {return Ok::<_,anyhow::Error>(());}
+            // Command settlement also observes progress through this bounded
+            // status slot. A busy read-only observation can be retried under
+            // the original deadline without changing any mutation identity.
+            match cell(&services,replacement,false)?.status().await {
+                Ok(status) if status.command_ready && status.archived>=source.version.position.index => return Ok::<_,anyhow::Error>(()),
+                Ok(_) | Err(CommandFailure::Overloaded) => {},
+                Err(error) => return Err(error.into()),
+            }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }}).await??;
         let report=serde_json::json!({"producer_value":7,"emitted":1,"settled":1,"receiver_value":7,"primary_replaced":true,"stopped_primary_unfinished":report.unfinished.len()});
