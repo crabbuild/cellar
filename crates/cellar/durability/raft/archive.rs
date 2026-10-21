@@ -333,6 +333,7 @@ pub struct CellArchive {
     host: LtxHost,
     cancellation: Option<tokio::sync::watch::Receiver<bool>>,
     io_domain: Option<crate::asyncrt::DomainToken>,
+    read_retention: Option<Arc<super::budget::Permit>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -342,10 +343,73 @@ struct Head {
     position: Position,
 }
 
+/// An immutable manifest address. This names recovery data only; it is neither
+/// live-quorum authorization nor permission to initialize or attach a member.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ArchiveReference(ObjectRef);
+
+impl ArchiveReference {
+    pub fn position(&self) -> Result<LogPosition, ArchiveError> {
+        if self.0.kind != ObjectKind::Manifest {
+            return Err(ArchiveError::Corrupt("archive reference domain"));
+        }
+        let range = self
+            .0
+            .range
+            .ok_or(ArchiveError::Corrupt("archive reference range"))?;
+        range.first.decode()?;
+        let position = range.last.decode()?;
+        if range.first.index > range.last.index || self.0.length == 0 || self.0.length > 1024 * 1024
+        {
+            return Err(ArchiveError::Limit);
+        }
+        Ok(position)
+    }
+}
+
+/// Bounded head/manifest metadata without downloading any image, tail or Blob.
+/// Payload existence and physical replay remain separate verification gates.
+pub struct ArchiveMetadata {
+    _retention: Option<Arc<super::budget::Permit>>,
+    reference: ArchiveReference,
+    scope: GroupScope,
+    position: LogPosition,
+    manifest: Manifest,
+}
+
+impl ArchiveMetadata {
+    pub fn reference(&self) -> ArchiveReference {
+        self.reference.clone()
+    }
+
+    pub fn scope(&self) -> &GroupScope {
+        &self.scope
+    }
+
+    pub fn position(&self) -> LogPosition {
+        self.position
+    }
+
+    pub fn schema_digest(&self) -> [u8; 32] {
+        self.manifest.schema_digest
+    }
+
+    pub fn configuration(&self) -> Result<ConfState, ArchiveError> {
+        manifest::decode_conf(&self.manifest.snapshot.conf_state)
+    }
+
+    pub fn membership(&self) -> super::member_state::GroupMembership {
+        self.manifest.snapshot.membership.clone()
+    }
+}
+
 /// Fully downloaded and hash-checked recovery material. This is not a Raft
 /// activation capability or an SDK acknowledgement. `restore` additionally
 /// verifies physical application in an exclusively owned generation store.
 pub struct ArchiveRecoverySet {
+    _retention: Option<Arc<super::budget::Permit>>,
+    reference: ArchiveReference,
     scope: GroupScope,
     position: LogPosition,
     manifest: Manifest,
@@ -390,7 +454,17 @@ impl CellArchive {
             host,
             cancellation: None,
             io_domain: crate::asyncrt::runtime_services().domain_token(),
+            read_retention: None,
         }
+    }
+
+    pub(crate) fn max_set_bytes(&self) -> usize {
+        self.limits.max_set_bytes
+    }
+
+    pub(crate) fn with_read_retention(mut self, retention: Arc<super::budget::Permit>) -> Self {
+        self.read_retention = Some(retention);
+        self
     }
 
     pub(crate) fn with_cancellation(
@@ -695,9 +769,38 @@ impl CellArchive {
         Ok(self.load_head().await?.map(|(set, _, _)| set))
     }
 
+    /// Select the immutable head reference without downloading its payloads.
+    /// A caller authorizing later recovery must bind this exact reference into
+    /// its own live-quorum operation; rereading head could select another cut.
+    pub async fn recovery_metadata(&self) -> Result<Option<ArchiveMetadata>, ArchiveError> {
+        Ok(self
+            .load_head_metadata()
+            .await?
+            .map(|(metadata, _, _)| metadata))
+    }
+
+    /// Download the exact history-bound immutable set. This never falls back
+    /// to a newer mutable head if the reference is missing, corrupt or stale.
+    /// It supplies no voting, activation, or quorum proof.
+    pub async fn recovery_set_at(
+        &self,
+        reference: &ArchiveReference,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        self.load_manifest(&reference.0).await
+    }
+
     async fn load_head(
         &self,
     ) -> Result<Option<(ArchiveRecoverySet, Vec<u8>, UpdateVersion)>, ArchiveError> {
+        let Some((metadata, bytes, version)) = self.load_head_metadata().await? else {
+            return Ok(None);
+        };
+        Ok(Some((self.load_material(metadata).await?, bytes, version)))
+    }
+
+    async fn load_head_metadata(
+        &self,
+    ) -> Result<Option<(ArchiveMetadata, Vec<u8>, UpdateVersion)>, ArchiveError> {
         let Some((bytes, version)) = self.read(&self.key("head"), 4096).await? else {
             return Ok(None);
         };
@@ -707,14 +810,14 @@ impl CellArchive {
             ));
         }
         let head: Head = manifest::decode(2, &bytes, 4096)?;
-        let set = self.load_manifest(&head.manifest).await?;
-        if set.manifest.position != head.position {
+        let metadata = self.load_metadata(&head.manifest).await?;
+        if metadata.manifest.position != head.position {
             return Err(ArchiveError::Corrupt("archive head/cut binding"));
         }
-        Ok(Some((set, bytes, version)))
+        Ok(Some((metadata, bytes, version)))
     }
 
-    async fn load_manifest(&self, object: &ObjectRef) -> Result<ArchiveRecoverySet, ArchiveError> {
+    async fn load_metadata(&self, object: &ObjectRef) -> Result<ArchiveMetadata, ArchiveError> {
         if object.kind != ObjectKind::Manifest {
             return Err(ArchiveError::Corrupt("archive head domain"));
         }
@@ -736,6 +839,29 @@ impl CellArchive {
         {
             return Err(ArchiveError::Corrupt("archive manifest object range"));
         }
+        Ok(ArchiveMetadata {
+            _retention: self.read_retention.clone(),
+            reference: ArchiveReference(object.clone()),
+            scope: self.scope.clone(),
+            position: manifest.position.decode()?,
+            manifest,
+        })
+    }
+
+    async fn load_manifest(&self, object: &ObjectRef) -> Result<ArchiveRecoverySet, ArchiveError> {
+        self.load_material(self.load_metadata(object).await?).await
+    }
+
+    async fn load_material(
+        &self,
+        metadata: ArchiveMetadata,
+    ) -> Result<ArchiveRecoverySet, ArchiveError> {
+        let ArchiveMetadata {
+            reference,
+            manifest,
+            _retention,
+            ..
+        } = metadata;
         let snapshot = self.get_object(&manifest.snapshot.object).await?;
         let mut tails = Vec::new();
         for tail in &manifest.tails {
@@ -765,6 +891,8 @@ impl CellArchive {
                 }
                 let position = manifest.position.decode()?;
                 let set = ArchiveRecoverySet {
+                    _retention,
+                    reference,
                     scope,
                     position,
                     manifest,
@@ -837,8 +965,10 @@ impl CellArchive {
             .ok_or(ArchiveError::Corrupt("missing archive object"))?
             .0;
         let expected = object.clone();
+        let retention = self.read_retention.clone();
         self.host
             .run_blocking(move || {
+                let _retention = retention;
                 expected.verify(&bytes)?;
                 Ok(bytes)
             })
@@ -891,6 +1021,14 @@ impl CellArchive {
 }
 
 impl ArchiveRecoverySet {
+    pub(crate) fn birth_digest(&self) -> [u8; 32] {
+        self.manifest.birth_digest
+    }
+
+    pub fn reference(&self) -> ArchiveReference {
+        self.reference.clone()
+    }
+
     pub fn scope(&self) -> &GroupScope {
         &self.scope
     }

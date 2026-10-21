@@ -11,6 +11,10 @@ mod images;
 #[allow(dead_code)]
 mod log_fault;
 
+#[path = "support/raft_catalog_fault.rs"]
+#[allow(dead_code)]
+mod archive_fault;
+
 #[path = "support/raft_cluster.rs"]
 #[allow(dead_code)]
 mod cluster;
@@ -65,23 +69,449 @@ fn native_snapshot_birth(cell: &str, group: u8) -> BirthProposal {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum JoinClaimFault {
+    None,
+    Before,
+    Response,
+    Confirmation,
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_requires_committed_binding_and_resumes_reads() -> Result<()> {
-    native_seed_drill(false, false).await
+    native_seed_drill(false, false, false, JoinClaimFault::None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_refuses_missing_quorum() -> Result<()> {
-    native_seed_drill(true, false).await
+    native_seed_drill(true, false, false, JoinClaimFault::None).await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn native_fresh_learner_seed_retries_partial_body_with_fresh_grant() -> Result<()> {
-    native_seed_drill(false, true).await
+    native_seed_drill(false, true, false, JoinClaimFault::None).await
 }
 
-async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_fresh_learner_s3_seed_replays_tail_and_resumes_reads() -> Result<()> {
+    native_seed_drill(false, false, true, JoinClaimFault::None).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_fresh_learner_s3_seed_refuses_missing_quorum() -> Result<()> {
+    native_seed_drill(true, false, true, JoinClaimFault::None).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_s3_seed_does_not_wait_for_private_writer() -> Result<()> {
     use cellar::sdk::consensus::*;
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+    let (gate, mut entered) = public_node::Gate::new();
+    let _release = public_node::Release(gate.clone());
+    let calls: Vec<_> = (0..4).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+    let definitions = calls
+        .iter()
+        .map(|calls| public_node::counter(calls.clone(), gate.clone()))
+        .collect::<Result<Vec<_>>>()?;
+    let mut namespace = native_snapshot_config();
+    namespace.schema_digest = definitions[0].schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace: namespace.clone(),
+        class: "Counter".into(),
+        birth: native_snapshot_birth("Counter:busy-s3-seed", 30),
+    };
+    let mut cluster =
+        cluster::Cluster::start_with_standby(&definitions, vec![registration.clone()]).await?;
+    let handles = cluster
+        .services
+        .iter()
+        .map(|service| service.cell(namespace.namespace, &registration.birth.scope.cell))
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            for (index, handle) in handles.iter().enumerate() {
+                if handle.status().await.is_ok_and(|s| s.command_ready) {
+                    return index;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    handles[primary]
+        .command(
+            definitions[primary].increment.clone(),
+            5_i64.to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+    let revision = handles[primary].status().await?.membership_revision;
+    let target = JoiningMember {
+        member: MemberId::new(4)?,
+        node: NodeId::new([4; 16])?,
+        disk: DiskLineage::new([13; 16])?,
+    };
+    let admitted = handles[primary]
+        .add_learner(
+            target.clone(),
+            LearnerOptions {
+                expected_revision: revision,
+                timeout: Duration::from_secs(5),
+            },
+        )
+        .await?;
+    let selected = Catalog::new(
+        cluster.store.clone(),
+        CatalogOptions {
+            prefix: "partition/test".into(),
+            ..Default::default()
+        },
+    )?
+    .existing_namespace(namespace.clone())
+    .await?;
+    let birth = selected
+        .birth(&registration.birth.scope.cell)
+        .await?
+        .context("busy seed birth missing")?;
+    let archive = selected.cell_archive(
+        &birth,
+        cellar_ltx::LtxHost::default(),
+        ArchiveLimits::default(),
+    )?;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if archive
+                .recovery_metadata()
+                .await?
+                .is_some_and(|metadata| metadata.position().index >= admitted.joined_at)
+            {
+                return Ok::<_, anyhow::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await??;
+    // Queue without polling the waiter: the native producer reaches and owns
+    // the blocked callback, whose private increment remains unpublished.
+    let write = handles[primary].command(
+        definitions[primary].increment.clone(),
+        1_i64.to_be_bytes().to_vec(),
+        public_node::options(2)?,
+    );
+    tokio::time::timeout(Duration::from_secs(5), entered.recv())
+        .await?
+        .context("writer did not enter callback")?;
+    let joined = tokio::time::timeout(
+        Duration::from_secs(5),
+        cluster.join_standby(
+            definitions[3].application.clone(),
+            RaftCellPlacement::JoiningFromS3 {
+                member: target.member,
+                source: MemberId::new(primary as u64 + 1)?,
+                source_node: NodeId::new([primary as u8 + 1; 16])?,
+            },
+        ),
+    )
+    .await
+    .context("S3 seed waited for the private writer")??;
+    let learner = joined.cell(namespace.namespace, &registration.birth.scope.cell)?;
+    let read = learner
+        .query(
+            definitions[3].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::Linearizable,
+                ..Default::default()
+            },
+        )
+        .await?;
+    assert_eq!(
+        read.result,
+        5_i64.to_be_bytes(),
+        "seed exposed the private increment"
+    );
+    assert_eq!(calls[3].load(Ordering::SeqCst), 0);
+    gate.release();
+    let receipt = write.await?;
+    assert_eq!(receipt.result, 6_i64.to_be_bytes());
+    let read = learner
+        .query(
+            definitions[3].get.clone(),
+            vec![],
+            QueryOptions {
+                consistency: QueryConsistency::AtLeast(receipt.version_token),
+                ..Default::default()
+            },
+        )
+        .await?;
+    assert_eq!(read.result, 6_i64.to_be_bytes());
+    cluster.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_s3_seed_missing_selected_payload_refuses_newer_head_fallback() -> Result<()> {
+    use cellar::sdk::consensus::*;
+    use object_store::ObjectStore as _;
+    use std::{
+        sync::atomic::{AtomicUsize, Ordering},
+        time::Duration,
+    };
+
+    struct Release(Arc<archive_fault::Store>);
+
+    impl Drop for Release {
+        fn drop(&mut self) {
+            self.0.release_payload();
+        }
+    }
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let definitions = (0..4)
+        .map(|_| public_node::counter(Arc::new(AtomicUsize::new(0)), gate.clone()))
+        .collect::<Result<Vec<_>>>()?;
+    let mut namespace = native_snapshot_config();
+    namespace.schema_digest = definitions[0].schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace: namespace.clone(),
+        class: "Counter".into(),
+        birth: native_snapshot_birth("Counter:exact-s3-seed", 31),
+    };
+    let store = Arc::new(archive_fault::Store::default());
+    let _release = Release(store.clone());
+    let host = RaftHostOptions {
+        archive: RaftArchiveOptions {
+            limits: ArchiveLimits {
+                max_tails: 1,
+                ..Default::default()
+            },
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let mut cluster = cluster::Cluster::start_with_standby_store(
+        &definitions,
+        vec![registration.clone()],
+        host,
+        store.clone(),
+    )
+    .await?;
+    let handles = cluster
+        .services
+        .iter()
+        .map(|service| service.cell(namespace.namespace, &registration.birth.scope.cell))
+        .collect::<Result<Vec<_>, _>>()?;
+    let primary = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            for (index, handle) in handles.iter().enumerate() {
+                if handle.status().await.is_ok_and(|s| s.command_ready) {
+                    return index;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let mut options = public_node::options(1)?;
+    options.durability = Durability::S3;
+    handles[primary]
+        .command(
+            definitions[primary].increment.clone(),
+            5_i64.to_be_bytes().to_vec(),
+            options,
+        )
+        .await?;
+    let revision = handles[primary].status().await?.membership_revision;
+    let target = JoiningMember {
+        member: MemberId::new(4)?,
+        node: NodeId::new([4; 16])?,
+        disk: DiskLineage::new([13; 16])?,
+    };
+    let admitted = handles[primary]
+        .add_learner(
+            target.clone(),
+            LearnerOptions {
+                expected_revision: revision,
+                timeout: Duration::from_secs(5),
+            },
+        )
+        .await?;
+    // Settle every existing producer so only the replacement's first payload
+    // GET can consume the one-shot fault; metadata lookups read no payloads.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let mut ready = true;
+            for handle in &handles {
+                ready &= handle
+                    .status()
+                    .await
+                    .is_ok_and(|status| status.archived >= admitted.joined_at);
+            }
+            if ready {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    let selected = Catalog::new(
+        store.clone(),
+        CatalogOptions {
+            prefix: "partition/test".into(),
+            ..Default::default()
+        },
+    )?
+    .existing_namespace(namespace.clone())
+    .await?;
+    let birth = selected
+        .birth(&registration.birth.scope.cell)
+        .await?
+        .context("exact seed birth missing")?;
+    let archive = selected.cell_archive(
+        &birth,
+        cellar_ltx::LtxHost::default(),
+        ArchiveLimits::default(),
+    )?;
+    let selected_ref = archive
+        .recovery_metadata()
+        .await?
+        .context("exact seed head missing")?
+        .reference();
+    store.payload_hang.store(true, Ordering::Release);
+    store.hold_next_payload.store(true, Ordering::Release);
+    let source = (primary + 1) % 3;
+    let placement = RaftCellPlacement::JoiningFromS3 {
+        member: target.member,
+        source: MemberId::new(source as u64 + 1)?,
+        source_node: NodeId::new([source as u8 + 1; 16])?,
+    };
+    let join = cluster.join_standby(definitions[3].application.clone(), placement);
+    let fault = async {
+        let result = async {
+            tokio::time::timeout(Duration::from_secs(5), async {
+                while !store.payload_waiting.load(Ordering::Acquire) {
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+            })
+            .await
+            .context("S3 seed never reached its selected payload")?;
+            for sequence in [2, 3] {
+                let mut options = public_node::options(sequence)?;
+                options.durability = Durability::S3;
+                let receipt = handles[primary]
+                    .command(
+                        definitions[primary].increment.clone(),
+                        1_i64.to_be_bytes().to_vec(),
+                        options,
+                    )
+                    .await?;
+                assert_eq!(receipt.result, (sequence as i64 + 4).to_be_bytes());
+            }
+            let newer = archive
+                .recovery_set()
+                .await?
+                .context("newer S3 head missing")?;
+            ensure!(
+                newer.reference() != selected_ref && newer.tail_entries() == 0,
+                "fixture did not rotate a distinct complete snapshot"
+            );
+            let path = store
+                .held_payload_path
+                .lock()
+                .map_err(|_| anyhow::anyhow!("payload fault lock"))?
+                .clone()
+                .context("no held payload path")?;
+            store.inner.delete(&path).await?;
+            // The new head remains complete even after deleting the old cut's
+            // selected payload. A fallback could succeed and must be refused.
+            archive
+                .recovery_set()
+                .await?
+                .context("newer head became incomplete")?;
+            Ok::<_, anyhow::Error>(())
+        }
+        .await;
+        store.release_payload();
+        result
+    };
+    let (joined, fault) = tokio::join!(join, fault);
+    fault?;
+    let error = match joined {
+        Ok(service) => {
+            service.close().await?;
+            anyhow::bail!("S3 seed substituted a newer head")
+        }
+        Err(error) => error,
+    };
+    ensure!(
+        matches!(
+            error.downcast_ref::<ArchiveError>(),
+            Some(ArchiveError::Corrupt("missing archive object"))
+        ),
+        "wrong exact-reference refusal: {error:?}"
+    );
+    let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+    let log = domain
+        .run(ReplicaLog::open(
+            ReplicaLogOptions::new(
+                cluster.nodes[3].info().data_dir.join("raft"),
+                target.node,
+                target.disk,
+                ProcessGeneration::new([99; 16])?,
+                LogOpenMode::Resume,
+            ),
+            Arc::new(DirectFileSystem),
+        ))
+        .await??;
+    ensure!(
+        log.groups()?.is_empty(),
+        "failed exact S3 seed created group state"
+    );
+    domain.run(log.close()).await??;
+    domain.shutdown().await;
+    use futures_util::StreamExt as _;
+    let mut objects = store.list(None);
+    while let Some(object) = objects.next().await {
+        ensure!(
+            !object?
+                .location
+                .as_ref()
+                .ends_with("/claims/0000000000000004"),
+            "failed exact S3 seed created a claim"
+        );
+    }
+    cluster.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_s3_seed_reconciles_lost_member_claim_response() -> Result<()> {
+    native_seed_drill(false, false, true, JoinClaimFault::Response).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_s3_seed_resumes_synced_state_before_member_claim() -> Result<()> {
+    native_seed_drill(false, false, true, JoinClaimFault::Before).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn native_s3_seed_resumes_after_lost_claim_confirmation() -> Result<()> {
+    native_seed_drill(false, false, true, JoinClaimFault::Confirmation).await
+}
+
+async fn native_seed_drill(
+    lose_quorum: bool,
+    interrupt: bool,
+    from_s3: bool,
+    claim_fault: JoinClaimFault,
+) -> Result<()> {
+    use cellar::sdk::consensus::*;
+    use object_store::ObjectStore as _;
     use std::{
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
@@ -101,14 +531,20 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
         class: "Counter".into(),
         birth: native_snapshot_birth("Counter:seed", 29),
     };
-    let mut cluster =
-        cluster::Cluster::start_with_standby(&definitions, vec![registration.clone()]).await?;
-    let handles = cluster
+    let store = Arc::new(archive_fault::Store::default());
+    let mut cluster = cluster::Cluster::start_with_standby_store(
+        &definitions,
+        vec![registration.clone()],
+        RaftHostOptions::default(),
+        store.clone(),
+    )
+    .await?;
+    let mut handles = cluster
         .services
         .iter()
         .map(|service| service.cell(namespace.namespace, &registration.birth.scope.cell))
         .collect::<Result<Vec<_>, _>>()?;
-    let primary = tokio::time::timeout(Duration::from_secs(10), async {
+    let mut primary = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             for (index, handle) in handles.iter().enumerate() {
                 if handle.status().await.is_ok_and(|s| s.command_ready) {
@@ -175,6 +611,60 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
         ),
         "committed binding rebound"
     );
+    if from_s3 {
+        let selected = Catalog::new(
+            cluster.store.clone(),
+            CatalogOptions {
+                prefix: "partition/test".into(),
+                ..Default::default()
+            },
+        )?
+        .existing_namespace(namespace.clone())
+        .await?;
+        let birth = selected
+            .birth(&registration.birth.scope.cell)
+            .await?
+            .context("S3 seed birth missing")?;
+        let archive = selected.cell_archive(
+            &birth,
+            cellar_ltx::LtxHost::default(),
+            ArchiveLimits::default(),
+        )?;
+        // Wait for the configuration cut before the next data command so the
+        // fixture necessarily exercises an archived LTX tail, rather than a
+        // producer coalescing configuration and data into one full snapshot.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if archive
+                    .recovery_metadata()
+                    .await?
+                    .is_some_and(|metadata| metadata.position().index >= admitted.joined_at)
+                {
+                    return Ok::<_, anyhow::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        let mut options = public_node::options(2)?;
+        options.durability = Durability::S3;
+        handles[primary]
+            .command(
+                definitions[primary].increment.clone(),
+                0_i64.to_be_bytes().to_vec(),
+                options,
+            )
+            .await
+            .context("archive post-join LTX tail")?;
+        let set = archive
+            .recovery_set()
+            .await?
+            .context("S3 seed head missing")?;
+        ensure!(
+            set.tail_entries() > 0,
+            "native S3 seed fixture did not archive an LTX tail"
+        );
+    }
     let source = if lose_quorum {
         primary
     } else {
@@ -203,15 +693,32 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
     } else {
         None
     };
+    let placement = if from_s3 {
+        RaftCellPlacement::JoiningFromS3 {
+            member: target.member,
+            source: MemberId::new(source as u64 + 1)?,
+            source_node: NodeId::new([source as u8 + 1; 16])?,
+        }
+    } else {
+        RaftCellPlacement::Joining {
+            member: target.member,
+            source: MemberId::new(source as u64 + 1)?,
+            source_node: NodeId::new([source as u8 + 1; 16])?,
+        }
+    };
+    match claim_fault {
+        JoinClaimFault::Before => store.fail_join_claim_before.store(true, Ordering::Release),
+        JoinClaimFault::Response => store.fail_join_claim_after.store(true, Ordering::Release),
+        JoinClaimFault::Confirmation => {
+            store.fail_join_claim_after.store(true, Ordering::Release);
+            store
+                .fail_join_claim_confirmation
+                .store(true, Ordering::Release);
+        }
+        JoinClaimFault::None => (),
+    }
     let joined = cluster
-        .join_standby(
-            definitions[3].application.clone(),
-            RaftCellPlacement::Joining {
-                member: target.member,
-                source: MemberId::new(source as u64 + 1)?,
-                source_node: NodeId::new([source as u8 + 1; 16])?,
-            },
-        )
+        .join_standby(definitions[3].application.clone(), placement)
         .await;
     if lose_quorum {
         ensure!(
@@ -252,7 +759,140 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
             );
         }
     } else {
-        let joined = joined.context("fresh learner join")?;
+        let recovering_claim = matches!(
+            claim_fault,
+            JoinClaimFault::Before | JoinClaimFault::Confirmation
+        );
+        let joined = if recovering_claim {
+            let error = match joined {
+                Ok(service) => {
+                    service.close().await?;
+                    anyhow::bail!("claim fault was not exercised")
+                }
+                Err(error) => error,
+            };
+            ensure!(
+                matches!(
+                    error.downcast_ref::<CatalogError>(),
+                    Some(CatalogError::Storage(_))
+                ),
+                "wrong claim refusal: {error:?}"
+            );
+            // Observe the synced engine without repairing or reopening images;
+            // the following public Node resume must perform image recovery.
+            let domain = ExecutionDomain::new(tokio::runtime::Handle::current());
+            let log = domain
+                .run(ReplicaLog::open(
+                    ReplicaLogOptions::new(
+                        cluster.nodes[3].info().data_dir.join("raft"),
+                        target.node,
+                        target.disk,
+                        ProcessGeneration::new([99; 16])?,
+                        LogOpenMode::Resume,
+                    ),
+                    Arc::new(DirectFileSystem),
+                ))
+                .await??;
+            let group = log.group(&registration.birth.scope)?;
+            assert_eq!(group.initial_state()?.hard_state.vote, 0);
+            assert_eq!(
+                group.membership()?.joined(target.member)?,
+                Some((target.clone(), admitted.joined_at))
+            );
+            ensure!(group.applied()?.position.index >= admitted.joined_at);
+            domain.run(log.close()).await??;
+            domain.shutdown().await;
+            use futures_util::StreamExt as _;
+            let mut objects = store.list(None);
+            let mut claimed = false;
+            while let Some(object) = objects.next().await {
+                claimed |= object?
+                    .location
+                    .as_ref()
+                    .ends_with("/claims/0000000000000004");
+            }
+            assert_eq!(claimed, claim_fault == JoinClaimFault::Confirmation);
+            let ns = namespace.namespace;
+            let name = registration.birth.scope.cell.clone();
+            let get = definitions[3].get.clone();
+            let retained = receipt.version_token.clone();
+            let check = Box::new(
+                move |service: RaftCells| -> futures_util::future::BoxFuture<'static, Result<()>> {
+                    Box::pin(async move {
+                        let cell = service.cell(ns, &name)?;
+                        let strong = cell
+                            .query(
+                                get.clone(),
+                                vec![],
+                                QueryOptions {
+                                    consistency: QueryConsistency::Linearizable,
+                                    timeout: Duration::from_millis(200),
+                                    ..Default::default()
+                                },
+                            )
+                            .await;
+                        ensure!(matches!(strong, Err(CommandFailure::VersionUnavailable)));
+                        let read = cell
+                            .query(
+                                get,
+                                vec![],
+                                QueryOptions {
+                                    consistency: QueryConsistency::AtLeast(retained),
+                                    ..Default::default()
+                                },
+                            )
+                            .await?;
+                        assert_eq!(read.result, 5_i64.to_be_bytes());
+                        Ok(())
+                    })
+                },
+            );
+            let placement = RaftCellPlacement::JoiningFromS3 {
+                member: target.member,
+                source: MemberId::new(1)?,
+                source_node: NodeId::new([1; 16])?,
+            };
+            cluster = tokio::time::timeout(
+                Duration::from_secs(15),
+                cluster.restart(
+                    &definitions,
+                    vec![registration.clone()],
+                    vec![
+                        RaftCellPlacement::Replica,
+                        RaftCellPlacement::Replica,
+                        RaftCellPlacement::Replica,
+                        placement,
+                    ],
+                    check,
+                ),
+            )
+            .await
+            .context("public partial-claim resume")??;
+            handles = cluster
+                .services
+                .iter()
+                .take(3)
+                .map(|service| service.cell(namespace.namespace, &registration.birth.scope.cell))
+                .collect::<Result<Vec<_>, _>>()?;
+            primary = tokio::time::timeout(Duration::from_secs(10), async {
+                loop {
+                    for (index, handle) in handles.iter().enumerate() {
+                        if handle
+                            .status()
+                            .await
+                            .is_ok_and(|status| status.command_ready)
+                        {
+                            return index;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await?;
+            cluster.services[3].clone()
+        } else {
+            joined.context("fresh learner join")?
+        };
         if let Some(held) = held {
             ensure!(
                 held.load(Ordering::SeqCst) > 0,
@@ -290,7 +930,7 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
             .command(
                 definitions[primary].increment.clone(),
                 1_i64.to_be_bytes().to_vec(),
-                public_node::options(2)?,
+                public_node::options(if from_s3 { 3 } else { 2 })?,
             )
             .await
             .context("command after learner seed")?;
@@ -299,7 +939,7 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
                 definitions[3].get.clone(),
                 vec![],
                 QueryOptions {
-                    consistency: QueryConsistency::AtLeast(next.version_token),
+                    consistency: QueryConsistency::AtLeast(next.version_token.clone()),
                     ..Default::default()
                 },
             )
@@ -354,6 +994,106 @@ async fn native_seed_drill(lose_quorum: bool, interrupt: bool) -> Result<()> {
         drop(applier);
         domain.run(log.close()).await??;
         domain.shutdown().await;
+        if from_s3 && !recovering_claim {
+            let ns = namespace.namespace;
+            let cell_name = registration.birth.scope.cell.clone();
+            let get = definitions[3].get.clone();
+            let retained = next.version_token.clone();
+            let before: Vec<_> = calls
+                .iter()
+                .map(|calls| calls.load(Ordering::SeqCst))
+                .collect();
+            let placement = RaftCellPlacement::JoiningFromS3 {
+                member: target.member,
+                source: MemberId::new(1)?,
+                source_node: NodeId::new([1; 16])?,
+            };
+            // Node four resumes first. Its sources and voting majority have
+            // not started; stable local state must avoid a fresh seed RPC.
+            let check = Box::new(
+                move |service: RaftCells| -> futures_util::future::BoxFuture<'static, Result<()>> {
+                    Box::pin(async move {
+                        let cell = service.cell(ns, &cell_name)?;
+                        let strong = cell
+                            .query(
+                                get.clone(),
+                                vec![],
+                                QueryOptions {
+                                    consistency: QueryConsistency::Linearizable,
+                                    timeout: Duration::from_millis(200),
+                                    ..Default::default()
+                                },
+                            )
+                            .await;
+                        ensure!(
+                            matches!(strong, Err(CommandFailure::VersionUnavailable)),
+                            "resumed data invented a fresh read barrier: {strong:?}"
+                        );
+                        let historical = cell
+                            .query(
+                                get.clone(),
+                                vec![],
+                                QueryOptions {
+                                    consistency: QueryConsistency::Stale,
+                                    stale_policy: StaleReadPolicy::DisconnectedHistorical,
+                                    ..Default::default()
+                                },
+                            )
+                            .await?;
+                        assert_eq!(historical.result, 6_i64.to_be_bytes());
+                        let covered = cell
+                            .query(
+                                get,
+                                vec![],
+                                QueryOptions {
+                                    consistency: QueryConsistency::AtLeast(retained),
+                                    ..Default::default()
+                                },
+                            )
+                            .await?;
+                        assert_eq!(covered.result, 6_i64.to_be_bytes());
+                        Ok(())
+                    })
+                },
+            );
+            cluster = tokio::time::timeout(
+                Duration::from_secs(15),
+                cluster.restart(
+                    &definitions,
+                    vec![registration.clone()],
+                    vec![
+                        RaftCellPlacement::Replica,
+                        RaftCellPlacement::Replica,
+                        RaftCellPlacement::Replica,
+                        placement,
+                    ],
+                    check,
+                ),
+            )
+            .await
+            .context("public joined-node restart")??;
+            assert_eq!(
+                calls
+                    .iter()
+                    .map(|calls| calls.load(Ordering::SeqCst))
+                    .collect::<Vec<_>>(),
+                before,
+                "restart reran a business callback"
+            );
+            let resumed =
+                cluster.services[3].cell(namespace.namespace, &registration.birth.scope.cell)?;
+            let read = resumed
+                .query(
+                    definitions[3].get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::Linearizable,
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            assert_eq!(read.result, 6_i64.to_be_bytes());
+        }
         let root = tempfile::tempdir()?;
         let blank = public_node::node_named(
             root.path(),

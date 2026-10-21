@@ -4,10 +4,60 @@
 use super::*;
 use cellar_logic::consensus::LogIndex;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SeedKind {
+    Peer,
+    S3,
+}
+
+pub(crate) enum SeedMaterial {
+    Peer {
+        snapshot: ::raft::prelude::Snapshot,
+        lease: u64,
+    },
+    S3 {
+        reference: crate::raft::archive::ArchiveReference,
+    },
+}
+
 pub(crate) struct SourceSeed {
-    pub snapshot: ::raft::prelude::Snapshot,
+    pub material: SeedMaterial,
     pub barrier: LogIndex,
-    pub lease: u64,
+}
+
+impl SourceSeed {
+    pub(crate) fn peer(snapshot: ::raft::prelude::Snapshot, barrier: LogIndex, lease: u64) -> Self {
+        Self {
+            material: SeedMaterial::Peer { snapshot, lease },
+            barrier,
+        }
+    }
+
+    pub(crate) fn lease(&self) -> u64 {
+        match &self.material {
+            SeedMaterial::Peer { lease, .. } => *lease,
+            SeedMaterial::S3 { .. } => 0,
+        }
+    }
+
+    fn kind(&self) -> SeedKind {
+        match self.material {
+            SeedMaterial::Peer { .. } => SeedKind::Peer,
+            SeedMaterial::S3 { .. } => SeedKind::S3,
+        }
+    }
+
+    fn body(&self) -> Result<Vec<u8>, TransportError> {
+        match &self.material {
+            SeedMaterial::Peer { snapshot, .. } => snapshot
+                .write_to_bytes()
+                .map_err(|_| TransportError::Protocol),
+            SeedMaterial::S3 { reference } => {
+                serde_json::to_vec(reference).map_err(|_| TransportError::Protocol)
+            }
+        }
+    }
 }
 
 use super::snapshots::{read_bulk_head, Wire};
@@ -20,7 +70,9 @@ const RESPONSE_MAGIC: &[u8; 4] = b"CLJR";
 pub(super) const EXPORT_LABEL: &[u8] = b"EXPORTER-cellar-raft-seed-1";
 const REQUEST_PURPOSE: &[u8] = b"cellar-seed-grant-request-1";
 const RESPONSE_PURPOSE: &[u8] = b"cellar-seed-grant-response-1";
-pub(super) const META_BYTES: usize = 256 * 1024;
+
+// Worst-case 1-MiB manifest, decoder/verification copies and RPC metadata.
+pub(super) const META_BYTES: usize = 4 * 1024 * 1024;
 const SNAPSHOT_META_BYTES: usize = 64 * 1024;
 
 #[derive(Serialize, Deserialize)]
@@ -29,6 +81,7 @@ struct SeedRequest {
     route: Route,
     nonce: String,
     timeout_ms: u64,
+    kind: SeedKind,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -38,6 +91,7 @@ struct SeedReply {
     request: [u8; 32],
     nonce: String,
     status: u8,
+    kind: SeedKind,
     barrier: String,
     lease: String,
     digest: [u8; 32],
@@ -45,16 +99,28 @@ struct SeedReply {
 
 /// Only this module creates the capability, after verifying a fresh response
 /// against the current TLS exporter, request tag and exact local engine owner.
-pub(crate) struct SeedGrant {
+struct SeedAuthorization {
     local: ReplicaIdentity,
     source: RaftPeer,
-    snapshot: ::raft::prelude::Snapshot,
     barrier: LogIndex,
-    lease: u64,
     deadline: u64,
     owner: Arc<()>,
     domain: DomainToken,
-    _metadata: Permit,
+    _metadata: Arc<Permit>,
+}
+
+impl SeedAuthorization {
+    fn authorized(&self, owner: &Arc<()>, identity: &ReplicaIdentity) -> bool {
+        Arc::ptr_eq(&self.owner, owner)
+            && self.local == *identity
+            && self.domain.mono_ms().is_ok_and(|now| now < self.deadline)
+    }
+}
+
+pub(crate) struct SeedGrant {
+    authorization: SeedAuthorization,
+    snapshot: ::raft::prelude::Snapshot,
+    lease: u64,
 }
 
 impl SeedGrant {
@@ -63,15 +129,15 @@ impl SeedGrant {
     }
 
     pub(crate) fn local(&self) -> &ReplicaIdentity {
-        &self.local
+        &self.authorization.local
     }
 
     pub(crate) fn source(&self) -> &RaftPeer {
-        &self.source
+        &self.authorization.source
     }
 
     pub(crate) fn barrier(&self) -> LogIndex {
-        self.barrier
+        self.authorization.barrier
     }
 
     pub(crate) fn lease(&self) -> u64 {
@@ -79,13 +145,38 @@ impl SeedGrant {
     }
 
     pub(crate) fn deadline(&self) -> u64 {
-        self.deadline
+        self.authorization.deadline
     }
 
     pub(crate) fn authorized(&self, owner: &Arc<()>, identity: &ReplicaIdentity) -> bool {
-        Arc::ptr_eq(&self.owner, owner)
-            && self.local == *identity
-            && self.domain.mono_ms().is_ok_and(|now| now < self.deadline)
+        self.authorization.authorized(owner, identity)
+    }
+}
+
+pub(crate) struct ArchiveSeedGrant {
+    authorization: SeedAuthorization,
+    reference: crate::raft::archive::ArchiveReference,
+}
+
+impl ArchiveSeedGrant {
+    pub(crate) fn local(&self) -> &ReplicaIdentity {
+        &self.authorization.local
+    }
+
+    pub(crate) fn barrier(&self) -> LogIndex {
+        self.authorization.barrier
+    }
+
+    pub(crate) fn deadline(&self) -> u64 {
+        self.authorization.deadline
+    }
+
+    pub(crate) fn reference(&self) -> &crate::raft::archive::ArchiveReference {
+        &self.reference
+    }
+
+    pub(crate) fn authorized(&self, owner: &Arc<()>, identity: &ReplicaIdentity) -> bool {
+        self.authorization.authorized(owner, identity)
     }
 }
 
@@ -153,6 +244,59 @@ impl RaftTransport {
         schema: [u8; 32],
         deadline: u64,
     ) -> Result<SeedGrant, TransportError> {
+        let (authorization, body, lease) = self
+            .request_seed_authorization(local, source, schema, deadline, SeedKind::Peer)
+            .await?;
+        let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(&body)
+            .map_err(|_| TransportError::Protocol)?;
+        if snapshot.get_metadata().index < authorization.barrier.get()
+            || snapshot
+                .write_to_bytes()
+                .map_err(|_| TransportError::Protocol)?
+                != body
+        {
+            return Err(TransportError::Authentication);
+        }
+        Ok(SeedGrant {
+            authorization,
+            snapshot,
+            lease,
+        })
+    }
+
+    pub(crate) async fn request_archive_seed(
+        &self,
+        local: ReplicaIdentity,
+        source: RaftPeer,
+        schema: [u8; 32],
+        deadline: u64,
+    ) -> Result<ArchiveSeedGrant, TransportError> {
+        let (authorization, body, lease) = self
+            .request_seed_authorization(local, source, schema, deadline, SeedKind::S3)
+            .await?;
+        let reference: crate::raft::archive::ArchiveReference =
+            serde_json::from_slice(&body).map_err(|_| TransportError::Protocol)?;
+        let position = reference.position().map_err(|_| TransportError::Protocol)?;
+        if lease != 0
+            || position.index < authorization.barrier
+            || serde_json::to_vec(&reference).map_err(|_| TransportError::Protocol)? != body
+        {
+            return Err(TransportError::Authentication);
+        }
+        Ok(ArchiveSeedGrant {
+            authorization,
+            reference,
+        })
+    }
+
+    async fn request_seed_authorization(
+        &self,
+        local: ReplicaIdentity,
+        source: RaftPeer,
+        schema: [u8; 32],
+        deadline: u64,
+        kind: SeedKind,
+    ) -> Result<(SeedAuthorization, Vec<u8>, u64), TransportError> {
         let state = &self.handle.0;
         let options = state.runtime.log().limits();
         if local.node != options.node
@@ -164,10 +308,12 @@ impl RaftTransport {
         {
             return Err(TransportError::Identity);
         }
-        let metadata = state
-            .seed_metadata
-            .acquire(META_BYTES)
-            .ok_or(TransportError::Overloaded)?;
+        let metadata = Arc::new(
+            state
+                .seed_metadata
+                .acquire(META_BYTES)
+                .ok_or(TransportError::Overloaded)?,
+        );
         let now = state.domain.mono_ms().map_err(|_| TransportError::Closed)?;
         let remaining = deadline
             .checked_sub(now)
@@ -190,6 +336,7 @@ impl RaftTransport {
             )?,
             nonce,
             timeout_ms: remaining.min(state.options.snapshot_timeout_ms),
+            kind,
         };
         let mut stream = state
             .seed_io(deadline, async {
@@ -216,7 +363,7 @@ impl RaftTransport {
         };
         let request_head = wire.encode(REQUEST_MAGIC, REQUEST_PURPOSE, &[], &request, &[])?;
         let (reply, body) = state
-            .seed_io(deadline, async {
+            .seed_until(deadline, async {
                 write_head(&mut stream, &request_head).await?;
                 let head = read_bulk_head(
                     &mut stream,
@@ -235,6 +382,7 @@ impl RaftTransport {
                 if reply.route != request.route.reversed()
                     || reply.request != request_head.tag
                     || reply.nonce != request.nonce
+                    || reply.kind != kind
                 {
                     return Err(TransportError::Authentication);
                 }
@@ -255,32 +403,46 @@ impl RaftTransport {
         }
         let barrier = frame::decimal(&reply.barrier)?;
         let lease = frame::decimal(&reply.lease)?;
-        let snapshot = ::raft::prelude::Snapshot::parse_from_bytes(&body)
-            .map_err(|_| TransportError::Protocol)?;
-        if barrier == 0
-            || snapshot.get_metadata().index < barrier
-            || snapshot
-                .write_to_bytes()
-                .map_err(|_| TransportError::Protocol)?
-                != body
-        {
+        if barrier == 0 {
             return Err(TransportError::Authentication);
         }
-        Ok(SeedGrant {
-            local,
-            source,
-            snapshot,
-            barrier: LogIndex::new(barrier),
+        Ok((
+            SeedAuthorization {
+                local,
+                source,
+                barrier: LogIndex::new(barrier),
+                deadline,
+                owner: state.runtime.log().owner(),
+                domain: state.domain.clone(),
+                _metadata: metadata,
+            },
+            body,
             lease,
-            deadline,
-            owner: state.runtime.log().owner(),
-            domain: state.domain.clone(),
-            _metadata: metadata,
-        })
+        ))
     }
 }
 
 impl State {
+    pub(super) async fn seed_until<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        let now = self.domain.mono_ms().map_err(|_| TransportError::Closed)?;
+        let mut stopped = self.stop.subscribe();
+        if now >= deadline {
+            return Err(TransportError::Timeout);
+        }
+        if *stopped.borrow() {
+            return Err(TransportError::Closed);
+        }
+        let timer = self
+            .domain
+            .sleep_until(deadline)
+            .map_err(|_| TransportError::Closed)?;
+        crate::asyncrt::select! {_=timer=>Err(TransportError::Timeout),_=stopped.changed()=>Err(TransportError::Closed),result=future=>result}
+    }
+
     pub(super) async fn seed_io<T>(
         &self,
         deadline: u64,
@@ -303,10 +465,11 @@ impl State {
         exporter: &[u8; 32],
         prefix: [u8; frame::PREFIX],
     ) -> Result<(), TransportError> {
-        let _metadata = self
-            .seed_metadata
-            .acquire(META_BYTES)
-            .ok_or(TransportError::Overloaded)?;
+        let metadata = Arc::new(
+            self.seed_metadata
+                .acquire(META_BYTES)
+                .ok_or(TransportError::Overloaded)?,
+        );
         let head = self
             .bounded(
                 None,
@@ -365,22 +528,20 @@ impl State {
             .saturating_add(request.timeout_ms);
         let seed = cell.prepare_seed(
             joining,
+            request.kind,
+            metadata.clone(),
             std::time::Duration::from_millis(request.timeout_ms),
         );
         let mut extra = [0; 1];
-        let result=self.seed_io(deadline,async {
+        let result=self.seed_until(deadline,async {
             crate::asyncrt::select! {result=seed=>Ok(result),read=stream.read(&mut extra)=>{let _=read?;Err(TransportError::Closed)}}
         }).await?;
         self.authorize_route(&request.route)?;
         let (status, barrier, lease, body) = match result {
-            Ok(seed) => (
-                0,
-                seed.barrier.get(),
-                seed.lease,
-                seed.snapshot
-                    .write_to_bytes()
-                    .map_err(|_| TransportError::Protocol)?,
-            ),
+            Ok(seed) if seed.kind() == request.kind => {
+                (0, seed.barrier.get(), seed.lease(), seed.body()?)
+            }
+            Ok(_) => return Err(TransportError::Protocol),
             Err(crate::application::consensus::CommandFailure::Overloaded) => (1, 0, 0, vec![]),
             Err(_) => (2, 0, 0, vec![]),
         };
@@ -389,6 +550,7 @@ impl State {
             request: head.tag,
             nonce: request.nonce,
             status,
+            kind: request.kind,
             barrier: barrier.to_string(),
             lease: lease.to_string(),
             digest: Sha256::digest(&body).into(),
@@ -408,3 +570,7 @@ impl State {
         result
     }
 }
+
+#[path = "seed_archive.rs"]
+mod archives;
+pub(crate) use archives::ReceivedArchiveSeed;

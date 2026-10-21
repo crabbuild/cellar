@@ -609,6 +609,10 @@ pub(crate) struct ReceivedSeed {
 }
 
 impl ReceivedSeed {
+    pub(crate) fn scope(&self) -> &GroupScope {
+        self.download.scope()
+    }
+
     pub(crate) fn finish(
         self,
         images: &cellar_ltx::generation::GenerationStore,

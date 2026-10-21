@@ -356,6 +356,105 @@ fn restored(set: &ArchiveRecoverySet, expected: i64) -> Result<Vec<u8>> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_reference_stays_exact_after_head_advance() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    ensure!(fixture.archive.recovery_metadata().await?.is_none());
+    let first = fixture
+        .commit(7, vec![ArchiveDependency(b"retained dependency".to_vec())])
+        .await?;
+    let set = fixture.publish(first).await?;
+    let reference = set.reference();
+    let reads = fixture.store.archive_payload_reads.load(Ordering::Acquire);
+    fixture
+        .store
+        .refuse_archive_payload_reads
+        .store(true, Ordering::Release);
+    let metadata = fixture
+        .archive
+        .recovery_metadata()
+        .await?
+        .context("missing metadata")?;
+    assert_eq!(metadata.reference(), reference);
+    assert_eq!(metadata.scope(), fixture.birth.scope());
+    assert_eq!(metadata.position(), set.position());
+    assert_eq!(metadata.schema_digest(), [9; 32]);
+    assert_eq!(metadata.configuration()?, set.configuration()?);
+    assert_eq!(metadata.membership(), set.membership());
+    assert_eq!(
+        reads,
+        fixture.store.archive_payload_reads.load(Ordering::Acquire),
+        "metadata downloaded image/tail/dependency payloads"
+    );
+    fixture
+        .store
+        .refuse_archive_payload_reads
+        .store(false, Ordering::Release);
+    let second = fixture.commit(19, vec![]).await?;
+    let newer = fixture.publish(second).await?;
+    ensure!(newer.reference() != reference && newer.position().index > set.position().index);
+    let encoded = serde_json::to_vec(&reference)?;
+    let selected: ArchiveReference = serde_json::from_slice(&encoded)?;
+    let old = fixture.archive.recovery_set_at(&selected).await?;
+    assert_eq!(old.reference(), reference);
+    assert_eq!(old.position(), set.position());
+    restored(&old, 7)?;
+    restored(
+        &fixture.archive.recovery_set().await?.context("head lost")?,
+        19,
+    )?;
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn archive_reference_refuses_substitution_and_missing_material() -> Result<()> {
+    let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
+    let first = fixture.commit(7, vec![]).await?;
+    let set = fixture.publish(first).await?;
+    let reference = set.reference();
+    let mut altered = serde_json::to_value(&reference)?;
+    altered["kind"] = serde_json::json!("Snapshot");
+    let altered: ArchiveReference = serde_json::from_value(altered)?;
+    ensure!(matches!(
+        fixture.archive.recovery_set_at(&altered).await,
+        Err(ArchiveError::Corrupt("archive head domain"))
+    ));
+    let mut altered = serde_json::to_value(&reference)?;
+    altered["length"] = serde_json::json!(ArchiveLimits::default().max_manifest_bytes + 1);
+    let altered: ArchiveReference = serde_json::from_value(altered)?;
+    ensure!(matches!(
+        fixture.archive.recovery_set_at(&altered).await,
+        Err(ArchiveError::Limit)
+    ));
+    let mut altered = serde_json::to_value(&reference)?;
+    altered["range"]["last"]["index"] = serde_json::json!(99);
+    let altered: ArchiveReference = serde_json::from_value(altered)?;
+    ensure!(
+        fixture.archive.recovery_set_at(&altered).await.is_err(),
+        "bad reference fell back to a current head"
+    );
+    let objects = fixture
+        .store
+        .inner
+        .list(None)
+        .try_collect::<Vec<_>>()
+        .await?;
+    let snapshot = objects
+        .into_iter()
+        .find(|object| object.location.as_ref().contains("/snapshots/"))
+        .context("missing snapshot object")?;
+    fixture.store.inner.delete(&snapshot.location).await?;
+    ensure!(
+        fixture.archive.recovery_metadata().await?.is_some(),
+        "metadata implicitly claimed payload availability"
+    );
+    ensure!(matches!(
+        fixture.archive.recovery_set_at(&reference).await,
+        Err(ArchiveError::Corrupt("missing archive object"))
+    ));
+    fixture.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn committed_archive_restores_snapshot_and_physical_tail() -> Result<()> {
     let mut fixture = Fixture::new(ArchiveLimits::default()).await?;
     let first = fixture

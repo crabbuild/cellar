@@ -51,6 +51,10 @@ impl ImageView {
 }
 
 pub(crate) enum Action {
+    SealArchiveSeed {
+        received: Box<super::transport::seeds::ReceivedArchiveSeed>,
+        storage: CellStorage,
+    },
     SealSeed {
         received: Box<super::transport::snapshots::ReceivedSeed>,
         storage: CellStorage,
@@ -352,8 +356,29 @@ impl Pool {
         scope: &GroupScope,
         action: Action,
     ) -> Result<Value, ExecutionError> {
+        if let Action::SealArchiveSeed { received, storage } = action {
+            if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
+                return Err(ExecutionError::Invalid("seed cell owner"));
+            }
+            let images = GenerationStore::open(
+                storage.directory.join("images"),
+                storage.host.filesystem(),
+                storage.images,
+            )
+            .map_err(super::execution::storage)?;
+            // Caller verified an absent stable group and absent permanent claim.
+            // Orphan files from a pre-fence attempt confer no authority.
+            images.retain_only(&[]).map_err(super::execution::storage)?;
+            images
+                .reclaim(storage.images.max_generations)
+                .map_err(super::execution::storage)?;
+            let seed = received
+                .finish(&images)
+                .map_err(super::execution::storage)?;
+            return Ok(Value::Seeded(Box::new(seed)));
+        }
         if let Action::SealSeed { received, storage } = action {
-            if cells.contains_key(scope) || cells.len() >= max {
+            if cells.contains_key(scope) || cells.len() >= max || received.scope() != scope {
                 return Err(ExecutionError::Invalid("seed cell owner"));
             }
             let images = GenerationStore::open(
@@ -464,9 +489,9 @@ impl Cell {
 
     fn run(&mut self, action: Action) -> Result<Value, ExecutionError> {
         match action {
-            Action::SealSeed { .. } | Action::Initialize { .. } => {
-                Err(ExecutionError::Invalid("duplicate initialization"))
-            }
+            Action::SealArchiveSeed { .. }
+            | Action::SealSeed { .. }
+            | Action::Initialize { .. } => Err(ExecutionError::Invalid("duplicate initialization")),
             Action::Stage {
                 identity,
                 status,

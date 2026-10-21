@@ -15,10 +15,21 @@ pub struct Store {
     pub fail_confirmation: AtomicBool,
     pub fail_head_after: AtomicBool,
     pub fail_head_confirmation: AtomicBool,
+    pub fail_join_claim_before: AtomicBool,
+    pub fail_join_claim_after: AtomicBool,
+    pub fail_join_claim_confirmation: AtomicBool,
+    pub fail_join_claim_read: AtomicBool,
     pub archive_unavailable: AtomicBool,
     pub archive_hang: AtomicBool,
     pub archive_resume: tokio::sync::Notify,
     pub archive_attempts: AtomicUsize,
+    pub archive_payload_reads: AtomicUsize,
+    pub refuse_archive_payload_reads: AtomicBool,
+    pub hold_next_payload: AtomicBool,
+    pub payload_hang: AtomicBool,
+    pub payload_waiting: AtomicBool,
+    pub payload_resume: tokio::sync::Notify,
+    pub held_payload_path: std::sync::Mutex<Option<Path>>,
     pub non_create: AtomicUsize,
 }
 
@@ -36,6 +47,14 @@ fn failure() -> object_store::Error {
 }
 
 impl Store {
+    // Shared with targets that do not arm the payload gate.
+    #[allow(dead_code)]
+    pub fn release_payload(&self) {
+        self.hold_next_payload.store(false, Ordering::Release);
+        self.payload_hang.store(false, Ordering::Release);
+        self.payload_resume.notify_waiters();
+    }
+
     async fn archive_fault(&self, path: &Path) -> object_store::Result<()> {
         if path.as_ref().contains("/archives/") {
             self.archive_attempts.fetch_add(1, Ordering::AcqRel);
@@ -72,7 +91,22 @@ impl ObjectStore for Store {
         if self.fail_before.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }
+        let joining_claim = path.as_ref().ends_with("/claims/0000000000000004");
+        if joining_claim && self.fail_join_claim_before.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
         let result = self.inner.put_opts(path, payload, options).await?;
+        if joining_claim
+            && self
+                .fail_join_claim_confirmation
+                .swap(false, Ordering::AcqRel)
+        {
+            self.fail_join_claim_read.store(true, Ordering::Release);
+        }
+        if joining_claim && self.fail_join_claim_after.swap(false, Ordering::AcqRel) {
+            return Err(failure());
+        }
+
         let head = path.filename() == Some("head");
         if head && self.fail_head_confirmation.swap(false, Ordering::AcqRel) {
             self.fail_read.store(true, Ordering::Release);
@@ -100,6 +134,36 @@ impl ObjectStore for Store {
     async fn get_opts(&self, path: &Path, options: GetOptions) -> object_store::Result<GetResult> {
         tokio::task::yield_now().await;
         self.archive_fault(path).await?;
+        if path.as_ref().contains("/archives/")
+            && ["/snapshots/", "/tails/", "/dependencies/"]
+                .iter()
+                .any(|part| path.as_ref().contains(part))
+        {
+            self.archive_payload_reads.fetch_add(1, Ordering::AcqRel);
+            if self.hold_next_payload.swap(false, Ordering::AcqRel) {
+                *self.held_payload_path.lock().map_err(|_| failure())? = Some(path.clone());
+                self.payload_waiting.store(true, Ordering::Release);
+                loop {
+                    let resumed = self.payload_resume.notified();
+                    tokio::pin!(resumed);
+                    resumed.as_mut().enable();
+                    if !self.payload_hang.load(Ordering::Acquire) {
+                        break;
+                    }
+                    resumed.await;
+                }
+                self.payload_waiting.store(false, Ordering::Release);
+            }
+
+            if self.refuse_archive_payload_reads.load(Ordering::Acquire) {
+                return Err(failure());
+            }
+        }
+        if path.as_ref().ends_with("/claims/0000000000000004")
+            && self.fail_join_claim_read.swap(false, Ordering::AcqRel)
+        {
+            return Err(failure());
+        }
         if self.fail_read.swap(false, Ordering::AcqRel) {
             return Err(failure());
         }

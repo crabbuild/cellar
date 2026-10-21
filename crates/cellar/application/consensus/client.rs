@@ -254,11 +254,20 @@ impl RaftCellHandle {
     pub(crate) fn prepare_seed(
         &self,
         target: cellar_logic::consensus::ReplicaIdentity,
+        kind: crate::raft::transport::seeds::SeedKind,
+        charge: Arc<Permit>,
         timeout: Duration,
     ) -> impl Future<Output = Result<Box<crate::raft::transport::seeds::SourceSeed>, CommandFailure>>
            + Send
            + 'static {
-        let call = self.call(Kind::Seed { target }, timeout);
+        let call = self.call(
+            Kind::Seed {
+                target,
+                kind,
+                charge,
+            },
+            timeout,
+        );
         async move {
             match call.await? {
                 Response::Seed(seed) => Ok(seed),
@@ -452,7 +461,7 @@ impl RaftCellHandle {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
-                Kind::Seed { target } => {
+                Kind::Seed { target, .. } => {
                     if self.binding.member.is_none() || target.scope != self.binding.scope {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
@@ -526,6 +535,8 @@ pub(crate) struct Work {
 pub(crate) enum Kind {
     Seed {
         target: cellar_logic::consensus::ReplicaIdentity,
+        kind: crate::raft::transport::seeds::SeedKind,
+        charge: Arc<Permit>,
     },
     AddLearner {
         member: crate::raft::member_state::JoiningMember,

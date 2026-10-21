@@ -22,6 +22,7 @@ pub enum SnapshotError {
     Invalid(&'static str),
     Limit,
     Log(LogError),
+    Archive(crate::raft::archive::ArchiveError),
     Images(GenerationError),
     Publication(super::apply::ImageApplyError),
 }

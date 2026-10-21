@@ -155,7 +155,11 @@ mod tests {
         );
         let mut root = Root::new(&config, "test".into());
         root.validate().unwrap();
-        for protocol in ["cellar-raft-ltx-1", "cellar-raft-ltx-1/members-1"] {
+        for protocol in [
+            "cellar-raft-ltx-1",
+            "cellar-raft-ltx-1/members-1",
+            "cellar-raft-ltx-1/members-1/seeds-1",
+        ] {
             root.protocol_digest = Sha256::digest(protocol.as_bytes()).into();
             let encoded = encode(ROOT, &root, 64 * 1024).unwrap();
             let decoded: Root = decode(ROOT, &encoded, 64 * 1024).unwrap();

@@ -715,7 +715,8 @@ impl Node {
                             catalog.open_namespace(cell.namespace).await?
                         }
                         RaftCellPlacement::QueryRouter { .. }
-                        | RaftCellPlacement::Joining { .. } => {
+                        | RaftCellPlacement::Joining { .. }
+                        | RaftCellPlacement::JoiningFromS3 { .. } => {
                             catalog.existing_namespace(cell.namespace).await?
                         }
                     };
@@ -726,7 +727,8 @@ impl Node {
                     let birth = match cell.placement {
                         RaftCellPlacement::Replica => namespace.resolve_birth(cell.birth).await?,
                         RaftCellPlacement::QueryRouter { .. }
-                        | RaftCellPlacement::Joining { .. } => {
+                        | RaftCellPlacement::Joining { .. }
+                        | RaftCellPlacement::JoiningFromS3 { .. } => {
                             let mut expected = cell.birth;
                             expected.voters.sort_by_key(|member| member.member);
                             expected.learners.sort_by_key(|member| member.member);

@@ -413,7 +413,7 @@ impl RaftTransport {
             claim: Mutex::new(Some(claim)),
             snapshot_source: Mutex::new(None),
             snapshot_source_budget: Budget::new(snapshot_memory, 1),
-            snapshot_receive_budget: Budget::new(snapshot_memory, 1),
+            snapshot_receive_budget: Budget::new(snapshot_memory + 256 * 1024 * 1024, 1),
             snapshot_connections: Arc::new(Semaphore::new(1)),
             seed_metadata: Budget::new(seeds::META_BYTES, 1),
         });

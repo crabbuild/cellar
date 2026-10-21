@@ -213,6 +213,21 @@ impl Drop for Proxy {
     }
 }
 
+type JoinedResumeCheck =
+    Box<dyn FnOnce(RaftCells) -> futures_util::future::BoxFuture<'static, Result<()>> + Send>;
+
+enum ExtraNode<'a> {
+    None,
+    QueryRouter(&'a [(ClusterId, NamespaceId)]),
+    Standby,
+    Resume {
+        roots: Vec<tempfile::TempDir>,
+        placements: Vec<RaftCellPlacement>,
+        check: JoinedResumeCheck,
+        generation: u8,
+    },
+}
+
 pub struct Cluster {
     pub nodes: Vec<Node>,
     pub services: Vec<RaftCells>,
@@ -223,6 +238,7 @@ pub struct Cluster {
     #[allow(dead_code)]
     standby: Option<(NodeRaftListeners, RaftCellsConfig)>,
     _roots: Vec<tempfile::TempDir>,
+    generation: u8,
 }
 
 impl Cluster {
@@ -251,9 +267,9 @@ impl Cluster {
             registrations,
             tick_ms,
             host,
-            None,
+            ExtraNode::None,
             TransportOptions::default(),
-            false,
+            None,
         )
         .await
     }
@@ -271,9 +287,9 @@ impl Cluster {
             registrations,
             tick_ms,
             host,
-            None,
+            ExtraNode::None,
             transport,
-            false,
+            None,
         )
         .await
     }
@@ -292,9 +308,9 @@ impl Cluster {
             registrations,
             tick_ms,
             host,
-            Some(namespaces),
+            ExtraNode::QueryRouter(namespaces),
             TransportOptions::default(),
-            false,
+            None,
         )
         .await
     }
@@ -309,12 +325,73 @@ impl Cluster {
             registrations,
             20,
             RaftHostOptions::default(),
-            None,
+            ExtraNode::Standby,
             TransportOptions {
                 snapshot_chunk_bytes: 64,
                 ..Default::default()
             },
-            true,
+            None,
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn start_with_standby_store(
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        host: RaftHostOptions,
+        store: Arc<dyn object_store::ObjectStore>,
+    ) -> Result<Self> {
+        Self::start_layout(
+            definitions,
+            registrations,
+            20,
+            host,
+            ExtraNode::Standby,
+            TransportOptions {
+                snapshot_chunk_bytes: 64,
+                ..Default::default()
+            },
+            Some(store),
+        )
+        .await
+    }
+
+    #[allow(dead_code)]
+    pub async fn restart(
+        mut self,
+        definitions: &[public_node::Counter],
+        registrations: Vec<RaftCellRegistration>,
+        placements: Vec<RaftCellPlacement>,
+        check: JoinedResumeCheck,
+    ) -> Result<Self> {
+        ensure!(
+            self.nodes.len() == 4 && self.services.len() >= 3,
+            "restart requires three voters and the replacement directory"
+        );
+        self.stop_owned().await?;
+        let roots = std::mem::take(&mut self._roots);
+        let generation = self
+            .generation
+            .checked_add(40)
+            .filter(|generation| *generation <= 252)
+            .ok_or_else(|| anyhow::anyhow!("fixture process generations exhausted"))?;
+        Self::start_layout(
+            definitions,
+            registrations,
+            20,
+            RaftHostOptions::default(),
+            ExtraNode::Resume {
+                roots,
+                placements,
+                check,
+                generation,
+            },
+            TransportOptions {
+                snapshot_chunk_bytes: 64,
+                ..Default::default()
+            },
+            Some(self.store.clone()),
         )
         .await
     }
@@ -353,19 +430,45 @@ impl Cluster {
         registrations: Vec<RaftCellRegistration>,
         tick_ms: u64,
         host: RaftHostOptions,
-        namespaces: Option<&[(ClusterId, NamespaceId)]>,
+        extra: ExtraNode<'_>,
         transport: TransportOptions,
-        standby_node: bool,
+        store: Option<Arc<dyn object_store::ObjectStore>>,
     ) -> Result<Self> {
-        let count = if namespaces.is_some() || standby_node {
+        let (namespaces, standby_node, resume) = match extra {
+            ExtraNode::None => (None, false, None),
+            ExtraNode::QueryRouter(namespaces) => (Some(namespaces), false, None),
+            ExtraNode::Standby => (None, true, None),
+            ExtraNode::Resume {
+                roots,
+                placements,
+                check,
+                generation,
+            } => (None, false, Some((roots, placements, check, generation))),
+        };
+        let resuming = resume.is_some();
+        let count = if namespaces.is_some() || standby_node || resuming {
             4
         } else {
             3
         };
         ensure!(definitions.len() == count, "incorrect fixture node count");
-        let roots = (0..count)
-            .map(|_| tempfile::tempdir())
-            .collect::<Result<Vec<_>, _>>()?;
+        let (roots, placements, mut resume_check, generation) =
+            if let Some((roots, placements, check, generation)) = resume {
+                ensure!(
+                    roots.len() == count && placements.len() == count,
+                    "incorrect restart roots/placements"
+                );
+                (roots, Some(placements), Some(check), generation)
+            } else {
+                (
+                    (0..count)
+                        .map(|_| tempfile::tempdir())
+                        .collect::<Result<Vec<_>, _>>()?,
+                    None,
+                    None,
+                    20,
+                )
+            };
         let mut nodes = Vec::new();
         let mut listeners = Vec::new();
         let mut peers = Vec::new();
@@ -385,7 +488,7 @@ impl Cluster {
             peers.push(RaftPeerNode {
                 node: NodeId::new([i as u8 + 1; 16])?,
                 disk: DiskLineage::new([i as u8 + 10; 16])?,
-                process: ProcessGeneration::new([i as u8 + 20; 16])?,
+                process: ProcessGeneration::new([i as u8 + generation; 16])?,
                 label,
                 server_name: "localhost".into(),
                 control_address: control.local_addr()?,
@@ -418,10 +521,19 @@ impl Cluster {
             }
             routes.push(route);
         }
-        let store = Arc::new(object_store::memory::InMemory::new());
-        let mut services = Vec::new();
+        let store = store.unwrap_or_else(|| Arc::new(object_store::memory::InMemory::new()));
+        let mut services = vec![None; count];
         let mut standby = None;
-        for (i, listeners) in listeners.into_iter().enumerate() {
+        let mut listeners = listeners.into_iter().map(Some).collect::<Vec<_>>();
+        let order = if resuming {
+            vec![3, 0, 1, 2]
+        } else {
+            (0..count).collect()
+        };
+        for i in order {
+            let listeners = listeners[i]
+                .take()
+                .ok_or_else(|| anyhow::anyhow!("duplicate listener start"))?;
             let config = RaftCellsConfig {
                 query_origins: if i < 3 {
                     namespaces
@@ -443,7 +555,11 @@ impl Cluster {
                         peers[i].node,
                         peers[i].disk,
                         peers[i].process,
-                        LogOpenMode::Create,
+                        if resuming {
+                            LogOpenMode::Resume
+                        } else {
+                            LogOpenMode::Create
+                        },
                     ),
                     consensus: RaftRuntimeOptions {
                         tick_interval_ms: Some(tick_ms),
@@ -459,7 +575,9 @@ impl Cluster {
                     .iter()
                     .cloned()
                     .map(|mut registration| {
-                        if i == 3 {
+                        if let Some(placements) = &placements {
+                            registration.placement = placements[i];
+                        } else if i == 3 {
                             registration.placement = RaftCellPlacement::QueryRouter {
                                 leader_hint: Some(MemberId::new(1).unwrap()),
                             };
@@ -474,21 +592,26 @@ impl Cluster {
                 standby = Some((listeners, config));
                 continue;
             }
-            services.push(
-                nodes[i]
-                    .start_raft_cells(
-                        config,
-                        RaftCellsServices {
-                            listeners,
-                            tls: public_node::tls()?,
-                            store: store.clone(),
-                            application: definitions[i].application.clone(),
-                            versions: public_node::version_keys()?,
-                        },
-                    )
-                    .await?,
-            );
+            let service = nodes[i]
+                .start_raft_cells(
+                    config,
+                    RaftCellsServices {
+                        listeners,
+                        tls: public_node::tls()?,
+                        store: store.clone(),
+                        application: definitions[i].application.clone(),
+                        versions: public_node::version_keys()?,
+                    },
+                )
+                .await?;
+            if i == 3 {
+                if let Some(check) = resume_check.take() {
+                    check(service.clone()).await?;
+                }
+            }
+            services[i] = Some(service);
         }
+        let services = services.into_iter().flatten().collect();
         Ok(Self {
             nodes,
             services,
@@ -496,6 +619,7 @@ impl Cluster {
             links,
             standby,
             _roots: roots,
+            generation,
         })
     }
 
@@ -648,6 +772,10 @@ impl Cluster {
     }
 
     pub async fn close(mut self) -> Result<()> {
+        self.stop_owned().await
+    }
+
+    async fn stop_owned(&mut self) -> Result<()> {
         for service in &self.services {
             ensure!(
                 service.close().await?.unfinished.is_empty(),

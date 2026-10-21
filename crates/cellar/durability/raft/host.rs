@@ -157,6 +157,13 @@ pub enum RaftCellPlacement {
         source: MemberId,
         source_node: NodeId,
     },
+    /// Seed a fresh learner from an exact S3 manifest selected by a live peer
+    /// read barrier. Existing stable joined state resumes without reseeding.
+    JoiningFromS3 {
+        member: MemberId,
+        source: MemberId,
+        source_node: NodeId,
+    },
     QueryRouter {
         leader_hint: Option<MemberId>,
     },
@@ -357,7 +364,13 @@ pub(crate) async fn start(
                     member,
                     source,
                     source_node,
+                }
+                | RaftCellPlacement::JoiningFromS3 {
+                    member,
+                    source,
+                    source_node,
                 } => {
+                    let from_s3 = matches!(placement, RaftCellPlacement::JoiningFromS3 { .. });
                     anyhow::ensure!(
                         options.enable_snapshots,
                         "joining requires snapshot recovery"
@@ -397,28 +410,45 @@ pub(crate) async fn start(
                             let limits = service
                                 .transport
                                 .snapshot_limits(options.execution.max_image_bytes)?;
-                            let received = service
-                                .transport
-                                .seed_from_peer(
-                                    identity,
-                                    source,
+                            let action = if from_s3 {
+                                let archive = namespace.cell_archive(
                                     &birth,
-                                    class.schema_digest(),
-                                    limits,
-                                )
-                                .await?;
-                            let output = pool
-                                .call(
-                                    worker,
-                                    scope.clone(),
-                                    Action::SealSeed {
-                                        received: Box::new(received),
-                                        storage: storage.clone(),
-                                    },
-                                    None,
-                                    None,
-                                )
-                                .await?;
+                                    storage.host.clone(),
+                                    options.archive.limits,
+                                )?;
+                                let received = service
+                                    .transport
+                                    .seed_from_archive(
+                                        identity,
+                                        source,
+                                        &birth,
+                                        class.schema_digest(),
+                                        limits,
+                                        archive,
+                                    )
+                                    .await?;
+                                Action::SealArchiveSeed {
+                                    received: Box::new(received),
+                                    storage: storage.clone(),
+                                }
+                            } else {
+                                let received = service
+                                    .transport
+                                    .seed_from_peer(
+                                        identity,
+                                        source,
+                                        &birth,
+                                        class.schema_digest(),
+                                        limits,
+                                    )
+                                    .await?;
+                                Action::SealSeed {
+                                    received: Box::new(received),
+                                    storage: storage.clone(),
+                                }
+                            };
+                            let output =
+                                pool.call(worker, scope.clone(), action, None, None).await?;
                             let Value::Seeded(seed) = output.value else {
                                 anyhow::bail!("SQL seed response")
                             };
@@ -762,6 +792,10 @@ enum SqlPurpose {
 }
 
 enum Job {
+    SeedArchive {
+        id: ReadId,
+        result: Box<Result<Option<super::archive::ArchiveMetadata>, ArchiveError>>,
+    },
     Configured {
         scope: GroupScope,
         result: Result<AcceptedProposal, RuntimeError>,
@@ -961,10 +995,24 @@ impl Driver {
                     }));
                 }
                 ReadPhase::Image => {
-                    if cell.sql_busy || cell.apply.is_some() || cell.publication.is_some() {
+                    let metadata_only = matches!(
+                        &read.operation,
+                        super::query::ReadOperation::Seed {
+                            kind: super::transport::seeds::SeedKind::S3,
+                            ..
+                        }
+                    );
+                    if !metadata_only
+                        && (cell.sql_busy || cell.apply.is_some() || cell.publication.is_some())
+                    {
                         continue;
                     }
-                    if let super::query::ReadOperation::Seed { target } = &read.operation {
+                    if let super::query::ReadOperation::Seed {
+                        target,
+                        kind,
+                        charge,
+                    } = &read.operation
+                    {
                         let Some(Minimum::ReadIndex(barrier)) = read.minimum.as_ref() else {
                             self.finish_read(&id, Err(CommandFailure::CorruptState));
                             continue;
@@ -980,6 +1028,17 @@ impl Driver {
                                         == cell.image.as_ref().map(|image| &image.image)
                             });
                         if !ready {
+                            continue;
+                        }
+                        if *kind == super::transport::seeds::SeedKind::S3 {
+                            let archive = cell.archive.clone().with_read_retention(charge.clone());
+                            read.phase = ReadPhase::Executing;
+                            self.jobs.push(Box::pin(async move {
+                                Job::SeedArchive {
+                                    id,
+                                    result: Box::new(archive.recovery_metadata().await),
+                                }
+                            }));
                             continue;
                         }
                         let reservation = match self.transport.reserve_snapshot_source() {
@@ -1381,8 +1440,13 @@ impl Driver {
             return;
         }
         if matches!(&request.kind, Kind::Seed { .. }) {
-            if let Kind::Seed { target } = std::mem::replace(&mut request.kind, Kind::Status) {
-                self.start_seed(request, target);
+            if let Kind::Seed {
+                target,
+                kind,
+                charge,
+            } = std::mem::replace(&mut request.kind, Kind::Status)
+            {
+                self.start_seed(request, target, kind, charge);
             }
             return;
         }
@@ -2357,6 +2421,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::SeedArchive { id, result } => self.seed_archive(id, *result),
             Job::Configured { scope, result } => self.configured(scope, result),
             job @ (Job::SnapshotSent { .. }
             | Job::SnapshotFetched { .. }

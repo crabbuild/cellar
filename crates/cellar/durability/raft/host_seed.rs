@@ -42,7 +42,13 @@ impl Driver {
         Some(id)
     }
 
-    pub(super) fn start_seed(&mut self, mut request: Request, target: ReplicaIdentity) {
+    pub(super) fn start_seed(
+        &mut self,
+        mut request: Request,
+        target: ReplicaIdentity,
+        kind: super::super::transport::seeds::SeedKind,
+        charge: Arc<Permit>,
+    ) {
         if !self.options.enable_snapshots
             || self.cells.get(&request.scope).is_none_or(|cell| {
                 cell.failed || cell.retired || !valid_target(cell, &target, &self.peers)
@@ -67,7 +73,8 @@ impl Driver {
             reply(&mut request, Err(CommandFailure::Overloaded));
             return;
         };
-        self.reads.insert(id, PendingRead::seed(request, target));
+        self.reads
+            .insert(id, PendingRead::seed(request, target, kind, charge));
     }
 
     pub(super) fn seed_sql(
@@ -82,7 +89,7 @@ impl Driver {
         let Some(mut read) = self.reads.remove(&id) else {
             return;
         };
-        let ReadOperation::Seed { target } = &read.operation else {
+        let ReadOperation::Seed { target, .. } = &read.operation else {
             reply(&mut read.request, Err(CommandFailure::CorruptState));
             return;
         };
@@ -113,11 +120,7 @@ impl Driver {
                     Err(CommandFailure::VersionUnavailable)
                 } else if package.encoded_length() == 0 {
                     drop(reservation);
-                    Ok(SourceSeed {
-                        snapshot,
-                        barrier,
-                        lease: 0,
-                    })
+                    Ok(SourceSeed::peer(snapshot, barrier, 0))
                 } else {
                     match self.transport.serve_snapshot(
                         &scope,
@@ -128,11 +131,7 @@ impl Driver {
                         Ok(source) => {
                             let lease = source.id();
                             self.snapshot_source = Some(source);
-                            Ok(SourceSeed {
-                                snapshot,
-                                barrier,
-                                lease,
-                            })
+                            Ok(SourceSeed::peer(snapshot, barrier, lease))
                         }
                         Err(_) => Err(CommandFailure::Unavailable),
                     }
@@ -145,5 +144,104 @@ impl Driver {
             &mut read.request,
             output.map(|seed| Response::Seed(Box::new(seed))),
         );
+    }
+}
+
+impl Driver {
+    pub(super) fn seed_archive(
+        &mut self,
+        id: ReadId,
+        result: Result<Option<super::super::archive::ArchiveMetadata>, ArchiveError>,
+    ) {
+        let Some(read) = self.reads.get_mut(&id) else {
+            return;
+        };
+        let scope = read.request.scope.clone();
+        let ReadOperation::Seed { target, kind, .. } = &read.operation else {
+            self.finish_read(&id, Err(CommandFailure::CorruptState));
+            return;
+        };
+        let Some(Minimum::ReadIndex(barrier)) = read.minimum.as_ref() else {
+            self.finish_read(&id, Err(CommandFailure::CorruptState));
+            return;
+        };
+        if *kind != crate::raft::transport::seeds::SeedKind::S3
+            || read.expired()
+            || self
+                .cells
+                .get(&scope)
+                .is_none_or(|cell| !valid_target(cell, target, &self.peers))
+        {
+            self.finish_read(&id, Err(CommandFailure::VersionUnavailable));
+            return;
+        }
+        let metadata = match result {
+            Ok(Some(metadata)) => metadata,
+            Ok(None) => {
+                read.phase = ReadPhase::Image;
+                read.retry_at =
+                    crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
+                return;
+            }
+            Err(_) => {
+                self.finish_read(&id, Err(CommandFailure::Unavailable));
+                return;
+            }
+        };
+        let valid = (|| {
+            let cell = self.cells.get(&scope).ok_or(CommandFailure::Unavailable)?;
+            let cache = cell
+                .group
+                .read()
+                .map_err(|_| CommandFailure::CorruptState)?;
+            if metadata.position().index < *barrier
+                || metadata.position().index > cache.applied.position.index
+            {
+                return Ok(false);
+            }
+            if metadata.scope() != &scope || metadata.schema_digest() != cell.schema_digest {
+                return Err(CommandFailure::CorruptState);
+            }
+            let membership = metadata.membership();
+            cache
+                .membership
+                .succeeds(&membership)
+                .map_err(|_| CommandFailure::CorruptState)?;
+            let conf = metadata
+                .configuration()
+                .map_err(|_| CommandFailure::CorruptState)?;
+            if !membership.permits(target)
+                || membership
+                    .joined(target.member)
+                    .map_err(|_| CommandFailure::CorruptState)?
+                    .is_none_or(|(_, at)| at > *barrier)
+                || !conf.learners.contains(&target.member.get())
+                || conf.voters.contains(&target.member.get())
+                || conf.voters_outgoing.contains(&target.member.get())
+                || conf.learners_next.contains(&target.member.get())
+            {
+                return Err(CommandFailure::CorruptState);
+            }
+            Ok(true)
+        })();
+        match valid {
+            Ok(false) => {
+                read.phase = ReadPhase::Image;
+                read.retry_at =
+                    crate::asyncrt::mono_ms().saturating_add(self.options.archive.retry_ms);
+            }
+            Ok(true) => {
+                let barrier = *barrier;
+                let reference = metadata.reference();
+                self.finish_read(
+                    &id,
+                    Ok(Response::Seed(Box::new(SourceSeed {
+                        barrier,
+                        material: crate::raft::transport::seeds::SeedMaterial::S3 { reference },
+                    }))),
+                );
+            }
+            Err(error) => self.finish_read(&id, Err(error)),
+        }
     }
 }

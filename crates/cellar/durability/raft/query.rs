@@ -53,6 +53,8 @@ pub(crate) enum ReadOperation {
     },
     Seed {
         target: cellar_logic::consensus::ReplicaIdentity,
+        kind: crate::raft::transport::seeds::SeedKind,
+        charge: std::sync::Arc<crate::raft::budget::Permit>,
     },
 }
 
@@ -86,10 +88,19 @@ impl PendingRead {
         )
     }
 
-    pub fn seed(request: Request, target: cellar_logic::consensus::ReplicaIdentity) -> Self {
+    pub fn seed(
+        request: Request,
+        target: cellar_logic::consensus::ReplicaIdentity,
+        kind: crate::raft::transport::seeds::SeedKind,
+        charge: std::sync::Arc<crate::raft::budget::Permit>,
+    ) -> Self {
         Self::with_options(
             request,
-            ReadOperation::Seed { target },
+            ReadOperation::Seed {
+                target,
+                kind,
+                charge,
+            },
             &QueryOptions {
                 consistency: QueryConsistency::Linearizable,
                 ..Default::default()
