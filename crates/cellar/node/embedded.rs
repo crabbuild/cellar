@@ -707,6 +707,7 @@ impl Node {
                 RegistrationError::UnsupportedFactory(cell.class.clone())
             );
             let class = services.application.resolve_raft_class(&cell.class)?;
+            class.validate_host(&config.host)?;
             anyhow::ensure!(
                 cell.namespace.mode == cellar_logic::NamespaceMode::Raft
                     && cell.namespace.schema_digest == class.schema_digest(),

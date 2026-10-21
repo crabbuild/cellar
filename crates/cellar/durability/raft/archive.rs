@@ -228,7 +228,12 @@ impl CommittedArchiveCut {
         let position = applied.position;
         let conf_state = manifest::encode_conf(&cache.conf_state)?;
         let mut entries = Vec::new();
-        let mut bytes = 0usize;
+        let mut bytes = charge
+            .checked_add(cache.membership.reserved_bytes())
+            .ok_or(ArchiveError::Limit)?;
+        if bytes > limits.max_capture_bytes {
+            return Err(ArchiveError::Limit);
+        }
         for (_, entry) in cache
             .entries
             .range(..=position.index.get())

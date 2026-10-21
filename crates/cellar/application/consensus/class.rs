@@ -82,6 +82,7 @@ pub struct CommandContext<'a> {
     scope: &'a GroupScope,
     command: CommandId,
     transaction: &'a CommandTransaction<'a>,
+    blobs: Option<super::RaftBlobLimits>,
 }
 
 impl<'a> CommandContext<'a> {
@@ -102,6 +103,26 @@ impl<'a> CommandContext<'a> {
     pub fn sql(&self) -> &CommandTransaction<'a> {
         self.transaction
     }
+
+    /// Retain actual immutable bytes in this command's transaction. Returned
+    /// references supply no durability proof before the command commits.
+    pub fn put_blob(&self, bytes: &[u8]) -> anyhow::Result<super::RaftBlobReference> {
+        crate::raft::effects::put_blob(
+            self.transaction.framework(),
+            self.blobs
+                .ok_or(super::CommandFailure::UnsupportedCapability)?,
+            bytes,
+        )
+    }
+
+    pub fn blob(&self, reference: super::RaftBlobReference) -> anyhow::Result<Vec<u8>> {
+        crate::raft::effects::get_blob(
+            self.transaction.framework(),
+            self.blobs
+                .ok_or(super::CommandFailure::UnsupportedCapability)?,
+            reference,
+        )
+    }
 }
 
 /// A pinned, read-only committed image. The host establishes consistency before
@@ -109,6 +130,7 @@ impl<'a> CommandContext<'a> {
 pub struct QueryContext<'a> {
     version: &'a CommittedVersion,
     database: &'a ImmutableQuery,
+    blobs: Option<super::RaftBlobLimits>,
 }
 
 impl QueryContext<'_> {
@@ -118,6 +140,16 @@ impl QueryContext<'_> {
 
     pub fn version(&self) -> &CommittedVersion {
         self.version
+    }
+
+    /// Read only bytes present in this query's pinned committed generation.
+    pub fn blob(&self, reference: super::RaftBlobReference) -> anyhow::Result<Vec<u8>> {
+        crate::raft::effects::get_blob(
+            self.database.connection(),
+            self.blobs
+                .ok_or(super::CommandFailure::UnsupportedCapability)?,
+            reference,
+        )
     }
 
     pub fn query_row<T>(
@@ -155,6 +187,7 @@ pub struct RaftClass {
     schema_digest: [u8; 32],
     commands: BTreeMap<String, Command>,
     queries: BTreeMap<String, Query>,
+    blobs: Option<super::RaftBlobLimits>,
 }
 
 impl RaftClass {
@@ -188,6 +221,7 @@ impl RaftClass {
             schema_digest,
             commands: BTreeMap::new(),
             queries: BTreeMap::new(),
+            blobs: None,
         };
         class.bind_command_manifest();
         Ok(class)
@@ -207,6 +241,53 @@ impl RaftClass {
     /// compatibility. Read this value after registering commands for the catalog.
     pub fn schema_digest(&self) -> [u8; 32] {
         self.schema_digest
+    }
+
+    /// Opt in to bounded immutable bytes replicated with the cell. This changes
+    /// the class identity and requires a fresh compatible namespace.
+    pub fn immutable_blobs(
+        mut self,
+        limits: super::RaftBlobLimits,
+    ) -> Result<Self, RegistrationError> {
+        limits
+            .validate()
+            .map_err(|_| RegistrationError::Invalid("Blob limits"))?;
+        if self.blobs.is_some() {
+            return Err(RegistrationError::Invalid("duplicate Blob capability"));
+        }
+        self.blobs = Some(limits);
+        self.bind_command_manifest();
+        Ok(self)
+    }
+
+    pub(crate) fn blob_limits(&self) -> Option<super::RaftBlobLimits> {
+        self.blobs
+    }
+
+    pub(crate) fn validate_host(
+        &self,
+        host: &crate::raft::host::RaftHostOptions,
+    ) -> anyhow::Result<()> {
+        if let Some(limits) = self.blobs {
+            let archive = host.archive.limits;
+            anyhow::ensure!(
+                limits.max_objects <= archive.max_dependencies
+                    && limits.max_blob_bytes <= archive.max_object_bytes
+                    && limits.max_blob_bytes <= host.execution.max_result_bytes
+                    && (limits.max_total_bytes as u64)
+                        .checked_add(128 * 1024)
+                        .is_some_and(|n| n <= host.execution.max_image_bytes)
+                    && limits
+                        .max_total_bytes
+                        .checked_add(128 * 1024)
+                        .is_some_and(|n| n <= archive.max_capture_bytes)
+                    && (limits.max_total_bytes as u64)
+                        .checked_add(host.execution.max_image_bytes)
+                        .is_some_and(|n| n <= archive.max_set_bytes as u64),
+                "Blob capability exceeds host archive/execution bounds"
+            );
+        }
+        Ok(())
     }
 
     pub fn command(
@@ -306,6 +387,7 @@ impl RaftClass {
                 scope,
                 command,
                 transaction,
+                blobs: self.blobs,
             },
             input,
         )
@@ -330,7 +412,14 @@ impl RaftClass {
             .callback;
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = CallbackGuard::enter()?;
-            callback(&QueryContext { version, database }, input)
+            callback(
+                &QueryContext {
+                    version,
+                    database,
+                    blobs: self.blobs,
+                },
+                input,
+            )
         }))
         .unwrap_or_else(|panic| Err(crate::native_worker::panic_error(panic)))
     }
@@ -339,6 +428,16 @@ impl RaftClass {
         let mut hash = Sha256::new();
         hash.update(b"cellar-raft-class-1");
         hash.update(self.base_schema_digest);
+        if let Some(limits) = self.blobs {
+            hash.update(b"immutable-blobs-1");
+            for size in [
+                limits.max_blob_bytes,
+                limits.max_objects,
+                limits.max_total_bytes,
+            ] {
+                hash.update((size as u64).to_be_bytes());
+            }
+        }
         hash.update((self.commands.len() as u16).to_be_bytes());
         // BTree order makes declaration order irrelevant. A voter cannot omit
         // or alter required commands while claiming the same application root.

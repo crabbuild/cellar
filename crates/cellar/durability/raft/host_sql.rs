@@ -245,6 +245,22 @@ impl Pool {
                                 .send(Err(ExecutionError::Refused(CommandFailure::Unavailable)));
                             continue;
                         }
+                        // Reserve the complete capture before opening the image
+                        // or allocating its dependency closure. The returned cut
+                        // retains this reservation through archive publication.
+                        let mut capture = if let Action::CaptureArchive { limits } = &action {
+                            match archive_budget.acquire(limits.max_capture_bytes) {
+                                Some(permit) => Some(permit),
+                                None => {
+                                    let _ = reply.send(Err(ExecutionError::Refused(
+                                        CommandFailure::Overloaded,
+                                    )));
+                                    continue;
+                                }
+                            }
+                        } else {
+                            None
+                        };
                         let result = Self::execute(&mut cells, max_cells, &scope, action).and_then(
                             |value| {
                                 let bytes = value.bytes();
@@ -253,7 +269,11 @@ impl Pool {
                                 } else {
                                     &budget
                                 };
-                                let permit = if bytes == 0 {
+                                let permit = if capture.is_some()
+                                    && matches!(&value, Value::ArchiveCut(_))
+                                {
+                                    capture.take()
+                                } else if bytes == 0 {
                                     None
                                 } else {
                                     match budget.acquire(bytes) {
@@ -671,9 +691,18 @@ impl Cell {
                     .applier
                     .queryable()
                     .map_err(super::execution::storage)?
-                    .map(|image| CommittedArchiveCut::capture(&self.group, image, vec![], limits))
-                    .transpose()
-                    .map_err(super::execution::storage)?;
+                    .map(|image| {
+                        let dependencies = super::effects::capture_dependencies(
+                            &image,
+                            self.class.blob_limits(),
+                            self.options.query_services.clone(),
+                            limits,
+                        )
+                        .map_err(super::execution::storage)?;
+                        CommittedArchiveCut::capture(&self.group, image, dependencies, limits)
+                            .map_err(super::execution::storage)
+                    })
+                    .transpose()?;
                 Ok(Value::ArchiveCut(cut.map(Box::new)))
             }
             Action::CaptureSeed {

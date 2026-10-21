@@ -322,6 +322,9 @@ async fn initialize(
         origins,
     } = registrations;
     options.validate()?;
+    for registration in &registrations {
+        registration.class.validate_host(&options)?;
+    }
     let snapshot_limits = service
         .transport
         .snapshot_limits(options.execution.max_image_bytes)?;

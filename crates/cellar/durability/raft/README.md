@@ -5,9 +5,21 @@ command output, query publication and archive proof belong to the actor and
 `cellar-logic`; `GroupStatus::protocol_ready` is only a protocol observation.
 Native command/query serving, committed archives and replica recovery are
 implemented. An opt-in controller repairs committed membership and balances
-eligible leaders; effects and later operating/release work remain under implementation.
+eligible leaders. Immutable Blob bytes have an explicit bounded adapter;
+alarm/outbox scheduling and later operating/release work remain under implementation.
 The [technical design](../../../../plans/multi-raft/technical-design.md) defines
 the complete contract.
+
+`RaftClass::immutable_blobs(RaftBlobLimits)` enables bounded immutable values and
+changes the class identity. Commands use `put_blob` and `blob`; queries use `blob`
+against their pinned committed image. Actual bytes share the command transaction
+and LTX history. Archive capture reserves memory before enumerating their exact
+closure and supplies each value as a verified recovery dependency. A reference
+alone proves no content or durability. Defaults retain at most 128 values,
+64 KiB per value and 1 MiB total; there is no deletion/GC API. This initial adapter
+duplicates content in the SQL image and dependency objects. The
+[business-feature contract](../../../../plans/multi-raft/effects-design.md)
+records this boundary and the remaining alarm/outbox work.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
 Its bounded `GroupLog` caches become visible after sync. Storage lookups on the

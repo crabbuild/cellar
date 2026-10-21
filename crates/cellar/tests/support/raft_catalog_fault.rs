@@ -20,6 +20,7 @@ pub struct Store {
     pub fail_join_claim_confirmation: AtomicBool,
     pub fail_join_claim_read: AtomicBool,
     pub archive_unavailable: AtomicBool,
+    pub dependency_unavailable: AtomicBool,
     pub archive_hang: AtomicBool,
     pub archive_resume: tokio::sync::Notify,
     pub archive_attempts: AtomicUsize,
@@ -92,6 +93,11 @@ impl ObjectStore for Store {
         payload: PutPayload,
         options: PutOptions,
     ) -> object_store::Result<PutResult> {
+        if path.as_ref().contains("/dependencies/")
+            && self.dependency_unavailable.load(Ordering::Acquire)
+        {
+            return Err(failure());
+        }
         tokio::task::yield_now().await;
         if path.filename() == Some("view") && self.hold_next_view.swap(false, Ordering::AcqRel) {
             self.view_waiting.store(true, Ordering::Release);

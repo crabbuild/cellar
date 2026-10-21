@@ -7,6 +7,7 @@ pub(crate) mod cache;
 pub(crate) mod catalog;
 mod catalog_wire;
 pub(crate) mod completion;
+pub(crate) mod effects;
 pub(crate) mod execution;
 mod filesystem;
 pub(crate) mod host;

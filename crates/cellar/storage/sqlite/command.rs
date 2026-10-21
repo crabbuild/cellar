@@ -21,6 +21,10 @@ pub struct CommandTransaction<'a> {
 }
 
 impl CommandTransaction<'_> {
+    pub(crate) fn framework(&self) -> &Connection {
+        self.connection
+    }
+
     pub fn inputs(&self) -> CommandInputs {
         self.inputs
     }
