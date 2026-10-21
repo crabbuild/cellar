@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "fcaa793854a1ee17236b8276a5efd35e505eaa37",
+  "baseline_revision": "9fac03a5b3771d51bb081bbc52b97645454174ec",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1265,7 +1265,8 @@
         "crates/cellar/durability/raft/catalog_wire.rs",
         "crates/cellar/application/consensus/protocol.rs",
         "crates/cellar/tests/native_raft_storage.rs",
-        "crates/cellar/durability/raft/catalog.rs"
+        "crates/cellar/durability/raft/catalog.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/snapshot.rs",
@@ -1279,7 +1280,8 @@
         "crates/cellar/durability/raft/host_membership.rs",
         "crates/cellar/durability/raft/host_seed.rs",
         "crates/cellar/durability/raft/seed_transport.rs",
-        "crates/cellar/durability/raft/snapshot_seed.rs"
+        "crates/cellar/durability/raft/snapshot_seed.rs",
+        "crates/cellar/durability/raft/seed_archive.rs"
       ],
       "steps": [
         "Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.",
@@ -1498,6 +1500,73 @@
             "I11",
             "I13"
           ]
+        },
+        {
+          "name": "native_fresh_learner_s3_seed_replays_tail_and_resumes_reads",
+          "oracle": "A fresh follower barrier selects an immutable S3 cut; full image/tail replay resumes reads and replication, then full public Node restart with fresh process identities preserves data/votes and refuses strong reads until quorum returns",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_fresh_learner_s3_seed_refuses_missing_quorum",
+          "oracle": "A committed learner binding and available S3 snapshot/tail cannot seed without a fresh quorum barrier; no local group or new claim is created",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_does_not_wait_for_private_writer",
+          "oracle": "S3 metadata selection and follower reads proceed while a leader callback holds an unpublished write; only its committed predecessor is visible until release",
+          "invariants": [
+            "I02",
+            "I04",
+            "I11",
+            "I13"
+          ]
+        },
+        {
+          "name": "native_s3_seed_missing_selected_payload_refuses_newer_head_fallback",
+          "oracle": "After grant selection a missing old payload refuses initialization even with a newer complete head; no group or member claim appears",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_reconciles_lost_member_claim_response",
+          "oracle": "A lost conditional claim response reconciles by exact readback and attaches the same synced learner without resetting state",
+          "invariants": [
+            "I04",
+            "I05",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_resumes_synced_state_before_member_claim",
+          "oracle": "A failed pre-claim PUT leaves synced nonvoting state; public restart first resumes that exact state and creates its claim without a new blank seed or quorum proof",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
+        },
+        {
+          "name": "native_s3_seed_resumes_after_lost_claim_confirmation",
+          "oracle": "A committed claim with a lost confirmation refuses initial attachment, then public restart reconciles that same local state/claim and preserves vote zero",
+          "invariants": [
+            "I04",
+            "I05",
+            "I06",
+            "I11"
+          ]
         }
       ],
       "verification": [
@@ -1525,6 +1594,7 @@
         ]
       ],
       "evidence": [
+        "evidence/MR-10-s3-progress.json",
         "evidence/MR-10-seed-progress.json",
         "evidence/MR-10-bindings-progress.json",
         "evidence/MR-10-native-progress.json",

@@ -303,25 +303,31 @@ zones, production capacity or release qualification is established by this recor
 
 ## MR-10 native peer-seed progress
 
-The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
-`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
-This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+The [native S3-seed qualification](evidence/MR-10-s3-progress.json) pins source
+`9fac03a5b3771d51bb081bbc52b97645454174ec`: 210 Rust cases across 12 binaries and all 21 commands pass.
+This includes 40 snapshot cases, 29 archive, 18 read, six protocol contract,
 22 library cases, owning Raft regressions and the affected public Node lifecycle.
-Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
-policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+Clippy, both cellar-ltx backend modes, format (638 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 30 required snapshot names and 68-anchor preflight
 pass. Seven ignored child entry points run through owning parents and are excluded.
 
-Explicit native learner admission now obtains a fresh safe ReadIndex grant,
-transfers from a follower, seals and atomically installs its state, reconciles a
-permanent claim and serves reads plus later replication. A partial-body timeout
-retries with a fresh grant under the original deadline. The engine/image reopen
-drill preserves the binding and vote zero; a claimed blank replacement and a
-blank seed without quorum are refused. The reopen drill is not a full public
-joined-node restart qualification.
+A fresh safe ReadIndex authorizes an exact immutable S3 manifest. Metadata
+selection avoids payload downloads and proceeds while a private writer is busy.
+The target verifies and physically replays the full image and committed LTX tails,
+seals a local image, syncs group/configuration/bindings/applied state with vote zero,
+then reconciles its permanent claim. A missing selected payload refuses startup
+even when a newer complete head exists. S3 bytes alone cannot authorize a seed.
 
-The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
-still 1. Earlier checksum-valid roots are refused; use a fresh experimental
-namespace/prefix and local state. Native S3 seed selection/install and the remaining
-native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
-remain open; these checks establish no physical S3, power-loss, production-scale
-or federation qualification.
+Public Node restart now starts the joined learner before voters. Verified causal
+reads remain available; strong reads refuse until quorum returns. Three claim
+failure cuts cover a lost successful response, failure before the PUT, and a lost
+confirmation after a successful PUT. Restart reconciles exact synced state and
+claims without resetting votes, reseeding or rerunning command callbacks; later
+replication resumes.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric
+format markers still 1. Earlier checksum-valid roots are refused; use a fresh
+experimental namespace/prefix and local state. MR-10 remains IN_PROGRESS for the
+remaining fresh-seed image/engine process-kill matrix. MR-11 through MR-17 remain
+open. Object storage in these fixtures is in-memory; no physical S3, power-loss,
+production-scale, federation or complete release qualification is claimed.

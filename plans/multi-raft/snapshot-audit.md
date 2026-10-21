@@ -2,28 +2,34 @@
 
 MR-10 is in progress.
 
-The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
-`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
-This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+The [native S3-seed qualification](evidence/MR-10-s3-progress.json) pins source
+`9fac03a5b3771d51bb081bbc52b97645454174ec`: 210 Rust cases across 12 binaries and all 21 commands pass.
+This includes 40 snapshot cases, 29 archive, 18 read, six protocol contract,
 22 library cases, owning Raft regressions and the affected public Node lifecycle.
-Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
-policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+Clippy, both cellar-ltx backend modes, format (638 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 30 required snapshot names and 68-anchor preflight
 pass. Seven ignored child entry points run through owning parents and are excluded.
 
-Explicit native learner admission now obtains a fresh safe ReadIndex grant,
-transfers from a follower, seals and atomically installs its state, reconciles a
-permanent claim and serves reads plus later replication. A partial-body timeout
-retries with a fresh grant under the original deadline. The engine/image reopen
-drill preserves the binding and vote zero; a claimed blank replacement and a
-blank seed without quorum are refused. The reopen drill is not a full public
-joined-node restart qualification.
+A fresh safe ReadIndex authorizes an exact immutable S3 manifest. Metadata
+selection avoids payload downloads and proceeds while a private writer is busy.
+The target verifies and physically replays the full image and committed LTX tails,
+seals a local image, syncs group/configuration/bindings/applied state with vote zero,
+then reconciles its permanent claim. A missing selected payload refuses startup
+even when a newer complete head exists. S3 bytes alone cannot authorize a seed.
 
-The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
-still 1. Earlier checksum-valid roots are refused; use a fresh experimental
-namespace/prefix and local state. Native S3 seed selection/install and the remaining
-native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
-remain open; these checks establish no physical S3, power-loss, production-scale
-or federation qualification.
+Public Node restart now starts the joined learner before voters. Verified causal
+reads remain available; strong reads refuse until quorum returns. Three claim
+failure cuts cover a lost successful response, failure before the PUT, and a lost
+confirmation after a successful PUT. Restart reconciles exact synced state and
+claims without resetting votes, reseeding or rerunning command callbacks; later
+replication resumes.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric
+format markers still 1. Earlier checksum-valid roots are refused; use a fresh
+experimental namespace/prefix and local state. MR-10 remains IN_PROGRESS for the
+remaining fresh-seed image/engine process-kill matrix. MR-11 through MR-17 remain
+open. Object storage in these fixtures is in-memory; no physical S3, power-loss,
+production-scale, federation or complete release qualification is claimed.
 
 The [member-binding progress](evidence/MR-10-bindings-progress.json) pins source
 `88b05883acaba7881fcf30fc0d06e0dc2474725c`: 198 Rust cases and all 21 commands pass,
@@ -67,8 +73,8 @@ The [cancellation record](evidence/MR-10-abort-progress.json),
 [peer-admission record](evidence/MR-10-inbound-progress.json) and
 [earlier physical record](evidence/MR-10-physical-progress.json) preserve their
 separate historical source qualifications. Native existing-replica catch-up is
-implemented; fresh-member authorization, S3 seeding and the complete native
-recovery crash matrix remain. All 17 delivery packages remain in scope.
+implemented. The current cut also implements authorized peer/S3 seeding and
+public joined-node restart; the fresh-seed image/engine crash matrix remains. All 17 delivery packages remain in scope.
 
 ## Identity and bytes
 
@@ -267,9 +273,10 @@ markers remain 1. The protocol identity changes to
 is refused. This requires a fresh experimental namespace/prefix and local state;
 no compatibility reader or migration is supplied.
 
-This record is an admission/recovery foundation. The ledger itself supplies no
-live-quorum seeding capability. Native fresh-member authorization, peer/S3 seeding,
-claim reconciliation and the complete native recovery fault matrix remain.
+That earlier record is an admission/recovery foundation. The ledger itself
+supplies no live-quorum seeding capability. The current source adds authenticated
+peer/S3 authorization, permanent-claim reconciliation and public joined-node
+restart; fresh-seed image/engine process-kill qualification remains.
 
 ## Native recovery path
 
@@ -307,11 +314,10 @@ snapshot feature enabled. No cached status substitutes for quorum proof.
 
 Still required for MR-10:
 
-- Authorized fresh-member admission and S3/peer seeding through a surviving live
-  group. Preserve committed member/node/disk bindings across compaction and never
-  reuse a lost voter's identity or restore its votes from an archive.
-- Complete native process-crash, recovery/readiness and image-pressure fault
-  qualification, followed by pinned package completion evidence.
+- Complete the fresh-seed image/seal/directory/atomic-engine process-kill matrix
+  through public Node startup and restart. Existing snapshot crash/pressure and
+  joined-node claim/restart cases retain their own recorded evidence.
+- Publish pinned package completion evidence only after those cuts pass.
 
 Existing-member recovery does not create members, reset stable votes or provide
 disaster restore. Blob/effect capabilities remain unsupported; their external
@@ -353,6 +359,43 @@ exit. The missing-quorum drill verifies both absent local group and absent new
 member claim.
 
 This changes the internal identity to `cellar-raft-ltx-1/members-1/seeds-1`, with
-format markers still 1 and no compatibility reader. These peer-seed features do
-not complete MR-10: native S3 seed selection/install and the full native recovery
-crash matrix remain. MR-11 through MR-17 also remain open.
+format markers still 1 and no compatibility reader. That peer-seed cut left S3
+seeding and public restart open. The current S3 cut below covers both; fresh-seed
+image/engine process-kill qualification still precedes MR-10 completion. MR-11
+through MR-17 also remain open.
+
+
+## Native fresh-learner S3 seeding
+
+`JoiningFromS3` uses the same exact committed learner binding, fresh safe ReadIndex,
+TLS exporter/request binding, local log owner and original deadline as peer seeding.
+The source downloads only bounded head/manifest metadata and selects an immutable
+`ArchiveReference`; it does not capture a speculative callback image. Selection
+retries against the frozen barrier while the archive catches up. The returned cut
+must cover that barrier, remain no newer than locally published state and name the
+exact target as a learner. Neither cached archive availability nor an old grant
+permits a quorumless seed.
+
+The target downloads only that reference, under one receiver reservation shared
+with peer snapshot work. It never falls back to a new mutable head. Hash/decode
+workers retain the reservation across cancellation. A metadata reservation holds
+4 MiB for the configured maximum 1-MiB manifest and verification copies; the body
+reservation covers configured snapshot working memory plus `max_set_bytes` (at
+most 256 MiB). The default receiver bank is one slot/640 MiB. These are accounting
+bounds, without eager buffer allocation.
+
+Physical S3 replay runs on the owning SQL worker. It checks immutable birth,
+schema, cut, full configuration and joined member/node/disk binding, then seals a
+local generation and constructs a canonical snapshot descriptor for that actual
+image. The shared atomic seed path persists complete Raft state with vote zero;
+only subsequent permanent-claim reconciliation permits attachment. Failure cannot
+turn an archive reference into standalone activation authority.
+
+The native tests cover exact tail replay, a blocked private writer, an unavailable
+selected payload despite a newer complete head, and missing live quorum. Public
+Node restart starts the learner first with new process generations. It serves
+verified retained causal state, refuses strong reads until voters return, and
+then resumes replication. Claim faults cover failure before PUT, lost response
+after PUT, and lost confirming read; verified local state and exact claims are
+reconciled without a blank reset. The fresh-seed image/engine process-kill matrix
+remains open; existing seven physical cuts cover installed-replica snapshots.

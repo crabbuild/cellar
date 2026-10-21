@@ -69,8 +69,8 @@ after its public Node path and failure cases pass together.
 
 Priority 1 includes exact-ticket abort, native checkpoint/source scheduling,
 existing-replica catch-up and explicit fresh-learner peer seeding with live quorum
-and permanent claims. Next are S3 seed installation and the remaining native
-restart/crash matrix.
+and permanent claims, exact-reference S3 seeding, public joined-node restart and
+three claim-failure cuts. Next is the fresh-seed image/engine process-kill matrix.
 Keep each later package's dependency and acceptance gates intact.
 
 ## Package dependency order
@@ -420,28 +420,34 @@ shown by `plan.py show MR-09`; the manifest is authoritative for arguments.
 
 Dependencies: MR-09, MR-05, MR-03, MR-08. Phase: v1. Status: IN_PROGRESS.
 
-The [native peer-seed qualification](evidence/MR-10-seed-progress.json) pins source
-`fcaa793854a1ee17236b8276a5efd35e505eaa37`: 201 Rust cases across 12 binaries and all 21 commands pass.
-This includes 33 snapshot cases, 27 archive, 18 read, six protocol contract,
+The [native S3-seed qualification](evidence/MR-10-s3-progress.json) pins source
+`9fac03a5b3771d51bb081bbc52b97645454174ec`: 210 Rust cases across 12 binaries and all 21 commands pass.
+This includes 40 snapshot cases, 29 archive, 18 read, six protocol contract,
 22 library cases, owning Raft regressions and the affected public Node lifecycle.
-Clippy, both cellar-ltx backend modes, format (637 Rust files), layout, dependency
-policy, docs, 17 plan tests, all 23 required snapshot names and 68-anchor preflight
+Clippy, both cellar-ltx backend modes, format (638 Rust files), layout, dependency
+policy, docs, 17 plan tests, all 30 required snapshot names and 68-anchor preflight
 pass. Seven ignored child entry points run through owning parents and are excluded.
 
-Explicit native learner admission now obtains a fresh safe ReadIndex grant,
-transfers from a follower, seals and atomically installs its state, reconciles a
-permanent claim and serves reads plus later replication. A partial-body timeout
-retries with a fresh grant under the original deadline. The engine/image reopen
-drill preserves the binding and vote zero; a claimed blank replacement and a
-blank seed without quorum are refused. The reopen drill is not a full public
-joined-node restart qualification.
+A fresh safe ReadIndex authorizes an exact immutable S3 manifest. Metadata
+selection avoids payload downloads and proceeds while a private writer is busy.
+The target verifies and physically replays the full image and committed LTX tails,
+seals a local image, syncs group/configuration/bindings/applied state with vote zero,
+then reconciles its permanent claim. A missing selected payload refuses startup
+even when a newer complete head exists. S3 bytes alone cannot authorize a seed.
 
-The internal identity is `cellar-raft-ltx-1/members-1/seeds-1`, with format markers
-still 1. Earlier checksum-valid roots are refused; use a fresh experimental
-namespace/prefix and local state. Native S3 seed selection/install and the remaining
-native restart/crash matrix still precede MR-10 completion. MR-11 through MR-17
-remain open; these checks establish no physical S3, power-loss, production-scale
-or federation qualification.
+Public Node restart now starts the joined learner before voters. Verified causal
+reads remain available; strong reads refuse until quorum returns. Three claim
+failure cuts cover a lost successful response, failure before the PUT, and a lost
+confirmation after a successful PUT. Restart reconciles exact synced state and
+claims without resetting votes, reseeding or rerunning command callbacks; later
+replication resumes.
+
+The internal identity is `cellar-raft-ltx-1/members-1/seeds-1/s3-1`, with numeric
+format markers still 1. Earlier checksum-valid roots are refused; use a fresh
+experimental namespace/prefix and local state. MR-10 remains IN_PROGRESS for the
+remaining fresh-seed image/engine process-kill matrix. MR-11 through MR-17 remain
+open. Object storage in these fixtures is in-memory; no physical S3, power-loss,
+production-scale, federation or complete release qualification is claimed.
 
 The physical snapshot component captures exact committed cuts, binds canonical
 history/schema/configuration metadata to full LTX bytes, assembles bounded ordered
@@ -458,8 +464,9 @@ regressions and both cellar-ltx backend feature modes. Exact-ticket abort joins
 older physical apply; native transfers retry and close through owned lifecycles.
 A dropped ReadIndex reply retries within its original invocation and still needs
 quorum proof. The [snapshot audit](snapshot-audit.md) records the implemented path
-and remaining fresh-member authorization/S3 seeding and the full native recovery
-fault matrix. MR-10 is not complete.
+and current remaining fresh-seed image/engine process-kill matrix. Authorized
+peer/S3 seeding and public restart are covered by the current source above.
+MR-10 is not complete.
 
 The native host now captures periodic checkpoints and pins the exact requested
 source before sending snapshot metadata. Member-only pulls use separate bounded
@@ -510,9 +517,9 @@ partial-body retry, restart with vote zero, claimed-state loss and missing quoru
 S3 seeding and the remaining native recovery crash matrix still precede MR-10
 completion; automatic repair remains MR-11.
 
-Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/durability/raft/catalog.rs`.
+Modify: `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/apply.rs`, `crates/cellar/durability/raft/transport.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`.
 
-Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/durability/raft/member_state_tests.rs`, `crates/cellar/tests/native_raft_snapshot.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/host_seed.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/snapshot_seed.rs`.
+Create: `crates/cellar/durability/raft/snapshot.rs`, `crates/cellar/durability/raft/recovery.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/durability/raft/member_state_tests.rs`, `crates/cellar/tests/native_raft_snapshot.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/host_seed.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/snapshot_seed.rs`, `crates/cellar/durability/raft/seed_archive.rs`.
 
 1. Implement bounded snapshot build/download with image, index/term, ConfState and incarnation metadata.
 2. Atomically publish engine install markers only after the image is durable; retain old reader pins.
@@ -548,6 +555,13 @@ Stop conditions: Stop if restart repairs applied/commit mismatch by inventing pr
 | `native_fresh_learner_seed_requires_committed_binding_and_resumes_reads` | A committed exact learner binding obtains a fresh follower ReadIndex grant, seals and atomically installs its image, reconciles a permanent claim, resumes reads and later replication, preserves vote zero on restart, and refuses a claimed blank replacement |
 | `native_fresh_learner_seed_refuses_missing_quorum` | Available S3 data and a committed learner binding cannot seed a blank node without a fresh quorum barrier; refusal leaves no group or permanent claim |
 | `native_fresh_learner_seed_retries_partial_body_with_fresh_grant` | A held partial learner body expires its stream and retries with a fresh authenticated quorum grant under the original deadline, then resumes reads and subsequent replication without invoking seed-time business callbacks |
+| `native_fresh_learner_s3_seed_replays_tail_and_resumes_reads` | A fresh follower barrier selects an immutable S3 cut; full image/tail replay resumes reads and replication, then full public Node restart with fresh process identities preserves data/votes and refuses strong reads until quorum returns |
+| `native_fresh_learner_s3_seed_refuses_missing_quorum` | A committed learner binding and available S3 snapshot/tail cannot seed without a fresh quorum barrier; no local group or new claim is created |
+| `native_s3_seed_does_not_wait_for_private_writer` | S3 metadata selection and follower reads proceed while a leader callback holds an unpublished write; only its committed predecessor is visible until release |
+| `native_s3_seed_missing_selected_payload_refuses_newer_head_fallback` | After grant selection a missing old payload refuses initialization even with a newer complete head; no group or member claim appears |
+| `native_s3_seed_reconciles_lost_member_claim_response` | A lost conditional claim response reconciles by exact readback and attaches the same synced learner without resetting state |
+| `native_s3_seed_resumes_synced_state_before_member_claim` | A failed pre-claim PUT leaves synced nonvoting state; public restart first resumes that exact state and creates its claim without a new blank seed or quorum proof |
+| `native_s3_seed_resumes_after_lost_claim_confirmation` | A committed claim with a lost confirmation refuses initial attachment, then public restart reconciles that same local state/claim and preserves vote zero |
 
 Verification target: `native_raft_snapshot`. Run the exact list/test commands
 shown by `plan.py show MR-10`; the manifest is authoritative for arguments.
