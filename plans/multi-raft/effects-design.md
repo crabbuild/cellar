@@ -1,11 +1,12 @@
 # Committed business features
 
-Status: MR-12 is IN_PROGRESS. The immutable Blob adapter is
-[qualified at its native boundary](evidence/MR-12-blob-progress.json).
-The alarm implementation is
-[qualified at its native boundary](evidence/MR-12-alarm-progress.json). Outbox dispatch, durable
-destination receipts, leadership races and capability gates are implemented and
-undergoing combined qualification. Enabling Blobs alone starts no business timer.
+Status: MR-12 is DONE at the [recorded native boundary](evidence/MR-12.json),
+source `a28babe1904c1287cb4d1877674bd98a87313700`. All six original requirements,
+782 unit/integration cases, four capability doctests, the two-process recovery
+example and all 34 checks pass. Earlier [Blob](evidence/MR-12-blob-progress.json)
+and [alarm](evidence/MR-12-alarm-progress.json) records retain their own source
+pins. Node semantic drain, safe receipt maintenance, release/scale and federation
+remain later work. Enabling Blobs alone starts no business timer.
 
 ## Immutable Blob adapter
 
@@ -182,7 +183,7 @@ terminal identity/contract/expired-receipt refusals, rather than replacing them
 with a later follower routing error. A permanently refused delivery stays retained
 and blocks its lane; this component provides no implicit payload rewrite or
 dead-letter/skip operation. There is no generic external
-exactly-once promise. The [producer/receiver example](../../examples/raft-effects/README.md)
+exactly-once promise. The [producer/receiver example](https://github.com/crabbuild/cellar/blob/a28babe1904c1287cb4d1877674bd98a87313700/examples/raft-effects/README.md)
 runs a primary replacement and then resumes the same retained disks in a second
 process invocation.
 
@@ -222,8 +223,8 @@ documentation checks those type boundaries. Deployment bindings available to a
 Fleet `Context` are not inherited by a Raft transaction. The explicit immutable
 Blob, committed alarm and outbox adapters are the supported feature surface.
 
-Combined qualification must execute all six original MR-12 cases, owning Raft
+Combined qualification executes all six original MR-12 cases, owning Raft
 regressions, existing Fleet outbox/event-stream cases and the finite native restart
-example before this package is marked DONE. MR-13 still owns unified Node semantic
+example at the recorded source. MR-13 still owns unified Node semantic
 drain and archive-obligation reporting. Release, physical scale and federation
 retain their separate gates in the implementation plan.

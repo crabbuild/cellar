@@ -10,9 +10,11 @@ are implemented and qualified in MR-08, including bounded replica routing and
 explicit same-consistency leader fallback. MR-09 connects S3 output gates,
 stronger receipt retries and archive image restoration, qualified in the
 [archive audit](archive-audit.md). MR-10 qualifies native snapshot/member recovery;
-MR-11 qualifies automatic repair and leadership balancing. MR-12 is in progress:
-its bounded immutable Blob adapter is qualified. The committed alarm adapter is
-qualified at its native boundary; outbox work remains.
+MR-11 qualifies automatic repair and leadership balancing. MR-12 qualifies
+bounded immutable Blobs, committed alarms, signed outbox/inbox delivery, capability
+gates and a producer/receiver restart example at the
+[recorded native boundary](evidence/MR-12.json). Operating, release and scale work
+remains MR-13 through MR-17.
 
 ## Commands and queries
 
@@ -26,9 +28,9 @@ before calling business code. Both native and Axum ingress use the same dispatch
 | `RaftClass` registration | Explicit schema version, command/query definitions and supported capabilities |
 | `CommandContext` | Scoped cell transaction, request identity, captured inputs and outbox intent writer |
 | `QueryContext` | Pinned read-only generation, authorized identity, served version and deadline |
-| `CommandReceipt<T>` | Result, opaque committed version, durability achieved and command identity |
-| `QueryResult<T>` | Result and exact served version |
-| `CommandOptions` | Stable client/command ID, request digest, requested durability and deadline |
+| `CommandReceipt` | Result, opaque committed version, durability achieved and command identity |
+| `QueryResult` | Result and exact served version |
+| `CommandOptions` | Stable client/command ID, requested durability, retry window and timeout; framework hashes input |
 | `QueryOptions` | Stale, AtLeast or Linearizable; explicit fallback and deadline |
 
 Command callbacks are synchronous within one transaction in the first release.
@@ -51,6 +53,12 @@ contract digests under `cellar-raft-class-1`, with explicit count/name lengths.
 Read this identity after registering commands and use it for the namespace root
 and physical update application digest. Omitting, renaming or changing a command
 cannot preserve voting compatibility by repeating the schema version/digest.
+Delivery targets use `RaftClass::definition_digest()` plus an exact operation
+contract. That declaration identity binds the class name, schema version and
+supplied definition digest before adding bindings, allowing self-delivery and
+cyclic class declarations without recursive manifest hashes. It does not replace
+the complete `schema_digest()` check at namespace admission. Full target history
+selects the immutable namespace and its required compiled manifest.
 Declaration order does not affect the identity. Query contracts remain separate:
 a replica with incompatible/missing query code can still vote with the matching
 required commands, but refuses that query before executing it. Changing required
@@ -158,14 +166,28 @@ without user traffic and fires through private system commands. Firing consumes
 the exact generation together with its callback's SQL changes; failure rolls back.
 Normal callers cannot invoke these commands or consume the reserved system client.
 The [alarm contract](effects-design.md#committed-alarms) describes bounds, clocks,
-retention and the separate Node semantic-drain limitation. Outbox delivery below
-is still required and unimplemented.
+retention and the separate Node semantic-drain limitation. `RaftHostOptions::effects`
+and `RaftEffectOptions` configure the shared owned scheduler.
 
-Outbox payload and stable delivery ID commit with business state. The leader
-dispatches only after that intent is committed and its required durability is
-satisfied. Receiver deduplication handles replay after a lost response. Delivery
-completion is another command. An old leader can have an external request in
-flight after losing its term, so receiver receipts remain required.
+`RaftClass::outbox` declares signed logical destinations and explicit bounds.
+`CommandContext::emit` persists actual request bytes and a monotonic lane sequence
+with business state. The current leader commits an attempt and its retry deadline
+before sending, respecting the intent's durability policy. `RaftInbox` couples an
+authenticated source request, receiver SQL mutation and signed receipt in one
+ordinary command transaction; its configured fixed durability gates receipt output.
+`RaftNativeEffectSink` provides the native adapter. Source cleanup verifies the
+exact request/receipt and attempt generation, then commits the settled prefix.
+`QueryContext::outbox_progress` reads only its pinned generation's progress.
+
+An old request can still commit after its sender loses authority. Retries retain
+identical bytes and logical IDs, with one receiver client per source lane. Normal
+operations cannot consume that client in an inbox class. A missing sink response
+remains ambiguous even when the adapter reports unavailability; it cannot justify
+a fresh ID. Signed native receipts authenticate a trusted receiver's assertion;
+they are not Byzantine quorum certificates or arbitrary external exactly-once
+proof. Existing receipt limits apply until MR-13 adds safe operational maintenance.
+The [outbox contract](effects-design.md#committed-outbox-and-receiver) records
+bounds, key/definition identity, retained failures and the recovery example.
 
 The implemented `RaftClass::immutable_blobs` adapter stores actual bounded bytes
 in the command transaction. `CommandContext::put_blob` returns a digest/length

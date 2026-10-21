@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "5a6b606c21b2ec8848d6f88ce76f783676d61f70",
+  "baseline_revision": "a28babe1904c1287cb4d1877674bd98a87313700",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1823,7 +1823,7 @@
       "id": "MR-12",
       "title": "Integrate committed alarms, outbox and capability gates",
       "phase": "v1",
-      "status": "IN_PROGRESS",
+      "status": "DONE",
       "depends_on": [
         "MR-08",
         "MR-09",
@@ -1846,7 +1846,10 @@
         "crates/cellar/tests/support/raft_catalog_fault.rs",
         "crates/cellar/durability/raft/README.md",
         "crates/cellar/application/consensus/client.rs",
-        "crates/cellar/durability/raft/execution.rs"
+        "crates/cellar/durability/raft/execution.rs",
+        "crates/cellar/Cargo.toml",
+        "crates/cellar/application/mod.rs",
+        "crates/cellar/durability/raft/host_standby.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/effects.rs",
@@ -1855,8 +1858,21 @@
         "crates/cellar/durability/raft/effect_blob_tests.rs",
         "plans/multi-raft/effects-design.md",
         "crates/cellar/durability/raft/effect_alarm.rs",
-        "crates/cellar/durability/raft/host_alarms.rs",
-        "crates/cellar/tests/support/raft_alarm_native.rs"
+        "crates/cellar/durability/raft/host_effects.rs",
+        "crates/cellar/tests/support/raft_alarm_native.rs",
+        "crates/cellar/durability/raft/effect_delivery.rs",
+        "crates/cellar/durability/raft/effect_delivery_tests.rs",
+        "crates/cellar/durability/raft/effect_inbox.rs",
+        "crates/cellar/durability/raft/effect_outbox.rs",
+        "crates/cellar/durability/raft/effect_options.rs",
+        "crates/cellar/durability/raft/effect_scan.rs",
+        "crates/cellar/tests/support/raft_outbox_native.rs",
+        "crates/cellar/tests/support/raft_outbox_loopback.rs",
+        "crates/cellar/tests/support/raft_binding_gate.rs",
+        "examples/raft-effects/main.rs",
+        "examples/raft-effects/effects.rs",
+        "examples/raft-effects/README.md",
+        "examples/raft-effects/smoke.py"
       ],
       "steps": [
         "Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.",
@@ -1946,8 +1962,7 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-12-blob-progress.json",
-        "evidence/MR-12-alarm-progress.json"
+        "evidence/MR-12.json"
       ]
     },
     {

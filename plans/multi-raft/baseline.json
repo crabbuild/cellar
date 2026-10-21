@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "5a6b606c21b2ec8848d6f88ce76f783676d61f70",
+  "revision": "a28babe1904c1287cb4d1877674bd98a87313700",
   "prepared_date": "2026-10-21",
   "files": [
     {
@@ -106,7 +106,7 @@
     },
     {
       "path": "crates/cellar/Cargo.toml",
-      "sha256": "bec258efc67b6701a67a525907823c66b29b1dcf10f08217fed408166b8d44c3"
+      "sha256": "433b43bee32668f1150f316716e85a02a4c0da561a805b36ee975ce14f2e8d1d"
     },
     {
       "path": "crates/cellar/actor/effects.rs",
@@ -130,7 +130,7 @@
     },
     {
       "path": "crates/cellar/application/mod.rs",
-      "sha256": "1e0042400fb90fa1a0e2d4cf7c7921efa91dedd472c11b318e694ffc42a9e0b9"
+      "sha256": "15ea90d62a82cb918018fcd29eb2b6bcb98eef3ede4455bdb3d5de6ccc4031e5"
     },
     {
       "path": "crates/cellar/application/outbox.rs",

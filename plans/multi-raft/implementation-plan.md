@@ -652,43 +652,47 @@ shown by `plan.py show MR-11`; the manifest is authoritative for arguments.
 
 Dependencies: MR-08, MR-09, MR-11. Phase: v1. Status: IN_PROGRESS.
 
-The [committed alarm evidence](evidence/MR-12-alarm-progress.json) pins source
-`5a6b606c21b2ec8848d6f88ce76f783676d61f70`: all 322 unique Rust cases across
-19 binaries and all 31 checks pass. The eight effects cases include five new
-alarm cases: three-voter recovery after leader loss during an eight-second
-interval without incoming requests, private-intent suppression, rearm/cancel and
-public system-operation refusal, four pre-catalog capability/capacity refusals,
-and joined timer cancellation through public Node shutdown. The matrix includes
-all 42 snapshot, 29 archive, 27 host, 25 membership, 18 read, 17 LTX, 17 storage,
-16 execution, 16 directory and 50 Raft library cases, seven pure leadership and
-14 Fleet regressions, plus the affected Node lifecycle case. Nine ignored child
-entry points execute through owning parents and are excluded. Clippy, both LTX
-modes, format (685 Rust files), layout, dependencies, docs, 17 planning tests and
-71-anchor preflight pass.
+The [complete business-feature evidence](evidence/MR-12.json) pins source
+`a28babe1904c1287cb4d1877674bd98a87313700`: all 782 unique unit/integration cases
+identified by target/name across 21 binaries, four compile-fail SDK doctests,
+two producer/receiver process runs and all 34 checks pass. This includes all 413
+library cases, all 88 public Node cases, 16 native effects cases, all 42 snapshot
+cases and owning Raft/Fleet outbox/event-stream regressions. Nine child entry
+points execute through owning parents and are excluded from unique totals.
 
-Declared alarms persist generations in the business transaction and fire through
-private system commands with ordinary term/process/commit/publication/durability
-gates. Followers and learners cannot invoke them; normal callers cannot discover
-or invoke the system operations or consume their scoped client. One owned timer
-bounds discovery and metadata. Physical SQL work can delay that timer; existing
-receipt limits apply with no automatic pruning. No generic latency or unlimited
-uptime is claimed. The native alarm cases use Quorum intents; S3 alarm-specific
-outage/failover cuts are not claimed. The previous
-[Blob component](evidence/MR-12-blob-progress.json) separately records 354 cases
-and all 88 public Node regressions at `8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a`.
+All six original MR-12 requirements are present and pass. A held private emission
+produces no sends. An old source request commits at the receiver while its S3
+response is held; source primary replacement retries identical bytes/ID and
+produces one receiver mutation. Lost source settlement output leaves an actual
+ambiguous close report, while survivors recover the replicated prefix without
+another send. Authenticated retries preserve one client per lane; wrong bytes,
+policy and unrelated operations cannot consume that identity. Actual S3-gated
+self-delivery qualifies stable definition identity without recursive manifests;
+full namespace compatibility still checks the complete compiled schema.
 
-Two of six original MR-12 requirements are implemented: Blob closure and
-no-traffic alarm recovery. Outbox dispatch, destination receipts, leadership races,
-delivery progress, the full unsupported mutable-binding gate and examples remain.
-MR-12 remains IN_PROGRESS. Unified Node semantic Raft drain/archive obligations,
-release/24-hour soak, physical scale tiers and federation remain later milestones.
+Alarms/outbox share one bounded owned scheduler and committed internal allocator.
+Native mutable-factory refusal precedes catalog/engine creation; static SDK
+checks exclude Workflow/Queue/container/socket capabilities. Immutable Blob
+bytes remain in the complete verified archive closure. The
+[executable recovery example](https://github.com/crabbuild/cellar/blob/a28babe1904c1287cb4d1877674bd98a87313700/examples/raft-effects/README.md)
+replaces a primary and resumes the same retained disks in another process.
+The [business-feature contract](effects-design.md) records bounds, proof and retry
+semantics. Earlier [Blob](evidence/MR-12-blob-progress.json) and
+[alarm](evidence/MR-12-alarm-progress.json) component records retain their original
+source pins and limits; counts from different sources are not added.
 
-The [business-feature contract](effects-design.md) records these boundaries
-and the remaining outbox implementation.
+MR-12 is DONE at this stated native boundary. Generic receipt limits still apply
+without automatic pruning; long outages/permanent refusals retain and can block
+lanes. Physical SQL can delay the single scheduler. There is no arbitrary external
+exactly-once, production latency/capacity, physical-zone or complete-release claim.
+Public Node-first closure still supplies joined cancellation rather than a
+semantic Raft/archive report. Unified shutdown, readiness, resources, safe receipt
+maintenance and fenced disaster recovery remain MR-13. MR-14 through MR-17 retain
+their workload, release/24-hour soak, physical-scale and federation gates.
 
-Modify: `crates/cellar/application/outbox.rs`, `crates/cellar/application/storage/outbox.rs`, `crates/cellar/fleet/wake/mod.rs`, `crates/cellar-logic/alarm.rs`, `crates/cellar/runtime/workers/native/mod.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/storage/sqlite/command.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/execution.rs`.
+Modify: `crates/cellar/application/outbox.rs`, `crates/cellar/application/storage/outbox.rs`, `crates/cellar/fleet/wake/mod.rs`, `crates/cellar-logic/alarm.rs`, `crates/cellar/runtime/workers/native/mod.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/storage/sqlite/command.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/execution.rs`, `crates/cellar/Cargo.toml`, `crates/cellar/application/mod.rs`, `crates/cellar/durability/raft/host_standby.rs`.
 
-Create: `crates/cellar/durability/raft/effects.rs`, `crates/cellar/tests/native_raft_effects.rs`, `crates/cellar/durability/raft/effect_blob.rs`, `crates/cellar/durability/raft/effect_blob_tests.rs`, `plans/multi-raft/effects-design.md`, `crates/cellar/durability/raft/effect_alarm.rs`, `crates/cellar/durability/raft/host_alarms.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`.
+Create: `crates/cellar/durability/raft/effects.rs`, `crates/cellar/tests/native_raft_effects.rs`, `crates/cellar/durability/raft/effect_blob.rs`, `crates/cellar/durability/raft/effect_blob_tests.rs`, `plans/multi-raft/effects-design.md`, `crates/cellar/durability/raft/effect_alarm.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/effect_delivery_tests.rs`, `crates/cellar/durability/raft/effect_inbox.rs`, `crates/cellar/durability/raft/effect_outbox.rs`, `crates/cellar/durability/raft/effect_options.rs`, `crates/cellar/durability/raft/effect_scan.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_binding_gate.rs`, `examples/raft-effects/main.rs`, `examples/raft-effects/effects.rs`, `examples/raft-effects/README.md`, `examples/raft-effects/smoke.py`.
 
 1. Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.
 2. Recover wake scheduling after election without ordinary cell constructors or user traffic.

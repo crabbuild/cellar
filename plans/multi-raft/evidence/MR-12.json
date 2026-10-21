@@ -1,0 +1,4793 @@
+{
+  "task_id": "MR-12",
+  "source_revision": "a28babe1904c1287cb4d1877674bd98a87313700",
+  "scope": "Committed alarms, signed outbox/inbox requests and durable receiver receipts, replicated conditional settlement, capability gates, immutable Blob closure and an executable producer/receiver primary-replacement/retained-disk restart drill. Full unit and owning integration regressions at one frozen source.",
+  "toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "build_environment": {
+    "RUSTUP_TOOLCHAIN": "1.98.1",
+    "CARGO_TARGET_DIR": "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "3"
+  },
+  "executable_digest": "75b79aba9258143804030ed9c6b7d9c809a8c7ac0cadce7d8b664ff0456f2dd1",
+  "environment": "macOS native Rust Node/SDK/SQLite/LTX/Raft Engine/TLS. Two independent three-voter clusters exercise delivery races; three-voter groups exercise alarms. Explicit single-voter development fixtures exercise Blob closure and self-delivery; unsupported-factory cases create no Raft engine/catalog. The process drill uses three real local Node instances/two groups and the persistent development Bucket object-store adapter. Integration stores use real conditional in-memory operations. No cellar_internal_tests.",
+  "limitations": "All 782 unique unit/integration cases identified by target/name across 21 binaries pass at this source, plus four compile-fail SDK capability doctests and a two-process producer/receiver restart drill; all 34 recorded commands pass. Nine ignored child entry points run through owning parents and are excluded from totals. All six original MR-12 requirements are present and pass. A held private emission produces zero sends; rollback retains the prior settled prefix. The leadership race observes committed receiver state while its S3 response is held, replaces the source primary, requires a new identical request/ID, then verifies one receiver mutation and replicated settlement. The lost-completion case blocks source archive after receiving actual receiver proof, observes committed settlement below S3 coverage, closes the primary with a nonempty ambiguous-command report, and recovers the settled prefix without another send. This is native receiver idempotency, not a generic external exactly-once guarantee or Byzantine certificate. Requests and receipts bind full histories, stable target definition plus exact operation contract, keys, policy and actual payload. Immutable namespace roots still check the full compiled manifest; definition identities permit self/cyclic declarations without recursive hashes. Native self-delivery is qualified with one explicit development voter; multi-voter cross-cluster delivery has separate cases. Normal receiver operations cannot consume delivery clients; altered inputs and insufficient receipt policy refuse, equal and older retained retries return exact stored receipts, and later lane sequences reuse one client. Alarms and outbox share one internal allocator, scheduler and precharged metadata; priority alternates per history. Public Node-first cancellation still joins its timer domain, but its existing Fleet outcome does not provide a graceful Raft close receipt/archive obligations. MR-13 must unify that contract, role readiness, metrics and safe receipt maintenance. Existing receipt limits apply with no automatic pruning, latest-receiver retention/pruning API or unlimited-duration/outage claim. Permanently refused deliveries remain retained and block their lane; no implicit payload rewrite or dead-letter/skip operation. Physical SQL can delay the single scheduler; no latency SLO is established. Keys/grants/limits/protocol identities enter class compatibility; normal classes preserve prior identity. Prototype diagnostic failures below are retained with honest source notes, not treated as qualification of an uncommitted tree. The restart drill resumes retained disks and a persistent development object store, with explicit demo identities/keys. No physical Amazon S3, machine power loss, independent physical zones, production performance/capacity, 24-hour soak, 30/100/1000-node tiers, federation or complete release is claimed. MR-13 through MR-17 remain open. Existing vendored warnings remain visible.",
+  "executables": {
+    "native_raft_effects": {
+      "sha256": "75b79aba9258143804030ed9c6b7d9c809a8c7ac0cadce7d8b664ff0456f2dd1",
+      "bytes": 133345584
+    },
+    "native_event_stream": {
+      "sha256": "3c4ee23cdf8982e3e25c5011fa4672bc038e3b4b02dac962e77630161fb72597",
+      "bytes": 69988288
+    },
+    "native_log_protocol": {
+      "sha256": "5cb288edd30b5c5ca1433b4f8edf71099f9ea1af2808b303760d85b92aeac5e8",
+      "bytes": 31750080
+    },
+    "native_outbox": {
+      "sha256": "292b4d197da9c79605f03fbd4b73acd6358789a5657190ef4e79e507855f6cca",
+      "bytes": 67880256
+    },
+    "native_replication": {
+      "sha256": "ec0537b9cb0116cce4c49f5faa3b2d01233a2c92020f00b40c27c4a6b083cf3e",
+      "bytes": 46704464
+    },
+    "native_storage": {
+      "sha256": "ea212edc7c7aa7cc47a5431d84e22fb3873cda6fb5dc4ee8deeab747ea0add89",
+      "bytes": 67500816
+    },
+    "native_raft_membership": {
+      "sha256": "cb1ae807de8a050ddc68ba1c797d9fee53f3f6454570f0b768b0b09561cfeb66",
+      "bytes": 133989504
+    },
+    "cellar_logic_lib": {
+      "sha256": "3a88d46f912cadc91be43c81c6d4c5770e76a8d0ce77b624333cce1042a96c7a",
+      "bytes": 1228768
+    },
+    "cellar_lib": {
+      "sha256": "658155e834f85d4ad0d25c88a4c3533ba0cc5312640cb3cfff64af3834fd022a",
+      "bytes": 144142576
+    },
+    "native_raft_archive": {
+      "sha256": "aade0fcccc3615176cd85c95a41199634eb6359fe84ead62606455c94f7de5f0",
+      "bytes": 135568464
+    },
+    "native_raft_contract": {
+      "sha256": "f6336c5614a15df7d3515a6ae46623061a27e0f7a608c89a910824c50a284001",
+      "bytes": 2725824
+    },
+    "native_raft_directory": {
+      "sha256": "895f2fe5c43e42b5c34ffba4772d63d15f9f5fc7195620057af1bcb51d951c32",
+      "bytes": 133008816
+    },
+    "native_raft_execution": {
+      "sha256": "1c42e83746db8afdb754986d86c380a128e78e96a250b14f00696aa0477c4878",
+      "bytes": 28477376
+    },
+    "native_raft_host": {
+      "sha256": "7272797d83cb194b5dae18ad8fb1464ef3ec0934e3056a1ff4fed14818588700",
+      "bytes": 137266064
+    },
+    "native_raft_ltx": {
+      "sha256": "fcaea480b4f2f10562fd08d323e4cfefed099a5a07062d7b8c59109f93acbc8f",
+      "bytes": 10696736
+    },
+    "native_raft_reads": {
+      "sha256": "fc503025cd1903234e5fa2d2d798ed55ae0e18bccda0402a0bf92f2ea538a45c",
+      "bytes": 134089248
+    },
+    "native_raft_runtime": {
+      "sha256": "1cf49466eabf2f057d076a92ce3ed273c17a4d7a0a19fb9ee85c2f939f3832de",
+      "bytes": 23262912
+    },
+    "native_raft_storage": {
+      "sha256": "ac99695360f51d95a78cc30fd0f11ee6ed024da5225896208b941bac94c08bbf",
+      "bytes": 20966960
+    },
+    "native_raft_transport": {
+      "sha256": "9fbd0ab1b5011d10fb7cc68cad23634bf730d93d291959b55d34aa1d0724012f",
+      "bytes": 32550960
+    },
+    "native_raft_snapshot": {
+      "sha256": "f96121e84db671784ae9c44c88b4ae8dffa5cea01c095acb6b7e8a5bf9d7e251",
+      "bytes": 135111904
+    },
+    "native_node": {
+      "sha256": "e95192570746676a90cfc02e37ac34bf36b67a2be757624efcbd79eb32bc4082",
+      "bytes": 147844736
+    }
+  },
+  "tests": [
+    {
+      "name": "alarm_no_traffic_recovery",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "binding_gate::fleet_bindings_cannot_name_a_raft_class",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "blob_archive_dependency",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "blob_capability_and_archive_capacity_gate",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "blob_private_rollback_and_duplicate_content",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "delivery_progress_replicated",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "effect_leadership_race",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_alarm_and_outbox_share_internal_client",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_alarm_node_shutdown_joins_owned_timer",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_alarm_private_intent_is_not_scheduled",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_alarm_rearm_cancel_and_public_system_refusal",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_alarm_requires_scheduler_before_catalog_activation",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_delivery_authentication_and_receipt_replay",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_outbox_self_delivery_definition_identity",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "outbox_never_speculative",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_binding_gate",
+      "target": "native_raft_effects",
+      "result": "passed"
+    },
+    {
+      "name": "native_catalog_delivery_retention_and_revocation_preserve_durable_identity",
+      "target": "native_event_stream",
+      "result": "passed"
+    },
+    {
+      "name": "a_new_lineage_cannot_certify_or_collect_an_old_follower_session",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "follower_gc_discovers_current_sessions_and_requires_closed_authority",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "log_wire_requires_current_shapes_and_complete_frames",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "modern_leases_keep_recovery_pointers_and_cas_tombstones",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "signed_control_reply_rejects_excess_chunked_bytes",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "signed_control_reply_rejects_excess_declared_length",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "signed_transport_retains_both_caller_pools_and_authenticates_requests",
+      "target": "native_log_protocol",
+      "result": "passed"
+    },
+    {
+      "name": "sdk_emission_obeys_transaction_authority_and_bound_publication_grants",
+      "target": "native_outbox",
+      "result": "passed"
+    },
+    {
+      "name": "clean_reload_inventory_preserves_evicted_cache",
+      "target": "native_replication",
+      "result": "passed"
+    },
+    {
+      "name": "command_line_replication_adapter_validates_and_captures_policy",
+      "target": "native_replication",
+      "result": "passed"
+    },
+    {
+      "name": "generic_and_native_s3_page_reads_keep_the_supplied_credential_provider",
+      "target": "native_replication",
+      "result": "passed"
+    },
+    {
+      "name": "idle_replica_maintains_aged_wal_and_releases_its_database_on_close",
+      "target": "native_replication",
+      "result": "passed"
+    },
+    {
+      "name": "replication_configuration_rejects_invalid_limits_and_namespaces",
+      "target": "native_replication",
+      "result": "passed"
+    },
+    {
+      "name": "shared_store_namespaces_retain_real_durability_and_caller_page_readers",
+      "target": "native_replication",
+      "result": "passed"
+    },
+    {
+      "name": "native_storage_transactions_cursors_and_proofs_use_production_turns",
+      "target": "native_storage",
+      "result": "passed"
+    },
+    {
+      "name": "automatic_empty_cell_repair_before_first_command",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "automatic_minority_does_not_seed_from_reachable_s3",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "automatic_no_traffic_repair",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "automatic_plan_recovers_controller_and_leader_loss",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "failed_domains_cannot_prove_remaining_voter_diversity",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "insufficient_domain_capacity",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "joint_configuration_restart",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "joint_plan_process_kill_resume",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "leader_balance_with_lag",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "learner_before_promotion",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "minority_cannot_reconfigure",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "native_leadership_transfer_checks_progress",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_balances_the_limiting_capacity",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_is_deterministic_and_preserves_member_watermark",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_keeps_joint_and_pending_plans_serialized",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_refuses_duplicate_physical_nodes_and_invalid_policy",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_refuses_incompatible_draining_full_and_overflowed_targets",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_refuses_invalid_view_and_exhausted_member_ids",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_refuses_stale_capacity_and_unconfirmed_failure",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "placement_treats_zone_names_within_their_regions",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "registered_standby_activation_shutdown_joins",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "registered_standby_peer_activation_retains_handles",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "registered_standby_refuses_quorumless_s3_activation",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "registered_standby_s3_activation_and_restart",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "stale_plan_idempotence",
+      "target": "native_raft_membership",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::cooldown_joint_repair_and_deadband_suppress_moves",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::deterministic_balancing_binds_history_term_and_revision",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::drain_bypasses_pressure_but_preserves_target_eligibility",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::lagging_or_unapplied_voters_are_ineligible",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::malformed_views_and_foreign_or_duplicate_samples_are_refused",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::projected_utilization_does_not_oscillate_or_ignore_capacity_weights",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft_leadership::tests::stale_unavailable_incompatible_draining_and_full_samples_are_refused",
+      "target": "cellar_logic_lib",
+      "result": "passed"
+    },
+    {
+      "name": "actor::output_proofs::tests::records_adapter_sources_and_errors_without_inventing_cancelled_proofs",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::blob::types::tests::blob_range_and_condition_parsing_need_no_store",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::cron::types::tests::cron_retry_control_is_shared_only_within_one_occurrence",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::authority::tests::proposed_grants_do_not_supply_resource_creation_authority",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::catalog::tests::duplicate_and_stale_catalog_completions_preserve_accepted_metadata",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::catalog_inventory::tests::catalog_cursor_and_pages_bind_namespace_identity_and_tail",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::catalog_inventory::tests::catalog_metadata_refuses_sensitive_fields_and_preserves_decimal_revisions",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::configuration_acceptance_binds_exact_definition_and_historical_operation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::configuration_error_metadata_retains_bounded_unicode_and_exact_revisions",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::configuration_rejects_wrong_identity_revision_digest_and_state",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::malformed_read_encoding_and_zero_event_version_are_typed_failures",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::pending_configuration_allows_only_consistent_accepted_metadata",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::raw_read_preserves_unknown_schema_and_exact_integer_payloads",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::replay_preserves_positions_above_binary64_and_at_i64_end",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::replay_rejects_batches_over_caller_or_host_budgets",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::replay_rejects_noncanonical_metadata_and_record_offsets",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::replay_rejects_skipped_offsets_and_unmatched_next_cursor",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::replay_rejects_wrong_envelope_family_lane_or_event_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::replay_respects_the_requested_position_and_empty_end_cursor",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::client::tests::unrestricted_read_still_rejects_protocol_record_overflow_before_decoding",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::encoding::tests::payload_encoding_preserves_integer_ranges_and_does_not_read_numbers_in_strings",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::contradictory_and_invalid_error_envelopes_are_ambiguous",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::definitive_broker_refusals_bypass_success_metadata_acceptance",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::error_metadata_is_bounded_before_typed_acceptance",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::invalid_submitted_success_metadata_is_ambiguous_without_reflecting_details",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::malformed_or_unprojectable_wire_results_are_ambiguous_without_payload_text",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::oversized_json_wire_is_refused_before_successful_decoding",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::public_code_names_match_wire_names_and_contextual_errors_remain_typed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::successful_reply_moves_its_payload_without_cloning",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::valid_protocol_errors_preserve_codes_and_exact_metadata",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::error::tests::wire_reply_decodes_broker_envelopes_and_preserves_known_refusals",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::inventory::tests::inventory_cursor_rejects_foreign_resources_and_malformed_fields",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::audit_acceptance_preserves_gapped_sequence_and_other_authorized_principals",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::audit_bounds_record_count_before_typed_receipt_decode",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::audit_rejects_count_order_scope_and_unmatched_continuations",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::deletion_requires_invalidation_and_precise_skipped_start",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::lifecycle_acceptance_matches_action_reason_operator_and_full_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::lifecycle_rejects_invalid_counter_time_reason_and_uuid",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::pause_and_resume_never_replace_incarnation_or_claim_loss",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::acceptance_tests::reset_requires_new_incarnation_exact_target_and_bounded_skipped_range",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::lifecycle::observation_tests::observation_acceptance_rejects_inconsistent_metrics_and_keeps_decimal_precision",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::name_resolution::tests::activated_generation_keeps_its_original_uuid",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::name_resolution::tests::name_authority_is_read_only_namespace_bound_and_header_bounded",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::retirement::acceptance_tests::pending_retirement_does_not_accept_partial_loss_metadata",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::retirement::acceptance_tests::retirement_acceptance_requires_terminal_loss_accounting_and_keeps_pending_intent",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::retirement::acceptance_tests::retirement_rejects_invalid_ranges_and_noncanonical_counters",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::retirement_store::tests::retirement_acceptance_preserves_exact_ranges_and_operator_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::service::tests::reservations_bound_hosts_and_lanes_and_release_on_cancellation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::source_inventory::tests::source_cursor_is_bound_to_tenant_application_resource_and_page_tail",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::source_inventory::tests::source_pages_preserve_large_watermarks_and_refuse_forged_identity_or_order",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::statistics::tests::stats_acceptance_preserves_precision_and_rejects_foreign_or_conflicting_observations",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::store::tests::live_lease_schedules_only_expiry_then_expired_lease_cleanup_unblocks_age",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::store::tests::required_protection_quiesces_age_work_then_progress_rearms_bounded_sweeps",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::store::tests::retention_configuration_release_and_rollback_preserve_deadline_authority",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::store::tests::scheduling_clamps_to_durable_clock_and_rejects_protected_deadline_overflow",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::acknowledgment_acceptance_preserves_definitive_statuses_and_refuses_unknown_success",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::extension_response_preserves_absolute_target_and_rejects_shortening",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_acceptance_preserves_exact_receipt_unknown_schema_and_integer_payload",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_bounds_second_envelope_by_remaining_batch_bytes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_enforces_caller_and_host_budgets_before_envelope_allocation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_preserves_offsets_and_deadlines_near_i64_end",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_rejects_invalid_lease_intervals_and_noncanonical_times",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_rejects_missing_repeated_skipped_and_noncanonical_offsets",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_rejects_untrusted_envelope_identity_and_malformed_codecs",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::fetch_rejects_wrong_resolved_subscription_and_recreation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::event_stream::subscription::tests::retry_acceptance_requires_canonical_deadline_consistent_with_delay",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::kv::validation::tests::kv_validation_uses_the_supplied_clock_and_expiry_floor",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::queue::message::tests::queue_codec_enforces_the_supplied_budget_without_a_host",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::sql::wire::tests::sql_request_normalization_preserves_typed_refusals",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::storage::outbox_inspection::tests::acceptance_checks_source_totals_reason_cardinality_and_decimal_ages",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::workflow::definition::tests::diagram_identity_and_references_are_validated",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::workflow::operator::tests::search_bounds_escaped_payloads_without_hiding_identity_or_redaction",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "application::workflow::types::tests::retention_uses_the_supplied_clock_and_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "blob_store::tests::interrupted_uploads_cannot_append_or_complete_and_abort_only_once",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "bucket::library_storage_tests::supplied_clients_keep_cas_fencing_and_scoped_pagination",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "container::exit_tests::delayed_old_exit_cannot_hide_the_latest_run_completion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::a_deadline_cut_reports_unfinished_work_and_retains_the_last_committed_state",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::caller_stops_drain_admitted_cells_and_facets_without_exiting_or_stopping_a_sibling",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::explicit_driver_policy_does_not_consult_shutdown_environment",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::fencing_core_failure_and_cancellation_return_control_and_close_admission",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::fencing_during_application_drain_preserves_the_authority_report",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::losing_fence_reports_is_a_core_failure_without_fabricating_a_fence",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::driver::tests::shutdown_policy_rejects_inconsistent_budgets_and_cli_settings_are_captured",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::closure_during_entered_poll_refuses_build_and_metrics_without_panicking",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::event_startup_activation_failure_closes_and_joins_before_returning",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::event_startup_activation_failure_preserves_the_supervisor_error_chain",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::event_startup_activation_failure_preserves_the_supervisor_outcome",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::event_startup_observes_supervisor_exit_before_activation_is_polled",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::event_startup_rejects_completed_outcomes_even_when_readiness_is_ready",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::embedded::tests::event_startup_waits_for_activation_and_preserves_live_supervision",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_failure::tests::local_gate_and_peer_gate_agree_on_typed_outcome",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_failure::tests::transport_certainty_survives_without_changing_replay_classification",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_failure::tests::unknown_peer_failures_never_claim_non_execution",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::always_ready_empty_frames_cannot_starve_cancellation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::cancellation_after_body_poll_drops_the_stalled_body",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::cancellation_wins_a_tie_with_an_exhausted_deadline",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::cancellation_wins_ready_success_and_dropped_sender_without_polling_body",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::chunk_overflow_stops_before_collecting_the_suffix",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::dropping_the_receiving_future_releases_its_body",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::exact_budget_and_unknown_length_chunks_are_accepted",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::exhausted_original_deadline_refuses_even_a_ready_body",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::hyper_incoming_distinguishes_declared_overflow_from_truncated_transport",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::many_tiny_frames_are_coalesced_within_the_byte_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::original_deadline_drops_a_stalled_body_without_network_retry_tag",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::oversized_declared_body_is_refused_without_polling",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::real_body_transport_failure_retains_its_activation_tag",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::receiver_enforces_the_shared_wire_ceiling_before_polling",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::unused_trailers_are_not_part_of_the_rpc_result",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_reply::tests::very_large_captured_budget_still_accepts_a_ready_body",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_resources::tests::activation_replays_only_tagged_transport_failure",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_resources::tests::activation_retry_retains_its_enclosing_deadline",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_resources::tests::permanent_activation_failure_is_not_replayed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_resources::tests::protocol_refusal_is_not_tagged_for_activation_replay",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_resources::tests::resolution_readiness_retries_do_not_extend_to_mutating_methods",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::a_submitted_timeout_cannot_undo_an_already_committed_effect",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::ambiguous_attempt_discards_its_route_without_replay_or_cleanup_wait",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::cancellation_after_submission_drops_the_wait_without_inventing_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::cancellation_of_an_unpolled_local_wait_releases_the_actual_activity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::cancellation_wins_ready_result_and_deadline_before_submission",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::existing_typed_outcomes_survive_and_large_budgets_do_not_reset",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::expired_original_budget_never_polls_an_unsubmitted_operation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::expired_wait_setup_never_submits_or_commits_the_operation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::real_dispatch_route_timeout_cancels_the_pending_actor_request",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::routing_and_definite_refusal_deadlines_preserve_non_execution_certainty",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::event_wait::tests::submitted_effect_survives_wait_installation_after_the_original_deadline",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::peer_tunnel::tests::dead_tunnel_returns_exact_unsent_request_for_safe_retry",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::wake_discovery::tests::cold_discovery_waits_for_activation_without_consuming_work",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::wake_discovery::tests::failed_or_cancelled_activation_never_starts_discovery",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "daemon::wake_discovery::tests::runtime_without_event_activation_starts_discovery_immediately",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_cli::inventory::tests::fleet_cursor_cannot_move_between_buckets_or_continuation_kinds",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_cli::tests::collection_bounds_cannot_be_unrestricted",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_inventory::tests::descriptor_scope_and_request_kind_cannot_be_substituted",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_inventory::tests::history_preserves_precision_and_binds_scope_tail_and_lifecycle",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_metrics::tests::cancellation_and_clock_observations_retain_their_host_across_domains",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_metrics::tests::metrics_are_bounded_saturating_and_preserve_integer_precision",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_state::tests::failed_acceptance_never_partially_changes_fleet_totals",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "event_state::tests::gauge_sums_are_exact_above_i64_and_ages_take_maximum",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_gates::library_ownership_tests::abort_publication_and_retirement_keep_the_captured_host",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_gates::library_ownership_tests::closed_domains_cannot_turn_missing_output_channels_into_ungated_effects",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_gates::library_ownership_tests::context_cleanup_in_another_domain_only_abandons_its_own_gate",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::input_gate_lifecycle::tests::a_claim_retains_its_origin_and_terminal_retirement_refuses_new_claims",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::input_gate_lifecycle::tests::answered_idle_driver_waits_for_final_origin_claim_release",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::input_gate_lifecycle::tests::subscription_precedes_retirement_recheck_and_observes_a_short_lived_claim",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::budget_is_atomic_invocation_local_and_counts_failed_attempts",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::completed_turns_share_one_budget_without_charging_suspension",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::guards_restore_nested_context_before_reentrant_cleanup",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::input_gate_retirement_drains_exact_claims_and_notifies_outside_ownership_lock",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::mailbox_wakes_its_driver_and_terminal_retirement_refuses_new_work",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::panic_unwinds_to_the_original_host_turn",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::refused_and_abandoned_background_work_drops_after_unlocking_event_state",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::socket_cleanup_receives_the_retiring_owner_after_its_guard_restores_the_predecessor",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::tail_capture_uses_serialized_bytes_and_stops_at_first_oversized_record",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::temporary_directories_are_lazy_and_do_not_cross_invocations",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_io::tests::weak_registration_does_not_retain_the_invocation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_loader::tests::concurrent_admission_shares_principal_limits_and_reserves_host_capacity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_loader::tests::facet_claims_root_retirement_and_pins_keep_their_host_when_identities_collide",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_loader::tests::loader_quotas_and_owner_retirement_are_independent_on_one_application_runtime",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::budget::tests::malformed_or_oversized_requests_cannot_extend_the_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::budget::tests::validated_poll_wait_is_added_once_to_transport_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::tests::declared_poll_wait_survives_a_short_transport_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::tests::dropped_submitted_result_is_ambiguous_and_cancels_exact_request",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::tests::pending_source_gate_times_out_without_submitting",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::tests::queued_source_timeout_cancels_the_submitted_request",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_rpc::tests::refused_source_gate_never_submits_event_rpc",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_services::runtime_policy_tests::queue_lease_uses_its_own_host_runtime_and_settlement_policy",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_tcp::tests::default_invocation_cleanup_closes_transport_and_allows_reentrant_drop",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_tcp::tests::pending_tls_opening_dropped_in_another_domain_closes_only_its_reserved_socket",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_tcp::tests::replaced_transport_is_released_outside_the_registry_lock",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_tcp::tests::transport_cleanup_and_domain_shutdown_keep_colliding_socket_ids_separate",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_tcp::tests::transport_reservations_tls_starttls_and_cancellation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_turn::tests::admitted_reply_still_waits_for_discovery_and_reports_completion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_turn::tests::closed_poll_discards_success_value_and_never_bypasses_gate",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "host_turn::tests::closed_poll_refuses_alarm_gate_reply_without_panic_or_output",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "html_rewriter::tests::free_exits_threads_waiting_on_input_or_live_token_commands",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "http_policy::tests::client_construction_failure_returns_an_error_without_panicking",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "http_policy::tests::ordinary_pools_are_reused_and_closed_without_reconstruction",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "http_policy::tests::retained_host_services_cannot_rebuild_http_after_closure",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::body_reads_retain_their_original_domain_and_join_entered_io",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::cancelled_body_reader_retains_its_native_io_reservation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::cancelled_metadata_reader_retains_its_native_io_reservation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::closed_response_owner_refuses_a_new_read_on_another_domain",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::full_reads_stream_without_materializing_the_object",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::head_and_ranges_keep_metadata_conditions_and_exact_bytes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::head_does_not_materialize_the_object",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::range_does_not_materialize_the_object",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::replacing_a_body_mid_read_refuses_instead_of_mixing_versions",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::small_get_keeps_metadata_and_original_bytes_across_replacement",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::read_tests::stored_ltx_bytes_do_not_retain_upload_request_capacity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "local_store::schema_tests::system_tables_and_etags_survive_reopen",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_repl::source_facet_cleanup_tests::bounded_local_cleanup_restarts_and_preserves_outside_paths",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_repl::source_facet_cleanup_tests::cleanup_batches_preserve_root_and_sibling_replica_objects",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::event_inventory::tests::console_inventory_continuation_pins_fleet_and_filter",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::events::lifecycle_tests::lifecycle_actions_pin_scope_incarnation_and_exact_revision",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::events::lifecycle_tests::source_lifecycle_receipts_reject_foreign_payloads_and_false_completion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::events::tests::event_actions_reject_cross_target_and_unbounded_requests",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::events::tests::host_metrics_are_exact_and_fixed_schema",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::inventory::tests::metadata_excludes_secrets_and_keeps_shared_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::inventory::tests::page_limits_cannot_request_a_fleet_scan",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::inventory::tests::stream_metadata_excludes_grants_and_keeps_named_selectors",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "management::kv::tests::console_edits_validate_encoding_revision_and_json_metadata",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::gate::library_ownership_tests::queued_cleanup_uses_its_owner_after_the_domain_closes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::direct_native_bootstrap_preserves_turns_background_cancellation_gates_and_handoff",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::native_wake_releases_its_sender_lock_before_notifying_the_receiver",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::sdk_context_refuses_another_domain_and_effects_after_its_owner_closes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::source_recovery_retains_unavailable_application_alarms_without_consuming_retry_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::storage_authority_tests::closing_domain_before_commit_rolls_back_business_and_outbox_together",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::storage_authority_tests::retained_storage_refuses_wrong_and_closed_domains_inside_an_entered_turn",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::configuration_receipt_survives_own_grant_rotation_with_durable_expiry",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::duplicate_append_preserves_observed_expiry_across_clock_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::failed_configuration_preserves_observed_expiry_across_clock_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::protected_capacity_refusal_preserves_observed_expiry_across_clock_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::reconfiguration_preserves_observed_expiry_across_clock_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::rejected_batch_preserves_observed_expiry_across_clock_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::retirement_refusal_preserves_observed_expiry_across_clock_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::scheduling_cannot_forget_a_later_expiry_sample_within_one_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "native_worker::tests::stream_clock_tests::unauthorized_mutations_cannot_advance_the_durable_stream_clock",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_lifecycle::tests::cli_report_distinguishes_failure_from_fence",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_lifecycle::tests::cli_report_preserves_incomplete_shutdown",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_budget::tests::cancelled_caller_cannot_return_admission_before_entered_file_io_joins",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_budget::tests::sorted_consumption_and_uniqueness_rewind_retain_the_reservation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_scan_tests::concurrent_production_bundle_scans_keep_one_node_memory_bound",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_scan_tests::dead_session_bundle_recovery_preserves_original_rows_with_bounded_memory",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_scan_tests::production_bundle_scan_spills_original_rows_under_its_memory_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_snapshot::tests::a_duplicate_after_a_sort_run_cannot_expose_an_earlier_prefix",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_snapshot::tests::checked_bundle_reader_preserves_exact_rows_and_numeric_order",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_snapshot::tests::malformed_or_duplicate_envelopes_never_return_a_gather",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::bundle_snapshot::tests::source_changes_between_hash_and_copy_cannot_enter_the_gather",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_batch_tests::group_commit_bounds_empty_frames_too",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_batch_tests::group_commit_returns_the_unsent_frame_at_its_byte_budget",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_index::tests::indexed_reads_refuse_damage_in_later_chunks",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_index::tests::merge_refuses_scratch_faults_and_releases_failed_inputs",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_index::tests::sorted_inventory_preserves_every_descriptor_across_partial_runs",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_index::tests::unavailable_scratch_cannot_truncate_an_inventory",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::cold_inventory_refuses_late_directory_failure_without_caching",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::cold_inventory_spills_and_retains_missing_suffix_evidence",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::cold_scan_payload_residency_stays_bounded",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::exact_state_bound_is_read_without_losing_the_seal_floor",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::invalid_first_batch_cannot_acknowledge_an_unrepresentable_entry",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::noncanonical_batch_names_never_supply_recovery_proof",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::opened_batch_read_failures_cannot_credit_the_acknowledged_end",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::opened_state_failures_never_become_a_fresh_fragment",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::oversized_batch_preserves_the_required_end_without_requesting_payload",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::oversized_state_is_refused_before_any_payload_read",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::seal_payload_residency_stays_bounded",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::tail_refuses_valid_payload_substitution_after_indexing",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::tail_transfer_payload_residency_stays_bounded",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::warm_directory_observation_failure_does_not_invent_missing_data",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::warm_seal_corrupt_batch_refuses_cached_credit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::warm_seal_missing_batch_refuses_cached_credit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::warm_tail_corrupt_batch_refuses_cached_credit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::follower_state::tests::warm_tail_missing_batch_refuses_cached_credit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_bundles::tests::cancelled_multipart_recovery_retains_admission_until_entered_sqlite_upload_joins",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_bundles::tests::cancelled_recovery_retains_admission_until_entered_sqlite_upload_joins",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_bundles::tests::corrupt_bundle_refuses_the_whole_recovery_window_until_original_bytes_return",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_bundles::tests::multipart_recovery_preserves_original_rows_metadata_and_releases_admission",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_bundles::tests::recovery_upload_keeps_small_cell_histories_together_and_restores_every_commit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_bundles::tests::recovery_waiting_for_node_scan_admission_keeps_its_claim_live",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::explicit_cancellation_refuses_staging_sorting_and_batch_reads",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::gather_payload_residency_stays_bounded",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::indexed_payload_reread_must_match_its_digest_and_length",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::invalid_cell_is_refused_before_spooling_and_empty_needs_no_scratch",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::late_index_damage_refuses_after_a_successful_prefix",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::row_buffers_preserve_clones_and_reuse_completed_bodies",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::scratch_failures_never_return_an_empty_success_and_release_files",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::unavailable_scratch_refuses_the_obligation_without_creating_a_partial_index",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::upload_batches_bound_empty_rows_and_allow_one_large_row",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::upload_batches_bound_payload_and_metadata_without_losing_rows",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::valid_descriptor_duplication_cannot_cross_a_batch_watermark",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::valid_descriptor_duplication_cannot_skip_a_row",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::valid_foreign_descriptor_cannot_change_the_original_spool_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::valid_foreign_descriptor_cannot_hide_a_missing_row_as_a_duplicate_key",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::variable_keys_numeric_order_and_duplicate_precedence_survive_many_runs",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::recovery_rows::tests::verification_and_spool_copy_read_large_rows_in_chunks_and_preserve_precedence",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::a_large_lane_window_drains_replies_while_submission_is_backpressured",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::closure_in_the_current_poll_refuses_reader_admission_without_panicking",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::data_frames_keep_their_larger_limit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::metadata_header_refuses_before_requesting_its_payload",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::reply_burst_backpressures_and_joins_when_receiver_closes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::retirement_joins_a_spawned_reader_with_a_full_mailbox",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::reply_reader::tests::valid_metadata_preserves_fifo_across_backpressure_and_joins_at_eof",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::startup_retry::tests::lease_return_before_wait_wakes_without_waiting_for_ttl",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::startup_retry::tests::unchanged_heartbeat_absence_and_invalid_reads_preserve_backoff",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::startup_retry::tests::untagged_errors_preserve_backoff",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::active_snapshots_bound_admission_and_drop_releases_capacity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::cancelled_or_failed_cold_index_never_caches_partial_follower_state",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::completion_cannot_hide_trailing_stream_bytes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::disconnect_during_preparation_cancels_and_domain_joins_entered_io",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::incomplete_or_forged_streams_never_return_a_snapshot",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::late_snapshot_damage_aborts_the_shared_gather",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::maximum_admitted_entry_crosses_chunk_boundaries_without_refusal",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::missing_acknowledged_rows_remain_incomplete_and_refuse_warm_credit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::oversized_frame_is_refused_before_its_payload_is_read",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::preparation_progress_alone_never_supplies_a_witness",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::receiver_payload_residency_stays_bounded",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::receiver_scratch_faults_cannot_supply_a_verified_snapshot",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "node_log::tail_stream::tests::snapshot_transfer_retains_exact_rows_and_releases_follower_guard",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "outbox_cli::census::tests::census_bounds_and_source_selection",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "outbox_cli::census::tests::cursor_binds_fleet_prefix_and_class_without_assuming_provider_order",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "pool::turn_scheduler_tests::cancellation_racing_grant_keeps_the_next_waiter_runnable",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "pool::turn_scheduler_tests::cancelled_waiters_preserve_round_robin_and_same_lane_fifo",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "pool::turn_scheduler_tests::cancelling_a_granted_turn_before_its_next_poll_releases_the_lane",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "pool::turn_scheduler_tests::cancelling_the_only_granted_waiter_allows_new_turns",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "pool::turn_scheduler_tests::granting_a_turn_wakes_its_waiter_outside_the_scheduler_lock",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "pool::turn_scheduler_tests::receiving_a_grant_retains_exclusive_ownership_until_permit_drop",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::catalog_wire::tests::root_refuses_earlier_protocols",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::blob::tests::immutable_blob_capacity_refuses_growth_but_retains_duplicate_and_empty_values",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::blob::tests::immutable_blob_refuses_corrupt_bodies_and_reference_metadata",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::delivery::tests::canonical_and_semantic_wire_validation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::delivery::tests::delivery_bounds_and_secret_debug",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::delivery::tests::immutable_wire_and_payload_conflict_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::delivery::tests::receipt_binds_exact_request_destination_and_policy",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::effects::delivery::tests::request_requires_source_grant_and_exact_target",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::load::tests::partial_and_failed_scans_never_refresh_or_replace_a_complete_sample",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::load::tests::population_change_and_old_batches_cannot_complete_a_new_scan",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::load::tests::scan_refuses_deadline_identity_order_and_cardinality_errors",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::host::startup_tests::failed_preflight_joins_infrastructure_with_retained_handles",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::inspection_wire::tests::inspection_refuses_missing_nulls_and_conflicting_identity_or_progress",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::inspection_wire::tests::inspection_round_trip_preserves_durable_and_visible_cuts",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::mailbox::tests::receiver_does_not_retain_its_producers",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::mailbox::tests::receiver_teardown_joins_an_admitted_late_sender",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::manifest::tests::archive_configuration_set_order_is_canonical",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::manifest::tests::archive_configuration_unknown_and_duplicate_members_refused",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::aborted_learner_consumes_identity_before_another_plan",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::completed_plan_retains_receipt_without_blocking_later_manual_configuration",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::explicit_joint_plan_retains_outgoing_members_until_finish",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::maximum_repair_membership_fits_completion_metadata_bound",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::omitted_nullable_repair_fields_are_not_a_current_record",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::repair_intent_refuses_payload_rebinding_and_configuration_substitution",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::repairs::tests::repair_plan_serializes_and_requires_the_original_phase",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::fresh_bindings_require_learner_first",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::joint_leave_keeps_bindings_until_outgoing_member_retires",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::retired_ids_and_watermark_survive_serialization",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::snapshot_successor_refuses_rebinding_resurrection_and_lost_watermark",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::member_state::tests::stale_noncanonical_unknown_and_oversized_intents_refused",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_origin_binds_node_process_without_voting_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_binds_channel_request_route_and_payload",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_failures_remain_typed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_preserves_explicit_constraints",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::query_wire::tests::query_wire_refuses_size_replay_and_consensus_domain_confusion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::authenticated_body_cannot_cross_history_or_physical_owner",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::inspection_mac_rejects_other_purposes_channels_and_request_replay",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::inspection_physical_route_rejects_unscoped_and_zero_identities",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::inspections::tests::only_a_direct_failed_dial_is_unreachable",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_deadline_and_missing_discovery_never_report_failed_tcp",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_grants_stay_separate_and_revoked_across_process_refresh",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_owns_bounded_sockets_through_cancel_refresh_and_shutdown",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::inspection::inspection_revocation_and_process_refresh_cancel_an_admitted_inbound_call",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::process_observation_and_seed_epochs_have_fixed_node_limits",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::process_refresh_is_atomic_across_routes_grants_and_capacity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::directory::process_refresh_pins_instance_and_future_route_admission",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::poisoned_registry_still_waits_for_resource_owners",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport::tests::query_grants_are_scoped_revocable_and_never_voting_authority",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::lane_is_derived_from_actual_message",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::prefix_rejects_large_lengths_before_header_allocation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::protobuf_preflight_bounds_decoded_entries_and_snapshot_members",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::request_binds_body_prefix_and_channel",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::response_domain_cannot_authenticate_request",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::response_requires_channel_request_and_route",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "raft::transport_frame::tests::strict_header_identity_sequence_and_protocol",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::catalog_control::tests::catalog_control_arguments_use_the_event_rpc_decoder_contract",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::catalog_control::tests::retirement_proof_decoder_and_projection_require_exact_terminal_identity",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::rpc_authority::tests::catalog_authority_is_namespace_and_method_bound_without_resource_promotion",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::rpc_authority::tests::event_operator_authority_is_read_or_admin_and_stream_method_bound",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::rpc_authority::tests::inventory_capability_is_separate_from_metrics_and_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::rpc_authority::tests::retirement_proof_capability_is_resource_scoped_and_read_only",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::rpc_authority::tests::source_authority_is_method_and_scope_bound_and_preserves_event_wire_shape",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::rpc_authority::tests::state_sample_capability_cannot_authorize_another_scope_or_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::stream_control::tests::read_projection_rejects_malformed_or_foreign_pages",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::stream_control::tests::source_projection_refuses_forged_lanes_and_sensitive_extra_fields",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "runtime::stream_control::tests::subscription_projection_rejects_foreign_and_unordered_inventory",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::event_schema::tests::future_and_missing_markers_fail_before_any_schema_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::event_schema::tests::marked_retirement_provenance_is_required_before_base_schema_changes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::event_schema::tests::retained_byte_windows_survive_wrap_prefix_reclamation_and_restore",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::event_schema::tests::stream_observation_layout_and_accounting_fail_before_base_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::identity_tests::established_actor_name_needs_no_writer_lock",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::identity_tests::warm_actor_identity_reuses_prepared_statements",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::inbox::tests::receipt_and_effect_rollback_and_duplicate_at_capacity_is_safe",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::activation_refuses_invalid_observation_accounting_and_missing_indices",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::caught_capacity_failure_consumes_no_sequence_and_leaves_no_partial_emit",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::emission_and_business_state_commit_or_rollback_together",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::incompatible_host_limits_refuse_activation_without_changing_pending_events",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::lane_accounting_and_blocked_reasons_follow_commit_rollback_and_restore",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::nested_rollback_and_grant_conflict_cannot_change_original_obligation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::ownership_change_preserves_lane_and_pending_event_bytes",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::rejected_first_envelope_does_not_initialize_identity_or_publish_work",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::reopen_preserves_pending_envelopes_seals_and_deadlines",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::resetting_user_storage_cannot_erase_pending_delivery_or_sequence_history",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::sealing_rolls_back_and_retains_a_recoverable_terminal_obligation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox::tests::unmarked_state_cannot_be_marked_or_repaired",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox_control::tests::lifecycle_work_and_missing_evidence_fail_before_base_schema_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::outbox_control::tests::source_receipts_survive_activation_and_corrupt_accounting_fails_closed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::system_schema_tests::reserved_schema_and_replication_survive_storage_reset_and_reopen",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::allocation_observations_preserve_warm_statements_and_sql_restrictions",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::batch_unwinding_rolls_back_without_leaking_authority",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::bulk_failures_rollback_only_their_atomic_boundary",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::bulk_storage_writes_preserve_warm_statements",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::storage_observations_never_reserve_the_writer",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::storage_transactions_do_not_expire_prepared_queries",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::transaction_cache_tests::transaction_privilege_never_authorizes_application_sql",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::application_alarm_consumption_keeps_framework_work_armed",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::current_projection_reopen_preserves_deadlines_and_publication_tombstones",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::generation_exhaustion_and_invalid_deadline_leave_prior_obligation_intact",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::previous_alarm_projection_is_refused_before_schema_or_identity_mutation",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::reasons_preserve_user_alarm_and_stale_completion_cannot_clear_replacement",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::repeated_scheduling_reuses_prepared_queries",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::restore_and_reset_preserve_internal_obligations_and_generations",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "storage::work::tests::work_and_wake_identity_follow_root_and_nested_rollback",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "wake_entry::tests::closing_inside_an_entered_poll_refuses_discovery_without_panicking",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "wake_format::tests::cutover_refuses_unmarked_state_and_previous_markers",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "wake_format::tests::fresh_fleet_initialization_is_concurrent_and_reopenable",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "worker::tests::native_bootstrap_never_initializes_or_looks_up_the_source_backend",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "ws_client::tests::verified_tls_and_ipv6_websocket_transport",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "ws_registry::retirement_tests::unregister_releases_backpressure_with_a_retained_reader",
+      "target": "cellar_lib",
+      "result": "passed"
+    },
+    {
+      "name": "archive_capture_refuses_unrelated_newer_marker",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_close_releases_workspace_before_returning",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_commands_reclaim_generations_with_small_disk_admission",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_cut_pins_retired_image_during_outage",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_head_lost_response_and_confirmation",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_head_monotonic",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_io_deadline_retries_without_reexecuting",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_never_speculative",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_noop_tail_and_exact_configuration_checkpoint",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_pin_pressure_defers_committed_apply_without_corruption",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_reconciles_lost_put_response",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_reference_refuses_substitution_and_missing_material",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_reference_stays_exact_after_head_advance",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_different_engine_birth",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_foreign_birth_and_noncanonical_head",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_refuses_member_binding_birth_mismatch",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_replay_failure_never_publishes_head",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_shutdown_joins_hung_store_without_acknowledging",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_tail_limit_establishes_new_snapshot",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "archive_verifies_every_dependency_and_object",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "bucket_archive_store_preserves_prefix_and_conditional_writes",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "committed_archive_restores_snapshot_and_physical_tail",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "quorum_s3_outage",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "retention_preserves_only_copy",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "retry_strengthens_durability",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_ack_complete_restore_set",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_three_voter_failover_restores_only_committed_commands",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "s3_timeout_ambiguous",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_s3_waiter_cannot_receive_success_after_deadline",
+      "target": "native_raft_archive",
+      "result": "passed"
+    },
+    {
+      "name": "birth_retry_identity",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "envelope_bounds",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "incarnation_token_scope",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "late_completion_model",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "mode_isolation",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "speculative_visibility_model",
+      "target": "native_raft_contract",
+      "result": "passed"
+    },
+    {
+      "name": "directory_deadline_does_not_publish_without_fence",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_late_closed_owner_cannot_replace_new_process",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_missing_view_restarts_above_old_revision",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_pin_reconciles_lost_create_and_confirmation",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_pin_refuses_new_engine_and_changed_disk",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_pin_shared_by_namespaces_has_no_group_authority",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_publication_retry_and_restart_order",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_reused_process_and_conflicting_attempt_refused",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "directory_scope_trust_corruption_and_bounds",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::inspection::native_complete_node_load_scan_covers_every_registered_history",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::inspection::native_peer_inspection_binds_member_and_dormant_physical_state",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::inspection::native_peer_inspection_refreshes_process_and_joins_retained_waiters",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_directory_outage_preserves_cached_quorum_routes",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_directory_shutdown_joins_paused_metadata",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_self_view_ignores_old_revision_and_joins_superseded_host",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "native::native_timer_refreshes_restarted_process_across_cell_groups",
+      "target": "native_raft_directory",
+      "result": "passed"
+    },
+    {
+      "name": "apply_entry_and_schema_identity_are_bound",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_marker_crash_cut",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "apply_recovery_follows_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_failure_and_result_limit_roll_back",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "command_transaction_restricts_sql_and_captures_inputs",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_command_digest",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "duplicate_command_receipt",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "image_publication_waits_for_engine_marker",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "lost_proposal_rebuild",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "new_term_barrier_retires_uncertain_shadow_without_reusing_it",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "oversized_delta_atomic_refusal",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_checkpoint_capture_covers_control_writes",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "private_commit_not_visible",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "receipt_expiry_floor",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "registered_command_uses_exact_image_receipt_and_read_only_query",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_command_recovery",
+      "target": "native_raft_execution",
+      "result": "passed"
+    },
+    {
+      "name": "birth_handle_cannot_cross_catalog_instances",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_private_callback_is_joined_before_its_slot_is_reused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_reconciles_lost_create_responses",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "catalog_refuses_corrupt_and_oversized_records",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "command_manifest_binds_voting_compatibility_without_query_requirements",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "competing_bootstrap_disks_cannot_both_join",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "control_capacity_survives_unpolled_business_waiters",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "fleet_gate_unchanged",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "inspection::member_inspection_preserves_published_cut_while_callback_is_private",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "inspection::standby_inspection_creates_no_member_or_group",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "live_mode_admission_refuses_conflicts_before_mutable_execution",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "namespace_mode_conflict",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_command_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "native_axum_nonmember_query_router_parity",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "operation_registration_binds_schema_kind_and_digest",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "parked_bootstrap_requires_stable_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "public_multi_group_replication_and_leader_failover",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "query_router_requires_existing_namespace_and_birth",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "raft_gate_exact_receipt",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "registered_callbacks_refuse_captured_sdk_handles",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "retained_handle_fenced",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_capacity_refused_before_member_storage_opens",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "standby_storage_pin_refuses_recreated_node_before_member_claim",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "submitted_partition_retains_producer_until_follower_barrier",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unconfirmed_claim_keeps_the_group_parked",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_waiter_cannot_submit_after_its_deadline",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "unsupported_factory_refused",
+      "target": "native_raft_host",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_checks_physical_index_and_snapshot_coverage",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_matches_both_ltx_writers",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_refuses_expansion_before_decompression",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_rejects_mutation_without_panics",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_decoder_round_trips_real_sqlite_state",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "bounded_image_reclamation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "image_sync_before_marker",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_query_uses_injected_filesystem",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "immutable_reader_pinning",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_checksum_corruption",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_exact_base",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "ltx_growth_truncation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "monotonic_generation_reference_survives_retirement_without_io",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "multi_file_apply_and_optional_checksum_transitions",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "query_services_and_directory_ownership_are_independent",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "recovered_inventory_retires_only_after_complete_reference_validation",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "unexpected_final_name_is_never_overwritten",
+      "target": "native_raft_ltx",
+      "result": "passed"
+    },
+    {
+      "name": "completed_unpolled_responses_keep_their_byte_budget",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "delayed_tcp_query_reply_cannot_settle_a_later_read",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "fallback_preserves_contract",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "linearizable_read_barrier",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "lost_read_index_response_retries_without_leader_change",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "minority_strong_read_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "nonmember_router_reads_only_granted_namespaces_without_local_state",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "ordinary_context::active_ordinary_context_and_storage_are_refused",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_token_auth_scope",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "query_write_capability_denied",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "read_your_writes_follower",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "remote_query_wait_cannot_block_its_ltx_catchup",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "saturated_query_peer_refuses_and_expires_queued_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "stale_is_committed_prefix",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "unpolled_query_deadline_interrupts_sql_and_joins_work",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_deadline_and_payload_limits",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "version_key_rotation_survives_restart_and_ambiguous_catalog_write",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "voter_without_query_code_can_route_to_a_compatible_replica",
+      "target": "native_raft_reads",
+      "result": "passed"
+    },
+    {
+      "name": "apply_progress_order",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_close_waiter_preserves_shared_join",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "current_term_admission_barrier",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "domain_shutdown_joins_consensus_and_log",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "election_randomness_is_explicit",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "failed_engine_closes_with_typed_error",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "light_ready_commit_saved",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "malformed_peer_message_is_refused",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "noop_configuration_progress",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "owned_clock_elects_without_campaign",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "pending_readindex_is_bounded",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "ready_persistence_order",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "runtime_close_fences_full_queue",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_requires_verified_install",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "stalled_group_isolation",
+      "target": "native_raft_runtime",
+      "result": "passed"
+    },
+    {
+      "name": "append_sync_boundary",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "birth_sync_retry_reuses_numeric_key",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "conflicting_suffix_replaced",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "corrupt_storage_refused",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "disk_loss_identity",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "engine_group_isolation",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "interrupted_purge_preserves_group",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::cancelled_close_waiter_does_not_abandon_storage_shutdown",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::engine_instance_marker_requires_a_nonzero_current_field",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::engine_instance_survives_restart_and_marker_substitution_is_refused",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::failed_node_revision_sync_closes_proof_admission",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::node_revision_preserves_group_state_and_restart_order",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::node_revision_process_kill_matrix",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "registration_storage::node_revision_waits_for_its_actual_sync",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_metadata_survives_process_kill",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "storage_budget_and_domain_close",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "vote_survives_restart",
+      "target": "native_raft_storage",
+      "result": "passed"
+    },
+    {
+      "name": "concurrent_senders_preserve_connection_sequence",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "control_progress_while_snapshot_pending",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "control_traffic_reserved",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "inbound_byte_budget_survives_frame_acknowledgement",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "inbound_snapshot_shutdown_preserves_durable_prefix",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "one_way_partition",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "peer_response_authenticated",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "protected_transport_refuses_wrong_hostname_and_plaintext",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "sender_hints_do_not_block_other_groups",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_completion_has_reserved_admission",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "stale_incarnation_message",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "transport_byte_limits",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "transport_owner_and_domain_shutdown",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "unknown_group_no_allocation",
+      "target": "native_raft_transport",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_completion_loss_still_retains_durable_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_failed_sync_preserves_prospective_recovery_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_handoff_survives_newer_apply_late_retirement_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "checkpoint_refuses_material_from_reopened_engine",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "compacted_boundary_term",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "empty_configuration_snapshot_installs_then_applies_first_ltx",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "empty_snapshot_refuses_data_and_cannot_erase_committed_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "maximum_image_retained_snapshot_and_archive_roundtrip",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "missing_quorum_restore_refused",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_s3_seed_refuses_missing_quorum",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_s3_seed_replays_tail_and_resumes_reads",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_seed_refuses_missing_quorum",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_seed_requires_committed_binding_and_resumes_reads",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_fresh_learner_seed_retries_partial_body_with_fresh_grant",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_peer_seed_crash_matrix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_s3_seed_crash_matrix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_s3_seed_does_not_wait_for_private_writer",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_s3_seed_missing_selected_payload_refuses_newer_head_fallback",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_s3_seed_reconciles_lost_member_claim_response",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_s3_seed_resumes_after_lost_claim_confirmation",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_s3_seed_resumes_synced_state_before_member_claim",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_admission_refuses_insufficient_restore_capacity",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_catchup_resumes_follower_reads",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_interrupted_transfer_retries_without_blocking_other_groups",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "native_snapshot_shutdown_joins_partial_transfer",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "restart_committed_replay",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "retained_checkpoint_capture_never_substitutes_newer_state",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "retained_empty_checkpoint_has_no_image_or_payload",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_joins_older_apply_and_allows_retry",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_preserves_vote_and_committed_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_abort_sync_failure_refuses_progress_and_recovers_prefix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_download_bounds_and_incomplete_refusal",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_install_crash_matrix",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_limits_require_full_encoded_image_capacity",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_member_binding_and_retirement_survive_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_old_reader",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_reference_survives_newer_head_and_restart",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_refuses_rebound_binding_and_lost_id_watermark",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_runtime_installs_physical_image_with_exact_ticket",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_same_cut_cannot_name_an_unrelated_applied_image",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_same_cut_requires_member_binding_marker",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "snapshot_wrong_history",
+      "target": "native_raft_snapshot",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_bootstrap_observation_does_not_consume_the_only_host_blocking_worker",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "cancelled_bootstrap_retains_directory_until_started_application_factory_has_joined",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "conclusively_lost_fleet_proof_cannot_install_a_successor",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "embedded_node_joins_raft_service_with_retained_handles",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "explicit_public_node_policy_ignores_invalid_process_configuration",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "factory_entry_observation_keeps_its_deadline_for_queued_notifications",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "failed_predecessor_recovery_preserves_the_predecessor_generation_and_releases_the_directory",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "full_node_admits_cold_cells_past_a_covered_alarm",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_authentication_generation_and_host_capabilities_are_enforced",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_crons_report_pending_until_embedded_host_adopts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_resource_writes_survive_forced_owner_closure",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_resource_writes_survive_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "management_stop_receipts_distinguish_draining_joined_and_incomplete_work",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_assets::embedded_nodes_keep_asset_caches_and_shutdown_independent",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::catalog_inventory_pages_tombstones_and_recovers_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::console_event_adapters_use_signed_owner_routes_and_guarded_receipts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_clock_retention::clock_retention_bounded_expiry_survives_rollback_and_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_clock_retention::clock_retention_required_checkpoint_survives_expiry_rollback_and_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_overlap::overlapping_consumers_deduplicate_before_current_ack",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_overlap::overlapping_consumers_preserve_next_lease_after_current_ack",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_takeover::running_consumer_cannot_accept_after_fenced_takeover",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_consumer_takeover::running_consumer_receipt_and_effect_cannot_commit_after_fenced_takeover",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_fetch_reply::lost_proven_fetch_recovers_exact_lease_after_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::delayed_proven_ack_survives_destination_fencing_without_consuming_the_next_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::late_proven_append_reply_cannot_settle_a_fenced_source_successor",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::operator_retry_ignores_prior_generation_append_acceptance",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_late_reply::operator_retry_ignores_prior_generation_append_refusal",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_metrics_export_tracks_real_work_and_keeps_hosts_isolated",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_owner_outage::storage_isolated_event_owner_expires_and_recovers_before_replay",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::cold_follower_audit_survives_one_read_deadline_without_receipt_replay",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::foreign_root_loss_during_recovery_refuses_takeover_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::foreign_root_replacement_during_recovery_refuses_takeover_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::live_foreign_recovery_resumes_after_missing_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::live_foreign_recovery_resumes_after_replaced_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::missing_destination_lease_refuses_admission_until_proof_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::refused_clock_bucket_proof_survives_rollback_and_forced_owner_loss",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::refused_clock_cold_followers_recover_before_any_receipt_replay",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::refused_clock_follower_proof_survives_rollback_without_owner_disk_or_upload",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_loss_after_lineage_capture_refuses_boot_until_original_proof_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_loss_after_recovery_refuses_lease_install_until_sealed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_loss_during_recovery_refuses_boot_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_replacement_after_lineage_capture_refuses_boot_until_original_proof_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_replacement_after_recovery_refuses_lease_install_until_sealed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::root_replacement_during_recovery_refuses_boot_until_claimed_metadata_returns",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_refusal_clock::same_name_restart_cannot_recover_from_a_fresh_lineage_after_root_loss",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_root_read::claimed_root_cut_holds_concurrent_original_responses",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_running_owner::running_source_poll_cannot_write_commit_or_reply_after_fenced_takeover",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_settlement_race::settlement_race_ack_replay_and_extension_preserve_next_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_settlement_race::settlement_race_expiry_replacement_refuses_old_ack_and_extension",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_settlement_race::settlement_race_reset_invalidates_pending_ack_and_extension",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_unproven_ack::unproven_ack_cannot_escape_its_gate_and_recovers_the_original_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::event_unproven_clock::unproven_clock_refusal_cannot_escape_and_does_not_revoke_the_original_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::lost_proven_append_and_ack_replies_preserve_exact_acceptance_and_effects",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::named_bindings_resolve_grants_and_pin_uuid_across_recreation",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::node_activates_declarations_checks_adoption_and_processes_redelivery",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::node_refuses_unsupported_storage_and_peer_protocol_before_admission",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::binary_upgrades_forward_prefetched_bytes_and_eof",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::bodyless_abort_response_keeps_next_message_framing_intact",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::controlled_destination_closure_preserves_framing_failures",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::destination_reset_requires_an_explicit_shutdown_cut",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::log_upgrade_relays_binary_bytes_and_joins_both_directions",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::log_upgrades_preserve_buffered_binary_bytes_and_half_closes",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::peer_reply_fault::outer_tunnel_keeps_http_fault_capture_after_upgrade",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::removed_source_class_recovers_delivery_and_control_without_application_code",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::retirement_operator_coordinates_or_forces_and_recovers_terminal_receipts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_destruction_fences_suspended_turns_retained_handles_and_preserves_live_watermarks",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_destruction_requires_retired_destinations_and_recovers_closed_admission",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_inventory_preserves_observed_watermarks_seals_and_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::source_operator_routes_to_owner_replays_receipts_and_recovers_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::stream_operator_routes_controls_preserves_receipts_and_checks_revocation",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_events::subscription_inventory_pages_tombstones_and_recovers_owner_handoff",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "node_http::embedded_hosts_capture_http_clients_and_separate_deadlines",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "progressing_background_extends_the_stall_window_but_not_the_absolute_node_deadline",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "progressing_background_keeps_the_fleet_drain_token_renewed",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_applies_lifted_limits_to_cell_storage",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_deadline_reports_background_work_before_forced_retirement",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_renews_short_authority_while_its_host_worker_is_blocked",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_reports_expired_authority_after_its_executor_resumes",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_reports_missing_and_replaced_lease_authority",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_shutdown_drains_alarm_background_before_the_durability_cut",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_node_shutdown_drains_nested_background_across_generations_and_isolates_hosts",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_nodes_adopt_compiled_generations_and_force_close_without_process_exit",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "public_nodes_drain_admitted_writes_isolate_fleets_and_leave_caller_executors_running",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "remote_workflow_deletion_preserves_gated_handler_completion",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "replacement_public_node_recovers_predecessor_before_replacing_its_lease",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "signed_cron_history_forwards_without_arming_and_refuses_other_protocols",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "slow_predecessor_recovery_still_refuses_missing_witness",
+      "target": "native_node",
+      "result": "passed"
+    },
+    {
+      "name": "timed_out_predecessor_recovery_preserves_generation_and_releases_directory",
+      "target": "native_node",
+      "result": "passed"
+    }
+  ],
+  "ignored_child_entrypoints": [
+    {
+      "name": "native_repairs::crashes::joint_process_fixture",
+      "target": "native_raft_membership"
+    },
+    {
+      "name": "apply_crash_process",
+      "target": "native_raft_execution"
+    },
+    {
+      "name": "private_crash_process",
+      "target": "native_raft_execution"
+    },
+    {
+      "name": "image_crash_process",
+      "target": "native_raft_ltx"
+    },
+    {
+      "name": "runtime_process_fixture",
+      "target": "native_raft_runtime"
+    },
+    {
+      "name": "storage_process_fixture",
+      "target": "native_raft_storage"
+    },
+    {
+      "name": "raft_transport_process",
+      "target": "native_raft_transport"
+    },
+    {
+      "name": "seed_crashes::native_seed_process_fixture",
+      "target": "native_raft_snapshot"
+    },
+    {
+      "name": "snapshot_process_fixture",
+      "target": "native_raft_snapshot"
+    }
+  ],
+  "counts": {
+    "rust_passed": 782,
+    "test_binaries": 21,
+    "rust_by_target": {
+      "native_raft_effects": 16,
+      "native_event_stream": 1,
+      "native_log_protocol": 7,
+      "native_outbox": 1,
+      "native_replication": 6,
+      "native_storage": 1,
+      "native_raft_membership": 25,
+      "cellar_logic_lib": 7,
+      "cellar_lib": 413,
+      "native_raft_archive": 29,
+      "native_raft_contract": 6,
+      "native_raft_directory": 16,
+      "native_raft_execution": 16,
+      "native_raft_host": 27,
+      "native_raft_ltx": 17,
+      "native_raft_reads": 18,
+      "native_raft_runtime": 15,
+      "native_raft_storage": 17,
+      "native_raft_transport": 14,
+      "native_raft_snapshot": 42,
+      "native_node": 88
+    },
+    "ignored_child_entrypoints": 9,
+    "compile_fail_doctests": 4,
+    "example_process_runs": 2,
+    "successful_commands": 34
+  },
+  "commands": [
+    {
+      "name": "list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_transport",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_node",
+        "--lib",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_storage",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-list.log",
+      "elapsed_seconds": 19.96,
+      "sha256": "c309a0ef35100baa4f8a0e86b2420f4119b9f6c990c9e067699479bbded13e5c"
+    },
+    {
+      "name": "inventory",
+      "argv": [
+        "python3",
+        "-c",
+        "import pathlib,re; s=pathlib.Path('plans/multi-raft/evidence/MR-12-outbox-list.log').read_text(); n=set(re.findall(r'^(\\S+): test$',s,re.M)); assert len([x for x in n if x.startswith('raft::effects::delivery::tests::')])==5; assert len([x for x in n if x.startswith('raft::effects::blob::tests::')])==2; assert {'automatic_no_traffic_repair','leader_balance_with_lag'}<=n; assert all('Running tests/'+t+'.rs' in s for t in ['native_raft_execution','native_raft_ltx','native_raft_storage','native_node']); print('Five delivery and two Blob unit cases; owning Raft/Node targets listed.')"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-inventory.log",
+      "elapsed_seconds": 0.05,
+      "sha256": "df826c4de4e568ce1282e4850b866d1abcfd757345e0956c457b8e172fdbef46"
+    },
+    {
+      "name": "effects-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_effects",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-effects-list.log",
+      "elapsed_seconds": 0.71,
+      "sha256": "b835aad28dbc282b04874202261732a50dc6c9795eeea67ffc03b1a66b0327be"
+    },
+    {
+      "name": "effects-inventory",
+      "argv": [
+        "python3",
+        "-c",
+        "import pathlib,re,json; p=pathlib.Path('plans/multi-raft'); n=set(re.findall(r'^(\\S+): test$',(p/'evidence/MR-12-outbox-effects-list.log').read_text(),re.M)); required={c['name'] for t in json.loads((p/'tasks.json').read_text())['tasks'] if t['id']=='MR-12' for c in t['test_cases']}; assert len(n)==16 and len(required)==6 and required<=n; assert {'native_outbox_self_delivery_definition_identity','native_delivery_authentication_and_receipt_replay','native_alarm_and_outbox_share_internal_client','binding_gate::fleet_bindings_cannot_name_a_raft_class'}<=n; print('16 native effects cases include ALL SIX original MR-12 requirements and self-delivery, shared-client, authentication and binding regressions.')"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-effects-inventory.log",
+      "elapsed_seconds": 0.06,
+      "sha256": "fe20d9eb12b1c994a21b8ae4269c9c4a00aa01df9eb9539db65ffe7c7e10d512"
+    },
+    {
+      "name": "effects-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_effects",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-effects-test.log",
+      "elapsed_seconds": 48.22,
+      "sha256": "a0f68d6f442bece90fc0a82df382ddfa4209356b01b4a7642d83a7759cb4d235"
+    },
+    {
+      "name": "fleet-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_storage",
+        "--test",
+        "native_replication",
+        "--test",
+        "native_log_protocol",
+        "--test",
+        "native_outbox",
+        "--test",
+        "native_event_stream",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-fleet-list.log",
+      "elapsed_seconds": 8.58,
+      "sha256": "5a44a9979ea570a7917754ec7ece7d397b27109964347cbeaf6280d25f6a0037"
+    },
+    {
+      "name": "fleet-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_storage",
+        "--test",
+        "native_replication",
+        "--test",
+        "native_log_protocol",
+        "--test",
+        "native_outbox",
+        "--test",
+        "native_event_stream",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-fleet-test.log",
+      "elapsed_seconds": 12.19,
+      "sha256": "a45df71e53f83959e6c2feaed48f9706135d356d3be8a18e251bfd06d06ada35"
+    },
+    {
+      "name": "membership-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_membership",
+        "--locked",
+        "--",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-membership-list.log",
+      "elapsed_seconds": 0.24,
+      "sha256": "b83aa963c27c55536b63518c9e047c148fba8bd0c9fa3df4ef876d82d6afd8f5"
+    },
+    {
+      "name": "membership-inventory",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "check-list",
+        "MR-11",
+        "plans/multi-raft/evidence/MR-12-outbox-membership-list.log"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-membership-inventory.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "54f2ac8085d53413a14c23bc25c7c1cca7cfd3e0b23667c694b8b8df7bb70408"
+    },
+    {
+      "name": "membership-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_membership",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-membership-test.log",
+      "elapsed_seconds": 74.84,
+      "sha256": "0ef16338e067233071ac2bf672c1f9ab99fb15f49ae413de5389bcc6f75a42ae"
+    },
+    {
+      "name": "logic-list",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar-logic",
+        "--lib",
+        "--locked",
+        "--",
+        "raft_",
+        "--list"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-logic-list.log",
+      "elapsed_seconds": 0.09,
+      "sha256": "45a81de188e2efa01a59913f210c1686bb902789eb09412dbf38f212d7b7249a"
+    },
+    {
+      "name": "logic-inventory",
+      "argv": [
+        "python3",
+        "-c",
+        "import pathlib; t=pathlib.Path('plans/multi-raft/evidence/MR-12-outbox-logic-list.log').read_text(); assert t.count(': test')==7; print('Seven pure leadership cases listed.')"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-logic-inventory.log",
+      "elapsed_seconds": 0.03,
+      "sha256": "75de0422f7a1713c722f2ca6835765345e3ca83460bcece05600569055722403"
+    },
+    {
+      "name": "logic-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar-logic",
+        "--lib",
+        "--locked",
+        "--",
+        "raft_",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-logic-test.log",
+      "elapsed_seconds": 0.08,
+      "sha256": "2086d91b376b96200ef4826c962a6fc8f6e8f68e00d3741a0fb68cc2c101f556"
+    },
+    {
+      "name": "logic-clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar-logic",
+        "--lib",
+        "--tests",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-logic-clippy.log",
+      "elapsed_seconds": 0.19,
+      "sha256": "7955ec50487550cbbe987b436967cc7d38c964cce37795337393f62a2bba8179"
+    },
+    {
+      "name": "lib-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--lib",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-lib-test.log",
+      "elapsed_seconds": 84.0,
+      "sha256": "1a31a1d0d568671ef8c3a77c8386538aa5439f9e02c9d8982fc15edf29c42279"
+    },
+    {
+      "name": "owning-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_transport",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_storage",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-owning-test.log",
+      "elapsed_seconds": 119.07,
+      "sha256": "1ba8153835122703a27d1d7d568fd2c4a8a241c0e1374b569bdd4baacd60b137"
+    },
+    {
+      "name": "snapshot-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_raft_snapshot",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-snapshot-test.log",
+      "elapsed_seconds": 201.25,
+      "sha256": "c3ec73ac2bf96a50a1e7119ed840a28812c2e6291c044c71695aeaee45ebbce0"
+    },
+    {
+      "name": "node-test",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--test",
+        "native_node",
+        "--locked",
+        "--",
+        "--test-threads=1"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-node-test.log",
+      "elapsed_seconds": 649.05,
+      "sha256": "7391152fb4df08df9cf411cb986951d6282dd7b7cbb7b6cd0d398967b1bf1857"
+    },
+    {
+      "name": "clippy",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar",
+        "--lib",
+        "--test",
+        "native_raft_snapshot",
+        "--test",
+        "native_raft_archive",
+        "--test",
+        "native_raft_execution",
+        "--test",
+        "native_raft_host",
+        "--test",
+        "native_raft_ltx",
+        "--test",
+        "native_raft_reads",
+        "--test",
+        "native_raft_runtime",
+        "--test",
+        "native_raft_storage",
+        "--test",
+        "native_raft_transport",
+        "--test",
+        "native_raft_contract",
+        "--test",
+        "native_node",
+        "--test",
+        "native_raft_membership",
+        "--test",
+        "native_raft_directory",
+        "--test",
+        "native_raft_effects",
+        "--test",
+        "native_storage",
+        "--test",
+        "native_replication",
+        "--test",
+        "native_log_protocol",
+        "--test",
+        "native_outbox",
+        "--test",
+        "native_event_stream",
+        "--bin",
+        "cellar-raft-effects",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-clippy.log",
+      "elapsed_seconds": 6.93,
+      "sha256": "276966cad0e69b433786f30eb536fa1a40f86779a59580349f54f076e27ef8db"
+    },
+    {
+      "name": "ltx-no-default",
+      "argv": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-ltx-no-default.log",
+      "elapsed_seconds": 0.29,
+      "sha256": "bb9932b8da5332ed88f449f20e42f89b447c4f1b14f07fa8456ec635f14d47e8"
+    },
+    {
+      "name": "ltx-all",
+      "argv": [
+        "cargo",
+        "check",
+        "-p",
+        "cellar-ltx",
+        "--all-features",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-ltx-all.log",
+      "elapsed_seconds": 0.16,
+      "sha256": "0349ef446c4ed03b20a839b03ce8ea68750b85c7f7a0f9ea3cceab83ac92b42b"
+    },
+    {
+      "name": "ltx-clippy-no-default",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar-ltx",
+        "--no-default-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-ltx-clippy-no-default.log",
+      "elapsed_seconds": 0.2,
+      "sha256": "b2ef577c579df53fb3b398b2832e55dce0420f9dd4e373c73faa4fe19254c740"
+    },
+    {
+      "name": "ltx-clippy-all",
+      "argv": [
+        "cargo",
+        "clippy",
+        "-p",
+        "cellar-ltx",
+        "--all-features",
+        "--locked",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-ltx-clippy-all.log",
+      "elapsed_seconds": 0.15,
+      "sha256": "e589698d99cc06355f2065386a6e2250e26b9754144dfddcf5a597ee3964c891"
+    },
+    {
+      "name": "doc-types",
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "cellar",
+        "--doc",
+        "--locked",
+        "CommandContext"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-doc-types.log",
+      "elapsed_seconds": 4.79,
+      "sha256": "39e4edabba6654caac5d14e8c7cc1169642de0833681063b2055619b08ae7982"
+    },
+    {
+      "name": "example-build",
+      "argv": [
+        "cargo",
+        "build",
+        "-p",
+        "cellar",
+        "--bin",
+        "cellar-raft-effects",
+        "--locked"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-example-build.log",
+      "elapsed_seconds": 0.21,
+      "sha256": "fb1d51da6b662d7bffc588fc652a39fa23dc92120f103c05d8aca124a7b6efe8"
+    },
+    {
+      "name": "example-smoke",
+      "argv": [
+        "python3",
+        "examples/raft-effects/smoke.py",
+        "/Users/haipingfu/Workspace/crabbuild-target/cellar-23c7-multi-raft/debug/cellar-raft-effects",
+        "/tmp/cellar-23c7-mr12-effects-qualified-a28babe",
+        "crates/cellar/transport/tcp/fixtures/ca.der",
+        "crates/cellar/transport/tcp/fixtures/server.der",
+        "crates/cellar/transport/tcp/fixtures/key.der"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-example-smoke.log",
+      "elapsed_seconds": 7.76,
+      "sha256": "7b1a0cf7ab36ce7f9ca62d4963e19f015634f1ed803715c1371104d7c2130b4c"
+    },
+    {
+      "name": "format",
+      "argv": [
+        "cargo",
+        "format",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-format.log",
+      "elapsed_seconds": 36.36,
+      "sha256": "51953b17fdc334548cb3b1fd3737fd63ad11556dc1ced501333c79f8775f9f9d"
+    },
+    {
+      "name": "layout",
+      "argv": [
+        "cargo",
+        "check-layout"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-layout.log",
+      "elapsed_seconds": 0.11,
+      "sha256": "752634553db936b891778a2e8f2aeb77199abd9c2ab2756fd308eacfbf5b7161"
+    },
+    {
+      "name": "dependencies",
+      "argv": [
+        "python3",
+        "tools/check_native_dependencies.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-dependencies.log",
+      "elapsed_seconds": 0.23,
+      "sha256": "3021d9b9656dc8ad73c637ec7a34ad0b00e8b1e4992fde4b03a610503fdd2219"
+    },
+    {
+      "name": "docs",
+      "argv": [
+        "python3",
+        "tools/docs/check.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-docs.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "4b942b41186d0a51d43c8d879fdd52171826802d4149f9f626f13d23c63ea096"
+    },
+    {
+      "name": "plan",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "validate"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-plan.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "f579c7543829306e24497229f9f2a1bc8504bbf4095951d018241acbfadc4886"
+    },
+    {
+      "name": "plan-tests",
+      "argv": [
+        "python3",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "plans/multi-raft",
+        "-p",
+        "test_*.py"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-plan-tests.log",
+      "elapsed_seconds": 0.13,
+      "sha256": "730ce0e3da74be0ea2d4a4c026ee54f0d287f67fd2d1511d9312d1b582b9cf1a"
+    },
+    {
+      "name": "preflight",
+      "argv": [
+        "python3",
+        "plans/multi-raft/plan.py",
+        "preflight"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-preflight.log",
+      "elapsed_seconds": 0.1,
+      "sha256": "7c2ab566fd5d9c42097a4a7e27cbbbd22100dc618697b8dc5f6d6a718e4aba6d"
+    },
+    {
+      "name": "diff",
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exit_code": 0,
+      "output": "evidence/MR-12-outbox-diff.log",
+      "elapsed_seconds": 0.02,
+      "sha256": "aeefef2ece69f31036e01ddc8bda8f178566fb67280d72bd4d1ac27f84ac98f4"
+    }
+  ],
+  "diagnostics": [
+    {
+      "output": "evidence/MR-12-outbox-prototype-feature.log",
+      "sha256": "66f3dff2a5e069902e18b08ce5d4e037e4379fcee0e4efcdce38f4355ab86481",
+      "source_note": "Uncommitted prototype based on 5ca806c. Diagnostic command incorrectly requested a nonexistent raft Cargo feature; no Rust compilation or qualification occurred."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-scan.log",
+      "sha256": "bf50646d6d79be34d98545488e3f7e03a68ae554c9b65bead6e4bbaa59c49c0c",
+      "source_note": "Uncommitted prototype. Scanner extraction omitted a semicolon; fixed before any runtime qualification. No safety assertion was relaxed."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-format.log",
+      "sha256": "453f3f1faffbc8cb4933d0643f47070c3b6d43c886943b09f8ce278391df422f",
+      "source_note": "Uncommitted prototype. Mechanical unused-field cleanup left a malformed test initializer; formatter refused it."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-build.log",
+      "sha256": "4f74e7ccb19731fd3acb1e4d661a386553cb644b5e38b02cd36dfa0e6e05a5a0",
+      "source_note": "Same uncommitted malformed test initializer; compile failure retained. The initializer was corrected, not suppressed."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-native.log",
+      "sha256": "af838e790e09974c02ece75e770973f2e71efb93c6db20f116370d5056f77dca",
+      "source_note": "Uncommitted prototype: 9/11 cases passed. Receiver was held before commit, so sender cancellation could correctly roll back and repeat its private callback; exact committed-effect reasoning must hold a response after receiver commit. Source status also lacked a causal wait for the observed image. Final cases hold the actual receiver S3 response and require source AtLeast coverage before asserting its lag."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-native-2.log",
+      "sha256": "2e4da790d9000d97bcba27f376c40be3ea408f97c2f1f5ebc650e8600a3082dc",
+      "source_note": "Uncommitted prototype: 10/11 cases passed, including lost source S3 completion. The race fixture looked for command_ready while deliberately holding a receiver S3 result. It now captures the receiver leader before the hold, then observes actual committed state without requiring a new write to be ready."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-clippy.log",
+      "sha256": "eaeaa4ee2397d35f35a625fee935bddc1381edd8f63b640531d0830cb4688c01",
+      "source_note": "Uncommitted prototype: four lint errors for two oversized argument lists and two tuple types. Introduced real DeliveryOrigin, StoredIntent and ClaimedDelivery values instead of suppressing lints."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-native-3.log",
+      "sha256": "05d34a094a2f05e9603d34064768bec63891112249dacc22cb44418d365d1e02",
+      "source_note": "Uncommitted prototype: 12/15 cases passed; three cases reached their expected business/settlement state but closed while an S3 completion remained pending. Final cleanup waits for actual command readiness and archive coverage, then retains the strict empty-unfinished assertion. The lost-completion case separately requires a nonempty ambiguous report at its deliberate failure cut."
+    },
+    {
+      "output": "evidence/MR-12-outbox-prototype-native-5.log",
+      "sha256": "9d646edbc118bf27f45e45ba180e1685c29524df93e2e2ebdedc252966ef2706",
+      "source_note": "Uncommitted definition-identity prototype: 14/16 passed. The fault observer consumed its flag on an unsuccessful routing attempt; it now consumes it only after receiving a valid receiver proof. Self-delivery queries now retry only Overloaded/Unavailable under their original bounded deadline. All result, receipt and settled-prefix assertions remain strict."
+    },
+    {
+      "output": "evidence/MR-12-outbox-initial-package-link.log",
+      "sha256": "6f499ff9f78079205ffe7a361373748c7ee19c97f6972ac0cd653f5bf9d2dc81",
+      "source_note": "Documentation metadata after source commit a28babe. Package validation rejected an example link outside the portable plan directory. Replaced it with an immutable GitHub source link; Rust stayed frozen."
+    }
+  ],
+  "source_freeze": {
+    "files_checked": 783,
+    "includes": "All tracked Rust sources, all Cargo.toml/Cargo.lock manifests and the runnable example Python script. Git byte comparison with the immutable source revision passes after the full matrix."
+  },
+  "example_executable": {
+    "sha256": "649d682ea2c1260ec73331179416a745971b03d5098afa6f0a254525cab50d52",
+    "bytes": 133414048,
+    "path": "cellar-raft-effects",
+    "runs": 2
+  },
+  "example_outputs": [
+    {
+      "output": "evidence/MR-12-outbox-example-run-1.log",
+      "sha256": "a6eddf13c26dacfbc6c59b649037aa51a86fdf80fd7fcc92931cca99e43ebb33"
+    },
+    {
+      "output": "evidence/MR-12-outbox-example-run-2.log",
+      "sha256": "a6eddf13c26dacfbc6c59b649037aa51a86fdf80fd7fcc92931cca99e43ebb33"
+    },
+    {
+      "output": "evidence/MR-12-outbox-example-result.json",
+      "sha256": "af36a8e0c2244c8f9976416b96abd5bc458bfc173f6e3d13e5f485d14f68db3b"
+    }
+  ]
+}

@@ -1,35 +1,36 @@
 # Cellar multi-Raft delivery package
 
-Status: MR-01 through MR-11 are complete at their recorded native boundaries.
-MR-12 is IN_PROGRESS with Blob closure and committed alarms implemented, two of
-its six required feature gates. MR-13 through MR-17 remain open. The complete
-delivery goal is not achieved.
+Status: MR-01 through MR-12 are complete at their recorded native boundaries.
+MR-13 through MR-17 remain open. The complete delivery goal is not achieved.
 
 Leaders execute private commands; serving replicas apply committed SQLite/LTX
 history and expose explicit follower queries. S3 stores verified committed images,
 tails and dependencies. A node can lead some groups and follow others. S3 restores
 cell state, not old votes, process identity, leadership or quorum. An opt-in owned
-controller repairs redundancy and balances eligible caught-up voters. Declared
-alarms run through private replicated commands and an owned leader-only timer.
+controller repairs redundancy and balances eligible caught-up voters. Committed
+alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler.
 
 | Boundary | Qualification |
 | --- | --- |
 | [MR-11 automatic repair](evidence/MR-11.json) | Source `cc93ccf`: 248 Rust cases, 12 binaries, 26 checks; six-node repair and eight-group balancing |
-| [MR-12 immutable Blobs](evidence/MR-12-blob-progress.json) | Source `8cfc4bd`: 354 cases, 16 binaries, 31 checks; includes all 88 public Node cases |
-| [MR-12 committed alarms](evidence/MR-12-alarm-progress.json) | Source `5a6b606`: 322 cases, 19 binaries, 31 checks; five new native alarm cases and all 42 snapshot cases |
+| [MR-12 complete business features](evidence/MR-12.json) | Source `a28babe`: 782 unit/integration cases, 21 binaries, four capability doctests, two recovery process runs and 34 checks; all six original feature requirements |
+| [Earlier Blob component](evidence/MR-12-blob-progress.json) | Source `8cfc4bd`: 354 cases, 16 binaries, 31 checks |
+| [Earlier alarm component](evidence/MR-12-alarm-progress.json) | Source `5a6b606`: 322 cases, 19 binaries, 31 checks |
 
 Each record retains its full source pin, executable/output hashes, failed initial
 diagnostics and original scope. Counts from different sources are not added.
-The [business-feature contract](effects-design.md) describes Blob, alarm and
-private-system boundaries. Outbox dispatch, durable receiver receipts, failover
-races, progress replication, full unsupported-binding validation and examples
-remain MR-12 work. Existing receipt bounds still apply without automatic pruning.
+The [business-feature contract](effects-design.md) describes Blob, alarm, signed
+delivery, receiver receipts and private-system boundaries. Stable definition
+identities permit self/cyclic bindings; immutable namespace admission still checks
+the complete required manifest. All 88 public Node cases and owning Raft/Fleet
+regressions pass at the MR-12 source. Existing receipt bounds still apply without
+automatic pruning, and permanently refused deliveries remain retained.
 
 Public Node shutdown joins domain cancellation. Its existing Fleet report does
 not supply a graceful Raft close receipt or permission to discard unarchived
-disks; MR-13 retains unified drain, readiness, resource and archive-obligation
-work. MR-14 adds batching/workloads, MR-15 release qualification including the
-24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.
+disks; MR-13 retains unified drain, readiness, resource, retention and fenced
+recovery work. MR-14 adds batching/workloads, MR-15 release qualification including
+the 24-hour soak, MR-16 measured density/physical tiers and MR-17 federation.
 
 Local/in-memory stores, declared zones and small native fixtures do not qualify
 physical S3, power loss, failure zones, production performance/capacity, larger

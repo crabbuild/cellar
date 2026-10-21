@@ -1,0 +1,13 @@
+Error: rustfmt crates/cellar/tests/support/raft_outbox_native.rs
+
+Caused by:
+    error: expected one of `,`, `.`, `?`, `}`, or an operator, found `::`
+       --> <stdin>:145:303
+        |
+    145 | ...ew(ObservedSink{native:RaftNativeEffectSink::new((0..3).map(|i|destination.cell(i)).collect::<Result<_>>()?,Duration::from_millis(1000),60_000)?,requests:Mutex::new(vec![]),attempts:AtomicUsize::new(0),block_source_archive:AtomicBool::new(false),source_store:source_store.clone()::new...
+        |       ------------                                                                                                                                                                                                                                                                        -^
+        |       |                                                                                                                                                                                                                                                                                   |
+        |       |                                                                                                                                                                                                                                                                                   expected one of `,`, `.`, `?`, `}`, or an operator
+        |       while parsing this struct                                                                                                                                                                                                                                                           help: try adding a comma: `,`
+    
+    

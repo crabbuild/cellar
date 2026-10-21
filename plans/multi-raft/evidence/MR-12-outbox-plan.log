@@ -1,0 +1,10 @@
+Source: a28babe1904c1287cb4d1877674bd98a87313700
+Command: ["python3", "plans/multi-raft/plan.py", "validate"]
+Final metadata/documents rerun.
+{
+  "package_validation": "passed",
+  "tasks": 17,
+  "cases": 130,
+  "source_anchors": 71,
+  "local_links": 115
+}
