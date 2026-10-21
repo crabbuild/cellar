@@ -24,6 +24,18 @@ pub struct LearnerOptions {
     pub timeout: Duration,
 }
 
+/// Initialize a registered standby at an already committed learner binding.
+/// These fields are hints: a fresh source quorum grant and durable claim are
+/// still required. Retrying preserves the target member identity.
+#[derive(Clone, Debug)]
+pub struct LearnerActivation {
+    pub member: MemberId,
+    pub source: MemberId,
+    pub source_node: cellar_logic::consensus::NodeId,
+    pub from_s3: bool,
+    pub timeout: Duration,
+}
+
 /// Durable admission observation. This is not a live-quorum seeding grant.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LearnerReceipt {
@@ -157,8 +169,37 @@ pub(crate) struct Binding {
     pub scope: GroupScope,
     pub class: Arc<RaftClass>,
     pub minimum: Durability,
-    pub member: Option<MemberId>,
+    pub member: Arc<LocalMember>,
     pub leader_hint: Option<MemberId>,
+}
+
+/// One-way local admission. Retained dormant handles share this slot; only the
+/// host publishes it after durable initialization, claim and runtime attachment.
+pub(crate) struct LocalMember(AtomicU64);
+
+impl LocalMember {
+    pub fn new(member: Option<MemberId>) -> Arc<Self> {
+        Arc::new(Self(AtomicU64::new(member.map_or(0, MemberId::get))))
+    }
+
+    pub fn attach(&self, member: MemberId) -> Result<(), CommandFailure> {
+        self.0
+            .compare_exchange(0, member.get(), Ordering::AcqRel, Ordering::Acquire)
+            .map(|_| ())
+            .or_else(|old| {
+                if old == member.get() {
+                    Ok(())
+                } else {
+                    Err(CommandFailure::CommandConflict)
+                }
+            })
+    }
+}
+
+impl Binding {
+    pub fn member(&self) -> Option<MemberId> {
+        MemberId::new(self.member.0.load(Ordering::Acquire)).ok()
+    }
 }
 
 pub(crate) struct Terminal {
@@ -251,6 +292,23 @@ pub struct RaftCellHandle {
 }
 
 impl RaftCellHandle {
+    /// Activate this history inside the existing node's engine and SQL pool.
+    /// An unavailable or dropped response may follow durable initialization;
+    /// retry the same member. Existing claimed state is never reset or rebound.
+    pub fn activate_learner(
+        &self,
+        activation: LearnerActivation,
+    ) -> impl Future<Output = Result<LearnerReceipt, CommandFailure>> + Send + 'static {
+        let timeout = activation.timeout;
+        let call = self.call(Kind::ActivateLearner(activation), timeout);
+        async move {
+            match call.await? {
+                Response::Learner(receipt) => Ok(receipt),
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     /// Inspect bounded leader-local replication progress. This grants no
     /// quorum, apply, seeding or membership authority.
     pub fn replication_status(
@@ -489,10 +547,23 @@ impl RaftCellHandle {
                 return Err(CommandFailure::Unavailable);
             }
             match &kind {
+                Kind::ActivateLearner(activation) => {
+                    if activation.member == activation.source || timeout > Duration::from_secs(300)
+                    {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                    if self
+                        .binding
+                        .member()
+                        .is_some_and(|member| member != activation.member)
+                    {
+                        return Err(CommandFailure::CommandConflict);
+                    }
+                }
                 Kind::Command {
                     contract, input, ..
                 } => {
-                    if self.binding.member.is_none() {
+                    if self.binding.member().is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                     self.validate(contract, OperationKind::Command, input)?;
@@ -503,7 +574,7 @@ impl RaftCellHandle {
                     options,
                 } => {
                     if matches!(options.routing, QueryRouting::Local) {
-                        if self.binding.member.is_none() {
+                        if self.binding.member().is_none() {
                             return Err(CommandFailure::UnsupportedCapability);
                         }
                         self.validate(contract, OperationKind::Query, input)?;
@@ -542,12 +613,12 @@ impl RaftCellHandle {
                     }
                 }
                 Kind::Status | Kind::RepairStatus | Kind::ReplicationStatus => {
-                    if self.binding.member.is_none() {
+                    if self.binding.member().is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
                 Kind::TransferLeadership(transfer) => {
-                    if self.binding.member.is_none()
+                    if self.binding.member().is_none()
                         || transfer.expected_term.get() == 0
                         || transfer.expected_revision.get() == 0
                     {
@@ -555,7 +626,7 @@ impl RaftCellHandle {
                     }
                 }
                 Kind::BeginRepair { plan } => {
-                    if self.binding.member.is_none()
+                    if self.binding.member().is_none()
                         || plan.expected_revision.get() == 0
                         || plan.policy_revision == 0
                     {
@@ -565,19 +636,19 @@ impl RaftCellHandle {
                 Kind::AdvanceRepair {
                     expected_revision, ..
                 } => {
-                    if self.binding.member.is_none() || expected_revision.get() == 0 {
+                    if self.binding.member().is_none() || expected_revision.get() == 0 {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
                 Kind::AddLearner {
                     expected_revision, ..
                 } => {
-                    if self.binding.member.is_none() || expected_revision.get() == 0 {
+                    if self.binding.member().is_none() || expected_revision.get() == 0 {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
                 Kind::Seed { target, .. } => {
-                    if self.binding.member.is_none() || target.scope != self.binding.scope {
+                    if self.binding.member().is_none() || target.scope != self.binding.scope {
                         return Err(CommandFailure::UnsupportedCapability);
                     }
                 }
@@ -648,6 +719,7 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    ActivateLearner(LearnerActivation),
     ReplicationStatus,
     TransferLeadership(super::LeadershipTransfer),
     BeginRepair {
@@ -693,6 +765,7 @@ impl Kind {
             | Self::AdvanceRepair { .. }
             | Self::ReplicationStatus
             | Self::TransferLeadership(_)
+            | Self::ActivateLearner(_)
             | Self::RepairStatus => 0,
         }
     }
@@ -707,6 +780,7 @@ impl Kind {
             | Self::AdvanceRepair { .. }
             | Self::ReplicationStatus
             | Self::TransferLeadership(_)
+            | Self::ActivateLearner(_)
             | Self::RepairStatus => CancelFailure::Status,
         }
     }

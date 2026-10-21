@@ -31,9 +31,9 @@ pub use class::{
     RaftClass, RegistrationError,
 };
 pub use client::{
-    CellStatus, CommandOptions, CommandReceipt, LearnerOptions, LearnerReceipt, QueryConsistency,
-    QueryOptions, QueryResult, QueryRouting, RaftCellHandle, RaftCells, RaftCloseReport,
-    StaleReadPolicy, UnfinishedCommand,
+    CellStatus, CommandOptions, CommandReceipt, LearnerActivation, LearnerOptions, LearnerReceipt,
+    QueryConsistency, QueryOptions, QueryResult, QueryRouting, RaftCellHandle, RaftCells,
+    RaftCloseReport, StaleReadPolicy, UnfinishedCommand,
 };
 
 pub use cellar_logic::consensus::{

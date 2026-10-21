@@ -629,6 +629,35 @@ failure. Existing plans and joint states must be reconciled first. The controlle
 and dynamic standby/process-view integration remain MR-11 work. Explicit native
 APIs and their tests do not establish automatic redundancy repair.
 
+### Registered standbys
+
+`RaftCellPlacement::Standby` registers an existing history/class without creating
+a group or SQLite image. It can resume its previously initialized joined member
+on restart. Retired or conflicting local state is retained without admission.
+A standby is not an initial birth member or a query router.
+
+`RaftCellHandle::activate_learner` accepts the intended member and a trusted source
+endpoint as hints. Before initialization it checks local state and permanent
+claims, then obtains the existing fresh-quorum peer/S3 seed grant. It seals the
+image on the existing SQL owner, atomically initializes the existing node-wide
+engine with vote zero, reconciles the permanent claim and attaches the runtime.
+Only then does a shared one-way local member slot release retained handles.
+The slot cannot rebind a handle to a different member identity.
+
+One initializer per node bounds work in addition to the existing source/receiver
+body reservations and SQL queues. Network/catalog attempts retain the caller's
+original deadline, capped by the configured seed deadline. Dropped waiters do
+not own submitted initialization or physical SQL work. An unavailable response
+may follow initialization; retry the same target identity. Failed attachment
+refuses admission and preserves stable bytes for restart. Available S3 and a
+cached learner plan do not replace a fresh quorum grant.
+
+Native tests cover a held transfer with a dropped waiter and retained handles,
+pre-admission/no-claim refusal, S3 activation and target-first public restart,
+quorumless S3 refusal, later promotion/replication and joined shutdown while a
+transfer remains held. These are explicit local activation APIs; controller
+scheduling, metadata/process-view distribution and automatic repair remain open.
+
 `RaftCellHandle::replication_status` returns bounded leader-local matched
 positions and recent activity. These are observations, without apply or quorum
 proof. `transfer_leadership` requests movement to an existing voter at an exact

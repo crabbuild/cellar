@@ -48,7 +48,31 @@ impl RaftTransport {
         limits: SnapshotLimits,
         archive: CellArchive,
     ) -> anyhow::Result<ReceivedArchiveSeed> {
-        let deadline = self.seed_deadline()?;
+        self.seed_from_archive_until(
+            local,
+            source,
+            birth,
+            schema,
+            SeedOptions {
+                limits,
+                deadline: self.seed_deadline()?,
+            },
+            archive,
+        )
+        .await
+    }
+
+    pub(crate) async fn seed_from_archive_until(
+        &self,
+        local: ReplicaIdentity,
+        source: RaftPeer,
+        birth: &GroupBirth,
+        schema: [u8; 32],
+        options: SeedOptions,
+        archive: CellArchive,
+    ) -> anyhow::Result<ReceivedArchiveSeed> {
+        let deadline = options.deadline.min(self.seed_deadline()?);
+        let limits = options.limits;
         let grant = loop {
             match self
                 .request_archive_seed(local.clone(), source.clone(), schema, deadline)

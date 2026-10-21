@@ -11,6 +11,11 @@ pub(crate) enum SeedKind {
     S3,
 }
 
+pub(crate) struct SeedOptions {
+    pub limits: crate::raft::snapshot::SnapshotLimits,
+    pub deadline: u64,
+}
+
 pub(crate) enum SeedMaterial {
     Peer {
         snapshot: ::raft::prelude::Snapshot,
@@ -181,6 +186,14 @@ impl ArchiveSeedGrant {
 }
 
 impl RaftTransport {
+    pub(crate) async fn seed_control_until<T>(
+        &self,
+        deadline: u64,
+        future: impl Future<Output = Result<T, TransportError>>,
+    ) -> Result<T, TransportError> {
+        self.handle.0.seed_until(deadline, future).await
+    }
+
     pub(crate) fn seed_deadline(&self) -> Result<u64, TransportError> {
         let state = &self.handle.0;
         Ok(state
@@ -200,7 +213,29 @@ impl RaftTransport {
         schema: [u8; 32],
         limits: crate::raft::snapshot::SnapshotLimits,
     ) -> Result<super::snapshots::ReceivedSeed, TransportError> {
-        let deadline = self.seed_deadline()?;
+        self.seed_from_peer_until(
+            local,
+            source,
+            birth,
+            schema,
+            SeedOptions {
+                limits,
+                deadline: self.seed_deadline()?,
+            },
+        )
+        .await
+    }
+
+    pub(crate) async fn seed_from_peer_until(
+        &self,
+        local: ReplicaIdentity,
+        source: RaftPeer,
+        birth: &crate::raft::catalog::GroupBirth,
+        schema: [u8; 32],
+        options: SeedOptions,
+    ) -> Result<super::snapshots::ReceivedSeed, TransportError> {
+        let deadline = options.deadline.min(self.seed_deadline()?);
+        let limits = options.limits;
         loop {
             let result = async {
                 let grant = self

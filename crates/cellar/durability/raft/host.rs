@@ -34,6 +34,8 @@ mod membership;
 mod seed;
 #[path = "host_snapshot.rs"]
 mod snapshots;
+#[path = "host_standby.rs"]
+mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
@@ -150,6 +152,10 @@ pub use super::transport_options::RaftPeerNode;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RaftCellPlacement {
     Replica,
+    /// Register an eligible local standby without creating a group or image.
+    /// A retained handle gains local admission only after authorized learner
+    /// initialization in this node's existing engine and SQL pool.
+    Standby,
     /// Resume a stable joined member or seed a new committed learner from the
     /// specified trusted peer. A claimed member with lost state is refused.
     Joining {
@@ -239,6 +245,7 @@ pub(crate) async fn start(
         Budget::new(options.archive.limits.max_capture_bytes, 1),
     )?;
     let mut cells = BTreeMap::new();
+    let mut standbys = BTreeMap::new();
     let mut bindings = BTreeMap::new();
     let mut archive_owner = None;
     let peer_count = peers.len();
@@ -258,7 +265,7 @@ pub(crate) async fn start(
         }
         for (index, registration) in registrations.into_iter().enumerate() {
             let Registration {
-                placement,
+                mut placement,
                 namespace,
                 birth,
                 class,
@@ -268,6 +275,86 @@ pub(crate) async fn start(
                 namespace.config().schema_digest == class.schema_digest(),
                 "registered schema disagrees with namespace"
             );
+            let scope = birth.scope().clone();
+            let worker = index % options.blocking_workers;
+            let storage = sql::CellStorage {
+                directory: directory
+                    .join(hex::encode(scope.namespace.bytes()))
+                    .join(hex::encode(scope.group.bytes()))
+                    .join(hex::encode(scope.incarnation.bytes())),
+                host: ltx_host(),
+                services: read_services(),
+                images: options.images,
+                execution: options.execution,
+            };
+            if placement == RaftCellPlacement::Standby {
+                anyhow::ensure!(
+                    options.enable_snapshots,
+                    "standby activation requires snapshots"
+                );
+                anyhow::ensure!(
+                    !birth
+                        .voters()
+                        .iter()
+                        .chain(birth.learners())
+                        .any(|m| m.node == service.log.limits().node),
+                    "standby is an initial member"
+                );
+                anyhow::ensure!(
+                    !standbys.contains_key(&scope)
+                        && !bindings.contains_key(&(scope.namespace, scope.cell.clone())),
+                    "duplicate standby registration"
+                );
+                let existing = match service.log.group(&scope) {
+                    Ok(group) => Some(group),
+                    Err(super::storage::LogError::NotFound) => None,
+                    Err(error) => return Err(error.into()),
+                };
+                let resume = existing.as_ref().is_some_and(|group| {
+                    group.read().is_ok_and(|cache| {
+                        cache.membership.permits(group.identity())
+                            && super::member_state::members(&cache.conf_state)
+                                .contains(&group.identity().member.get())
+                    })
+                });
+                standbys.insert(
+                    scope.clone(),
+                    standby::Dormant {
+                        namespace: namespace.clone(),
+                        birth: birth.clone(),
+                        class: class.clone(),
+                        storage: storage.clone(),
+                        worker,
+                        failed: existing.is_some() && !resume,
+                    },
+                );
+                if resume {
+                    let group = existing
+                        .as_ref()
+                        .ok_or_else(|| anyhow::anyhow!("standby resume state missing"))?;
+                    let source = birth
+                        .voters()
+                        .first()
+                        .ok_or_else(|| anyhow::anyhow!("standby birth has no voter"))?;
+                    placement = RaftCellPlacement::Joining {
+                        member: group.identity().member,
+                        source: source.member,
+                        source_node: source.node,
+                    };
+                } else {
+                    bindings.insert(
+                        (scope.namespace, scope.cell.clone()),
+                        Binding {
+                            scope,
+                            class,
+                            minimum: namespace.minimum_durability(),
+                            member: client::LocalMember::new(None),
+                            leader_hint: None,
+                        },
+                    );
+                    continue;
+                }
+            }
             if let RaftCellPlacement::QueryRouter { leader_hint } = placement {
                 let scope = birth.scope().clone();
                 let local = service.log.limits().node;
@@ -333,29 +420,17 @@ pub(crate) async fn start(
                         scope,
                         class,
                         minimum: namespace.minimum_durability(),
-                        member: None,
+                        member: client::LocalMember::new(None),
                         leader_hint,
                     },
                 );
                 continue;
             }
-            let scope = birth.scope().clone();
             anyhow::ensure!(
                 !cells.contains_key(&scope)
                     && !bindings.contains_key(&(scope.namespace, scope.cell.clone())),
                 "duplicate registered cell"
             );
-            let worker = index % options.blocking_workers;
-            let storage = sql::CellStorage {
-                directory: directory
-                    .join(hex::encode(scope.namespace.bytes()))
-                    .join(hex::encode(scope.group.bytes()))
-                    .join(hex::encode(scope.incarnation.bytes())),
-                host: ltx_host(),
-                services: read_services(),
-                images: options.images,
-                execution: options.execution,
-            };
             let permit = match placement {
                 RaftCellPlacement::Replica => {
                     namespace.bootstrap_member(&birth, &service.log).await?
@@ -460,7 +535,9 @@ pub(crate) async fn start(
                         }
                     }
                 }
-                RaftCellPlacement::QueryRouter { .. } => unreachable!("router handled above"),
+                RaftCellPlacement::QueryRouter { .. } | RaftCellPlacement::Standby => {
+                    unreachable!("non-replica handled above")
+                }
             };
             let group = service.log.group(&scope)?;
             let output = pool
@@ -479,9 +556,6 @@ pub(crate) async fn start(
             let Value::Initialized(image) = output.value else {
                 anyhow::bail!("SQL initialization response")
             };
-            let progress = progress(&group, image.as_ref(), LogIndex::new(0))?
-                .ok_or_else(|| anyhow::anyhow!("unverified recovered image"))?;
-            let core = CommandState::new(progress, namespace.minimum_durability())?;
             service.transport.install_group(membership::route(
                 &group,
                 &birth,
@@ -496,44 +570,25 @@ pub(crate) async fn start(
                     scope: scope.clone(),
                     class: class.clone(),
                     minimum: namespace.minimum_durability(),
-                    member: Some(group.identity().member),
+                    member: client::LocalMember::new(Some(group.identity().member)),
                     leader_hint: None,
                 },
             );
             cells.insert(
                 scope.clone(),
-                Cell {
-                    birth: birth.clone(),
-                    route_revision: group.membership()?.revision(),
-                    configuration: None,
-                    retired: false,
-                    archive: namespace.cell_archive(&birth, ltx_host(), options.archive.limits)?,
-                    archived: LogIndex::new(0),
-                    archive_retry_at: 0,
+                Cell::recovered(
                     group,
-                    schema_digest: class.schema_digest(),
-                    worker,
-                    core,
+                    birth.clone(),
+                    namespace.cell_archive(&birth, ltx_host(), options.archive.limits)?,
                     image,
-                    pending: None,
-                    sequence: 0,
-                    status_busy: false,
-                    sql_busy: false,
-                    apply: None,
-                    publication: None,
-                    apply_ticket: None,
-                    apply_retry_at: 0,
-                    failed: false,
-                    incoming: None,
-                    source_request: None,
-                    apply_inflight: false,
-                    checkpoint_busy: false,
-                    checkpoint_retry_at: 0,
-                },
+                    worker,
+                    namespace.minimum_durability(),
+                    class.schema_digest(),
+                )?,
             );
             permit.attach(&service.runtime).await?;
         }
-        if !cells.is_empty() {
+        if !cells.is_empty() || !standbys.is_empty() {
             let mut nonce = [0; 16];
             crate::asyncrt::rng("raft-archive-verifier").fill_bytes(&mut nonce);
             let owner = super::host_archive::Owner::open(
@@ -618,6 +673,8 @@ pub(crate) async fn start(
             transport,
             pool,
             cells,
+            standbys,
+            activating: None,
             active: BTreeSet::new(),
             applying: BTreeSet::new(),
             uncertain: BTreeMap::new(),
@@ -792,6 +849,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Standby(Box<standby::Completed>),
     Leadership {
         request: Box<Request>,
         result: Result<Response, RuntimeError>,
@@ -873,6 +931,8 @@ enum Job {
 }
 
 struct Driver {
+    standbys: BTreeMap<GroupScope, standby::Dormant>,
+    activating: Option<GroupScope>,
     peers: BTreeMap<NodeId, RaftPeerNode>,
     label: String,
     snapshot_limits: super::snapshot::SnapshotLimits,
@@ -1408,7 +1468,7 @@ impl Driver {
             None
         };
         let context = super::query_route::RouteContext {
-            member: binding.member,
+            member: binding.member(),
             leader_hint: binding.leader_hint,
             local: crate::application::consensus::RaftCellHandle {
                 handle: self.local.clone(),
@@ -1441,6 +1501,14 @@ impl Driver {
             return;
         }
         if request.control.cancelled() {
+            return;
+        }
+        if matches!(&request.kind, Kind::ActivateLearner(_)) {
+            if let Kind::ActivateLearner(activation) =
+                std::mem::replace(&mut request.kind, Kind::Status)
+            {
+                self.activate_learner(request, activation);
+            }
             return;
         }
         if matches!(&request.kind, Kind::Seed { .. }) {
@@ -1539,6 +1607,7 @@ impl Driver {
                 }));
             }
             Kind::AddLearner { .. }
+            | Kind::ActivateLearner(_)
             | Kind::Seed { .. }
             | Kind::BeginRepair { .. }
             | Kind::AdvanceRepair { .. } => {
@@ -2494,6 +2563,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {
                 mut request,
                 result,

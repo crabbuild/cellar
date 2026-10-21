@@ -95,6 +95,14 @@ impl Setup {
 #[path = "raft_repair_crash.rs"]
 mod crashes;
 pub(super) use crashes::joint_plan_process_kill_resume;
+#[path = "raft_standby_native.rs"]
+mod standby;
+pub(super) use standby::{
+    registered_standby_activation_shutdown_joins,
+    registered_standby_peer_activation_retains_handles,
+    registered_standby_refuses_quorumless_s3_activation,
+    registered_standby_s3_activation_and_restart,
+};
 
 pub(super) async fn leadership_transfer_checks_progress() -> Result<()> {
     let Setup {

@@ -181,6 +181,16 @@ pub(crate) struct Pool {
     stopped: Arc<AtomicBool>,
 }
 
+/// A bounded port into one existing SQL owner. It owns no worker and cannot
+/// outlive pool shutdown admission; dynamic initialization uses this same port.
+#[derive(Clone)]
+pub(crate) struct Worker {
+    domain: crate::asyncrt::DomainToken,
+    sender: mpsc::SyncSender<Request>,
+    slots: Arc<Semaphore>,
+    stopped: Arc<AtomicBool>,
+}
+
 impl Pool {
     pub fn start(
         domain: crate::asyncrt::DomainToken,
@@ -299,34 +309,23 @@ impl Pool {
         work: Option<Arc<Work>>,
         cancel: Option<Arc<AttemptControl>>,
     ) -> BoxFuture<'static, Result<Output, ExecutionError>> {
-        let Some(sender) = self.senders.get(worker).cloned() else {
-            return Box::pin(async { Err(ExecutionError::Invalid("SQL worker")) });
-        };
-        let slots = self.slots[worker].clone();
-        let stopped = self.stopped.clone();
-        let domain = self.domain.clone();
-        Box::pin(async move {
-            let slot = slots
-                .acquire_owned()
-                .await
-                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
-            if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
-                return Err(ExecutionError::Refused(CommandFailure::Unavailable));
-            }
-            let (reply, result) = oneshot::channel();
-            sender
-                .try_send(Request {
-                    scope,
-                    action,
-                    reply,
-                    _work: work,
-                    cancel,
-                    _slot: slot,
-                })
-                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
-            result
-                .await
-                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?
+        match self.worker(worker) {
+            Ok(worker) => worker.call(scope, action, work, cancel),
+            Err(error) => Box::pin(async { Err(error) }),
+        }
+    }
+
+    pub fn worker(&self, worker: usize) -> Result<Worker, ExecutionError> {
+        let sender = self
+            .senders
+            .get(worker)
+            .cloned()
+            .ok_or(ExecutionError::Invalid("SQL worker"))?;
+        Ok(Worker {
+            domain: self.domain.clone(),
+            sender,
+            slots: self.slots[worker].clone(),
+            stopped: self.stopped.clone(),
         })
     }
 
@@ -448,6 +447,46 @@ impl Pool {
             .get_mut(scope)
             .ok_or(ExecutionError::Invalid("unregistered cell"))?
             .run(action)
+    }
+}
+
+impl Worker {
+    pub fn call(
+        &self,
+        scope: GroupScope,
+        action: Action,
+        work: Option<Arc<Work>>,
+        cancel: Option<Arc<AttemptControl>>,
+    ) -> BoxFuture<'static, Result<Output, ExecutionError>> {
+        let Worker {
+            domain,
+            sender,
+            slots,
+            stopped,
+        } = self.clone();
+        Box::pin(async move {
+            let slot = slots
+                .acquire_owned()
+                .await
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+            if stopped.load(Ordering::Acquire) || domain.mono_ms().is_err() {
+                return Err(ExecutionError::Refused(CommandFailure::Unavailable));
+            }
+            let (reply, result) = oneshot::channel();
+            sender
+                .try_send(Request {
+                    scope,
+                    action,
+                    reply,
+                    _work: work,
+                    cancel,
+                    _slot: slot,
+                })
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?;
+            result
+                .await
+                .map_err(|_| ExecutionError::Refused(CommandFailure::Unavailable))?
+        })
     }
 }
 
