@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "a28babe1904c1287cb4d1877674bd98a87313700",
+  "baseline_revision": "275c45d93da4e73e2180f5b0f2f930613b4fcea5",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1969,7 +1969,7 @@
       "id": "MR-13",
       "title": "Bound resources and complete node lifecycle operations",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-11",
         "MR-12"
@@ -1980,11 +1980,34 @@
         "crates/cellar/fleet/management/nodes.rs",
         "crates/cellar/fleet/management/routing.rs",
         "crates/cellar/cli/cli_options.rs",
-        "crates/cellar/durability/raft/options.rs"
+        "crates/cellar/durability/raft/options.rs",
+        "crates/cellar/application/consensus/client.rs",
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/durability/raft/effect_delivery.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_controller.rs",
+        "crates/cellar/durability/raft/host_effects.rs",
+        "crates/cellar/durability/raft/host_inspection.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/execution/services.rs",
+        "crates/cellar/node/driver.rs",
+        "crates/cellar/node/lifecycle.rs",
+        "crates/cellar/tests/native_raft_membership.rs",
+        "crates/cellar/tests/support/raft_alarm_native.rs",
+        "crates/cellar/tests/support/raft_controller_native.rs",
+        "crates/cellar/tests/support/raft_node.rs",
+        "crates/cellar/tests/support/raft_outbox_loopback.rs",
+        "crates/cellar/tests/support/raft_outbox_native.rs",
+        "crates/cellar/durability/raft/transport_inspection_tests.rs",
+        "crates/cellar/tests/support/raft_repair_native.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/operations.rs",
-        "crates/cellar/tests/native_raft_operations.rs"
+        "crates/cellar/tests/native_raft_operations.rs",
+        "crates/cellar/durability/raft/host_drain.rs",
+        "plans/multi-raft/operations-design.md",
+        "crates/cellar/application/consensus/admission.rs",
+        "crates/cellar/application/consensus/admission_tests.rs"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
@@ -2046,6 +2069,41 @@
           "invariants": [
             "I13"
           ]
+        },
+        {
+          "name": "node_shutdown_hands_off_to_published_voter",
+          "oracle": "An authenticated caught-up published voter receives leadership before joined Node shutdown",
+          "invariants": [
+            "I07",
+            "I11",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_reports_submitted_ambiguity",
+          "oracle": "A committed command held below its requested S3 proof remains ambiguous in a bounded Node stop report",
+          "invariants": [
+            "I01",
+            "I09",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_report_bounds_preserve_complete_lag_count",
+          "oracle": "Omitted bounded group details do not hide archive lag in complete aggregate counts",
+          "invariants": [
+            "I13",
+            "I14"
+          ]
+        },
+        {
+          "name": "node_shutdown_reports_parked_archive_unknown",
+          "oracle": "A resumed subset reports every durable engine history and explicitly unknown archive coverage for parked histories without executing their callbacks",
+          "invariants": [
+            "I09",
+            "I13",
+            "I14"
+          ]
         }
       ],
       "verification": [
@@ -2072,7 +2130,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-13-shutdown-progress.json"
+      ]
     },
     {
       "id": "MR-14",

@@ -1,7 +1,7 @@
 {
   "format": 1,
   "repository": "https://github.com/crabbuild/cellar",
-  "revision": "a28babe1904c1287cb4d1877674bd98a87313700",
+  "revision": "275c45d93da4e73e2180f5b0f2f930613b4fcea5",
   "prepared_date": "2026-10-21",
   "files": [
     {
@@ -166,7 +166,7 @@
     },
     {
       "path": "crates/cellar/execution/services.rs",
-      "sha256": "2ef784272dfac0461fad18a83142fd97f7cf08b3e12a63decb35a87b8780e672"
+      "sha256": "1ba0d1abffd3455d155aab413f68631f6e7cfed5f541e3913d6b20fd19f7fd65"
     },
     {
       "path": "crates/cellar/fleet/management/nodes.rs",
@@ -193,8 +193,16 @@
       "sha256": "482a3aa06d6208f1e75d56c5729352c52249efb911f4c0e686113c3a9a1388a8"
     },
     {
+      "path": "crates/cellar/node/driver.rs",
+      "sha256": "7779f2b76016778ff874367c0b5e4cbb769cf47eb1da6359fa1f47c4fc8a22d9"
+    },
+    {
       "path": "crates/cellar/node/embedded.rs",
-      "sha256": "65ce97f2d83b26c9766979214232acff9e177c36a77f38be1b79fd18051a001b"
+      "sha256": "fe15289d7afaa13dcb83293fdfbf2513d627c97b676d068a3945ba710e0259b9"
+    },
+    {
+      "path": "crates/cellar/node/lifecycle.rs",
+      "sha256": "f777bc97117474eb821c4d1e4a76caf25d3fdb578011d92f72d6de574b92e349"
     },
     {
       "path": "crates/cellar/node/mod.rs",

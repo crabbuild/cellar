@@ -1,0 +1,3 @@
+Source: 67845126e241252ec575f0ea2a5ebe2fd06a37de
+Command: ["cargo", "check", "-p", "cellar-ltx", "--all-features", "--locked"]
+    Finished `dev` profile [unoptimized] target(s) in 0.14s

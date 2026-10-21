@@ -71,7 +71,9 @@ Priority 1 is complete at the qualified native recovery boundary: exact-ticket
 abort, native checkpoints, existing-replica catch-up, authorized peer/S3 learner
 seeding, public joined-node restart, claim reconciliation and process-kill cuts.
 Priority 2 is complete at the qualified six-node native boundary. Priority 3 is
-next: committed alarms, outbox delivery and immutable Blob dependency closure.
+complete at the [MR-12 native boundary](evidence/MR-12.json): committed alarms,
+receipt-checked outbox delivery and immutable Blob dependency closure. Priority 4
+is in progress, beginning with Node-owned shutdown and archive-obligation reports.
 Keep each later package's dependency and acceptance gates intact.
 
 ## Package dependency order
@@ -717,11 +719,22 @@ shown by `plan.py show MR-12`; the manifest is authoritative for arguments.
 
 ### MR-13 Bound resources and complete node lifecycle operations
 
-Dependencies: MR-11, MR-12. Phase: v1. Initial status: TODO.
+Dependencies: MR-11, MR-12. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`.
+The [node operations contract](operations-design.md) describes admission closure,
+owned application drain, bounded leadership handoff and final local observations.
+The [partial qualification record](evidence/MR-13-shutdown-progress.json) pins
+810 unit/integration cases across 24 binaries to library source `6784512`, with
+the example-only status-poll fix and two recovery process runs at `275c45d`.
+Seven native operations cases cover resource pressure and shutdown plus the four
+additional report/handoff requirements below. Full role readiness, aggregate
+resource metrics, safe receipt maintenance, production CLI/management parity,
+fenced new-history disaster restore and the three remaining original acceptance
+cases remain required before DONE.
 
-Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`.
+Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`.
+
+Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`.
 
 1. Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.
 2. Implement readiness by group role and compatible applied state; avoid aggregate health that conceals unavailable cells.
@@ -740,6 +753,10 @@ Stop conditions: Stop if cancellation drops owned blocking work without a truthf
 | `disaster_old_quorum_fenced` | Restore refuses cutover without the required old-deployment fence evidence |
 | `rollback_mode_guard` | Feature disable never opens Raft data with Fleet ownership |
 | `metrics_group_cardinality` | Fleet metrics remain bounded while sampled group inspection is available |
+| `node_shutdown_hands_off_to_published_voter` | An authenticated caught-up published voter receives leadership before joined Node shutdown |
+| `node_shutdown_reports_submitted_ambiguity` | A committed command held below its requested S3 proof remains ambiguous in a bounded Node stop report |
+| `node_shutdown_report_bounds_preserve_complete_lag_count` | Omitted bounded group details do not hide archive lag in complete aggregate counts |
+| `node_shutdown_reports_parked_archive_unknown` | A resumed subset reports every durable engine history and explicitly unknown archive coverage for parked histories without executing their callbacks |
 
 Verification target: `native_raft_operations`. Run the exact list/test commands
 shown by `plan.py show MR-13`; the manifest is authoritative for arguments.
