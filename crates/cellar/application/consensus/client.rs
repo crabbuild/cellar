@@ -6,6 +6,7 @@ use super::{
     OperationKind, RaftClass, VersionToken,
 };
 use crate::raft::budget::{Budget, Permit};
+use crate::raft::mailbox;
 use cellar_logic::consensus::{LogIndex, LogPosition, MemberId, NamespaceId, Term};
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -208,7 +209,9 @@ pub(crate) struct Terminal {
 }
 
 pub(crate) struct Handle {
-    pub requests: mpsc::Sender<Request>,
+    pub requests: mailbox::Sender<Request>,
+    pub control_requests: mailbox::Sender<Request>,
+    pub control_budget: Arc<Budget>,
     pub close: mpsc::UnboundedSender<()>,
     pub domain: crate::asyncrt::DomainToken,
     pub closed: Arc<AtomicBool>,
@@ -662,9 +665,13 @@ impl RaftCellHandle {
                 .domain
                 .sleep_until(deadline)
                 .map_err(|_| CommandFailure::Unavailable)?;
+            let (budget, sender) = if kind.is_control() {
+                (&self.handle.control_budget, &self.handle.control_requests)
+            } else {
+                (&self.handle.budget, &self.handle.requests)
+            };
             let permit = Arc::new(
-                self.handle
-                    .budget
+                budget
                     .acquire(kind.bytes())
                     .ok_or(CommandFailure::Overloaded)?,
             );
@@ -672,8 +679,7 @@ impl RaftCellHandle {
                 _guard: self.handle.work.enter(),
             });
             let (reply, receiver) = oneshot::channel();
-            self.handle
-                .requests
+            sender
                 .try_send(Request {
                     scope: self.binding.scope.clone(),
                     kind,
@@ -755,6 +761,10 @@ pub(crate) enum Kind {
 }
 
 impl Kind {
+    fn is_control(&self) -> bool {
+        !matches!(self, Self::Command { .. } | Self::Query { .. })
+    }
+
     fn bytes(&self) -> usize {
         4096 + match self {
             Self::Command { input, .. } | Self::Query { input, .. } => input.len(),

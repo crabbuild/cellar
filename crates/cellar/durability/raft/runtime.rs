@@ -3,6 +3,7 @@
 use super::budget::{Budget, Permit};
 use super::cache::GroupWrite;
 use super::completion::*;
+use super::mailbox;
 use super::options::RaftRuntimeOptions;
 use super::replica::{Operations, Replica, WriteTicket};
 use super::snapshot::SnapshotCheckpoint;
@@ -17,10 +18,6 @@ use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{mpsc, oneshot, Notify};
-
-#[cfg(all(test, not(cellar_internal_tests)))]
-#[path = "runtime_shutdown_tests.rs"]
-mod shutdown_tests;
 
 pub(crate) enum GroupAction {
     Campaign,
@@ -101,7 +98,7 @@ pub struct RaftRuntime {
 
 struct RuntimeHandle {
     log: ReplicaLog,
-    sender: Arc<Mutex<Option<mpsc::Sender<Request>>>>,
+    sender: mailbox::Sender<Request>,
     domain: crate::asyncrt::DomainToken,
     budget: Arc<Budget>,
     completions: Arc<Budget>,
@@ -114,19 +111,15 @@ struct RuntimeHandle {
     stop: Arc<Notify>,
 }
 
-// Serialize the synchronous send with receiver destruction. An outstanding
-// channel reservation may otherwise publish after Receiver::drop drained its
-// queue, retaining a reply indefinitely while a client keeps a sender alive.
+// Close runtime admission before the mailbox joins receiver teardown.
 struct Requests {
-    receiver: mpsc::Receiver<Request>,
-    sender: Arc<Mutex<Option<mpsc::Sender<Request>>>>,
+    receiver: mailbox::Receiver<Request>,
     closing: Arc<AtomicBool>,
 }
 
 impl Drop for Requests {
     fn drop(&mut self) {
         self.closing.store(true, Ordering::Release);
-        self.sender.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -224,7 +217,7 @@ impl RaftRuntime {
         let lease = log.claim_runtime()?;
         let domain = log.domain();
         let (sender, requests) =
-            mpsc::channel(options.max_requests + COMPLETION_SLOTS + HINT_SLOTS);
+            mailbox::channel(options.max_requests + COMPLETION_SLOTS + HINT_SLOTS);
         let (events, receiver) = mpsc::channel(options.max_events);
         let (ready, wait) = oneshot::channel();
         let closed = Arc::new(AtomicBool::new(false));
@@ -234,10 +227,8 @@ impl RaftRuntime {
             changed: Notify::new(),
         });
         let stop = Arc::new(Notify::new());
-        let sender = Arc::new(Mutex::new(Some(sender)));
         let requests = Requests {
             receiver: requests,
-            sender: sender.clone(),
             closing: closing.clone(),
         };
         let handle = Self {
@@ -336,10 +327,6 @@ impl RaftRuntime {
         let (reply, wait) = oneshot::channel();
         self.inner
             .sender
-            .lock()
-            .map_err(|_| RuntimeError::Closed)?
-            .as_ref()
-            .ok_or(RuntimeError::Closed)?
             .try_send(Request {
                 command,
                 reply,
@@ -1162,13 +1149,10 @@ impl Worker {
             if closing.load(Ordering::Acquire) {
                 return Ok(());
             }
-            let made = match self
+            let made = self
                 .progress()
-                .and_then(|made| self.start_batch().map(|started| made | started))
-            {
-                Ok(made) => made,
-                Err(error) => return Err(error),
-            } | self.outbox.flush(&self.events);
+                .and_then(|made| self.start_batch().map(|started| made | started))?
+                | self.outbox.flush(&self.events);
             let now = match self.domain.mono_ms() {
                 Ok(now) => now,
                 Err(_) => return Err(RuntimeError::Closed),
@@ -1193,7 +1177,7 @@ impl Worker {
             crate::asyncrt::select! {
                 request=requests.receiver.recv()=> { match request { Some(request)=>self.dispatch(request),None=>return Ok(()) } }
                 _=stop.notified()=>return Ok(()),
-                result=io=> { if let Err(error)=self.finish_batch(result) { return Err(error); } }
+                result=io=> { self.finish_batch(result)?; }
                 _=timer=> { let now=self.domain.mono_ms().unwrap_or(0); if now>=tick_at { if self.options.tick_interval_ms.is_some() { for group in self.groups.values_mut() { group.tick=true; } } tick_at=now.saturating_add(self.options.tick_interval_ms.unwrap_or(1000)); } }
                 _=sender.closed()=>return Ok(()),
                 capacity=sender.reserve(),if !self.outbox.events.is_empty()=> { if capacity.is_err() { return Ok(()); } }

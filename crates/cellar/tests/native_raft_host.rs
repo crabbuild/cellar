@@ -2300,3 +2300,85 @@ async fn birth_handle_cannot_cross_catalog_instances() -> Result<()> {
     assert!(log.groups()?.is_empty());
     close(domain, log, None).await
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn control_capacity_survives_unpolled_business_waiters() -> Result<()> {
+    use cellar::sdk::{consensus::*, ShutdownMode};
+    let (gate, _entered) = public_node::Gate::new();
+    gate.release();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let definition = public_node::counter(calls.clone(), gate)?;
+    let root = tempfile::tempdir()?;
+    let node = public_node::node(root.path(), definition.application.clone()).await?;
+    let mut namespace = config(2, NamespaceMode::Raft, true);
+    namespace.schema_digest = definition.schema;
+    let registration = RaftCellRegistration {
+        placement: RaftCellPlacement::Replica,
+        namespace,
+        class: "Counter".into(),
+        birth: proposal(2, "Counter:control-capacity", 5, 1),
+    };
+    let options = RaftHostOptions {
+        max_requests: 4,
+        max_control_requests: 16,
+        max_pending_bytes: 64 * 1024,
+        max_input_bytes: 60 * 1024,
+        ..Default::default()
+    };
+    let service = public_node::cells_with_host(
+        &node,
+        definition.application.clone(),
+        Arc::new(object_store::memory::InMemory::new()),
+        registration.clone(),
+        false,
+        options.clone(),
+    )
+    .await?;
+    let cell = service.cell(
+        registration.namespace.namespace,
+        &registration.birth.scope.cell,
+    )?;
+    public_node::ready(&cell).await?;
+    // The SDK deliberately retains admission until an unpolled waiter is
+    // consumed/dropped, including when the producer has already responded.
+    let held = cell.query(
+        definition.get.clone(),
+        vec![0; 60 * 1024],
+        QueryOptions::default(),
+    );
+    ensure!(matches!(
+        cell.query(definition.get.clone(), vec![], QueryOptions::default())
+            .await,
+        Err(CommandFailure::Overloaded)
+    ));
+    let status = cell.status().await;
+    let repair = cell.repair_status().await;
+    let replication = cell.replication_status().await;
+    drop(held);
+    // Retained control waiters are bounded without consuming business slots.
+    let controls = (0..16).map(|_| cell.status()).collect::<Vec<_>>();
+    let extra_control = cell.status().await;
+    let business = cell
+        .query(definition.get, vec![], QueryOptions::default())
+        .await;
+    drop(controls);
+    let closed = service.close().await;
+    node.shutdown(ShutdownMode::Preserve).await?;
+    ensure!(closed?.unfinished.is_empty());
+    ensure!(
+        status?.command_ready,
+        "control status must survive a saturated business byte budget"
+    );
+    ensure!(repair?.is_none());
+    assert_eq!(replication?.members.len(), 1);
+    ensure!(
+        matches!(extra_control, Err(CommandFailure::Overloaded)),
+        "control admission must remain bounded"
+    );
+    ensure!(
+        matches!(business, Err(CommandFailure::VersionUnavailable)),
+        "control waiters must leave business admission available"
+    );
+    assert_eq!(calls.load(Ordering::Acquire), 0);
+    Ok(())
+}

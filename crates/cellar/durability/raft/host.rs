@@ -9,6 +9,7 @@ use super::{
     completion::*,
     execution::*,
     host_sql::{self as sql, Action, ImageView, Pool, Value},
+    mailbox,
     query::{Minimum, PendingRead, Phase as ReadPhase, ReadId},
     runtime::{RaftRuntime, RuntimeEvents},
     transport::{GroupRoute, RaftPeer, RaftTransport},
@@ -58,6 +59,9 @@ pub struct RaftHostOptions {
     pub blocking_workers: usize,
     pub worker_queue: usize,
     pub max_requests: usize,
+    /// Independent administrative/inspection admission, including retained waiters.
+    pub max_control_requests: usize,
+    pub max_control_bytes: usize,
     pub max_pending_bytes: usize,
     pub max_input_bytes: usize,
     pub poll_ms: u64,
@@ -81,6 +85,8 @@ impl Default for RaftHostOptions {
             blocking_workers: 2,
             worker_queue: 32,
             max_requests: 128,
+            max_control_requests: 16,
+            max_control_bytes: 16 * 1024 * 1024,
             max_pending_bytes: 64 * 1024 * 1024,
             max_input_bytes: 1024 * 1024,
             poll_ms: 25,
@@ -143,6 +149,8 @@ impl RaftHostOptions {
                 && (1..=16).contains(&self.blocking_workers)
                 && (1..=256).contains(&self.worker_queue)
                 && (1..=4096).contains(&self.max_requests)
+                && (1..=256).contains(&self.max_control_requests)
+                && (4096..=64 * 1024 * 1024).contains(&self.max_control_bytes)
                 && (4096..=256 * 1024 * 1024).contains(&self.max_pending_bytes)
                 && self.max_input_bytes > 0
                 && self.max_input_bytes <= self.execution.envelope.max_payload_bytes
@@ -671,7 +679,9 @@ async fn initialize(
         let _ = service.log.close().await;
         return Err(error);
     }
-    let (sender, requests) = mpsc::channel(options.max_requests);
+    let (sender, requests) = mailbox::channel(options.max_requests);
+    let (control_sender, controls) = mailbox::channel(options.max_control_requests);
+    let control_budget = Budget::new(options.max_control_bytes, options.max_control_requests);
     let (close, closes) = mpsc::unbounded_channel();
     let closed = Arc::new(AtomicBool::new(false));
     let closing = Arc::new(AtomicBool::new(false));
@@ -681,6 +691,8 @@ async fn initialize(
     });
     let handle = Arc::new(client::Handle {
         requests: sender,
+        control_requests: control_sender,
+        control_budget,
         close,
         domain: domain.clone(),
         closed: closed.clone(),
@@ -747,7 +759,7 @@ async fn initialize(
             snapshot_limits,
             snapshot_source: None,
         };
-        driver.run(requests, closes).await;
+        driver.run(requests, controls, closes).await;
         let result = driver.shutdown().await;
         if let Ok(mut target) = terminal.result.lock() {
             *target = Some(result);
@@ -2778,10 +2790,12 @@ impl Driver {
 
     async fn run(
         &mut self,
-        mut requests: mpsc::Receiver<Request>,
+        mut requests: mailbox::Receiver<Request>,
+        mut controls: mailbox::Receiver<Request>,
         mut closes: mpsc::UnboundedReceiver<()>,
     ) {
         let mut requests_open = true;
+        let mut controls_open = true;
         let mut closes_open = true;
         let Ok(now) = self.log.domain().mono_ms() else {
             return;
@@ -2791,11 +2805,25 @@ impl Driver {
             if self.closing.load(Ordering::Acquire) {
                 return;
             }
+            // Give admitted control work a bounded turn even while business
+            // traffic is continuously ready. The main select still services
+            // business, completions and consensus between these small batches.
+            for _ in 0..4 {
+                match controls.try_recv() {
+                    Ok(request) => self.on_request(request),
+                    Err(mpsc::error::TryRecvError::Empty) => break,
+                    Err(mpsc::error::TryRecvError::Disconnected) => {
+                        controls_open = false;
+                        break;
+                    }
+                }
+            }
             self.pump();
             let Ok(timer) = self.log.domain().sleep_until(poll_at) else {
                 return;
             };
             crate::asyncrt::select! {
+                request=controls.recv(),if controls_open=>match request{Some(request)=>self.on_request(request),None=>controls_open=false},
                 request=requests.recv(),if requests_open=>match request{Some(request)=>self.on_request(request),None=>requests_open=false},
                 close=closes.recv(),if closes_open=>if close.is_some(){return;}else{closes_open=false;},
                 event=self.events.recv()=>match event{Some(event)=>self.on_event(event),None=>return},

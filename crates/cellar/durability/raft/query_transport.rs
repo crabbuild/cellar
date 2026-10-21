@@ -670,7 +670,7 @@ impl State {
     pub(super) async fn send_queries(
         self: Arc<Self>,
         pool: Arc<Pool>,
-        mut requests: mpsc::Receiver<SendQuery>,
+        mut requests: mailbox::Receiver<SendQuery>,
     ) {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();

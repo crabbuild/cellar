@@ -3,6 +3,7 @@
 
 use super::budget::{Budget, Permit};
 use super::completion::RuntimeError;
+use super::mailbox;
 use super::runtime::RaftRuntime;
 use super::transport_frame::{self as frame, Disposition, FrameHead, RequestHeader, Route};
 use super::transport_options::{NamespaceQueryOrigin, RaftPeerNode, RaftTls, TransportOptions};
@@ -224,8 +225,8 @@ struct SendRequest {
 
 struct Pool {
     peer: RaftPeerNode,
-    tx: [mpsc::Sender<SendRequest>; 2],
-    query: mpsc::Sender<queries::SendQuery>,
+    tx: [mailbox::Sender<SendRequest>; 2],
+    query: mailbox::Sender<queries::SendQuery>,
     outgoing: Banks,
     incoming: Banks,
     stop: watch::Sender<bool>,
@@ -233,9 +234,9 @@ struct Pool {
 
 struct PoolStart {
     pool: Arc<Pool>,
-    control: mpsc::Receiver<SendRequest>,
-    data: mpsc::Receiver<SendRequest>,
-    query: mpsc::Receiver<queries::SendQuery>,
+    control: mailbox::Receiver<SendRequest>,
+    data: mailbox::Receiver<SendRequest>,
+    query: mailbox::Receiver<queries::SendQuery>,
     guards: [TaskGuard; 3],
 }
 
@@ -784,9 +785,9 @@ impl State {
             if let Some(old) = registry.pools.remove(&peer.node) {
                 old.stop.send_replace(true);
             }
-            let (control, crx) = mpsc::channel(self.options.queue_items);
-            let (data, drx) = mpsc::channel(self.options.queue_items);
-            let (query, qrx) = mpsc::channel(self.options.queue_items);
+            let (control, crx) = mailbox::channel(self.options.queue_items);
+            let (data, drx) = mailbox::channel(self.options.queue_items);
+            let (query, qrx) = mailbox::channel(self.options.queue_items);
             let (stop, _) = watch::channel(false);
             let pool = Arc::new(Pool {
                 peer: peer.clone(),
@@ -1229,7 +1230,7 @@ impl State {
         self: Arc<Self>,
         pool: Arc<Pool>,
         lane: Lane,
-        mut requests: mpsc::Receiver<SendRequest>,
+        mut requests: mailbox::Receiver<SendRequest>,
     ) {
         let mut stop = self.stop.subscribe();
         let mut peer_stop = pool.stop.subscribe();

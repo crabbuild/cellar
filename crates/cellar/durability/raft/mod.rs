@@ -12,6 +12,7 @@ mod filesystem;
 pub(crate) mod host;
 mod host_archive;
 mod host_sql;
+pub(crate) mod mailbox;
 mod manifest;
 pub(crate) mod member_state;
 pub(crate) mod options;
