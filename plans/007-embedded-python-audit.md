@@ -135,7 +135,7 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. The Linux consumer campaign at 85cdef4 passes exactly 100 fresh fixtures without reproducing its historical refusal. Twenty current macOS clock replays and ten delivery replays per ABI also pass. An unmodified historical clock campaign retains a distinct catalog-startup timeout before the target recovery phase; matched current-source investigation remains separate. Keep original deadlines/assertions and conservative mutation outcomes; passing repetitions do not establish historical causes. |
+| 1 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. The Linux consumer campaign at 85cdef4 passes exactly 100 fresh fixtures without reproducing its historical refusal. Twenty current macOS clock replays and ten delivery replays per ABI also pass. An unmodified historical clock campaign retains a distinct catalog-startup timeout before the target recovery phase; twenty current-source cases on the matched filesystem/profile pass. The historical failure also has a preceding Cargo timing outlier, but CPU/storage attribution remains unproven. Keep original deadlines/assertions and conservative mutation outcomes; passing repetitions do not establish historical causes. |
 | 2 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. All four 85cdef4 Linux jobs pass adapter/bootstrap, baseline/default verifiers, loaded-ABI guards and package/recovery/replacement steps. Native/Axum/example stages remain nonterminal. These component results do not replace the final complete matrix. |
 | 3 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
 
@@ -1987,3 +1987,22 @@ ranked hypotheses, not established causes. A current-source campaign uses the
 same filesystem class and debug profile to distinguish this failure class before
 any production change. Original assertions, operation budgets and replay rules
 remain unchanged.
+
+## Matched current-source clock campaign and host timing clue
+
+The [matched campaign](evidence/python-clock-matched-2026-10-20.json.gz) records
+twenty more current-source native fixture passes with the same workspace
+filesystem class, Rust version and debug profile as the historical campaign.
+Runtime/test source bytes are unchanged from published 85cdef4; intervening
+commits change documentation and workflow diagnostics. All clock, receipt,
+business-effect and settlement assertions remain intact. This does not establish
+that a source change fixed the distinct historical startup failure.
+
+The historical failed attempt's preceding Cargo startup takes 4.34 seconds;
+passing attempts have a median of 0.18 seconds and maximum of 0.72 seconds.
+The outlier occurs before native catalog activation, supporting investigation
+of a shared host delay rather than attributing the failure solely to catalog
+logic. CPU scheduling and storage latency are not distinguished by this trace.
+No production fix, deadline increase, assertion relaxation or automatic mutation
+replay follows from that timing correlation. The original historical Linux
+clock/replay assertion and the other preserved causes remain open.
