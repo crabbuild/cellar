@@ -626,7 +626,7 @@ fresh compatible capacity, pools and failure-domain policy. It excludes occupied
 draining or full targets, accounts for the limiting group/storage utilization,
 and never grants membership authority. Missing/stale samples alone establish no
 failure. Existing plans and joint states must be reconciled first. The controller
-and dynamic standby/process-view integration remain MR-11 work. Explicit native
+and inspection/process-view integration remain MR-11 work. Explicit native
 APIs and their tests do not establish automatic redundancy repair.
 
 ### Registered standbys

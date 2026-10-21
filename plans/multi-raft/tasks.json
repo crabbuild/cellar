@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "7af7fd7f5de8579b2288c48c49e16aee01611ca9",
+  "baseline_revision": "4c7e52a808f0aa5744620237b06b30323ea8af10",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1658,7 +1658,11 @@
         "crates/cellar/tests/native_raft_runtime.rs",
         "crates/cellar/tests/support/raft_cluster.rs",
         "crates/cellar/tests/support/raft_seed_crash.rs",
-        "crates/cellar/durability/raft/README.md"
+        "crates/cellar/durability/raft/README.md",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/durability/raft/seed_transport.rs",
+        "crates/cellar/durability/raft/seed_archive.rs",
+        "crates/cellar/node/embedded.rs"
       ],
       "creates": [
         "crates/cellar/durability/raft/membership.rs",
@@ -1671,7 +1675,10 @@
         "crates/cellar/tests/support/raft_repair_crash.rs",
         "crates/cellar/durability/raft/replica_leadership.rs",
         "crates/cellar-logic/raft_leadership.rs",
-        "crates/cellar-logic/raft_leadership_tests.rs"
+        "crates/cellar-logic/raft_leadership_tests.rs",
+        "crates/cellar/durability/raft/host_standby.rs",
+        "crates/cellar/tests/support/raft_standby_native.rs",
+        "plans/multi-raft/node-directory-design.md"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1768,7 +1775,8 @@
       ],
       "evidence": [
         "evidence/MR-11-plans-progress.json",
-        "evidence/MR-11-leadership-progress.json"
+        "evidence/MR-11-leadership-progress.json",
+        "evidence/MR-11-standby-progress.json"
       ]
     },
     {

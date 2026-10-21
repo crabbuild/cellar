@@ -621,10 +621,24 @@ leadership and resume commands and causal reads. The pure planner requires
 fresh compatible applied/matched samples, cooldown and a capacity-weighted
 deadband. Neither primitive implements automatic balancing by itself.
 
+The [registered standby qualification](evidence/MR-11-standby-progress.json) pins
+source `4c7e52a808f0aa5744620237b06b30323ea8af10`: 245 Rust cases across 14
+binaries and all 26 checks pass. Four additional native cases activate a peer/S3
+learner inside the existing running host/engine/SQL pool, retain pre-activation
+handles, survive waiter loss and public restart, refuse quorumless S3 activation
+without a claim, and join shutdown while a transfer is held. The 19 membership
+passes include ten native and nine placement cases. All 42 snapshot cases pass;
+24 process-kill cuts and nine ignored child entry points retain their preceding
+boundaries. Format checks 651 Rust files; current Node coverage remains the
+affected Raft lifecycle case. This is explicit activation rather than an
+automatic controller. The [node-directory contract](node-directory-design.md)
+defines stable storage pins, fenced process views and bounded inspection for the
+remaining controller work; no implementation/qualification is claimed for it.
+
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling, dynamic standby activation, trusted process-view
-distribution and the six-node repair gate remain required. The full inventory
+Automatic scheduling, authenticated inspection/capacity collection, trusted
+node/process-view distribution and the six-node repair gate remain required. The full inventory
 checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.
 
@@ -635,9 +649,9 @@ coverage is the affected Raft lifecycle case; MR-10 retains its separate
 all-88-Node historical qualification. No physical S3, power-loss, zone, production
 capacity, larger-scale, federation or complete release qualification is claimed.
 
-Modify: `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar-logic/rebalance.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_seed_crash.rs`, `crates/cellar/durability/raft/README.md`.
+Modify: `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar-logic/rebalance.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_seed_crash.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/seed_archive.rs`, `crates/cellar/node/embedded.rs`.
 
-Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`.
+Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`.
 
 The [native membership implementation contract](membership-design.md) defines
 committed plan recovery, learner seeding, joint consensus, dynamic standby

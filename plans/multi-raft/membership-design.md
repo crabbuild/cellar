@@ -1,13 +1,14 @@
 # Native placement and repair implementation contract
 
-Status: MR-11 implementation in progress. The [plan foundation evidence](evidence/MR-11-plans-progress.json)
-qualifies explicit placement and administrative repair. Dynamic standby
-activation, controller scheduling/process views, leadership balancing and the
-six-node no-business-traffic gate remain open. The
-[leadership and recovery evidence](evidence/MR-11-leadership-progress.json)
-qualifies guarded transfer primitives and an abrupt all-node joint-plan restart,
-without qualifying an automatic controller. MR-10 qualification is separate.
-This contract alone establishes no additional capacity or release qualification.
+Status: MR-11 implementation in progress. The [plan foundation](evidence/MR-11-plans-progress.json),
+[leadership/recovery](evidence/MR-11-leadership-progress.json) and
+[registered standby](evidence/MR-11-standby-progress.json) evidence qualify explicit
+repair APIs, guarded transfer and peer/S3 activation in an already-running host.
+Automatic scheduling, authenticated inspection, durable node/process views and
+the six-node no-business-traffic gate remain open. The
+[node-directory contract](node-directory-design.md) specifies that next boundary;
+it is not implemented or qualified yet. MR-10 qualification remains separate.
+These component results establish no additional capacity or release qualification.
 
 ## Authority and durable intent
 
