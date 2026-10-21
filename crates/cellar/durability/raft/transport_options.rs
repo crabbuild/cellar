@@ -29,6 +29,16 @@ pub struct NamespaceQueryOrigin {
     pub peer: RaftPeerNode,
 }
 
+/// Explicit namespace inspection permission for a physical node process.
+/// Query grants and directory observations cannot create this permission.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NamespaceInspectionOrigin {
+    pub cluster: ClusterId,
+    pub namespace: NamespaceId,
+    pub revision: u64,
+    pub peer: RaftPeerNode,
+}
+
 #[derive(Clone, Debug)]
 pub struct TransportOptions {
     pub max_peers: usize,

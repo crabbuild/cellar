@@ -93,6 +93,14 @@ impl RaftTransport {
         {
             return Err(TransportError::StalePeer);
         }
+        if registry
+            .inspection_origins
+            .values()
+            .filter_map(|origin| origin.peer.as_ref())
+            .any(|peer| peer.node == grant.peer.node && peer != &grant.peer)
+        {
+            return Err(TransportError::StalePeer);
+        }
         let starts = state.prepare_pools(&mut registry, std::slice::from_ref(&grant.peer))?;
         let (stop, _) = watch::channel(false);
         if let Some(old) = registry.origins.insert(

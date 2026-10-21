@@ -31,7 +31,7 @@ the live engine owner; exact retry reconciles an ambiguous publication, and old
 closed owners cannot replace a newer process. These views grant no membership,
 seeding or read authority. Opt-in host publication and atomic routing refresh
 are implemented with focused verification; broader qualification is pending.
-Inspection and automatic controller integration remain MR-11 work.
+Authenticated peer inspection uses these views; automatic controller integration remains MR-11 work.
 
 Set `RaftHostOptions.node_directory` to `Some(RaftNodeDirectoryOptions::default())`
 to publish this boot's process and refresh explicitly configured peers from an
@@ -264,8 +264,29 @@ Durable apply and published-image positions remain separate. Inspection uses
 control response reservations, reads bounded cache metadata and counts engine
 groups without scanning their contents. It performs no SQL callback or member
 initialization. Existing, retired and initializing histories are ineligible as
-blank standbys. Missing aggregate leadership load remains absent. Authenticated
-peer collection and automatic controller use are separate MR-11 boundaries.
+blank standbys. Missing aggregate leadership load remains absent until a
+complete bounded node-wide scan exists.
+
+`inspect_peer(node_id, timeout)` uses configured trusted endpoints and the node
+execution domain. Remote collection requires a profile, node directory and
+explicit `RaftHostOptions.inspection_origins` at the destination. Each grant
+matches a registered namespace and trusted physical peer. Query permissions and
+discovery create no inspection permission; revocation retains its revision
+through process refresh. A dormant source or destination needs no member ID.
+
+The purpose-specific TLS/HMAC RPC binds protocol, full history, schema, birth,
+both node/disk/process/engine-instance identities, labels, nonce and original
+deadline. Replies authenticate their request and body digest before bounded
+strict decoding. One RPC reserves 1 MiB of metadata, with 16 node-wide slots,
+two per physical peer and a 64 KiB body limit. Metadata has additional control
+connection slots; ordinary consensus keeps its own connection-class bound.
+Retained SDK responses remain charged to the host control budget. Cancellation,
+process/grant changes and shutdown stop and join owned network tasks. Returned
+sample ages include the full request duration. Only `InspectionError::Unreachable`
+reports a failed direct TCP probe; missing discovery, local pressure, refused or
+unusable replies cannot establish remote node failure. Observations grant no
+membership, seed, query or write authority. Automatic reconciliation remains
+MR-11 work.
 After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.

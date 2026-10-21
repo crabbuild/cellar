@@ -10,7 +10,11 @@ use std::{
     time::Duration,
 };
 
+#[path = "raft_peer_inspection_native.rs"]
+mod inspection;
+
 struct Cluster {
+    inspection: bool,
     roots: Vec<tempfile::TempDir>,
     nodes: Vec<Option<Node>>,
     services: Vec<Option<RaftCells>>,
@@ -32,9 +36,14 @@ async fn listeners() -> Result<NodeRaftListeners> {
 
 impl Cluster {
     async fn start() -> Result<Self> {
+        Self::start_with_inspection(false).await
+    }
+
+    async fn start_with_inspection(inspection: bool) -> Result<Self> {
+        let count = if inspection { 4 } else { 3 };
         let (gate, entered) = public_node::Gate::new();
         gate.release();
-        let calls: Vec<_> = (0..3).map(|_| Arc::new(AtomicUsize::new(0))).collect();
+        let calls: Vec<_> = (0..count).map(|_| Arc::new(AtomicUsize::new(0))).collect();
         let definitions = calls
             .iter()
             .map(|calls| public_node::counter(calls.clone(), gate.clone()))
@@ -73,9 +82,10 @@ impl Cluster {
             })
             .collect::<Result<Vec<_>>>()?;
         let mut cluster = Self {
+            inspection,
             roots: vec![],
             nodes: vec![],
-            services: vec![None, None, None],
+            services: (0..count).map(|_| None).collect(),
             peers: vec![],
             definitions,
             registrations,
@@ -84,7 +94,7 @@ impl Cluster {
             _entered: entered,
         };
         let mut bound = vec![];
-        for i in 0..3 {
+        for i in 0..count {
             let root = tempfile::tempdir()?;
             let label = format!("directory-native-{}", i + 1);
             let node = public_node::node_named(
@@ -147,10 +157,63 @@ impl Cluster {
                         prefix: "directory/native".into(),
                         ..Default::default()
                     },
-                    cells: self.registrations.clone(),
+                    cells: self
+                        .registrations
+                        .iter()
+                        .cloned()
+                        .map(|mut registration| {
+                            if index >= 3 {
+                                registration.placement = RaftCellPlacement::Standby;
+                            }
+                            registration
+                        })
+                        .collect(),
                     peers: self.peers.clone(),
-                    query_origins: vec![],
+                    // One read grant deliberately lacks a matching inspection
+                    // grant; successful inspection elsewhere has no read grant.
+                    query_origins: if self.inspection && index == 0 {
+                        vec![NamespaceQueryOrigin {
+                            cluster: self.registrations[0].namespace.cluster,
+                            namespace: self.registrations[0].namespace.namespace,
+                            revision: 1,
+                            peer: self.peers[2].clone(),
+                        }]
+                    } else {
+                        vec![]
+                    },
                     host: RaftHostOptions {
+                        inspection_origins: if self.inspection {
+                            self.peers
+                                .iter()
+                                .enumerate()
+                                .filter(|(source, _)| {
+                                    *source != index && !(index == 0 && *source == 2)
+                                })
+                                .map(|(_, peer)| NamespaceInspectionOrigin {
+                                    cluster: self.registrations[0].namespace.cluster,
+                                    namespace: self.registrations[0].namespace.namespace,
+                                    revision: 1,
+                                    peer: peer.clone(),
+                                })
+                                .collect()
+                        } else {
+                            vec![]
+                        },
+                        node_profile: if self.inspection {
+                            let reservation = RaftHostOptions::default().images.max_bytes;
+                            Some(RaftNodeProfile {
+                                pool: "native".into(),
+                                region: "local".into(),
+                                zone: format!("zone-{index}"),
+                                group_capacity: 2,
+                                byte_capacity: reservation * 2,
+                                bytes_per_group: reservation,
+                                leader_capacity: 2,
+                                draining: false,
+                            })
+                        } else {
+                            None
+                        },
                         node_directory: Some(RaftNodeDirectoryOptions {
                             poll_ms: 20,
                             timeout_ms: 5000,

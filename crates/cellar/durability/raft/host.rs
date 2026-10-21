@@ -49,6 +49,9 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Explicit inbound metadata permissions. Discovery and query grants do not
+    /// enable inspection. Each peer must match the configured trusted endpoint.
+    pub inspection_origins: Vec<super::transport_options::NamespaceInspectionOrigin>,
     /// Enable read-only placement inspection with explicit capacity declarations.
     pub node_profile: Option<super::inspection::RaftNodeProfile>,
     /// Publish and refresh explicitly configured physical node endpoints.
@@ -81,6 +84,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            inspection_origins: Vec::new(),
             node_directory: None,
             node_profile: None,
             enable_snapshots: true,
@@ -107,6 +111,15 @@ impl RaftHostOptions {
         if let Some(directory) = &self.node_directory {
             directory.validate()?;
         }
+        anyhow::ensure!(
+            self.inspection_origins.is_empty()
+                || (self.node_profile.is_some() && self.node_directory.is_some()),
+            "peer inspection requires a placement profile and physical node directory"
+        );
+        anyhow::ensure!(
+            self.inspection_origins.len() <= 4096,
+            "too many inspection grants"
+        );
         self.archive.validate()?;
         self.execution.validate()?;
         anyhow::ensure!(
@@ -338,6 +351,25 @@ async fn initialize(
             &label,
         )
         .await?;
+        let namespaces: BTreeSet<_> = registrations
+            .iter()
+            .map(|registration| {
+                (
+                    registration.namespace.config().cluster,
+                    registration.namespace.config().namespace,
+                )
+            })
+            .collect();
+        let mut grants = BTreeSet::new();
+        for origin in &options.inspection_origins {
+            anyhow::ensure!(
+                namespaces.contains(&(origin.cluster, origin.namespace))
+                    && peers.get(&origin.peer.node) == Some(&origin.peer)
+                    && grants.insert((origin.cluster, origin.namespace, origin.peer.node)),
+                "inspection origin must match a unique registered namespace and trusted peer"
+            );
+            service.transport.grant_inspection_origin(origin.clone())?;
+        }
         for (index, registration) in registrations.into_iter().enumerate() {
             let Registration {
                 mut placement,
@@ -932,6 +964,7 @@ enum SqlPurpose {
 
 enum Job {
     Inspection(Box<inspection::Completed>),
+    PeerInspection(Box<inspection::PeerCompleted>),
     Directory(Box<directory::Observation>),
     Standby(Box<standby::Completed>),
     Leadership {
@@ -1576,11 +1609,16 @@ impl Driver {
 
     fn on_request(&mut self, mut request: Request) {
         let scope = request.scope.clone();
-        if matches!(&request.kind, Kind::Inspect) {
+        if matches!(&request.kind, Kind::Inspect | Kind::InspectPeer(_)) {
             if self.closing.load(Ordering::Acquire) {
                 reply(&mut request, Err(CommandFailure::Unavailable));
             } else if !request.control.cancelled() {
-                self.start_inspection(request);
+                match request.kind {
+                    Kind::InspectPeer(peer) if peer != self.log.limits().node => {
+                        self.start_peer_inspection(request, peer)
+                    }
+                    _ => self.start_inspection(request),
+                }
             }
             return;
         }
@@ -1701,6 +1739,7 @@ impl Driver {
                 }));
             }
             Kind::Inspect
+            | Kind::InspectPeer(_)
             | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
             | Kind::Seed { .. }
@@ -2660,6 +2699,7 @@ impl Driver {
     fn on_job(&mut self, job: Job) {
         match job {
             Job::Inspection(completed) => self.finish_inspection(*completed),
+            Job::PeerInspection(completed) => self.finish_peer_inspection(*completed),
             Job::Directory(observation) => self.on_directory(*observation),
             Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {

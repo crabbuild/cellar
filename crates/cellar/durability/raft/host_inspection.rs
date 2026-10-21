@@ -1,8 +1,8 @@
 //! Capture bounded registered-history metadata through reserved control work.
 use super::*;
 use crate::raft::inspection::{
-    CellInspection, InspectionSnapshot, MemberInspection, NodeInspection, ReplicaOccupancy,
-    RESPONSE_RESERVATION,
+    CellInspection, InspectionError, InspectionSnapshot, MemberInspection, NodeInspection,
+    ReplicaOccupancy, RESPONSE_RESERVATION,
 };
 
 pub(super) struct Completed {
@@ -11,7 +11,112 @@ pub(super) struct Completed {
     result: Result<GroupStatus, RuntimeError>,
 }
 
+pub(super) struct PeerCompleted {
+    request: Box<Request>,
+    started: u64,
+    bytes: Permit,
+    result: Result<super::super::transport::inspections::Received, InspectionError>,
+}
+
 impl Driver {
+    pub(super) fn start_peer_inspection(&mut self, mut request: Request, peer: NodeId) {
+        let admitted = (|| {
+            if self.options.node_profile.is_none() || self.directory.is_none() {
+                return Err(InspectionError::Refused);
+            }
+            let endpoint = self
+                .peers
+                .get(&peer)
+                .cloned()
+                .ok_or(InspectionError::Refused)?;
+            let binding = self
+                .local
+                .bindings
+                .get(&(request.scope.namespace, request.scope.cell.clone()))
+                .ok_or(InspectionError::Refused)?;
+            let birth = self
+                .cells
+                .get(&request.scope)
+                .map(|cell| cell.birth.digest())
+                .or_else(|| {
+                    self.standbys
+                        .get(&request.scope)
+                        .map(|cell| cell.birth.digest())
+                })
+                .ok_or(InspectionError::Refused)?;
+            let bytes = self
+                .control_budget
+                .acquire(RESPONSE_RESERVATION)
+                .ok_or(InspectionError::Overloaded)?;
+            let started = self
+                .log
+                .domain()
+                .mono_ms()
+                .map_err(|_| InspectionError::Unavailable)?;
+            let delivery = self.transport.inspect_peer(
+                request.scope.clone(),
+                binding.class.schema_digest(),
+                birth,
+                endpoint,
+                request.control.deadline(),
+            )?;
+            Ok((started, bytes, delivery))
+        })();
+        let (started, bytes, delivery) = match admitted {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                reply(&mut request, Ok(Response::PeerInspection(Err(error))));
+                return;
+            }
+        };
+        self.jobs.push(Box::pin(async move {
+            let result = crate::asyncrt::select_biased! { "cancel an inspection before retaining its response";
+                _ = request.control.cancellation() => Err(InspectionError::Unavailable),
+                result = delivery.receive() => result,
+            };
+            Job::PeerInspection(Box::new(PeerCompleted { request: Box::new(request), started, bytes, result }))
+        }));
+    }
+
+    pub(super) fn finish_peer_inspection(&mut self, completed: PeerCompleted) {
+        let PeerCompleted {
+            mut request,
+            started,
+            bytes,
+            result,
+        } = completed;
+        if request.control.cancelled() || self.closing.load(Ordering::Acquire) {
+            return;
+        }
+        let result = result.and_then(|mut received| {
+            let elapsed = self
+                .log
+                .domain()
+                .mono_ms()
+                .ok()
+                .and_then(|now| now.checked_sub(started))
+                .ok_or(InspectionError::Unavailable)?;
+            if let Some(member) = received.snapshot.view.member.as_mut() {
+                member.sample_age_ms = member
+                    .sample_age_ms
+                    .checked_add(elapsed)
+                    .ok_or(InspectionError::Unavailable)?;
+            }
+            if let Some(load) = received.snapshot.view.leader_load.as_mut() {
+                load.sample_age_ms = load
+                    .sample_age_ms
+                    .checked_add(elapsed)
+                    .ok_or(InspectionError::Unavailable)?;
+            }
+            Ok(received.snapshot)
+        });
+        reply_charged(
+            &mut request,
+            Ok(Response::PeerInspection(result)),
+            Some(bytes),
+        );
+    }
+
     pub(super) fn start_inspection(&mut self, request: Request) {
         if self.options.node_profile.is_none() {
             let mut request = request;

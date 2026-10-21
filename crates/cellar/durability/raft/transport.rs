@@ -17,7 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -26,6 +26,8 @@ use tokio::sync::{mpsc, oneshot, watch, Notify, Semaphore};
 
 #[path = "transport_directory.rs"]
 mod directory;
+#[path = "inspection_transport.rs"]
+pub(crate) mod inspections;
 #[path = "query_transport.rs"]
 mod queries;
 #[path = "seed_transport.rs"]
@@ -174,6 +176,8 @@ impl Delivery {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TransportUsage {
+    pub inspection_bytes: usize,
+    pub inspection_items: usize,
     pub control_bytes: usize,
     pub data_bytes: usize,
     pub control_items: usize,
@@ -246,6 +250,8 @@ struct Registry {
     groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     query_groups: BTreeMap<GroupScope, Arc<GroupRoute>>,
     origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
+    inspection_origins: BTreeMap<(ClusterId, NamespaceId, NodeId), Arc<queries::OriginGrant>>,
+    inspection_peers: BTreeMap<NodeId, Arc<Budget>>,
     pools: BTreeMap<NodeId, Arc<Pool>>,
     node_views: BTreeMap<NodeId, crate::raft::catalog::NodeView>,
     seed_peers: BTreeMap<NodeId, directory::SeedPeer>,
@@ -300,6 +306,10 @@ struct State {
     snapshot_receive_budget: Arc<Budget>,
     snapshot_connections: Arc<Semaphore>,
     seed_metadata: Arc<Budget>,
+    inspection_metadata: Arc<Budget>,
+    inspection_enabled: AtomicBool,
+    control_connections: Arc<Semaphore>,
+    consensus_connections: Arc<Semaphore>,
 }
 
 struct Handle(Arc<State>);
@@ -394,6 +404,8 @@ impl RaftTransport {
                 groups: BTreeMap::new(),
                 query_groups: BTreeMap::new(),
                 origins: BTreeMap::new(),
+                inspection_origins: BTreeMap::new(),
+                inspection_peers: BTreeMap::new(),
                 pools: BTreeMap::new(),
                 node_views: BTreeMap::new(),
                 seed_peers: BTreeMap::new(),
@@ -416,6 +428,13 @@ impl RaftTransport {
             accepted: AtomicU64::new(0),
             refused: AtomicU64::new(0),
             failed: AtomicU64::new(0),
+            control_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            consensus_connections: Arc::new(Semaphore::new(options.max_connections_per_lane)),
+            inspection_metadata: Budget::new(
+                inspections::META_BYTES * inspections::SLOTS,
+                inspections::SLOTS,
+            ),
+            inspection_enabled: AtomicBool::new(false),
             options,
             claim: Mutex::new(Some(claim)),
             snapshot_source: Mutex::new(None),
@@ -871,7 +890,9 @@ impl State {
     }
 
     fn task_limit(&self) -> usize {
-        3 + 6 * self.options.max_peers + 3 * self.options.max_connections_per_lane
+        3 + 6 * self.options.max_peers
+            + 3 * self.options.max_connections_per_lane
+            + usize::from(self.inspection_enabled.load(Ordering::Acquire)) * inspections::SLOTS
     }
 
     fn stop(&self) {
@@ -931,7 +952,10 @@ impl State {
         let (qb, qi) = self.outgoing.query.usage();
         let (rqb, rqi) = self.incoming.query.usage();
         let registry = self.lifecycle_registry();
+        let (inspection_bytes, inspection_items) = self.inspection_metadata.usage();
         TransportUsage {
+            inspection_bytes,
+            inspection_items,
             control_bytes: cb + rcb,
             data_bytes: db + rdb,
             control_items: ci + rci,
@@ -1060,7 +1084,11 @@ impl State {
     }
 
     async fn listen(self: Arc<Self>, listener: TcpListener, lane: Lane) {
-        let slots = Arc::new(Semaphore::new(self.options.max_connections_per_lane));
+        let slots = if lane == Lane::Control {
+            self.control_connections.clone()
+        } else {
+            Arc::new(Semaphore::new(self.options.max_connections_per_lane))
+        };
         let mut stop = self.stop.subscribe();
         loop {
             if *stop.borrow() {
@@ -1110,6 +1138,7 @@ impl State {
             .map_err(|e| TransportError::Tls(e.to_string()))?;
         let mut sequence = 0;
         let mut source_host = None;
+        let mut control_slot = None;
         loop {
             let mut prefix = [0; frame::PREFIX];
             self.bounded(None, async {
@@ -1117,6 +1146,22 @@ impl State {
                 Ok(())
             })
             .await?;
+            if &prefix[..4] == inspections::REQUEST_MAGIC {
+                if lane != Lane::Control
+                    || sequence != 0
+                    || !self.inspection_enabled.load(Ordering::Acquire)
+                {
+                    return Err(TransportError::Protocol);
+                }
+                let exporter = stream
+                    .get_ref()
+                    .1
+                    .export_keying_material([0; 32], inspections::EXPORT_LABEL, None)
+                    .map_err(|error| TransportError::Tls(error.to_string()))?;
+                return self
+                    .receive_inspection(&mut stream, &exporter, prefix)
+                    .await;
+            }
             if &prefix[..4] == seeds::REQUEST_MAGIC {
                 if lane != Lane::Data || sequence != 0 {
                     return Err(TransportError::Protocol);
@@ -1133,6 +1178,14 @@ impl State {
                     return Err(TransportError::Protocol);
                 }
                 return self.receive_snapshot(&mut stream, &exporter, prefix).await;
+            }
+            if lane == Lane::Control && control_slot.is_none() {
+                control_slot = Some(
+                    self.consensus_connections
+                        .clone()
+                        .try_acquire_owned()
+                        .map_err(|_| TransportError::Overloaded)?,
+                );
             }
             let head = self
                 .bounded(

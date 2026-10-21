@@ -402,6 +402,36 @@ impl RaftCellHandle {
         async move { Ok(call.await?.view) }
     }
 
+    /// Inspect an explicitly configured physical peer for this registered
+    /// history. A dormant source needs no member identity. Metadata grants and
+    /// discovery must be enabled on both endpoints. This call grants no quorum
+    /// or activation authority; only `Unreachable` reports a failed TCP probe.
+    pub fn inspect_peer(
+        &self,
+        peer: cellar_logic::consensus::NodeId,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<super::CellInspection, super::InspectionError>> + Send + 'static
+    {
+        let call = self.call(Kind::InspectPeer(peer), timeout);
+        async move {
+            use super::InspectionError;
+            let response = call.await.map_err(|error| match error {
+                CommandFailure::Overloaded => InspectionError::Overloaded,
+                CommandFailure::UnsupportedCapability => InspectionError::Refused,
+                _ => InspectionError::Unavailable,
+            })?;
+            let snapshot = match response {
+                Response::Inspection(snapshot) => snapshot,
+                Response::PeerInspection(result) => result?,
+                _ => return Err(InspectionError::Unavailable),
+            };
+            snapshot
+                .validate()
+                .map_err(|_| InspectionError::Unavailable)?;
+            Ok(snapshot.view)
+        }
+    }
+
     pub(crate) fn inspect_snapshot(
         &self,
         timeout: Duration,
@@ -644,6 +674,11 @@ impl RaftCellHandle {
                     }
                 }
                 Kind::Inspect => (),
+                Kind::InspectPeer(_) => {
+                    if timeout > Duration::from_secs(60) {
+                        return Err(CommandFailure::UnsupportedCapability);
+                    }
+                }
                 Kind::Status | Kind::RepairStatus | Kind::ReplicationStatus => {
                     if self.binding.member().is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
@@ -755,6 +790,7 @@ pub(crate) struct Work {
 
 pub(crate) enum Kind {
     Inspect,
+    InspectPeer(cellar_logic::consensus::NodeId),
     ActivateLearner(LearnerActivation),
     ReplicationStatus,
     TransferLeadership(super::LeadershipTransfer),
@@ -799,6 +835,7 @@ impl Kind {
         4096 + match self {
             Self::Command { input, .. } | Self::Query { input, .. } => input.len(),
             Self::Inspect
+            | Self::InspectPeer(_)
             | Self::Status
             | Self::AddLearner { .. }
             | Self::Seed { .. }
@@ -816,6 +853,7 @@ impl Kind {
             Self::Command { options, .. } => CancelFailure::Command(options.id),
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
             Self::Inspect
+            | Self::InspectPeer(_)
             | Self::Status
             | Self::AddLearner { .. }
             | Self::BeginRepair { .. }
@@ -846,6 +884,9 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    PeerInspection(
+        Result<Box<crate::raft::inspection::InspectionSnapshot>, super::InspectionError>,
+    ),
     Inspection(Box<crate::raft::inspection::InspectionSnapshot>),
     Replication(super::ReplicationStatus),
     LeadershipRequested,

@@ -5,6 +5,26 @@ use cellar_logic::consensus::{
     EngineInstanceId, GroupScope, LogIndex, LogPosition, MemberId, NodeIdentity, Term,
 };
 
+/// Peer probe outcomes preserve whether a direct connection attempt failed.
+/// Local pressure, missing discovery and an unusable response do not establish
+/// that the remote node failed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InspectionError {
+    Unreachable,
+    Overloaded,
+    Unavailable,
+    Refused,
+    StalePeer,
+}
+
+impl std::fmt::Display for InspectionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Raft inspection: {self:?}")
+    }
+}
+
+impl std::error::Error for InspectionError {}
+
 /// Explicit placement declarations, independent of the current process address.
 /// Storage reservations constrain selection; owning host/engine limits still
 /// decide whether actual initialization can be admitted.
@@ -168,18 +188,28 @@ impl InspectionSnapshot {
                             .repair_status()
                             .map_err(|_| CommandFailure::CorruptState)?
                     || !super::member_state::members(configuration).contains(&member.get())
+                    || sample.leader.is_some_and(|leader| {
+                        !super::member_state::members(configuration).contains(&leader.get())
+                    })
                     || (sample.is_leader && sample.leader != Some(*member))
                     || sample.published.is_some_and(|cut| {
                         cut.index.get() == 0
                             || cut.term.get() == 0
                             || cut.index > sample.applied.index
-                            || cut.term > sample.term
+                            || cut.term > sample.applied.term
+                            || (cut.index == sample.applied.index
+                                && cut.term != sample.applied.term)
                     })
                 {
                     return Err(invalid);
                 }
             }
             (ReplicaOccupancy::Member(_), ..) => return Err(invalid),
+            (ReplicaOccupancy::Retired(_) | ReplicaOccupancy::Occupied(_), ..)
+                if view.node.groups == 0 =>
+            {
+                return Err(invalid)
+            }
             (_, None, None, None) => (),
             _ => return Err(invalid),
         }

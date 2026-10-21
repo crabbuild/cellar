@@ -18,13 +18,16 @@ pub use crate::raft::host::{
     RaftCellsServices, RaftHostOptions, RaftNodeDirectoryOptions, RaftPeerNode,
 };
 pub use crate::raft::inspection::{
-    CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile, ReplicaOccupancy,
+    CellInspection, InspectionError, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
+    ReplicaOccupancy,
 };
 pub use crate::raft::member_state::{
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
-pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};
+pub use crate::raft::transport_options::{
+    NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+};
 pub use crate::raft::version::{
     VersionError, VersionKeys, VersionSigningKey, VersionToken, VersionVerificationKey,
 };
@@ -88,5 +91,7 @@ pub mod verification {
     pub use crate::raft::transport::{
         Delivery, GroupRoute, Lane, RaftPeer, RaftTransport, TransportError, TransportUsage,
     };
-    pub use crate::raft::transport_options::{NamespaceQueryOrigin, RaftTls, TransportOptions};
+    pub use crate::raft::transport_options::{
+        NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,
+    };
 }

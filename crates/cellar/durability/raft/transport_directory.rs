@@ -93,6 +93,7 @@ impl RaftTransport {
         for old in registry
             .origins
             .values()
+            .chain(registry.inspection_origins.values())
             .filter_map(|grant| grant.peer.as_ref())
             .filter(|old| old.node == peer.node)
         {
@@ -117,12 +118,21 @@ impl RaftTransport {
         let starts = state.prepare_pools(&mut registry, physical)?;
         refresh_routes(&mut registry.groups, peer);
         refresh_routes(&mut registry.query_groups, peer);
-        for grant in registry.origins.values_mut().filter(|grant| {
-            grant
-                .peer
-                .as_ref()
-                .is_some_and(|old| old.node == peer.node && old != peer)
-        }) {
+        let Registry {
+            origins,
+            inspection_origins,
+            ..
+        } = &mut *registry;
+        for grant in origins
+            .values_mut()
+            .chain(inspection_origins.values_mut())
+            .filter(|grant| {
+                grant
+                    .peer
+                    .as_ref()
+                    .is_some_and(|old| old.node == peer.node && old != peer)
+            })
+        {
             let (stop, _) = watch::channel(false);
             let changed = queries::OriginGrant {
                 revision: grant.revision,

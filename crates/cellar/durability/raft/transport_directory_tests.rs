@@ -447,3 +447,6 @@ async fn process_observation_and_seed_epochs_have_fixed_node_limits() -> anyhow:
     }
     fixture.close().await
 }
+
+#[path = "transport_inspection_tests.rs"]
+mod inspection;

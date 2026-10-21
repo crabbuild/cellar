@@ -13,6 +13,8 @@ pub(crate) mod host;
 mod host_archive;
 mod host_sql;
 pub(crate) mod inspection;
+mod inspection_identity;
+mod inspection_wire;
 pub(crate) mod mailbox;
 mod manifest;
 pub(crate) mod member_state;
