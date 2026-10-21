@@ -256,6 +256,16 @@ admitted producers before servicing at most four queued control requests, then
 services normal business, consensus and completion work. A command can wait for
 an in-flight status check; execution and submission still require fresh checks.
 Saturating either admission budget leaves the other available.
+
+An explicit `node_profile` enables `RaftCellHandle::inspect()` for registered
+members and dormant standbys. It reports declared pool/region/zone/capacity,
+physical engine identity, history occupancy and a coherent member observation.
+Durable apply and published-image positions remain separate. Inspection uses
+control response reservations, reads bounded cache metadata and counts engine
+groups without scanning their contents. It performs no SQL callback or member
+initialization. Existing, retired and initializing histories are ineligible as
+blank standbys. Missing aggregate leadership load remains absent. Authenticated
+peer collection and automatic controller use are separate MR-11 boundaries.
 After submission, the producer remains owned through consensus and publication.
 A newer committed/published term barrier can retire old uncertainty even on a
 follower, after disposing of its private shadow; that grants no write authority.

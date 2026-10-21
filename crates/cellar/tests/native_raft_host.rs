@@ -4,6 +4,8 @@
 mod cluster;
 #[path = "../../../examples/raft-counter/counter.rs"]
 mod counter_example;
+#[path = "support/raft_inspection_native.rs"]
+mod inspection;
 #[path = "support/raft_node.rs"]
 mod public_node;
 #[path = "support/raft_catalog_fault.rs"]

@@ -17,6 +17,9 @@ pub use crate::raft::host::{
     RaftArchiveOptions, RaftCellPlacement, RaftCellRegistration, RaftCellsConfig,
     RaftCellsServices, RaftHostOptions, RaftNodeDirectoryOptions, RaftPeerNode,
 };
+pub use crate::raft::inspection::{
+    CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile, ReplicaOccupancy,
+};
 pub use crate::raft::member_state::{
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
@@ -38,8 +41,8 @@ pub use client::{
 
 pub use cellar_logic::consensus::{
     ClientId, ClusterId, CommandFailure, CommandId, CommittedVersion, DiskLineage, Durability,
-    GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId, NamespaceId, NodeId,
-    NodeIdentity, ProcessGeneration, ProposalId, Term,
+    EngineInstanceId, GroupId, GroupScope, IncarnationId, LogIndex, LogPosition, MemberId,
+    NamespaceId, NodeId, NodeIdentity, ProcessGeneration, ProposalId, Term,
 };
 pub use cellar_logic::NamespaceMode;
 pub use protocol::{CellUpdate, EnvelopeLimits, LtxImage, LtxUpdate, ProtocolError};
@@ -68,6 +71,10 @@ pub mod verification {
         query_registered, AppliedExecution, CommandAttempt, CommandAuthority, CommandRequest,
         CommittedReceipt, ExecutionError, ExecutionLimits, ExecutionStatus, PreparedCommand,
         PrivateExecutor, PrivateOptions, RegisteredQueryOutput, StageOutcome, StoredReceipt,
+    };
+    pub use crate::raft::inspection::{
+        CellInspection, LeaderLoad, MemberInspection, NodeInspection, RaftNodeProfile,
+        ReplicaOccupancy,
     };
     pub use crate::raft::member_state::{GroupMembership, JoiningMember};
     pub use crate::raft::options::RaftRuntimeOptions;

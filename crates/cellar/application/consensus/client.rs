@@ -392,6 +392,34 @@ impl RaftCellHandle {
         }
     }
 
+    /// Observe registered-history occupancy, declared capacity and published
+    /// progress. Available for members and dormant standbys when configured;
+    /// this metadata supplies no read, seed or membership capability.
+    pub fn inspect(
+        &self,
+    ) -> impl Future<Output = Result<super::CellInspection, CommandFailure>> + Send + 'static {
+        let call = self.inspect_snapshot(Duration::from_secs(5));
+        async move { Ok(call.await?.view) }
+    }
+
+    pub(crate) fn inspect_snapshot(
+        &self,
+        timeout: Duration,
+    ) -> impl Future<Output = Result<Box<crate::raft::inspection::InspectionSnapshot>, CommandFailure>>
+           + Send
+           + 'static {
+        let call = self.call(Kind::Inspect, timeout);
+        async move {
+            match call.await? {
+                Response::Inspection(snapshot) => {
+                    snapshot.validate()?;
+                    Ok(snapshot)
+                }
+                _ => Err(CommandFailure::CorruptState),
+            }
+        }
+    }
+
     /// Observe the synced plan, without a fresh quorum or activation proof.
     pub fn repair_status(
         &self,
@@ -615,6 +643,7 @@ impl RaftCellHandle {
                         }
                     }
                 }
+                Kind::Inspect => (),
                 Kind::Status | Kind::RepairStatus | Kind::ReplicationStatus => {
                     if self.binding.member().is_none() {
                         return Err(CommandFailure::UnsupportedCapability);
@@ -725,6 +754,7 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    Inspect,
     ActivateLearner(LearnerActivation),
     ReplicationStatus,
     TransferLeadership(super::LeadershipTransfer),
@@ -768,7 +798,8 @@ impl Kind {
     fn bytes(&self) -> usize {
         4096 + match self {
             Self::Command { input, .. } | Self::Query { input, .. } => input.len(),
-            Self::Status
+            Self::Inspect
+            | Self::Status
             | Self::AddLearner { .. }
             | Self::Seed { .. }
             | Self::BeginRepair { .. }
@@ -784,7 +815,8 @@ impl Kind {
         match self {
             Self::Command { options, .. } => CancelFailure::Command(options.id),
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
-            Self::Status
+            Self::Inspect
+            | Self::Status
             | Self::AddLearner { .. }
             | Self::BeginRepair { .. }
             | Self::AdvanceRepair { .. }
@@ -814,6 +846,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Inspection(Box<crate::raft::inspection::InspectionSnapshot>),
     Replication(super::ReplicationStatus),
     LeadershipRequested,
     Repair(Option<crate::raft::member_state::RepairStatus>),

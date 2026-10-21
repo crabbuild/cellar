@@ -326,6 +326,16 @@ impl ReplicaLog {
         Ok(handle)
     }
 
+    pub(crate) fn group_count(&self) -> Result<usize, LogError> {
+        self.admit()?;
+        Ok(self
+            .inner
+            .groups
+            .read()
+            .map_err(|_| LogError::Closed)?
+            .len())
+    }
+
     pub fn groups(&self) -> Result<Vec<GroupLog>, LogError> {
         self.admit()?;
         Ok(self

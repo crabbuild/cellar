@@ -35,6 +35,8 @@ mod startup_tests;
 
 #[path = "host_directory.rs"]
 mod directory;
+#[path = "host_inspection.rs"]
+mod inspection;
 #[path = "host_membership.rs"]
 mod membership;
 pub use directory::RaftNodeDirectoryOptions;
@@ -47,6 +49,8 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    /// Enable read-only placement inspection with explicit capacity declarations.
+    pub node_profile: Option<super::inspection::RaftNodeProfile>,
     /// Publish and refresh explicitly configured physical node endpoints.
     /// Requires a trusted self endpoint and stable member/standby storage.
     pub node_directory: Option<RaftNodeDirectoryOptions>,
@@ -78,6 +82,7 @@ impl Default for RaftHostOptions {
         };
         Self {
             node_directory: None,
+            node_profile: None,
             enable_snapshots: true,
             checkpoint_entries: 256,
             archive: RaftArchiveOptions::default(),
@@ -162,6 +167,14 @@ impl RaftHostOptions {
             (1..=3_600_000).contains(&self.stale_source_timeout_ms),
             "invalid stale-source deadline"
         );
+        if let Some(profile) = &self.node_profile {
+            profile.validate(self.max_groups, self.images.max_bytes)?;
+            anyhow::ensure!(
+                self.max_control_requests >= 2
+                    && self.max_control_bytes >= super::inspection::RESPONSE_RESERVATION + 4096,
+                "Raft inspection requires independent request and response capacity"
+            );
+        }
         Ok(())
     }
 }
@@ -692,7 +705,7 @@ async fn initialize(
     let handle = Arc::new(client::Handle {
         requests: sender,
         control_requests: control_sender,
-        control_budget,
+        control_budget: control_budget.clone(),
         close,
         domain: domain.clone(),
         closed: closed.clone(),
@@ -755,6 +768,7 @@ async fn initialize(
             read_nonce,
             read_sequence: 0,
             budget,
+            control_budget,
             local,
             snapshot_limits,
             snapshot_source: None,
@@ -917,6 +931,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Inspection(Box<inspection::Completed>),
     Directory(Box<directory::Observation>),
     Standby(Box<standby::Completed>),
     Leadership {
@@ -1027,6 +1042,7 @@ struct Driver {
     read_nonce: [u8; 16],
     read_sequence: u64,
     budget: Arc<Budget>,
+    control_budget: Arc<Budget>,
 }
 
 fn reply(request: &mut Request, result: Result<Response, CommandFailure>) {
@@ -1560,6 +1576,14 @@ impl Driver {
 
     fn on_request(&mut self, mut request: Request) {
         let scope = request.scope.clone();
+        if matches!(&request.kind, Kind::Inspect) {
+            if self.closing.load(Ordering::Acquire) {
+                reply(&mut request, Err(CommandFailure::Unavailable));
+            } else if !request.control.cancelled() {
+                self.start_inspection(request);
+            }
+            return;
+        }
         let allow_new = matches!(&request.kind, Kind::Command { .. }) && self.archive_admission();
         if self.closing.load(Ordering::Acquire)
             || self
@@ -1676,7 +1700,8 @@ impl Driver {
                     }
                 }));
             }
-            Kind::AddLearner { .. }
+            Kind::Inspect
+            | Kind::AddLearner { .. }
             | Kind::ActivateLearner(_)
             | Kind::Seed { .. }
             | Kind::BeginRepair { .. }
@@ -2634,6 +2659,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Inspection(completed) => self.finish_inspection(*completed),
             Job::Directory(observation) => self.on_directory(*observation),
             Job::Standby(completed) => self.on_standby_job(*completed),
             Job::Leadership {
