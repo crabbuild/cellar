@@ -76,6 +76,9 @@ pub async fn cancelled_start() -> Result<()> {
         .await??;
         drop(starting);
         ensure!(calls.load(Ordering::Acquire) == 0);
+        // A poisoned/uninstalled host cannot export a healthy zero snapshot
+        // while its physical opening fsync remains owned and held.
+        super::metrics::unavailable(node.as_ref().context("node")?).await?;
         let generation = node
             .as_ref()
             .context("node")?

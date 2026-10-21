@@ -94,8 +94,28 @@ reach zero only after the physical readers exit.
 Query-reader reservations do not count every `GenerationPin` clone or an image
 writer reservation. Archive, seed, checkpoint and effect readers use their own
 existing bounds. This API does not yet provide complete transport, queue, image
-retention, lag or controller metrics. Aggregate export and sampled authenticated
-group inspection remain separate operational work.
+retention, lag or controller metrics.
+
+`RaftResourceUsage.prometheus()` emits exactly 14 gauge samples. The only budget
+labels are the fixed `business`, `control` and `archive_capture` values; cell,
+group, member, process, peer and node identities never enter a label. Each budget
+reports current bytes/items and its byte/item capacities, beside current
+query-reader reservations and their limit.
+
+The internal HTTP listener exposes the same live source at
+`GET /peer/raft/metrics?generation=<NodeInfo.lease_generation>`. Requests require
+the Node's existing peer authentication and its exact Node process generation.
+The default response is Prometheus text; `&format=json` selects the fixed typed
+resource object. Invalid/duplicate options and stale generations are refused.
+An unregistered host returns 404. An uninstalled/cancelled host, including a
+still-owned opening worker, returns 503 rather than a fabricated zero sample.
+This endpoint performs no Raft request, callback, group enumeration or archive
+I/O. A sample reports resource reservations, not readiness or graceful closure.
+
+Group detail remains separate through explicitly enabled SDK inspection and
+authenticated peer inspection grants. Enabling resource sampling grants no
+peer-inspection, membership, seeding or query capability. Production CLI
+discovery/management and the remaining complete resource/lag views remain open.
 
 ## Drain and leadership handoff
 

@@ -52,8 +52,11 @@ age. These observations do not reserve capacity or prove a current quorum.
 the blocking owner retains its permit through callback/connection exit after
 waiter cancellation. `RaftCells.resource_usage()` reads actual fixed-size host
 business/output, control, archive-capture and query-reader usage/capacity without
-I/O or group enumeration. This component does not yet export complete resource
-metrics. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+I/O or group enumeration. The internal generation-bound, authenticated
+`/peer/raft/metrics` endpoint exports these same counters as 14 fixed Prometheus
+gauges or JSON, without identity labels or callback execution. Missing/unavailable
+sources are refused rather than synthesized. Complete transport, queue, image,
+lag and controller metrics remain open. The [operations contract](../../../../plans/multi-raft/operations-design.md)
 defines the boundary.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.

@@ -18,6 +18,8 @@ mod image_fault;
 mod log_fault;
 #[path = "support/raft_management_native.rs"]
 mod management;
+#[path = "support/raft_metrics_native.rs"]
+mod metrics;
 #[path = "support/raft_mode_native.rs"]
 mod mode_guard;
 #[path = "support/raft_node.rs"]
@@ -46,6 +48,11 @@ async fn query_pin_pressure_survives_waiter_cancellation() -> Result<()> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn query_pin_shutdown_waits_for_physical_reader() -> Result<()> {
     resources::run(true).await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn metrics_group_cardinality() -> Result<()> {
+    metrics::group_cardinality().await
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

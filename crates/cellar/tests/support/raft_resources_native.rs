@@ -113,6 +113,7 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         held.abort();
         ensure!(held.await.is_err_and(|error| error.is_cancelled()));
         ensure!(service.resource_usage().query_pins.in_use == 1);
+        super::metrics::pin_count(&node, 1).await?;
         let refused = handles[1]
             .query(
                 definition.get.clone(),

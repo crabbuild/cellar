@@ -62,6 +62,7 @@ mod event_state;
 mod event_wait;
 mod ingress;
 pub(crate) mod operations;
+mod raft_metrics;
 mod source_operator;
 mod stream_operator;
 mod wake_discovery;
@@ -3257,6 +3258,7 @@ async fn handle_internal(
     let evict_scope = path.strip_prefix("/evict/");
     let result = match path.as_str() {
         "/event-metrics" if app.runtime.is_some() => event_metrics::handle(&app, request).await,
+        "/peer/raft/metrics" => raft_metrics::handle(&app, request).await,
         "/peer/probe" => internal_probe(request, app).await,
         "/peer/management" => management::handle(request, app, shutdown).await,
         "/peer/handoff" => internal_handoff(request, app).await,

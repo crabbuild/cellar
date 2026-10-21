@@ -126,6 +126,21 @@ pub(crate) struct NodeLifecycle {
 }
 
 impl NodeLifecycle {
+    pub(crate) fn resource_usage(
+        &self,
+    ) -> Result<Option<crate::application::consensus::RaftResourceUsage>, CommandFailure> {
+        let service = {
+            let state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
+            if state.poisoned || state.started && state.service.is_none() {
+                // Starting/cancelled/removed hosts have no live sampler. A
+                // missing observation cannot become a healthy zero snapshot.
+                return Err(CommandFailure::Unavailable);
+            }
+            state.service.clone()
+        };
+        Ok(service.map(|service| service.resource_usage()))
+    }
+
     pub(crate) fn begin(self: &Arc<Self>) -> Result<Starting, CommandFailure> {
         let mut state = self.state.lock().map_err(|_| CommandFailure::Unavailable)?;
         if state.sealed || state.started || state.poisoned {
