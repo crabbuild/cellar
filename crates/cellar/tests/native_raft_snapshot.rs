@@ -653,14 +653,33 @@ async fn native_seed_drill(
         .await??;
         let mut options = public_node::options(2)?;
         options.durability = Durability::S3;
-        handles[primary]
-            .command(
-                definitions[primary].increment.clone(),
-                0_i64.to_be_bytes().to_vec(),
-                options,
-            )
-            .await
-            .context("archive post-join LTX tail")?;
+        let deadline = tokio::time::Instant::now() + options.timeout;
+        let tail = loop {
+            options.timeout = deadline.saturating_duration_since(tokio::time::Instant::now());
+            ensure!(
+                !options.timeout.is_zero(),
+                "archive tail admission deadline"
+            );
+            let result = handles[primary]
+                .command(
+                    definitions[primary].increment.clone(),
+                    0_i64.to_be_bytes().to_vec(),
+                    options.clone(),
+                )
+                .await;
+            // The archived configuration cut does not imply an idle SQL/status
+            // owner. Retry only explicit backpressure, retaining the exact
+            // command ID/payload/durability and original operation deadline.
+            if matches!(result, Err(CommandFailure::Overloaded)) {
+                tokio::time::sleep_until(
+                    deadline.min(tokio::time::Instant::now() + Duration::from_millis(5)),
+                )
+                .await;
+                continue;
+            }
+            break result.context("archive post-join LTX tail")?;
+        };
+        assert_eq!(tail.result, 5_i64.to_be_bytes());
         let set = archive
             .recovery_set()
             .await?
