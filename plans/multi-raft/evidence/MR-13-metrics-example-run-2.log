@@ -1,0 +1,5 @@
+<jemalloc>: option background_thread currently supports pthread only
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+cellar local reload scan failed: local reload requires replication
+Producer/receiver recovery passed. Repeat with the same data directory to verify durable deduplication across restart; retain its disks and catalog.
