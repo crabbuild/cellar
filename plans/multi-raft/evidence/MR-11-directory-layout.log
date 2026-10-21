@@ -1,0 +1,3 @@
+Source: 79a46b7d8d7af7ed9f8c26c3989b6026ff785d88
+Command: ["cargo", "check-layout"]
+Checked module layout for 654 Rust files

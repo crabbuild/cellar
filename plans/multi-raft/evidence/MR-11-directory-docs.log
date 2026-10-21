@@ -1,0 +1,3 @@
+Source: 79a46b7d8d7af7ed9f8c26c3989b6026ff785d88; final metadata validation
+Command: ["python3", "tools/docs/check.py"]
+Validated 36 documents, 6 crate READMEs, 10 visual guides, 6 flows and 622 local references.

@@ -3,7 +3,8 @@
 Status: MR-11 implementation contract. The [local storage foundation](evidence/MR-11-node-storage-progress.json)
 qualifies stable engine identity, root-fence allocation and physical close
 ownership. The S3 pin/process-view adapter and mandatory physical storage checks
-are implemented; their focused tests pass, with broader qualification pending.
+are [qualified locally](evidence/MR-11-directory-progress.json): nine directory
+cases and a public standby identity regression pass with owning Raft checks.
 Host process publication/distribution, inspection and controller integration
 remain unimplemented.
 The [membership contract](membership-design.md) remains authoritative for

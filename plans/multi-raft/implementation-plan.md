@@ -633,7 +633,7 @@ boundaries. Format checks 651 Rust files; current Node coverage remains the
 affected Raft lifecycle case. This is explicit activation rather than an
 automatic controller. The [node-directory contract](node-directory-design.md)
 defines stable storage pins, fenced process views and bounded inspection for the
-remaining controller work; no implementation/qualification is claimed for it.
+remaining controller work; its directory adapter is qualified below.
 
 The [node storage/fence qualification](evidence/MR-11-node-storage-progress.json)
 pins source `c127b13f772b68992d061167c6bbf8873ab9a95e`: 252 Rust cases across
@@ -643,8 +643,20 @@ revisions, failure admission, cancelled close waiters and three node-fence
 process-kill cuts. A held-lock regression reproduced failed close returning
 before physical ownership release; terminal close now waits for that release.
 All 42 snapshot, 19 membership and 17 storage cases pass. Format checks 652 Rust
-files. The local marker-1 identity field is a hard cutover; directory pins and
-process views remain unimplemented and require their later namespace cutover.
+files. That local marker-1 identity field was a hard cutover; S3 pins/views
+were still unimplemented at that source.
+
+The [S3 node directory qualification](evidence/MR-11-directory-progress.json)
+pins source `79a46b7d8d7af7ed9f8c26c3989b6026ff785d88`: 262 Rust cases across 15 binaries and all
+26 checks pass. Nine directory cases cover immutable physical pins, fenced
+process publication, lost responses, delayed old PUTs, reused generations,
+missing/corrupt records and original deadlines. A public host regression refuses
+an empty recreated standby before any member claim or business callback. All
+42 snapshot, 19 membership and 24 host cases pass. The failed initial snapshot
+run is retained; its fixture now retries only explicit backpressure with the
+same mutation identity/durability and original deadline, and asserts its result.
+Format checks 654 Rust files. Host process distribution, authenticated inspection
+and automatic reconciliation remain open.
 
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
@@ -654,7 +666,7 @@ checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.
 
 The current internal identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; numeric markers remain 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
 Use fresh namespace identities, storage prefix and local state. Current Node
 coverage is the affected Raft lifecycle case; MR-10 retains its separate
 all-88-Node historical qualification. No physical S3, power-loss, zone, production
@@ -662,7 +674,7 @@ capacity, larger-scale, federation or complete release qualification is claimed.
 
 Modify: `crates/cellar/durability/raft/catalog.rs`, `crates/cellar/durability/raft/runtime.rs`, `crates/cellar-logic/rebalance.rs`, `crates/cellar-logic/lib.rs`, `crates/cellar/durability/raft/member_state.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/protocol.rs`, `crates/cellar/durability/raft/catalog_wire.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_membership.rs`, `crates/cellar/durability/raft/completion.rs`, `crates/cellar/durability/raft/replica.rs`, `crates/cellar/durability/raft/transport_frame.rs`, `crates/cellar/tests/native_raft_runtime.rs`, `crates/cellar/tests/support/raft_cluster.rs`, `crates/cellar/tests/support/raft_seed_crash.rs`, `crates/cellar/durability/raft/README.md`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/seed_transport.rs`, `crates/cellar/durability/raft/seed_archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar-logic/consensus.rs`, `crates/cellar/durability/raft/storage.rs`, `crates/cellar/durability/raft/records.rs`, `crates/cellar/tests/native_raft_storage.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`.
 
-Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`, `crates/cellar/tests/support/raft_node_registration_storage.rs`.
+Create: `crates/cellar/durability/raft/membership.rs`, `crates/cellar/durability/raft/placement.rs`, `crates/cellar/tests/native_raft_membership.rs`, `plans/multi-raft/membership-design.md`, `crates/cellar-logic/raft_placement.rs`, `crates/cellar/durability/raft/member_plan_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/tests/support/raft_repair_crash.rs`, `crates/cellar/durability/raft/replica_leadership.rs`, `crates/cellar-logic/raft_leadership.rs`, `crates/cellar-logic/raft_leadership_tests.rs`, `crates/cellar/durability/raft/host_standby.rs`, `crates/cellar/tests/support/raft_standby_native.rs`, `plans/multi-raft/node-directory-design.md`, `crates/cellar/tests/support/raft_node_registration_storage.rs`, `crates/cellar/durability/raft/node_directory.rs`, `crates/cellar/tests/native_raft_directory.rs`.
 
 The [native membership implementation contract](membership-design.md) defines
 committed plan recovery, learner seeding, joint consensus, dynamic standby

@@ -8,7 +8,7 @@ Automatic scheduling, authenticated inspection, durable node/process views and
 the six-node no-business-traffic gate remain open. The
 [node-directory contract](node-directory-design.md) specifies that next boundary;
 its local identity/fence foundation is [qualified](evidence/MR-11-node-storage-progress.json),
-while the S3 pin/view adapter is implemented with broader qualification pending.
+while the S3 pin/view adapter is [qualified locally](evidence/MR-11-directory-progress.json).
 Process distribution and inspection remain unimplemented. MR-10 qualification remains separate.
 These component results establish no additional capacity or release qualification.
 

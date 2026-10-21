@@ -27,13 +27,25 @@ replaying business callbacks during recovery.
 
 MR-11 remains IN_PROGRESS. The partial inventory reports five of seven required
 names; `automatic_no_traffic_repair` and `leader_balance_with_lag` remain absent.
-Automatic scheduling, dynamic standby activation, trusted process-view
+Automatic scheduling, authenticated inspection/capacity, trusted process-view
 distribution and the six-node repair gate remain required. The full inventory
 checker is unchanged. This is explicit administrative repair, without automatic
 redundancy repair or complete milestone qualification.
 
+The [S3 node directory qualification](evidence/MR-11-directory-progress.json)
+pins source `79a46b7d8d7af7ed9f8c26c3989b6026ff785d88`: 262 Rust cases across 15 binaries and all
+26 checks pass. Nine directory cases cover immutable physical pins, fenced
+process publication, lost responses, delayed old PUTs, reused generations,
+missing/corrupt records and original deadlines. A public host regression refuses
+an empty recreated standby before any member claim or business callback. All
+42 snapshot, 19 membership and 24 host cases pass. The failed initial snapshot
+run is retained; its fixture now retries only explicit backpressure with the
+same mutation identity/durability and original deadline, and asserts its result.
+Format checks 654 Rust files. Host process distribution, authenticated inspection
+and automatic reconciliation remain open.
+
 The current internal identity is
-`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1`; numeric markers remain 1.
+`cellar-raft-ltx-1/members-1/seeds-1/s3-1/repairs-1/nodes-1`; numeric markers remain 1.
 Use fresh namespace identities, storage prefix and local state. Current Node
 coverage is the affected Raft lifecycle case; MR-10 retains its separate
 all-88-Node historical qualification. No physical S3, power-loss, zone, production
