@@ -9,9 +9,10 @@ isolation and subinterpreters) remain deferred. Free-threaded CPython 3.14t was
 subsequently requested and is an additional supported build/qualification scope.
 
 Core deliverables now span M0–M5, including both CPython threading ABIs. The
-full objective is **not achieved**: preserved delivery/native lifecycle failures,
-the corrected reset/read qualification and final-source release evidence retain
-open gates. Linux installed-package prerequisite qualification now passes in both
+full objective is **not achieved**: preserved delivery/native lifecycle failures
+and final-source release evidence retain open gates. The controlled reset/read
+correction passes complete Linux adapter steps in both ABIs at 85cdef4. Linux
+installed-package prerequisite qualification passes in both
 threading ABIs at 97be2cc. The bootstrap correction and measured defaults have direct evidence
 within the scopes below. A verified row covers only its explicitly
 stated evidence and scope.
@@ -121,7 +122,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both 0bfd83f free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: 97be2cc has three complete successful Linux jobs across both ABIs, including installed packages, native-node 88/88, workspace tests/lints, Axum modes and native examples. The PR free-threaded adapter job fails when its final read races native reset after a deliberately failed proof. A real native Cell destruction barrier reproduces the same HTTP 503 with one business attempt; bounded repetition of only the read-only observation corrects the audit assumption. Both complete local ABI suites, strict Clippy, three conventional controlled repetitions and format/layout for 630 files pass. This correction still needs Linux qualification. Earlier delivery/initial consumer/clock-replay failures retain separate diagnosis; passing retries do not close them. |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: 97be2cc has three complete successful Linux jobs across both ABIs, including installed packages, native-node 88/88, workspace tests/lints, Axum modes and native examples; its PR free-threaded job retains the reset/read failure. The controlled correction has local before/after evidence, both local ABI suites/lints and three conventional repetitions, then complete Linux adapter-step passes in both ABIs at 85cdef4. The [Linux correction evidence](evidence/python-reset-read-linux-2026-10-20.json) records exact source/job scope. Package/native/example qualification at that source remains nonterminal. Earlier delivery/initial consumer/clock-replay failures retain separate diagnosis; passing retries do not close them. |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -134,10 +135,9 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | P0: qualify the reset/read correction | Q12: the PR free-threaded job at 97be2cc refuses the final read-only audit during native reset. A controlled public Cell destruction barrier reproduces the same failure, and corrected bounded observation passes with one business attempt, acknowledged state, stale-context refusal and complete joins. Both local ABI suites/lints and three conventional repetitions pass. The correction is published in 85cdef4; fresh Linux qualification is running or queued, and all older 97be2cc jobs are terminal. |
-| 2 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. Isolated macOS consumer replays pass without reproducing the historical refusal. A bounded error-chain diagnostic and opt-in Linux fresh-fixture replay mode target the next occurrence. Keep separate causes, original deadlines/assertions and conservative mutation outcomes. |
-| 3 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. The GNU packaging blocker is corrected and both ABI package steps pass at 97be2cc; operating-default workloads also pass there. These component results do not replace the final complete matrix. |
-| 4 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
+| 1 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. Twenty macOS clock/receipt replays and ten delivery replays per Python ABI pass without reproducing those historical failures. Bounded error-chain diagnostics and isolated Linux fresh-fixture investigations target the next occurrence. Keep separate causes, original deadlines/assertions and conservative mutation outcomes. |
+| 2 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. The reset/read correction passes complete Linux adapter steps in both ABIs at 85cdef4. Both ABI package steps and operating-default workloads pass at 97be2cc. These component results do not replace the final complete matrix. |
+| 3 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
 
 Do not expand ASGI/streaming while these core gates remain. Those adapters are
 explicitly optional/deferred and need their own independent qualification when
@@ -1929,3 +1929,21 @@ step bodies and the 90-minute budget remain unchanged. No native deadline,
 assertion or mutation replay policy changes. This follow-up is held locally while
 85cdef4 qualification and consumer replay remain active; Linux execution of the
 new clock mode and the historical clock/replay cause remain open gates.
+
+## Reset/read correction accepted at the Linux adapter boundary
+
+The [Linux correction evidence](evidence/python-reset-read-linux-2026-10-20.json)
+records successful complete conventional and free-threaded adapter steps at
+85cdef4. Both execute the dedicated controlled reset/read child through the
+ordinary full-suite command. The recorded fixture bytes match that published
+source. Combined with the local failing-before/passing-after case, this closes
+the correction's component qualification gate: first refusal retained, fixed
+read-only recovery within the original budget, one business attempt, preserved
+acknowledged state, stale-context refusal and complete three-node joins.
+
+The original failed CI trace lacks an actor-phase snapshot; the controlled case
+establishes its matching failure class rather than every historical cause. Exact
+current CPython microversions await terminal logs. Package/native/example stages
+remain active, and separate delivery/initial-consumer/clock causes remain open.
+Current work therefore advances from publishing/qualifying this correction to
+the remaining causal investigations and complete final-source matrix.

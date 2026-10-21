@@ -18,9 +18,10 @@ recovery. The packaged smoke additionally covers Pydantic/native-extension impor
 KV, SQL, queue delivery and cron. These are implementation checks, not broad
 production certification. The design below records the intended full contract.
 
-Remaining qualification: qualify the reset/read audit correction on Linux,
-diagnose preserved lifecycle failures and complete final-source regression
-evidence in both threading ABIs. The Linux installed-host prerequisite/refusal,
+Remaining qualification: diagnose preserved lifecycle failures and complete
+final-source regression evidence in both threading ABIs. The reset/read audit
+correction passes complete Linux adapter steps in both ABIs at 85cdef4. The
+Linux installed-host prerequisite/refusal,
 offline recovery and replacement steps pass in both ABIs at 97be2cc. Operating
 defaults have repeated local measurements and Linux CI workload evidence within
 their stated development scope. Interrupted cron delivery, admission/retirement races and
@@ -538,7 +539,7 @@ published source and remaining qualification:
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
 | M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; three complete 97be2cc Linux jobs pass across both ABIs | Complete final-source platform qualification |
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
-| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; local lease correction and both ABI suites pass; a controlled reset/read regression corrects the final observation audit | Qualify the published reset/read correction on Linux and diagnose preserved delivery, initial consumer admission and clock/replay failures |
+| M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease correction has direct before/after evidence; the controlled reset/read correction passes complete Linux adapter steps in both ABIs at 85cdef4 | Diagnose preserved delivery, initial consumer admission and clock/replay failures; complete final-source regression qualification |
 | M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in both Linux ABI package steps at 97be2cc | Complete final-source release regression matrix |
 | M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and Linux CI defaults pass in both ABIs | Final-source qualification; optional ASGI/streaming remain deferred |
 
@@ -548,7 +549,10 @@ earlier when its final read-only state audit races native reset after a delibera
 proof failure. A controlled public Cell destruction barrier reproduces the same
 HTTP 503 with one business attempt. The local correction observes recovery by
 repeating only that read-only query within the original HTTP budget; both local
-ABI suites and strict Clippy pass, and the correction still needs Linux execution.
+ABI suites and strict Clippy pass. The
+[Linux correction evidence](evidence/python-reset-read-linux-2026-10-20.json)
+records complete adapter-step passes in both ABIs at 85cdef4, including the
+controlled case. Its remaining package/native/example stages are nonterminal.
 The other three 97be2cc jobs complete successfully, including native-node 88/88,
 workspace tests/lints, Axum modes and native examples. The
 [terminal Linux evidence](evidence/python-linux-97be-2026-10-20.json) preserves all
