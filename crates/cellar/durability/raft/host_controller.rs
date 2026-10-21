@@ -287,6 +287,12 @@ impl Driver {
     }
 
     pub(super) fn pump_controller(&mut self) {
+        if self.local.draining.load(Ordering::Acquire) {
+            if let Some(controller) = &self.controller {
+                controller.stop();
+            }
+            return;
+        }
         let Ok(now) = self.log.domain().mono_ms() else {
             return;
         };
@@ -433,6 +439,7 @@ impl Driver {
         if !controller.status.enabled
             || controller.epoch != epoch
             || self.closing.load(Ordering::Acquire)
+            || self.local.draining.load(Ordering::Acquire)
         {
             return;
         }

@@ -1233,6 +1233,7 @@ where
     );
     let remaining_work = application_work.snapshot();
     Ok(NodeOutcome::Stopped(ShutdownReport {
+        raft: None,
         mode: shutdown_mode,
         ingress_drained: ingress_drained_before_cut && app.public_in_flight() == 0,
         application_work_drained: admitted_work_drained

@@ -45,10 +45,45 @@ pub async fn node_declared_with_filesystem(
     classes: Vec<String>,
     filesystem: Arc<dyn cellar_ltx::FileSystem>,
 ) -> Result<Node> {
+    node_configured(
+        directory,
+        application,
+        label,
+        classes,
+        filesystem,
+        ShutdownPolicy::default(),
+    )
+    .await
+}
+
+pub async fn node_with_shutdown(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    shutdown: ShutdownPolicy,
+) -> Result<Node> {
+    node_configured(
+        directory,
+        application,
+        "raft-host",
+        vec![],
+        Arc::new(cellar_ltx::DirectFileSystem),
+        shutdown,
+    )
+    .await
+}
+
+async fn node_configured(
+    directory: &Path,
+    application: Arc<dyn Application>,
+    label: &str,
+    classes: Vec<String>,
+    filesystem: Arc<dyn cellar_ltx::FileSystem>,
+    shutdown: ShutdownPolicy,
+) -> Result<Node> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let internal_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let probe_signer = Arc::new(PeerProbeSigner::generate());
-    let config = NodeConfig::new(
+    let mut config = NodeConfig::new(
         ActorIdentity {
             node: label.into(),
             advertise: internal_listener.local_addr()?.to_string(),
@@ -79,6 +114,7 @@ pub async fn node_declared_with_filesystem(
         },
         directory.into(),
     );
+    config.shutdown = shutdown;
     let services = NodeServices {
         wall_clock: None,
         http_client: None,

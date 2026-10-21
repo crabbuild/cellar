@@ -34,6 +34,9 @@ pub use crate::raft::inspection::{
 pub use crate::raft::member_state::{
     JoiningMember, RepairPhase, RepairPlan, RepairStatus, RepairStep,
 };
+pub use crate::raft::operations::{
+    RaftCloseReportLimits, RaftDrainReport, RaftGroupCloseReport, RaftNodeShutdownReport,
+};
 pub use crate::raft::options::{LogOpenMode, RaftRuntimeOptions, ReplicaLogOptions};
 pub use crate::raft::transport_options::{
     NamespaceInspectionOrigin, NamespaceQueryOrigin, RaftTls, TransportOptions,

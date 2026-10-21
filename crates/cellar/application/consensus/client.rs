@@ -152,18 +152,7 @@ pub struct CellStatus {
     pub member_high_water: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UnfinishedCommand {
-    pub scope: GroupScope,
-    pub id: CommandId,
-}
-
-/// Local ownership was joined. Unfinished commands remain ambiguous; this
-/// report is neither S3 durability nor permission to discard replica disks.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RaftCloseReport {
-    pub unfinished: Vec<UnfinishedCommand>,
-}
+pub use crate::raft::operations::{RaftCloseReport, UnfinishedCommand};
 
 #[derive(Clone)]
 pub(crate) struct Binding {
@@ -216,6 +205,7 @@ pub(crate) struct Handle {
     pub domain: crate::asyncrt::DomainToken,
     pub closed: Arc<AtomicBool>,
     pub closing: Arc<AtomicBool>,
+    pub draining: Arc<AtomicBool>,
     pub terminal: Arc<Terminal>,
     pub budget: Arc<Budget>,
     pub max_input_bytes: usize,
@@ -231,6 +221,49 @@ pub struct RaftCells {
 }
 
 impl RaftCells {
+    pub(crate) fn begin_node_drain(&self) {
+        self.handle.draining.store(true, Ordering::Release);
+    }
+
+    pub(crate) async fn drain_node(
+        &self,
+        deadline: u64,
+    ) -> Result<super::RaftDrainReport, CommandFailure> {
+        let Some(binding) = self.handle.bindings.values().next().cloned() else {
+            return Ok(super::RaftDrainReport::default());
+        };
+        let now = self
+            .handle
+            .domain
+            .mono_ms()
+            .map_err(|_| CommandFailure::Unavailable)?;
+        if now >= deadline {
+            return Ok(super::RaftDrainReport {
+                deadline_elapsed: true,
+                ..Default::default()
+            });
+        }
+        // An earlier explicit close remains immediate. It cannot retroactively
+        // acquire a graceful handoff certificate after releasing its owners.
+        if self.handle.closing.load(Ordering::Acquire) {
+            return Err(CommandFailure::Unavailable);
+        }
+        let local = RaftCellHandle {
+            handle: self.handle.clone(),
+            binding,
+        };
+        match local
+            .call(
+                Kind::NodeDrain,
+                Duration::from_millis((deadline - now).min(3_600_000)),
+            )
+            .await?
+        {
+            Response::Drained(report) => Ok(report),
+            _ => Err(CommandFailure::CorruptState),
+        }
+    }
+
     /// Observe the optional local controller. This is not a readiness, quorum
     /// or membership proof; attempt counters reset with the node process.
     pub fn controller_status(
@@ -300,6 +333,7 @@ impl RaftCells {
     pub fn is_closed(&self) -> bool {
         self.handle.closed.load(Ordering::Acquire)
             || self.handle.closing.load(Ordering::Acquire)
+            || self.handle.draining.load(Ordering::Acquire)
             || self.handle.domain.mono_ms().is_err()
     }
 
@@ -667,6 +701,8 @@ impl RaftCellHandle {
             }
             if self.handle.closed.load(Ordering::Acquire)
                 || self.handle.closing.load(Ordering::Acquire)
+                || self.handle.draining.load(Ordering::Acquire)
+                    && !matches!(kind, Kind::SystemCommand { .. } | Kind::NodeDrain)
             {
                 return Err(CommandFailure::Unavailable);
             }
@@ -679,6 +715,7 @@ impl RaftCellHandle {
                 return Err(CommandFailure::Unavailable);
             }
             match &kind {
+                Kind::NodeDrain => {}
                 Kind::ActivateLearner(activation) => {
                     if activation.member == activation.source || timeout > Duration::from_secs(300)
                     {
@@ -897,6 +934,7 @@ pub(crate) struct Work {
 }
 
 pub(crate) enum Kind {
+    NodeDrain,
     ControllerStatus,
     SetControllerEnabled(bool),
     Inspect,
@@ -951,7 +989,8 @@ impl Kind {
             Self::Command { input, .. }
             | Self::SystemCommand { input, .. }
             | Self::Query { input, .. } => input.len(),
-            Self::ControllerStatus
+            Self::NodeDrain
+            | Self::ControllerStatus
             | Self::SetControllerEnabled(_)
             | Self::Inspect
             | Self::InspectPeer(_)
@@ -973,7 +1012,8 @@ impl Kind {
                 CancelFailure::Command(options.id)
             }
             Self::Query { .. } | Self::Seed { .. } => CancelFailure::Query,
-            Self::ControllerStatus
+            Self::NodeDrain
+            | Self::ControllerStatus
             | Self::SetControllerEnabled(_)
             | Self::Inspect
             | Self::InspectPeer(_)
@@ -1007,6 +1047,7 @@ impl CancelFailure {
 }
 
 pub(crate) enum Response {
+    Drained(super::RaftDrainReport),
     Controller(super::RaftControllerStatus),
     PeerInspection(
         Result<Box<crate::raft::inspection::InspectionSnapshot>, super::InspectionError>,

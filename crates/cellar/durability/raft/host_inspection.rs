@@ -185,12 +185,13 @@ impl Driver {
         scope: &GroupScope,
         status: Option<(u64, GroupStatus)>,
     ) -> Result<InspectionSnapshot, CommandFailure> {
-        let profile = self
+        let mut profile = self
             .options
             .node_profile
             .as_ref()
             .ok_or(CommandFailure::UnsupportedCapability)?
             .clone();
+        profile.draining |= self.local.draining.load(Ordering::Acquire);
         let groups = self
             .log
             .group_count()

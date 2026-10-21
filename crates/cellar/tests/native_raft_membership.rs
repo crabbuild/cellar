@@ -52,6 +52,16 @@ async fn automatic_no_traffic_repair() -> anyhow::Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_hands_off_to_published_voter() -> anyhow::Result<()> {
+    automatic::shutdown_handoff().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn node_shutdown_report_bounds_preserve_complete_lag_count() -> anyhow::Result<()> {
+    automatic::bounded_shutdown_report().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
 async fn automatic_empty_cell_repair_before_first_command() -> anyhow::Result<()> {
     automatic::empty_cell_repair().await
 }

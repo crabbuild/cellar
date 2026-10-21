@@ -545,14 +545,17 @@ pub async fn node_shutdown_joins_timer() -> Result<()> {
             node.shutdown(ShutdownMode::Preserve),
         )
         .await??;
-        ensure!(matches!(outcome, cellar::sdk::NodeOutcome::Stopped(_)));
+        let cellar::sdk::NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("node did not stop: {outcome:?}");
+        };
+        let raft = report.raft.context("missing Raft stop report")?;
+        ensure!(!raft.startup_incomplete);
+        let closed = raft.result?;
+        ensure!(closed.groups_total == 1 && closed.groups.len() == 1);
+        ensure!(closed.omitted_groups == 0 && closed.unfinished.is_empty());
+        ensure!(closed.groups[0].scope == fixture.registration.birth.scope);
         ensure!(service.is_closed());
-        // Node joins domain cancellation. Unified graceful Raft receipt and
-        // archive-obligation reporting remain MR-13's separate contract.
-        ensure!(matches!(
-            service.close().await,
-            Err(CommandFailure::Unavailable)
-        ));
+        ensure!(service.close().await? == closed);
         ensure!(fixture.fired() == 0);
         Ok(())
     }

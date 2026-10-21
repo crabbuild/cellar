@@ -35,6 +35,8 @@ mod startup_tests;
 
 #[path = "host_controller.rs"]
 mod controller;
+#[path = "host_drain.rs"]
+mod drain;
 #[path = "host_effects.rs"]
 mod effect_scheduler;
 pub use controller::{RaftControllerOptions, RaftControllerStatus};
@@ -57,6 +59,7 @@ mod standby;
 
 #[derive(Clone, Debug)]
 pub struct RaftHostOptions {
+    pub close_report: super::operations::RaftCloseReportLimits,
     /// Explicit committed alarm/outbox scheduling. Definitions refuse activation when
     /// this capability is absent; ordinary classes do not start a scheduler.
     pub effects: Option<super::effects::RaftEffectOptions>,
@@ -99,6 +102,7 @@ impl Default for RaftHostOptions {
             ..Default::default()
         };
         Self {
+            close_report: super::operations::RaftCloseReportLimits::default(),
             effects: None,
             controller: None,
             inspection_scan: RaftInspectionScanOptions::default(),
@@ -126,6 +130,7 @@ impl Default for RaftHostOptions {
 
 impl RaftHostOptions {
     pub(crate) fn validate(&self) -> anyhow::Result<()> {
+        self.close_report.validate()?;
         if let Some(directory) = &self.node_directory {
             directory.validate()?;
         }
@@ -770,6 +775,7 @@ async fn initialize(
         domain: domain.clone(),
         closed: closed.clone(),
         closing: closing.clone(),
+        draining: Arc::new(AtomicBool::new(false)),
         terminal: terminal.clone(),
         budget: budget.clone(),
         max_input_bytes: options.max_input_bytes,
@@ -804,6 +810,7 @@ async fn initialize(
         let mut read_nonce = [0; 16];
         rng.fill_bytes(&mut read_nonce);
         let mut driver = Driver {
+            drain: None,
             effect_scheduler: options
                 .effects
                 .filter(|_| {
@@ -1010,6 +1017,7 @@ enum SqlPurpose {
 }
 
 enum Job {
+    Drained(Box<drain::Completed>),
     Effect(Box<effect_scheduler::Completed>),
     Controller(Box<controller::Completed>),
     LeaderLoad(Box<load::Completed>),
@@ -1098,6 +1106,7 @@ enum Job {
 }
 
 struct Driver {
+    drain: Option<drain::Drain>,
     effect_scheduler: Option<effect_scheduler::Scheduler>,
     controller: Option<controller::Controller>,
     leader_load: Option<load::Scanner>,
@@ -1661,6 +1670,10 @@ impl Driver {
     }
 
     fn on_request(&mut self, mut request: Request) {
+        if matches!(request.kind, Kind::NodeDrain) {
+            self.start_node_drain(request);
+            return;
+        }
         if matches!(
             &request.kind,
             Kind::ControllerStatus | Kind::SetControllerEnabled(_)
@@ -1815,7 +1828,8 @@ impl Driver {
                     }
                 }));
             }
-            Kind::ControllerStatus
+            Kind::NodeDrain
+            | Kind::ControllerStatus
             | Kind::SetControllerEnabled(_)
             | Kind::Inspect
             | Kind::InspectPeer(_)
@@ -2703,6 +2717,7 @@ impl Driver {
         self.pump_leader_load();
         self.pump_controller();
         self.pump_effects();
+        self.pump_node_drain();
     }
 
     fn archive_admission(&self) -> bool {
@@ -2792,6 +2807,7 @@ impl Driver {
 
     fn on_job(&mut self, job: Job) {
         match job {
+            Job::Drained(completed) => self.finish_node_drain(*completed),
             Job::Controller(completed) => self.finish_controller(*completed),
             Job::Effect(completed) => self.finish_effect(*completed),
             Job::LeaderLoad(completed) => self.finish_leader_load(*completed),
@@ -3053,11 +3069,65 @@ impl Driver {
         while self.jobs.next().await.is_some() {}
         let sql = self.pool.join().await;
         self.archive_owner.take();
+        let node = NodeIdentity {
+            node: self.log.limits().node,
+            disk: self.log.limits().disk,
+            process: self.log.limits().process,
+        };
+        let instance = self.log.storage_instance();
+        let observations = (|| -> Result<_, CommandFailure> {
+            let mut groups = Vec::new();
+            let mut groups_with_archive_lag = 0;
+            let mut bytes = 0usize;
+            for (scope, cell) in &self.cells {
+                let cache = cell
+                    .group
+                    .read()
+                    .map_err(|_| CommandFailure::CorruptState)?;
+                let committed = LogIndex::new(cache.hard_state.commit);
+                if cell.archived < committed {
+                    groups_with_archive_lag += 1;
+                }
+                let charge = scope
+                    .cell
+                    .len()
+                    .checked_add(2048)
+                    .ok_or(CommandFailure::CorruptState)?;
+                if groups.len() < self.options.close_report.max_groups
+                    && bytes
+                        .checked_add(charge)
+                        .is_some_and(|n| n <= self.options.close_report.max_bytes)
+                {
+                    bytes += charge;
+                    groups.push(super::operations::RaftGroupCloseReport {
+                        scope: scope.clone(),
+                        member: cell.group.identity().member,
+                        committed,
+                        applied: cache.applied.position,
+                        archived: cell.archived,
+                        retired: cell.retired,
+                        failed: cell.failed,
+                    });
+                }
+            }
+            Ok((groups, groups_with_archive_lag))
+        })();
+        let groups_total = self.cells.len();
         self.cells.clear();
         let log = self.log.close().await;
         if runtime.is_err() || sql.is_err() || log.is_err() {
             return Err(CommandFailure::CorruptState);
         }
-        Ok(client::RaftCloseReport { unfinished })
+        let (groups, groups_with_archive_lag) = observations?;
+        let omitted_groups = groups_total - groups.len();
+        Ok(client::RaftCloseReport {
+            node,
+            storage_instance: instance.map_err(|_| CommandFailure::CorruptState)?,
+            groups,
+            groups_total,
+            omitted_groups,
+            groups_with_archive_lag,
+            unfinished,
+        })
     }
 }

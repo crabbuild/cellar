@@ -11,7 +11,11 @@ use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 use futures_util::future::BoxFuture;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::{fmt, sync::Arc, time::Duration};
+use std::{
+    fmt,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
 #[cfg(all(test, not(cellar_internal_tests)))]
 #[path = "effect_delivery_tests.rs"]
@@ -554,9 +558,15 @@ pub trait RaftEffectSink: Send + Sync {
 /// Endpoints are a bounded routing hint; only signed logical identity and the
 /// receiver's ordinary command output gate supply the delivery contract.
 pub struct RaftNativeEffectSink {
-    endpoints: Vec<RaftCellHandle>,
+    endpoints: Vec<NativeEndpoint>,
     timeout: Duration,
     retry_window_ms: u64,
+}
+
+#[derive(Clone)]
+struct NativeEndpoint {
+    handle: Weak<crate::application::consensus::client::Handle>,
+    scope: GroupScope,
 }
 
 impl RaftNativeEffectSink {
@@ -575,7 +585,13 @@ impl RaftNativeEffectSink {
             "invalid native effect routing bounds"
         );
         Ok(Arc::new(Self {
-            endpoints,
+            endpoints: endpoints
+                .into_iter()
+                .map(|endpoint| NativeEndpoint {
+                    handle: Arc::downgrade(&endpoint.handle),
+                    scope: endpoint.scope().clone(),
+                })
+                .collect(),
             timeout,
             retry_window_ms,
         }))
@@ -596,7 +612,18 @@ impl RaftEffectSink for RaftNativeEffectSink {
                 .checked_add(retry_window_ms)
                 .ok_or(CommandFailure::Unavailable)?;
             let mut last = CommandFailure::Unavailable;
-            for endpoint in endpoints {
+            for hint in endpoints {
+                let Some(handle) = hint.handle.upgrade() else {
+                    continue;
+                };
+                let Some(binding) = handle
+                    .bindings
+                    .get(&(hint.scope.namespace, hint.scope.cell))
+                    .cloned()
+                else {
+                    continue;
+                };
+                let endpoint = RaftCellHandle { handle, binding };
                 if endpoint.scope() != request.inner.target.scope()
                     || endpoint.binding.class.definition_digest() != request.inner.target.definition
                 {

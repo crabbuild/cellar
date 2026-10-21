@@ -51,6 +51,7 @@ impl Driver {
             || owner.busy.is_some()
             || now < owner.next_at
             || self.closing.load(Ordering::Acquire)
+            || self.local.draining.load(Ordering::Acquire)
         {
             return;
         }
@@ -143,7 +144,7 @@ impl Driver {
         {
             return;
         }
-        if self.closing.load(Ordering::Acquire) {
+        if self.closing.load(Ordering::Acquire) || self.local.draining.load(Ordering::Acquire) {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -216,7 +217,7 @@ impl Driver {
         if let Some(cell) = self.cells.get_mut(&scope) {
             cell.sql_busy = false;
         }
-        if self.closing.load(Ordering::Acquire) {
+        if self.closing.load(Ordering::Acquire) || self.local.draining.load(Ordering::Acquire) {
             self.finish_effect_turn(sequence);
             return;
         }
@@ -294,6 +295,8 @@ impl Driver {
         let runtime = self.runtime.clone();
         let group = cell.group.clone();
         let domain = self.log.domain();
+        let draining = self.local.draining.clone();
+        let application_work = self.local.work.clone();
         self.jobs.push(Box::pin(async move {
             let _reservation = scan._reservation;
             let result = async {
@@ -328,11 +331,15 @@ impl Driver {
                         };
                         // Recheck actual current-term authority immediately before
                         // send, then cancel stale waiters during the bounded send.
+                        let _work = application_work.enter();
                         let proof = deliver_owned(
-                            &domain,
-                            &runtime,
-                            &group,
-                            receipt.version.position.term,
+                            DeliveryOwner {
+                                domain: &domain,
+                                runtime: &runtime,
+                                group: &group,
+                                term: receipt.version.position.term,
+                                draining: &draining,
+                            },
                             request.clone(),
                             sink,
                             options.timeout,
@@ -387,15 +394,27 @@ fn effect_failure(error: anyhow::Error) -> CommandFailure {
         .unwrap_or(CommandFailure::CorruptState)
 }
 
-async fn deliver_owned(
-    domain: &crate::asyncrt::DomainToken,
-    runtime: &RaftRuntime,
-    group: &GroupLog,
+struct DeliveryOwner<'a> {
+    domain: &'a crate::asyncrt::DomainToken,
+    runtime: &'a RaftRuntime,
+    group: &'a GroupLog,
     term: Term,
+    draining: &'a AtomicBool,
+}
+
+async fn deliver_owned(
+    owner: DeliveryOwner<'_>,
     request: super::super::effects::RaftDeliveryRequest,
     sink: Arc<dyn super::super::effects::RaftEffectSink>,
     timeout: std::time::Duration,
 ) -> Result<Vec<u8>, CommandFailure> {
+    let DeliveryOwner {
+        domain,
+        runtime,
+        group,
+        term,
+        draining,
+    } = owner;
     let start = domain.mono_ms().map_err(|_| CommandFailure::Unavailable)?;
     let deadline = start
         .checked_add(timeout.as_millis() as u64)
@@ -418,6 +437,9 @@ async fn deliver_owned(
             return Err(CommandFailure::Unavailable);
         }
         if send.is_none() {
+            if draining.load(Ordering::Acquire) {
+                return Err(CommandFailure::Unavailable);
+            }
             send = Some(sink.deliver(request.clone()));
         }
         let now = domain.mono_ms().map_err(|_| CommandFailure::Unavailable)?;

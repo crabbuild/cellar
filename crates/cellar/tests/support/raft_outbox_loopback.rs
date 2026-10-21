@@ -129,11 +129,12 @@ pub async fn self_delivery() -> Result<()> {
     };
     let application: Arc<dyn Application> =
         Arc::new(Registry::new(|_, _| Box::pin(async { Ok(Output::Done) })).raft_class(class)?);
+    let class = Arc::downgrade(&application.resolve_raft_class("Loopback")?);
     let root = tempfile::tempdir()?;
     let node = public_node::node(root.path(), application.clone()).await?;
     let service = public_node::cells_with_host(
         &node,
-        application,
+        application.clone(),
         Arc::new(faults::Store::default()),
         registration,
         false,
@@ -224,5 +225,21 @@ pub async fn self_delivery() -> Result<()> {
     .await??;
     ensure!(service.close().await?.unfinished.is_empty());
     node.shutdown(ShutdownMode::Preserve).await?;
+    drop(cell);
+    drop(service);
+    drop(application);
+    // Retaining the routing adapter must not retain a stopped host's class
+    // through class -> outbox -> sink -> handle -> class.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while class.upgrade().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    ensure!(routing
+        .0
+        .read()
+        .map_err(|_| anyhow::anyhow!("routing lock"))?
+        .is_some());
     Ok(())
 }

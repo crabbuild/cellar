@@ -19,6 +19,7 @@ mod inspection_wire;
 pub(crate) mod mailbox;
 mod manifest;
 pub(crate) mod member_state;
+pub(crate) mod operations;
 pub(crate) mod options;
 mod query;
 mod query_identity;

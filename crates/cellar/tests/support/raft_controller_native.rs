@@ -27,6 +27,16 @@ struct Fixture {
 
 impl Fixture {
     async fn start(groups: usize, balance: bool, draining: Option<usize>) -> Result<Self> {
+        Self::start_with_report_limits(groups, balance, draining, RaftCloseReportLimits::default())
+            .await
+    }
+
+    async fn start_with_report_limits(
+        groups: usize,
+        balance: bool,
+        draining: Option<usize>,
+        report_limits: RaftCloseReportLimits,
+    ) -> Result<Self> {
         ensure!((1..=16).contains(&groups));
         let (gate, entered) = public_node::Gate::new();
         gate.release();
@@ -116,6 +126,7 @@ impl Fixture {
             let node = fixture.nodes[index].as_ref().context("node")?;
             let peer = &fixture.peers[index];
             let mut host = RaftHostOptions::default();
+            host.close_report = report_limits;
             let reservation = host.images.max_bytes;
             host.node_profile = Some(RaftNodeProfile {
                 pool: "native".into(),
@@ -290,15 +301,12 @@ impl Fixture {
                 && !report.deadline_elapsed,
             "incomplete node drain: {report:?}"
         );
-        // Node joins its domain, including the controller and its physical
-        // children. Its Fleet drain report does not yet promise a Raft close
-        // receipt; MR-13 owns that additional semantic drain contract.
+        let raft = report.raft.context("missing Raft stop report")?;
+        ensure!(!raft.startup_incomplete);
+        let closed = raft.result?;
         let service = self.services[index].take().context("service")?;
         ensure!(service.is_closed());
-        ensure!(matches!(
-            service.close().await,
-            Err(CommandFailure::Unavailable)
-        ));
+        ensure!(service.close().await? == closed);
         Ok(())
     }
 
@@ -394,6 +402,122 @@ pub async fn no_traffic_repair() -> Result<()> {
         1
     );
     fixture.close().await
+}
+
+pub async fn shutdown_handoff() -> Result<()> {
+    let mut fixture = Fixture::start(1, false, None).await?;
+    let result = async {
+        fixture.enable(false).await?;
+        let receipt = fixture.write(0, 1, 7).await?;
+        let primary = fixture.leader(0).await?;
+        for index in 0..3 {
+            let read = fixture
+                .cell(index, 0)?
+                .query(
+                    fixture.definitions[index].get.clone(),
+                    vec![],
+                    QueryOptions {
+                        consistency: QueryConsistency::AtLeast(receipt.version_token.clone()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            ensure!(read.result == 7i64.to_be_bytes());
+        }
+        let outcome = fixture.nodes[primary]
+            .take()
+            .context("node")?
+            .shutdown(ShutdownMode::Preserve)
+            .await?;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop: {outcome:?}")
+        };
+        let raft = report.raft.context("missing Raft report")?;
+        let handoff = raft.drain.context("missing handoff result")??;
+        ensure!(
+            handoff.groups_examined == 1
+                && handoff.handoff_attempts == 1
+                && handoff.handoffs_accepted == 1
+                && handoff.leadership_released == 1
+                && handoff.unavailable_groups == 0
+                && !handoff.deadline_elapsed,
+            "handoff did not complete: {handoff:?}"
+        );
+        let closed = raft.result?;
+        ensure!(closed.unfinished.is_empty());
+        ensure!(
+            fixture.services[primary]
+                .take()
+                .context("service")?
+                .close()
+                .await?
+                == closed
+        );
+        let next = fixture.leader(0).await?;
+        ensure!(next != primary);
+        let next = fixture.write(0, 2, 3).await?;
+        ensure!(next.result == 10i64.to_be_bytes());
+        Ok(())
+    }
+    .await;
+    fixture.close().await?;
+    result
+}
+
+pub async fn bounded_shutdown_report() -> Result<()> {
+    let mut fixture = Fixture::start_with_report_limits(
+        4,
+        false,
+        None,
+        RaftCloseReportLimits {
+            max_groups: 1,
+            max_bytes: 4096,
+        },
+    )
+    .await?;
+    let result = async {
+        for group in 0..4 {
+            fixture.leader(group).await?;
+            tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if fixture.cell(0, group)?.status().await?.applied.index.get() > 0 {
+                        return Ok::<_, anyhow::Error>(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await??;
+        }
+        let outcome = fixture.nodes[0]
+            .take()
+            .context("node")?
+            .shutdown(ShutdownMode::Preserve)
+            .await?;
+        let NodeOutcome::Stopped(report) = outcome else {
+            anyhow::bail!("unexpected stop: {outcome:?}")
+        };
+        let closed = report.raft.context("missing Raft report")?.result?;
+        ensure!(closed.groups_total == 4 && closed.groups.len() == 1 && closed.omitted_groups == 3);
+        // Empty histories have durable protocol no-ops but no SQL archive.
+        // The aggregate must include all three omitted histories as well.
+        ensure!(closed.groups_with_archive_lag == 4 && closed.unfinished.is_empty());
+        ensure!(fixture
+            .calls
+            .iter()
+            .all(|calls| calls.load(Ordering::Acquire) == 0));
+        ensure!(
+            fixture.services[0]
+                .take()
+                .context("service")?
+                .close()
+                .await?
+                == closed
+        );
+        Ok(())
+    }
+    .await;
+    fixture.close().await?;
+    result
 }
 
 pub async fn empty_cell_repair() -> Result<()> {

@@ -601,6 +601,7 @@ impl Node {
             let _directory = directory;
             let boot = std::panic::AssertUnwindSafe(owner.run(async {
                 let startup_timeout = config.startup.bootstrap_timeout;
+                let shutdown_budget = config.shutdown.total_ms;
                 let (prepared, info) = tokio::time::timeout(
                     startup_timeout,
                     prepare(&owner, config, services, graph, applications),
@@ -618,10 +619,20 @@ impl Node {
                 if ready.send((app, info)).is_err() {
                     return Ok(NodeOutcome::Cancelled);
                 }
-                driver::run(prepared, async {
-                    commands.recv().await.unwrap_or(ShutdownMode::Handoff)
+                let mut result = driver::run(prepared, async {
+                    let mode = commands.recv().await.unwrap_or(ShutdownMode::Handoff);
+                    owner
+                        .services()
+                        .raft_lifecycle()
+                        .quiesce(Some(shutdown_budget));
+                    mode
                 })
-                .await
+                .await;
+                let raft = owner.services().raft_lifecycle().close().await;
+                if let Ok(NodeOutcome::Stopped(report)) = &mut result {
+                    report.raft = raft;
+                }
+                result
             }))
             .catch_unwind()
             .await;
@@ -684,6 +695,31 @@ impl Node {
     /// permanent member claims precede voting; the node owns command producers
     /// and joins SQLite work even when client handles or waiters survive.
     pub async fn start_raft_cells(
+        &self,
+        config: crate::application::consensus::RaftCellsConfig,
+        services: crate::application::consensus::RaftCellsServices,
+    ) -> anyhow::Result<crate::application::consensus::RaftCells> {
+        anyhow::ensure!(
+            !self.is_closed() && !self.app.is_draining(),
+            "node is closing"
+        );
+        let starting = self.domain.services().raft_lifecycle().begin()?;
+        match self.start_raft_cells_inner(config, services).await {
+            Ok(service) => match starting.install(service.clone()) {
+                Ok(()) => Ok(service),
+                Err(error) => {
+                    let _ = service.close().await;
+                    Err(error.into())
+                }
+            },
+            Err(error) => {
+                starting.failed();
+                Err(error)
+            }
+        }
+    }
+
+    async fn start_raft_cells_inner(
         &self,
         config: crate::application::consensus::RaftCellsConfig,
         services: crate::application::consensus::RaftCellsServices,

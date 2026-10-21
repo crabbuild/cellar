@@ -85,6 +85,7 @@ pub struct HostServices {
     containers: Arc<crate::container::ContainerService>,
     node_load: OnceLock<Arc<LiveLoad>>,
     node_operations: OnceLock<Arc<crate::daemon::operations::NodeOperations>>,
+    raft_lifecycle: Arc<crate::raft::operations::NodeLifecycle>,
     peer_probe: OnceLock<Arc<crate::peer_probe::PeerProbeSigner>>,
     metrics_override: OnceLock<Option<Arc<MetricsSampler>>>,
     actor_options: OnceLock<crate::actor::ActorOptions>,
@@ -114,6 +115,7 @@ impl HostServices {
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
             node_operations: OnceLock::new(),
+            raft_lifecycle: Arc::new(crate::raft::operations::NodeLifecycle::default()),
             peer_probe: OnceLock::new(),
             metrics_override: OnceLock::new(),
             actor_options: OnceLock::new(),
@@ -144,6 +146,7 @@ impl HostServices {
             containers: Arc::new(crate::container::ContainerService::default()),
             node_load: OnceLock::new(),
             node_operations: OnceLock::new(),
+            raft_lifecycle: Arc::new(crate::raft::operations::NodeLifecycle::default()),
             peer_probe: OnceLock::new(),
             metrics_override: OnceLock::new(),
             actor_options: OnceLock::new(),
@@ -188,6 +191,10 @@ impl HostServices {
 
     pub(crate) fn node_operations(&self) -> Option<Arc<crate::daemon::operations::NodeOperations>> {
         self.node_operations.get().cloned()
+    }
+
+    pub(crate) fn raft_lifecycle(&self) -> Arc<crate::raft::operations::NodeLifecycle> {
+        self.raft_lifecycle.clone()
     }
 
     pub(crate) fn channels(&self) -> &crate::host_channels::HostChannels {

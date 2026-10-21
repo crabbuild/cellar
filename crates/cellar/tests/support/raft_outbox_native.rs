@@ -293,11 +293,10 @@ impl Cluster {
     }
 
     async fn stop(&mut self, index: usize) -> Result<RaftCloseReport> {
-        let report = if let Some(service) = self.services[index].take() {
-            service.close().await?
-        } else {
-            RaftCloseReport { unfinished: vec![] }
-        };
+        let service = self.services[index]
+            .take()
+            .context("service already stopped")?;
+        let report = service.close().await?;
         if let Some(node) = self.nodes[index].take() {
             node.shutdown(ShutdownMode::Preserve).await?;
         }
@@ -322,6 +321,9 @@ impl Cluster {
         })
         .await??;
         for index in 0..3 {
+            if self.services[index].is_none() {
+                continue;
+            }
             let report = self.stop(index).await?;
             ensure!(
                 report.unfinished.is_empty(),
