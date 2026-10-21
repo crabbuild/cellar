@@ -12,8 +12,8 @@ Core deliverables now span M0–M5, including both CPython threading ABIs. The
 full objective is **not achieved**: preserved delivery/native lifecycle failures
 and final-source release evidence retain open gates. The controlled reset/read
 correction passes complete Linux adapter steps in both ABIs at 85cdef4. Linux
-installed-package prerequisite qualification passes in both
-threading ABIs at 97be2cc. The bootstrap correction and measured defaults have direct evidence
+installed-package prerequisite qualification passes in all four Linux jobs at
+85cdef4. The bootstrap correction and measured defaults have direct evidence
 within the scopes below. A verified row covers only its explicitly
 stated evidence and scope.
 
@@ -95,7 +95,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
-| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | verified within recorded package scopes: resolved load contexts, OS cohorts, external provider identities and pre-initialization/post-import gates are implemented. Both local 3.14.5 ABIs pass inventory faults, cold restoration, native operations, receipts and process/supervisor replacement. At 97be2cc, conventional push/PR and free-threaded push jobs complete the full Linux installed-package step, including GNU capture/refusal, offline archive restoration, changed-source TERM/INT handoff and forced-KILL supervisor recovery. The PR free-threaded job stops earlier at a reset/read qualification race; final-source release evidence remains Q12. |
+| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | verified within recorded package scopes: resolved load contexts, OS cohorts, external provider identities and pre-initialization/post-import gates are implemented. Both local 3.14.5 ABIs pass inventory faults, cold restoration, native operations, receipts and process/supervisor replacement. All four Linux jobs at 85cdef4 complete the installed-package step, including GNU capture/refusal, offline archive restoration, changed-source TERM/INT handoff and forced-KILL supervisor recovery. The [current component evidence](evidence/python-linux-85-components-2026-10-20.json) records exact job/step scope; complete release evidence remains Q12. |
 | P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | verified for supported targets: CPython/GIL/SOABI/micro version/target, actual loaded libpython and exact file contents/executable modes; external OS closure tracked in P02 |
 | P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | verified: typed native runtime references, format marker 1, embedded-python-v1 feature gate and executable/inventory pairing; malformed pairing tests added |
 | P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | verified locally: build/stage, pre-selector verified bucket publication, corrupt/missing blob refusal and real restoration with original runtime absent |
@@ -135,8 +135,8 @@ qualification. Conventional and free-threaded CPython remain equal targets.
 
 | Order | Focus | Remaining gate and evidence |
 | --- | --- | --- |
-| 1 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. Twenty macOS clock/receipt replays and ten delivery replays per Python ABI pass without reproducing those historical failures. Bounded error-chain diagnostics and isolated Linux fresh-fixture investigations target the next occurrence. Keep separate causes, original deadlines/assertions and conservative mutation outcomes. |
-| 2 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. The reset/read correction passes complete Linux adapter steps in both ABIs at 85cdef4. Both ABI package steps and operating-default workloads pass at 97be2cc. These component results do not replace the final complete matrix. |
+| 1 | P0: diagnose preserved reliability failures | M3/Q12: retain the earlier delivery deadline, initial consumer admission and clock/replay failures. The lease-floor correction has direct before/after proof, local native 88/88 and three complete Linux native 88/88 runs at 97be2cc. The Linux consumer campaign at 85cdef4 passes exactly 100 fresh fixtures without reproducing its historical refusal. Twenty current macOS clock replays and ten delivery replays per ABI also pass. An unmodified historical clock campaign retains a distinct catalog-startup timeout before the target recovery phase; matched current-source investigation remains separate. Keep original deadlines/assertions and conservative mutation outcomes; passing repetitions do not establish historical causes. |
+| 2 | P1: qualify one final source | Q01/Q12: complete all affected tests/lints and installed-package/refusal/offline restoration/replacement checks against the final source in both ABIs. All four 85cdef4 Linux jobs pass adapter/bootstrap, baseline/default verifiers, loaded-ABI guards and package/recovery/replacement steps. Native/Axum/example stages remain nonterminal. These component results do not replace the final complete matrix. |
 | 3 | P1: publish acceptance and deployment scope | Q12/Q14: reconcile every partial row with exact source/runtime/platform evidence and update the existing draft PR. Preserve incomplete-drain and ambiguous-write semantics; development load measurements are not production SLOs or a throughput guarantee. |
 
 Do not expand ASGI/streaming while these core gates remain. Those adapters are
@@ -1947,3 +1947,43 @@ current CPython microversions await terminal logs. Package/native/example stages
 remain active, and separate delivery/initial-consumer/clock causes remain open.
 Current work therefore advances from publishing/qualifying this correction to
 the remaining causal investigations and complete final-source matrix.
+
+## Linux component acceptance and 100-fixture consumer campaign
+
+The [current Linux component evidence](evidence/python-linux-85-components-2026-10-20.json)
+records successful adapter/bootstrap, baseline/operating-default verifier,
+actual loaded-library ABI and installed-package steps in all four push/PR jobs
+at 85cdef4. The native/Axum/example stages remain nonterminal at this checkpoint;
+complete final-source acceptance is still open.
+
+The separate [consumer investigation](evidence/python-consumer-linux-100-2026-10-20.json.gz)
+completes successfully on Linux. Its full raw log verifies exactly 100 fresh
+fixture iterations, 100 one-test passes and 100 final clock/receipt/business
+settlement proofs. All old-owner and successor lineages are distinct across
+runs. The private fixture's fresh fetch-plus-ack hold takes 243–295 ms inside
+its unchanged native budget; this is diagnostic timing, not a capacity promise.
+No initial consumer admission refusal reproduces. This qualifies the published
+replay driver and supplies regression evidence without explaining that historical
+failure. The local clock-mode follow-up still needs publication/Linux execution.
+
+## Unmodified historical clock campaign: distinct early startup failure
+
+The [historical replay evidence](evidence/python-clock-historical-2026-10-20.json.gz)
+retains unmodified source 21f6b30 in a separate managed checkout and unique build
+target. On macOS ARM64 with Rust 1.98.1, debug information disabled and fresh
+SQLite fixtures on the workspace volume, eighteen exact delayed-cold-read cases
+pass. Attempt nineteen fails during the first destination's `__catalogConfigure`
+RPC at the original three-second deadline, before the target recovery/receipt
+assertion. It therefore supplies a different startup failure, not reproduction
+of the original Linux replay assertion. An earlier interrupted local build has
+no inferable test outcome.
+
+The retained synthetic database has a pending catalog configuration/receipt and
+a locally configured stream. Node startup returns Ambiguous and refuses admission;
+local state does not establish acknowledged durability. The artifact retains
+all nineteen logs and the small failed synthetic fixture after read-only SQLite
+inspection. Storage delays, startup dependency progress and host scheduling are
+ranked hypotheses, not established causes. A current-source campaign uses the
+same filesystem class and debug profile to distinguish this failure class before
+any production change. Original assertions, operation budgets and replay rules
+remain unchanged.

@@ -22,7 +22,7 @@ Remaining qualification: diagnose preserved lifecycle failures and complete
 final-source regression evidence in both threading ABIs. The reset/read audit
 correction passes complete Linux adapter steps in both ABIs at 85cdef4. The
 Linux installed-host prerequisite/refusal,
-offline recovery and replacement steps pass in both ABIs at 97be2cc. Operating
+offline recovery and replacement steps pass in all four jobs at 85cdef4. Operating
 defaults have repeated local measurements and Linux CI workload evidence within
 their stated development scope. Interrupted cron delivery, admission/retirement races and
 native-versus-Python development measurements now have direct evidence in the audit.
@@ -537,10 +537,10 @@ published source and remaining qualification:
 | Phase | Current assessment | Gate still open |
 | --- | --- | --- |
 | M0 | Bootstrap, invocation pump, authority and cancellation implemented; direct evidence in both threading ABIs | Final-source platform matrix |
-| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; three complete 97be2cc Linux jobs pass across both ABIs | Complete final-source platform qualification |
+| M1 | HTTP, pinned native packages, bounds and sanitized failures implemented; all four 85cdef4 Linux adapter/package steps pass across both ABIs | Complete final-source platform qualification |
 | M2 | All S01–S09 storage/alarm requirements have direct evidence within their stated scopes | Final-source regression qualification |
 | M3 | Fencing, retirement, takeover and supervised noncooperative shutdown implemented; lease correction has direct before/after evidence; the controlled reset/read correction passes complete Linux adapter steps in both ABIs at 85cdef4 | Diagnose preserved delivery, initial consumer admission and clock/replay failures; complete final-source regression qualification |
-| M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in both Linux ABI package steps at 97be2cc | Complete final-source release regression matrix |
+| M4 | Verified packaging, native prerequisites, offline restoration and process replacement have direct evidence locally and in all four Linux package steps at 85cdef4 | Complete final-source release regression matrix |
 | M5 | KV, shared SQL, queues and cron implemented with independent local failure matrices; repeated optimized defaults pass locally and Linux CI defaults pass in both ABIs | Final-source qualification; optional ASGI/streaming remain deferred |
 
 Qualification of source 97be2cc completes the Linux installed-package step in

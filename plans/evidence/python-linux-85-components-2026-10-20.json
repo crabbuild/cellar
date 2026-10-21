@@ -1,0 +1,175 @@
+{
+  "format": 1,
+  "source": "85cdef4b85ca84609492089b0db0ab9cb7c5f21d",
+  "scope": "All four Linux push/PR jobs have completed adapter/bootstrap, baseline/operating-defaults verifiers, actual loaded-library ABI guards and installed-package qualification successfully. Main native/Axum/example stages remain nonterminal at this checkpoint. These are component acceptance results, not a complete final-source matrix or an explanation of preserved historical failures.",
+  "jobs": [
+    {
+      "run": 39548047580,
+      "event": "push",
+      "job": 119050603994,
+      "name": "Rust framework and SDK (3.14t)",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39548047580/job/119050603994",
+      "job_status_at_checkpoint": "in_progress",
+      "steps": [
+        {
+          "completedAt": "2026-10-21T05:22:26Z",
+          "conclusion": "success",
+          "name": "Test embedded Python adapter",
+          "number": 14,
+          "startedAt": "2026-10-21T05:15:58Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:24:07Z",
+          "conclusion": "success",
+          "name": "Verify native and Python baseline harness",
+          "number": 15,
+          "startedAt": "2026-10-21T05:22:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:24:11Z",
+          "conclusion": "success",
+          "name": "Qualify actual loaded Python threading ABI",
+          "number": 16,
+          "startedAt": "2026-10-21T05:24:07Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:36:51Z",
+          "conclusion": "success",
+          "name": "Exercise embedded Python package",
+          "number": 17,
+          "startedAt": "2026-10-21T05:24:11Z",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "run": 39548047580,
+      "event": "push",
+      "job": 119050604363,
+      "name": "Rust framework and SDK (3.14)",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39548047580/job/119050604363",
+      "job_status_at_checkpoint": "in_progress",
+      "steps": [
+        {
+          "completedAt": "2026-10-21T05:32:27Z",
+          "conclusion": "success",
+          "name": "Test embedded Python adapter",
+          "number": 14,
+          "startedAt": "2026-10-21T05:25:26Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:34:30Z",
+          "conclusion": "success",
+          "name": "Verify native and Python baseline harness",
+          "number": 15,
+          "startedAt": "2026-10-21T05:32:27Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:34:39Z",
+          "conclusion": "success",
+          "name": "Qualify actual loaded Python threading ABI",
+          "number": 16,
+          "startedAt": "2026-10-21T05:34:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:47:51Z",
+          "conclusion": "success",
+          "name": "Exercise embedded Python package",
+          "number": 17,
+          "startedAt": "2026-10-21T05:34:39Z",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "run": 39548052722,
+      "event": "pull_request",
+      "job": 119050618961,
+      "name": "Rust framework and SDK (3.14t)",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39548052722/job/119050618961",
+      "job_status_at_checkpoint": "in_progress",
+      "steps": [
+        {
+          "completedAt": "2026-10-21T05:26:25Z",
+          "conclusion": "success",
+          "name": "Test embedded Python adapter",
+          "number": 14,
+          "startedAt": "2026-10-21T05:19:30Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:28:18Z",
+          "conclusion": "success",
+          "name": "Verify native and Python baseline harness",
+          "number": 15,
+          "startedAt": "2026-10-21T05:26:25Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:28:22Z",
+          "conclusion": "success",
+          "name": "Qualify actual loaded Python threading ABI",
+          "number": 16,
+          "startedAt": "2026-10-21T05:28:18Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:41:37Z",
+          "conclusion": "success",
+          "name": "Exercise embedded Python package",
+          "number": 17,
+          "startedAt": "2026-10-21T05:28:22Z",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "run": 39548052722,
+      "event": "pull_request",
+      "job": 119050619137,
+      "name": "Rust framework and SDK (3.14)",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39548052722/job/119050619137",
+      "job_status_at_checkpoint": "in_progress",
+      "steps": [
+        {
+          "completedAt": "2026-10-21T05:35:23Z",
+          "conclusion": "success",
+          "name": "Test embedded Python adapter",
+          "number": 14,
+          "startedAt": "2026-10-21T05:28:38Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:36:59Z",
+          "conclusion": "success",
+          "name": "Verify native and Python baseline harness",
+          "number": 15,
+          "startedAt": "2026-10-21T05:35:23Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:37:05Z",
+          "conclusion": "success",
+          "name": "Qualify actual loaded Python threading ABI",
+          "number": 16,
+          "startedAt": "2026-10-21T05:36:59Z",
+          "status": "completed"
+        },
+        {
+          "completedAt": "2026-10-21T05:49:00Z",
+          "conclusion": "success",
+          "name": "Exercise embedded Python package",
+          "number": 17,
+          "startedAt": "2026-10-21T05:37:05Z",
+          "status": "completed"
+        }
+      ]
+    }
+  ]
+}
