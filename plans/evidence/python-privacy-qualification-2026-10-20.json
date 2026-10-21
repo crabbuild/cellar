@@ -1,0 +1,131 @@
+{
+  "format": 1,
+  "requirement": "H06: sanitized, bounded managed failures",
+  "qualified_linux_source": "97be2cc0fbb6dbc9d5f2db406dd3637bf1e03ffc",
+  "published_source": "85cdef4b85ca84609492089b0db0ab9cb7c5f21d",
+  "source_parent": "e075e0cdf7fbfe12f7fd4e3e64612e08aef2cf71",
+  "scope": "Managed bootstrap and HTTP/SDK/nested exception boundaries on the recorded macOS ARM64 and Linux x86_64 runtime/package versions. Three complete Linux jobs cover both threading ABIs. Production adapter sources and specific privacy/bootstrap tests are byte-identical to qualified source 97be2cc. The later bridge.rs changes add only the reset/read child mode to dispatch, suite iteration and known-mode validation. This closes H06 within its recorded scope, not full-plan qualification Q12 or arbitrary trusted application/library output/pre-main OS-loader diagnostics.",
+  "byte_identical_files_sha256": {
+    "crates/cellar-python/Cargo.toml": "03b6576ecf2d756f92d13923041442e6c9938511ec69c291676aa4055226967b",
+    "crates/cellar-python/application.rs": "9a02be0d907b6881ed67d615fa4f742d8f70e00d864b1bc406e8e2b9ad4d9fff",
+    "crates/cellar-python/build.rs": "1a087942c46870f7812f74d5ec21471bb979ccd4aab91d196cdda49c3fa0a590",
+    "crates/cellar-python/failure.rs": "132c5d81b7bf797d686e41ac2cd3a829b35cb24a6a0cf0233293a5c5e08f2b96",
+    "crates/cellar-python/lib.rs": "3d87eb79a08dd980e6039bc9f0d41ca79a357d7304dde4ecc69b0d2da9312de1",
+    "crates/cellar-python/operations.rs": "81ce57539b41613719bbd56507916c79616d0a515dc2e996b8e8ae31ef0b90a0",
+    "crates/cellar-python/python/cellar.py": "52ad789d8f67f042cbca7e0d439079cd8764af00a3a491c638891adc276dbd0b",
+    "crates/cellar-python/python/runner.py": "59758348d1c3c662baeb9a32c29b10181c444d4498d0425fa58ee42fa4362034",
+    "crates/cellar-python/runtime/bridge.rs": "d7f7d6e25395cd8f26ac1da8280df74f94110effdc33873e713d7ce1c6f33e2b",
+    "crates/cellar-python/runtime/budget.rs": "263afde31a7058bfc36b1339036fccbc92ead12267ffb8ef4343b97ee3c229cf",
+    "crates/cellar-python/runtime/channel_tests.rs": "616202e831b27b6d19347afba2450afde03f3f908f9f7125851f08555e467a57",
+    "crates/cellar-python/runtime/environment.rs": "ed418f8e3c9a2ced1e8fdac7dc0ece4a9096ba715f68680a4b2837bfd54a81d8",
+    "crates/cellar-python/runtime/identity.rs": "35eb707f4034333ac62fe140a172e26fcb1f982df9c774f42b66f108253dda45",
+    "crates/cellar-python/runtime/initialization.rs": "5671a1234a93d3173032692728d3fdbfc2d4ba963b9eb2a4e39b3e11511f3b98",
+    "crates/cellar-python/runtime/initialization_output.rs": "e273539e4bcc90b788ed3cdb6e43ffd2fef23de31eb83faf68601b6d68f92a40",
+    "crates/cellar-python/runtime/inventory.rs": "2cae2793a6045f938007c5de4ab9cbc2a794bd18464f582da943a8a835417ce9",
+    "crates/cellar-python/runtime/memory.rs": "5a7eba68fdccc823a15b23c2ae731c58aedcf3b4fccc9c7193529ceab005c82e",
+    "crates/cellar-python/runtime/mod.rs": "3d166945be81cfe2a7501a90c52f96bfac38ee78da36ed19b479329e593885d8",
+    "crates/cellar-python/runtime/snapshot.rs": "8d5e49e7cde9667003cad72e24f7d74c189dc0b631403fa5a3c90e53bbb09070",
+    "crates/cellar-python/runtime/telemetry.rs": "23ec52bf5ca7c1a4ac6a2f9cf492244b44c69497515e93765900d9bf47c13cdf",
+    "crates/cellar-python/runtime/telemetry_tests.rs": "67d67f480d5347a64b2edc328c0d4a743650840ddf717a1c03db0c0c67526eff",
+    "crates/cellar-python/storage.rs": "be8746b4c247020d81d78d70867dbe20cc38354177a69d56b383a4dd9d5e99f0",
+    "crates/cellar-python/values.rs": "95dfaad2f55a1ffe63105c7927d1f3acdd053f7916696161d93e799f2da3c332",
+    "Cargo.toml": "06ba77ce3b46195b577d730aa7837e7b10b57fa99c584ba0ab756d83f9008116",
+    "Cargo.lock": "3bbd2dac13fd1b8a4db56912783f736ad628816a66a8463010413c264754a1e5",
+    "crates/cellar-python/tests/startup.rs": "441ab14c24950752bb4bf38689b041609ed6e2f2a6d9820debedcdd52b2ed1eb",
+    "crates/cellar-python/tests/bridge.py": "6d726976134fd790d18699ddccdb6f07bea1f01d5f6bfc5e6f48420889932085",
+    "crates/cellar-python/tests/support/privacy.rs": "4bafbc3ccf1974354c940b20c98f645280c284742d0a190a02d8aecefc3e7208",
+    "crates/cellar-python/tests/support/privacy.py": "becc7b08c338a146f18435106b6ceb7b7feeff15357756897d29749a9f96a235"
+  },
+  "bridge_harness_diff": "diff --git a/crates/cellar-python/tests/bridge.rs b/crates/cellar-python/tests/bridge.rs\nindex f52e377..7b48e93 100644\n--- a/crates/cellar-python/tests/bridge.rs\n+++ b/crates/cellar-python/tests/bridge.rs\n@@ -227,6 +227,9 @@ fn main() -> Result<()> {\n     if mode == \"--runtime-proof-authority-failure\" {\n         return proof_authority::child(\"failure\", false);\n     }\n+    if mode == \"--runtime-proof-authority-recovery\" {\n+        return proof_authority::child(\"recovery\", false);\n+    }\n     if mode == \"--runtime-routing\" {\n         return routing::child();\n     }\n@@ -455,6 +458,7 @@ fn main() -> Result<()> {\n         \"--runtime-proof-authority-output-deadline\",\n         \"--runtime-proof-authority-output-fence\",\n         \"--runtime-proof-authority-failure\",\n+        \"--runtime-proof-authority-recovery\",\n         \"--runtime-routing\",\n         \"--runtime-privacy\",\n         \"--runtime-lifetimes\",\n@@ -844,6 +848,7 @@ fn lifecycle_mode(mode: &str) -> Result<()> {\n                 | \"--runtime-proof-authority-output-deadline\"\n                 | \"--runtime-proof-authority-output-fence\"\n                 | \"--runtime-proof-authority-failure\"\n+                | \"--runtime-proof-authority-recovery\"\n                 | \"--runtime-routing\"\n                 | \"--runtime-bindings\"\n                 | \"--runtime-delivery\"\n",
+  "linux_jobs": [
+    {
+      "run": 39539522214,
+      "job": 119023811017,
+      "name": "Rust framework and SDK (3.14)",
+      "event": "push",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39539522214",
+      "log_sha256": "9227d8cbbae11221ef39d1b98ba5fa5620ff999ac368f0386509dc13b1515fed",
+      "steps": [
+        {
+          "name": "Test embedded Python adapter",
+          "conclusion": "success",
+          "started_at": "2026-10-21T03:39:12Z",
+          "completed_at": "2026-10-21T03:45:18Z"
+        },
+        {
+          "name": "Exercise embedded Python package",
+          "conclusion": "success",
+          "started_at": "2026-10-21T03:46:54Z",
+          "completed_at": "2026-10-21T03:58:00Z"
+        }
+      ]
+    },
+    {
+      "run": 39539522214,
+      "job": 119023811272,
+      "name": "Rust framework and SDK (3.14t)",
+      "event": "push",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39539522214",
+      "log_sha256": "9d24814b878f6de84d74afb315679012bd8cee4af76ebc4409a9d1e4c0c5c8f2",
+      "steps": [
+        {
+          "name": "Test embedded Python adapter",
+          "conclusion": "success",
+          "started_at": "2026-10-21T03:40:02Z",
+          "completed_at": "2026-10-21T03:46:21Z"
+        },
+        {
+          "name": "Exercise embedded Python package",
+          "conclusion": "success",
+          "started_at": "2026-10-21T03:48:14Z",
+          "completed_at": "2026-10-21T04:01:28Z"
+        }
+      ]
+    },
+    {
+      "run": 39539526056,
+      "job": 119023823743,
+      "name": "Rust framework and SDK (3.14)",
+      "event": "pr",
+      "url": "https://github.com/crabbuild/cellar/actions/runs/39539526056",
+      "log_sha256": "affc167138e853bb4a0bac1b30f9d63c40ea0a9f32f1a5ebd80ff72053b89e4e",
+      "steps": [
+        {
+          "name": "Test embedded Python adapter",
+          "conclusion": "success",
+          "started_at": "2026-10-21T03:39:26Z",
+          "completed_at": "2026-10-21T03:45:20Z"
+        },
+        {
+          "name": "Exercise embedded Python package",
+          "conclusion": "success",
+          "started_at": "2026-10-21T03:47:09Z",
+          "completed_at": "2026-10-21T03:59:10Z"
+        }
+      ]
+    }
+  ],
+  "local_evidence": {
+    "bootstrap_failure_log_sha256": "1a6dd50eb12cbe674b2946b3322a6f71423b879100c302bc7b08e02ae4ae5c65",
+    "bootstrap_fixed_log_sha256": "13ca8d6785c46ab89dcfb5cbd447e4b30c6bb2e5bd35d44954b804afa83ddcef",
+    "complete_bootstrap_suite_log_sha256": "681261e2a5e6a86d059a07e2dccdf7d45d28b1e2ec14bbce9d80a363499fe33a"
+  },
+  "remaining": "Final-source Linux complete qualification and preserved reliability causes remain Q12. No mutation retry policy, drain completeness or arbitrary application logging guarantee changes.",
+  "current_free_threaded_adapter_job": {
+    "conclusion": null,
+    "head_sha": "85cdef4b85ca84609492089b0db0ab9cb7c5f21d",
+    "html_url": "https://github.com/crabbuild/cellar/actions/runs/39548047580/job/119050603994",
+    "id": 119050603994,
+    "name": "Rust framework and SDK (3.14t)",
+    "status": "in_progress",
+    "steps": [
+      {
+        "completed_at": "2026-10-21T05:22:26Z",
+        "conclusion": "success",
+        "name": "Test embedded Python adapter",
+        "started_at": "2026-10-21T05:15:58Z",
+        "status": "completed"
+      }
+    ]
+  }
+}

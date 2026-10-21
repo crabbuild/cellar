@@ -54,7 +54,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | H03 | Finite floats, integer range, keys, cycles and unsupported values | Codec boundary corpus and no mutation assertions | verified: real-node invalid-value corpus (nonfinite, int bounds, keys, unsupported, cycles, depth) has no mutation; valid boundaries round-trip |
 | H04 | Typed validation, conflict, expired/ownership, overload, ambiguity | Public Python error tests and native cause classifications | verified locally in both threading ABIs: public error classes, explicit outcomes and fixed messages retain codec/batch/conflict and real expiration/fencing coverage; real native residency exhaustion reaches Python as Overloaded/unknown before the target handler enters, then the same caller reuses its mutation reservation; failed output proof reaches a still-live caller as Ambiguous/unknown with one handler attempt and no replay; ownership routing classification is unit-tested. Some native bindings flatten internal causes: unavailable provenance remains unknown, never inferred rollback. Final Linux execution remains Q12 |
 | H05 | Cancellation stays cancellation; no blind retry | Cancel-before/after submission and ambiguous-result reconciliation | verified locally: independent KV/shared-SQL/producer cancellation before submission and during withheld native proof stays CancelledError, failed submitted proof remains Ambiguous/unknown and the adapter attempt count stays one; explicit reconciliation retains singular business effects; native consumer timeout also refuses late ack before same-ID redelivery; packaged S09 covers lost proof-gated response reconciliation; Q08 independently qualifies cron interruption |
-| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | partial: previous e9b8d15 leaked the bootstrap sentinel on Linux in both ABIs. CPython 3.14.8's unconditional pre-hook codec path dump is reproduced locally and contained by a scoped C-initialization stderr sink; all 36 bootstrap cases and complete adapter suites pass with conventional 3.14.8 and free-threaded 3.14.5t. Descriptor identity/flags and normal later stderr are preserved. All four Linux adapter and installed-package jobs at published 9143fef pass; complete current-source qualification remains Q12. Existing HTTP/nested failure evidence retains bounded fixed messages, exact committed effects and no replay. Typed Incomplete/native outcomes remain intact; arbitrary application/library output and pre-main OS loader diagnostics retain their documented trusted-process scope |
+| H06 | Sanitized, bounded failures; no secrets/paths/stack locals | Sentinel request/exception/path tests on public response and logs | verified within the recorded macOS ARM64/Linux x86_64 managed-error scope: CPython 3.14.8's pre-hook codec path leak has a direct before/after correction and 36 disposable bootstrap cases. Three complete Linux jobs at 97be2cc cover both ABIs, including adapter/bootstrap and installed packages. The production adapter, dependency manifests and specific privacy/bootstrap tests are byte-identical at published 85cdef4; its fresh free-threaded push adapter step also passes. The [privacy qualification](evidence/python-privacy-qualification-2026-10-20.json) records source identity and exact job scope. Descriptor identity/flags and later stderr are preserved; managed HTTP/nested failures stay bounded and sanitized with exact effects and no replay. Typed Incomplete/native outcomes remain intact. Arbitrary trusted application/library output and pre-main OS-loader diagnostics retain their documented scope; full-release qualification remains Q12 |
 | H07 | Concurrent Python work during host await | Two-handler synchronization with one blocked host operation | verified: `host_await_progress` barrier test runs another handler during pending SDK fetch |
 | H08 | Native-extension representative execution and teardown | Pinned package matrix, real operations and joined report | verified for macOS ARM64/Linux x86_64 qualification: pinned Pydantic/core, NumPy, hashing and pure Python inspection perform real work; managed executor operations join and TERM/INT replacement reaps the old process with complete reports; arbitrary private native-library pools are explicitly outside in-process drain accounting; exact versions/platforms remain Q09 |
 
@@ -1886,3 +1886,26 @@ deadlines and replay policy are unchanged. The artifact retains commands, source
 and fixture identity, durations, log digests and full raw output. This campaign
 does not reproduce or explain the historical Linux clock/replay failure; that
 causal gate remains open alongside delivery and initial-consumer diagnosis.
+
+## Managed-error acceptance and serial delivery replays
+
+H06 now has requirement-specific acceptance within its recorded runtime/platform
+scope. The [privacy evidence](evidence/python-privacy-qualification-2026-10-20.json)
+verifies byte identity for 29 production/configuration/privacy-test files against
+97be2cc, whose three complete successful Linux jobs cover both threading ABIs.
+The later main bridge-harness diff only registers the reset/read mode. The fresh
+85cdef4 free-threaded push adapter step also completes successfully, including
+bootstrap and privacy cases. This closes the managed-error row without treating
+unrelated reset/read or historical reliability failures as privacy failures, and
+without accepting arbitrary application/library output or pre-main loader output
+as a managed boundary. Full release acceptance remains Q12.
+
+The [delivery replay evidence](evidence/python-delivery-replay-2026-10-20.json)
+records ten serial executions per CPython 3.14.5 ABI on macOS ARM64, each with
+fresh private state. All 20 dedicated delivery children pass, including native
+queue decisions/retries, business-effect receipts, cancellation and retained
+authority refusal, overlap backpressure, preserving restart and complete joined
+reports with settled accounting. The selected free-threaded interpreter reports
+the GIL disabled. No production source, test assertion, deadline or retry policy
+changes. The historical Linux delivery deadline does not reproduce and remains
+an open causal diagnosis; these passes do not establish its cause.
