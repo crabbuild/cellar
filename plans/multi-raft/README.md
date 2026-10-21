@@ -12,6 +12,7 @@ alarms and receipt-checked outbox/inbox delivery share an owned leader scheduler
 
 | Boundary | Qualification |
 | --- | --- |
+| [MR-13 retained-state mode guard](evidence/MR-13-mode-guard-progress.json) | Test-only source `33f3c86`: all 15 native operations cases pass; 790 other frozen parent files match `ec312e8`. No combined count across revisions. |
 | [MR-13 durable stop receipts](evidence/MR-13-management-progress.json) | Source `ec312e8`: 839 unit/integration cases across 26 binaries, four capability doctests and two recovery process runs. Partial milestone; earlier intermittent transfer refusal remains under investigation. |
 | [MR-13 node shutdown component](evidence/MR-13-shutdown-progress.json) | Library source `6784512`: 810 unit/integration cases, 24 binaries and four capability doctests; example-only successor `275c45d`: Clippy, build and two recovery process runs. Partial milestone. |
 | [MR-11 automatic repair](evidence/MR-11.json) | Source `cc93ccf`: 248 Rust cases, 12 binaries, 26 checks; six-node repair and eight-group balancing |

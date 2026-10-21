@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "ec312e85f57035974d0b31fc46516f635b9fa4ee",
+  "baseline_revision": "33f3c865aa60fc3973f72c89153438fa0cd15a47",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -2014,7 +2014,8 @@
         "crates/cellar/application/consensus/admission_tests.rs",
         "crates/cellar/fleet/management/raft_stop.rs",
         "crates/cellar/fleet/management/raft_stop_tests.rs",
-        "crates/cellar/tests/support/raft_management_native.rs"
+        "crates/cellar/tests/support/raft_management_native.rs",
+        "crates/cellar/tests/support/raft_mode_native.rs"
       ],
       "steps": [
         "Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.",
@@ -2191,7 +2192,8 @@
       ],
       "evidence": [
         "evidence/MR-13-shutdown-progress.json",
-        "evidence/MR-13-management-progress.json"
+        "evidence/MR-13-management-progress.json",
+        "evidence/MR-13-mode-guard-progress.json"
       ]
     },
     {

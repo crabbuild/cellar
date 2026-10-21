@@ -35,6 +35,14 @@ Native effect routing stores weak endpoint hints. Actual delivery upgrades a
 live endpoint for the bounded invocation. Self and mutual delivery must not
 create a permanent class/outbox/SDK-handle reference cycle after joined shutdown.
 
+Namespace roots bind the selected `Fleet` or `Raft` mode, schema and storage
+prefix immutably. A conflicting mode under that same namespace is refused.
+Raft classes cannot register as mutable Fleet factories; ordinary Cell/workflow
+factories cannot open a Raft registration. Disabling registration supplies no
+authority over retained Raft files. Re-enabling a compatible Raft definition
+uses the retained engine and a fresh process generation through normal resume;
+existing logical-history tokens remain scoped to that same history.
+
 ## Drain and leadership handoff
 
 The existing `ShutdownPolicy.total_ms` supplies one original Node deadline. The

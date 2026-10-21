@@ -727,11 +727,7 @@ The [partial qualification record](evidence/MR-13-shutdown-progress.json) pins
 810 unit/integration cases across 24 binaries to library source `6784512`, with
 the example-only status-poll fix and two recovery process runs at `275c45d`.
 Seven native operations cases cover resource pressure and shutdown plus the four
-additional report/handoff requirements below. Full role readiness, aggregate
-resource metrics, safe receipt maintenance, production Raft CLI startup,
-remaining management surfaces,
-fenced new-history disaster restore and the three remaining original acceptance
-cases remain required before DONE.
+additional report/handoff requirements below.
 
 The [durable management receipt component](evidence/MR-13-management-progress.json)
 records 839 unit/integration cases across 26 binaries, four SDK doctests and two
@@ -743,9 +739,23 @@ have native coverage. A prior unlocalized transfer-test `Overloaded` refusal
 remains an open qualification finding despite bounded successful replays and
 the current passing matrix. No transfer oracle or retry rule was weakened.
 
+The [retained-state mode guard](evidence/MR-13-mode-guard-progress.json) qualifies
+all 15 native operations cases at the test-only successor `33f3c86`; 790 other
+frozen parent files match `ec312e8`. Incompatible mode/factory admission leaves
+the retained Raft trees and namespace root unchanged. Re-enabling Raft resumes
+the same engine with a fresh process, preserves the old scoped token/value and
+does not rerun the original callback. This is a native retained-state drill;
+production Raft CLI and compatible-binary rollback remain separate work.
+
+Full role readiness, aggregate resource metrics, safe receipt maintenance,
+production Raft CLI startup, remaining management surfaces, fenced new-history
+disaster restore and complete operating qualification remain required before
+DONE. The two remaining original cases are `metrics_group_cardinality` and
+`disaster_old_quorum_fenced`.
+
 Modify: `crates/cellar/node/embedded.rs`, `crates/cellar/actor/output_proofs.rs`, `crates/cellar/fleet/management/nodes.rs`, `crates/cellar/fleet/management/routing.rs`, `crates/cellar/cli/cli_options.rs`, `crates/cellar/durability/raft/options.rs`, `crates/cellar/application/consensus/client.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/durability/raft/effect_delivery.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_controller.rs`, `crates/cellar/durability/raft/host_effects.rs`, `crates/cellar/durability/raft/host_inspection.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/execution/services.rs`, `crates/cellar/node/driver.rs`, `crates/cellar/node/lifecycle.rs`, `crates/cellar/tests/native_raft_membership.rs`, `crates/cellar/tests/support/raft_alarm_native.rs`, `crates/cellar/tests/support/raft_controller_native.rs`, `crates/cellar/tests/support/raft_node.rs`, `crates/cellar/tests/support/raft_outbox_loopback.rs`, `crates/cellar/tests/support/raft_outbox_native.rs`, `crates/cellar/durability/raft/transport_inspection_tests.rs`, `crates/cellar/tests/support/raft_repair_native.rs`, `crates/cellar/fleet/management/mod.rs`, `crates/cellar/fleet/management/operations.rs`, `crates/cellar-admin/tests/console.rs`, `crates/cellar/tests/support/raft_storage_fault.rs`.
 
-Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`.
+Create: `crates/cellar/durability/raft/operations.rs`, `crates/cellar/tests/native_raft_operations.rs`, `crates/cellar/durability/raft/host_drain.rs`, `plans/multi-raft/operations-design.md`, `crates/cellar/application/consensus/admission.rs`, `crates/cellar/application/consensus/admission_tests.rs`, `crates/cellar/fleet/management/raft_stop.rs`, `crates/cellar/fleet/management/raft_stop_tests.rs`, `crates/cellar/tests/support/raft_management_native.rs`, `crates/cellar/tests/support/raft_mode_native.rs`.
 
 1. Expose explicit limits and metrics for groups, byte queues, apply/archive lag, query pins, snapshot and repair budgets.
 2. Implement readiness by group role and compatible applied state; avoid aggregate health that conceals unavailable cells.

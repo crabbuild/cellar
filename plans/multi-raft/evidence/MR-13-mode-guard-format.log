@@ -1,0 +1,3 @@
+Source: 33f3c865aa60fc3973f72c89153438fa0cd15a47
+Command: ["cargo", "format", "--check"]
+Checked 705 Rust files
