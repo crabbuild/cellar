@@ -1,6 +1,6 @@
 # Cellar Raft application contract
 
-This is the SDK contract implemented by MR-06 through MR-12. Restricted
+This is the SDK contract delivered across MR-06 through MR-12. Restricted
 `RaftClass`, `CommandContext`, `QueryContext` and operation registration are now
 exported through `cellar::sdk`. `Node::start_raft_cells`, public command/query
 handles and receipts connect Quorum/S3 commands and committed-image reads
@@ -9,8 +9,9 @@ uses both native HTTP and Axum. Local Stale, AtLeast and safe ReadIndex paths
 are implemented and qualified in MR-08, including bounded replica routing and
 explicit same-consistency leader fallback. MR-09 connects S3 output gates,
 stronger receipt retries and archive image restoration, qualified in the
-[archive audit](archive-audit.md). Atomic member snapshot install
-and effect adapters remain their respective later work packages.
+[archive audit](archive-audit.md). MR-10 qualifies native snapshot/member recovery;
+MR-11 qualifies automatic repair and leadership balancing. MR-12 is in progress:
+its bounded immutable Blob adapter is implemented; alarm/outbox work remains.
 
 ## Commands and queries
 
@@ -149,7 +150,8 @@ consistency requirement. Cross-cell workflows remain application coordination.
 
 ## Effects and built-in services
 
-MR-12 implements committed alarms and an outbox adapter. An alarm record and its
+MR-12 requires committed alarms and an outbox adapter; these are not yet
+implemented. The required alarm record and its
 next occurrence are replicated; the current leader rebuilds scheduling on startup
 and after election without waiting for user traffic. Each firing uses a stable
 operation ID and writes its progress through the same command path.
@@ -160,9 +162,16 @@ satisfied. Receiver deduplication handles replay after a lost response. Delivery
 completion is another command. An old leader can have an external request in
 flight after losing its term, so receiver receipts remain required.
 
-Blob references must name immutable durable content before their referencing
-command is acknowledged. Such commands can incur object-store latency even in
-Quorum mode. Archive manifests retain those dependencies. Multi-cell service calls,
+The implemented `RaftClass::immutable_blobs` adapter stores actual bounded bytes
+in the command transaction. `CommandContext::put_blob` returns a digest/length
+reference; `blob` reads transaction bytes or, on `QueryContext`, the pinned
+committed generation. Quorum durability includes the bytes in LTX; S3 durability
+also verifies complete dependency objects and the recoverable archive. A reference
+alone cannot register missing content. The initial adapter retains all values,
+has no GC API, and duplicates their bytes in the SQL image and dependency objects.
+See the [business-feature contract](effects-design.md) for bounds and remaining work.
+Any future external-reference-only Blob adapter must separately prove complete
+durable content before acknowledgment. Multi-cell service calls,
 WebSockets, mutable containers, existing Workflow and Queue callbacks are refused
 for Raft classes until their capability adapters receive equivalent qualification;
 classes in Fleet mode continue to support their existing behavior.

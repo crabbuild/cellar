@@ -3,6 +3,30 @@
 Status: MR-01 through MR-11 are complete with source-pinned local evidence.
 MR-12 through MR-17 remain open. The complete delivery goal is not achieved.
 
+The [immutable Blob component evidence](evidence/MR-12-blob-progress.json)
+pins source `8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a`: all 354 unique Rust
+cases across 16 binaries and all 31 checks pass. Five new cases cover native
+S3 dependency refusal/retry/restore, private rollback, capability/capacity
+preflight and corruption/size bounds. The matrix includes all 88 public Node,
+42 snapshot, 29 archive, 27 host, 25 membership, 18 read, 16 directory, 50 Raft
+library, seven pure leadership and 14 Fleet storage/replication/log-protocol
+cases. Clippy, both LTX modes, format (682 Rust files), layout, dependencies,
+docs, 17 planning tests and the 71-anchor preflight pass.
+
+Blob bytes share the command transaction and LTX state. Exact-image capture
+reserves memory before enumerating the complete dependency closure; S3 success
+requires durable objects and verified recovery. A native case restores after
+removing every node-owned file, then refuses a deleted selected dependency.
+This bounded initial adapter retains all values, duplicates bytes in SQL and
+dependency objects, and exposes no GC or external-reference-only capability.
+Blob cases use one explicit development voter and conditional in-memory object
+storage; they do not qualify physical S3 or failure-zone resilience.
+
+Only one of the six original MR-12 requirements is implemented. Committed
+alarm/outbox dispatch, receiver receipts, no-traffic alarm recovery, leadership
+races, the full unsupported mutable-binding gate and examples remain required.
+MR-12 stays IN_PROGRESS; MR-13 through MR-17 remain open.
+
 The [MR-11 completion evidence](evidence/MR-11.json) pins source
 `cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355`: all 248 unique Rust cases across
 12 binaries and all 26 commands pass. This includes all seven original MR-11

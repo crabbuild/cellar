@@ -650,11 +650,38 @@ shown by `plan.py show MR-11`; the manifest is authoritative for arguments.
 
 ### MR-12 Integrate committed alarms, outbox and capability gates
 
-Dependencies: MR-08, MR-09, MR-11. Phase: v1. Initial status: TODO.
+Dependencies: MR-08, MR-09, MR-11. Phase: v1. Status: IN_PROGRESS.
 
-Modify: `crates/cellar/application/outbox.rs`, `crates/cellar/application/storage/outbox.rs`, `crates/cellar/fleet/wake/mod.rs`, `crates/cellar-logic/alarm.rs`, `crates/cellar/runtime/workers/native/mod.rs`, `crates/cellar/application/consensus/mod.rs`.
+The [immutable Blob component evidence](evidence/MR-12-blob-progress.json)
+pins source `8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a`: all 354 unique Rust
+cases across 16 binaries and all 31 checks pass. Five new cases cover native
+S3 dependency refusal/retry/restore, private rollback, capability/capacity
+preflight and corruption/size bounds. The matrix includes all 88 public Node,
+42 snapshot, 29 archive, 27 host, 25 membership, 18 read, 16 directory, 50 Raft
+library, seven pure leadership and 14 Fleet storage/replication/log-protocol
+cases. Clippy, both LTX modes, format (682 Rust files), layout, dependencies,
+docs, 17 planning tests and the 71-anchor preflight pass.
 
-Create: `crates/cellar/durability/raft/effects.rs`, `crates/cellar/tests/native_raft_effects.rs`.
+Blob bytes share the command transaction and LTX state. Exact-image capture
+reserves memory before enumerating the complete dependency closure; S3 success
+requires durable objects and verified recovery. A native case restores after
+removing every node-owned file, then refuses a deleted selected dependency.
+This bounded initial adapter retains all values, duplicates bytes in SQL and
+dependency objects, and exposes no GC or external-reference-only capability.
+Blob cases use one explicit development voter and conditional in-memory object
+storage; they do not qualify physical S3 or failure-zone resilience.
+
+Only one of the six original MR-12 requirements is implemented. Committed
+alarm/outbox dispatch, receiver receipts, no-traffic alarm recovery, leadership
+races, the full unsupported mutable-binding gate and examples remain required.
+MR-12 stays IN_PROGRESS; MR-13 through MR-17 remain open.
+
+The [business-feature contract](effects-design.md) records this boundary and
+the remaining alarm/outbox implementation.
+
+Modify: `crates/cellar/application/outbox.rs`, `crates/cellar/application/storage/outbox.rs`, `crates/cellar/fleet/wake/mod.rs`, `crates/cellar-logic/alarm.rs`, `crates/cellar/runtime/workers/native/mod.rs`, `crates/cellar/application/consensus/mod.rs`, `crates/cellar/application/consensus/class.rs`, `crates/cellar/durability/raft/mod.rs`, `crates/cellar/durability/raft/host.rs`, `crates/cellar/durability/raft/host_sql.rs`, `crates/cellar/durability/raft/archive.rs`, `crates/cellar/node/embedded.rs`, `crates/cellar/storage/sqlite/command.rs`, `crates/cellar/tests/support/raft_catalog_fault.rs`, `crates/cellar/durability/raft/README.md`.
+
+Create: `crates/cellar/durability/raft/effects.rs`, `crates/cellar/tests/native_raft_effects.rs`, `crates/cellar/durability/raft/effect_blob.rs`, `crates/cellar/durability/raft/effect_blob_tests.rs`, `plans/multi-raft/effects-design.md`.
 
 1. Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.
 2. Recover wake scheduling after election without ordinary cell constructors or user traffic.

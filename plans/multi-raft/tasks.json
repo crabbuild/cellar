@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "cc93ccf96bda3c48caf57d1f59d7d3bcd1a4a355",
+  "baseline_revision": "8cfc4bdfe3c8e518b37d2418598b0fb4718bbb3a",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1823,7 +1823,7 @@
       "id": "MR-12",
       "title": "Integrate committed alarms, outbox and capability gates",
       "phase": "v1",
-      "status": "TODO",
+      "status": "IN_PROGRESS",
       "depends_on": [
         "MR-08",
         "MR-09",
@@ -1835,11 +1835,23 @@
         "crates/cellar/fleet/wake/mod.rs",
         "crates/cellar-logic/alarm.rs",
         "crates/cellar/runtime/workers/native/mod.rs",
-        "crates/cellar/application/consensus/mod.rs"
+        "crates/cellar/application/consensus/mod.rs",
+        "crates/cellar/application/consensus/class.rs",
+        "crates/cellar/durability/raft/mod.rs",
+        "crates/cellar/durability/raft/host.rs",
+        "crates/cellar/durability/raft/host_sql.rs",
+        "crates/cellar/durability/raft/archive.rs",
+        "crates/cellar/node/embedded.rs",
+        "crates/cellar/storage/sqlite/command.rs",
+        "crates/cellar/tests/support/raft_catalog_fault.rs",
+        "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/effects.rs",
-        "crates/cellar/tests/native_raft_effects.rs"
+        "crates/cellar/tests/native_raft_effects.rs",
+        "crates/cellar/durability/raft/effect_blob.rs",
+        "crates/cellar/durability/raft/effect_blob_tests.rs",
+        "plans/multi-raft/effects-design.md"
       ],
       "steps": [
         "Add explicit Raft-compatible alarm and outbox adapters using committed intents and command-based progress.",
@@ -1928,7 +1940,9 @@
           "--test-threads=1"
         ]
       ],
-      "evidence": []
+      "evidence": [
+        "evidence/MR-12-blob-progress.json"
+      ]
     },
     {
       "id": "MR-13",
