@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "baseline_revision": "8d4c5cdd594c8e54629b10b383522261aabca078",
+  "baseline_revision": "7af7fd7f5de8579b2288c48c49e16aee01611ca9",
   "status_values": [
     "TODO",
     "IN_PROGRESS",
@@ -1651,7 +1651,14 @@
         "crates/cellar/durability/raft/catalog_wire.rs",
         "crates/cellar/application/consensus/client.rs",
         "crates/cellar/durability/raft/host.rs",
-        "crates/cellar/durability/raft/host_membership.rs"
+        "crates/cellar/durability/raft/host_membership.rs",
+        "crates/cellar/durability/raft/completion.rs",
+        "crates/cellar/durability/raft/replica.rs",
+        "crates/cellar/durability/raft/transport_frame.rs",
+        "crates/cellar/tests/native_raft_runtime.rs",
+        "crates/cellar/tests/support/raft_cluster.rs",
+        "crates/cellar/tests/support/raft_seed_crash.rs",
+        "crates/cellar/durability/raft/README.md"
       ],
       "creates": [
         "crates/cellar/durability/raft/membership.rs",
@@ -1660,7 +1667,11 @@
         "plans/multi-raft/membership-design.md",
         "crates/cellar-logic/raft_placement.rs",
         "crates/cellar/durability/raft/member_plan_tests.rs",
-        "crates/cellar/tests/support/raft_repair_native.rs"
+        "crates/cellar/tests/support/raft_repair_native.rs",
+        "crates/cellar/tests/support/raft_repair_crash.rs",
+        "crates/cellar/durability/raft/replica_leadership.rs",
+        "crates/cellar-logic/raft_leadership.rs",
+        "crates/cellar-logic/raft_leadership_tests.rs"
       ],
       "steps": [
         "Implement domain-aware desired placement and versioned idempotent controller plans.",
@@ -1756,7 +1767,8 @@
         ]
       ],
       "evidence": [
-        "evidence/MR-11-plans-progress.json"
+        "evidence/MR-11-plans-progress.json",
+        "evidence/MR-11-leadership-progress.json"
       ]
     },
     {

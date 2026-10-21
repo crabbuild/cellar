@@ -3,7 +3,10 @@
 Status: MR-11 implementation in progress. The [plan foundation evidence](evidence/MR-11-plans-progress.json)
 qualifies explicit placement and administrative repair. Dynamic standby
 activation, controller scheduling/process views, leadership balancing and the
-six-node no-business-traffic gate remain open. MR-10 qualification is separate.
+six-node no-business-traffic gate remain open. The
+[leadership and recovery evidence](evidence/MR-11-leadership-progress.json)
+qualifies guarded transfer primitives and an abrupt all-node joint-plan restart,
+without qualifying an automatic controller. MR-10 qualification is separate.
 This contract alone establishes no additional capacity or release qualification.
 
 ## Authority and durable intent
