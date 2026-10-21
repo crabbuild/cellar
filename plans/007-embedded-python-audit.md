@@ -2025,3 +2025,26 @@ independently proves 100 one-test passes. This correction protects future
 diagnostic qualification; it changes no native runtime behavior or assertion,
 and supplies no cause for a preserved historical native failure. Linux execution
 of the local diagnostic follow-up remains open.
+
+## Pinned historical source for native replay investigations
+
+An optional `replay_sha` input lets the current diagnostic workflow exercise an
+original failing repository revision. It accepts only a full hexadecimal commit
+SHA before checkout, disables checkout credential persistence and verifies the
+actual checked-out SHA before fixture creation. The driver prints the tested
+source identity; the workflow run's head remains the diagnostic workflow's
+identity. Empty input uses the workflow commit. Complete qualification always
+uses the workflow commit, with all 20 step bodies and its 90-minute budget
+unchanged. Each diagnostic campaign has an independent concurrency group so
+source comparisons can run together.
+
+The [pinned-driver evidence](evidence/python-pinned-replay-driver-2026-10-20.json)
+records nine source-shape controls, a real requested/current-checkout mismatch
+refused before fixture-root creation, and both current-source fixture passes.
+A restored clean historical checkout at 21f6b30 also verifies/prints that SHA
+and passes the exact clock fixture through the same driver, using its own
+checkout-specific target. This qualifies local driver/source verification;
+GitHub historical checkout and Linux execution remain pending. The missing-test
+selection guard prevents a revision without the fixture from qualifying zero
+tests. No native assertion, request deadline or replay policy changes, and no
+historical cause is inferred from these successful runs.

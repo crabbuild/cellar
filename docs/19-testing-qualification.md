@@ -56,9 +56,16 @@ gh workflow run native-sdk.yml --ref YOUR_BRANCH \
   -f mode=clock-replay -f repetitions=20
 ```
 
+For a historical comparison, add `-f replay_sha=FULL_40_CHARACTER_COMMIT_SHA`.
+The workflow validates its shape before checkout, verifies the actual checked-out
+commit before replay and prints that source identity. Empty `replay_sha` uses the
+workflow commit. The run's head SHA identifies the workflow; the printed SHA
+identifies the tested source. This input applies only to isolated replay modes;
+complete qualification always uses the workflow commit.
+
 The integer repetition count is bounded to 1–100 for consumer replay and 1–50
-for the slower clock fixture. Each mode has a separate concurrency group so it
-can run alongside ordinary SDK qualification. Failure artifacts contain only
+for the slower clock fixture. Each replay campaign has its own concurrency group
+so source comparisons can run alongside ordinary SDK qualification. Failure artifacts contain only
 the private synthetic fixture's whitelisted evidence JSON, including the
 accepted prefix and cold recovery observations when present. No cell databases,
 node directories or private keys are uploaded. A passing replay run covers only
