@@ -1909,3 +1909,23 @@ reports with settled accounting. The selected free-threaded interpreter reports
 the GIL disabled. No production source, test assertion, deadline or retry policy
 changes. The historical Linux delivery deadline does not reproduce and remains
 an open causal diagnosis; these passes do not establish its cause.
+
+## Separate clock/receipt investigation driver
+
+The local SDK workflow follow-up adds `clock-replay` beside `consumer-replay`.
+It selects the exact preserved delayed-cold-read test from a fixed whitelist,
+runs fresh fixtures serially and stops at the first failure. The slower clock
+campaign accepts 1–50 repetitions; consumer replay retains 1–100. Both stay
+separate from complete qualification and from each other in workflow concurrency.
+The failure upload whitelist additionally retains the synthetic accepted prefix
+and cold-read/startup observations, excluding cell databases and private keys.
+
+The [driver evidence](evidence/python-native-replay-driver-2026-10-20.json)
+records execution of the exact extracted workflow driver on macOS ARM64: seven
+invalid-input cases refuse before creating fixture roots; both accepted upper
+bounds reach a real Cargo target error and stop before iteration two; and both
+selected native fixtures pass through the driver. All 20 complete qualification
+step bodies and the 90-minute budget remain unchanged. No native deadline,
+assertion or mutation replay policy changes. This follow-up is held locally while
+85cdef4 qualification and consumer replay remain active; Linux execution of the
+new clock mode and the historical clock/replay cause remain open gates.

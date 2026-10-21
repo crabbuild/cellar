@@ -35,25 +35,32 @@ loaders, packages, nodes, logs and replication. `cellar_internal_tests` requires
 external simulation/conformance sources. Do not enable it without those
 sources or claim those tests ran in an ordinary build.
 
-### Consumer-admission investigation
+### Native event recovery investigation
 
-The SDK workflow has an opt-in `consumer-replay` dispatch mode for the preserved
-initial consumer admission refusal. It runs the exact live-foreign recovery
-fixture serially against fresh private SQLite state, stops on its first failure,
-and retains the bounded native cause log and failure JSON. Each repetition is a
-new fixture; it does not repeat a claiming request against a live application.
-Native assertions and request/lease deadlines stay unchanged.
+The SDK workflow has opt-in `consumer-replay` and `clock-replay` dispatch modes
+for the preserved initial consumer admission refusal and delayed-cold-read
+clock/receipt failure. They run their exact native fixtures serially against
+fresh private SQLite state, stop on the first failure and retain the bounded
+native cause log and failure JSON. Each repetition is a new fixture; it does not
+repeat a claiming request against a live application. Native assertions and
+request/lease deadlines stay unchanged.
 
 ```sh
 gh workflow run native-sdk.yml --ref YOUR_BRANCH \
   -f mode=consumer-replay -f repetitions=20
+gh workflow run native-sdk.yml --ref YOUR_BRANCH \
+  -f mode=clock-replay -f repetitions=20
 ```
 
-The integer repetition count is bounded to 1–100. The diagnostic has a separate
-concurrency group so it can run alongside ordinary SDK qualification. A passing
-replay run covers only this fixture; full release qualification still requires
-the regular Python ABI matrix and native examples. Ordinary push/PR runs and
-dispatch mode `qualification` retain the complete SDK checks.
+The integer repetition count is bounded to 1–100 for consumer replay and 1–50
+for the slower clock fixture. Each mode has a separate concurrency group so it
+can run alongside ordinary SDK qualification. Failure artifacts contain only
+the private synthetic fixture's whitelisted evidence JSON, including the
+accepted prefix and cold recovery observations when present. No cell databases,
+node directories or private keys are uploaded. A passing replay run covers only
+its selected fixture; full release qualification still requires the regular
+Python ABI matrix and native examples. Ordinary push/PR runs and dispatch mode
+`qualification` retain the complete SDK checks.
 
 ## Application test layers
 
