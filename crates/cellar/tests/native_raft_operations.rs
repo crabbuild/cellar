@@ -32,6 +32,23 @@ use std::{
     time::Duration,
 };
 
+async fn wait_status(
+    cell: &RaftCellHandle,
+    ready: impl Fn(&CellStatus) -> bool,
+) -> Result<CellStatus> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match cell.status().await {
+                Ok(status) if ready(&status) => return Ok(status),
+                Ok(_) | Err(CommandFailure::Overloaded) => (),
+                Err(error) => return Err(error.into()),
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?
+}
+
 fn registration(schema: [u8; 32]) -> Result<RaftCellRegistration> {
     let mut namespace = NamespaceConfig::new(
         ClusterId::new([1; 16])?,
@@ -200,6 +217,7 @@ async fn shutdown_pending_proposal() -> Result<()> {
         public_node::options(1)?,
     )
     .await?;
+    wait_status(&cell, |status| status.command_ready).await?;
     let pending = tokio::spawn(cell.command(
         definition.increment.clone(),
         2i64.to_be_bytes().to_vec(),
@@ -284,6 +302,10 @@ async fn node_shutdown_reports_submitted_ambiguity() -> Result<()> {
             public_node::options(1)?,
         )
         .await?;
+    wait_status(&cell, |status| {
+        status.command_ready && status.archived >= first.version.position.index
+    })
+    .await?;
     let attempts = store.archive_attempts.load(Ordering::Acquire);
     store.archive_hang.store(true, Ordering::Release);
     let mut options = public_node::options(2)?;
@@ -291,19 +313,12 @@ async fn node_shutdown_reports_submitted_ambiguity() -> Result<()> {
     options.durability = Durability::S3;
     let pending =
         tokio::spawn(cell.command(definition.increment, 2i64.to_be_bytes().to_vec(), options));
-    tokio::time::timeout(Duration::from_secs(5), async {
-        loop {
-            let status = cell.status().await?;
-            if status.applied.index > first.version.position.index
-                && status.archived < status.applied.index
-                && store.archive_attempts.load(Ordering::Acquire) > attempts
-            {
-                return Ok::<_, anyhow::Error>(status.applied);
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+    wait_status(&cell, |status| {
+        status.applied.index > first.version.position.index
+            && status.archived < status.applied.index
+            && store.archive_attempts.load(Ordering::Acquire) > attempts
     })
-    .await??;
+    .await?;
     let outcome = tokio::time::timeout(
         Duration::from_secs(5),
         node.shutdown(ShutdownMode::Preserve),
