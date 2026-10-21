@@ -16,7 +16,11 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify};
+
+#[cfg(all(test, not(cellar_internal_tests)))]
+#[path = "runtime_shutdown_tests.rs"]
+mod shutdown_tests;
 
 pub(crate) enum GroupAction {
     Campaign,
@@ -81,7 +85,6 @@ enum Command {
     AbortSnapshot(ApplyTicket),
     Checkpoint(Box<SnapshotCheckpoint>),
     Tick,
-    Close,
 }
 
 struct Request {
@@ -98,7 +101,7 @@ pub struct RaftRuntime {
 
 struct RuntimeHandle {
     log: ReplicaLog,
-    sender: mpsc::Sender<Request>,
+    sender: Arc<Mutex<Option<mpsc::Sender<Request>>>>,
     domain: crate::asyncrt::DomainToken,
     budget: Arc<Budget>,
     completions: Arc<Budget>,
@@ -107,7 +110,57 @@ struct RuntimeHandle {
     closed: Arc<AtomicBool>,
     closing: Arc<AtomicBool>,
     transport_claimed: AtomicBool,
-    terminal: Arc<Mutex<Option<Result<(), RuntimeError>>>>,
+    terminal: Arc<Terminal>,
+    stop: Arc<Notify>,
+}
+
+// Serialize the synchronous send with receiver destruction. An outstanding
+// channel reservation may otherwise publish after Receiver::drop drained its
+// queue, retaining a reply indefinitely while a client keeps a sender alive.
+struct Requests {
+    receiver: mpsc::Receiver<Request>,
+    sender: Arc<Mutex<Option<mpsc::Sender<Request>>>>,
+    closing: Arc<AtomicBool>,
+}
+
+impl Drop for Requests {
+    fn drop(&mut self) {
+        self.closing.store(true, Ordering::Release);
+        self.sender.lock().unwrap_or_else(|e| e.into_inner()).take();
+    }
+}
+
+struct Terminal {
+    result: Mutex<Option<Result<(), RuntimeError>>>,
+    changed: Notify,
+}
+
+impl Terminal {
+    fn complete(&self, result: Result<(), RuntimeError>) {
+        let mut terminal = self.result.lock().unwrap_or_else(|e| e.into_inner());
+        if terminal.is_none() {
+            *terminal = Some(result);
+        }
+        drop(terminal);
+        self.changed.notify_waiters();
+    }
+
+    async fn wait(&self) -> Result<(), RuntimeError> {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let result = self
+                .result
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            if let Some(result) = result {
+                return result;
+            }
+            changed.await;
+        }
+    }
 }
 
 pub struct RuntimeEvents {
@@ -176,7 +229,17 @@ impl RaftRuntime {
         let (ready, wait) = oneshot::channel();
         let closed = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
-        let terminal = Arc::new(Mutex::new(None));
+        let terminal = Arc::new(Terminal {
+            result: Mutex::new(None),
+            changed: Notify::new(),
+        });
+        let stop = Arc::new(Notify::new());
+        let sender = Arc::new(Mutex::new(Some(sender)));
+        let requests = Requests {
+            receiver: requests,
+            sender: sender.clone(),
+            closing: closing.clone(),
+        };
         let handle = Self {
             inner: Arc::new(RuntimeHandle {
                 log: log.clone(),
@@ -190,19 +253,21 @@ impl RaftRuntime {
                 closing: closing.clone(),
                 transport_claimed: AtomicBool::new(false),
                 terminal: terminal.clone(),
+                stop: stop.clone(),
             }),
         };
         let worker_domain = domain.clone();
         domain
             .spawn_detached("raft-consensus", async move {
-                struct ClosedOnDrop(Arc<AtomicBool>);
+                struct ClosedOnDrop(Arc<AtomicBool>, Arc<Terminal>);
 
                 impl Drop for ClosedOnDrop {
                     fn drop(&mut self) {
                         self.0.store(true, Ordering::Release);
+                        self.1.complete(Err(RuntimeError::Closed));
                     }
                 }
-                let _closed = ClosedOnDrop(closed);
+                let _closed = ClosedOnDrop(closed, terminal.clone());
                 let mut worker =
                     match Worker::new(log, options, events, worker_domain, attach_existing) {
                         Ok(worker) => worker,
@@ -216,20 +281,18 @@ impl RaftRuntime {
                     lease.release();
                     return;
                 }
-                let (result, close_reply) = worker.run(requests).await;
+                let result = worker.run(requests, &closing, &stop).await;
                 closing.store(true, Ordering::Release);
                 // A normal restart cannot race a write submitted by the old worker.
                 let fence = worker.finish().await;
                 let result = result.and(fence);
+                // Pending replies and permits belong to the worker, including
+                // deferred group actions. Completion means they have all dropped.
+                drop(worker);
                 if result.is_ok() {
                     lease.release();
                 }
-                if let Ok(mut terminal) = terminal.lock() {
-                    *terminal = Some(result.clone());
-                }
-                if let Some(reply) = close_reply {
-                    let _ = reply.send(result.map(|()| Response::Unit));
-                }
+                terminal.complete(result);
             })
             .map_err(|_| RuntimeError::Closed)?;
         wait.await.map_err(|_| RuntimeError::Closed)??;
@@ -273,6 +336,10 @@ impl RaftRuntime {
         let (reply, wait) = oneshot::channel();
         self.inner
             .sender
+            .lock()
+            .map_err(|_| RuntimeError::Closed)?
+            .as_ref()
+            .ok_or(RuntimeError::Closed)?
             .try_send(Request {
                 command,
                 reply,
@@ -567,47 +634,13 @@ impl RaftRuntime {
         self.call(1024, Command::Tick).await.map(|_| ())
     }
 
-    /// Stop consensus and fence all submitted storage work; not a fleet drain.
+    /// Stop consensus, fence submitted storage work and join the worker.
+    /// Concurrent/repeated waiters share the terminal result; cancelling a
+    /// waiter never abandons shutdown. This is not a fleet drain.
     pub async fn close(&self) -> Result<(), RuntimeError> {
-        if self.inner.closed.load(Ordering::Acquire) {
-            return self
-                .inner
-                .terminal
-                .lock()
-                .map_err(|_| RuntimeError::Closed)?
-                .clone()
-                .unwrap_or(Err(RuntimeError::Closed));
-        }
-        if self.inner.closing.swap(true, Ordering::AcqRel) {
-            return Err(RuntimeError::Closed);
-        }
-        let (reply, wait) = oneshot::channel();
-        let mut request = Request {
-            command: Command::Close,
-            reply,
-            _permit: None,
-            _inbound: None,
-        };
-        loop {
-            match self.inner.sender.try_send(request) {
-                Ok(()) => break,
-                Err(mpsc::error::TrySendError::Closed(_)) => return Err(RuntimeError::Closed),
-                Err(mpsc::error::TrySendError::Full(unsent)) => {
-                    request = unsent;
-                    let now = self
-                        .inner
-                        .domain
-                        .mono_ms()
-                        .map_err(|_| RuntimeError::Closed)?;
-                    self.inner
-                        .domain
-                        .sleep_until(now.saturating_add(1))
-                        .map_err(|_| RuntimeError::Closed)?
-                        .await;
-                }
-            }
-        }
-        wait.await.map_err(|_| RuntimeError::Closed)?.map(|_| ())
+        self.inner.closing.store(true, Ordering::Release);
+        self.inner.stop.notify_one();
+        self.inner.terminal.wait().await
     }
 }
 
@@ -769,10 +802,7 @@ impl Worker {
         }
     }
 
-    fn dispatch(&mut self, request: Request) -> Option<Reply> {
-        if matches!(request.command, Command::Close) {
-            return Some(request.reply);
-        }
+    fn dispatch(&mut self, request: Request) {
         if let Command::Group { scope, .. } = &request.command {
             match self.groups.get_mut(scope) {
                 Some(group) if group.failed.is_none() => group.deferred.push_back(request),
@@ -785,7 +815,7 @@ impl Worker {
                     let _ = request.reply.send(Err(RuntimeError::NotFound));
                 }
             }
-            return None;
+            return;
         }
         let result = match request.command {
             Command::Hint {
@@ -910,12 +940,9 @@ impl Worker {
                 }
                 Ok(Response::Unit)
             }
-            Command::Group { .. } | Command::Close => {
-                Err(RuntimeError::Protocol("dispatch state".into()))
-            }
+            Command::Group { .. } => Err(RuntimeError::Protocol("dispatch state".into())),
         };
         let _ = request.reply.send(result);
-        None
     }
 
     fn progress(&mut self) -> Result<bool, RuntimeError> {
@@ -1122,24 +1149,29 @@ impl Worker {
 
     async fn run(
         &mut self,
-        mut requests: mpsc::Receiver<Request>,
-    ) -> (Result<(), RuntimeError>, Option<Reply>) {
+        mut requests: Requests,
+        closing: &AtomicBool,
+        stop: &Notify,
+    ) -> Result<(), RuntimeError> {
         let mut tick_at = self
             .domain
             .mono_ms()
             .unwrap_or(0)
             .saturating_add(self.options.tick_interval_ms.unwrap_or(1000));
         loop {
+            if closing.load(Ordering::Acquire) {
+                return Ok(());
+            }
             let made = match self
                 .progress()
                 .and_then(|made| self.start_batch().map(|started| made | started))
             {
                 Ok(made) => made,
-                Err(error) => return (Err(error), None),
+                Err(error) => return Err(error),
             } | self.outbox.flush(&self.events);
             let now = match self.domain.mono_ms() {
                 Ok(now) => now,
-                Err(_) => return (Err(RuntimeError::Closed), None),
+                Err(_) => return Err(RuntimeError::Closed),
             };
             let deadline = if self.retry_at > now {
                 tick_at.min(self.retry_at)
@@ -1148,7 +1180,7 @@ impl Worker {
             };
             let timer = match self.domain.sleep_until(deadline) {
                 Ok(timer) => timer,
-                Err(_) => return (Err(RuntimeError::Closed), None),
+                Err(_) => return Err(RuntimeError::Closed),
             };
             let sender = self.events.clone();
             let budget = self.outbox.budget.clone();
@@ -1159,11 +1191,12 @@ impl Worker {
                 }
             };
             crate::asyncrt::select! {
-                request=requests.recv()=> { match request { Some(request)=>if let Some(reply)=self.dispatch(request) { return (Ok(()),Some(reply)); },None=>return (Ok(()),None) } }
-                result=io=> { if let Err(error)=self.finish_batch(result) { return (Err(error),None); } }
+                request=requests.receiver.recv()=> { match request { Some(request)=>self.dispatch(request),None=>return Ok(()) } }
+                _=stop.notified()=>return Ok(()),
+                result=io=> { if let Err(error)=self.finish_batch(result) { return Err(error); } }
                 _=timer=> { let now=self.domain.mono_ms().unwrap_or(0); if now>=tick_at { if self.options.tick_interval_ms.is_some() { for group in self.groups.values_mut() { group.tick=true; } } tick_at=now.saturating_add(self.options.tick_interval_ms.unwrap_or(1000)); } }
-                _=sender.closed()=>return (Ok(()),None),
-                capacity=sender.reserve(),if !self.outbox.events.is_empty()=> { if capacity.is_err() { return (Ok(()),None); } }
+                _=sender.closed()=>return Ok(()),
+                capacity=sender.reserve(),if !self.outbox.events.is_empty()=> { if capacity.is_err() { return Ok(()); } }
                 _=budget.wake.notified()=>{},
                 _=std::future::ready(()),if made=>{},
             }

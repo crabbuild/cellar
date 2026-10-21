@@ -363,8 +363,12 @@ entry from an earlier leader term remains applicable through its issued ticket.
 Proposal admission receipts do not establish commit or command success.
 
 Normal close stops admission, awaits submitted log work and writes a final
-nonempty storage fence before releasing consensus ownership. It is not a fleet
-drain or permission to discard disks. Cancellation or panic leaves ownership
+nonempty storage fence before releasing consensus ownership. Concurrent and
+repeated close callers share the final result; cancelling one waiter does not
+abandon shutdown. Teardown serializes with synchronous request publication and
+drops all queued/deferred replies and permits before reporting completion, even
+while application handles survive. It is not a fleet drain or permission to
+discard disks. Consensus-task cancellation or panic leaves ownership
 poisoned for that log handle; close/reopen its storage before rebuilding the
 worker. Execution-domain shutdown cancels the consensus task and joins the
 log worker and its owned engine threads.

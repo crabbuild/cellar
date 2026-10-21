@@ -990,6 +990,43 @@ async fn domain_shutdown_joins_consensus_and_log() -> Result<()> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn cancelled_close_waiter_preserves_shared_join() -> Result<()> {
+    let mut cluster = Cluster::new(1, &[10]).await?;
+    let runtime = cluster.hosts[0].runtime.clone();
+    let release = cluster.hosts[0].gate.arm(fault::HOLD_SYNC);
+    runtime.campaign(&scope(10)).await?;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        cluster.hosts[0].gate.entered.notified(),
+    )
+    .await?;
+    let mut first = Box::pin(runtime.close());
+    ensure!(
+        tokio::time::timeout(Duration::from_millis(30), &mut first)
+            .await
+            .is_err(),
+        "close must wait for physical work"
+    );
+    drop(first);
+    let mut second = Box::pin(runtime.close());
+    ensure!(
+        tokio::time::timeout(Duration::from_millis(30), &mut second)
+            .await
+            .is_err(),
+        "a second close must share the join after the first waiter is cancelled"
+    );
+    assert_eq!(runtime.status(&scope(10)).await, Err(RuntimeError::Closed));
+    drop(release);
+    tokio::time::timeout(Duration::from_secs(5), second).await??;
+    runtime.close().await?;
+    let (next, events) =
+        RaftRuntime::start(cluster.hosts[0].log.clone(), runtime_options(1)).await?;
+    cluster.hosts[0].runtime = next;
+    cluster.hosts[0].events = events;
+    cluster.close().await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failed_engine_closes_with_typed_error() -> Result<()> {
     let mut cluster = Cluster::new(1, &[10, 11, 12]).await?;
     for id in [10, 11, 12] {
