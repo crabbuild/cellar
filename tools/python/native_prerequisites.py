@@ -109,16 +109,26 @@ def linux_providers(loader, path, library_paths):
     # of the inspected object do not run. Keep the chosen loader explicit.
     output = command(str(loader), "--library-path", os.pathsep.join(map(str, library_paths)),
                      "--list", str(path))
+    qualified_loader = Path(loader).resolve(strict=True)
     result = {}
     for line in output.splitlines():
         entry = re.fullmatch(r"\s*(.*?)\s+=>\s+(/.*?)\s+\(0x[0-9a-fA-F]+\)\s*", line)
         direct = re.fullmatch(r"\s*(/.*?)\s+\(0x[0-9a-fA-F]+\)\s*", line)
         if entry:
-            result[entry[1]] = Path(entry[2]).resolve(strict=True)
+            reference, destination = entry[1], entry[2]
         elif direct:
-            resolved = Path(direct[1]).resolve(strict=True)
-            result[direct[1]] = resolved
-            result[Path(direct[1]).name] = resolved
+            reference = destination = direct[1]
+        else:
+            continue
+        resolved = Path(destination).resolve(strict=True)
+        result[reference] = resolved
+        # Invoking a canonical loader can print PT_INTERP as an absolute alias
+        # ("/lib64/ld-linux-... => /usr/lib/..."), while libc DT_NEEDED requests
+        # its bare SONAME. Preserve that known loaded interpreter identity in
+        # both GNU output forms. Other absolute libraries must not manufacture
+        # basename aliases: unrelated providers can share a filename.
+        if Path(reference).is_absolute() and resolved == qualified_loader:
+            result[Path(reference).name] = resolved
     return result
 
 

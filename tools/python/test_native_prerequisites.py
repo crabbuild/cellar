@@ -40,6 +40,21 @@ class NativePrerequisites(unittest.TestCase):
                          roots=[str(environment)], files={str(binary): dict(kind="file")})
         return inventory, binary, library, sentinel
 
+    @unittest.skipUnless(sys.platform == "linux", "GNU ELF interpreter aliases")
+    def test_canonical_loader_keeps_its_requested_soname(self):
+        with tempfile.TemporaryDirectory() as directory:
+            inventory, binary, _, sentinel = self.fixture(directory)
+            _, interpreter = native.elf(binary)
+            self.assertIsNotNone(interpreter)
+            loader = interpreter.resolve(strict=True)
+            providers = native.linux_providers(loader, binary, [])
+            self.assertEqual(providers[interpreter.name], loader)
+            libc = providers["libc.so.6"]
+            self.assertIn(interpreter.name, native.elf(libc)[0])
+            inventory["prerequisites"] = native.capture(inventory, binary)
+            self.assertEqual(inventory["prerequisites"]["dependencies"][str(libc)][interpreter.name], [str(loader)])
+            self.assertFalse(sentinel.exists(), "loader alias capture executed a constructor")
+
     def test_capture_does_not_run_initializers_and_hashes_transitive_providers(self):
         with tempfile.TemporaryDirectory() as directory:
             inventory, binary, library, sentinel = self.fixture(directory)

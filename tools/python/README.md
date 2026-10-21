@@ -29,6 +29,8 @@ Startup verification is not a filesystem sandbox.
 The following uses an independent runtime, cached platform wheels, then an
 offline installation. `uv` is a build-time tool; it is never run by the host.
 Select the managed runtime executable printed by `uv python find`.
+The build and qualification scripts require Python 3.11 or newer. The commands
+below run them with the selected managed 3.14 interpreter.
 
 ```sh
 export CELLAR_PYTHON_PREFIX="/absolute/private/path/cellar-python-env"
@@ -45,19 +47,19 @@ unset CELLAR_PYTHON_INVENTORY
 cargo build -p cellar-python --bin cellar-python-example --features embed --locked
 export CELLAR_PYTHON_INVENTORY="$CELLAR_PYTHON_PREFIX/inventory.json"
 export CELLAR_PYTHON_TARGET="$(rustc -vV | sed -n 's/^host: //p')"
-python3 tools/python/environment.py capture --python "$PYO3_PYTHON" \
+"$PYO3_PYTHON" tools/python/environment.py capture --python "$PYO3_PYTHON" \
   --site-packages "$CELLAR_PYTHON_SITE_PACKAGES" --native-host "$CARGO_TARGET_DIR/debug/cellar-python-example" --source examples/python/app.py \
   --filename app.py --descriptor examples/python/descriptor.json \
   --target "$CELLAR_PYTHON_TARGET" --output "$CELLAR_PYTHON_INVENTORY"
-python3 tools/python/environment.py bundle "$CELLAR_PYTHON_INVENTORY" \
+"$PYO3_PYTHON" tools/python/environment.py bundle "$CELLAR_PYTHON_INVENTORY" \
   --prefix "$CELLAR_PYTHON_PREFIX" --output "$CELLAR_PYTHON_PREFIX/environment.tar.gz"
-python3 tools/python/environment.py project examples/python/project.json \
+"$PYO3_PYTHON" tools/python/environment.py project examples/python/project.json \
   --inventory "$CELLAR_PYTHON_INVENTORY" --archive "$CELLAR_PYTHON_PREFIX/environment.tar.gz" \
   --output "$CELLAR_PYTHON_PREFIX/project.json"
 cargo build -p cellar --bin cellar --example python-package-qualification --locked
 "$CARGO_TARGET_DIR/debug/cellar" build "$CELLAR_PYTHON_PREFIX/project.json" \
   --output /absolute/private/path/python-package
-python3 tools/python/environment.py verify "$CELLAR_PYTHON_INVENTORY"
+"$PYO3_PYTHON" tools/python/environment.py verify "$CELLAR_PYTHON_INVENTORY"
 ```
 
 Use the checkout's Rust toolchain and unique writable target directory from

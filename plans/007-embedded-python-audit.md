@@ -93,7 +93,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | ID | Requirement | Authoritative evidence required | Current status |
 | --- | --- | --- | --- |
 | P01 | Immutable source/registration descriptor bound to native artifact | Source/class/event digests and tamper tests | verified: build embeds exact source/registration/file inventory; typed per-executable inventory digest is rechecked before every factory/generation admission |
-| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: required native prerequisite metadata, resolved load-context graphs, OS cohorts and external file/cache identities are implemented; installation and runtime pre-initialization/post-import provider gates are wired. Seven Rust tests/four real C capture tests pass; both 3.14.5 ABIs pass current-source inventory faults, pre-source/host refusal guards, new-schema cold archive restoration, actual native library operations, exact receipts, changed-source TERM/INT handoff and forced-KILL supervised restart. A private fixture's missing workspace crypto profiles caused a checker timeout; matching profiles corrects it without changing its 15-second deadline. Strict Clippy and local native 87/87 pass. Linux GNU-loader and final-source packaging qualification remain open |
+| P02 | Hash-locked platform wheels and native dependency closure | Lock artifact hashes, transitive inventory and offline install | partial: required native prerequisite metadata, resolved load-context graphs, OS cohorts and external file/cache identities are implemented; installation and runtime pre-initialization/post-import provider gates are wired. Seven Rust tests and the real C capture tests pass (five GNU tests on Linux, four Mach-O tests on macOS); both 3.14.5 ABIs pass current-source inventory faults, pre-source/host refusal guards, new-schema cold archive restoration, actual native library operations, exact receipts, changed-source TERM/INT handoff and forced-KILL supervised restart. A private fixture's missing workspace crypto profiles caused a checker timeout; matching profiles corrects it without changing its 15-second deadline. Strict Clippy and local native 87/87 pass. GNU capture now passes direct Ubuntu 22.04 x86_64 and Debian ARM64 functional tests after the interpreter-alias correction; complete final-source Linux packaging qualification remains open |
 | P03 | Runtime identifies CPython/GIL/SOABI/platform and actual files | Inventory capture plus pre-code digest/ABI verification | verified for supported targets: CPython/GIL/SOABI/micro version/target, actual loaded libpython and exact file contents/executable modes; external OS closure tracked in P02 |
 | P04 | Native package metadata inventories Python artifacts, format marker 1 | Protocol types, strict validation and old-node feature rejection | verified: typed native runtime references, format marker 1, embedded-python-v1 feature gate and executable/inventory pairing; malformed pairing tests added |
 | P05 | Build/deploy/install stage, publish, recover and verify closure | Real bucket package tests, corrupt/missing artifact refusal | verified locally: build/stage, pre-selector verified bucket publication, corrupt/missing blob refusal and real restoration with original runtime absent |
@@ -120,7 +120,7 @@ Only a fresh, requirement-specific verification can mark a row **verified**.
 | Q09 | Pure Python, PyO3 native extension and numerical library compatibility | Exact pinned versions/platforms; representative operations/concurrency/teardown | verified for stated platforms/versions: macOS ARM64 CPython 3.14.5/3.14.6 and 3.14.5t; Linux x86_64 regular 3.14.8 plus installed 3.14.5 and 3.14.5t execute pinned Pydantic/NumPy/pure-library workloads; both 0bfd83f free-threaded Linux jobs completely pass the 3.14.8t adapter suite and 3.14.5t package/archive/rolling/supervisor/native-library qualification; final lifecycle/cancellation source remains Q12 and other platforms/library versions remain unqualified |
 | Q10 | Native versus Python latency/throughput/memory/copy/recovery baselines | Reproducible harness and raw measured evidence, no invented target | verified for the stated development scope: [recorded baselines](007-embedded-python-baselines.md) retain two independent nine-case optimized experiments and raw data, including matched CPython 3.14.5/3.14.5t and a true native-only executable; exact HTTP/counter receipts, killed-owner/disk-deletion takeover, copy/memory observations and joined reports pass; the verifier rejects corrupted receipts/metrics/drain/cleanup; shared-machine load and development-store limits are explicit and no production capacity target is claimed |
 | Q11 | Native-only dependency/build check and no JS all-features | Explicit CI check, local graph/build evidence | verified for dependency/build separation: explicit Linux CI native-only check with nonexistent interpreter and all-feature no-JavaScript graph passed on fe6d2f8; current source retains the same feature/dependency graph, with local no-embed and graph checks |
-| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: both 9143fef Linux workflows 39520485909/39520490587 completed successfully in both ABIs, including native 87/87, adapter/bootstrap, installed packages, recovery/replacement/supervisor and native examples; all four full logs are retained. Later native-prerequisite metadata, measured-default harness and early loaded-library ABI guard pass their stated local checks, but still need final-source Linux qualification. Earlier delivery deadline, event-owner lease, initial consumer admission and drain-token failures remain preserved and unexplained; passing retries do not close diagnosis |
+| Q12 | Full affected test/lint/format/layout/doc qualification; preserve failures | Exact source/toolchain commands and passing scope-specific results | partial: both 9143fef Linux workflows 39520485909/39520490587 completed successfully in both ABIs, including native 87/87, adapter/bootstrap, installed packages, recovery/replacement/supervisor and native examples; all four full logs are retained. Later b4c228c fails all four jobs in the new GNU native-capture tests; the reproduced interpreter-alias defect is corrected and passes direct Linux/macOS capture checks. Native-prerequisite metadata, measured-default harness and early loaded-library ABI guard still need final-source Linux qualification. Earlier delivery deadline, event-owner lease, initial consumer admission and drain-token failures remain preserved and unexplained; passing retries do not close diagnosis |
 | Q13 | Public facade type annotations and accepted implementation decisions | Typed Python API, accepted ADR, build/bootstrap/bridge decision record | verified: public facade annotations and frozen CellIdentity; accepted ADR 004 records bootstrap, bridge, signals, immutable packaging/replacement, cleanup, compatibility and qualification boundaries against implemented contracts |
 | Q14 | Current docs describe executable APIs and remaining gates accurately | Plan sketches updated to actual contracts; audit has no unstated exception | verified for current documented surface: main plan, adapter/example/environment guides describe actual facade, source layout, accepted ADR, provisioning and conservative failure outcomes; chronological audit history is explicitly distinguished from current tables; remaining gates are stated |
 
@@ -1666,3 +1666,35 @@ CLI regression also passes under `-O` in both directions and still rejects the
 original conventional binary with SIGSEGV; format/layout, docs and the native
 dependency graph checks pass.
 This is a threading-ABI check, not a restriction to GIL-enabled Python.
+
+## GNU interpreter alias capture correction
+
+Both b4c228c Linux workflows 39529949531/39529953263 fail in all four jobs at
+the real native-prerequisite capture tests, before adapter/package qualification.
+Every case refuses libc's required `ld-linux-x86-64.so.2` dependency. Full logs
+are retained under `/tmp/cellar-6a8d-ci-395299*-full.log`.
+
+The same four failures reproduce with a real GNU loader in a private Debian
+ARM64 container. Resolving PT_INTERP to a canonical loader path causes GNU
+`--list` to emit `/lib/.../ld-linux... => /usr/lib/.../ld-linux...`, while libc
+DT_NEEDED requests its bare SONAME. The parser retained the absolute alias but
+lost that name. A focused real C/ELF regression fails before the correction on
+both Debian ARM64 and Ubuntu 22.04 x86_64. The correction retains the known
+qualified interpreter's basename in either listing form, without inventing
+basename aliases for unrelated absolute libraries.
+
+All five GNU capture tests now pass on both Linux environments; four macOS
+capture tests also pass, with the GNU-only regression explicitly skipped. The
+[raw functional evidence](evidence/python-gnu-loader-alias-2026-10-20.json)
+includes source/image/loader digests, actual loader output, the before/after map,
+the completed libc dependency edge and refusal/constructor tests. The amd64
+container uses QEMU, so it establishes parser behavior, not native performance.
+No original runtime, live fleet or unrelated container was modified.
+
+The first Ubuntu probe used stock Python 3.10 and correctly could not run the
+3.11+ tooling's `hashlib.file_digest`; its failure log is retained separately.
+The x86_64 regression/full suite above use provisioned CPython 3.14.5. Provisioning
+commands now run inventory tooling with the selected managed interpreter and
+state the tooling requirement. These results close this capture defect; the
+complete Linux prerequisite installation, replacement and new adapter/default
+qualification still require a fresh final-source workflow.
