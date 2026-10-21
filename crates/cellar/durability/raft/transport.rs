@@ -30,6 +30,9 @@ mod directory;
 pub(crate) mod inspections;
 #[path = "query_transport.rs"]
 mod queries;
+#[path = "transport_resources.rs"]
+mod resources;
+pub(crate) use resources::ResourceObserver;
 #[path = "seed_transport.rs"]
 pub(crate) mod seeds;
 #[path = "snapshot_transport.rs"]

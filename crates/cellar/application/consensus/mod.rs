@@ -8,8 +8,12 @@ mod class;
 pub(crate) mod client;
 mod readiness;
 pub use readiness::{RaftQueryReadiness, RaftReplicaRole};
+mod resource_metrics;
 mod resources;
-pub use resources::{RaftBudgetUsage, RaftQueryPinUsage, RaftResourceUsage};
+pub use resources::{
+    RaftBudgetUsage, RaftQueryPinUsage, RaftResourceUsage, RaftSqlUsage, RaftTransportBanks,
+    RaftTransportResources,
+};
 pub(crate) mod protocol;
 
 pub use crate::raft::archive::ArchiveLimits;

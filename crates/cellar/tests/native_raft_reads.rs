@@ -417,6 +417,18 @@ async fn saturated_query_peer_refuses_and_expires_queued_work() -> Result<()> {
     tokio::time::timeout(Duration::from_secs(2), entered.recv())
         .await?
         .ok_or_else(|| anyhow::anyhow!("remote callback did not enter"))?;
+    let source_usage = fixture.cluster.services[source]
+        .resource_usage()
+        .transport
+        .context("source transport observer")?;
+    let target_usage = fixture.cluster.services[target]
+        .resource_usage()
+        .transport
+        .context("target transport observer")?;
+    assert!(source_usage.outgoing.query.items > 0 && source_usage.outgoing.query.bytes > 0);
+    assert!(target_usage.incoming.query.items > 0 && target_usage.incoming.query.bytes > 0);
+    assert!(source_usage.outgoing.query.bytes <= source_usage.outgoing.query.max_bytes);
+    assert!(target_usage.incoming.query.bytes <= target_usage.incoming.query.max_bytes);
     let queued: Vec<_> = (0..64)
         .map(|_| {
             fixture.handles[source].query(

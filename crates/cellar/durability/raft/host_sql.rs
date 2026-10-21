@@ -20,7 +20,7 @@ use futures_util::future::BoxFuture;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc, Arc,
 };
 use std::time::Duration;
@@ -186,6 +186,54 @@ pub(crate) struct Pool {
     slots: Vec<Arc<Semaphore>>,
     workers: Vec<crate::asyncrt::TaskHandle<Result<(), ExecutionError>>>,
     stopped: Arc<AtomicBool>,
+    running: Arc<AtomicUsize>,
+    per_worker_capacity: usize,
+}
+
+/// Retains only semaphore/counter metadata, never a worker, image or connection.
+pub(crate) struct ResourceObserver {
+    slots: Vec<Arc<Semaphore>>,
+    stopped: Arc<AtomicBool>,
+    running: Arc<AtomicUsize>,
+    per_worker_capacity: usize,
+}
+
+impl ResourceObserver {
+    pub(crate) fn capture(&self) -> Option<crate::application::consensus::RaftSqlUsage> {
+        let work_capacity = self.slots.len().checked_mul(self.per_worker_capacity)?;
+        let work_reservations = self.slots.iter().try_fold(0usize, |sum, slots| {
+            sum.checked_add(
+                self.per_worker_capacity
+                    .checked_sub(slots.available_permits())?,
+            )
+        })?;
+        let running_workers = self.running.load(Ordering::Acquire);
+        if running_workers > self.slots.len() {
+            return None;
+        }
+        Some(crate::application::consensus::RaftSqlUsage {
+            running_workers,
+            worker_capacity: self.slots.len(),
+            work_reservations,
+            work_capacity,
+            queue_closed: self.stopped.load(Ordering::Acquire),
+        })
+    }
+}
+
+struct Running(Arc<AtomicUsize>);
+
+impl Running {
+    fn enter(running: Arc<AtomicUsize>) -> Self {
+        running.fetch_add(1, Ordering::AcqRel);
+        Self(running)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 pub(crate) struct Budgets {
@@ -213,12 +261,15 @@ impl Pool {
         budgets: Budgets,
     ) -> Result<Self, ExecutionError> {
         let stopped = Arc::new(AtomicBool::new(false));
+        let running = Arc::new(AtomicUsize::new(0));
         let mut pool = Self {
             domain: domain.clone(),
             senders: vec![],
             slots: vec![],
             workers: vec![],
             stopped: stopped.clone(),
+            running: running.clone(),
+            per_worker_capacity: queue,
         };
         for _ in 0..count {
             let (sender, receiver) = mpsc::sync_channel::<Request>(queue);
@@ -227,8 +278,13 @@ impl Pool {
             let budget = budgets.business.clone();
             let archive_budget = budgets.archive_capture.clone();
             let query_pins = budgets.query_pins.clone();
+            let running = running.clone();
             let task = domain
                 .blocking(move || {
+                    // This guard drops after cells/connections finish cleanup,
+                    // including errors and callback unwinding. A waiter cannot
+                    // retire this physical worker count.
+                    let _running = Running::enter(running);
                     let mut cells = BTreeMap::<GroupScope, Cell>::new();
                     let result = loop {
                         if stopped.load(Ordering::Acquire) || owner.mono_ms().is_err() {
@@ -332,6 +388,15 @@ impl Pool {
             pool.workers.push(task);
         }
         Ok(pool)
+    }
+
+    pub(crate) fn resource_observer(&self) -> ResourceObserver {
+        ResourceObserver {
+            slots: self.slots.clone(),
+            stopped: self.stopped.clone(),
+            running: self.running.clone(),
+            per_worker_capacity: self.per_worker_capacity,
+        }
     }
 
     pub fn call(

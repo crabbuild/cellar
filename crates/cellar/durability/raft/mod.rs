@@ -13,6 +13,7 @@ mod filesystem;
 pub(crate) mod host;
 mod host_archive;
 mod host_sql;
+pub(crate) use host_sql::ResourceObserver as SqlResourceObserver;
 pub(crate) mod inspection;
 mod inspection_identity;
 mod inspection_wire;

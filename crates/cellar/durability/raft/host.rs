@@ -792,6 +792,8 @@ async fn initialize(
         budget: budget.clone(),
         archive_capture_budget,
         query_pins,
+        sql: Some(pool.resource_observer()),
+        transport: service.transport.resource_observer(),
         max_input_bytes: options.max_input_bytes,
         bindings,
         work: crate::asyncrt::services().application_work_registry(),

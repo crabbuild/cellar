@@ -83,9 +83,9 @@ does not free a reader slot. Shutdown still joins the held reader before its
 permit is released. Other groups retain their independent command/consensus
 path and reserved control admission.
 
-`RaftCells.resource_usage()` reads fixed-size, actual host business/output,
-control and archive-capture budget usage/capacity plus query-reader reservations.
-It performs no I/O, callback or group enumeration, and remains readable during
+`RaftCells.resource_usage()` reads bounded, actual host business/output,
+control and archive-capture budgets, query-reader reservations, SQL work and
+transport banks. It performs no I/O, callback or group enumeration, and remains readable during
 drain and after closure. Independent atomic loads do not form a transactional
 snapshot. SDK futures/results can retain request/output reservations after host
 closure; the sampler does not replace those values with zero. Reader permits
@@ -93,14 +93,32 @@ reach zero only after the physical readers exit.
 
 Query-reader reservations do not count every `GenerationPin` clone or an image
 writer reservation. Archive, seed, checkpoint and effect readers use their own
-existing bounds. This API does not yet provide complete transport, queue, image
-retention, lag or controller metrics.
+existing bounds. SQL work reservations use the actual per-worker semaphores,
+covering queued and executing requests. At most 16 are sampled. Running-worker
+counts are owned by physical blocking stacks until their connections and private
+state finish closing; they are not CPU-utilization or connection counts.
+Internal queue closure is distinct from application admission closure.
 
-`RaftResourceUsage.prometheus()` emits exactly 14 gauge samples. The only budget
-labels are the fixed `business`, `control` and `archive_capture` values; cell,
-group, member, process, peer and node identities never enter a label. Each budget
-reports current bytes/items and its byte/item capacities, beside current
-query-reader reservations and their limit.
+Transport observations distinguish incoming/outgoing control, data and query
+banks, plus snapshot source/receive, seed-metadata and inspection-metadata budgets.
+Usage/capacity comes from the actual bank, without summing per-peer duplicates.
+Registry task, peer and route counts require only bounded scalar reads; no route
+enumeration occurs. Admission/failure counters use decimal strings in JSON to
+preserve every `u64` value. None of these counters supplies acknowledgement proof.
+
+The transport observer is weak and cannot keep its transport/engine alive after
+Node joining. Missing/poisoned sources are `None` in the SDK and `null` in JSON;
+Prometheus emits an availability gauge and omits their unavailable values. A
+retained SQL observer owns only bounded semaphore/counter metadata; joined worker
+counts and work reservations reach measured zero with its queue closed. Image
+retention, lag, connection concurrency and controller views remain open.
+
+`RaftResourceUsage.prometheus()` emits 68 samples when SQL and transport sources
+are available, using fixed budget, lane and direction vocabularies. Cell, group,
+member, process, peer and node identities never enter a label. Samples of each
+metric family are contiguous, with a single preceding type declaration. Each
+budget reports actual bytes/items and capacities; unavailable sources never
+become fabricated zero budgets.
 
 The internal HTTP listener exposes the same live source at
 `GET /peer/raft/metrics?generation=<NodeInfo.lease_generation>`. Requests require

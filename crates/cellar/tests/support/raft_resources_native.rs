@@ -192,6 +192,13 @@ pub async fn run(shutdown_held: bool) -> Result<()> {
         .raft
         .context("missing Raft close observation")?
         .result?;
+    let final_usage = service.resource_usage();
+    let sql = final_usage.sql.context("missing retained SQL observer")?;
+    ensure!(sql.queue_closed && sql.running_workers == 0 && sql.work_reservations == 0);
+    ensure!(
+        final_usage.transport.is_none(),
+        "retained SDK handle kept the transport owner alive"
+    );
     ensure!(
         service.resource_usage().query_pins
             == RaftQueryPinUsage {

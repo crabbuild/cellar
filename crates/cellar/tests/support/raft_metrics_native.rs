@@ -31,7 +31,7 @@ async fn fetch(node: &Node, query: &str, key: u8) -> Result<(reqwest::StatusCode
     cellar::peer_auth::validate_response(response.headers())?;
     let status = response.status();
     let body = response.text().await?;
-    ensure!(body.len() < 8192, "unbounded metrics response");
+    ensure!(body.len() < 16 * 1024, "unbounded metrics response");
     Ok((status, body))
 }
 
@@ -52,11 +52,45 @@ pub(super) async fn pin_count(node: &Node, expected: usize) -> Result<()> {
     ensure!(status == reqwest::StatusCode::OK);
     let value: serde_json::Value = serde_json::from_str(&body)?;
     ensure!(value["query_pins"]["in_use"].as_u64() == Some(expected as u64));
+    if expected > 0 {
+        ensure!(value["sql"]["running_workers"]
+            .as_u64()
+            .is_some_and(|count| count > 0));
+        ensure!(value["sql"]["work_reservations"]
+            .as_u64()
+            .is_some_and(|count| count > 0));
+    }
     Ok(())
 }
 
 fn samples(text: &str) -> Result<BTreeSet<String>> {
     let mut identities = BTreeSet::<String>::new();
+    let mut declared = BTreeSet::new();
+    let mut sampled = BTreeSet::<String>::new();
+    let mut closed = BTreeSet::new();
+    let mut current = None;
+    for line in text.lines() {
+        if let Some(typed) = line.strip_prefix("# TYPE ") {
+            let mut fields = typed.split_whitespace();
+            let name = fields.next().context("missing metric type name")?;
+            ensure!(matches!(fields.next(), Some("counter" | "gauge")) && fields.next().is_none());
+            ensure!(
+                declared.insert(name) && !sampled.contains(name),
+                "repeated or late metric TYPE: {name}"
+            );
+        } else if !line.starts_with('#') && !line.is_empty() {
+            let name = line.split(['{', ' ']).next().context("metric family")?;
+            ensure!(declared.contains(name), "sample without TYPE: {name}");
+            if current != Some(name) {
+                if let Some(previous) = current {
+                    closed.insert(previous);
+                }
+                ensure!(!closed.contains(name), "metric family is split: {name}");
+                current = Some(name);
+            }
+            sampled.insert(name.into());
+        }
+    }
     for line in text
         .lines()
         .filter(|line| !line.starts_with('#') && !line.is_empty())
@@ -72,7 +106,7 @@ fn samples(text: &str) -> Result<BTreeSet<String>> {
             "duplicate or malformed sample"
         );
     }
-    ensure!(identities.len() == 14);
+    ensure!(identities.len() == 68);
     for identity in &identities {
         ensure!(
             identity.starts_with("cellar_raft_")
@@ -171,7 +205,7 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
         let (status, json) = fetch(&node, &format!("{query}&format=json"), 11).await?;
         ensure!(status == reqwest::StatusCode::OK && !json.contains("Counter:"));
         let json: serde_json::Value = serde_json::from_str(&json)?;
-        ensure!(json.as_object().context("resource object")?.len() == 4);
+        ensure!(json.as_object().context("resource object")?.len() == 6);
         let actual = serde_json::to_value(service.resource_usage())?;
         for budget in ["business", "control", "archive_capture"] {
             for capacity in ["max_bytes", "max_items"] {
@@ -191,6 +225,19 @@ async fn cluster(groups: usize) -> Result<BTreeSet<String>> {
             );
         }
         ensure!(json["query_pins"]["in_use"] == 0 && json["query_pins"]["limit"] == 16);
+        ensure!(json["sql"]["worker_capacity"] == 2 && json["sql"]["work_capacity"] == 64);
+        ensure!(json["transport"]["member_routes"].as_u64() == Some(groups as u64));
+        ensure!(json["transport"]["router_routes"] == 0);
+        for direction in ["incoming", "outgoing"] {
+            for lane in ["control", "data", "query"] {
+                for capacity in ["max_bytes", "max_items"] {
+                    ensure!(
+                        json["transport"][direction][lane][capacity]
+                            == actual["transport"][direction][lane][capacity]
+                    );
+                }
+            }
+        }
         for (invalid, key, expected) in [
             (
                 format!("generation={}", "0".repeat(64)),

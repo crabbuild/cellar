@@ -212,6 +212,8 @@ pub(crate) struct Handle {
     pub budget: Arc<Budget>,
     pub archive_capture_budget: Arc<Budget>,
     pub query_pins: Arc<Budget>,
+    pub sql: Option<crate::raft::SqlResourceObserver>,
+    pub transport: crate::raft::transport::ResourceObserver,
     pub max_input_bytes: usize,
     pub bindings: BTreeMap<(NamespaceId, String), Binding>,
     pub work: Arc<crate::host_services::ApplicationWork>,
@@ -237,6 +239,8 @@ impl RaftCells {
                 in_use: self.handle.query_pins.usage().1,
                 limit: self.handle.query_pins.capacity().1,
             },
+            sql: self.handle.sql.as_ref().and_then(|sql| sql.capture()),
+            transport: self.handle.transport.capture(),
         }
     }
 

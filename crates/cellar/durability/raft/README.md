@@ -53,10 +53,12 @@ the blocking owner retains its permit through callback/connection exit after
 waiter cancellation. `RaftCells.resource_usage()` reads actual fixed-size host
 business/output, control, archive-capture and query-reader usage/capacity without
 I/O or group enumeration. The internal generation-bound, authenticated
-`/peer/raft/metrics` endpoint exports these same counters as 14 fixed Prometheus
-gauges or JSON, without identity labels or callback execution. Missing/unavailable
-sources are refused rather than synthesized. Complete transport, queue, image,
-lag and controller metrics remain open. The [operations contract](../../../../plans/multi-raft/operations-design.md)
+`/peer/raft/metrics` endpoint exports these counters, actual SQL work reservations
+and incoming/outgoing transport and snapshot/metadata banks, without identity
+labels or callback execution. Available sources use 68 fixed sample identities;
+unavailable sources omit their values rather than synthesizing zero. A weak
+transport observer cannot retain the transport/engine after joined shutdown.
+Image, lag, connection concurrency and controller views remain open. The [operations contract](../../../../plans/multi-raft/operations-design.md)
 defines the boundary.
 
 `ReplicaLog` owns one blocking execution-domain task and one Raft Engine.
